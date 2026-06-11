@@ -1,4 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  rmSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -64,6 +70,16 @@ function scaffoldCore(repoDir: string): void {
     ),
     'MINIMAL',
   );
+  write(
+    join(
+      repoDir,
+      'pharn-core',
+      'templates',
+      'constitution',
+      'CONSTITUTION.gdpr-strict.md',
+    ),
+    'GDPR',
+  );
 }
 
 const coreModule: ManifestModule = {
@@ -98,11 +114,12 @@ describe('installModule', () => {
     ).toBe(true);
   });
 
-  it('refuses an installs destination that escapes the .claude dir', () => {
+  it('rejects an absolute installs destination at parse time', () => {
     const repoDir = join(tmp.path(), 'repo');
     const claudeDir = join(tmp.path(), '.claude');
-    // '/evil/' passes INSTALL_PATH_RE (no dots) but resolves to an absolute
-    // path outside claudeDir — safeJoin must reject it.
+    // '/evil/' has a leading slash, so INSTALL_PATH_RE rejects it before any
+    // copy is attempted (safeJoin remains the defense-in-depth backstop, but the
+    // path allowlist now refuses absolute paths up front).
     write(
       join(repoDir, 'pharn-core', 'module.json'),
       JSON.stringify({
@@ -116,7 +133,7 @@ describe('installModule', () => {
     );
     write(join(repoDir, 'pharn-core', 'commands', 'x.md'), 'x');
     expect(() => installModule(repoDir, claudeDir, coreModule)).toThrow(
-      /path escape/,
+      ManifestValidationError,
     );
   });
 
@@ -160,12 +177,38 @@ describe('materializeCore', () => {
     expect(existsSync(join(claudeDir, 'memory-bank', '.gitkeep'))).toBe(false);
   });
 
+  it('writes the gdpr-strict constitution variant', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    scaffoldCore(repoDir);
+
+    materializeCore(repoDir, claudeDir, 'gdpr-strict');
+
+    expect(readFileSync(join(claudeDir, 'CONSTITUTION.md'), 'utf8')).toBe(
+      'GDPR',
+    );
+  });
+
   it('throws on an unknown constitution variant', () => {
     const repoDir = join(tmp.path(), 'repo');
     const claudeDir = join(tmp.path(), '.claude');
     scaffoldCore(repoDir);
     // @ts-expect-error testing an invalid variant at runtime
     expect(() => materializeCore(repoDir, claudeDir, 'hipaa')).toThrow(
+      ManifestValidationError,
+    );
+  });
+
+  it('throws when the memory-bank template is missing', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    scaffoldCore(repoDir);
+    // A missing declared source is an upstream packaging bug — surface it
+    // rather than silently producing an install with no memory bank.
+    rmSync(join(repoDir, 'pharn-core', 'templates', 'memory-bank'), {
+      recursive: true,
+    });
+    expect(() => materializeCore(repoDir, claudeDir, 'standard')).toThrow(
       ManifestValidationError,
     );
   });

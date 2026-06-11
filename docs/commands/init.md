@@ -72,7 +72,7 @@ Soft warnings based on git history and file layout. Thresholds:
 | --------- | -------------- |
 | `git rev-list --count HEAD` >= 6 | Significant history (only this warning) |
 | commit count 2–5 | Existing commits; may conflict with structure |
-| 0 commits and > 3 custom root/app files | Project already customized |
+| 0–1 commits and > 3 custom root/app files | Project already customized |
 
 Default for "Continue anyway?" is **no** (false).
 

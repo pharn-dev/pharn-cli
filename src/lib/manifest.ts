@@ -1,6 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MANIFEST_RAW_PATH, CORE_MODULE } from './constants.js';
+import {
+  MANIFEST_RAW_PATH,
+  CORE_MODULE,
+  SKILL_MODULE_PREFIX,
+} from './constants.js';
 import {
   ManifestValidationError,
   MODULE_NAME_RE,
@@ -69,10 +73,25 @@ export function parseManifest(raw: unknown): Manifest {
   return { schemaVersion: 2, skillsVersion, modules, wizard };
 }
 
-function parseManifestModule(raw: unknown, path: string): ManifestModule {
-  if (!isPlainObject(raw)) {
-    throw new ManifestValidationError(`${path} must be an object`);
-  }
+// Fields shared by the repo-root manifest's module entries and each module.json
+// (name, version, required, dependsOn, exclusiveWith, description).
+interface CommonModuleFields {
+  name: string;
+  version: string;
+  required: boolean;
+  dependsOn: string[];
+  exclusiveWith: string[] | undefined;
+  description: string;
+}
+
+// exclusiveWith entries are glob patterns (e.g. `pharn-stack-*`), so the
+// allowlist tolerates `*` on top of the module-name charset.
+const EXCLUSIVE_WITH_RE = /^[a-z0-9*-]+$/;
+
+function parseCommonModuleFields(
+  raw: Record<string, unknown>,
+  path: string,
+): CommonModuleFields {
   const name = assertSafeString(raw.name, `${path}.name`, MODULE_NAME_RE);
   const version = assertSafeString(raw.version, `${path}.version`, VERSION_RE);
   if (typeof raw.required !== 'boolean') {
@@ -84,18 +103,14 @@ function parseManifestModule(raw: unknown, path: string): ManifestModule {
   const exclusiveWith =
     raw.exclusiveWith === undefined
       ? undefined
-      : parseStringArray(raw.exclusiveWith, `${path}.exclusiveWith`);
+      : parseStringArray(raw.exclusiveWith, `${path}.exclusiveWith`, [
+          EXCLUSIVE_WITH_RE,
+        ]);
   const description = assertSafeString(
     raw.description,
     `${path}.description`,
     /.+/s,
   );
-  // Optional `kind` (schemaVersion 2): "skill-category" modules are wizard-
-  // driven. Unknown kinds are tolerated but carry no special behavior.
-  const kind =
-    raw.kind === undefined
-      ? undefined
-      : assertSafeString(raw.kind, `${path}.kind`, WIZARD_VALUE_RE);
   return {
     name,
     version,
@@ -103,8 +118,21 @@ function parseManifestModule(raw: unknown, path: string): ManifestModule {
     dependsOn,
     exclusiveWith,
     description,
-    kind,
   };
+}
+
+function parseManifestModule(raw: unknown, path: string): ManifestModule {
+  if (!isPlainObject(raw)) {
+    throw new ManifestValidationError(`${path} must be an object`);
+  }
+  const common = parseCommonModuleFields(raw, path);
+  // Optional `kind` (schemaVersion 2): "skill-category" modules are wizard-
+  // driven. Unknown kinds are tolerated but carry no special behavior.
+  const kind =
+    raw.kind === undefined
+      ? undefined
+      : assertSafeString(raw.kind, `${path}.kind`, WIZARD_VALUE_RE);
+  return { ...common, kind };
 }
 
 export function parseModuleManifest(
@@ -114,23 +142,7 @@ export function parseModuleManifest(
   if (!isPlainObject(raw)) {
     throw new ManifestValidationError(`${path} must be an object`);
   }
-  const name = assertSafeString(raw.name, `${path}.name`, MODULE_NAME_RE);
-  const version = assertSafeString(raw.version, `${path}.version`, VERSION_RE);
-  if (typeof raw.required !== 'boolean') {
-    throw new ManifestValidationError(`${path}.required must be a boolean`);
-  }
-  const dependsOn = parseStringArray(raw.dependsOn, `${path}.dependsOn`, [
-    MODULE_NAME_RE,
-  ]);
-  const exclusiveWith =
-    raw.exclusiveWith === undefined
-      ? undefined
-      : parseStringArray(raw.exclusiveWith, `${path}.exclusiveWith`);
-  const description = assertSafeString(
-    raw.description,
-    `${path}.description`,
-    /.+/s,
-  );
+  const common = parseCommonModuleFields(raw, path);
   if (!isPlainObject(raw.installs)) {
     throw new ManifestValidationError(`${path}.installs must be an object`);
   }
@@ -153,15 +165,7 @@ export function parseModuleManifest(
   if (Object.keys(installs).length === 0) {
     throw new ManifestValidationError(`${path}.installs must not be empty`);
   }
-  return {
-    name,
-    version,
-    required: raw.required,
-    dependsOn,
-    exclusiveWith,
-    description,
-    installs,
-  };
+  return { ...common, installs };
 }
 
 function parseStringArray(
@@ -209,25 +213,44 @@ export function parseWizard(
       'manifest.wizard.defaults must be an object',
     );
   }
-  // `defaults` maps question id -> chosen option value. Keys that are not
-  // question ids (e.g. a `comment` documentation key, a common JSON idiom) are
-  // metadata and ignored — only real answers are validated and stored.
-  const questionIds = new Set<string>();
+  // Answers live in a flat questionId -> value map, so a question id reused
+  // across sections would silently collide. Hard-fail naming the id.
+  const questionOptions = new Map<string, Set<string>>();
   for (const section of sections) {
     for (const question of section.questions) {
-      questionIds.add(question.id);
+      if (questionOptions.has(question.id)) {
+        throw new ManifestValidationError(
+          `manifest.wizard has a duplicate question id "${question.id}" — ids must be unique across sections.`,
+        );
+      }
+      questionOptions.set(
+        question.id,
+        new Set(question.options.map((o) => o.value)),
+      );
     }
   }
+  // `defaults` maps question id -> chosen option value. Keys that are not
+  // question ids (e.g. a `comment` documentation key, a common JSON idiom) are
+  // metadata and ignored — only real answers are validated and stored. A
+  // question-id key whose value matches no option is a packaging bug (Default
+  // mode would silently install nothing for it), so hard-fail.
   const defaults: Record<string, string> = {};
   for (const [key, value] of Object.entries(raw.defaults)) {
-    if (!questionIds.has(key)) {
+    const optionValues = questionOptions.get(key);
+    if (!optionValues) {
       continue;
     }
-    defaults[key] = assertSafeString(
+    const safe = assertSafeString(
       value,
       `wizard.defaults["${key}"]`,
       WIZARD_VALUE_RE,
     );
+    if (!optionValues.has(safe)) {
+      throw new ManifestValidationError(
+        `wizard.defaults["${key}"] = ${JSON.stringify(safe)} is not an option of question "${key}".`,
+      );
+    }
+    defaults[key] = safe;
   }
   return { sections, defaults };
 }
@@ -310,6 +333,13 @@ function parseWizardOption(
     if (!moduleNames.has(root)) {
       throw new ManifestValidationError(
         `${path}.install "${install}" does not start with a known module name`,
+      );
+    }
+    // It must also be a pharn-skills-* category so the option is addressable via
+    // `add <category>:<skill>`; listSkillAddresses relies on this prefix.
+    if (!root.startsWith(SKILL_MODULE_PREFIX)) {
+      throw new ManifestValidationError(
+        `${path}.install "${install}" must be rooted at a ${SKILL_MODULE_PREFIX}* category module`,
       );
     }
   }

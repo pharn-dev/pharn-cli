@@ -31,6 +31,24 @@ describe('runVendorConsent', () => {
     expect(arg.options.map((o) => o.value)).toEqual(['supabase']);
   });
 
+  it('restores prior consent on loop-back, dropping no-longer-offered values', async () => {
+    vi.mocked(prompts.multiselect).mockResolvedValue(['supabase']);
+    await runVendorConsent(['supabase', 'stripe'], ['supabase', 'gone']);
+    const arg = vi.mocked(prompts.multiselect).mock.calls.at(-1)![0] as {
+      initialValues: string[];
+    };
+    expect(arg.initialValues).toEqual(['supabase']);
+  });
+
+  it('default-checks everything when no initial is given', async () => {
+    vi.mocked(prompts.multiselect).mockResolvedValue([]);
+    await runVendorConsent(['supabase', 'stripe']);
+    const arg = vi.mocked(prompts.multiselect).mock.calls.at(-1)![0] as {
+      initialValues: string[];
+    };
+    expect(arg.initialValues).toEqual(['supabase', 'stripe']);
+  });
+
   it('exits when cancelled', async () => {
     vi.mocked(prompts.multiselect).mockResolvedValue(CANCEL);
     await expect(runVendorConsent(['supabase'])).rejects.toMatchObject(

@@ -78,6 +78,24 @@ describe('countCustomFiles', () => {
     writeFileSync(join(tmp.path(), 'app', 'extra.tsx'), '');
     expect(countCustomFiles(tmp.path())).toBe(1);
   });
+
+  it('counts 0 for a fresh --src-dir + Biome scaffold', () => {
+    writeFileSync(join(tmp.path(), 'package.json'), '{}');
+    writeFileSync(join(tmp.path(), 'biome.json'), '{}');
+    mkdirSync(join(tmp.path(), 'src', 'app'), { recursive: true });
+    writeFileSync(join(tmp.path(), 'src', 'app', 'page.tsx'), '');
+    writeFileSync(join(tmp.path(), 'src', 'app', 'layout.tsx'), '');
+    writeFileSync(join(tmp.path(), 'src', 'app', 'globals.css'), '');
+    writeFileSync(join(tmp.path(), 'src', 'app', 'favicon.ico'), '');
+    expect(countCustomFiles(tmp.path())).toBe(0);
+  });
+
+  it('counts unknown files inside src/app when root app/ is absent', () => {
+    mkdirSync(join(tmp.path(), 'src', 'app'), { recursive: true });
+    writeFileSync(join(tmp.path(), 'src', 'app', 'page.tsx'), '');
+    writeFileSync(join(tmp.path(), 'src', 'app', 'extra.tsx'), '');
+    expect(countCustomFiles(tmp.path())).toBe(1);
+  });
 });
 
 describe('runFreshCheck', () => {
@@ -111,6 +129,18 @@ describe('runFreshCheck', () => {
   });
 
   it(`prompts when 0 commits and custom files > ${CUSTOM_FILE_THRESHOLD}`, async () => {
+    for (let i = 0; i <= CUSTOM_FILE_THRESHOLD + 1; i++) {
+      writeFileSync(join(tmp.path(), `custom-${i}.txt`), '');
+    }
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
+    vi.mocked(prompts.confirm).mockReset().mockResolvedValue(true);
+    await runFreshCheck();
+    expect(prompts.confirm).toHaveBeenCalledTimes(1);
+    cwd.mockRestore();
+  });
+
+  it('prompts at 1 commit when the project is already customized', async () => {
+    initGit(tmp.path(), 1);
     for (let i = 0; i <= CUSTOM_FILE_THRESHOLD + 1; i++) {
       writeFileSync(join(tmp.path(), `custom-${i}.txt`), '');
     }

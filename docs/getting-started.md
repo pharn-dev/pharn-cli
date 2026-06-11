@@ -15,7 +15,7 @@ PHARN works best on **fresh** projects. The wizard may warn when:
 
 - The repo has **6 or more** commits — checked first; repos with 6+ commits do not also see the 2+ warning
 - The repo has **2–5** commits (designed for fresh scaffolds)
-- There are **0** commits but more than **3** custom files outside known Next.js paths
+- There are **0–1** commits (a fresh scaffold; `create-next-app` makes one initial commit) but more than **3** custom files outside known Next.js paths
 
 You can continue after any warning by confirming.
 

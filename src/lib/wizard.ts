@@ -1,11 +1,15 @@
 import { basename } from 'node:path';
+import { SKILL_MODULE_PREFIX } from './constants.js';
 import type {
   InstalledSkill,
   WizardCondition,
   WizardOption,
   WizardQuestion,
+  WizardRule,
   WizardSpec,
 } from '../types.js';
+
+type WarnRule = Extract<WizardRule, { type: 'warn' }>;
 
 // ---------------------------------------------------------------------------
 // Pure wizard logic (no I/O): rule evaluation + answer → install resolution.
@@ -87,8 +91,10 @@ export function pendingWarnings(
   answers: Answers,
 ): string[] {
   return (question.rules ?? [])
-    .filter((r) => r.type === 'warn' && matchCondition(r.if, answers))
-    .map((r) => (r as { message: string }).message);
+    .filter(
+      (r): r is WarnRule => r.type === 'warn' && matchCondition(r.if, answers),
+    )
+    .map((r) => r.message);
 }
 
 function findChosenOption(
@@ -156,10 +162,6 @@ export interface SkillAddress {
   install: string;
 }
 
-// Category modules follow the `pharn-skills-<category>` convention (e.g.
-// `orm` → `pharn-skills-orm`).
-const SKILL_MODULE_PREFIX = 'pharn-skills-';
-
 function categoryToModule(category: string): string {
   return `${SKILL_MODULE_PREFIX}${category}`;
 }
@@ -170,11 +172,10 @@ export function listSkillAddresses(wizard: WizardSpec): SkillAddress[] {
   for (const question of eachQuestion(wizard)) {
     for (const option of question.options) {
       if (!option.install) continue;
+      // parseWizardOption guarantees every install is rooted at a
+      // pharn-skills-* module, so the prefix strip is safe.
       const module = option.install.split('/')[0]!;
-      const category = module.replace(
-        new RegExp(`^${SKILL_MODULE_PREFIX}`),
-        '',
-      );
+      const category = module.slice(SKILL_MODULE_PREFIX.length);
       out.push({
         category,
         module,

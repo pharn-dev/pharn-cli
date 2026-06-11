@@ -80,7 +80,40 @@ describe('runInstall', () => {
         { name: 'pharn-pipeline', version: '0.5.0' },
       ],
     });
+    // Legacy install: the schemaVersion 2 fields are omitted entirely.
+    expect(written.stackAnswers).toBeUndefined();
+    expect(written.installedSkills).toBeUndefined();
+    expect(written.vendorSkills).toBeUndefined();
     expect(prompts.outro).toHaveBeenCalled();
+  });
+
+  it('persists the schemaVersion 2 fields and passes skills to fetchAndInstall', async () => {
+    existsSync.mockReturnValue(false);
+    fetchAndInstall.mockResolvedValue(okResult);
+    const v2Config: WizardConfig = {
+      modules: ['pharn-pipeline'],
+      stackPack: 'pharn-stack-nextjs',
+      constitution: 'standard',
+      stackAnswers: { database: 'supabase', orm: 'drizzle', payments: 'skip' },
+      installedSkills: [
+        { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
+        { skill: 'stripe', from: 'pharn-skills-payments/skills/stripe' },
+      ],
+      vendorSkills: ['supabase'],
+    };
+
+    await runInstall(v2Config);
+
+    expect(fetchAndInstall).toHaveBeenCalledWith({
+      claudeDir: '/proj/.claude',
+      selected: ['pharn-pipeline', 'pharn-stack-nextjs'],
+      constitution: 'standard',
+      wizardSkills: v2Config.installedSkills,
+    });
+    const [, written] = writePharnConfig.mock.calls[0]!;
+    expect(written.stackAnswers).toEqual(v2Config.stackAnswers);
+    expect(written.installedSkills).toEqual(v2Config.installedSkills);
+    expect(written.vendorSkills).toEqual(v2Config.vendorSkills);
   });
 
   it('overwrites after confirmation when a config already exists', async () => {

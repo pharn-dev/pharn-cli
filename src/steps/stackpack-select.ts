@@ -1,5 +1,6 @@
 import { isCancel, select } from '@clack/prompts';
 import { cancelAndExit } from '../lib/confirm.js';
+import { shortDescription } from '../lib/format.js';
 import type { ManifestModule } from '../types.js';
 
 export async function runStackPackSelect(
@@ -14,11 +15,13 @@ export async function runStackPackSelect(
       ...stackPacks.map((m) => ({
         value: m.name,
         label: m.name,
-        hint: `${m.description.split(/[—.;]/)[0]!.trim()} · v${m.version}`,
+        hint: `${shortDescription(m.description)} · v${m.version}`,
       })),
       { value: '', label: 'None', hint: 'framework-agnostic only' },
     ],
-    initialValue: initial ?? stackPacks[0]!.name,
+    // undefined = first run (preselect the first pack); null = an explicit "None"
+    // carried back on loop-back, which maps to the '' sentinel.
+    initialValue: initial === undefined ? stackPacks[0]!.name : (initial ?? ''),
   });
 
   if (isCancel(result)) cancelAndExit();

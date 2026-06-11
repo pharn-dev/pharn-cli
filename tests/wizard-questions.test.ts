@@ -8,7 +8,7 @@ vi.mock('@clack/prompts', () => ({
   select: vi.fn(),
   note: vi.fn(),
   confirm: vi.fn(async () => true),
-  log: { info: vi.fn(), warn: vi.fn() },
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 const { runWizardQuestions } = await import('../src/steps/wizard-questions.js');
@@ -94,6 +94,86 @@ describe('runWizardQuestions', () => {
     script(['supabase', 'skip', 'better-auth', 'resend', 'stripe']);
     await runWizardQuestions(wizard);
     expect(prompts.confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-asks the question when a warn rule is declined', async () => {
+    // auth=better-auth with orm=skip warns; decline once, then pick clerk (no
+    // warn) so the wizard proceeds.
+    script(['supabase', 'skip', 'better-auth', 'clerk', 'resend', 'stripe']);
+    vi.mocked(prompts.confirm)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    const answers = await runWizardQuestions(wizard);
+    expect(answers.auth).toBe('clerk');
+    expect(prompts.confirm).toHaveBeenCalledTimes(1);
+    // database, orm, auth (declined), auth (re-ask), email, payments = 6.
+    expect(prompts.select).toHaveBeenCalledTimes(6);
+  });
+
+  it('hard-fails when a rule empties a question of options', async () => {
+    const inline: WizardSpec = {
+      sections: [
+        {
+          id: 's',
+          title: 'S',
+          questions: [
+            {
+              id: 'a',
+              prompt: 'A',
+              options: [
+                { value: 'x', label: 'X', install: null },
+                { value: 'y', label: 'Y', install: null },
+              ],
+            },
+            {
+              id: 'b',
+              prompt: 'B',
+              options: [
+                { value: 'p', label: 'P', install: null },
+                { value: 'q', label: 'Q', install: null },
+              ],
+              rules: [{ type: 'hide', if: { a: 'x' }, options: ['p', 'q'] }],
+            },
+          ],
+        },
+      ],
+      defaults: {},
+    };
+    script(['x']);
+    await expect(runWizardQuestions(inline)).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(prompts.log.error).toHaveBeenCalledWith(
+      expect.stringContaining('"b"'),
+    );
+  });
+
+  it('hard-fails when every option is coming soon', async () => {
+    const inline: WizardSpec = {
+      sections: [
+        {
+          id: 's',
+          title: 'S',
+          questions: [
+            {
+              id: 'soon',
+              prompt: 'Soon',
+              options: [
+                { value: 'x', label: 'X', install: null, comingSoon: true },
+                { value: 'y', label: 'Y', install: null, comingSoon: true },
+              ],
+            },
+          ],
+        },
+      ],
+      defaults: {},
+    };
+    await expect(runWizardQuestions(inline)).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(prompts.log.error).toHaveBeenCalledWith(
+      expect.stringContaining('"soon"'),
+    );
   });
 
   it('exits when a question is cancelled', async () => {

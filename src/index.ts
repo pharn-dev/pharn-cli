@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import minimist from 'minimist';
 import { runInit } from './commands/init.js';
 import { runAdd } from './commands/add.js';
@@ -22,7 +24,7 @@ Options:
   -h, --help         Show this help text
   -v, --version      Show the version number`;
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const argv = minimist(process.argv.slice(2), {
     boolean: ['help', 'version'],
     alias: { h: 'help', v: 'version' },
@@ -57,7 +59,20 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Auto-run only when invoked as the CLI entry point (dev: `tsx src/index.ts`,
+// prod: the `dist/index.js` bin) — not when imported, e.g. by tests.
+function isEntryPoint(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -1,6 +1,6 @@
 # Contributing to pharn-cli
 
-Development guide for the PHARN CLI package in the quolla monorepo. This is the full guide; the root [`CONTRIBUTING.md`](../CONTRIBUTING.md) is the quick-start pointer.
+Development guide for the pharn-cli package. This is the full guide; the root [`CONTRIBUTING.md`](../CONTRIBUTING.md) is the quick-start pointer.
 
 ## Setup
 
@@ -15,7 +15,7 @@ npm install
 | ------ | ------- |
 | `npm run dev` | Run CLI via tsx, e.g. `npm run dev -- init` |
 | `npm run build` | Compile `src/` to `dist/` |
-| `npm run build:install-local` | Build and symlink `pharn` into parent `node_modules` |
+| `npm run build:install-local` | Build and symlink `pharn` into the local `test-app/node_modules` (no-op if `test-app/` is absent) |
 | `npm run test` | Vitest (single run) |
 | `npm run test:watch` | Vitest watch mode |
 | `npm run test:coverage` | Coverage report |
@@ -24,7 +24,7 @@ npm install
 | `npm run format` | Prettier write |
 | `npm run format:check` | Prettier check (CI-friendly) |
 
-From repo root after `build:install-local`:
+From the `test-app/` directory (which needs its own `package.json`) after `build:install-local`:
 
 ```bash
 npx pharn init
@@ -61,8 +61,8 @@ pharn-cli/
   src/
     index.ts              CLI entry, command routing
     commands/             init, add, update
-    steps/                wizard steps (module/stackpack/constitution select, summary, install)
-    lib/                  manifest, repo, installer, install-modules, pharn-config, validate, constants, banner, confirm, format
+    steps/                wizard steps (prereqs, fresh-check, mode-select, wizard-questions, module/stackpack/constitution select, vendor-consent, summary, install)
+    lib/                  manifest, wizard, repo, installer, install-modules, pharn-config, validate, constants, banner, confirm, format
     types.ts              Manifest / ModuleManifest / WizardConfig / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
@@ -73,23 +73,32 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the init step pip
 
 ## Security-sensitive files
 
-`lib/validate.ts`, `lib/manifest.ts`, and `lib/install-modules.ts` handle all remote input (manifest, module names, install paths). Preserve their invariants when editing:
+`lib/validate.ts`, `lib/manifest.ts`, and `lib/install-modules.ts` handle all remote input (manifest, module names, install/skill paths, wizard values). Preserve their invariants when editing:
 
-- Strict regex allowlists (`MODULE_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`), `..` rejection, and control-char rejection.
-- Copies are guarded by `safeJoin` so nothing escapes its base directory.
+- Strict regex allowlists (`MODULE_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`, `WIZARD_VALUE_RE`), `..` rejection, and control-char rejection.
+- Every copy — modules and skills — is guarded by `safeJoin` so nothing escapes its base directory.
 - Remote fetches use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
-- The manifest `schemaVersion` must be exactly `1` — a mismatch hard-fails by design.
+- The manifest `schemaVersion` must be exactly `1` or `2` — anything else hard-fails by design so old CLIs don't guess at a new schema.
 
 ## Test map
 
 | Test file | Behavior covered |
 | --------- | ---------------- |
-| `manifest.test.ts` | Parse/validate manifest + module.json, dependency resolution, exclusivity, categorization |
-| `install-modules.test.ts` | Copy `installs` maps, materialize memory-bank + constitution, path-escape guards |
-| `pharn-config.test.ts` | Read/write/round-trip `pharn.config.json` |
+| `manifest.test.ts` / `manifest-v2.test.ts` | v1 parse/validate of manifest + module.json, dependency resolution, exclusivity, categorization; `parseManifest` schemaVersion routing + `wizard` block validation |
+| `wizard.test.ts` | `matchCondition` and the pure rule engine / answer resolver (`lib/wizard.ts`) |
+| `wizard-questions.test.ts` | `runWizardQuestions` Custom-mode rendering (hide / relabel / coming-soon / warn rules) |
+| `mode-select.test.ts` | Default vs Custom stack mode select |
+| `vendor-consent.test.ts` | `runVendorConsent` consent recording |
+| `install-modules.test.ts` / `install-skills.test.ts` | Copy `installs` maps, materialize memory-bank + constitution; selective `installSkills`; path-escape guards |
+| `installer.test.ts` / `install.test.ts` | `fetchAndInstall` shared core; `runInstall` step |
+| `init.test.ts` / `init-v2.test.ts` | v1 and v2 init pipelines end to end |
+| `add.test.ts` / `update.test.ts` | `runAdd` (module + `category:skill`) and `runUpdate` re-resolution |
+| `validate.test.ts` | `assertSafeString` allowlists, `..` and control-char rejection |
+| `pharn-config.test.ts` | Read/write/round-trip `pharn.config.json`, incl. v2 additive fields |
 | `prereqs.test.ts` | Next.js and git checks |
 | `fresh-check.test.ts` | Commit counts, custom file heuristic |
 | `confirm.test.ts` | Cancel and warn helpers |
+| `repo.test.ts` / `banner.test.ts` / `format.test.ts` | degit clone wrapper; banner; format helpers |
 
 When changing behavior, add or update tests before docs.
 

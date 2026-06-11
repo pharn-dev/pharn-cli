@@ -7,7 +7,8 @@ vi.mock('@clack/prompts', () => ({
   log: { info: vi.fn(), warn: vi.fn() },
 }));
 
-const { cancelAndExit, warnAndConfirm } = await import('../src/lib/confirm.js');
+const { cancelAndExit, warnAndConfirm, confirmWarning } =
+  await import('../src/lib/confirm.js');
 const prompts = await import('@clack/prompts');
 
 describe('cancelAndExit', () => {
@@ -45,6 +46,28 @@ describe('warnAndConfirm', () => {
   it('exits when the prompt is cancelled', async () => {
     vi.mocked(prompts.confirm).mockResolvedValue(CANCEL as unknown as boolean);
     await expect(warnAndConfirm('w', 'q', false)).rejects.toMatchObject(
+      new ProcessExit(0),
+    );
+  });
+});
+
+describe('confirmWarning', () => {
+  stubProcessExit();
+
+  it('returns true when the user confirms', async () => {
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+    await expect(confirmWarning('w', 'q', true)).resolves.toBe(true);
+    expect(prompts.log.warn).toHaveBeenCalledWith('w');
+  });
+
+  it('returns false (no exit) when the user declines', async () => {
+    vi.mocked(prompts.confirm).mockResolvedValue(false);
+    await expect(confirmWarning('w', 'q', true)).resolves.toBe(false);
+  });
+
+  it('exits when the prompt is cancelled', async () => {
+    vi.mocked(prompts.confirm).mockResolvedValue(CANCEL as unknown as boolean);
+    await expect(confirmWarning('w', 'q', false)).rejects.toMatchObject(
       new ProcessExit(0),
     );
   });

@@ -35,6 +35,10 @@ The CLI message says "git not found" but the check is for a **`.git` directory**
 
 Exits with code **1**.
 
+### Monorepos / workspaces
+
+`pharn init` checks the **current directory** for both `package.json` (with `next`) and a `.git` directory, and installs `.claude/` there. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both the Next.js `package.json` and `.git` — e.g. the app package if it has its own git, otherwise the repo root only works when `next` is in the root `package.json`. Split layouts (`.git` at the root, `next` in `apps/web/package.json`) are unsupported in v1.
+
 ## Fresh-project warnings
 
 Not errors. Confirm to continue or cancel to exit cleanly (code 0).
@@ -45,7 +49,7 @@ Checks run in order; only the first matching rule applies:
 | ------- | ----- |
 | Significant history | 6+ commits on `HEAD` (stops here; no 2+ warning) |
 | Existing commits | 2–5 commits |
-| Customized scaffold | 0 commits but > 3 unrecognized files |
+| Customized scaffold | 0–1 commits but > 3 unrecognized files |
 
 ## Module catalog could not be loaded
 

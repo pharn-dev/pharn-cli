@@ -279,6 +279,15 @@ describe('runAdd category:skill', () => {
     expect(msg).toContain('orm:prisma');
   });
 
+  it('exits(1) when the skill install fails', async () => {
+    readPharnConfig.mockReturnValue(configWithSkills([]));
+    fetchAndInstall.mockRejectedValue(new Error('boom'));
+    await expect(runAdd('orm:prisma')).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
   it('exits(1) when the manifest is schemaVersion 1', async () => {
     readPharnConfig.mockReturnValue(configWithSkills([]));
     fetchRemoteManifest.mockResolvedValue({

@@ -53,6 +53,28 @@ describe('parseManifest schemaVersion routing', () => {
       'Bad Value';
     expect(() => parseManifest(raw)).toThrow(/wizard\.defaults\["database"\]/);
   });
+
+  it('rejects a default pointing at a value that is not an option', () => {
+    const raw = rawV2Manifest();
+    // 'mysql' is a valid value shape but not an option of the database question.
+    (raw.wizard as { defaults: Record<string, string> }).defaults.database =
+      'mysql';
+    expect(() => parseManifest(raw)).toThrow(
+      /is not an option of question "database"/,
+    );
+  });
+
+  it('rejects a duplicate question id across sections', () => {
+    const raw = rawV2Manifest();
+    const sections = (
+      raw.wizard as { sections: Array<{ questions: Array<{ id: string }> }> }
+    ).sections;
+    // Collide the ORM question's id onto the database question's id.
+    sections[0]!.questions[1]!.id = 'database';
+    expect(() => parseManifest(raw)).toThrow(
+      /duplicate question id "database"/,
+    );
+  });
 });
 
 describe('parseWizard validation', () => {
@@ -93,6 +115,19 @@ describe('parseWizard validation', () => {
           'pharn-skills-ghost/skills/x';
       }),
     ).toThrow(/does not start with a known module/);
+  });
+
+  it('throws when an option install is rooted at a non-skill module', () => {
+    expect(
+      withWizard((w) => {
+        const sections = w.sections as Array<{
+          questions: Array<{ options: Array<{ install: unknown }> }>;
+        }>;
+        // pharn-core is a known module but not a pharn-skills-* category, so the
+        // option would not be addressable via `add <category>:<skill>`.
+        sections[0]!.questions[1]!.options[0]!.install = 'pharn-core/skills/x';
+      }),
+    ).toThrow(/pharn-skills-/);
   });
 
   it('throws when a relabel rule omits its label', () => {

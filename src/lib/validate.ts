@@ -8,8 +8,9 @@ export class ManifestValidationError extends Error {
 // pharn-core, pharn-stack-nextjs, … (matches scripts/schemas/*.schema.json).
 export const MODULE_NAME_RE = /^pharn-[a-z0-9-]+$/;
 export const VERSION_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-// installs source/destination paths: relative, no traversal, no leading slash.
-export const INSTALL_PATH_RE = /^[a-z0-9_/-]+\/?$/;
+// installs source/destination paths: relative, no leading slash, no empty
+// segments (rejects "/etc/x", "a//b", "/"). Optional single trailing slash.
+export const INSTALL_PATH_RE = /^[a-z0-9_-]+(\/[a-z0-9_-]+)*\/?$/;
 // Wizard answer values + ids (e.g. "supabase", "better-auth", "skip").
 export const WIZARD_VALUE_RE = /^[a-z0-9-]+$/;
 // eslint-disable-next-line no-control-regex

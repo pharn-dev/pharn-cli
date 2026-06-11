@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run dev -- init          # run the CLI via tsx (pass args after --)
 npm run build                # tsc → dist/
-npm run build:install-local  # build + symlink pharn into parent node_modules
+npm run build:install-local  # build + symlink pharn into local test-app/node_modules
 npm run typecheck            # tsc --noEmit for src AND tests (two configs)
 npm run lint                 # eslint src
 npm run format:check         # prettier check (use `format` to write)

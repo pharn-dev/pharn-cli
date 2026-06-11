@@ -9,6 +9,7 @@ import { cancelAndExit } from '../lib/confirm.js';
  */
 export async function runVendorConsent(
   candidates: string[],
+  initial?: string[],
 ): Promise<string[]> {
   const unique = [...new Set(candidates)];
   if (unique.length === 0) return [];
@@ -25,7 +26,9 @@ export async function runVendorConsent(
   const result = await multiselect({
     message: 'Record consent for which vendor skills?',
     options: unique.map((v) => ({ value: v, label: v })),
-    initialValues: unique,
+    // On loop-back, restore the prior consent (intersected with what's still on
+    // offer); on the first pass everything is default-checked as documented.
+    initialValues: initial?.filter((v) => unique.includes(v)) ?? unique,
     required: false,
   });
 

@@ -48,6 +48,18 @@ describe('runSummary', () => {
     );
   });
 
+  it('renders the stack pack row (named pack and None)', async () => {
+    vi.mocked(prompts.select).mockResolvedValue('install');
+    await runSummary(config, resolved, '0.68.1');
+    let note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
+    expect(note).toContain('Stack pack');
+    expect(note).toContain('pharn-stack-nextjs');
+
+    await runSummary({ ...config, stackPack: null }, resolved, '0.68.1');
+    note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
+    expect(note).toMatch(/Stack pack\s+None/);
+  });
+
   it('renders the skills and vendor blocks for a schemaVersion 2 config', async () => {
     vi.mocked(prompts.select).mockResolvedValue('install');
     const v2: WizardConfig = {

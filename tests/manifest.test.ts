@@ -117,6 +117,50 @@ describe('parseManifest', () => {
       }),
     ).toThrow(ManifestValidationError);
   });
+
+  it('accepts a glob exclusiveWith pattern but rejects invalid characters', () => {
+    const base = {
+      name: 'pharn-core',
+      version: '0.1.0',
+      required: true,
+      dependsOn: [],
+      description: 'core',
+    };
+    expect(() =>
+      parseManifest({
+        schemaVersion: 1,
+        skillsVersion: '0.1.0',
+        modules: [
+          base,
+          {
+            name: 'pharn-stack-x',
+            version: '0.1.0',
+            required: false,
+            dependsOn: [],
+            exclusiveWith: ['pharn-stack-*'],
+            description: 'x',
+          },
+        ],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      parseManifest({
+        schemaVersion: 1,
+        skillsVersion: '0.1.0',
+        modules: [
+          base,
+          {
+            name: 'pharn-stack-x',
+            version: '0.1.0',
+            required: false,
+            dependsOn: [],
+            exclusiveWith: ['bad/value'],
+            description: 'x',
+          },
+        ],
+      }),
+    ).toThrow(ManifestValidationError);
+  });
 });
 
 describe('parseModuleManifest', () => {
@@ -154,6 +198,20 @@ describe('parseModuleManifest', () => {
         dependsOn: [],
         description: 'core',
         installs: {},
+      }),
+    ).toThrow(ManifestValidationError);
+  });
+
+  it('rejects an exclusiveWith entry with invalid characters', () => {
+    expect(() =>
+      parseModuleManifest({
+        name: 'pharn-stack-x',
+        version: '0.1.0',
+        required: false,
+        dependsOn: [],
+        exclusiveWith: ['bad/value'],
+        description: 'x',
+        installs: { commands: 'commands/' },
       }),
     ).toThrow(ManifestValidationError);
   });

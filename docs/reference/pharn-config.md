@@ -26,7 +26,7 @@ The three `schemaVersion 2` fields are **additive** — installs against an olde
 ```json
 {
   "pharnVersion": "0.2.0",
-  "skillsVersion": "0.68.0",
+  "skillsVersion": "0.69.0",
   "repo": "pharn-dev/pharn-oss",
   "commit": "daa06788…",
   "constitution": "standard",

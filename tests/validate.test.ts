@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ManifestValidationError,
   MODULE_NAME_RE,
+  INSTALL_PATH_RE,
   assertSafeString,
   assertNoDotDot,
   isPlainObject,
@@ -43,6 +44,25 @@ describe('assertNoDotDot', () => {
 
   it('passes a clean value', () => {
     expect(() => assertNoDotDot('a/b', 'x')).not.toThrow();
+  });
+});
+
+describe('INSTALL_PATH_RE', () => {
+  it('accepts relative paths, single segments, and a trailing slash', () => {
+    for (const p of [
+      'templates/memory-bank',
+      'skills/',
+      'commands',
+      'pharn-skills-orm/skills/prisma',
+    ]) {
+      expect(INSTALL_PATH_RE.test(p)).toBe(true);
+    }
+  });
+
+  it('rejects leading slashes, empty segments, and a bare slash', () => {
+    for (const p of ['/etc/x', '//foo', 'a//b', '/']) {
+      expect(INSTALL_PATH_RE.test(p)).toBe(false);
+    }
   });
 });
 

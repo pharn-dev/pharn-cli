@@ -43,6 +43,9 @@ export function assertSkillSourcesExist(
   repoDir: string,
   skills: InstalledSkill[],
 ): void {
+  // Skills all land in .claude/skills/<basename>/, so two sources sharing a
+  // basename would silently overwrite each other. Reject the whole batch.
+  const seenBasenames = new Map<string, string>();
   for (const skill of skills) {
     const from = safeJoin(repoDir, skill.from);
     if (!existsSync(from)) {
@@ -50,6 +53,14 @@ export function assertSkillSourcesExist(
         `Skill "${skill.skill}" declares source "${skill.from}" but it is missing in the fetched repo.`,
       );
     }
+    const name = basename(skill.from);
+    const prior = seenBasenames.get(name);
+    if (prior !== undefined && prior !== skill.from) {
+      throw new ManifestValidationError(
+        `Duplicate skill basename "${name}": "${prior}" and "${skill.from}" would both install to .claude/skills/${name}/.`,
+      );
+    }
+    seenBasenames.set(name, skill.from);
   }
 }
 
@@ -82,13 +93,18 @@ export function materializeCore(
   const coreDir = resolve(repoDir, CORE_MODULE);
 
   const memoryFrom = resolve(coreDir, MEMORY_BANK_SRC);
-  if (existsSync(memoryFrom)) {
-    cpSync(memoryFrom, resolve(claudeDir, 'memory-bank'), {
-      recursive: true,
-      force: true,
-      filter: (s) => !s.endsWith(`${sep}.gitkeep`),
-    });
+  if (!existsSync(memoryFrom)) {
+    // pharn-core not shipping its memory bank is an upstream packaging bug;
+    // surface it rather than silently producing an install without one.
+    throw new ManifestValidationError(
+      `pharn-core is missing its memory bank at ${MEMORY_BANK_SRC} in the fetched repo.`,
+    );
   }
+  cpSync(memoryFrom, resolve(claudeDir, 'memory-bank'), {
+    recursive: true,
+    force: true,
+    filter: (s) => !s.endsWith(`${sep}.gitkeep`),
+  });
 
   const constitutionFrom = resolve(
     coreDir,

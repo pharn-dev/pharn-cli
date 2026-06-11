@@ -31,7 +31,7 @@ const runWizardQuestions = vi.fn();
 const runModuleSelect = vi.fn(async () => [] as string[]);
 const runStackPackSelect = vi.fn(async () => null);
 const runConstitutionSelect = vi.fn(async () => 'standard' as const);
-const runVendorConsent = vi.fn(async (c: string[]) => c);
+const runVendorConsent = vi.fn(async (c: string[], _initial?: string[]) => c);
 const runSummary = vi.fn();
 const runInstall = vi.fn<(config: WizardConfig) => Promise<void>>(
   async () => undefined,
@@ -103,6 +103,18 @@ describe('runInit (schemaVersion 2)', () => {
       'prisma',
       'clerk',
     ]);
+  });
+
+  it('preserves vendor consent across a summary loop-back', async () => {
+    fetchRemoteManifest.mockResolvedValue(v2Manifest());
+    runModeSelect.mockResolvedValue('default');
+    runSummary.mockResolvedValueOnce('back').mockResolvedValueOnce('install');
+
+    await runInit();
+
+    expect(runVendorConsent).toHaveBeenCalledTimes(2);
+    expect(runVendorConsent.mock.calls[0]![1]).toBeUndefined();
+    expect(runVendorConsent.mock.calls[1]![1]).toEqual(['supabase']);
   });
 
   it('cancels from the summary', async () => {

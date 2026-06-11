@@ -16,3 +16,8 @@ export const FIRST_FEATURE_COMMAND = '/pharn-plan';
 // pharn-core is always installed; it is the foundation every other module
 // depends on.
 export const CORE_MODULE = 'pharn-core';
+
+// schemaVersion 2 skill-category modules follow the `pharn-skills-<category>`
+// convention (e.g. `orm` → `pharn-skills-orm`). Every installable wizard option
+// is rooted at one of these so `add <category>:<skill>` can address it.
+export const SKILL_MODULE_PREFIX = 'pharn-skills-';

@@ -58,7 +58,7 @@ npm install
 npm run dev          # e.g. npm run dev -- init
 npm run build
 npm run test
-npm run build:install-local   # link pharn into parent monorepo
+npm run build:install-local   # link pharn into the local test-app/
 ```
 
 `PHARN_DEBUG=1` for verbose errors. Details: [Contributing](CONTRIBUTING.md).

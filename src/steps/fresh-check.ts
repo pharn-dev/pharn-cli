@@ -19,6 +19,8 @@ const KNOWN_FILES = new Set([
   'next-env.d.ts',
   '.eslintrc',
   '.eslintrc.json',
+  'biome.json',
+  'biome.jsonc',
 ]);
 
 const KNOWN_PREFIXES = [
@@ -32,6 +34,7 @@ const KNOWN_PREFIXES = [
 const KNOWN_DIRS = new Set([
   'public',
   'app',
+  'src',
   'pages',
   'node_modules',
   '.git',
@@ -42,7 +45,12 @@ const KNOWN_DIRS = new Set([
   'styles',
 ]);
 
-const KNOWN_APP_FILES = new Set(['page.tsx', 'layout.tsx', 'globals.css']);
+const KNOWN_APP_FILES = new Set([
+  'page.tsx',
+  'layout.tsx',
+  'globals.css',
+  'favicon.ico',
+]);
 
 export async function runFreshCheck(): Promise<void> {
   const cwd = process.cwd();
@@ -66,7 +74,9 @@ export async function runFreshCheck(): Promise<void> {
     return;
   }
 
-  if (commits === 0) {
+  if (commits <= 1) {
+    // create-next-app makes one initial commit, so the common "fresh scaffold"
+    // case lands here — still run the custom-file heuristic.
     const custom = countCustomFiles(cwd);
     if (custom > CUSTOM_FILE_THRESHOLD) {
       await warnAndConfirm(
@@ -114,7 +124,9 @@ export function countCustomFiles(cwd: string): number {
 }
 
 function countAppCustomFiles(cwd: string): number {
-  const appDir = resolve(cwd, 'app');
+  // `--src-dir` scaffolds put the router under src/app instead of app/.
+  const rootApp = resolve(cwd, 'app');
+  const appDir = existsSync(rootApp) ? rootApp : resolve(cwd, 'src', 'app');
   if (!existsSync(appDir)) return 0;
   let count = 0;
   for (const entry of readdirSync(appDir)) {

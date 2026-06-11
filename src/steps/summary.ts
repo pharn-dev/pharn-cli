@@ -27,6 +27,7 @@ export async function runSummary(
       'Constitution',
       CONSTITUTION_LABELS[config.constitution] ?? config.constitution,
     ),
+    row('Stack pack', config.stackPack ?? 'None'),
     '',
     '  MODULES (resolved, incl. dependencies)',
     ...resolved.map((m) => row(m.name, `v${m.version}`)),

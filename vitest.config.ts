@@ -7,7 +7,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/degit.d.ts', 'src/index.ts'],
+      exclude: ['src/degit.d.ts'],
       // Conservative floors set just below current measured coverage so CI stays
       // green; raise as coverage improves.
       thresholds: {

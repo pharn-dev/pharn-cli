@@ -64,6 +64,7 @@ async function runInitV2(
     const installedSkills = collectInstalls(wizard, stackAnswers);
     const vendorSkills = await runVendorConsent(
       collectVendorSkills(wizard, stackAnswers),
+      previous?.vendorSkills,
     );
 
     const config: WizardConfig = {

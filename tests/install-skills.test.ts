@@ -79,4 +79,22 @@ describe('assertSkillSourcesExist', () => {
     // Nothing was written.
     expect(existsSync(join(claudeDir, 'skills'))).toBe(false);
   });
+
+  it('throws when two skills resolve to the same basename', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    scaffoldOrm(repoDir);
+    // A second category ships a skill whose basename collides with drizzle —
+    // both would land in .claude/skills/drizzle/ and overwrite each other.
+    write(
+      join(repoDir, 'pharn-skills-db', 'skills', 'drizzle', 'SKILL.md'),
+      'x',
+    );
+    const collision: InstalledSkill = {
+      skill: 'drizzle',
+      from: 'pharn-skills-db/skills/drizzle',
+    };
+    expect(() =>
+      assertSkillSourcesExist(repoDir, [drizzle, collision]),
+    ).toThrow(/duplicate skill/i);
+  });
 });
