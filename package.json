@@ -1,0 +1,49 @@
+{
+  "name": "pharn-cli",
+  "version": "0.2.0",
+  "description": "Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx pharn init picks your modules and stack pack and copies them into .claude/; pharn add installs another module later; pharn update bumps to the latest skills version.",
+  "type": "module",
+  "bin": {
+    "pharn": "dist/index.js",
+    "pharn-cli": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "build:install-local": "tsc && node scripts/install-local.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint src",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.config.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"*.config.ts\"",
+    "lint:md": "markdownlint-cli2 \"docs/**/*.md\" \"*.md\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "degit": "^2.8.4",
+    "minimist": "^1.2.8",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.1.6",
+    "eslint": "^9.0.0",
+    "markdownlint-cli2": "^0.14.0",
+    "prettier": "^3.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^4.1.6"
+  }
+}

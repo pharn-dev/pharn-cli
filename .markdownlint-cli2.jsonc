@@ -1,0 +1,17 @@
+{
+  // Apply to all markdown except dependencies, generated output, and the changelog
+  "ignores": ["node_modules", "dist", "coverage", "CHANGELOG.md"],
+  "config": {
+    "default": true,
+    // Line length: docs sometimes need long lines (URLs, tables, code fences)
+    "MD013": false,
+    // Allow inline HTML — needed for some doc patterns
+    "MD033": false,
+    // Allow duplicate headings across the same file when nested under different parents
+    "MD024": { "siblings_only": true },
+    // Don't require a top-level h1 to match the filename
+    "MD041": false,
+    // Allow bare URLs — common in tooling docs
+    "MD034": false,
+  },
+}
