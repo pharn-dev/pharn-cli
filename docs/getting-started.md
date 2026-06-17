@@ -85,9 +85,9 @@ See [pharn.config.json](reference/pharn-config.md) for the exact schema.
 ## After init
 
 1. Open **Claude Code** in the project directory.
-2. Run **`/pharn-plan`** to plan your first feature.
+2. Run **`/pharn-plan`** to plan your first feature. For a fuzzy or larger feature, run **`/pharn-spec`** first to pin the intent and scope — it's optional and feeds `/pharn-plan`.
 
-The day-to-day loop: `/pharn-plan → /pharn-grill → /pharn-build → /pharn-verify → /pharn-review → /pharn-ship`.
+The day-to-day loop: `/pharn-plan → /pharn-grill → /pharn-build → /pharn-regress → /pharn-verify → /pharn-review → /pharn-ship` (prepend `/pharn-spec` for features whose scope needs nailing down first).
 
 ## Next steps
 

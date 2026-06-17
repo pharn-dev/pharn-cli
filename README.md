@@ -15,7 +15,7 @@ PHARN ships as **modules** (subfolders of the pharn-oss repo). `pharn-core` is r
 | Module | What you get |
 | ------ | ------------ |
 | `pharn-core` | Constitution, markdown memory bank, privacy-shield + constitution-guard hooks, base skills |
-| `pharn-pipeline` | The plan → grill → build → regress → verify → ship pipeline |
+| `pharn-pipeline` | The spec → plan → grill → build → regress → verify → ship pipeline |
 | `pharn-review` | `/pharn-review` with 13 context lenses + fingerprint ledger |
 | `pharn-audits` | 8 standalone audits (privacy, security, a11y, supply-chain, …) |
 | `pharn-stack-nextjs` | Next.js + Supabase + Better Auth + Drizzle stack pack (pulls in the React base) |

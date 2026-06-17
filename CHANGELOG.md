@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Dependabot config, markdownlint for docs, an aggregate `npm run check` script, and
   an enforced test-coverage gate in CI.
 
+### Changed
+
+- Docs: surfaced the new optional `/pharn-spec` stage (intent capture before `/pharn-plan`) in
+  getting-started and the `pharn-pipeline` module description, matching `pharn-oss`. No CLI code
+  change — `/pharn-spec` ships transparently via the existing whole-module install from `main`.
+- Docs: completed the getting-started day-to-day loop with `/pharn-regress` and refreshed the
+  `pharn.config.json` example module versions to match the current `pharn-oss` manifest
+  (`skillsVersion` 0.70.0).
+
 ## [0.2.0] — 2026-06-11
 
 Realigned the CLI with the current `pharn-dev/pharn-oss`, which is now a

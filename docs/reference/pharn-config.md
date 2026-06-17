@@ -26,15 +26,15 @@ The three `schemaVersion 2` fields are **additive** — installs against an olde
 ```json
 {
   "pharnVersion": "0.2.0",
-  "skillsVersion": "0.69.0",
+  "skillsVersion": "0.70.0",
   "repo": "pharn-dev/pharn-oss",
   "commit": "daa06788…",
   "constitution": "standard",
   "modules": [
     { "name": "pharn-core", "version": "0.2.0" },
-    { "name": "pharn-stack-react", "version": "0.1.1" },
-    { "name": "pharn-stack-nextjs", "version": "0.30.0" },
-    { "name": "pharn-pipeline", "version": "0.5.0" },
+    { "name": "pharn-stack-react", "version": "0.1.2" },
+    { "name": "pharn-stack-nextjs", "version": "0.31.0" },
+    { "name": "pharn-pipeline", "version": "0.6.0" },
     { "name": "pharn-review", "version": "0.4.0" },
     { "name": "pharn-audits", "version": "0.11.1" }
   ],
