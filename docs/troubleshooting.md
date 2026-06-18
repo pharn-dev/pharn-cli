@@ -4,7 +4,7 @@
 
 | Situation | Exit code |
 | --------- | --------- |
-| Prerequisite failure (no Next.js or no `.git`) | 1 |
+| Prerequisite failure (no `.git`, or a selected stack pack's required package is missing) | 1 |
 | Module catalog / install failure | 1 |
 | Unknown command | 1 |
 | `add` / `update` with no `pharn.config.json` | 1 |
@@ -13,15 +13,16 @@
 
 ## Prerequisites failed
 
-### Next.js not found
+### Stack-pack prerequisite missing
+
+When you select a stack pack, every package it declares as a prerequisite must already be in your `package.json` (`dependencies` or `devDependencies`). If any are missing, the CLI prints each one's `reason` and exits with code **1**. The exact wording is defined by the manifest (PHARN owns it), so it may differ from the example below, and multiple missing packages are listed together. For `pharn-stack-nextjs`, for instance:
 
 ```text
-✗ Next.js not found.
-  Run: npx create-next-app@latest
+✗ pharn-stack-nextjs targets Next.js. Run: npx create-next-app@latest
   Then re-run: npx pharn init
 ```
 
-Ensure `next` appears in `package.json` `dependencies` or `devDependencies`. Exits with code **1**.
+Install the package and re-run — or pick a different stack pack, or **None**. The check is conditional on your choice: a no-pack (or non-Next) install has no package prerequisite. The same gate runs for [`pharn add <stack-pack>`](commands/add.md) (its hint says `npx pharn add …`), so a pack can't bypass it by being added after init.
 
 ### Git not found
 
@@ -37,7 +38,7 @@ Exits with code **1**.
 
 ### Monorepos / workspaces
 
-`pharn init` checks the **current directory** for both `package.json` (with `next`) and a `.git` directory, and installs `.claude/` there. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both the Next.js `package.json` and `.git` — e.g. the app package if it has its own git, otherwise the repo root only works when `next` is in the root `package.json`. Split layouts (`.git` at the root, `next` in `apps/web/package.json`) are unsupported in v1.
+`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there for any stack-pack prerequisites, and installs `.claude/` there. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
 
 ## Fresh-project warnings
 

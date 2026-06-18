@@ -12,13 +12,15 @@ import {
   collectInstalls,
   collectVendorSkills,
 } from '../lib/wizard.js';
-import { runPrereqs } from '../steps/prereqs.js';
+import { runGitPrereq, assertPrerequisites } from '../steps/prereqs.js';
 import { runFreshCheck } from '../steps/fresh-check.js';
 import { runModeSelect } from '../steps/mode-select.js';
+import { runDetect } from '../steps/detect.js';
 import { runWizardQuestions } from '../steps/wizard-questions.js';
 import { runModuleSelect } from '../steps/module-select.js';
 import { runStackPackSelect } from '../steps/stackpack-select.js';
 import { runConstitutionSelect } from '../steps/constitution-select.js';
+import { runMultiTenantSelect } from '../steps/multitenant-select.js';
 import { runVendorConsent } from '../steps/vendor-consent.js';
 import { runSummary } from '../steps/summary.js';
 import { runInstall } from '../steps/install.js';
@@ -28,7 +30,7 @@ export async function runInit(): Promise<void> {
   showBanner();
   intro('init wizard');
 
-  runPrereqs();
+  runGitPrereq();
   await runFreshCheck();
 
   const manifest = await loadManifest();
@@ -48,18 +50,31 @@ async function runInitV2(
 ): Promise<void> {
   const { optional, stackPacks } = categorizeModules(manifest);
 
+  // Pre-fill from the project's package.json (stack pack + per-tech answers).
+  // Detection runs once up front; the user overrides anything below.
+  const { detectedAnswers, detectedStackPack } = runDetect(wizard, stackPacks);
+
   let previous: WizardConfig | undefined;
 
   while (true) {
     const mode = await runModeSelect();
     const stackAnswers =
       mode === 'default'
-        ? applyDefaults(wizard)
-        : await runWizardQuestions(wizard, previous?.stackAnswers);
+        ? applyDefaults(wizard, detectedAnswers)
+        : await runWizardQuestions(
+            wizard,
+            previous?.stackAnswers ?? detectedAnswers,
+          );
 
     const modules = await runModuleSelect(optional, previous?.modules);
-    const stackPack = await runStackPackSelect(stackPacks, previous?.stackPack);
+    // undefined initial = first run → seed the detected pack (or None); on a
+    // loop-back reuse the prior pick, preserving an explicit None (null).
+    const stackPack = await runStackPackSelect(
+      stackPacks,
+      previous ? previous.stackPack : detectedStackPack,
+    );
     const constitution = await runConstitutionSelect(previous?.constitution);
+    const isMultiTenant = await runMultiTenantSelect(previous?.isMultiTenant);
 
     const installedSkills = collectInstalls(wizard, stackAnswers);
     const vendorSkills = await runVendorConsent(
@@ -71,6 +86,7 @@ async function runInitV2(
       modules,
       stackPack,
       constitution,
+      isMultiTenant,
       stackAnswers,
       installedSkills,
       vendorSkills,
@@ -82,6 +98,9 @@ async function runInitV2(
     const action = await runSummary(config, resolved, manifest.skillsVersion);
 
     if (action === 'install') {
+      // Conditional, manifest-driven package gate — only the chosen pack's
+      // prerequisites are enforced, and only once the user commits to install.
+      assertPrerequisites(resolved);
       await runInstall(config);
       return;
     }
@@ -102,8 +121,14 @@ async function runInitLegacy(manifest: Manifest): Promise<void> {
     const modules = await runModuleSelect(optional, previous?.modules);
     const stackPack = await runStackPackSelect(stackPacks, previous?.stackPack);
     const constitution = await runConstitutionSelect(previous?.constitution);
+    const isMultiTenant = await runMultiTenantSelect(previous?.isMultiTenant);
 
-    const config: WizardConfig = { modules, stackPack, constitution };
+    const config: WizardConfig = {
+      modules,
+      stackPack,
+      constitution,
+      isMultiTenant,
+    };
 
     const selected = [...modules, ...(stackPack ? [stackPack] : [])];
     const resolved = resolveModules(manifest, selected);
@@ -111,6 +136,9 @@ async function runInitLegacy(manifest: Manifest): Promise<void> {
     const action = await runSummary(config, resolved, manifest.skillsVersion);
 
     if (action === 'install') {
+      // Conditional, manifest-driven package gate — only the chosen pack's
+      // prerequisites are enforced, and only once the user commits to install.
+      assertPrerequisites(resolved);
       await runInstall(config);
       return;
     }

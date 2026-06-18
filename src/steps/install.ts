@@ -6,6 +6,8 @@ import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
 import { DOCS_URL, FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { fetchAndInstall } from '../lib/installer.js';
+import { fetchVendorSkills } from '../lib/vendor-fetch.js';
+import type { VendorFetchResult } from '../lib/vendor-fetch.js';
 import {
   configPath,
   readPharnConfig,
@@ -53,6 +55,7 @@ export async function runInstall(config: WizardConfig): Promise<void> {
       selected,
       constitution: config.constitution,
       wizardSkills: config.installedSkills,
+      isMultiTenant: config.isMultiTenant,
     });
     skillsVersion = result.skillsVersion;
     commit = result.commit;
@@ -67,12 +70,39 @@ export async function runInstall(config: WizardConfig): Promise<void> {
     process.exit(1);
   }
 
+  // Vendor official skills are fetched from each vendor's own registry, AFTER
+  // the (atomic) pharn-oss install. Intentionally outside the try/catch above:
+  // a vendor 404/network error is non-fatal and must never fail the install.
+  let vendorResult: VendorFetchResult = { fetched: [], manual: [], failed: [] };
+  if (config.vendorSkills && config.vendorSkills.length > 0) {
+    const vs = spinner();
+    vs.start('Fetching vendor skills');
+    vendorResult = await fetchVendorSkills(claudeDir, config.vendorSkills);
+    vs.stop(
+      vendorResult.fetched.length > 0
+        ? `Vendor skills fetched → ${pc.dim('.claude/skills/')}`
+        : 'Vendor skills processed',
+    );
+    for (const f of vendorResult.failed) {
+      log.warn(`Vendor skill "${f.name}" could not be fetched: ${f.message}`);
+    }
+    if (vendorResult.manual.length > 0) {
+      log.info(
+        `Install by hand (no known source): ${vendorResult.manual.join(', ')}`,
+      );
+    }
+    if (vendorResult.failed.length > 0 && !process.env.PHARN_DEBUG) {
+      log.info('Re-run with PHARN_DEBUG=1 for full error output.');
+    }
+  }
+
   const configFile: PharnConfig = {
     pharnVersion: PHARN_VERSION,
     skillsVersion,
     repo: REPO_URL.replace(/^github\.com\//, ''),
     commit,
     constitution: config.constitution,
+    isMultiTenant: config.isMultiTenant,
     modules: toInstalledModules(resolved),
     installedAt: new Date().toISOString(),
     // schemaVersion 2: persist the wizard answers + selected skills so add and
@@ -82,7 +112,7 @@ export async function runInstall(config: WizardConfig): Promise<void> {
       ? { installedSkills: config.installedSkills }
       : {}),
     ...(config.vendorSkills && config.vendorSkills.length > 0
-      ? { vendorSkills: config.vendorSkills }
+      ? { vendorSkills: config.vendorSkills.map((v) => v.name) }
       : {}),
   };
   await writePharnConfig(cwd, configFile);
@@ -95,6 +125,11 @@ export async function runInstall(config: WizardConfig): Promise<void> {
       ...(config.installedSkills && config.installedSkills.length > 0
         ? [
             `${check} ${config.installedSkills.length} skill${config.installedSkills.length === 1 ? '' : 's'} installed → ${pc.dim('.claude/skills/')} ${pc.dim(`(${config.installedSkills.map((s) => s.skill).join(', ')})`)}`,
+          ]
+        : []),
+      ...(vendorResult.fetched.length > 0
+        ? [
+            `${check} ${vendorResult.fetched.length} vendor skill${vendorResult.fetched.length === 1 ? '' : 's'} fetched → ${pc.dim('.claude/skills/')} ${pc.dim(`(${vendorResult.fetched.join(', ')})`)}`,
           ]
         : []),
       `${check} CONSTITUTION.md + memory-bank written`,

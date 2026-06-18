@@ -21,20 +21,26 @@ vi.mock('../src/lib/manifest.js', () => ({
   resolveModules,
 }));
 
-const runPrereqs = vi.fn();
+const runGitPrereq = vi.fn();
+const assertPrerequisites = vi.fn();
 const runFreshCheck = vi.fn(async () => undefined);
 const runModuleSelect = vi.fn(async () => [] as string[]);
 const runStackPackSelect = vi.fn(async () => null);
 const runConstitutionSelect = vi.fn(async () => 'standard' as const);
+const runMultiTenantSelect = vi.fn(async () => true);
 const runSummary = vi.fn();
 const runInstall = vi.fn(async () => undefined);
-vi.mock('../src/steps/prereqs.js', () => ({ runPrereqs }));
+vi.mock('../src/steps/prereqs.js', () => ({
+  runGitPrereq,
+  assertPrerequisites,
+}));
 vi.mock('../src/steps/fresh-check.js', () => ({ runFreshCheck }));
 vi.mock('../src/steps/module-select.js', () => ({ runModuleSelect }));
 vi.mock('../src/steps/stackpack-select.js', () => ({ runStackPackSelect }));
 vi.mock('../src/steps/constitution-select.js', () => ({
   runConstitutionSelect,
 }));
+vi.mock('../src/steps/multitenant-select.js', () => ({ runMultiTenantSelect }));
 vi.mock('../src/steps/summary.js', () => ({ runSummary }));
 vi.mock('../src/steps/install.js', () => ({ runInstall }));
 
@@ -52,7 +58,9 @@ describe('runInit', () => {
 
     await runInit();
 
-    expect(runPrereqs).toHaveBeenCalled();
+    expect(runGitPrereq).toHaveBeenCalled();
+    // Package prerequisites are checked on the install path, not up front.
+    expect(assertPrerequisites).toHaveBeenCalledTimes(1);
     expect(runInstall).toHaveBeenCalledTimes(1);
   });
 
@@ -71,6 +79,7 @@ describe('runInit', () => {
     runSummary.mockResolvedValue('cancel');
 
     await expect(runInit()).rejects.toMatchObject(new ProcessExit(0));
+    expect(assertPrerequisites).not.toHaveBeenCalled();
     expect(runInstall).not.toHaveBeenCalled();
   });
 

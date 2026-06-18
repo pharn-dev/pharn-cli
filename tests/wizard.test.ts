@@ -4,13 +4,15 @@ import {
   applyRulesToQuestion,
   collectInstalls,
   collectVendorSkills,
+  describeAnswers,
+  detectAnswers,
   findSkillOption,
   listSkillAddresses,
   matchCondition,
   pendingWarnings,
 } from '../src/lib/wizard.js';
 import { wizardSpec } from './wizard-fixture.js';
-import type { WizardQuestion } from '../src/types.js';
+import type { WizardQuestion, WizardSpec } from '../src/types.js';
 
 const wizard = wizardSpec();
 
@@ -127,7 +129,10 @@ describe('collectInstalls', () => {
 describe('collectVendorSkills', () => {
   it('collects vendorSkill of answered options', () => {
     expect(collectVendorSkills(wizard, { database: 'supabase' })).toEqual([
-      'supabase',
+      {
+        name: 'supabase',
+        source: 'github:supabase/supabase-skills/database',
+      },
     ]);
     expect(collectVendorSkills(wizard, { database: 'neon' })).toEqual([]);
   });
@@ -142,6 +147,108 @@ describe('applyDefaults', () => {
       email: 'resend',
       payments: 'stripe',
     });
+  });
+
+  it('overlays detected answers over the defaults', () => {
+    expect(applyDefaults(wizard, { orm: 'prisma' })).toEqual({
+      database: 'supabase',
+      orm: 'prisma',
+      auth: 'better-auth',
+      email: 'resend',
+      payments: 'stripe',
+    });
+  });
+
+  it('snaps a choice a hide rule removed back to the default option', () => {
+    // database=neon triggers `hide supabase-auth`; the overlaid supabase-auth is
+    // no longer selectable, so auth snaps to its default (better-auth).
+    expect(
+      applyDefaults(wizard, { database: 'neon', auth: 'supabase-auth' }),
+    ).toEqual({
+      database: 'neon',
+      orm: 'drizzle',
+      auth: 'better-auth',
+      email: 'resend',
+      payments: 'stripe',
+    });
+  });
+
+  it('records a hideQuestion-hidden question as skip instead of its default', () => {
+    const w: WizardSpec = {
+      sections: [
+        {
+          id: 's',
+          title: 'S',
+          questions: [
+            {
+              id: 'database',
+              prompt: 'DB',
+              options: [
+                {
+                  value: 'supabase',
+                  label: 'Supabase',
+                  default: true,
+                  install: null,
+                },
+                { value: 'sqlite', label: 'SQLite', install: null },
+              ],
+            },
+            {
+              id: 'orm',
+              prompt: 'ORM',
+              options: [
+                {
+                  value: 'drizzle',
+                  label: 'Drizzle',
+                  default: true,
+                  install: null,
+                },
+                { value: 'skip', label: 'skip', install: null },
+              ],
+              rules: [{ type: 'hideQuestion', if: { database: 'sqlite' } }],
+            },
+          ],
+        },
+      ],
+      defaults: { database: 'supabase', orm: 'drizzle' },
+    };
+    // sqlite hides the orm question, so its default (drizzle) is dropped to skip.
+    expect(applyDefaults(w, { database: 'sqlite' })).toEqual({
+      database: 'sqlite',
+      orm: 'skip',
+    });
+  });
+});
+
+describe('describeAnswers', () => {
+  it('maps answer values to option labels in question order', () => {
+    // input order is irrelevant — output follows the wizard's question order.
+    expect(
+      describeAnswers(wizard, { orm: 'prisma', database: 'supabase' }),
+    ).toEqual(['Supabase', 'Prisma']);
+  });
+
+  it('falls back to the raw value when no option matches', () => {
+    expect(describeAnswers(wizard, { database: 'mystery' })).toEqual([
+      'mystery',
+    ]);
+  });
+});
+
+describe('detectAnswers', () => {
+  it('maps installed packages to the matching option per question', () => {
+    expect(
+      detectAnswers(wizard, new Set(['drizzle-orm', '@supabase/supabase-js'])),
+    ).toEqual({ database: 'supabase', orm: 'drizzle' });
+  });
+
+  it('returns no answers when nothing matches', () => {
+    expect(detectAnswers(wizard, new Set(['express']))).toEqual({});
+  });
+
+  it('ignores coming-soon options', () => {
+    // convex carries detect: ['convex'] but is comingSoon — never auto-picked.
+    expect(detectAnswers(wizard, new Set(['convex']))).toEqual({});
   });
 });
 

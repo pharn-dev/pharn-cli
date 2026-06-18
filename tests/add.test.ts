@@ -45,9 +45,21 @@ const stackPacks: ManifestModule[] = [
   },
 ];
 const categorizeModules = vi.fn(() => ({ core: [], optional, stackPacks }));
+// The add prereq gate resolves the union; return prereq-less modules so the gate
+// is a no-op (prerequisite enforcement itself is covered in prereqs.test.ts).
+const resolveModules = vi.fn((_manifest: unknown, selected: string[]) =>
+  selected.map((name) => ({
+    name,
+    version: '0.1.0',
+    required: false,
+    dependsOn: [],
+    description: name,
+  })),
+);
 vi.mock('../src/lib/manifest.js', () => ({
   fetchRemoteManifest,
   categorizeModules,
+  resolveModules,
 }));
 
 const fetchAndInstall = vi.fn();

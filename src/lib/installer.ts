@@ -29,6 +29,9 @@ export async function fetchAndInstall(params: {
   constitution?: Constitution;
   // schemaVersion 2: specific skill subfolders resolved from wizard answers.
   wizardSkills?: InstalledSkill[];
+  // Whether the project is a multi-tenant SaaS. When false, Principle 2 is
+  // stripped from the materialized constitution. Defaults to true.
+  isMultiTenant?: boolean;
 }): Promise<InstallResult> {
   const repo = await fetchRepo();
   const wizardSkills = params.wizardSkills ?? [];
@@ -45,7 +48,12 @@ export async function fetchAndInstall(params: {
     }
     installSkills(repo.dir, params.claudeDir, wizardSkills);
     if (params.constitution) {
-      materializeCore(repo.dir, params.claudeDir, params.constitution);
+      materializeCore(
+        repo.dir,
+        params.claudeDir,
+        params.constitution,
+        params.isMultiTenant,
+      );
     }
 
     const commit = await fetchCommitSha();

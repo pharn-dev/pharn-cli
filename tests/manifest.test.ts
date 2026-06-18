@@ -8,13 +8,14 @@ import {
   resolveModules,
   categorizeModules,
   isStackPack,
+  detectStackPack,
   ResolutionError,
   fetchRemoteManifest,
   readManifest,
   readModuleManifest,
 } from '../src/lib/manifest.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
-import type { Manifest } from '../src/types.js';
+import type { Manifest, ManifestModule } from '../src/types.js';
 
 function manifest(): Manifest {
   return parseManifest({
@@ -160,6 +161,74 @@ describe('parseManifest', () => {
         ],
       }),
     ).toThrow(ManifestValidationError);
+  });
+
+  it('parses a valid prerequisites array onto the module', () => {
+    const reason = 'Next.js required. Run: npx create-next-app@latest';
+    const parsed = parseManifest({
+      schemaVersion: 1,
+      skillsVersion: '0.1.0',
+      modules: [
+        {
+          name: 'pharn-stack-nextjs',
+          version: '0.1.0',
+          required: false,
+          dependsOn: [],
+          description: 'nextjs',
+          prerequisites: [{ package: 'next', reason }],
+        },
+      ],
+    });
+    expect(parsed.modules[0]!.prerequisites).toEqual([
+      { package: 'next', reason },
+    ]);
+  });
+
+  it('accepts a scoped npm package name in prerequisites', () => {
+    expect(() =>
+      parseManifest({
+        schemaVersion: 1,
+        skillsVersion: '0.1.0',
+        modules: [
+          {
+            name: 'pharn-core',
+            version: '0.1.0',
+            required: true,
+            dependsOn: [],
+            description: 'core',
+            prerequisites: [{ package: '@org/pkg', reason: 'needs it' }],
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects malformed prerequisites', () => {
+    const withPre = (prerequisites: unknown) => () =>
+      parseManifest({
+        schemaVersion: 1,
+        skillsVersion: '0.1.0',
+        modules: [
+          {
+            name: 'pharn-core',
+            version: '0.1.0',
+            required: true,
+            dependsOn: [],
+            description: 'core',
+            prerequisites,
+          },
+        ],
+      });
+    expect(withPre('next')).toThrow(ManifestValidationError); // not an array
+    expect(withPre([{ package: 'Bad_UPPER', reason: 'x' }])).toThrow(
+      ManifestValidationError, // uppercase fails the package allowlist
+    );
+    expect(withPre([{ package: 'a..b', reason: 'x' }])).toThrow(
+      ManifestValidationError, // '..' rejected
+    );
+    expect(withPre([{ package: 'next' }])).toThrow(
+      ManifestValidationError, // missing reason
+    );
   });
 });
 
@@ -322,6 +391,44 @@ describe('isStackPack', () => {
   it('treats a plain module as not a stack pack', () => {
     const m = manifest().modules.find((x) => x.name === 'pharn-pipeline')!;
     expect(isStackPack(m)).toBe(false);
+  });
+});
+
+describe('detectStackPack', () => {
+  const nextjs: ManifestModule = {
+    name: 'pharn-stack-nextjs',
+    version: '0.1.0',
+    required: false,
+    dependsOn: [],
+    exclusiveWith: ['pharn-stack-*'],
+    description: 'nextjs',
+    prerequisites: [{ package: 'next', reason: 'needs next' }],
+  };
+
+  it('preselects the pack when all its prerequisites are present', () => {
+    expect(detectStackPack([nextjs], new Set(['next', 'react']))).toBe(
+      'pharn-stack-nextjs',
+    );
+  });
+
+  it('returns null when a prerequisite is absent', () => {
+    expect(detectStackPack([nextjs], new Set(['react']))).toBeNull();
+  });
+
+  it('never auto-matches a pack that declares no prerequisites', () => {
+    const noPre: ManifestModule = { ...nextjs, prerequisites: undefined };
+    expect(detectStackPack([noPre], new Set(['next']))).toBeNull();
+  });
+
+  it('returns the first matching pack', () => {
+    const remix: ManifestModule = {
+      ...nextjs,
+      name: 'pharn-stack-remix',
+      prerequisites: [{ package: 'next', reason: 'x' }],
+    };
+    expect(detectStackPack([nextjs, remix], new Set(['next']))).toBe(
+      'pharn-stack-nextjs',
+    );
   });
 });
 

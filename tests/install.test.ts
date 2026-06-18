@@ -19,6 +19,9 @@ vi.mock('@clack/prompts', () => ({
 const fetchAndInstall = vi.fn();
 vi.mock('../src/lib/installer.js', () => ({ fetchAndInstall }));
 
+const fetchVendorSkills = vi.fn();
+vi.mock('../src/lib/vendor-fetch.js', () => ({ fetchVendorSkills }));
+
 const writePharnConfig = vi.fn();
 const readPharnConfig = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
@@ -36,6 +39,7 @@ const config: WizardConfig = {
   modules: ['pharn-pipeline'],
   stackPack: 'pharn-stack-nextjs',
   constitution: 'standard',
+  isMultiTenant: true,
 };
 
 const okResult = {
@@ -52,6 +56,12 @@ describe('runInstall', () => {
   beforeEach(() => {
     vi.spyOn(process, 'cwd').mockReturnValue('/proj');
     fetchAndInstall.mockReset();
+    fetchVendorSkills.mockReset();
+    fetchVendorSkills.mockResolvedValue({
+      fetched: [],
+      manual: [],
+      failed: [],
+    });
     writePharnConfig.mockReset();
     readPharnConfig.mockReset();
     existsSync.mockReset();
@@ -68,6 +78,7 @@ describe('runInstall', () => {
       claudeDir: '/proj/.claude',
       selected: ['pharn-pipeline', 'pharn-stack-nextjs'],
       constitution: 'standard',
+      isMultiTenant: true,
     });
     const [, written] = writePharnConfig.mock.calls[0]!;
     expect(written).toMatchObject({
@@ -75,6 +86,7 @@ describe('runInstall', () => {
       commit: 'deadbeef',
       repo: 'pharn-dev/pharn-oss',
       constitution: 'standard',
+      isMultiTenant: true,
       modules: [
         { name: 'pharn-core', version: '0.2.0' },
         { name: 'pharn-pipeline', version: '0.5.0' },
@@ -94,12 +106,16 @@ describe('runInstall', () => {
       modules: ['pharn-pipeline'],
       stackPack: 'pharn-stack-nextjs',
       constitution: 'standard',
+      isMultiTenant: true,
       stackAnswers: { database: 'supabase', orm: 'drizzle', payments: 'skip' },
       installedSkills: [
         { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
         { skill: 'stripe', from: 'pharn-skills-payments/skills/stripe' },
       ],
-      vendorSkills: ['supabase'],
+      vendorSkills: [
+        { name: 'supabase', source: 'github:acme/supabase' },
+        { name: 'stripe', source: null },
+      ],
     };
 
     await runInstall(v2Config);
@@ -109,11 +125,52 @@ describe('runInstall', () => {
       selected: ['pharn-pipeline', 'pharn-stack-nextjs'],
       constitution: 'standard',
       wizardSkills: v2Config.installedSkills,
+      isMultiTenant: true,
     });
+    // The consented vendor skills (name + source) are passed to the fetcher;
+    // only their names are persisted to pharn.config.json.
+    expect(fetchVendorSkills).toHaveBeenCalledWith(
+      '/proj/.claude',
+      v2Config.vendorSkills,
+    );
     const [, written] = writePharnConfig.mock.calls[0]!;
     expect(written.stackAnswers).toEqual(v2Config.stackAnswers);
     expect(written.installedSkills).toEqual(v2Config.installedSkills);
-    expect(written.vendorSkills).toEqual(v2Config.vendorSkills);
+    expect(written.vendorSkills).toEqual(['supabase', 'stripe']);
+  });
+
+  it('still writes the config when a vendor fetch fails (non-fatal)', async () => {
+    existsSync.mockReturnValue(false);
+    fetchAndInstall.mockResolvedValue(okResult);
+    fetchVendorSkills.mockResolvedValue({
+      fetched: [],
+      manual: [],
+      failed: [{ name: 'supabase', message: '404' }],
+    });
+    const v2Config: WizardConfig = {
+      ...config,
+      vendorSkills: [{ name: 'supabase', source: 'github:acme/supabase' }],
+    };
+
+    await runInstall(v2Config);
+
+    expect(prompts.log.warn).toHaveBeenCalled();
+    const [, written] = writePharnConfig.mock.calls[0]!;
+    expect(written.vendorSkills).toEqual(['supabase']);
+    expect(prompts.outro).toHaveBeenCalled();
+  });
+
+  it('forwards and persists isMultiTenant: false', async () => {
+    existsSync.mockReturnValue(false);
+    fetchAndInstall.mockResolvedValue(okResult);
+
+    await runInstall({ ...config, isMultiTenant: false });
+
+    expect(fetchAndInstall).toHaveBeenCalledWith(
+      expect.objectContaining({ isMultiTenant: false }),
+    );
+    const [, written] = writePharnConfig.mock.calls[0]!;
+    expect(written.isMultiTenant).toBe(false);
   });
 
   it('overwrites after confirmation when a config already exists', async () => {

@@ -16,6 +16,7 @@ const config: WizardConfig = {
   modules: ['pharn-pipeline'],
   stackPack: 'pharn-stack-nextjs',
   constitution: 'standard',
+  isMultiTenant: true,
 };
 const resolved: ManifestModule[] = [
   {
@@ -68,13 +69,33 @@ describe('runSummary', () => {
       installedSkills: [
         { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
       ],
-      vendorSkills: ['supabase'],
+      vendorSkills: [
+        { name: 'supabase', source: 'github:acme/supabase' },
+        { name: 'stripe', source: null },
+      ],
     };
     await runSummary(v2, resolved, '0.69.0');
     const note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
     expect(note).toContain('SKILLS (selected)');
     expect(note).toContain('drizzle');
     expect(note).toContain('VENDOR SKILLS (recorded)');
-    expect(note).toContain('supabase');
+    expect(note).toMatch(/supabase\s+fetch: auto/);
+    expect(note).toMatch(/stripe\s+install by hand/);
+  });
+
+  it('renders the multi-tenant SaaS row (Yes; No adds a P2 note)', async () => {
+    vi.mocked(prompts.select).mockResolvedValue('install');
+
+    await runSummary(config, resolved, '0.68.1');
+    let note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
+    expect(note).toMatch(/Multi-tenant SaaS\s+Yes/);
+    expect(note).not.toContain('Principle 2 (Multi-Tenant Isolation)');
+
+    await runSummary({ ...config, isMultiTenant: false }, resolved, '0.68.1');
+    note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
+    expect(note).toMatch(/Multi-tenant SaaS\s+No/);
+    expect(note).toContain(
+      'Principle 2 (Multi-Tenant Isolation) will be omitted.',
+    );
   });
 });

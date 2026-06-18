@@ -27,6 +27,10 @@ export async function runSummary(
       'Constitution',
       CONSTITUTION_LABELS[config.constitution] ?? config.constitution,
     ),
+    row('Multi-tenant SaaS', config.isMultiTenant ? 'Yes' : 'No'),
+    ...(config.isMultiTenant
+      ? []
+      : ['  Principle 2 (Multi-Tenant Isolation) will be omitted.']),
     row('Stack pack', config.stackPack ?? 'None'),
     '',
     '  MODULES (resolved, incl. dependencies)',
@@ -45,7 +49,9 @@ export async function runSummary(
       ? [
           '',
           '  VENDOR SKILLS (recorded)',
-          ...config.vendorSkills.map((v) => row(v, 'fetch: coming soon')),
+          ...config.vendorSkills.map((v) =>
+            row(v.name, v.source ? 'fetch: auto' : 'install by hand'),
+          ),
         ]
       : []),
     '',

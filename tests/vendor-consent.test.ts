@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CANCEL, ProcessExit, stubProcessExit } from './helpers.js';
+import type { VendorSkill } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
   isCancel: (v: unknown) => v === CANCEL,
@@ -11,6 +12,11 @@ vi.mock('@clack/prompts', () => ({
 const { runVendorConsent } = await import('../src/steps/vendor-consent.js');
 const prompts = await import('@clack/prompts');
 
+const v = (name: string, source: string | null = null): VendorSkill => ({
+  name,
+  source,
+});
+
 describe('runVendorConsent', () => {
   stubProcessExit();
 
@@ -21,9 +27,9 @@ describe('runVendorConsent', () => {
 
   it('dedupes candidates and returns the consented set', async () => {
     vi.mocked(prompts.multiselect).mockResolvedValue(['supabase']);
-    await expect(runVendorConsent(['supabase', 'supabase'])).resolves.toEqual([
-      'supabase',
-    ]);
+    await expect(
+      runVendorConsent([v('supabase', 'github:acme/supabase'), v('supabase')]),
+    ).resolves.toEqual([v('supabase', 'github:acme/supabase')]);
     expect(prompts.note).toHaveBeenCalled();
     const [[arg]] = vi.mocked(prompts.multiselect).mock.calls as unknown as [
       [{ options: { value: string }[] }],
@@ -31,9 +37,27 @@ describe('runVendorConsent', () => {
     expect(arg.options.map((o) => o.value)).toEqual(['supabase']);
   });
 
+  it('labels unsourced candidates as manual install', async () => {
+    vi.mocked(prompts.multiselect).mockResolvedValue([]);
+    await runVendorConsent([
+      v('supabase', 'github:acme/supabase'),
+      v('stripe'),
+    ]);
+    const arg = vi.mocked(prompts.multiselect).mock.calls.at(-1)![0] as {
+      options: { value: string; label: string }[];
+    };
+    expect(arg.options).toEqual([
+      { value: 'supabase', label: 'supabase' },
+      { value: 'stripe', label: 'stripe  (manual install)' },
+    ]);
+  });
+
   it('restores prior consent on loop-back, dropping no-longer-offered values', async () => {
     vi.mocked(prompts.multiselect).mockResolvedValue(['supabase']);
-    await runVendorConsent(['supabase', 'stripe'], ['supabase', 'gone']);
+    await runVendorConsent(
+      [v('supabase'), v('stripe')],
+      [v('supabase'), v('gone')],
+    );
     const arg = vi.mocked(prompts.multiselect).mock.calls.at(-1)![0] as {
       initialValues: string[];
     };
@@ -42,7 +66,7 @@ describe('runVendorConsent', () => {
 
   it('default-checks everything when no initial is given', async () => {
     vi.mocked(prompts.multiselect).mockResolvedValue([]);
-    await runVendorConsent(['supabase', 'stripe']);
+    await runVendorConsent([v('supabase'), v('stripe')]);
     const arg = vi.mocked(prompts.multiselect).mock.calls.at(-1)![0] as {
       initialValues: string[];
     };
@@ -51,7 +75,7 @@ describe('runVendorConsent', () => {
 
   it('exits when cancelled', async () => {
     vi.mocked(prompts.multiselect).mockResolvedValue(CANCEL);
-    await expect(runVendorConsent(['supabase'])).rejects.toMatchObject(
+    await expect(runVendorConsent([v('supabase')])).rejects.toMatchObject(
       new ProcessExit(0),
     );
   });

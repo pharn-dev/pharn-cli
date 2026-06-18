@@ -11,15 +11,25 @@ import {
 import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
 import { REPO_URL } from '../lib/constants.js';
-import { categorizeModules, fetchRemoteManifest } from '../lib/manifest.js';
+import {
+  categorizeModules,
+  fetchRemoteManifest,
+  resolveModules,
+} from '../lib/manifest.js';
 import { findSkillOption, listSkillAddresses } from '../lib/wizard.js';
+import { assertPrerequisites } from '../steps/prereqs.js';
 import { fetchAndInstall } from '../lib/installer.js';
 import {
   readPharnConfig,
   toInstalledModules,
   writePharnConfig,
 } from '../lib/pharn-config.js';
-import type { InstalledSkill, Manifest, PharnConfig } from '../types.js';
+import type {
+  InstalledSkill,
+  Manifest,
+  ManifestModule,
+  PharnConfig,
+} from '../types.js';
 
 export async function runAdd(moduleArg: string | undefined): Promise<void> {
   intro('pharn add');
@@ -73,6 +83,26 @@ export async function runAdd(moduleArg: string | undefined): Promise<void> {
     name = choice as string;
   }
   const moduleName: string = name;
+  const union = [...installed, moduleName];
+
+  // Resolve up front to discover the new module's transitive deps; a conflict
+  // (ResolutionError, e.g. a second stack pack) fails here before any network
+  // work, sharing the install-failure exit path below.
+  let newlyResolved: ManifestModule[];
+  try {
+    newlyResolved = resolveModules(manifest, union).filter(
+      (m) => !installed.has(m.name),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`⚠ ${message}`);
+    if (process.env.PHARN_DEBUG) console.error(err);
+    process.exit(1);
+  }
+  // Same prerequisite gate as init: the newly-introduced modules' declared
+  // packages must already be in package.json, so `add pharn-stack-nextjs` into
+  // a non-Next project fails identically instead of bypassing the requirement.
+  assertPrerequisites(newlyResolved, cwd, `npx pharn add ${moduleName}`);
 
   const claudeDir = resolve(cwd, '.claude');
   const s = spinner();
@@ -82,7 +112,6 @@ export async function runAdd(moduleArg: string | undefined): Promise<void> {
   let commit: string | null;
   try {
     // Re-resolve the union so dependencies of the new module are pulled in too.
-    const union = [...installed, moduleName];
     const result = await fetchAndInstall({ claudeDir, selected: union });
     resolved = result.resolved;
     skillsVersion = result.skillsVersion;

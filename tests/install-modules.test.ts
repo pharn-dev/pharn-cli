@@ -189,6 +189,65 @@ describe('materializeCore', () => {
     );
   });
 
+  it('strips Principle 2 when the project is not multi-tenant', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    scaffoldCore(repoDir);
+    // Overwrite the standard variant with realistic structure so the strip has
+    // numbered headings + a principles_included list to operate on.
+    write(
+      join(
+        repoDir,
+        'pharn-core',
+        'templates',
+        'constitution',
+        'CONSTITUTION.standard.md',
+      ),
+      [
+        '---',
+        'principles_included: [1, 2, 3, 4]',
+        '---',
+        '',
+        '## Principle 1: Privacy by Default',
+        '',
+        '- p1',
+        '',
+        '## Principle 2: Multi-Tenant Isolation',
+        '',
+        '- p2',
+        '',
+        '## Principle 3: Layer Integrity',
+        '',
+        '- p3',
+        '',
+        '## How this file is enforced',
+        '',
+        'x',
+        '',
+      ].join('\n'),
+    );
+
+    materializeCore(repoDir, claudeDir, 'standard', false);
+
+    const out = readFileSync(join(claudeDir, 'CONSTITUTION.md'), 'utf8');
+    expect(out).toContain('principles_included: [1, 3, 4]');
+    expect(out).not.toMatch(/## Principle 2:/);
+    expect(out).toContain('## Principle 1: Privacy by Default');
+    expect(out).toContain('## Principle 3: Layer Integrity');
+  });
+
+  it('keeps the constitution verbatim when multi-tenant (the default)', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    scaffoldCore(repoDir);
+
+    materializeCore(repoDir, claudeDir, 'standard', true);
+
+    expect(readFileSync(join(claudeDir, 'CONSTITUTION.md'), 'utf8')).toBe(
+      'STANDARD',
+    );
+  });
+
   it('throws on an unknown constitution variant', () => {
     const repoDir = join(tmp.path(), 'repo');
     const claudeDir = join(tmp.path(), '.claude');

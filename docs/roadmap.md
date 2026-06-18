@@ -19,12 +19,13 @@ What PHARN CLI does today versus what is planned.
 | `pharn update` — refresh installed modules to the latest version | Shipped |
 | `pharn list` — show installed + available modules/skills (read-only, `--json`) | Shipped |
 | `pharn status` — read-only version + local-drift report (modified/missing PHARN-owned files; `--strict`, `--no-drift`) | Shipped |
+| Vendor official-skill fetching — `init` auto-fetches consented vendor skills (e.g. Supabase) from their declared `source` into `.claude/skills/`, degrading to manual install where no source is known | Shipped |
 
 ## Planned
 
 | Capability | Description |
 | ---------- | ----------- |
-| Vendor official-skill fetching | `init` records consent for vendor skills (e.g. Supabase) today; automatic fetching of those official skills from the vendor registry, with SHA pinning, is not built yet |
+| Vendor skill SHA pinning | Vendor fetches are by `source` reference today; pinning each fetched vendor skill to a commit SHA is not built yet |
 | Stack scaffolding | Install npm packages / generate app code from the stack pack |
 | Additional stack packs | Beyond `pharn-stack-nextjs` |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only warns) |

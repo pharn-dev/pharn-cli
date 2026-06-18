@@ -55,6 +55,7 @@ describe('fetchAndInstall', () => {
       '/tmp/repo',
       '/proj/.claude',
       'standard',
+      undefined,
     );
     expect(cleanup).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
@@ -68,6 +69,21 @@ describe('fetchAndInstall', () => {
   it('skips materializeCore when no constitution is given', async () => {
     await fetchAndInstall({ claudeDir: '/proj/.claude', selected: [] });
     expect(materializeCore).not.toHaveBeenCalled();
+  });
+
+  it('forwards isMultiTenant to materializeCore', async () => {
+    await fetchAndInstall({
+      claudeDir: '/proj/.claude',
+      selected: [],
+      constitution: 'standard',
+      isMultiTenant: false,
+    });
+    expect(materializeCore).toHaveBeenCalledWith(
+      '/tmp/repo',
+      '/proj/.claude',
+      'standard',
+      false,
+    );
   });
 
   it('validates skill sources before any module copy, then installs them', async () => {

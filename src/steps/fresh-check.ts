@@ -1,56 +1,10 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { warnAndConfirm } from '../lib/confirm.js';
 
-export const CUSTOM_FILE_THRESHOLD = 3;
-
-const KNOWN_FILES = new Set([
-  'package.json',
-  'package-lock.json',
-  'pnpm-lock.yaml',
-  'yarn.lock',
-  'bun.lockb',
-  '.gitignore',
-  'tsconfig.json',
-  'tsconfig.tsbuildinfo',
-  'README.md',
-  'components.json',
-  'next-env.d.ts',
-  '.eslintrc',
-  '.eslintrc.json',
-  'biome.json',
-  'biome.jsonc',
-]);
-
-const KNOWN_PREFIXES = [
-  'next.config.',
-  'eslint.config.',
-  'postcss.config.',
-  'tailwind.config.',
-  'prettier.config.',
-];
-
-const KNOWN_DIRS = new Set([
-  'public',
-  'app',
-  'src',
-  'pages',
-  'node_modules',
-  '.git',
-  '.next',
-  'components',
-  'lib',
-  'hooks',
-  'styles',
-]);
-
-const KNOWN_APP_FILES = new Set([
-  'page.tsx',
-  'layout.tsx',
-  'globals.css',
-  'favicon.ico',
-]);
+// A fresh scaffold (e.g. create-next-app + shadcn init) tracks ~25 files in its
+// initial commit, so this generous threshold won't fire on the common case —
+// it flags a substantial existing codebase committed under a single commit.
+export const TRACKED_FILE_THRESHOLD = 40;
 
 export async function runFreshCheck(): Promise<void> {
   const cwd = process.cwd();
@@ -58,7 +12,7 @@ export async function runFreshCheck(): Promise<void> {
 
   if (commits >= 6) {
     await warnAndConfirm(
-      '⚠ This project has significant history. PHARN works best on fresh Next.js projects. For existing projects, see /docs/migrate (coming in v2).',
+      '⚠ This project has significant git history. PHARN works best on fresh projects. For existing projects, see /docs/migrate (coming in v2).',
       'Continue anyway?',
       false,
     );
@@ -75,12 +29,11 @@ export async function runFreshCheck(): Promise<void> {
   }
 
   if (commits <= 1) {
-    // create-next-app makes one initial commit, so the common "fresh scaffold"
-    // case lands here — still run the custom-file heuristic.
-    const custom = countCustomFiles(cwd);
-    if (custom > CUSTOM_FILE_THRESHOLD) {
+    // A scaffold commonly lands here (create-next-app makes one initial commit),
+    // so distinguish a fresh scaffold from a populated repo by tracked-file count.
+    if (gitTrackedFileCount(cwd) > TRACKED_FILE_THRESHOLD) {
       await warnAndConfirm(
-        '⚠ This project looks customized already. PHARN init is designed for fresh Next.js scaffolds. Continuing may conflict with existing files.',
+        '⚠ This project looks customized already. PHARN init is designed for fresh projects. Continuing may conflict with existing files.',
         'Continue anyway?',
         false,
       );
@@ -102,36 +55,14 @@ export function gitCommitCount(cwd: string): number {
   }
 }
 
-export function countCustomFiles(cwd: string): number {
-  let count = 0;
-  for (const entry of readdirSync(cwd)) {
-    if (entry.startsWith('.')) continue;
-    if (KNOWN_DIRS.has(entry) || KNOWN_FILES.has(entry)) continue;
-    if (KNOWN_PREFIXES.some((p) => entry.startsWith(p))) continue;
-    const full = resolve(cwd, entry);
-    try {
-      if (statSync(full).isDirectory()) {
-        count += 1;
-        continue;
-      }
-    } catch {
-      continue;
-    }
-    count += 1;
+export function gitTrackedFileCount(cwd: string): number {
+  try {
+    const out = execSync('git ls-files', {
+      cwd,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString();
+    return out.split('\n').filter((line) => line.trim() !== '').length;
+  } catch {
+    return 0;
   }
-  count += countAppCustomFiles(cwd);
-  return count;
-}
-
-function countAppCustomFiles(cwd: string): number {
-  // `--src-dir` scaffolds put the router under src/app instead of app/.
-  const rootApp = resolve(cwd, 'app');
-  const appDir = existsSync(rootApp) ? rootApp : resolve(cwd, 'src', 'app');
-  if (!existsSync(appDir)) return 0;
-  let count = 0;
-  for (const entry of readdirSync(appDir)) {
-    if (KNOWN_APP_FILES.has(entry)) continue;
-    count += 1;
-  }
-  return count;
 }

@@ -2,6 +2,14 @@
 // PHARN OSS manifest (manifest.json at the repo root)
 // ---------------------------------------------------------------------------
 
+// A package that must already be in the user's project (deps or devDeps) for a
+// module to apply. Checked after stack-pack selection; `reason` is shown to the
+// user verbatim on failure.
+export interface ModulePrerequisite {
+  package: string;
+  reason: string;
+}
+
 export interface ManifestModule {
   name: string;
   version: string;
@@ -12,6 +20,11 @@ export interface ManifestModule {
   // schemaVersion 2: category modules (pharn-skills-*) are marked
   // "skill-category" and are driven by the wizard, never the module multiselect.
   kind?: string;
+  // npm packages this module requires to already be installed in the user's
+  // project (e.g. pharn-stack-nextjs requires `next`). A schemaVersion 2
+  // concept, but parsed whenever present (like `kind`); absent on legacy
+  // manifests, where it is simply never enforced.
+  prerequisites?: ModulePrerequisite[];
 }
 
 export interface Manifest {
@@ -42,8 +55,14 @@ export interface WizardOption {
   install: string | null;
   // Vendor official-skill name for the consent step, or null/absent.
   vendorSkill?: string | null;
+  // degit-compatible source for the vendor's official skill (oss-6), or
+  // null/absent when no official-skill location is known (manual install only).
+  source?: string | null;
   // Rendered dimmed + "(coming soon)"; not selectable.
   comingSoon?: boolean;
+  // npm packages whose presence in package.json (deps or devDeps) marks this
+  // option as detected, used to pre-fill the wizard. Absent = not detectable.
+  detect?: string[];
 }
 
 export type WizardRule =
@@ -101,11 +120,23 @@ export interface WizardConfig {
   // The chosen stack pack (e.g. 'pharn-stack-nextjs'), or null for none.
   stackPack: string | null;
   constitution: Constitution;
+  // Whether the project is a multi-tenant SaaS. Default true (today's
+  // behavior). When false, Principle 2 (Multi-Tenant Isolation) is stripped
+  // from the installed constitution at materialize time.
+  isMultiTenant: boolean;
   // schemaVersion 2 only: per-tech wizard answers (questionId → value, incl.
   // "skip"), the skill subfolders to copy, and the vendor skills consented to.
   stackAnswers?: Record<string, string>;
   installedSkills?: InstalledSkill[];
-  vendorSkills?: string[];
+  vendorSkills?: VendorSkill[];
+}
+
+// A consented vendor official skill carried through the init flow. `source` is
+// the degit location to auto-fetch from, or null (manual install only). The
+// persisted pharn.config.json keeps only the names (see PharnConfig).
+export interface VendorSkill {
+  name: string;
+  source: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,6 +162,10 @@ export interface PharnConfig {
   repo: string;
   commit: string | null;
   constitution: Constitution;
+  // Whether the project is a multi-tenant SaaS. Written on every fresh install;
+  // absent on legacy installs predating this flag (read as true → P2 kept).
+  // When false, Principle 2 was stripped from CONSTITUTION.md at install.
+  isMultiTenant?: boolean;
   modules: InstalledModule[];
   installedAt: string;
   // schemaVersion 2 additions (absent on legacy installs):

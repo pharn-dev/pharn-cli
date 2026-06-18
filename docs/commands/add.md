@@ -13,7 +13,8 @@ pharn add                     # interactive module picker
 1. Reads `pharn.config.json`. If none exists, exits with a hint to run `pharn init` first.
 2. Fetches `manifest.json` to list available modules.
 3. Resolves the **union** of already-installed modules plus the new one, so any dependencies of the new module are pulled in too.
-4. Clones `pharn-dev/pharn-oss`, copies the resolved modules' `installs` into `.claude/`, and updates `pharn.config.json` (`modules`, `skillsVersion`, `commit`).
+4. **Checks prerequisites** for the newly-introduced modules: any package a module declares (in the manifest's `prerequisites`) must already be in your `package.json`. This is the same gate as [`init`](init.md) — e.g. `pharn add pharn-stack-nextjs` requires `next` — so a pack can't bypass it by being added after init. Missing prerequisites print their `reason` and exit **1** (see [Troubleshooting](../troubleshooting.md#stack-pack-prerequisite-missing)).
+5. Clones `pharn-dev/pharn-oss`, copies the resolved modules' `installs` into `.claude/`, and updates `pharn.config.json` (`modules`, `skillsVersion`, `commit`).
 
 `CONSTITUTION.md` is **not** touched — `add` never changes your constitution.
 

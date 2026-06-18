@@ -1,21 +1,21 @@
 # Getting started
 
-PHARN does not create a Next.js app from scratch. You scaffold with `create-next-app`, initialize git, then run PHARN in that directory.
+PHARN does not scaffold your app. You create your project (e.g. with `create-next-app`), initialize git, then run PHARN in that directory.
 
 ## Prerequisites
 
-| Requirement | How PHARN checks |
-| ----------- | ---------------- |
-| Next.js | `next` in `package.json` `dependencies` or `devDependencies` |
-| Git | `.git` directory exists in the project root |
+| Requirement | How PHARN checks | When |
+| ----------- | ---------------- | ---- |
+| Git | A `.git` directory exists in the project root | Always — checked up front, before the wizard |
+| Stack-pack packages | Every package a selected stack pack declares (via the manifest's `prerequisites`) is in `package.json` `dependencies` or `devDependencies` | Only when you pick a pack that declares one — e.g. `pharn-stack-nextjs` requires `next` |
 
-If either check fails, the CLI prints fix instructions and exits. See [Troubleshooting](troubleshooting.md).
+`.git` is required for every install. Package prerequisites are **conditional on your stack-pack choice**: selecting **None** (or a pack with no prerequisites) installs without any framework package. If a check fails, the CLI prints the stack pack's own fix instructions and exits. See [Troubleshooting](troubleshooting.md).
 
-PHARN works best on **fresh** projects. The wizard may warn when:
+PHARN works best on **fresh** projects. The wizard may warn (framework-neutral, git-based) when:
 
 - The repo has **6 or more** commits — checked first; repos with 6+ commits do not also see the 2+ warning
-- The repo has **2–5** commits (designed for fresh scaffolds)
-- There are **0–1** commits (a fresh scaffold; `create-next-app` makes one initial commit) but more than **3** custom files outside known Next.js paths
+- The repo has **2–5** commits
+- There are **0–1** commits but more than **40** tracked files (`git ls-files`) — a populated repo rather than a fresh scaffold
 
 You can continue after any warning by confirming.
 
@@ -47,17 +47,19 @@ The wizard adapts to the manifest the CLI fetches. Newer manifests (`schemaVersi
 
 ### Stack mode (schemaVersion 2)
 
-First you choose a mode:
+First the CLI reads your `package.json` and pre-fills the wizard from the manifest's detection metadata — the stack pack (when a pack's `prerequisites` are all present, e.g. `next` → `pharn-stack-nextjs`) and each technology answer (when an option's `detect` package is present, e.g. `drizzle-orm` → Drizzle). What it found is shown in a note; you can override anything, and any question with no match keeps its normal default (the recommended value in Default mode, or the option marked default in Custom mode).
 
-- **Default** — takes the recommended stack straight from the manifest and asks **no** per-technology questions.
-- **Custom** — walks each section (database, ORM, auth, email, payments, …). Options that don't apply are hidden based on earlier answers, some options are relabeled for context, and anything marked **(coming soon)** is shown but not selectable.
+Then you choose a mode:
+
+- **Default** — takes the recommended stack from the manifest, overlaid with any detected answers (detection wins; undetected questions keep the recommended default), and asks **no** per-technology questions.
+- **Custom** — walks each section (database, ORM, auth, email, payments, …) with detected answers pre-selected. Options that don't apply are hidden based on earlier answers, some options are relabeled for context, and anything marked **(coming soon)** is shown but not selectable.
 
 Then, regardless of mode, the wizard asks:
 
 1. **Methodology modules** — a multiselect of optional modules (`pharn-pipeline`, `pharn-review`, `pharn-audits`). `pharn-core` is always included.
-2. **Stack pack** — a single choice (`pharn-stack-nextjs`, or none). The stack pack pulls in its React base automatically.
+2. **Stack pack** — a single choice (`pharn-stack-nextjs`, or none), pre-selected from what was detected. The stack pack pulls in its React base automatically.
 3. **Privacy posture** — picks your constitution variant (`gdpr-strict`, `standard`, or `minimal`).
-4. **Vendor skills** — for technologies whose skill is published by the vendor (e.g. Supabase), the wizard records your consent to use it. Automatic fetching of those official skills is **Coming soon** ([roadmap](roadmap.md)); for now your choice is recorded in `pharn.config.json` and you install them by hand.
+4. **Vendor skills** — for technologies whose skill is published by the vendor (e.g. Supabase), the wizard records your consent to use it. On install, any consented skill with a known source is fetched automatically from the vendor's registry into `.claude/skills/`; a vendor with no known source yet is shown as **(manual install)** and recorded in `pharn.config.json` for you to install by hand. A vendor fetch failure is non-fatal — the rest of the install still completes.
 
 For each answered technology, the CLI copies only the matching skill folder into `.claude/skills/<skill>/` — never the sibling options you didn't pick.
 

@@ -7,6 +7,7 @@ import type {
   WizardQuestion,
   WizardRule,
   WizardSpec,
+  VendorSkill,
 } from '../types.js';
 
 type WarnRule = Extract<WizardRule, { type: 'warn' }>;
@@ -131,24 +132,99 @@ export function collectInstalls(
 }
 
 /**
- * Vendor official-skill names to feed the consent step: every answered option
- * carrying a non-null `vendorSkill`.
+ * Vendor official skills to feed the consent step: every answered option
+ * carrying a non-null `vendorSkill`, paired with its degit `source` (or null
+ * when no official-skill location is known → manual install).
  */
 export function collectVendorSkills(
   wizard: WizardSpec,
   answers: Answers,
-): string[] {
-  const vendors: string[] = [];
+): VendorSkill[] {
+  const vendors: VendorSkill[] = [];
   for (const question of eachQuestion(wizard)) {
     const option = findChosenOption(question, answers);
-    if (option?.vendorSkill) vendors.push(option.vendorSkill);
+    if (option?.vendorSkill) {
+      vendors.push({ name: option.vendorSkill, source: option.source ?? null });
+    }
   }
   return vendors;
 }
 
-/** Default mode answers: wizard.defaults verbatim (asks nothing per-tech). */
-export function applyDefaults(wizard: WizardSpec): Answers {
-  return { ...wizard.defaults };
+/**
+ * Detected answers from the project's installed packages: for each question,
+ * the first selectable (non-comingSoon) option whose `detect` list names an
+ * installed package. Questions with no match are omitted — the caller falls
+ * back to defaults (Default mode) or the prompt's own default (Custom mode).
+ */
+export function detectAnswers(
+  wizard: WizardSpec,
+  packages: Set<string>,
+): Answers {
+  const detected: Answers = {};
+  for (const question of eachQuestion(wizard)) {
+    for (const option of question.options) {
+      if (option.comingSoon) continue;
+      if (option.detect?.some((pkg) => packages.has(pkg))) {
+        detected[question.id] = option.value;
+        break;
+      }
+    }
+  }
+  return detected;
+}
+
+/**
+ * Default mode answers: wizard.defaults with any detected answers overlaid
+ * (detection wins; undetected questions keep their default), then the wizard
+ * rules applied so the result is what a Custom run would produce if every
+ * default were accepted. Questions hidden by a hideQuestion rule become "skip"
+ * (exactly as Custom mode records them); a value a hide rule removed — or a
+ * coming-soon option — snaps to the question's own default, so Default mode
+ * never carries an unselectable answer (and never installs a skill for a
+ * question the rules would have hidden). Rules read answers in question order,
+ * matching runWizardQuestions.
+ */
+export function applyDefaults(
+  wizard: WizardSpec,
+  detected: Answers = {},
+): Answers {
+  const merged: Answers = { ...wizard.defaults, ...detected };
+  const resolved: Answers = {};
+  for (const question of eachQuestion(wizard)) {
+    const { hidden, options } = applyRulesToQuestion(question, resolved);
+    if (hidden) {
+      resolved[question.id] = 'skip';
+      continue;
+    }
+    const selectable = options.filter((o) => !o.comingSoon);
+    const want = merged[question.id];
+    resolved[question.id] =
+      want !== undefined && selectable.some((o) => o.value === want)
+        ? want
+        : (selectable.find((o) => o.default)?.value ??
+          selectable[0]?.value ??
+          'skip');
+  }
+  return resolved;
+}
+
+/**
+ * Human-readable labels for the given answers, in question order — used to
+ * surface detections to the user. Falls back to the raw value if no option
+ * matches (e.g. a stale answer no longer in the wizard).
+ */
+export function describeAnswers(
+  wizard: WizardSpec,
+  answers: Answers,
+): string[] {
+  const labels: string[] = [];
+  for (const question of eachQuestion(wizard)) {
+    const value = answers[question.id];
+    if (value === undefined) continue;
+    const option = question.options.find((o) => o.value === value);
+    labels.push(option?.label ?? value);
+  }
+  return labels;
 }
 
 export interface SkillAddress {

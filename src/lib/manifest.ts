@@ -11,6 +11,8 @@ import {
   VERSION_RE,
   INSTALL_PATH_RE,
   WIZARD_VALUE_RE,
+  VENDOR_SOURCE_RE,
+  PACKAGE_NAME_RE,
   assertSafeString,
   assertNoDotDot,
   isPlainObject,
@@ -18,6 +20,7 @@ import {
 import type {
   Manifest,
   ManifestModule,
+  ModulePrerequisite,
   ModuleManifest,
   WizardCondition,
   WizardOption,
@@ -132,7 +135,41 @@ function parseManifestModule(raw: unknown, path: string): ManifestModule {
     raw.kind === undefined
       ? undefined
       : assertSafeString(raw.kind, `${path}.kind`, WIZARD_VALUE_RE);
-  return { ...common, kind };
+  const prerequisites = parsePrerequisites(
+    raw.prerequisites,
+    `${path}.prerequisites`,
+  );
+  return { ...common, kind, prerequisites };
+}
+
+// Optional `prerequisites`: npm packages the module requires to already be
+// installed in the user's project, each with a user-facing reason. A
+// schemaVersion 2 concept, but parsed whenever present (like `kind`); absent on
+// legacy manifests — tolerated, never inferred.
+function parsePrerequisites(
+  raw: unknown,
+  path: string,
+): ModulePrerequisite[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new ManifestValidationError(`${path} must be an array`);
+  }
+  return raw.map((entry, i) => {
+    const p = `${path}[${i}]`;
+    if (!isPlainObject(entry)) {
+      throw new ManifestValidationError(`${p} must be an object`);
+    }
+    const pkg = assertSafeString(
+      entry.package,
+      `${p}.package`,
+      PACKAGE_NAME_RE,
+    );
+    assertNoDotDot(pkg, `${p}.package`);
+    // reason is shown verbatim, so it must be single-line (control chars,
+    // including newlines, are rejected by assertSafeString).
+    const reason = assertSafeString(entry.reason, `${p}.reason`, /.+/s);
+    return { package: pkg, reason };
+  });
 }
 
 export function parseModuleManifest(
@@ -353,13 +390,34 @@ function parseWizardOption(
   } else {
     vendorSkill = raw.vendorSkill as null | undefined;
   }
+  // Optional `source` (oss-6): degit location for the vendor's official skill.
+  // Validated against a strict allowlist + '..' check since it is handed to
+  // degit at install time. Absent/null = no known location (manual install).
+  let source: string | null | undefined;
+  if (raw.source !== null && raw.source !== undefined) {
+    source = assertSafeString(raw.source, `${path}.source`, VENDOR_SOURCE_RE);
+    assertNoDotDot(source, `${path}.source`);
+  } else {
+    source = raw.source as null | undefined;
+  }
+  // Optional `detect` (schemaVersion 2 / oss-6): npm packages whose presence in
+  // the project marks this option as detected for wizard pre-fill. Validated
+  // like prerequisites — package-name charset and no '..' (compared against
+  // package.json keys, never path-joined). Absent on older manifests.
+  let detect: string[] | undefined;
+  if (raw.detect !== undefined) {
+    detect = parseStringArray(raw.detect, `${path}.detect`, [PACKAGE_NAME_RE]);
+    for (const pkg of detect) assertNoDotDot(pkg, `${path}.detect`);
+  }
   return {
     value,
     label,
     default: raw.default as boolean | undefined,
     install,
     vendorSkill,
+    source,
     comingSoon: raw.comingSoon as boolean | undefined,
+    detect,
   };
 }
 
@@ -612,6 +670,24 @@ export function categorizeModules(manifest: Manifest): ModuleCategories {
       m.kind !== SKILL_CATEGORY_KIND,
   );
   return { core, optional, stackPacks };
+}
+
+/**
+ * The stack pack to preselect from the project's installed packages: the first
+ * pack whose (non-empty) prerequisites are all present. A pack with no
+ * prerequisites never auto-matches. Returns null when none qualify (→ "None").
+ */
+export function detectStackPack(
+  stackPacks: ManifestModule[],
+  packages: Set<string>,
+): string | null {
+  for (const pack of stackPacks) {
+    const pres = pack.prerequisites ?? [];
+    if (pres.length > 0 && pres.every((p) => packages.has(p.package))) {
+      return pack.name;
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

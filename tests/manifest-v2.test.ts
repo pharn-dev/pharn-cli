@@ -32,6 +32,20 @@ describe('parseManifest schemaVersion routing', () => {
     );
   });
 
+  it('round-trips an option detect array', () => {
+    const m = parseManifest(rawV2Manifest());
+    const db = m.wizard?.sections[0]?.questions[0];
+    const supabase = db?.options.find((o) => o.value === 'supabase');
+    expect(supabase?.detect).toEqual(['@supabase/supabase-js']);
+  });
+
+  it('round-trips a vendor option source (oss-6)', () => {
+    const m = parseManifest(rawV2Manifest());
+    const db = m.wizard?.sections[0]?.questions[0];
+    const supabase = db?.options.find((o) => o.value === 'supabase');
+    expect(supabase?.source).toBe('github:supabase/supabase-skills/database');
+  });
+
   it('rejects unknown schema versions', () => {
     expect(() =>
       parseManifest({ schemaVersion: 3, skillsVersion: '1.0.0', modules: [] }),
@@ -211,6 +225,31 @@ describe('parseWizard validation', () => {
     [
       'condition empty object',
       (w) => (sectionsOf(w)[0]!.questions[1]!.rules![0]!.if = {}),
+    ],
+    [
+      'option detect not an array',
+      (w) => (sectionsOf(w)[0]!.questions[0]!.options[0]!.detect = 'next'),
+    ],
+    [
+      'option detect with a bad package name',
+      (w) =>
+        (sectionsOf(w)[0]!.questions[0]!.options[0]!.detect = ['Bad Name']),
+    ],
+    [
+      'option detect containing ..',
+      (w) => (sectionsOf(w)[0]!.questions[0]!.options[0]!.detect = ['a..b']),
+    ],
+    [
+      'option source with a bad charset',
+      (w) =>
+        (sectionsOf(w)[0]!.questions[0]!.options[0]!.source =
+          'github:acme/repo branch'),
+    ],
+    [
+      'option source containing ..',
+      (w) =>
+        (sectionsOf(w)[0]!.questions[0]!.options[0]!.source =
+          'github:acme/../etc'),
     ],
   ])('rejects: %s', (_label, mutate) => {
     const raw = rawV2Manifest();

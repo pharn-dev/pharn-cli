@@ -1,8 +1,9 @@
-import { cpSync, existsSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve, sep } from 'node:path';
 import { CORE_MODULE } from './constants.js';
 import { ManifestValidationError } from './validate.js';
 import { readModuleManifest } from './manifest.js';
+import { MULTI_TENANT_PRINCIPLE, stripPrinciple } from './constitution.js';
 import type { Constitution, InstalledSkill, ManifestModule } from '../types.js';
 
 // Materialized (not just copied via installs map) by the installer for
@@ -89,6 +90,7 @@ export function materializeCore(
   repoDir: string,
   claudeDir: string,
   constitution: Constitution,
+  isMultiTenant = true,
 ): void {
   const coreDir = resolve(repoDir, CORE_MODULE);
 
@@ -116,9 +118,19 @@ export function materializeCore(
       `Constitution variant "${constitution}" not found in pharn-core templates.`,
     );
   }
-  cpSync(constitutionFrom, resolve(claudeDir, 'CONSTITUTION.md'), {
-    force: true,
-  });
+  const constitutionTo = resolve(claudeDir, 'CONSTITUTION.md');
+  if (isMultiTenant) {
+    cpSync(constitutionFrom, constitutionTo, { force: true });
+  } else {
+    // Non-SaaS project: drop Principle 2 (Multi-Tenant Isolation) so it is not
+    // a blocking principle. principles_included + the `## Principle N` headings
+    // are kept consistent (pharn-init's [A2] check).
+    const stripped = stripPrinciple(
+      readFileSync(constitutionFrom, 'utf8'),
+      MULTI_TENANT_PRINCIPLE,
+    );
+    writeFileSync(constitutionTo, stripped);
+  }
 }
 
 // Defense-in-depth against path traversal in installs maps (already validated
