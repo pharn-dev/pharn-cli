@@ -122,8 +122,9 @@ export function materializeCore(
 }
 
 // Defense-in-depth against path traversal in installs maps (already validated
-// by INSTALL_PATH_RE, but never let a copy escape its base directory).
-function safeJoin(base: string, rel: string): string {
+// by INSTALL_PATH_RE, but never let a copy escape its base directory). Exported
+// so the read-only drift check (lib/diff.ts) guards its reads the same way.
+export function safeJoin(base: string, rel: string): string {
   const target = resolve(base, rel);
   const root = resolve(base);
   if (target !== root && !target.startsWith(root + sep)) {

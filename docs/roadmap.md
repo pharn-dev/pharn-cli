@@ -15,7 +15,10 @@ What PHARN CLI does today versus what is planned.
 | Materialize `memory-bank/` and the chosen `CONSTITUTION.md` | Shipped |
 | Pin commit SHA + write `pharn.config.json` | Shipped |
 | `pharn add <module>` — add a module to an existing project | Shipped |
+| `pharn remove <module \| category:skill>` — remove a module or skill | Shipped |
 | `pharn update` — refresh installed modules to the latest version | Shipped |
+| `pharn list` — show installed + available modules/skills (read-only, `--json`) | Shipped |
+| `pharn status` — read-only version + local-drift report (modified/missing PHARN-owned files; `--strict`, `--no-drift`) | Shipped |
 
 ## Planned
 
@@ -25,6 +28,7 @@ What PHARN CLI does today versus what is planned.
 | Stack scaffolding | Install npm packages / generate app code from the stack pack |
 | Additional stack packs | Beyond `pharn-stack-nextjs` |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only warns) |
+| Orphaned-file detection in `pharn status` | `status` today reports modified + missing PHARN-owned files; flagging files left orphaned in `.claude/` after an upstream rename (see [remove](commands/remove.md)) is not built yet |
 | Other agents | Codex and Cursor in addition to Claude Code |
 
 ## Related
@@ -32,5 +36,8 @@ What PHARN CLI does today versus what is planned.
 - [Getting started](getting-started.md)
 - [init](commands/init.md)
 - [add](commands/add.md)
+- [remove](commands/remove.md)
 - [update](commands/update.md)
+- [list](commands/list.md)
+- [status](commands/status.md)
 - [pharn.config.json](reference/pharn-config.md)

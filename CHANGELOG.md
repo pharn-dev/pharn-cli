@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`pharn remove <module | category:skill>`** — the inverse of `pharn add`. Removing a
+  skill is a precise single-directory delete with no clone or network; removing a module
+  clones once, computes the exact files that module contributed (so shared directories like
+  `commands/` keep other modules' files), deletes only those, and prunes emptied directories.
+  Refuses to remove `pharn-core` or a module with installed dependents, never touches
+  `CONSTITUTION.md` / `memory-bank/`, and updates `pharn.config.json` to match. No arg opens
+  an interactive picker; `--yes`/`-y` skips the confirmation and `rm` is an alias.
+- **`pharn list`** — a read-only inventory of installed vs. available modules and
+  `category:skill` skills, with update markers when the manifest is newer. Adds `--json`
+  for scripting/CI (single object on stdout; diagnostics on stderr). Never writes or clones.
+- **`pharn status`** — a read-only audit of the install: a version section (is `skillsVersion`
+  / each module current?) and a drift section that clones `pharn-dev/pharn-oss@main` and
+  byte-compares every PHARN-owned file against `.claude/`, reporting locally-modified and
+  missing files. Never writes, deletes, or overwrites — the temporary clone is always cleaned
+  up. `.claude/CONSTITUTION.md` and `.claude/memory-bank/` are excluded (hand-edited, anchored
+  at the root, so `templates/` is still diffed). `--strict` exits 1 on any drift/outdated for
+  CI; `--no-drift` skips the clone and checks the version only.
 - Repo-health tooling: `CHANGELOG.md`, GitHub issue/PR templates, `CODEOWNERS`,
   Dependabot config, markdownlint for docs, an aggregate `npm run check` script, and
   an enforced test-coverage gate in CI.
@@ -21,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docs: completed the getting-started day-to-day loop with `/pharn-regress` and refreshed the
   `pharn.config.json` example module versions to match the current `pharn-oss` manifest
   (`skillsVersion` 0.70.0).
+- Docs: the root `README.md` Commands table and the `pharn -h` help text now document the
+  already-implemented `add <category>:<skill>` form (install one technology skill, e.g.
+  `orm:prisma`) alongside the whole-module `add <module>` form. No CLI code change.
 
 ## [0.2.0] — 2026-06-11
 

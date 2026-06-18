@@ -10,7 +10,10 @@
 
 - [init](commands/init.md) — interactive setup wizard
 - [add](commands/add.md) — add a module to an existing project
+- [remove](commands/remove.md) — remove a module or skill from an existing project
 - [update](commands/update.md) — update installed modules to the latest skills version
+- [list](commands/list.md) — list installed and available modules/skills
+- [status](commands/status.md) — read-only version + local-drift audit
 
 ## Reference
 

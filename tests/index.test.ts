@@ -3,10 +3,20 @@ import { ProcessExit, stubProcessExit } from './helpers.js';
 
 const runInit = vi.fn(async () => undefined);
 const runAdd = vi.fn(async (_arg?: string) => undefined);
+const runRemove = vi.fn(
+  async (_arg?: string, _opts?: { yes?: boolean }) => undefined,
+);
 const runUpdate = vi.fn(async () => undefined);
+const runList = vi.fn(async (_opts?: { json?: boolean }) => undefined);
+const runStatus = vi.fn(
+  async (_opts?: { strict?: boolean; drift?: boolean }) => undefined,
+);
 vi.mock('../src/commands/init.js', () => ({ runInit }));
 vi.mock('../src/commands/add.js', () => ({ runAdd }));
+vi.mock('../src/commands/remove.js', () => ({ runRemove }));
 vi.mock('../src/commands/update.js', () => ({ runUpdate }));
+vi.mock('../src/commands/list.js', () => ({ runList }));
+vi.mock('../src/commands/status.js', () => ({ runStatus }));
 
 // Importing the module does not auto-run main(): under vitest, argv[1] is the
 // test runner, not this module, so the isEntryPoint() guard is false.
@@ -46,10 +56,58 @@ describe('main (argv dispatch)', () => {
     expect(runAdd).toHaveBeenCalledWith('orm:prisma');
   });
 
+  it('routes `remove <arg>` to runRemove with the argument and yes:false', async () => {
+    setArgv('remove', 'pharn-review');
+    await main();
+    expect(runRemove).toHaveBeenCalledWith('pharn-review', { yes: false });
+  });
+
+  it('passes yes:true through for `remove --yes`', async () => {
+    setArgv('remove', 'pharn-review', '--yes');
+    await main();
+    expect(runRemove).toHaveBeenCalledWith('pharn-review', { yes: true });
+  });
+
+  it('routes the `rm` alias to runRemove', async () => {
+    setArgv('rm', 'orm:prisma');
+    await main();
+    expect(runRemove).toHaveBeenCalledWith('orm:prisma', { yes: false });
+  });
+
   it('routes `update` to runUpdate', async () => {
     setArgv('update');
     await main();
     expect(runUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes `list` to runList with json:false by default', async () => {
+    setArgv('list');
+    await main();
+    expect(runList).toHaveBeenCalledWith({ json: false });
+  });
+
+  it('routes `list --json` to runList with json:true', async () => {
+    setArgv('list', '--json');
+    await main();
+    expect(runList).toHaveBeenCalledWith({ json: true });
+  });
+
+  it('routes `status` to runStatus with strict:false, drift:true by default', async () => {
+    setArgv('status');
+    await main();
+    expect(runStatus).toHaveBeenCalledWith({ strict: false, drift: true });
+  });
+
+  it('passes strict:true through for `status --strict`', async () => {
+    setArgv('status', '--strict');
+    await main();
+    expect(runStatus).toHaveBeenCalledWith({ strict: true, drift: true });
+  });
+
+  it('maps `status --no-drift` to drift:false', async () => {
+    setArgv('status', '--no-drift');
+    await main();
+    expect(runStatus).toHaveBeenCalledWith({ strict: false, drift: false });
   });
 
   it('prints the version for --version and runs no command', async () => {

@@ -27,7 +27,7 @@ The wizard also asks a **privacy-posture** question and writes the matching cons
 Full reference: **[docs/](docs/README.md)**
 
 - [Getting started](docs/getting-started.md)
-- [Commands](docs/commands/init.md) — `init`, `add`, `update`
+- [Commands](docs/commands/init.md) — `init`, `add`, `remove`, `update`, `list`, `status`
 - [pharn.config.json](docs/reference/pharn-config.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
@@ -44,7 +44,11 @@ See [Getting started](docs/getting-started.md) for the full flow and fresh-proje
 | ------- | ----------- |
 | `pharn init` | Interactive setup wizard (default) |
 | `pharn add <module>` | Add a module to an existing PHARN project |
+| `pharn add <category>:<skill>` | Add one technology skill (e.g. `orm:prisma`) |
+| `pharn remove <module\|category:skill>` | Remove a module or skill from this project |
 | `pharn update` | Update installed modules to the latest skills version |
+| `pharn list` | List installed and available modules/skills |
+| `pharn status` | Show version + local-drift status (read-only; `--strict`, `--no-drift`) |
 | `pharn -h`, `--help` | Show help |
 | `pharn -v`, `--version` | Show version |
 
