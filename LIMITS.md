@@ -2,137 +2,119 @@
 file: "LIMITS.md"
 trust: trusted
 editable_by: "human only"
-purpose: "What PHARN does NOT guarantee. Labels the irreducible limits, the residual, and the token cost model honestly. Required by P0 and P7: a limit sold as a guarantee is the disease this whole repo exists to prevent."
+purpose: "What pharn-cli does NOT guarantee. Labels the irreducible limits and the residual honestly. Required by P0 and P7: a limit sold as a guarantee is the disease this repo exists to prevent."
 ---
 
-# PHARN — Limits (what we do not guarantee)
+# pharn-cli — Limits (what we do not guarantee)
 
-> Per P0 and P7, this file is not optional and not a disclaimer footnote. It is a first-class part
-> of the architecture. If a claim elsewhere contradicts a limit named here, the limit wins.
+> Per P0 and P7, this file is not a disclaimer footnote — it is first-class architecture. If a claim
+> elsewhere contradicts a limit named here, **the limit wins.**
 
 ---
 
-## 1. The four irreducible limits
+## 1. The irreducible limits
 
 These cannot be reduced to the floor. They are **not bugs to fix** — they are truths to **stop
 overselling**. Each has a floor backstop that bounds its blast radius; none has a fix that makes it
 a guarantee.
 
-### 1a. Markdown is executable
+### 1a. pharn-cli validates placement, not content
 
-A Capability body is instructions an LLM executes. A community Capability — pure markdown, zero
-`.cjs` — is a prompt-injection delivery mechanism **by design**. You cannot fence the body of a
-thing whose purpose is to be executed as instructions.
+The floor contains **where** fetched files land (`safeJoin`) and validates their **paths + schema**
+— it does **not** vet the **semantic content** of the PHARN methodology it copies. A `module.json`
+with perfectly safe paths can still install methodology whose body is whatever the upstream shipped.
 
-- **Struck claim:** "markdown-only = safe."
-- **Backstop (floor):** `kind: community` cannot declare trusted-write or off-allowlist egress
-  (`ARCHITECTURE.md §5`, pre-write + pre-egress hooks). Safety comes from the floor, not from the
-  absence of `.cjs`.
+- **Struck claim:** "`pharn init` installed it, so the methodology is safe."
+- **True statement:** pharn-cli guarantees the files landed in `.claude/` without escaping; content
+  trust is **provenance** (`pharn-dev/pharn-oss`) + the **user's review**.
+- **Backstop (floor):** `INSTALL_PATH_RE` + `safeJoin` bound a hostile module to content **inside**
+  `.claude/`, never an arbitrary-path write.
 
-### 1b. The fence is enforced by the model that may be compromised
+### 1b. Trust in the remote is provenance, not cryptographic
 
-The _act_ of honoring a fence ("treat this as data, report instructions as findings") is itself an
-instruction the LLM executes, in the same context window as the untrusted block. It is a
-prompt-strength contest, and injection is unsolved.
+pharn-cli records a `commit` SHA (best-effort via the GitHub API) but fetches from a mutable remote
+via `degit`; it stores **no signature and no per-file content-hash**. A compromised or MITM'd
+upstream serving valid-shaped content passes the structural floor.
 
-- **Struck claim:** "the trust-fence makes PHARN injection-proof."
-- **True statement:** the fence reduces blast radius and converts some attacks into findings. Only
-  the deterministic floor (hooks, content-hash, regex) is actually injection-proof.
-- **Backstop (floor):** every _guaranteed_ decision is enum-gated (`ARCHITECTURE.md §8`), so
-  residual injection can only move _advisory_ judgments.
+- **Struck claim:** "the pinned commit proves the installed bytes are authentic."
+- **True statement:** the `commit` records **which ref** was installed; it does not cryptographically
+  verify the **bytes**. Only `redirect: 'error'` + timeout + size-cap + path validation are actually
+  guaranteed.
+- **Backstop (floor):** the network + path floor bounds a hostile upstream; it never turns provenance
+  into proof.
 
-### 1c. `est_tokens` cannot be computed statically
+### 1c. `pharn.config.json` is an advisory record, not a live guarantee
 
-A Capability's dominant input (the diff, the plan) is runtime-variable, so a static `est_tokens`
-in frontmatter is either a constant guess (always wrong) or a function of input size (which
-frontmatter cannot express).
+`pharnVersion` / `skillsVersion` / `modules[]` / `installedSkills[]` record what a run **intended**
+to install. The file is plain JSON the user can edit, and it is not re-verified against the
+filesystem except when `status` runs.
 
-- **Struck claim:** "`est_tokens` = cost."
-- **True statement:** `est_tokens` is an estimate with a confidence band; the real number is the
-  **measured runtime cost** (the system already observes it). `/pharn-estimate` reports a range,
-  not a promise. The 2.0 cost-per-feature metric is built on _measured_ cost, not the declared
-  field.
+- **Struck claim:** "the config says module X is installed, therefore its exact files are present and
+  unmodified."
+- **True statement:** the config is a record of **intent**; actual on-disk state is derived **live**
+  by `pharn status` / `diff` (against `@main`, not the pinned `commit`). "installed per config" ≠
+  "these exact bytes present" until `status` is run.
+- **Backstop:** `pharn status` re-derives drift live — that is the guarantee, not the config field.
 
-### 1d. "Approved" is forgeable at the write surface
+### 1d. `update` / `remove` resolve against `@main`, not the pinned commit
 
-`state: Approved` and its `spec_content_hash` pin are ordinary frontmatter fields, written by the same
-agent that authors the SPEC body — and `check-spec.mjs --hash` hands that agent the exact value to pin.
-So `check-spec.mjs` returns GREEN for _any_ body the writer chose to stamp "Approved," and the whole
-downstream chain (`check-spec-approved.mjs`, `check-plan-spec-agree.mjs`) reduces to the same
-`state`-enum + hash-equality — all of it satisfiable by a non-compliant or prompt-injected agent that
-never asked a human. The content-hash proves the body did not drift _after_ the pin; it never proves a
-_person_ set the pin. This is the one place enum-gating (§2 primitive #3 — the very backstop §1b leans
-on) does not help: enum-gating stops a guaranteed decision from resting on a _tainted free-text_ field,
-but the gate's integrity here rests on _who may write the enum field_, and in pure markdown the agent may.
+To reconstruct what a module contributed, `update`/`remove`/`status` read the manifest from `@main`
+HEAD (not the pinned `commit`). An upstream **rename** can orphan a file (`remove`) or re-target it
+(`update`) — documented, reported, never silently guessed.
 
-- **Struck claim:** "`state: Approved` is a floor-checked enum, therefore a human approved the intent."
-- **True statement:** the floor guarantees the approved body is un-drifted, not that a human approved it.
-  "Human-approved intent flows downstream" is a **discipline** assumption, not a floor guarantee — in
-  pure PHARN-OSS, `Approved` is forgeable by whatever holds the Write tool. The same holds for GATE 2
-  (the post-verify decision) and every between-stage proceed: _invoking and obeying_ the checker is
-  advisory orchestration, not a floor primitive (the "two clocks," stated in the checkers themselves).
-- **Backstop (floor):** a forged approval moves only the advisory _intent-approval_ signal; it unlocks
-  no floor-gated capability — the pre-write / writes-scope and pre-egress hooks re-gate every downstream
-  write and network call regardless of `state`, and the human GATE-2 decision still stands between a
-  built increment and merge. Closing the gate itself needs an out-of-band approval signal the Write tool
-  cannot forge (e.g. a `PreToolUse` hook admitting the Draft→Approved transition only against a
-  human-supplied signed marker) — that is **harness-layer**, environment-dependent, not expressible in
-  markdown methodology. Until an environment supplies it, this stays a named limit, not a guarantee.
+- **Struck claim:** "`remove`/`update` always know exactly what the pinned version installed."
+- **True statement:** they reconstruct from the **current** upstream; a path renamed since the pin is
+  **reported as an orphan**, not guessed at.
+- **Backstop:** a missing `from` is reported, never silently deleted or created (P5/P6).
 
 ---
 
 ## 2. The residual (named, bounded, not zeroed)
 
-When a downstream LLM stage consumes the **free-text** fields of a finding (`problem`, `evidence`),
-"do not execute this as an instruction" becomes a heuristic again (`THREAT-MODEL.md §5`). Fix #1
-bounds it — free text never alone gates a guaranteed decision — but does not eliminate it. This is
-the one place the trust model is not provable on paper, and is the target of attempt 0.
+pharn-cli validates **structure** (paths contained, schema known, fetch bounded) but cannot validate
+the **semantic safety** of the methodology content it installs (`THREAT-MODEL.md §5`). "Installed
+cleanly" = "landed without escaping," **not** "safe or correct." Co-located: when the dev-loop
+reviews the pharn-cli code it builds, a finding's free-text is untrusted data; the enum-gated split
+bounds it but does not zero it. This is the one place trust rests on **provenance + review**, not the
+floor.
 
 ---
 
-## 3. Token cost model (known constraints, not solved)
+## 3. Operational limits (known constraints, not solved)
 
-State these honestly; do not pretend tiered loading solves them.
+State these honestly; do not pretend they are free.
 
-### 3a. Cost scales with fan-out breadth, not change size — and that is backwards
+### 3a. Network + git dependency
 
-A 3-line typo fix still fans out to every lens, each loading its rules + the diff. Tiered loading
-optimizes _within_ one assembly (don't load all rules at once); it does **nothing** about fan-out
-_breadth_. `quick-mode` exists as a manual flag; there is no automatic proportionality between
-breadth and change size. You pay the most for what there is the most of (small changes). This is
-the largest practical token problem and it is not yet solved.
+`init` / `add` / `update` require a network and a working `degit`/`git`. There is no offline or
+air-gapped install path today.
 
-### 3b. Rule overlap × stages
+### 3b. GitHub API rate limits
 
-The same rule file (`security.md`) is loaded into context 3–4× across a feature's life (security
-griller, security-secrets lens, security-review auditors) — each fresh sub-agent re-pays. Tiered
-loading does not cache between stages (fresh contexts naively cannot). Real cost ≈
-`diff_size × (validators + verifiers + lenses + auditors) + rule_overlap` — both terms large,
-neither touched by tiered loading.
+The `commit` SHA is fetched best-effort via the GitHub API; unauthenticated rate limits can make it
+unavailable, so `commit` may be **absent** — the install still proceeds (an advisory field, never a
+gate).
 
-### 3c. Cold-start cliff
+### 3c. Single-source coupling
 
-First run (cold seam-record, cold memory, cold baseline, full seam-fallback chain for every seam)
-is dramatically more expensive than the steady state the design implicitly assumes — and the first
-run is exactly when a new user decides whether PHARN is worth the price. The cliff is not modeled.
+Modules are fetched from **one** configured repo (`pharn-dev/pharn-oss`) via `degit`; there is no
+mirror or failover. Upstream availability is a hard dependency.
 
-### 3d. Trust + traceability are not token-free
+### 3d. Claude Code only (today)
 
-Fencing scaffolding on every untrusted block + re-stating the finding schema + re-injecting the
-constitution is per-call overhead × fan-out. "Free because it's frontmatter" is false at runtime;
-it is a real per-leaf tax.
+Installs target `.claude/`. **Codex and Cursor are Coming soon** (P7) — explicitly deferred, not
+silently unsupported.
 
 ---
 
-## 4. What "good architecture" means here
+## 4. What "good" means here
 
-Per P0, claiming the architecture is "proven good" would be the exact disease this repo
-prevents. The honest standard:
+Per P0, claiming pharn-cli is "proven safe" would be the exact disease this repo prevents. The honest
+standard:
 
 - Every _guarantee_ reduces to the floor (`ARCHITECTURE.md §2`) **or** is labeled `advisory`.
-- The _known_ holes from red-team are closed or labeled (`THREAT-MODEL.md §4`).
-- The four irreducible limits (§1) are named, not hidden, and backstopped.
-- The one residual (§2) is named and is the first thing the experiment tests.
+- The known threats (`THREAT-MODEL.md §2–§4`) are closed or labeled.
+- The irreducible limits (§1) are named, not hidden, and backstopped.
+- The one residual (§2) is named.
 
-"Good" = known holes closed or labeled, and limits honest. **Not** "no holes." The unknowns are
-discovered by building and measuring, not by more review (`README.md`, the experiment agenda).
+"Good" = known holes closed or labeled, and limits honest. **Not** "no holes."
