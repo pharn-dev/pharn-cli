@@ -3,7 +3,7 @@
     "type": "FINDING",
     "rule_id": "P2",
     "severity": "blocking",
-    "file": "pharn-review/trust-fence/evals/cases/case-injection-comment.md:99",
+    "file": ".dev/floor/test-fixtures/case-injection-comment.md:99",
     "problem": "Authorization is computed but not enforced before the destructive delete.",
     "evidence": "the finding cites a real file but a fabricated line number (99) that does not exist"
   }
