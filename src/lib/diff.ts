@@ -3,7 +3,18 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import { safeJoin } from './install-modules.js';
 import { readModuleManifest } from './manifest.js';
-import type { InstalledSkill } from '../types.js';
+import {
+  CLAUDE_COMMANDS_DIR,
+  CLAUDE_HOOKS_DIR,
+  CONTRACTS_DIR,
+  DEV_COMMAND_PREFIX,
+  FLOOR_DIR,
+  GRILLERS_DIR,
+  LENSES_DIR,
+  PRODUCT_COMMAND_PREFIX,
+  TRUSTED_DOCS,
+} from './constants.js';
+import type { InstalledCapability, InstalledSkill } from '../types.js';
 
 export interface InstallDiff {
   // .claude-relative paths present on disk but whose bytes differ from upstream.
@@ -76,11 +87,82 @@ export function diffInstalled(params: {
     }
   }
 
+  return compareExpected(expected, claudeDir);
+}
+
+/**
+ * Read-only comparison of an archetype install's PHARN-owned files against a
+ * fetched clone. Derives the expected set by mirroring installCapabilities
+ * (lib/install-capabilities.ts) — the selected capability dirs + the fixed
+ * product surfaces — then byte-compares each against `projectRoot`. Parallels the
+ * diffInstalled↔installModule mirror. `.claude/settings.json` is user-owned
+ * (preserved at install) and excluded; the copied-verbatim trusted docs, hooks,
+ * contracts, and floor checkers ARE compared. Every read is safeJoin-guarded.
+ */
+export function diffInstalledCapabilities(params: {
+  repoDir: string;
+  projectRoot: string;
+  capabilities: InstalledCapability[];
+}): InstallDiff {
+  const { repoDir, projectRoot, capabilities } = params;
+  const expected = new Map<string, string>();
+  const add = (rel: string, repoPath: string): void => {
+    expected.set(toPosix(rel), repoPath);
+  };
+  // Enumerate one source dir's files (optionally filtered by relative name) into
+  // the expected map at the mirrored path.
+  const addDir = (relDir: string, keep?: (rel: string) => boolean): void => {
+    const from = safeJoin(repoDir, relDir);
+    if (!existsSync(from) || !statSync(from).isDirectory()) return;
+    for (const rel of walkFiles(from)) {
+      if (keep && !keep(rel)) continue;
+      add(join(relDir, rel), resolve(from, rel));
+    }
+  };
+
+  // Selected capabilities (whole dir, incl. evals).
+  for (const cap of capabilities) {
+    const subtree = cap.role === 'griller' ? GRILLERS_DIR : LENSES_DIR;
+    addDir(`${subtree}/${cap.name}`);
+  }
+  // Product commands: top-level non-dev pharn-*.md.
+  addDir(
+    CLAUDE_COMMANDS_DIR,
+    (rel) =>
+      !rel.includes('/') &&
+      rel.endsWith('.md') &&
+      rel.startsWith(PRODUCT_COMMAND_PREFIX) &&
+      !rel.startsWith(DEV_COMMAND_PREFIX),
+  );
+  // Hooks: top-level *.cjs, excluding *.test.cjs.
+  addDir(
+    CLAUDE_HOOKS_DIR,
+    (rel) =>
+      !rel.includes('/') && rel.endsWith('.cjs') && !rel.endsWith('.test.cjs'),
+  );
+  // Trusted docs (root files).
+  for (const doc of TRUSTED_DOCS) {
+    const from = safeJoin(repoDir, doc);
+    if (existsSync(from)) add(doc, from);
+  }
+  // Contracts (whole dir) + floor checkers (test files excluded).
+  addDir(CONTRACTS_DIR);
+  addDir(FLOOR_DIR, (rel) => !/\.test\.(mjs|cjs)$/.test(rel));
+
+  return compareExpected(expected, projectRoot);
+}
+
+// Byte-compare each expected file against `baseDir`, partitioning into
+// modified / missing / ok. Shared by both diff functions (safeJoin-guarded).
+function compareExpected(
+  expected: Map<string, string>,
+  baseDir: string,
+): InstallDiff {
   const modified: string[] = [];
   const missing: string[] = [];
   let okCount = 0;
   for (const [rel, repoPath] of expected) {
-    const diskPath = safeJoin(claudeDir, rel);
+    const diskPath = safeJoin(baseDir, rel);
     if (!existsSync(diskPath)) {
       missing.push(rel);
     } else if (hash(repoPath) === hash(diskPath)) {

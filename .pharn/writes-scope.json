@@ -1,7 +1,11 @@
 {
   "scope": [
-    ".dev/features/archetype-enum-align/SHIP.md"
+    "src/lib/capability-address.ts",
+    "src/commands/add.ts",
+    "src/commands/remove.ts",
+    "tests/capability-address.test.ts",
+    "tests/remove.test.ts"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-07T13:54:49.216Z"
+  "set_by": ".dev/features/remove-archetype-aware/PLAN.md",
+  "set_at": "2026-07-07T18:33:38.729Z"
 }

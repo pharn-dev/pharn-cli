@@ -8,9 +8,13 @@ import {
   resolveModules,
 } from '../lib/manifest.js';
 import { fetchRepo } from '../lib/repo.js';
-import { diffInstalled } from '../lib/diff.js';
+import { diffInstalled, diffInstalledCapabilities } from '../lib/diff.js';
 import { row } from '../lib/format.js';
-import { readPharnConfig } from '../lib/pharn-config.js';
+import { isArchetypeConfig, readPharnConfig } from '../lib/pharn-config.js';
+import {
+  fetchRemoteSkillsVersion,
+  readSkillsVersion,
+} from '../lib/skills-version.js';
 import type { Manifest, PharnConfig } from '../types.js';
 
 const REF = `${REPO}@${REPO_BRANCH}`;
@@ -39,6 +43,13 @@ export async function runStatus(
     process.exit(1);
   }
   const claudeDir = resolve(cwd, '.claude');
+
+  // Archetype (capability) install: version via SKILLS_VERSION (there is no
+  // manifest) + capability drift. Separate path so the legacy audit is unchanged.
+  if (isArchetypeConfig(config)) {
+    await runArchetypeStatus(config, { strict, drift }, cwd);
+    return;
+  }
 
   // Version-only: no clone, just the manifest fetch list/update already use.
   if (!drift) {
@@ -107,6 +118,91 @@ export async function runStatus(
 
   if (exitCode) process.exit(exitCode);
   outro(pc.dim('Read-only — nothing changed.'));
+}
+
+// Archetype install audit: version via SKILLS_VERSION + capability drift. Mirrors
+// the module path's structure (cleanup before exit; --strict gate) but reads the
+// version from SKILLS_VERSION and diffs the copied capabilities/product surfaces.
+async function runArchetypeStatus(
+  config: PharnConfig,
+  opts: { strict: boolean; drift: boolean },
+  cwd: string,
+): Promise<void> {
+  const { strict, drift } = opts;
+
+  if (!drift) {
+    const s = spinner();
+    s.start('Checking for updates');
+    let latest: string;
+    try {
+      latest = await fetchRemoteSkillsVersion();
+      s.stop(`Latest skills v${latest}`);
+    } catch (err) {
+      s.stop('Failed to check for updates');
+      reportError(err);
+      process.exit(1);
+    }
+    const outdated = printArchetypeVersion(config, latest);
+    if (strict && outdated) process.exit(1);
+    outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
+    return;
+  }
+
+  const s = spinner();
+  s.start(`Comparing against ${REF}`);
+  let repo;
+  try {
+    repo = await fetchRepo();
+    s.stop(`Compared against ${REF}`);
+  } catch (err) {
+    s.stop(`Failed to reach ${REPO}`);
+    reportError(err);
+    process.exit(1);
+  }
+
+  let exitCode = 0;
+  try {
+    const outdated = printArchetypeVersion(config, readSkillsVersion(repo.dir));
+    const result = diffInstalledCapabilities({
+      repoDir: repo.dir,
+      projectRoot: cwd,
+      capabilities: config.capabilities ?? [],
+    });
+    printDriftSection(result);
+    if (
+      strict &&
+      (outdated || result.modified.length || result.missing.length)
+    ) {
+      exitCode = 1;
+    }
+  } catch (err) {
+    reportError(err);
+    exitCode = 1;
+  } finally {
+    repo.cleanup();
+  }
+
+  if (exitCode) process.exit(exitCode);
+  outro(pc.dim('Read-only — nothing changed.'));
+}
+
+// VERSION note for an archetype install: skillsVersion currency + a summary of
+// the detected archetypes and installed capability count. Returns outdated.
+function printArchetypeVersion(config: PharnConfig, latest: string): boolean {
+  const outdated = config.skillsVersion !== latest;
+  const skillsLine = outdated
+    ? `${row('Skills version', `v${config.skillsVersion} → v${latest}`)} ${pc.dim('(update available, run `pharn update`)')}`
+    : `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim('(up to date)')}`;
+  note(
+    [
+      skillsLine,
+      '',
+      row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
+      row('Capabilities', String((config.capabilities ?? []).length)),
+    ].join('\n'),
+    'VERSION',
+  );
+  return outdated;
 }
 
 // VERSION note: skillsVersion + any per-module version bumps. Returns whether

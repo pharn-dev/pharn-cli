@@ -1,0 +1,36 @@
+{
+  "base": "43e16b37e62333edd06ff043ca242dd56a8dfc01",
+  "inside": [
+    "src/lib/capability-index.ts",
+    "src/lib/install-capabilities.ts",
+    "src/steps/archetype-summary.ts",
+    "src/steps/install-archetype.ts",
+    "src/commands/init.ts",
+    "src/index.ts",
+    "src/lib/validate.ts",
+    "src/lib/constants.ts",
+    "src/types.ts",
+    "tests/capability-index.test.ts",
+    "tests/install-capabilities.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/archetype-summary.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/validate.test.ts",
+    "tests/index.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}

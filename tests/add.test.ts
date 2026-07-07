@@ -65,11 +65,27 @@ vi.mock('../src/lib/manifest.js', () => ({
 const fetchAndInstall = vi.fn();
 vi.mock('../src/lib/installer.js', () => ({ fetchAndInstall }));
 
+const fetchRepo = vi.fn();
+const fetchCommitSha = vi.fn();
+vi.mock('../src/lib/repo.js', () => ({ fetchRepo, fetchCommitSha }));
+
+const parseCapabilityIndex = vi.fn();
+vi.mock('../src/lib/capability-index.js', () => ({ parseCapabilityIndex }));
+
+const installCapabilityDirs = vi.fn();
+vi.mock('../src/lib/install-capabilities.js', () => ({
+  installCapabilityDirs,
+}));
+
+const readSkillsVersion = vi.fn();
+vi.mock('../src/lib/skills-version.js', () => ({ readSkillsVersion }));
+
 const readPharnConfig = vi.fn();
 const writePharnConfig = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
   readPharnConfig,
   writePharnConfig,
+  isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
   toInstalledModules: (m: { name: string; version: string }[]) =>
     m.map(({ name, version }) => ({ name, version })),
 }));
@@ -310,5 +326,101 @@ describe('runAdd category:skill', () => {
     await expect(runAdd('orm:prisma')).rejects.toMatchObject(
       new ProcessExit(1),
     );
+  });
+});
+
+describe('runAdd (archetype)', () => {
+  stubProcessExit();
+  beforeEach(() => vi.spyOn(process, 'cwd').mockReturnValue('/proj'));
+  afterEach(() => vi.clearAllMocks());
+
+  const archConfig = (
+    caps: { name: string; role: 'griller' | 'lens' }[] = [
+      { name: 'security', role: 'griller' },
+    ],
+  ): PharnConfig => ({
+    pharnVersion: '0.2.0',
+    skillsVersion: '1.0.0',
+    repo: 'pharn-dev/pharn-oss',
+    commit: 'old',
+    modules: [],
+    installedAt: '2026-07-07T00:00:00.000Z',
+    archetypes: ['ssr'],
+    capabilities: caps,
+  });
+
+  const index = {
+    capabilities: [
+      { name: 'a11y', role: 'griller', applies: ['ssr', 'spa'] },
+      { name: 'security', role: 'griller', applies: 'universal' },
+      { name: 'n-plus-one', role: 'lens', applies: ['backend', 'ssr'] },
+    ],
+  };
+
+  function mockClone(): ReturnType<typeof vi.fn> {
+    const cleanup = vi.fn();
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+    parseCapabilityIndex.mockReturnValue(index);
+    readSkillsVersion.mockReturnValue('1.0.0');
+    fetchCommitSha.mockResolvedValue('sha');
+    return cleanup;
+  }
+
+  it('installs a capability by name and appends it (archetypes untouched)', async () => {
+    readPharnConfig.mockReturnValue(archConfig());
+    const cleanup = mockClone();
+
+    await runAdd('a11y');
+
+    expect(installCapabilityDirs).toHaveBeenCalledWith('/repo', '/proj', [
+      { name: 'a11y', role: 'griller' },
+    ]);
+    const [, written] = writePharnConfig.mock.calls[0]!;
+    expect((written as PharnConfig).capabilities).toEqual([
+      { name: 'security', role: 'griller' },
+      { name: 'a11y', role: 'griller' },
+    ]);
+    expect((written as PharnConfig).archetypes).toEqual(['ssr']);
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('resolves role:name addressing', async () => {
+    readPharnConfig.mockReturnValue(archConfig());
+    mockClone();
+
+    await runAdd('lens:n-plus-one');
+
+    expect(installCapabilityDirs).toHaveBeenCalledWith('/repo', '/proj', [
+      { name: 'n-plus-one', role: 'lens' },
+    ]);
+  });
+
+  it('is a no-op when the capability is already installed', async () => {
+    readPharnConfig.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    const cleanup = mockClone();
+
+    await runAdd('a11y');
+
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(prompts.outro).toHaveBeenCalledWith('a11y is already installed.');
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('exits(1) listing valid capabilities for an unknown name (cleans up)', async () => {
+    readPharnConfig.mockReturnValue(archConfig());
+    const cleanup = mockClone();
+
+    await expect(runAdd('bogus')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('exits(1) with no arg, before any fetch', async () => {
+    readPharnConfig.mockReturnValue(archConfig());
+    await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
+    expect(fetchRepo).not.toHaveBeenCalled();
   });
 });
