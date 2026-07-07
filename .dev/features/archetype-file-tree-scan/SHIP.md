@@ -46,6 +46,11 @@ agent cannot amend it; updating §5's wording (and the #20 record) is the human'
 `types.ts` comment was corrected to keep the code self-honest; the build pinned §5's current
 content-hash, so nothing here depended on §5 being edited first.
 
+A proposed reconciliation is drafted in **`ARCHITECTURE_DRAFT.md`** (created at the human's request) — a
+**byte-exact copy** of `ARCHITECTURE.md` with **only** the §5 detection sentence expanded to name the two
+merged sources (`diff ARCHITECTURE.md ARCHITECTURE_DRAFT.md` shows the single hunk). The agent did **not**
+touch the hook-protected `ARCHITECTURE.md`; applying the draft into it is the human's call.
+
 ---
 
 **The standing decision is the human's.** The chain ran; the named floor verdicts are as shown — this is
