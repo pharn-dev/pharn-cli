@@ -61,12 +61,13 @@ function resolveWriteTarget(p) {
 const ALWAYS = [".pharn/**"];
 
 // Fail-closed allow-list used when no scope file is set. pharn-cli's editable code (src/, tests/) +
-// the dev-loop's own build artifacts (.dev/features/) + process scratch (.pharn/, via ALWAYS). The
-// sensitive zones (.dev/floor/, .dev/memory-bank/, .claude/, root spec docs, docs/, config) are
-// intentionally absent — reaching them requires an explicit `writes:` declaration. `.dev/features/**`
-// stays writable-by-default so a dev-loop stage can write its PLAN/GRILL/REVIEW/etc. artifacts; every
-// sensitive zone above still stays deny-by-default (it matches none of these globs).
-const DEFAULT_SAFE_SET = ["src/**", "tests/**", ".dev/features/**"];
+// the dev-loop's own build artifacts (.dev/features/) + the legacy root artifact zone (features/,
+// retained, harmless) + process scratch (.pharn/, via ALWAYS). The sensitive zones (.dev/floor/,
+// .dev/memory-bank/, .claude/, root spec docs, docs/, config) are intentionally absent — reaching
+// them requires an explicit `writes:` declaration; `.dev/features/**` stays writable-by-default so a
+// dev-loop stage can write its PLAN/GRILL/REVIEW/etc. artifacts, and every sensitive zone above stays
+// deny-by-default (it matches none of these globs).
+const DEFAULT_SAFE_SET = ["src/**", "tests/**", "features/**", ".dev/features/**"];
 
 const SCOPE_FILE = ".pharn/writes-scope.json";
 

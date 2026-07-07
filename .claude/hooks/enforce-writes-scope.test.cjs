@@ -53,8 +53,8 @@ test("no scope: a pharn-oss module path (pharn-review/) is DENIED (pharn-cli has
   assert.equal(hook(tmp(), "pharn-review/foo.md").status, 2);
 });
 
-test("no scope: root features/ is DENIED (pharn-cli's dev-loop writes .dev/features/, not root)", () => {
-  assert.equal(hook(tmp(), "features/foo/bar.md").status, 2);
+test("no scope: features/ scratch is ALLOWED (legacy artifact zone, retained)", () => {
+  assert.equal(hook(tmp(), "features/foo/bar.md").status, 0);
 });
 
 test("no scope: .dev/memory-bank/ is DENIED (P2-gated zone — moved under .dev/, still deny-by-default)", () => {
