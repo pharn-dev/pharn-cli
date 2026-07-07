@@ -177,7 +177,13 @@ maintain** (they age with every framework release) — `LIMITS.md` and the pipel
 staleness as a first-class, loud signal, not a quiet check.
 
 **Archetype + map-consistency (fix #5).** `archetype ∈ {ssr, backend, spa, lib}` (extensible),
-detected deterministically (membership over `package.json`). It drives **four** independent maps:
+detected deterministically — a membership test over two merged sources: `package.json`
+dependency **names** and structural **file-tree signals** (`.tsx`/`.jsx` → client UI,
+`next.config.*` → ssr, an `api/` dir or a `route.ts` handler → backend). The two signal sets are
+merged **before** the archetype rule runs, so SSR suppression (`spa = client-UI ∧ ¬ssr`) is computed
+once over the union — not a union of per-source archetype sets. Detection stays a pure, deterministic
+membership test (P5); the file-tree walk reads **names only** (never file bodies), and is bounded +
+symlink-safe. It drives **four** independent maps:
 constitution variant, which phases run, which grillers run, which plan sections exist. Nothing
 ties those four together by default — and in v1 this drifted (a 12-phase plan vs a 10-phase build).
 `validate` therefore checks that all four maps agree on the archetype set.

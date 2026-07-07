@@ -1,13 +1,20 @@
 import type { Archetype } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Archetype detection (pure, no I/O): package.json dependency names → project
-// archetype(s). Deterministic membership over three framework allowlists
-// (ARCHITECTURE.md §5, "detected deterministically (membership over
-// package.json)"). We read dependency NAMES only — never values, scripts, or
-// any file body. A project with no framework signal is `lib`, the frameworkless
-// base that runs on core alone (ARCHITECTURE.md §4). A project may match several
-// archetypes at once (e.g. Next + Express → ssr + backend).
+// Archetype classification (pure, no I/O): observable project facts → project
+// archetype(s), via three signal booleans. Deterministic membership
+// (ARCHITECTURE.md §5, "detected deterministically"; §4, the frameworkless `lib`
+// base). Two fact sources feed the same booleans and are merged BEFORE the rule
+// is applied (see detect-archetype.ts): package.json dependency NAMES (here) and
+// file-tree structural signals (there). We read NAMES only — never values,
+// scripts, or any file body. A project with no signal from any source is `lib`.
+// A project may match several archetypes at once (e.g. Next + Express → ssr +
+// backend).
+//
+// P3 (one axis of change): this file holds the pure CLASSIFICATION rules — the
+// package-name allowlists and the signals→archetypes rule. It changes only if
+// those rules change. The disk-reading strategy (read package.json, walk the
+// tree) lives next door in detect-archetype.ts.
 // ---------------------------------------------------------------------------
 
 // SSR meta-frameworks: a client UI rendered through a server request lifecycle.
@@ -42,7 +49,8 @@ const CLIENT_UI = new Set([
 ]);
 
 // The fixed output order. Detection returns archetypes in this order so the
-// result is deterministic regardless of package.json key order (P5).
+// result is deterministic regardless of input (package.json key order, or
+// file-tree traversal order) (P5).
 const ARCHETYPE_ORDER: readonly Archetype[] = ['ssr', 'backend', 'spa', 'lib'];
 
 // The subset of package.json we read: dependency name maps only.
@@ -51,39 +59,83 @@ export interface ProjectPackages {
   devDependencies?: Record<string, string>;
 }
 
+// The RAW signal booleans a fact source contributes, BEFORE the archetype rule
+// runs. `clientUi` is deliberately ungated here (the `spa = clientUi && !ssr`
+// suppression is applied once, in `archetypesFromSignals`, over the MERGED
+// signals) — this is what lets a client-UI signal from one source be correctly
+// suppressed by an SSR signal from another. Co-located with the pure functions
+// that range over it, mirroring ProjectPackages.
+export interface ArchetypeSignals {
+  ssr: boolean;
+  backend: boolean;
+  clientUi: boolean;
+}
+
+const hasAny = (names: Set<string>, allowlist: Set<string>): boolean => {
+  for (const name of allowlist) {
+    if (names.has(name)) return true;
+  }
+  return false;
+};
+
 /**
- * Detect the project archetype set from package.json, by membership over the
- * union of `dependencies` and `devDependencies` names. Pure and deterministic:
- * the same package set always yields the same archetypes, in ARCHETYPE_ORDER.
- *
- * - ssr: an SSR meta-framework is present.
- * - backend: a server framework is present.
- * - spa: a client UI library is present AND no SSR meta-framework is (with one,
- *   the frontend is the `ssr` archetype instead).
- * - lib: none of the above — the frameworkless base (ARCHITECTURE.md §4).
+ * Package.json dependency names → raw ArchetypeSignals (membership over the
+ * union of `dependencies` and `devDependencies` names). Pure and deterministic.
+ * `clientUi` is the ungated "a client-UI lib is present" fact; SSR suppression
+ * is applied later, in `archetypesFromSignals`, over the merged signals.
  */
-export function detectArchetypes(pkg: ProjectPackages): Archetype[] {
+export function packageSignals(pkg: ProjectPackages): ArchetypeSignals {
   const names = new Set<string>([
     ...Object.keys(pkg.dependencies ?? {}),
     ...Object.keys(pkg.devDependencies ?? {}),
   ]);
-
-  const hasAny = (allowlist: Set<string>): boolean => {
-    for (const name of allowlist) {
-      if (names.has(name)) return true;
-    }
-    return false;
+  return {
+    ssr: hasAny(names, SSR_FRAMEWORKS),
+    backend: hasAny(names, BACKEND_FRAMEWORKS),
+    clientUi: hasAny(names, CLIENT_UI),
   };
+}
 
-  const hasSsr = hasAny(SSR_FRAMEWORKS);
-  const hasBackend = hasAny(BACKEND_FRAMEWORKS);
-  const hasSpa = hasAny(CLIENT_UI) && !hasSsr;
+/** Field-wise OR of two signal sets — the pure merge of two fact sources. */
+export function mergeSignals(
+  a: ArchetypeSignals,
+  b: ArchetypeSignals,
+): ArchetypeSignals {
+  return {
+    ssr: a.ssr || b.ssr,
+    backend: a.backend || b.backend,
+    clientUi: a.clientUi || b.clientUi,
+  };
+}
 
+/**
+ * The archetype rule, applied ONCE over a (possibly merged) signal set. Pure and
+ * deterministic: the same signals always yield the same archetypes, in
+ * ARCHETYPE_ORDER.
+ *
+ * - ssr: an SSR meta-framework signal is present.
+ * - backend: a server / API signal is present.
+ * - spa: a client-UI signal is present AND no SSR signal is (with SSR, the
+ *   frontend is the `ssr` archetype instead) — the single suppression point.
+ * - lib: none of the above — the frameworkless base (ARCHITECTURE.md §4).
+ */
+export function archetypesFromSignals(sig: ArchetypeSignals): Archetype[] {
+  const hasSpa = sig.clientUi && !sig.ssr;
   const found = new Set<Archetype>();
-  if (hasSsr) found.add('ssr');
-  if (hasBackend) found.add('backend');
+  if (sig.ssr) found.add('ssr');
+  if (sig.backend) found.add('backend');
   if (hasSpa) found.add('spa');
   if (found.size === 0) found.add('lib');
-
   return ARCHETYPE_ORDER.filter((a) => found.has(a));
+}
+
+/**
+ * Detect the project archetype set from package.json alone (the pure,
+ * package.json-only path). Preserved byte-for-byte in output for existing
+ * callers: `archetypesFromSignals(packageSignals(pkg))`. The file-tree-aware
+ * detection lives in detect-archetype.ts, which merges this file's signals with
+ * the tree's before applying the rule.
+ */
+export function detectArchetypes(pkg: ProjectPackages): Archetype[] {
+  return archetypesFromSignals(packageSignals(pkg));
 }
