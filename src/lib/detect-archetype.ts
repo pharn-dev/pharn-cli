@@ -61,25 +61,34 @@ const MAX_ENTRIES = 50_000;
  * The file-tree signal rule (pure): a single entry NAME (+ whether it is a
  * directory) → the raw signals it contributes. Names are matched
  * case-insensitively so `API/`, `.TSX`, `Next.config.js` behave the same as
- * their lowercase forms across case-insensitive filesystems (P5). `.sql` /
- * `migrations/` intentionally contribute NOTHING — the archetype enum has no
- * `db` member (see PLAN, decision #2).
+ * their lowercase forms across case-insensitive filesystems (P5). A `.sql` file
+ * or a `migrations/` dir → a `backend` signal: a DB concern folds onto the
+ * `backend` archetype (the enum has no `db` member). This is the
+ * archetype-enum-align increment, which reverses decision #2 of
+ * archetype-file-tree-scan (where `.sql` / `migrations/` contributed nothing).
  */
 function classifyEntry(name: string, isDir: boolean): ArchetypeSignals {
   const lower = name.toLowerCase();
   if (isDir) {
-    // A dir named `api` (covers a top-level `api/` and `pages/api`) → backend.
-    return { ssr: false, backend: lower === 'api', clientUi: false };
+    // A dir named `api` (top-level `api/` or `pages/api`), or `migrations`
+    // (a DB concern), → backend.
+    return {
+      ssr: false,
+      backend: lower === 'api' || lower === 'migrations',
+      clientUi: false,
+    };
   }
   return {
     // `next.config.{js,ts,mjs,cjs,…}` → an SSR meta-framework config.
     ssr: lower.startsWith('next.config.'),
-    // App-Router route handlers (`app/**/route.ts`) → a backend surface.
+    // App-Router route handlers (`app/**/route.ts`), or a `.sql` file (a DB
+    // concern), → a backend surface.
     backend:
       lower === 'route.ts' ||
       lower === 'route.tsx' ||
       lower === 'route.js' ||
-      lower === 'route.mjs',
+      lower === 'route.mjs' ||
+      lower.endsWith('.sql'),
     // A `.tsx` / `.jsx` file anywhere → a client-UI (frontend) signal.
     clientUi: lower.endsWith('.tsx') || lower.endsWith('.jsx'),
   };

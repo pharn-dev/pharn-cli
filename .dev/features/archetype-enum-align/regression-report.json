@@ -1,0 +1,22 @@
+{
+  "base": "80d7a33cd391c5d3c8baf511d4a4ab28b27170aa",
+  "inside": [
+    "src/lib/archetype.ts",
+    "src/lib/detect-archetype.ts",
+    "tests/archetype.test.ts",
+    "tests/detect-archetype.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -28,7 +28,11 @@ const SSR_FRAMEWORKS = new Set([
   '@angular/ssr',
 ]);
 
-// Server / API frameworks: a backend request surface.
+// Server / API / DB frameworks: a backend surface. Alongside the request
+// frameworks, DB/ORM clients map here too — a DB concern folds onto the
+// `backend` archetype (the enum has no `db` member). This is the
+// archetype-enum-align increment, which reverses decision #2 of
+// archetype-file-tree-scan (where DB signals contributed nothing).
 const BACKEND_FRAMEWORKS = new Set([
   'express',
   'fastify',
@@ -36,6 +40,10 @@ const BACKEND_FRAMEWORKS = new Set([
   'koa',
   'hono',
   '@hapi/hapi',
+  // DB/ORM clients → backend (archetype-enum-align).
+  'prisma',
+  '@prisma/client',
+  'drizzle-orm',
 ]);
 
 // Client UI libraries: a frontend that, on its own, has no SSR meta-framework.

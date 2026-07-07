@@ -35,9 +35,20 @@ describe('detectArchetypes', () => {
       ['ssr', 'backend'],
     ],
     [
-      'next + prisma + drizzle → ssr (libs add no archetype)',
+      // archetype-enum-align: prisma now contributes `backend` (DB folds onto
+      // the backend archetype), so a Next app with Prisma is ssr + backend.
+      'next + prisma → ssr + backend (DB folds onto backend)',
       deps('next', 'prisma'),
-      ['ssr'],
+      ['ssr', 'backend'],
+    ],
+    ['prisma → backend (DB folds onto backend)', deps('prisma'), ['backend']],
+    ['@prisma/client → backend', deps('@prisma/client'), ['backend']],
+    ['drizzle-orm → backend', deps('drizzle-orm'), ['backend']],
+    // react (spa) + prisma (backend) → both, in ARCHETYPE_ORDER (backend, spa).
+    [
+      'react + prisma → backend + spa',
+      deps('react', 'prisma'),
+      ['backend', 'spa'],
     ],
     ['no framework → lib', deps('lodash'), ['lib']],
     ['empty package.json → lib', {}, ['lib']],
