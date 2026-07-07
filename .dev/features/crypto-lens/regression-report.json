@@ -1,0 +1,37 @@
+{
+  "base": "4376cff",
+  "inside": [
+    "pharn-review/insecure-crypto/insecure-crypto.md",
+    "pharn-review/insecure-crypto/evals/cases/case-md5-password.md",
+    "pharn-review/insecure-crypto/evals/cases/case-bcrypt-clean.md",
+    "pharn-review/insecure-crypto/evals/cases/case-secure-comment.md",
+    "pharn-review/insecure-crypto/evals/cases/case-md5-cachekey.md",
+    "pharn-review/insecure-crypto/evals/expected/expected-md5-password.json",
+    "pharn-review/insecure-crypto/evals/expected/expected-md5-password.md",
+    "pharn-review/insecure-crypto/evals/expected/expected-bcrypt-clean.json",
+    "pharn-review/insecure-crypto/evals/expected/expected-bcrypt-clean.md",
+    "pharn-review/insecure-crypto/evals/expected/expected-secure-comment.json",
+    "pharn-review/insecure-crypto/evals/expected/expected-secure-comment.md",
+    "pharn-review/insecure-crypto/evals/expected/expected-md5-cachekey.json",
+    "pharn-review/insecure-crypto/evals/expected/expected-md5-cachekey.md",
+    ".dev/floor/scan-code-crypto.mjs",
+    ".dev/floor/scan-code-crypto.test.mjs"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -1,0 +1,32 @@
+{
+  "base": "HEAD",
+  "inside": [
+    "pharn-review/input-validation/input-validation.md",
+    "pharn-review/input-validation/evals/cases/case-unvalidated-sink.md",
+    "pharn-review/input-validation/evals/cases/case-validated.md",
+    "pharn-review/input-validation/evals/cases/case-injection-comment.md",
+    "pharn-review/input-validation/evals/expected/expected-unvalidated-sink.json",
+    "pharn-review/input-validation/evals/expected/expected-unvalidated-sink.md",
+    "pharn-review/input-validation/evals/expected/expected-validated.json",
+    "pharn-review/input-validation/evals/expected/expected-validated.md",
+    "pharn-review/input-validation/evals/expected/expected-injection-comment.json",
+    "pharn-review/input-validation/evals/expected/expected-injection-comment.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

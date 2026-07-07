@@ -1,0 +1,39 @@
+{
+  "base": "0082ad75694796ed29bd235ed7583ff8e5da13c5",
+  "inside": [
+    ".dev/features/magic-values-lens/GRILL.md",
+    ".dev/features/magic-values-lens/PLAN.md",
+    ".dev/floor/scan-code-magic-values.mjs",
+    ".dev/floor/scan-code-magic-values.test.mjs",
+    "pharn-review/magic-values/evals/cases/case-allowed-and-empty.md",
+    "pharn-review/magic-values/evals/cases/case-magic-number-injection.md",
+    "pharn-review/magic-values/evals/cases/case-magic-string-injection.md",
+    "pharn-review/magic-values/evals/cases/case-named-constant.md",
+    "pharn-review/magic-values/evals/expected/expected-allowed-and-empty.json",
+    "pharn-review/magic-values/evals/expected/expected-allowed-and-empty.md",
+    "pharn-review/magic-values/evals/expected/expected-magic-number-injection.json",
+    "pharn-review/magic-values/evals/expected/expected-magic-number-injection.md",
+    "pharn-review/magic-values/evals/expected/expected-magic-string-injection.json",
+    "pharn-review/magic-values/evals/expected/expected-magic-string-injection.md",
+    "pharn-review/magic-values/evals/expected/expected-named-constant.json",
+    "pharn-review/magic-values/evals/expected/expected-named-constant.md",
+    "pharn-review/magic-values/magic-values.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

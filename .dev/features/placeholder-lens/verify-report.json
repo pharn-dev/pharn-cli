@@ -1,0 +1,13 @@
+{
+  "feature": "placeholder-lens",
+  "gates": {
+    "test": 0,
+    "validate": 0,
+    "lint": 0,
+    "format:check": 0,
+    "lint:md": 0
+  },
+  "verdict": "PASS",
+  "failing_gates": [],
+  "verifiers": { "registered": 0, "findings": [] }
+}

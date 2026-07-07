@@ -1,0 +1,37 @@
+{
+  "base": "HEAD",
+  "inside": [
+    ".dev/floor/scan-code-null-deref.mjs",
+    ".dev/floor/scan-code-null-deref.test.mjs",
+    "pharn-review/null-deref/evals/cases/case-guarded-deref.md",
+    "pharn-review/null-deref/evals/cases/case-injection-comment.md",
+    "pharn-review/null-deref/evals/cases/case-optional-chain.md",
+    "pharn-review/null-deref/evals/cases/case-unchecked-deref.md",
+    "pharn-review/null-deref/evals/expected/expected-guarded-deref.json",
+    "pharn-review/null-deref/evals/expected/expected-guarded-deref.md",
+    "pharn-review/null-deref/evals/expected/expected-injection-comment.json",
+    "pharn-review/null-deref/evals/expected/expected-injection-comment.md",
+    "pharn-review/null-deref/evals/expected/expected-optional-chain.json",
+    "pharn-review/null-deref/evals/expected/expected-optional-chain.md",
+    "pharn-review/null-deref/evals/expected/expected-unchecked-deref.json",
+    "pharn-review/null-deref/evals/expected/expected-unchecked-deref.md",
+    "pharn-review/null-deref/null-deref.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

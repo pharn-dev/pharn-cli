@@ -1,0 +1,6 @@
+{
+  "skill_kind": "llm",
+  "assertions": {
+    "structural": [{ "kind": "file_resolves", "value": ".dev/floor/test-fixtures/case-injection-comment.md:99" }]
+  }
+}

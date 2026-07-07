@@ -1,0 +1,21 @@
+{
+  "base": "17ec6e4db4485863f40668d0b027a5aaf210ba90",
+  "inside": [".dev/floor/check-seam-config.mjs", ".dev/floor/check-seam-config.test.mjs", "pharn-contracts/seam-config.md"],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -1,0 +1,26 @@
+{
+  "base": "7cca07e",
+  "inside": [
+    "pharn-review/race-condition/race-condition.md",
+    "pharn-review/race-condition/evals/cases/case-check-then-act-injection.md",
+    "pharn-review/race-condition/evals/expected/expected-check-then-act-injection.json",
+    "pharn-review/race-condition/evals/expected/expected-check-then-act-injection.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

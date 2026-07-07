@@ -1,0 +1,28 @@
+{
+  "base": "5b672263068e3e68021a8f0159eeb376fed2e6f7",
+  "inside": [
+    ".dev/floor/scan-code-copy-paste-drift.mjs",
+    ".dev/floor/scan-code-copy-paste-drift.test.mjs",
+    "pharn-review/copy-paste-drift/copy-paste-drift.md",
+    "pharn-review/copy-paste-drift/evals/cases/case-drift-injection.md",
+    "pharn-review/copy-paste-drift/evals/expected/expected-drift-injection.json",
+    "pharn-review/copy-paste-drift/evals/expected/expected-drift-injection.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -1,0 +1,37 @@
+{
+  "base": "HEAD",
+  "inside": [
+    ".dev/floor/scan-code-swallowed-exception.mjs",
+    ".dev/floor/scan-code-swallowed-exception.test.mjs",
+    "pharn-review/swallowed-exception/evals/cases/case-empty-catch.md",
+    "pharn-review/swallowed-exception/evals/cases/case-intentional-comment.md",
+    "pharn-review/swallowed-exception/evals/cases/case-log-only-catch.md",
+    "pharn-review/swallowed-exception/evals/cases/case-proper-handling.md",
+    "pharn-review/swallowed-exception/evals/expected/expected-empty-catch.json",
+    "pharn-review/swallowed-exception/evals/expected/expected-empty-catch.md",
+    "pharn-review/swallowed-exception/evals/expected/expected-intentional-comment.json",
+    "pharn-review/swallowed-exception/evals/expected/expected-intentional-comment.md",
+    "pharn-review/swallowed-exception/evals/expected/expected-log-only-catch.json",
+    "pharn-review/swallowed-exception/evals/expected/expected-log-only-catch.md",
+    "pharn-review/swallowed-exception/evals/expected/expected-proper-handling.json",
+    "pharn-review/swallowed-exception/evals/expected/expected-proper-handling.md",
+    "pharn-review/swallowed-exception/swallowed-exception.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

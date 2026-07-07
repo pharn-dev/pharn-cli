@@ -1,0 +1,26 @@
+{
+  "base": "edb423d116cdad88f2a02124264b9cbeccae359c",
+  "inside": [
+    ".dev/floor/scan-code-secrets.mjs",
+    ".dev/floor/scan-code-secrets.test.mjs",
+    "pharn-review/secrets-in-code/secrets-in-code.md",
+    "pharn-review/secrets-in-code/evals"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

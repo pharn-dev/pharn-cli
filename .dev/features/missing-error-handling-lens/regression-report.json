@@ -1,0 +1,37 @@
+{
+  "base": "cd725d21a6851425de7a70a7c2ed44e3ea869569",
+  "inside": [
+    ".dev/floor/scan-code-missing-error-handling.mjs",
+    ".dev/floor/scan-code-missing-error-handling.test.mjs",
+    "pharn-review/missing-error-handling/evals/cases/case-guarded.md",
+    "pharn-review/missing-error-handling/evals/cases/case-injection-comment.md",
+    "pharn-review/missing-error-handling/evals/cases/case-unguarded-await.md",
+    "pharn-review/missing-error-handling/evals/cases/case-unguarded-json-parse.md",
+    "pharn-review/missing-error-handling/evals/expected/expected-guarded.json",
+    "pharn-review/missing-error-handling/evals/expected/expected-guarded.md",
+    "pharn-review/missing-error-handling/evals/expected/expected-injection-comment.json",
+    "pharn-review/missing-error-handling/evals/expected/expected-injection-comment.md",
+    "pharn-review/missing-error-handling/evals/expected/expected-unguarded-await.json",
+    "pharn-review/missing-error-handling/evals/expected/expected-unguarded-await.md",
+    "pharn-review/missing-error-handling/evals/expected/expected-unguarded-json-parse.json",
+    "pharn-review/missing-error-handling/evals/expected/expected-unguarded-json-parse.md",
+    "pharn-review/missing-error-handling/missing-error-handling.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
