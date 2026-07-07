@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -12,6 +20,18 @@ import type { InstalledCapability, Selection } from '../src/types.js';
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, content);
+}
+
+// True if ANYTHING exists at `path` (file, dir, OR symlink). Uses lstatSync so a
+// copied symlink is detected even when its target is absent (existsSync follows
+// the link and would report a dangling symlink as missing).
+function isPresent(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // A fake fetched pharn-oss clone with the full product + dev surface, so the
@@ -199,6 +219,91 @@ describe('installCapabilities', () => {
     expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(
       false,
     );
+  });
+
+  // --- symlink rejection (P2): the fetched repo is untrusted; a recursive cpSync
+  // copies symlinks verbatim by default, so a malicious clone could plant one
+  // into the user's tree. Sources below point at REAL files so existsSync passes
+  // and the isSymlink/filter guards (not the missing-source path) are exercised.
+
+  it('does NOT copy a symlink planted inside a selected capability dir', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    symlinkSync(
+      join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'),
+      join(repo, 'pharn-pipeline/grillers/a11y/evil-link'),
+    );
+    installCapabilities(repo, proj, selection());
+    // real files copied; the nested symlink was skipped by the cpSync filter.
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
+      true,
+    );
+    expect(
+      isPresent(join(proj, 'pharn-pipeline/grillers/a11y/evil-link')),
+    ).toBe(false);
+  });
+
+  it('rejects (pre-flight, nothing written) a selected capability whose source dir is a symlink', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    rmSync(join(repo, 'pharn-pipeline/grillers/a11y'), {
+      recursive: true,
+      force: true,
+    });
+    // swap the griller dir for a symlink onto another real capability dir.
+    symlinkSync(
+      join(repo, 'pharn-review/n-plus-one'),
+      join(repo, 'pharn-pipeline/grillers/a11y'),
+    );
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      ManifestValidationError,
+    );
+    // pre-flight threw before any copy: no product surfaces leaked in.
+    expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(
+      false,
+    );
+  });
+
+  it('does NOT copy symlinked fixed surfaces (settings, trusted docs, contracts, floor)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    // single-file surfaces: replace the real file with a symlink onto a real file.
+    rmSync(join(repo, '.claude/settings.json'));
+    symlinkSync(
+      join(repo, 'CONSTITUTION.md'),
+      join(repo, '.claude/settings.json'),
+    );
+    rmSync(join(repo, 'ARCHITECTURE.md'));
+    symlinkSync(join(repo, 'CONSTITUTION.md'), join(repo, 'ARCHITECTURE.md'));
+    // whole-dir surfaces: plant a nested symlink alongside the real files.
+    symlinkSync(
+      join(repo, 'pharn-contracts/finding-shape.md'),
+      join(repo, 'pharn-contracts/evil-link'),
+    );
+    symlinkSync(
+      join(repo, '.dev/floor/validate.mjs'),
+      join(repo, '.dev/floor/evil-link'),
+    );
+
+    const result = installCapabilities(repo, proj, selection());
+
+    // symlinked single-file surfaces skipped (settings not preserved, not copied).
+    expect(result.settingsPreserved).toBe(false);
+    expect(isPresent(join(proj, '.claude/settings.json'))).toBe(false);
+    expect(isPresent(join(proj, 'ARCHITECTURE.md'))).toBe(false);
+    // real siblings still copied; planted nested symlinks skipped.
+    expect(existsSync(join(proj, 'pharn-contracts/finding-shape.md'))).toBe(
+      true,
+    );
+    expect(isPresent(join(proj, 'pharn-contracts/evil-link'))).toBe(false);
+    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
+    expect(isPresent(join(proj, '.dev/floor/evil-link'))).toBe(false);
   });
 });
 

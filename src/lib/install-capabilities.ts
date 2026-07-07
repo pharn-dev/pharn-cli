@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
 import { safeJoin } from './install-modules.js';
 import {
   assertNoDotDot,
@@ -53,6 +53,15 @@ export interface InstallCapabilitiesResult {
 
 const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
 
+// Trust (P2): the fetched repo is untrusted, and a recursive cpSync copies
+// symlinks VERBATIM by default — so a malicious clone could plant a symlink
+// (e.g. onto a file outside the project) that lands in the user's tree and is
+// later followed by their tools. Reject symlinks the same way copyFilteredDir
+// does (skip, never materialize): `isSymlink` guards each whole-dir/single-file
+// copy root; `noSymlinks` is the cpSync filter that skips nested symlinks.
+const isSymlink = (p: string): boolean => lstatSync(p).isSymbolicLink();
+const noSymlinks = (src: string): boolean => !isSymlink(src);
+
 /**
  * Copy the resolved capabilities + the fixed product surfaces from `repoDir`
  * into `projectRoot`. Pre-flights every selected capability source before any
@@ -81,13 +90,18 @@ export function installCapabilityDirs(
         `Capability "${cap.name}" (${cap.role}) is missing at ${subtree}/${cap.name} in the fetched repo.`,
       );
     }
+    if (isSymlink(from)) {
+      throw new ManifestValidationError(
+        `Capability "${cap.name}" (${cap.role}) is a symlink at ${subtree}/${cap.name}; refusing to copy from the untrusted repo.`,
+      );
+    }
     return { name: cap.name, role: cap.role, subtree, from };
   });
 
   const installed: InstalledCapability[] = [];
   for (const cap of planned) {
     const to = safeJoin(projectRoot, `${cap.subtree}/${cap.name}`);
-    cpSync(cap.from, to, { recursive: true, force: true });
+    cpSync(cap.from, to, { recursive: true, force: true, filter: noSymlinks });
     installed.push({ name: cap.name, role: cap.role });
   }
   return installed;
@@ -122,7 +136,11 @@ export function installCapabilities(
   const settingsFrom = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
   const settingsTo = safeJoin(projectRoot, CLAUDE_SETTINGS_FILE);
   const settingsPreserved = existsSync(settingsTo);
-  if (!settingsPreserved && existsSync(settingsFrom)) {
+  if (
+    !settingsPreserved &&
+    existsSync(settingsFrom) &&
+    !isSymlink(settingsFrom)
+  ) {
     mkdirSync(safeJoin(projectRoot, '.claude'), { recursive: true });
     cpSync(settingsFrom, settingsTo, { force: true });
   }
@@ -130,27 +148,28 @@ export function installCapabilities(
   // --- trusted docs (root) ---------------------------------------------------
   for (const doc of TRUSTED_DOCS) {
     const from = safeJoin(repoDir, doc);
-    if (existsSync(from)) {
+    if (existsSync(from) && !isSymlink(from)) {
       cpSync(from, safeJoin(projectRoot, doc), { force: true });
     }
   }
 
   // --- pharn-contracts/ (whole dir) ------------------------------------------
   const contractsFrom = safeJoin(repoDir, CONTRACTS_DIR);
-  if (existsSync(contractsFrom)) {
+  if (existsSync(contractsFrom) && !isSymlink(contractsFrom)) {
     cpSync(contractsFrom, safeJoin(projectRoot, CONTRACTS_DIR), {
       recursive: true,
       force: true,
+      filter: noSymlinks,
     });
   }
 
   // --- .dev/floor/ (checkers only — test files excluded) ---------------------
   const floorFrom = safeJoin(repoDir, FLOOR_DIR);
-  if (existsSync(floorFrom)) {
+  if (existsSync(floorFrom) && !isSymlink(floorFrom)) {
     cpSync(floorFrom, safeJoin(projectRoot, FLOOR_DIR), {
       recursive: true,
       force: true,
-      filter: (src) => !isTestFile(src),
+      filter: (src) => !isTestFile(src) && noSymlinks(src),
     });
   }
 
