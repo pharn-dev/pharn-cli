@@ -181,10 +181,17 @@ export interface PharnConfig {
 // parsed + validated at the fetch boundary (a later increment).
 // ---------------------------------------------------------------------------
 
-// Project archetype, detected deterministically from package.json
-// (ARCHITECTURE.md §5, "membership over package.json"). A frameworkless project
-// is `lib` — it runs on core alone (§4). A project may match several at once
-// (e.g. Next + Express → ssr + backend).
+// Project archetype, detected deterministically (a membership test, P5) from two
+// sources merged: package.json dependency NAMES and structural file-tree signals
+// (e.g. `.tsx` → client UI, `next.config.*` → ssr, an `api/` dir or a `route.ts`
+// handler → backend) — see src/lib/detect-archetype.ts. A project with no signal
+// from either source is `lib` — it runs on core alone (§4). A project may match
+// several at once (e.g. Next + Express → ssr + backend).
+//
+// NOTE (human-owned reconciliation): ARCHITECTURE.md §5 still phrases detection as
+// "membership over package.json", predating the file-tree extension. §5 is trusted
+// + hook-protected (agent cannot edit it); updating its wording is a human call.
+// The mechanism stays deterministic either way (P5).
 export type Archetype = 'ssr' | 'backend' | 'spa' | 'lib';
 
 // One capability in the pharn-oss-published index. pharn-oss owns the

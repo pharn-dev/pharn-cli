@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { detectArchetypes } from '../src/lib/archetype.js';
-import type { ProjectPackages } from '../src/lib/archetype.js';
+import {
+  archetypesFromSignals,
+  detectArchetypes,
+  mergeSignals,
+  packageSignals,
+} from '../src/lib/archetype.js';
+import type {
+  ArchetypeSignals,
+  ProjectPackages,
+} from '../src/lib/archetype.js';
 import type { Archetype } from '../src/types.js';
 
 // Build a package.json with the given names as dependencies.
@@ -62,5 +70,102 @@ describe('detectArchetypes', () => {
   it('is deterministic — the same input yields the same result', () => {
     const pkg = deps('next', 'express', 'react');
     expect(detectArchetypes(pkg)).toEqual(detectArchetypes(pkg));
+  });
+});
+
+// The pure signal pivot: package.json names → raw signals; the archetype rule
+// applied once over (merged) signals; the field-wise OR. These are what make the
+// two-source merge in detect-archetype.ts correct (the SSR suppression is applied
+// once, over merged signals, not per source).
+describe('packageSignals', () => {
+  it.each<[string, ProjectPackages, ArchetypeSignals]>([
+    [
+      'next → ssr signal',
+      deps('next'),
+      { ssr: true, backend: false, clientUi: false },
+    ],
+    [
+      'express → backend signal',
+      deps('express'),
+      { ssr: false, backend: true, clientUi: false },
+    ],
+    [
+      'react → clientUi signal (ungated — NOT yet spa)',
+      deps('react'),
+      { ssr: false, backend: false, clientUi: true },
+    ],
+    [
+      'next + react → ssr AND clientUi (suppression happens later)',
+      deps('next', 'react'),
+      { ssr: true, backend: false, clientUi: true },
+    ],
+    [
+      'no framework → all false',
+      deps('lodash'),
+      { ssr: false, backend: false, clientUi: false },
+    ],
+  ])('%s', (_label, pkg, expected) => {
+    expect(packageSignals(pkg)).toEqual(expected);
+  });
+
+  it('reads devDependencies too', () => {
+    expect(packageSignals({ devDependencies: { next: '15' } })).toEqual({
+      ssr: true,
+      backend: false,
+      clientUi: false,
+    });
+  });
+});
+
+describe('archetypesFromSignals', () => {
+  it.each<[string, ArchetypeSignals, Archetype[]]>([
+    [
+      'clientUi only → spa',
+      { ssr: false, backend: false, clientUi: true },
+      ['spa'],
+    ],
+    // The single suppression point: clientUi is dropped when ssr is present,
+    // regardless of which source contributed each — this is the whole reason the
+    // merge is signals-then-rule, not union-of-sets.
+    [
+      'clientUi + ssr → ssr only (spa suppressed)',
+      { ssr: true, backend: false, clientUi: true },
+      ['ssr'],
+    ],
+    [
+      'backend + clientUi → backend + spa',
+      { ssr: false, backend: true, clientUi: true },
+      ['backend', 'spa'],
+    ],
+    [
+      'ssr + backend + clientUi → ssr + backend',
+      { ssr: true, backend: true, clientUi: true },
+      ['ssr', 'backend'],
+    ],
+    [
+      'all false → lib',
+      { ssr: false, backend: false, clientUi: false },
+      ['lib'],
+    ],
+  ])('%s', (_label, sig, expected) => {
+    expect(archetypesFromSignals(sig)).toEqual(expected);
+  });
+});
+
+describe('mergeSignals', () => {
+  it('is a field-wise OR of two signal sets', () => {
+    expect(
+      mergeSignals(
+        { ssr: false, backend: false, clientUi: true },
+        { ssr: true, backend: false, clientUi: false },
+      ),
+    ).toEqual({ ssr: true, backend: false, clientUi: true });
+  });
+
+  it('is idempotent and order-independent', () => {
+    const a: ArchetypeSignals = { ssr: true, backend: false, clientUi: true };
+    const b: ArchetypeSignals = { ssr: false, backend: true, clientUi: false };
+    expect(mergeSignals(a, b)).toEqual(mergeSignals(b, a));
+    expect(mergeSignals(a, a)).toEqual(a);
   });
 });
