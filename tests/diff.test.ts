@@ -2,8 +2,9 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
-import { diffInstalled } from '../src/lib/diff.js';
+import { diffInstalled, diffInstalledCapabilities } from '../src/lib/diff.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
+import type { InstalledCapability } from '../src/types.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -223,5 +224,82 @@ describe('diffInstalled', () => {
 
     expect(snapshot(repoDir)).toEqual(repoBefore);
     expect(snapshot(claudeDir)).toEqual(claudeBefore);
+  });
+});
+
+describe('diffInstalledCapabilities', () => {
+  const tmp = useTmpDir();
+
+  const caps: InstalledCapability[] = [
+    { name: 'a11y', role: 'griller' },
+    { name: 'n-plus-one', role: 'lens' },
+  ];
+
+  function scaffoldClone(repo: string): void {
+    write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    write(join(repo, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+    write(join(repo, '.claude/commands/pharn-plan.md'), 'plan');
+    write(join(repo, '.claude/commands/pharn-dev-plan.md'), 'DEV');
+    write(join(repo, '.claude/hooks/enforce.cjs'), 'hook');
+    write(join(repo, '.claude/hooks/enforce.test.cjs'), 'HOOKTEST');
+    write(join(repo, '.claude/settings.json'), '{"a":1}');
+    write(join(repo, 'CONSTITUTION.md'), 'C');
+    write(join(repo, 'pharn-contracts/finding-shape.md'), 'fs');
+    write(join(repo, '.dev/floor/validate.mjs'), 'floor');
+    write(join(repo, '.dev/floor/validate.test.mjs'), 'FLOORTEST');
+  }
+
+  // The exact PHARN-owned set installCapabilities would have written (settings
+  // excluded — user-owned; dev-only + test files never copied).
+  function scaffoldMatchingProject(proj: string): void {
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'plan');
+    write(join(proj, '.claude/hooks/enforce.cjs'), 'hook');
+    write(join(proj, 'CONSTITUTION.md'), 'C');
+    write(join(proj, 'pharn-contracts/finding-shape.md'), 'fs');
+    write(join(proj, '.dev/floor/validate.mjs'), 'floor');
+  }
+
+  it('reports all ok when the project matches (settings.json + dev-only excluded)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldClone(repo);
+    scaffoldMatchingProject(proj);
+    // A different settings.json must be ignored (user-owned).
+    write(join(proj, '.claude/settings.json'), '{"user":true}');
+
+    const r = diffInstalledCapabilities({
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: caps,
+    });
+    expect(r.missing).toEqual([]);
+    expect(r.modified).toEqual([]);
+    // a11y, n-plus-one, pharn-plan, enforce.cjs, CONSTITUTION, contract, floor.
+    expect(r.okCount).toBe(7);
+  });
+
+  it('flags a modified + a missing file; never expects settings.json/dev-only/test files', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldClone(repo);
+    scaffoldMatchingProject(proj);
+    // Modify one capability file, remove another expected file.
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A-EDITED');
+    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N'); // keep
+    write(join(proj, 'CONSTITUTION.md'), 'C-EDITED'); // modified doc
+
+    const r = diffInstalledCapabilities({
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: caps,
+    });
+    expect(r.modified).toContain('pharn-pipeline/grillers/a11y/a11y.md');
+    expect(r.modified).toContain('CONSTITUTION.md');
+    const paths = [...r.modified, ...r.missing];
+    expect(paths).not.toContain('.claude/settings.json');
+    expect(paths.some((p) => p.includes('pharn-dev-'))).toBe(false);
+    expect(paths.some((p) => p.includes('.test.'))).toBe(false);
   });
 });

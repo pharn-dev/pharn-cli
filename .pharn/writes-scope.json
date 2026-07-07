@@ -1,10 +1,11 @@
 {
   "scope": [
-    "src/lib/pharn-config.ts",
-    "src/commands/list.ts",
-    "tests/list.test.ts",
-    "tests/pharn-config.test.ts"
+    "src/lib/capability-address.ts",
+    "src/commands/add.ts",
+    "src/commands/remove.ts",
+    "tests/capability-address.test.ts",
+    "tests/remove.test.ts"
   ],
-  "set_by": ".dev/features/list-archetype-aware/PLAN.md",
-  "set_at": "2026-07-07T17:02:29.000Z"
+  "set_by": ".dev/features/remove-archetype-aware/PLAN.md",
+  "set_at": "2026-07-07T18:33:38.729Z"
 }

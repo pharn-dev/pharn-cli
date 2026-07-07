@@ -23,10 +23,24 @@ const fetchRepo = vi.fn();
 vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
 
 const diffInstalled = vi.fn();
-vi.mock('../src/lib/diff.js', () => ({ diffInstalled }));
+const diffInstalledCapabilities = vi.fn();
+vi.mock('../src/lib/diff.js', () => ({
+  diffInstalled,
+  diffInstalledCapabilities,
+}));
 
 const readPharnConfig = vi.fn();
-vi.mock('../src/lib/pharn-config.js', () => ({ readPharnConfig }));
+vi.mock('../src/lib/pharn-config.js', () => ({
+  readPharnConfig,
+  isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
+}));
+
+const fetchRemoteSkillsVersion = vi.fn();
+const readSkillsVersion = vi.fn();
+vi.mock('../src/lib/skills-version.js', () => ({
+  fetchRemoteSkillsVersion,
+  readSkillsVersion,
+}));
 
 const { runStatus } = await import('../src/commands/status.js');
 const prompts = await import('@clack/prompts');
@@ -186,5 +200,68 @@ describe('runStatus', () => {
       runStatus({ strict: true, drift: false }),
     ).rejects.toMatchObject(new ProcessExit(1));
     expect(fetchRepo).not.toHaveBeenCalled();
+  });
+});
+
+describe('runStatus (archetype)', () => {
+  stubProcessExit();
+  beforeEach(() => {
+    vi.spyOn(process, 'cwd').mockReturnValue('/proj');
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  const archConfig = (): PharnConfig =>
+    config({
+      skillsVersion: '1.0.0',
+      modules: [],
+      archetypes: ['ssr'],
+      capabilities: [{ name: 'a11y', role: 'griller' }],
+    });
+
+  it('--no-drift: version via SKILLS_VERSION fetch, no manifest fetch, no clone', async () => {
+    readPharnConfig.mockReturnValue(archConfig());
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+    await runStatus({ drift: false });
+
+    expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
+    expect(fetchRemoteManifest).not.toHaveBeenCalled();
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(noteBody('VERSION')).toContain('ssr');
+  });
+
+  it('default: clones, reads SKILLS_VERSION, diffs capabilities, cleans up', async () => {
+    readPharnConfig.mockReturnValue(archConfig());
+    const cleanup = vi.fn();
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+    await runStatus({});
+
+    expect(readSkillsVersion).toHaveBeenCalledWith('/repo');
+    expect(diffInstalledCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ repoDir: '/repo', projectRoot: '/proj' }),
+    );
+    // The legacy module-diff path is not taken for an archetype config.
+    expect(diffInstalled).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('--strict exits 1 on capability drift, cleaning up first', async () => {
+    readPharnConfig.mockReturnValue(archConfig());
+    const cleanup = vi.fn();
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue({
+      modified: ['pharn-pipeline/grillers/a11y/a11y.md'],
+      missing: [],
+      okCount: 3,
+    });
+
+    await expect(runStatus({ strict: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(cleanup).toHaveBeenCalled();
   });
 });

@@ -2,9 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
-import { installCapabilities } from '../src/lib/install-capabilities.js';
+import {
+  installCapabilities,
+  installCapabilityDirs,
+} from '../src/lib/install-capabilities.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
-import type { Selection } from '../src/types.js';
+import type { InstalledCapability, Selection } from '../src/types.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -196,5 +199,41 @@ describe('installCapabilities', () => {
     expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(
       false,
     );
+  });
+});
+
+describe('installCapabilityDirs', () => {
+  const tmp = useTmpDir();
+
+  it('copies only the named capability dirs — no product surfaces', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    const caps: InstalledCapability[] = [{ name: 'a11y', role: 'griller' }];
+
+    const result = installCapabilityDirs(repo, proj, caps);
+
+    expect(result).toEqual([{ name: 'a11y', role: 'griller' }]);
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
+      true,
+    );
+    // The focused primitive copies NO product surfaces.
+    expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(
+      false,
+    );
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+  });
+
+  it('rejects a name that escapes the base (P2 safeJoin)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    expect(() =>
+      installCapabilityDirs(repo, proj, [
+        { name: '../escape', role: 'griller' },
+      ]),
+    ).toThrow(ManifestValidationError);
   });
 });

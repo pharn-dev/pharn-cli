@@ -25,6 +25,7 @@ const writePharnConfig = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
   readPharnConfig,
   writePharnConfig,
+  isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
   toInstalledModules: (m: { name: string; version: string }[]) =>
     m.map(({ name, version }) => ({ name, version })),
 }));
@@ -553,5 +554,91 @@ describe('runRemove', () => {
     );
     expect(cleanup).toHaveBeenCalledTimes(1);
     expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+});
+
+// §A2 — capability removal (archetype install; no clone, no network) ----------
+describe('runRemove (archetype)', () => {
+  stubProcessExit();
+  beforeEach(() => {
+    proj = join(tmp.path(), 'proj');
+    vi.spyOn(process, 'cwd').mockReturnValue(proj);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  const archConfig = (
+    caps: { name: string; role: 'griller' | 'lens' }[],
+  ): PharnConfig =>
+    config([], { modules: [], archetypes: ['ssr'], capabilities: caps });
+
+  it('deletes the capability dir and drops it (siblings untouched, no clone)', async () => {
+    readPharnConfig.mockReturnValue(
+      archConfig([
+        { name: 'a11y', role: 'griller' },
+        { name: 'n-plus-one', role: 'lens' },
+      ]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+
+    await runRemove('a11y');
+
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(false);
+    expect(
+      existsSync(join(proj, 'pharn-review/n-plus-one/n-plus-one.md')),
+    ).toBe(true);
+    expect(lastWritten().capabilities).toEqual([
+      { name: 'n-plus-one', role: 'lens' },
+    ]);
+    expect(fetchRepo).not.toHaveBeenCalled();
+  });
+
+  it('resolves role:name and leaves archetypes untouched', async () => {
+    readPharnConfig.mockReturnValue(
+      archConfig([{ name: 'n-plus-one', role: 'lens' }]),
+    );
+    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+
+    await runRemove('lens:n-plus-one');
+
+    expect(existsSync(join(proj, 'pharn-review/n-plus-one'))).toBe(false);
+    expect(lastWritten().archetypes).toEqual(['ssr']);
+    expect(lastWritten().capabilities).toEqual([]);
+  });
+
+  it('is a no-op for a capability that is not installed', async () => {
+    readPharnConfig.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+
+    await runRemove('ghost');
+
+    expect(prompts.outro).toHaveBeenCalledWith('Nothing was removed.');
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('exits(1) on a name installed in both roles (ambiguous)', async () => {
+    readPharnConfig.mockReturnValue(
+      archConfig([
+        { name: 'dup', role: 'griller' },
+        { name: 'dup', role: 'lens' },
+      ]),
+    );
+
+    await expect(runRemove('dup')).rejects.toMatchObject(new ProcessExit(1));
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('no-arg picker selects from installed capabilities', async () => {
+    readPharnConfig.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    vi.mocked(prompts.select).mockResolvedValue('griller:a11y');
+
+    await runRemove(undefined);
+
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(false);
+    expect(lastWritten().capabilities).toEqual([]);
   });
 });

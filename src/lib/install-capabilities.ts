@@ -59,32 +59,51 @@ const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
  * write (no partial installs). Returns the copied capability list + whether the
  * user's existing settings.json was preserved.
  */
-export function installCapabilities(
+/**
+ * Copy just the given capability dirs (whole dir, incl. evals/) into the mirrored
+ * project-root paths — WITHOUT the fixed product surfaces. Pre-flights every
+ * source (validated name + safeJoin + existence) before any write, so a bad name
+ * or missing source fails with nothing written. The focused primitive `add` and
+ * the archetype install share; `remove` mirrors its path derivation.
+ */
+export function installCapabilityDirs(
   repoDir: string,
   projectRoot: string,
-  selection: Selection,
-): InstallCapabilitiesResult {
-  // --- pre-flight: resolve + validate every selected capability source -------
-  const planned = selection.selected.map((cap) => {
+  capabilities: InstalledCapability[],
+): InstalledCapability[] {
+  const planned = capabilities.map((cap) => {
     assertSafeString(cap.name, `capability "${cap.name}"`, CAPABILITY_NAME_RE);
     assertNoDotDot(cap.name, `capability "${cap.name}"`);
     const subtree = cap.role === 'griller' ? GRILLERS_DIR : LENSES_DIR;
     const from = safeJoin(repoDir, `${subtree}/${cap.name}`);
     if (!existsSync(from)) {
       throw new ManifestValidationError(
-        `Selected capability "${cap.name}" (${cap.role}) is missing at ${subtree}/${cap.name} in the fetched repo.`,
+        `Capability "${cap.name}" (${cap.role}) is missing at ${subtree}/${cap.name} in the fetched repo.`,
       );
     }
     return { name: cap.name, role: cap.role, subtree, from };
   });
 
-  // --- copy the selected capabilities (whole dir, incl. evals/) --------------
-  const capabilities: InstalledCapability[] = [];
+  const installed: InstalledCapability[] = [];
   for (const cap of planned) {
     const to = safeJoin(projectRoot, `${cap.subtree}/${cap.name}`);
     cpSync(cap.from, to, { recursive: true, force: true });
-    capabilities.push({ name: cap.name, role: cap.role });
+    installed.push({ name: cap.name, role: cap.role });
   }
+  return installed;
+}
+
+export function installCapabilities(
+  repoDir: string,
+  projectRoot: string,
+  selection: Selection,
+): InstallCapabilitiesResult {
+  // Copy the selected capability dirs (pre-flighted; no partial installs).
+  const capabilities = installCapabilityDirs(
+    repoDir,
+    projectRoot,
+    selection.selected,
+  );
 
   // --- product commands: pharn-*.md, excluding pharn-dev-*.md ----------------
   copyFilteredDir(repoDir, projectRoot, CLAUDE_COMMANDS_DIR, (fileName) => {

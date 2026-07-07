@@ -1,21 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
-import {
-  DOCS_URL,
-  FIRST_FEATURE_COMMAND,
-  REPO_URL,
-  SKILLS_VERSION_FILE,
-} from '../lib/constants.js';
+import { DOCS_URL, FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
-import { safeJoin } from '../lib/install-modules.js';
 import { writePharnConfig } from '../lib/pharn-config.js';
-import {
-  assertSafeString,
-  ManifestValidationError,
-  VERSION_RE,
-} from '../lib/validate.js';
+import { readSkillsVersion } from '../lib/skills-version.js';
 import type {
   Archetype,
   InstalledCapability,
@@ -96,24 +85,5 @@ export async function runInstallArchetype(
       '',
       `${pc.bold('Docs')}  ${pc.cyan(DOCS_URL)}`,
     ].join('\n'),
-  );
-}
-
-/**
- * Read + validate the fetched SKILLS_VERSION (untrusted, P2): trim, then check
- * it is a semver string (VERSION_RE) before persisting. A missing file is an
- * upstream packaging bug — surfaced, not defaulted.
- */
-function readSkillsVersion(repoDir: string): string {
-  const svPath = safeJoin(repoDir, SKILLS_VERSION_FILE);
-  if (!existsSync(svPath)) {
-    throw new ManifestValidationError(
-      `${SKILLS_VERSION_FILE} is missing in the fetched repo.`,
-    );
-  }
-  return assertSafeString(
-    readFileSync(svPath, 'utf8').trim(),
-    SKILLS_VERSION_FILE,
-    VERSION_RE,
   );
 }
