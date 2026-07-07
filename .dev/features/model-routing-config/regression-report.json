@@ -1,0 +1,25 @@
+{
+  "base": "0381ccb",
+  "inside": [
+    "src/lib/model-routing.ts",
+    "src/steps/install-archetype.ts",
+    "src/steps/install.ts",
+    "src/types.ts",
+    "tests/init-archetype.test.ts",
+    "tests/install.test.ts",
+    "tests/model-routing.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

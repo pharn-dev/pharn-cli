@@ -3,6 +3,7 @@ import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { DOCS_URL, FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
+import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { writePharnConfig } from '../lib/pharn-config.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import type {
@@ -63,6 +64,8 @@ export async function runInstallArchetype(
     // CONSTITUTION.md verbatim. No modules: capabilities are the install unit.
     modules: [],
     installedAt: new Date().toISOString(),
+    // Per-stage model routing, written on every fresh install (P7 — additive).
+    models: DEFAULT_MODEL_ROUTING,
     archetypes,
     capabilities,
   };

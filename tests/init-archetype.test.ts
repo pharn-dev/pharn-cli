@@ -19,6 +19,7 @@ const { resolveCapabilities } =
 const { runInstallArchetype } =
   await import('../src/steps/install-archetype.js');
 const { readPharnConfig } = await import('../src/lib/pharn-config.js');
+const { DEFAULT_MODEL_ROUTING } = await import('../src/lib/model-routing.js');
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -114,6 +115,8 @@ describe('archetype install (fixture e2e)', () => {
     expect(config!.commit).toBe('sha123');
     expect(config!.modules).toEqual([]);
     expect(config!.constitution).toBeUndefined();
+    // Model routing written on every fresh install (archetype path too).
+    expect(config!.models).toEqual(DEFAULT_MODEL_ROUTING);
     expect(config!.capabilities).toEqual([
       { name: 'a11y', role: 'griller' },
       { name: 'security', role: 'griller' },
