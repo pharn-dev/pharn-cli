@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CANCEL, ProcessExit, stubProcessExit } from './helpers.js';
 import type { WizardConfig } from '../src/types.js';
+import { DEFAULT_MODEL_ROUTING } from '../src/lib/model-routing.js';
 
 const { existsSync } = vi.hoisted(() => ({ existsSync: vi.fn() }));
 vi.mock('node:fs', async (importOriginal) => ({
@@ -92,6 +93,8 @@ describe('runInstall', () => {
         { name: 'pharn-pipeline', version: '0.5.0' },
       ],
     });
+    // Model routing is written on every fresh install with sensible defaults.
+    expect(written.models).toEqual(DEFAULT_MODEL_ROUTING);
     // Legacy install: the schemaVersion 2 fields are omitted entirely.
     expect(written.stackAnswers).toBeUndefined();
     expect(written.installedSkills).toBeUndefined();

@@ -1,11 +1,7 @@
 {
   "scope": [
-    "src/lib/capability-address.ts",
-    "src/commands/add.ts",
-    "src/commands/remove.ts",
-    "tests/capability-address.test.ts",
-    "tests/remove.test.ts"
+    ".dev/features/model-routing-config/SHIP.md"
   ],
-  "set_by": ".dev/features/remove-archetype-aware/PLAN.md",
-  "set_at": "2026-07-07T18:33:38.729Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-07-07T20:30:54.488Z"
 }

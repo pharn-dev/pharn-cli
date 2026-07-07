@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isPlainObject } from './validate.js';
+import { validateModelRouting } from './model-routing.js';
 import type { InstalledModule, PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
@@ -20,6 +21,12 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     // rather than throwing deep inside add/update on `config.modules.map`.
     if (typeof raw.skillsVersion !== 'string' || !Array.isArray(raw.modules)) {
       return null;
+    }
+    // A present-but-invalid `models` block makes the config unloadable (→ "run
+    // init"), consistent with the shape guard above — validateModelRouting throws
+    // and is caught below. An absent `models` is legacy/valid (P7, additive).
+    if (raw.models !== undefined) {
+      validateModelRouting(raw.models);
     }
     return raw as unknown as PharnConfig;
   } catch {

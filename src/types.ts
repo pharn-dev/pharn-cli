@@ -164,6 +164,42 @@ export interface InstalledCapability {
   role: 'griller' | 'lens';
 }
 
+// ---------------------------------------------------------------------------
+// Model routing — the `models` block in pharn.config.json. The CLI owns this
+// schema. Per-stage {model, effort} with a `default` fallback; a stage without
+// an entry (incl. an empty `stages`) resolves to `default` (see
+// src/lib/model-routing.ts, resolveStageModel). Realized via generated subagent
+// frontmatter in a later increment — this is the config shape + validator only.
+// ---------------------------------------------------------------------------
+
+// Effort level (brief: {low, high, max} — no "medium"). Runtime allowlist:
+// EFFORT_LEVELS in src/lib/model-routing.ts.
+export type EffortLevel = 'low' | 'high' | 'max';
+
+// Valid model-id strings (short forms of the current models). Runtime allowlist:
+// MODEL_IDS in src/lib/model-routing.ts.
+export type ModelId = 'opus-4-8' | 'sonnet-5' | 'fable-5' | 'haiku-4-5';
+
+// Known pipeline stage keys that may carry a model override — the dev-loop stage
+// commands (pharn-dev-*), realized as subagents. NOT the ARCHITECTURE §6 spine
+// (which omits `review` and includes `spec`). Runtime allowlist: PIPELINE_STAGES
+// in src/lib/model-routing.ts.
+export type PipelineStage =
+  'plan' | 'grill' | 'build' | 'regress' | 'verify' | 'review' | 'ship';
+
+// One routing target: which model runs a stage, at what effort.
+export interface StageModel {
+  model: ModelId;
+  effort: EffortLevel;
+}
+
+// The `models` block: a required `default` (the fallback for any stage without
+// an explicit entry, incl. an empty `stages`) plus per-stage overrides.
+export interface ModelRouting {
+  default: StageModel;
+  stages: Partial<Record<PipelineStage, StageModel>>;
+}
+
 export interface PharnConfig {
   pharnVersion: string;
   skillsVersion: string;
@@ -179,6 +215,10 @@ export interface PharnConfig {
   isMultiTenant?: boolean;
   modules: InstalledModule[];
   installedAt: string;
+  // Per-stage model routing (the `models` block). Written on every fresh install
+  // with DEFAULT_MODEL_ROUTING; absent on legacy installs predating it (P7 —
+  // additive). Validated by validateModelRouting (src/lib/model-routing.ts).
+  models?: ModelRouting;
   // schemaVersion 2 additions (absent on legacy installs):
   stackAnswers?: Record<string, string>;
   installedSkills?: InstalledSkill[];
