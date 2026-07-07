@@ -204,13 +204,54 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
     });
   });
 
-  // Decision #2: .sql / migrations/ map to no archetype and must contribute
-  // nothing (pinned so a future `db` archetype is a deliberate edit).
-  it('.sql files and a migrations/ dir contribute nothing → lib', () => {
+  // archetype-enum-align (reverses decision #2): a .sql file or a migrations/
+  // dir now maps to `backend` — a DB concern folds onto the backend archetype
+  // (the enum still has no `db` member).
+  it('.sql files and a migrations/ dir → backend', () => {
     touch(tmp.path(), 'db/schema.sql');
     touch(tmp.path(), 'migrations/001_init.sql');
     expect(detectArchetypesFromProject(tmp.path())).toEqual({
-      archetypes: ['lib'],
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
+  // The .sql FILE signal in isolation (no migrations/ dir).
+  it('a lone .sql file → backend', () => {
+    touch(tmp.path(), 'queries.sql');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
+  // The migrations/ DIR signal in isolation (a non-.sql migration file, so the
+  // dir — not a .sql file — is what triggers backend).
+  it('a migrations/ dir with a non-.sql migration → backend', () => {
+    touch(tmp.path(), 'migrations/001_init.js');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
+  // Merge: a DB signal + a client-UI signal → backend + spa (both, in order).
+  it('a .sql file + a .tsx file → backend + spa', () => {
+    touch(tmp.path(), 'schema.sql');
+    touch(tmp.path(), 'App.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend', 'spa'],
+      packageJsonFound: false,
+    });
+  });
+
+  // Merge: a DB signal does NOT suppress ssr — a Next app with migrations is
+  // ssr + backend (the SSR suppression only gates the spa signal).
+  it('a migrations/ dir + next.config.js → ssr + backend', () => {
+    touch(tmp.path(), 'migrations/001_init.sql');
+    touch(tmp.path(), 'next.config.js');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['ssr', 'backend'],
       packageJsonFound: false,
     });
   });
