@@ -28,6 +28,7 @@ Commands:
   status                     Show version + local-drift status (read-only)
 
 Options:
+      --archetype    init: detect archetypes + install applicable capabilities (experimental)
   -y, --yes          Skip the remove confirmation prompt
       --strict       Make status exit 1 on any outdated/modified/missing file
       --no-drift     Skip the status byte-level drift check
@@ -37,7 +38,7 @@ Options:
 
 export async function main(): Promise<void> {
   const argv = minimist(process.argv.slice(2), {
-    boolean: ['help', 'version', 'json', 'yes', 'strict', 'drift'],
+    boolean: ['help', 'version', 'json', 'yes', 'strict', 'drift', 'archetype'],
     // `status` drifts by default; `--no-drift` flips it off. minimist defaults
     // bare booleans to false, so set the on-by-default here explicitly.
     default: { drift: true },
@@ -58,7 +59,7 @@ export async function main(): Promise<void> {
 
   switch (cmd) {
     case 'init':
-      await runInit();
+      await runInit({ archetype: Boolean(argv.archetype) });
       return;
     case 'add':
       await runAdd(argv._[1]);

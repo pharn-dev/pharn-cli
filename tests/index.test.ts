@@ -42,12 +42,19 @@ describe('main (argv dispatch)', () => {
     vi.restoreAllMocks();
   });
 
-  it('defaults to init when no command is given', async () => {
+  it('defaults to init (archetype:false) when no command is given', async () => {
     setArgv();
     await main();
     expect(runInit).toHaveBeenCalledTimes(1);
+    expect(runInit).toHaveBeenCalledWith({ archetype: false });
     expect(runAdd).not.toHaveBeenCalled();
     expect(runUpdate).not.toHaveBeenCalled();
+  });
+
+  it('routes `init --archetype` to runInit with archetype:true', async () => {
+    setArgv('init', '--archetype');
+    await main();
+    expect(runInit).toHaveBeenCalledWith({ archetype: true });
   });
 
   it('routes `add <arg>` to runAdd with the argument', async () => {

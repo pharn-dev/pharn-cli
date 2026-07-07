@@ -156,12 +156,23 @@ export interface InstalledSkill {
   from: string;
 }
 
+// Archetype install (pharn init --archetype): one selected capability copied into
+// the project. `name` is the capability's directory basename (the copy target
+// under pharn-pipeline/grillers/ or pharn-review/); `role` selects that subtree.
+export interface InstalledCapability {
+  name: string;
+  role: 'griller' | 'lens';
+}
+
 export interface PharnConfig {
   pharnVersion: string;
   skillsVersion: string;
   repo: string;
   commit: string | null;
-  constitution: Constitution;
+  // Legacy (module/wizard) installs record the chosen constitution variant.
+  // Optional: the archetype install (pharn init --archetype) copies pharn-oss's
+  // canonical CONSTITUTION.md verbatim (no variant selection), so it omits this.
+  constitution?: Constitution;
   // Whether the project is a multi-tenant SaaS. Written on every fresh install;
   // absent on legacy installs predating this flag (read as true → P2 kept).
   // When false, Principle 2 was stripped from CONSTITUTION.md at install.
@@ -172,6 +183,11 @@ export interface PharnConfig {
   stackAnswers?: Record<string, string>;
   installedSkills?: InstalledSkill[];
   vendorSkills?: string[];
+  // Archetype (capability) installs (pharn init --archetype). Additive; absent on
+  // legacy module installs. `modules` is [] for an archetype install; these record
+  // the detected archetypes and the capabilities copied for them.
+  archetypes?: Archetype[];
+  capabilities?: InstalledCapability[];
 }
 
 // ---------------------------------------------------------------------------

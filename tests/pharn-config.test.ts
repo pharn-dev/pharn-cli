@@ -74,4 +74,34 @@ describe('pharn-config', () => {
     expect(read).toEqual(v2);
     expect(read?.stackAnswers?.payments).toBe('skip');
   });
+
+  it('still reads a legacy config that predates the archetype fields (P7)', async () => {
+    // `sample` is a legacy module install (constitution + modules, no archetypes).
+    await writePharnConfig(tmp.path(), sample);
+    const read = readPharnConfig(tmp.path());
+    expect(read?.constitution).toBe('standard');
+    expect(read?.archetypes).toBeUndefined();
+    expect(read?.capabilities).toBeUndefined();
+  });
+
+  it('round-trips an archetype install config (no constitution, modules:[], capabilities)', async () => {
+    const archetypeConfig: PharnConfig = {
+      pharnVersion: '0.2.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: 'sha123',
+      modules: [],
+      installedAt: '2026-07-07T00:00:00.000Z',
+      archetypes: ['ssr', 'backend'],
+      capabilities: [
+        { name: 'a11y', role: 'griller' },
+        { name: 'n-plus-one', role: 'lens' },
+      ],
+    };
+    await writePharnConfig(tmp.path(), archetypeConfig);
+    const read = readPharnConfig(tmp.path());
+    expect(read).toEqual(archetypeConfig);
+    // No constitution variant is recorded for an archetype install.
+    expect(read?.constitution).toBeUndefined();
+  });
 });
