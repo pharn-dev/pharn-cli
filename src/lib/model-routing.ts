@@ -126,5 +126,5 @@ export function resolveStageModel(
   routing: ModelRouting,
   stage: PipelineStage,
 ): StageModel {
-  return routing.stages[stage] ?? routing.default;
+  return routing.stages?.[stage] ?? routing.default;
 }

@@ -1,13 +1,10 @@
 {
-  "base": "0381ccb",
+  "base": "b12a94b",
   "inside": [
     "src/lib/model-routing.ts",
-    "src/steps/install-archetype.ts",
-    "src/steps/install.ts",
-    "src/types.ts",
-    "tests/init-archetype.test.ts",
-    "tests/install.test.ts",
-    "tests/model-routing.test.ts"
+    "src/lib/pharn-config.ts",
+    "tests/model-routing.test.ts",
+    "tests/pharn-config.test.ts"
   ],
   "outside_gates": {
     "tests": {

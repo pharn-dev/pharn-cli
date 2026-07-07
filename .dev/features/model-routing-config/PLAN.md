@@ -38,8 +38,10 @@
 - `tests/model-routing.test.ts` — **NEW** — the spec (P1) for the validator + resolver + defaults constant.
 - `tests/install.test.ts` — **EDIT** — assert the v1/v2 written config carries `models` = `DEFAULT_MODEL_ROUTING`.
 - `tests/init-archetype.test.ts` — **EDIT** — assert the archetype written config carries `models` = `DEFAULT_MODEL_ROUTING`.
+- `src/lib/pharn-config.ts` — **EDIT (GATE-2 fix)** — wire `validateModelRouting` into `readPharnConfig`: a present-but-invalid `models` block makes the config unloadable (return `null`, consistent with the existing shape guard → "run init"); an absent `models` is legacy/valid (P7). Realizes the REVIEW **P7** finding. Axis (config read/write) unchanged.
+- `tests/pharn-config.test.ts` — **EDIT (GATE-2 fix)** — cover the read-path validation (valid `models` round-trips; a bad `models` block → `null`; a legacy config with no `models` still loads).
 
-No other file is touched. No trusted doc is edited (hook-protected). `src/lib/validate.ts` is left byte-unchanged except being _imported from_ (its `isPlainObject`).
+> **GATE-2 follow-up (human-directed, this run).** The two bullets above realize the REVIEW **P7** finding. The already-listed `src/lib/model-routing.ts` + `tests/model-routing.test.ts` additionally realize the REVIEW **P5** hardening: `resolveStageModel` uses optional chaining (`routing.stages?.[stage]`) so an unvalidated routing with absent `stages` resolves to `default` instead of throwing, with a covering test. No trusted doc is edited (hook-protected); `src/lib/validate.ts` is unchanged except being _imported from_.
 
 ## The validator + resolver (the reviewable substance — every branch a membership test, P5)
 

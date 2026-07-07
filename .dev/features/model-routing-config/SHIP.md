@@ -30,6 +30,15 @@ Thin, advisory roll-up of one gated `/pharn-dev-ship` run. It records **that the
 
 `src/lib/model-routing.ts` (new: `MODEL_IDS`/`EFFORT_LEVELS`/`PIPELINE_STAGES` allowlists, `DEFAULT_MODEL_ROUTING`, `validateModelRouting`, `resolveStageModel`, `ModelRoutingError`); `src/types.ts` (additive `EffortLevel`/`ModelId`/`PipelineStage`/`StageModel`/`ModelRouting` + optional `models?` on `PharnConfig`); `src/steps/install.ts` + `src/steps/install-archetype.ts` (write `models: DEFAULT_MODEL_ROUTING` on every fresh install); tests `tests/model-routing.test.ts` (new) + assertions in `tests/install.test.ts` and `tests/init-archetype.test.ts`. **Subagent generation that realizes routing is deferred (per the brief).** Nothing committed; the working tree is uncommitted.
 
+## GATE-2 outcome (human-directed follow-up)
+
+At GATE 2 the human **committed the increment** (`b12a94b feat: add per-stage model routing to pharn.config.json`) and directed **both** advisory fixes ("do 3 and 4"):
+
+- **P7 (read-path wiring)** — `readPharnConfig` now calls `validateModelRouting`; a present-but-invalid `models` block makes the config unloadable (returns `null` → "run init"), consistent with the existing shape guard; absent `models` stays legacy/valid (P7). `src/lib/pharn-config.ts` + `tests/pharn-config.test.ts`.
+- **P5 (hardening)** — `resolveStageModel` uses optional chaining (`routing.stages?.[stage]`). `src/lib/model-routing.ts` + `tests/model-routing.test.ts`.
+
+Plan `## Files` was amended (fix #7) to bring the two new targets into scope. **Re-verified on the fixed working tree:** `npm run check` GREEN (**509** vitest tests, +3); `/pharn-dev-verify` = **`PASS`** (all 5 gates 0); `/pharn-dev-regress` = **`no-regressions`** (base `b12a94b` → HEAD, outside gates 0→0; `regression-report.json` updated). The fix is **uncommitted** on top of `b12a94b`.
+
 ## Standing decision
 
 The chain ran; the named floor verdicts are as shown — **this is NOT a judgment that the increment is good or wise; that is the human's call at the post-review gate.**

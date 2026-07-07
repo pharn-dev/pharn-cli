@@ -28,4 +28,6 @@
 
 **REGRESSIONS: none — no deterministically-detectable breakage outside the feature.** Stage passes (`check-regress.mjs verdict` exit 0).
 
+**GATE-2 re-run (after the human-directed fix — the machine `regression-report.json` reflects THIS run).** Base `b12a94b` (the committed increment) → HEAD (working tree with the P7 read-path wiring + P5 hardening). Inside = `src/lib/model-routing.ts`, `src/lib/pharn-config.ts`, `tests/model-routing.test.ts`, `tests/pharn-config.test.ts`. Outside gates `tests` 0→0, `validate` 0→0 → **`no-regressions`**. Product `vitest` suite now **509** tests GREEN via `npm run check`.
+
 **Honest residual (P0/P7):** `/pharn-dev-regress` catches exactly what its suite catches — nothing more. Here the suite is the 44 `.mjs`/`.cjs` floor + hook tests and `validate`; the **product `vitest` suite (`tests/*.test.ts`) is NOT in this `node --test` universe** (a named granularity limit) — but it is covered by the build floor (`npm run check`, GREEN, 506 tests) and re-run at `/pharn-dev-verify`. So "nothing regressed" here means: nothing the floor `.mjs` suite + `validate` covers flipped pass→fail outside the feature — not a claim that the increment is correct (that is review's advisory job).

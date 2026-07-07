@@ -162,4 +162,14 @@ describe('resolveStageModel', () => {
       });
     }
   });
+
+  it('falls back to default when stages is absent (unvalidated routing)', () => {
+    const noStages = {
+      default: { model: 'sonnet-5', effort: 'high' },
+    } as unknown as ModelRouting;
+    expect(resolveStageModel(noStages, 'plan')).toEqual({
+      model: 'sonnet-5',
+      effort: 'high',
+    });
+  });
 });

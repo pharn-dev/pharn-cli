@@ -23,4 +23,6 @@ No `structural:*` gate — the increment is product TypeScript (its spec is the 
 
 **VERIFIED: floor gates PASS** (`check-verify.mjs` exit 0; `failing_gates: []`).
 
+**GATE-2 re-run (after the human-directed fix).** Re-ran all five gates on the fixed working tree (P7 read-path wiring in `readPharnConfig` + P5 `resolveStageModel` hardening) → all `0`, **`PASS`** (`verify-report.json` unchanged — same verdict). `test` is now **509** vitest tests (3 added: absent-stages resolver, valid-`models` round-trip, invalid-`models` → `null`).
+
 **Honest residual (P0/P7):** verified = the named gates passed; this is **NOT** a guarantee of correctness beyond what those gates check. A defect no test/lint/validate covers is invisible to this verdict, and there is no verifier layer yet to raise it — verifier concerns, when they exist, are advisory help, not assurance. The advisory correctness read (the 4 review lenses) is `/pharn-dev-review`'s job, presented at the human gate.

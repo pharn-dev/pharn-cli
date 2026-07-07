@@ -9,6 +9,7 @@ import {
   isArchetypeConfig,
 } from '../src/lib/pharn-config.js';
 import type { PharnConfig } from '../src/types.js';
+import { DEFAULT_MODEL_ROUTING } from '../src/lib/model-routing.js';
 
 const sample: PharnConfig = {
   pharnVersion: '0.2.0',
@@ -41,6 +42,27 @@ describe('pharn-config', () => {
     writeFileSync(
       join(tmp.path(), 'pharn.config.json'),
       JSON.stringify({ skillsVersion: '0.1.0', modules: 'oops' }),
+    );
+    expect(readPharnConfig(tmp.path())).toBeNull();
+  });
+
+  it('round-trips a config with a valid models block', async () => {
+    const withModels: PharnConfig = {
+      ...sample,
+      models: DEFAULT_MODEL_ROUTING,
+    };
+    await writePharnConfig(tmp.path(), withModels);
+    expect(readPharnConfig(tmp.path())).toEqual(withModels);
+  });
+
+  it('returns null when the models block is invalid (hand-edited)', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '0.1.0',
+        modules: [],
+        models: { default: { model: 'gpt-4', effort: 'high' } },
+      }),
     );
     expect(readPharnConfig(tmp.path())).toBeNull();
   });
