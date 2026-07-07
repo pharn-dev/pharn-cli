@@ -6,6 +6,7 @@ import {
   readPharnConfig,
   writePharnConfig,
   toInstalledModules,
+  isArchetypeConfig,
 } from '../src/lib/pharn-config.js';
 import type { PharnConfig } from '../src/types.js';
 
@@ -103,5 +104,26 @@ describe('pharn-config', () => {
     expect(read).toEqual(archetypeConfig);
     // No constitution variant is recorded for an archetype install.
     expect(read?.constitution).toBeUndefined();
+  });
+});
+
+describe('isArchetypeConfig', () => {
+  it('is true for a capabilities-bearing config', () => {
+    expect(
+      isArchetypeConfig({
+        ...sample,
+        modules: [],
+        capabilities: [{ name: 'a11y', role: 'griller' }],
+      }),
+    ).toBe(true);
+  });
+
+  it('is false for a legacy module config', () => {
+    expect(isArchetypeConfig(sample)).toBe(false);
+  });
+
+  it('is false when capabilities is absent, even with empty modules', () => {
+    // Empty modules alone is NOT the marker — only a `capabilities` array is.
+    expect(isArchetypeConfig({ ...sample, modules: [] })).toBe(false);
   });
 });

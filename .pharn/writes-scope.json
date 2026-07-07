@@ -1,7 +1,10 @@
 {
   "scope": [
-    ".dev/features/init-install-capabilities/SHIP.md"
+    "src/lib/pharn-config.ts",
+    "src/commands/list.ts",
+    "tests/list.test.ts",
+    "tests/pharn-config.test.ts"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-07T16:37:30.021Z"
+  "set_by": ".dev/features/list-archetype-aware/PLAN.md",
+  "set_at": "2026-07-07T17:02:29.000Z"
 }

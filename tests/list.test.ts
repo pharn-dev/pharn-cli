@@ -52,7 +52,11 @@ vi.mock('../src/lib/manifest.js', () => ({
 }));
 
 const readPharnConfig = vi.fn();
-vi.mock('../src/lib/pharn-config.js', () => ({ readPharnConfig }));
+vi.mock('../src/lib/pharn-config.js', () => ({
+  readPharnConfig,
+  // Real discriminator logic so the archetype branch is exercised faithfully.
+  isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
+}));
 
 const { runList } = await import('../src/commands/list.js');
 const prompts = await import('@clack/prompts');
@@ -201,6 +205,31 @@ describe('runList', () => {
     expect(available).not.toContain('orm:');
   });
 
+  it('renders an archetype install offline, WITHOUT fetching the manifest', async () => {
+    readPharnConfig.mockReturnValue(
+      config([], {
+        skillsVersion: '1.0.0',
+        archetypes: ['ssr'],
+        capabilities: [
+          { name: 'a11y', role: 'griller' },
+          { name: 'security', role: 'griller' },
+          { name: 'n-plus-one', role: 'lens' },
+        ],
+      }),
+    );
+
+    await expect(runList()).resolves.toBeUndefined();
+
+    // The crash point (manifest fetch) is never reached for an archetype config.
+    expect(fetchRemoteManifest).not.toHaveBeenCalled();
+    const installed = noteBody('INSTALLED (archetype)');
+    expect(installed).toContain('ssr');
+    expect(installed).toContain('a11y');
+    expect(installed).toContain('security');
+    expect(installed).toContain('n-plus-one');
+    expect(installed).toContain('v1.0.0');
+  });
+
   it('handles a schemaVersion 1 manifest with no skills section', async () => {
     const manifest: Manifest = {
       schemaVersion: 1,
@@ -276,6 +305,29 @@ describe('runList --json', () => {
     );
     expect(addrs).toContain('orm:drizzle');
     expect(addrs).not.toContain('orm:prisma');
+  });
+
+  it('emits an archetype-mode JSON object with no manifest fetch', async () => {
+    readPharnConfig.mockReturnValue(
+      config([], {
+        skillsVersion: '1.0.0',
+        archetypes: ['ssr'],
+        capabilities: [{ name: 'a11y', role: 'griller' }],
+      }),
+    );
+
+    await runList({ json: true });
+
+    expect(fetchRemoteManifest).not.toHaveBeenCalled();
+    expect(prompts.note).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(logSpy.mock.calls[0]![0] as string);
+    expect(payload).toEqual({
+      mode: 'archetype',
+      skillsVersion: '1.0.0',
+      archetypes: ['ssr'],
+      capabilities: [{ name: 'a11y', role: 'griller' }],
+    });
   });
 
   it('keeps stdout clean and exits(1) when there is no config', async () => {

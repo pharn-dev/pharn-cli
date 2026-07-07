@@ -43,3 +43,16 @@ export function toInstalledModules(
 ): InstalledModule[] {
   return modules.map(({ name, version }) => ({ name, version }));
 }
+
+/**
+ * Is this an archetype (capability) install vs. a legacy module install?
+ * Deterministic membership (P5): the archetype install (`pharn init --archetype`)
+ * always writes a `capabilities` array; a legacy module config never does — so
+ * the presence of `capabilities` is the marker. An empty `modules: []` alone is
+ * NOT the marker (a module install can legitimately resolve to few modules).
+ * Sibling commands branch on this to avoid the module/manifest path (which fails
+ * against live pharn-oss, having no manifest.json) for archetype installs.
+ */
+export function isArchetypeConfig(config: PharnConfig): boolean {
+  return Array.isArray(config.capabilities);
+}
