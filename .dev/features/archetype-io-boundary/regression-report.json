@@ -1,0 +1,20 @@
+{
+  "base": "6402a3e",
+  "inside": [
+    "src/lib/detect-archetype.ts",
+    "tests/detect-archetype.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
