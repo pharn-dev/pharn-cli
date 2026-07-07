@@ -38,9 +38,11 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at `support@pharn.dev`.
+This Code of Conduct is shared across all PHARN projects (including `pharn-cli` and `pharn-oss`), which are governed by a single pharn.dev community and enforcement team.
 
-All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at `support@pharn.dev`. If your report concerns a member of the enforcement team, note that in your message so it can be routed to an uninvolved leader.
+
+All complaints will be reviewed and investigated promptly and fairly. Community leaders aim to acknowledge reports within 3 business days.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 
@@ -71,6 +73,10 @@ Community leaders will follow these Community Impact Guidelines in determining t
 **Community Impact**: Demonstrating a pattern of violation of community standards, including sustained inappropriate behavior, harassment of an individual, or aggression toward or disparagement of classes of individuals.
 
 **Consequence**: A permanent ban from any sort of public interaction within the community.
+
+## Appeals
+
+Anyone subject to an enforcement action may appeal by emailing `support@pharn.dev` within 30 days of the decision, including any context they believe was overlooked. Appeals are reviewed by community leaders who were not involved in the original decision where possible, and the outcome is communicated in writing.
 
 ## Attribution
 

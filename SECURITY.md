@@ -2,6 +2,12 @@
 
 PHARN is an audit-grade methodology — taking security seriously is part of the brand, not an afterthought. `pharn-cli` is the bootstrapper that fetches and installs that methodology, so it sits at a trust boundary: it pulls remote content over the network and writes it into a user's project. We welcome coordinated disclosure of any vulnerability in this repository.
 
+## What `pharn-cli` is, and its security surface
+
+This repository **is `pharn-cli`** — an ESM-only Node CLI (`"type": "module"`, NodeNext, `engines.node >= 20`) that runs a wizard, fetches the selected PHARN modules from `pharn-dev/pharn-oss` via `degit`, copies them into the user's `.claude/`, and writes `pharn.config.json`. It has a small, thin dependency set (`@clack/prompts`, `degit`, `minimist`, `picocolors`), no bundled runtime services, and no telemetry. Its security-relevant surface is exactly the two things that cross a trust boundary: **remote input** (the `manifest.json` / `module.json` it reads and the repo content it clones) and **file-system writes** (everything it copies into `.claude/` and the config it writes).
+
+The CLI's security model is **deterministic, not model-driven**: it never asks an AI to decide what is safe. Every value that arrives from the network is validated against strict regex allowlists, rejected for `..` and control characters, and every copy is confined with a `safeJoin` guard so nothing can escape its intended target — checks that hold regardless of what the fetched content says. Preserve that shape: a security fix that relies on "the content will be well-behaved" is not a fix.
+
 ## Supported versions
 
 `pharn-cli` is published to npm as [`pharn-cli`](https://www.npmjs.com/package/pharn-cli) and is typically run via `npx pharn init`. We patch security issues against the **latest** published version only; `npx pharn@latest ...` always resolves to a supported release.
@@ -19,7 +25,7 @@ Because the CLI is normally invoked through `npx`, most users run the latest ver
 
 Instead, report privately through one of these channels:
 
-1. **GitHub Security Advisories (preferred)** — use [private vulnerability reporting](https://github.com/pharn/pharn-cli/security/advisories/new) to open a confidential report. No email is exposed and the report stays embargoed until a fix ships.
+1. **GitHub Security Advisories (preferred)** — use [private vulnerability reporting](https://github.com/pharn-dev/pharn-cli/security/advisories/new) to open a confidential report. No email is exposed and the report stays embargoed until a fix ships.
 2. **Email** — if you cannot use GitHub advisories, email `support@pharn.dev` with `[PHARN SECURITY]` in the subject.
 
 Please include as much of the following as you can — it speeds up triage:
@@ -43,13 +49,13 @@ We will keep you informed throughout, coordinate disclosure timing with you, and
 
 ## Scope
 
-`pharn-cli` is an ESM-only, stdlib-plus-thin-dependency Node CLI (`@clack/prompts`, `degit`, `minimist`, `picocolors`). Its security-relevant surface is everything that touches remote input or the user's file system.
+Scope follows the surface described above: everything that touches remote input or the user's file system.
 
 ### In scope
 
-- **Remote-input validation** bypasses in `src/lib/validate.ts` or `src/lib/manifest.ts` — the regex allowlists (`MODULE_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`), the `..` checks, control-character rejection, the `schemaVersion === 1` gate, or the body-size / timeout limits.
-- **Path traversal** or unintended file-system writes from `src/lib/install-modules.ts` / `src/steps/install.ts` (copying module `installs` into `.claude/`, `pharn.config.json` write) or from any module name / `installs` path that escapes its intended target (the `safeJoin` guard).
-- **Server-side request forgery (SSRF)** or redirect abuse in the manifest / commit-metadata fetches (fetches use `redirect: 'error'`; report ways around it).
+- **Remote-input validation** bypasses in `src/lib/validate.ts` or `src/lib/manifest.ts` — the regex allowlists (`MODULE_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`, `WIZARD_VALUE_RE`, `VENDOR_SOURCE_RE`, `PACKAGE_NAME_RE`), the `..` checks, control-character rejection, the `schemaVersion` gate (must be exactly `1` or `2` — anything else hard-fails by design), or the fetch limits (8s timeout, 256 KB body cap).
+- **Path traversal** or unintended file-system writes from `src/lib/install-modules.ts` / `src/steps/install.ts` (copying module `installs` and selectively copied skills into `.claude/`, `pharn.config.json` write) or from any module name / `installs` / skill path that escapes its intended target (the `safeJoin` guard, which confines every module and skill copy).
+- **Server-side request forgery (SSRF)** or redirect abuse in the manifest / commit-metadata fetches (fetches use `redirect: 'error'` with an 8s timeout; report ways around it).
 - **Supply-chain** issues in how modules are cloned via `degit`, or in the resolution of the repo coordinates (`src/lib/constants.ts`).
 - **Untrusted-content injection** — a malicious `manifest.json` or `module.json` that leads the CLI to clone unintended content or write outside the project.
 - Logic in the wizard pipeline (`src/steps/*`, `src/commands/*`) that could be abused to skip a consent prompt or overwrite files without confirmation.
@@ -75,6 +81,6 @@ We will keep you informed throughout, coordinate disclosure timing with you, and
 
 ## Acknowledgements
 
-We appreciate the security research community. Anyone who reports a valid issue in good faith will be credited in the resulting advisory.
+We appreciate the security research community. Anyone who reports a valid issue in good faith will be credited in the resulting advisory, unless they ask to remain anonymous.
 
 Thank you for helping keep PHARN and its users safe.

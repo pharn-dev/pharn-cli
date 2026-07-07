@@ -1,6 +1,7 @@
 {
   "name": "pharn-cli",
   "version": "0.2.0",
+  "license": "Apache-2.0",
   "description": "Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx pharn init picks your modules and stack pack and copies them into .claude/; pharn add installs another module later; pharn update bumps to the latest skills version.",
   "type": "module",
   "bin": {
