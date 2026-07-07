@@ -173,3 +173,53 @@ export interface PharnConfig {
   installedSkills?: InstalledSkill[];
   vendorSkills?: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Capability resolver — archetype detection + capability selection. pharn-cli
+// reads pharn-oss's capability index and selects which grillers/lenses apply to
+// a project (ARCHITECTURE.md §5). Pure + deterministic; the untrusted index is
+// parsed + validated at the fetch boundary (a later increment).
+// ---------------------------------------------------------------------------
+
+// Project archetype, detected deterministically from package.json
+// (ARCHITECTURE.md §5, "membership over package.json"). A frameworkless project
+// is `lib` — it runs on core alone (§4). A project may match several at once
+// (e.g. Next + Express → ssr + backend).
+export type Archetype = 'ssr' | 'backend' | 'spa' | 'lib';
+
+// One capability in the pharn-oss-published index. pharn-oss owns the
+// authoritative schema; this is pharn-cli's consumer-side shape. `role` is
+// narrowed to the installable kinds shipped today (grillers + lenses); the full
+// ARCHITECTURE.md §3.1 role enum is not needed here until an installable
+// skill/auditor ships. `applies` is 'universal' (always selected) or the
+// archetypes that trigger the capability.
+export interface CapabilityEntry {
+  name: string;
+  role: 'griller' | 'lens';
+  applies: 'universal' | Archetype[];
+}
+
+export interface CapabilityIndex {
+  capabilities: CapabilityEntry[];
+}
+
+// A capability chosen for install. `matched` is why: 'universal', or the
+// detected archetypes that intersected its `applies` set.
+export interface SelectedCapability {
+  name: string;
+  role: 'griller' | 'lens';
+  matched: 'universal' | Archetype[];
+}
+
+// A capability left out, with a deterministic, human-readable reason.
+export interface SkippedCapability {
+  name: string;
+  role: 'griller' | 'lens';
+  reason: string;
+}
+
+// The result of resolving a capability index against detected archetypes.
+export interface Selection {
+  selected: SelectedCapability[];
+  skipped: SkippedCapability[];
+}
