@@ -1,0 +1,28 @@
+{
+  "base": "2e6a30c37b83853ed4e9a1970d03c0e99c0bbb21",
+  "inside": [
+    ".dev/floor/scan-code-null-deref.mjs",
+    ".dev/floor/scan-code-resource-leak.mjs",
+    ".dev/floor/scan-code-null-deref.test.mjs",
+    ".dev/floor/scan-code-resource-leak.test.mjs",
+    "pharn-review/null-deref/null-deref.md",
+    "pharn-review/resource-leak/resource-leak.md"
+  ],
+  "outside_gates": {
+    "structural:pharn-review/trust-fence/evals/expected/expected-injection-comment.json": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

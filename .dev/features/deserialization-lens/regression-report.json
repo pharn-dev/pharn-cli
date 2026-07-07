@@ -1,0 +1,34 @@
+{
+  "base": "a78c5e4960e3ce83f6cb896f601d85082265c1e1",
+  "inside": [
+    ".dev/floor/scan-code-deserialization.mjs",
+    ".dev/floor/scan-code-deserialization.test.mjs",
+    "pharn-review/unsafe-deserialization/evals/cases/case-pickle-loads.md",
+    "pharn-review/unsafe-deserialization/evals/cases/case-safe-comment.md",
+    "pharn-review/unsafe-deserialization/evals/cases/case-safe-yaml.md",
+    "pharn-review/unsafe-deserialization/evals/expected/expected-pickle-loads.json",
+    "pharn-review/unsafe-deserialization/evals/expected/expected-pickle-loads.md",
+    "pharn-review/unsafe-deserialization/evals/expected/expected-safe-comment.json",
+    "pharn-review/unsafe-deserialization/evals/expected/expected-safe-comment.md",
+    "pharn-review/unsafe-deserialization/evals/expected/expected-safe-yaml.json",
+    "pharn-review/unsafe-deserialization/evals/expected/expected-safe-yaml.md",
+    "pharn-review/unsafe-deserialization/unsafe-deserialization.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

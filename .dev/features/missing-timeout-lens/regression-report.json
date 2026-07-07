@@ -1,0 +1,43 @@
+{
+  "base": "d4a1ce3",
+  "inside": [
+    ".dev/floor/scan-code-missing-timeout.mjs",
+    ".dev/floor/scan-code-missing-timeout.test.mjs",
+    "pharn-review/missing-timeout/evals/cases/case-axios-timeout-option.md",
+    "pharn-review/missing-timeout/evals/cases/case-db-query-no-timeout.md",
+    "pharn-review/missing-timeout/evals/cases/case-db-query-with-timeout.md",
+    "pharn-review/missing-timeout/evals/cases/case-express-route-not-network.md",
+    "pharn-review/missing-timeout/evals/cases/case-fetch-abort-signal.md",
+    "pharn-review/missing-timeout/evals/cases/case-fetch-no-timeout-injection.md",
+    "pharn-review/missing-timeout/evals/expected/expected-axios-timeout-option.json",
+    "pharn-review/missing-timeout/evals/expected/expected-axios-timeout-option.md",
+    "pharn-review/missing-timeout/evals/expected/expected-db-query-no-timeout.json",
+    "pharn-review/missing-timeout/evals/expected/expected-db-query-no-timeout.md",
+    "pharn-review/missing-timeout/evals/expected/expected-db-query-with-timeout.json",
+    "pharn-review/missing-timeout/evals/expected/expected-db-query-with-timeout.md",
+    "pharn-review/missing-timeout/evals/expected/expected-express-route-not-network.json",
+    "pharn-review/missing-timeout/evals/expected/expected-express-route-not-network.md",
+    "pharn-review/missing-timeout/evals/expected/expected-fetch-abort-signal.json",
+    "pharn-review/missing-timeout/evals/expected/expected-fetch-abort-signal.md",
+    "pharn-review/missing-timeout/evals/expected/expected-fetch-no-timeout-injection.json",
+    "pharn-review/missing-timeout/evals/expected/expected-fetch-no-timeout-injection.md",
+    "pharn-review/missing-timeout/missing-timeout.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

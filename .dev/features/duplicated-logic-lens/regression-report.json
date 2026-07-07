@@ -1,0 +1,28 @@
+{
+  "base": "540fe9d",
+  "inside": [
+    ".dev/floor/scan-code-duplicated-logic.mjs",
+    ".dev/floor/scan-code-duplicated-logic.test.mjs",
+    "pharn-review/duplicated-logic/duplicated-logic.md",
+    "pharn-review/duplicated-logic/evals/cases/case-duplicated-block.md",
+    "pharn-review/duplicated-logic/evals/cases/case-duplicated-function.md",
+    "pharn-review/duplicated-logic/evals/cases/case-not-duplicated-comment.md",
+    "pharn-review/duplicated-logic/evals/cases/case-unique.md",
+    "pharn-review/duplicated-logic/evals/expected/expected-duplicated-block.json",
+    "pharn-review/duplicated-logic/evals/expected/expected-duplicated-block.md",
+    "pharn-review/duplicated-logic/evals/expected/expected-duplicated-function.json",
+    "pharn-review/duplicated-logic/evals/expected/expected-duplicated-function.md",
+    "pharn-review/duplicated-logic/evals/expected/expected-not-duplicated-comment.json",
+    "pharn-review/duplicated-logic/evals/expected/expected-not-duplicated-comment.md",
+    "pharn-review/duplicated-logic/evals/expected/expected-unique.json",
+    "pharn-review/duplicated-logic/evals/expected/expected-unique.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": { "base": 0, "head": 0 },
+    "tests": { "base": 0, "head": 0 },
+    "validate": { "base": 0, "head": 0 }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

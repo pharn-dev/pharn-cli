@@ -1,0 +1,37 @@
+{
+  "base": "056ac24",
+  "inside": [
+    ".dev/floor/scan-code-ssrf.mjs",
+    ".dev/floor/scan-code-ssrf.test.mjs",
+    "pharn-review/ssrf/evals/cases/case-allowlisted-comment.md",
+    "pharn-review/ssrf/evals/cases/case-fetch-reqquery.md",
+    "pharn-review/ssrf/evals/cases/case-fixed-host-path.md",
+    "pharn-review/ssrf/evals/cases/case-fixed-url-clean.md",
+    "pharn-review/ssrf/evals/expected/expected-allowlisted-comment.json",
+    "pharn-review/ssrf/evals/expected/expected-allowlisted-comment.md",
+    "pharn-review/ssrf/evals/expected/expected-fetch-reqquery.json",
+    "pharn-review/ssrf/evals/expected/expected-fetch-reqquery.md",
+    "pharn-review/ssrf/evals/expected/expected-fixed-host-path.json",
+    "pharn-review/ssrf/evals/expected/expected-fixed-host-path.md",
+    "pharn-review/ssrf/evals/expected/expected-fixed-url-clean.json",
+    "pharn-review/ssrf/evals/expected/expected-fixed-url-clean.md",
+    "pharn-review/ssrf/ssrf.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -1,0 +1,30 @@
+{
+  "base": "61fa920d9c8124f937ebfb1c0f3aebbbaebeb285",
+  "inside": [
+    ".claude/commands/pharn-dev-review.md",
+    ".claude/commands/pharn-review.md",
+    ".dev/floor/count-lenses.mjs",
+    ".dev/floor/count-lenses.test.mjs",
+    ".dev/floor/lens-scanner-map.json",
+    ".dev/floor/lens-scanner-map.test.mjs",
+    ".dev/floor/merge-findings.mjs",
+    ".dev/floor/merge-findings.test.mjs"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

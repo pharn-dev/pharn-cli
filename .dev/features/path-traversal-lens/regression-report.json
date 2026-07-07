@@ -1,0 +1,34 @@
+{
+  "base": "HEAD",
+  "inside": [
+    ".dev/floor/scan-code-path-traversal.mjs",
+    ".dev/floor/scan-code-path-traversal.test.mjs",
+    "pharn-review/path-traversal/evals/cases/case-fs-concat.md",
+    "pharn-review/path-traversal/evals/cases/case-safe-comment.md",
+    "pharn-review/path-traversal/evals/cases/case-safe-config.md",
+    "pharn-review/path-traversal/evals/expected/expected-fs-concat.json",
+    "pharn-review/path-traversal/evals/expected/expected-fs-concat.md",
+    "pharn-review/path-traversal/evals/expected/expected-safe-comment.json",
+    "pharn-review/path-traversal/evals/expected/expected-safe-comment.md",
+    "pharn-review/path-traversal/evals/expected/expected-safe-config.json",
+    "pharn-review/path-traversal/evals/expected/expected-safe-config.md",
+    "pharn-review/path-traversal/path-traversal.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

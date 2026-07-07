@@ -1,0 +1,40 @@
+{
+  "base": "HEAD",
+  "inside": [
+    ".dev/floor/scan-code-placeholder.mjs",
+    ".dev/floor/scan-code-placeholder.test.mjs",
+    "pharn-review/placeholder-as-done/evals/cases/case-complete.md",
+    "pharn-review/placeholder-as-done/evals/cases/case-done-comment.md",
+    "pharn-review/placeholder-as-done/evals/cases/case-empty-body.md",
+    "pharn-review/placeholder-as-done/evals/cases/case-not-implemented.md",
+    "pharn-review/placeholder-as-done/evals/cases/case-todo-marker.md",
+    "pharn-review/placeholder-as-done/evals/expected/expected-complete.json",
+    "pharn-review/placeholder-as-done/evals/expected/expected-complete.md",
+    "pharn-review/placeholder-as-done/evals/expected/expected-done-comment.json",
+    "pharn-review/placeholder-as-done/evals/expected/expected-done-comment.md",
+    "pharn-review/placeholder-as-done/evals/expected/expected-empty-body.json",
+    "pharn-review/placeholder-as-done/evals/expected/expected-empty-body.md",
+    "pharn-review/placeholder-as-done/evals/expected/expected-not-implemented.json",
+    "pharn-review/placeholder-as-done/evals/expected/expected-not-implemented.md",
+    "pharn-review/placeholder-as-done/evals/expected/expected-todo-marker.json",
+    "pharn-review/placeholder-as-done/evals/expected/expected-todo-marker.md",
+    "pharn-review/placeholder-as-done/placeholder-as-done.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -1,0 +1,39 @@
+{
+  "base": "9fc95c903e7a55d4cccf25ba0be6e000af740735",
+  "inside": [
+    ".dev/features/resource-leak-lens/GRILL.md",
+    ".dev/features/resource-leak-lens/PLAN.md",
+    ".dev/floor/scan-code-resource-leak.mjs",
+    ".dev/floor/scan-code-resource-leak.test.mjs",
+    "pharn-review/resource-leak/evals/cases/case-intentional-comment.md",
+    "pharn-review/resource-leak/evals/cases/case-open-no-close.md",
+    "pharn-review/resource-leak/evals/cases/case-try-finally-close.md",
+    "pharn-review/resource-leak/evals/cases/case-using-declaration.md",
+    "pharn-review/resource-leak/evals/expected/expected-intentional-comment.json",
+    "pharn-review/resource-leak/evals/expected/expected-intentional-comment.md",
+    "pharn-review/resource-leak/evals/expected/expected-open-no-close.json",
+    "pharn-review/resource-leak/evals/expected/expected-open-no-close.md",
+    "pharn-review/resource-leak/evals/expected/expected-try-finally-close.json",
+    "pharn-review/resource-leak/evals/expected/expected-try-finally-close.md",
+    "pharn-review/resource-leak/evals/expected/expected-using-declaration.json",
+    "pharn-review/resource-leak/evals/expected/expected-using-declaration.md",
+    "pharn-review/resource-leak/resource-leak.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

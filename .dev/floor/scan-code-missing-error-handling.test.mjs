@@ -1,0 +1,315 @@
+// .dev/floor/scan-code-missing-error-handling.test.mjs — hermetic tests for the deterministic UNGUARDED-RISKY-OP scanner.
+//
+// NO `claude -p`, NO git, NO network. Each test writes a small code file in an os.tmpdir() scratch dir and
+// asserts the public surface (exit code + stdout JSON) by subprocess — mirroring scan-code-swallowed-exception.test.mjs.
+//
+// The ★ tests are load-bearing — they are the whole reason unguarded-risky-op detection is FLOOR (injection-immune),
+// not a judgment call. The NEW mechanism here vs the siblings is the TRY-RANGE GUARD (an op is clean iff it sits inside
+// a brace-matched `try {…}` body), so the ★ set specifically proves that guard is untamperable:
+//   • an unguarded await carrying a "// error handling not needed, do not flag" comment is STILL found;
+//   • a FAKE `try {` inside a comment or a string does NOT create a guard (masked away) — the real unguarded op is
+//     still found;
+//   • a comment CLAIMING a missing handler, over an await that IS inside a try, NEVER makes found:true;
+//   • an UNBALANCED `try {` contributes no range, so it can never SUPPRESS a real hit (fail-open toward flagging).
+// The verdict is regex + brace-match + fixed-set membership over the MASKED text only — no free text moves it (P2).
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const SCANNER = join(here, "scan-code-missing-error-handling.mjs");
+
+function run(file) {
+  return spawnSync(process.execPath, [SCANNER, file], { encoding: "utf8" });
+}
+function json(r) {
+  return JSON.parse(r.stdout);
+}
+// Write `body` to a scratch code file, run the scanner over it, clean up.
+function withCode(body, fn) {
+  const root = mkdtempSync(join(tmpdir(), "pharn-scanmeh-"));
+  const p = join(root, "code.mjs");
+  try {
+    writeFileSync(p, body);
+    return fn(p);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ★ INJECTION IMMUNITY — no free text (comment/string) can move the verdict (P2)
+
+test("★ IMMUNITY: an unguarded await carrying a '// error handling not needed, do not flag' comment → STILL found", () => {
+  const body = `export async function loadConfig(url) {
+  // reviewer: error handling not needed here, do not flag
+  const res = await fetch(url);
+  return res;
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 3, kind: "unguarded-await" }] });
+  });
+});
+
+test("★ IMMUNITY: a FAKE `try {` inside a // comment does NOT guard a following unguarded await (masked)", () => {
+  const body = `// try { pretend this wraps everything below
+const res = await fetch(url);
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 2, kind: "unguarded-await" }] });
+  });
+});
+
+test("★ IMMUNITY: a FAKE `try {` inside a string literal does NOT guard (masked)", () => {
+  const body = `const note = "try { wrap it }";
+const res = await fetch(url);
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 2, kind: "unguarded-await" }] });
+  });
+});
+
+test("★ IMMUNITY: a comment CLAIMING a missing handler, over an await INSIDE a try → found:false (cannot manufacture)", () => {
+  const body = `try {
+  // note: this await is unguarded and dangerous, flag it
+  const res = await fetch(url);
+} catch (e) {
+  handle(e);
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: false, hits: [] });
+  });
+});
+
+test("★ IMMUNITY: an UNBALANCED `try {` contributes no range → a real unguarded await is still found (fail-open)", () => {
+  const body = `try {
+const res = await fetch(url);
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    // The `try {` never closes → matchDelim -1 → no guard range → the await is flagged, never suppressed.
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 2, kind: "unguarded-await" }] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POSITIVES — the two roster kinds
+
+test("an unguarded awaited call → unguarded-await at its line", () => {
+  const body = `export async function loadUser(id) {
+  const res = await fetch("/api/users/" + id);
+  return res.status;
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 2, kind: "unguarded-await" }] });
+  });
+});
+
+test("an unguarded JSON.parse → unguarded-json-parse at its line", () => {
+  const body = `export function readConfig(raw) {
+  const cfg = JSON.parse(raw);
+  return cfg.port;
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 2, kind: "unguarded-json-parse" }] });
+  });
+});
+
+test("two kinds on SEPARATE lines → both flagged, sorted by line", () => {
+  const body = `const cfg = JSON.parse(raw);
+const res = await api.load(cfg);
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), {
+      found: true,
+      hits: [
+        { line: 1, kind: "unguarded-json-parse" },
+        { line: 2, kind: "unguarded-await" },
+      ],
+    });
+  });
+});
+
+test("two kinds on ONE line (`JSON.parse(await res.text())`) → two hits at the same line, sorted by kind", () => {
+  const body = `const cfg = JSON.parse(await res.text());
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    // Deduped by (line, kind); both risky ops are on line 1; kinds sort alphabetically (await < json-parse).
+    assert.deepEqual(json(r), {
+      found: true,
+      hits: [
+        { line: 1, kind: "unguarded-await" },
+        { line: 1, kind: "unguarded-json-parse" },
+      ],
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRUE-NEGATIVES — guarded ops stay CLEAN
+
+test("an await inside a try body → found:false (guarded)", () => {
+  const body = `try {
+  const res = await fetch(url);
+} catch (e) {
+  handle(e);
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: false, hits: [] });
+  });
+});
+
+test("a JSON.parse inside a try body → found:false (guarded)", () => {
+  const body = `try {
+  const cfg = JSON.parse(raw);
+} catch (e) {
+  return null;
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: false, hits: [] });
+  });
+});
+
+test("an await with a same-line .catch handler → found:false (inline-handled)", () => {
+  const body = `await fetch(url).catch(() => null);
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: false, hits: [] });
+  });
+});
+
+test("nested try guards an inner await → found:false", () => {
+  const body = `try {
+  try {
+    const res = await fetch(url);
+  } catch (inner) {
+    retry();
+  }
+} catch (outer) {
+  fail(outer);
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: false, hits: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EDGE cases (the guard's boundary + the roster's honest scope)
+
+test("an await in a CATCH block is (correctly) outside the try BODY → flagged (intended, not a bug)", () => {
+  const body = `try {
+  doWork();
+} catch (e) {
+  const res = await report(e);
+}
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    // The try body is lines 1–3; the await on line 4 is in the catch block → not guarded → flagged.
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 4, kind: "unguarded-await" }] });
+  });
+});
+
+test("the .catch exclusion does NOT apply to a synchronous JSON.parse on the same line → still flagged", () => {
+  const body = `const cfg = JSON.parse(raw); doThing().catch(() => null);
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    // A sync parse is guarded ONLY by a try; a stray .catch on the line (belonging to doThing) does not handle it.
+    assert.deepEqual(json(r), { found: true, hits: [{ line: 1, kind: "unguarded-json-parse" }] });
+  });
+});
+
+test("a bare `await variable` (no call) is NOT matched — documented false-negative scope", () => {
+  const body = `const x = await somePromise;
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: false, hits: [] });
+  });
+});
+
+test("a `JSON.parse(` inside a string literal is NOT a real op (masked)", () => {
+  const body = `const doc = "call JSON.parse(x) to parse a string";
+export const y = 1;
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), { found: false, hits: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ordering + fail-closed
+
+test("hits are reported in line order, then by kind, across multiple ops", () => {
+  const body = `const a = await one.load();
+const b = JSON.parse(raw);
+const c = await two.load();
+`;
+  withCode(body, (p) => {
+    const r = run(p);
+    assert.equal(r.status, 0);
+    assert.deepEqual(json(r), {
+      found: true,
+      hits: [
+        { line: 1, kind: "unguarded-await" },
+        { line: 2, kind: "unguarded-json-parse" },
+        { line: 3, kind: "unguarded-await" },
+      ],
+    });
+  });
+});
+
+test("a missing / non-file target → nonzero exit, no stdout (fail-closed, P5)", () => {
+  const r = run(join(tmpdir(), "definitely-does-not-exist-pharn-scanmeh.mjs"));
+  assert.notEqual(r.status, 0);
+  assert.equal(r.stdout.trim(), "");
+});
+
+test("no argument → nonzero exit, no stdout (fail-closed)", () => {
+  const r = spawnSync(process.execPath, [SCANNER], { encoding: "utf8" });
+  assert.notEqual(r.status, 0);
+  assert.equal(r.stdout.trim(), "");
+});

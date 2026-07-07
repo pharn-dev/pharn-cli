@@ -1,0 +1,37 @@
+{
+  "base": "a1e2e852ac353ef98e26904f6925c26d7721765b",
+  "inside": [
+    ".dev/floor/scan-code-n-plus-one.mjs",
+    ".dev/floor/scan-code-n-plus-one.test.mjs",
+    "pharn-review/n-plus-one/evals/cases/case-array-find-in-loop.md",
+    "pharn-review/n-plus-one/evals/cases/case-batched-query.md",
+    "pharn-review/n-plus-one/evals/cases/case-braceless-map-query.md",
+    "pharn-review/n-plus-one/evals/cases/case-query-in-loop-injection.md",
+    "pharn-review/n-plus-one/evals/expected/expected-array-find-in-loop.json",
+    "pharn-review/n-plus-one/evals/expected/expected-array-find-in-loop.md",
+    "pharn-review/n-plus-one/evals/expected/expected-batched-query.json",
+    "pharn-review/n-plus-one/evals/expected/expected-batched-query.md",
+    "pharn-review/n-plus-one/evals/expected/expected-braceless-map-query.json",
+    "pharn-review/n-plus-one/evals/expected/expected-braceless-map-query.md",
+    "pharn-review/n-plus-one/evals/expected/expected-query-in-loop-injection.json",
+    "pharn-review/n-plus-one/evals/expected/expected-query-in-loop-injection.md",
+    "pharn-review/n-plus-one/n-plus-one.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

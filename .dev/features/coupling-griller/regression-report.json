@@ -1,0 +1,21 @@
+{
+  "base": "456fc08541c990b6622706daa4dc5d65d494fe02",
+  "inside": ["pharn-pipeline/grillers/coupling"],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -1,0 +1,32 @@
+{
+  "base": "2698dd96760091741d4f13a2ffd736a3eb9d25eb",
+  "inside": [
+    "pharn-review/hallucinated-api/evals/cases/case-hallucinated-call.md",
+    "pharn-review/hallucinated-api/evals/cases/case-injection-comment.md",
+    "pharn-review/hallucinated-api/evals/cases/case-real-api.md",
+    "pharn-review/hallucinated-api/evals/expected/expected-hallucinated-call.json",
+    "pharn-review/hallucinated-api/evals/expected/expected-hallucinated-call.md",
+    "pharn-review/hallucinated-api/evals/expected/expected-injection-comment.json",
+    "pharn-review/hallucinated-api/evals/expected/expected-injection-comment.md",
+    "pharn-review/hallucinated-api/evals/expected/expected-real-api.json",
+    "pharn-review/hallucinated-api/evals/expected/expected-real-api.md",
+    "pharn-review/hallucinated-api/hallucinated-api.md"
+  ],
+  "outside_gates": {
+    "structural:trust-fence": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

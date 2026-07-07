@@ -1,0 +1,13 @@
+{
+  "feature": "coupling-griller",
+  "gates": {
+    "test": 0,
+    "validate": 0,
+    "lint": 0,
+    "format:check": 0,
+    "lint:md": 1
+  },
+  "verdict": "FAIL",
+  "failing_gates": ["lint:md"],
+  "verifiers": { "registered": 0, "findings": [] }
+}

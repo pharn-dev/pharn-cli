@@ -1,0 +1,21 @@
+{
+  "base": "843e74aa7c832f698b0b849bee7497aac676e7d7",
+  "inside": [".claude/commands/pharn-loop.md", ".dev/floor/check-loop.mjs", ".dev/floor/check-loop.test.mjs"],
+  "outside_gates": {
+    "structural:pharn-review/trust-fence/evals/expected/expected-injection-comment.json": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
