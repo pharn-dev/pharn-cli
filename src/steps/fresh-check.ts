@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { warnAndConfirm } from '../lib/confirm.js';
 
 // A fresh scaffold (e.g. create-next-app + shadcn init) tracks ~25 files in its
@@ -41,14 +41,33 @@ export async function runFreshCheck(): Promise<void> {
   }
 }
 
+// `git` reads the target project's `.git/config`, which is attacker-controlled
+// when `pharn init` runs inside a hostile repo (runGitPrereq only requires that
+// `.git` exists). A malicious `core.fsmonitor` — or a hook — value makes git
+// execute arbitrary code on any index-refreshing command (e.g. `git ls-files`).
+// Neutralize that class on EVERY git invocation: `-c core.fsmonitor=` disables the
+// fsmonitor hook (the confirmed vector) and `-c core.hooksPath=/dev/null` disables
+// hook-based variants; command-line `-c` overrides win over `.git/config`.
+// execFileSync (argv, no shell) also removes shell interpretation of the command
+// itself. Untrusted config can still influence the returned *count*, never
+// *execution* (P2).
+const GIT_HARDENING = [
+  '-c',
+  'core.fsmonitor=',
+  '-c',
+  'core.hooksPath=/dev/null',
+];
+
+function runGit(args: string[], cwd: string): string {
+  return execFileSync('git', [...GIT_HARDENING, ...args], {
+    cwd,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).toString();
+}
+
 export function gitCommitCount(cwd: string): number {
   try {
-    const out = execSync('git rev-list --count HEAD', {
-      cwd,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .toString()
-      .trim();
+    const out = runGit(['rev-list', '--count', 'HEAD'], cwd).trim();
     return Number.parseInt(out, 10) || 0;
   } catch {
     return 0;
@@ -57,10 +76,7 @@ export function gitCommitCount(cwd: string): number {
 
 export function gitTrackedFileCount(cwd: string): number {
   try {
-    const out = execSync('git ls-files', {
-      cwd,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).toString();
+    const out = runGit(['ls-files'], cwd);
     return out.split('\n').filter((line) => line.trim() !== '').length;
   } catch {
     return 0;

@@ -1,5 +1,5 @@
-import { execSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { execFileSync, execSync } from 'node:child_process';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
@@ -45,6 +45,19 @@ function initGitWithFiles(
   }
   git(dir, 'add -A');
   if (commit) git(dir, 'commit -m "snapshot"');
+}
+
+// Write a malicious core.fsmonitor into the repo's .git/config the way an attacker
+// would — the target project's config is attacker-controlled. argv form stores the
+// payload verbatim as the config value (no outer shell interprets the `;` at
+// set-time). If any git command later honors it (the vulnerability), git
+// shell-executes `touch <sentinel>`, so the sentinel's presence == code executed.
+function setMaliciousFsmonitor(dir: string, sentinel: string): void {
+  execFileSync(
+    'git',
+    ['config', 'core.fsmonitor', `touch '${sentinel}'; false`],
+    { cwd: dir },
+  );
 }
 
 describe('gitCommitCount', () => {
@@ -132,6 +145,47 @@ describe('runFreshCheck', () => {
     vi.mocked(prompts.confirm).mockReset().mockResolvedValue(true);
     await runFreshCheck();
     expect(prompts.confirm).toHaveBeenCalledTimes(1);
+    cwd.mockRestore();
+  });
+});
+
+// Regression: the target project's .git/config is attacker-controlled, so no git
+// invocation may honor a config-driven hook (core.fsmonitor / hooks). Each case
+// FAILS against the pre-hardening code (plain `git ls-files` executes the injected
+// core.fsmonitor) and passes once every git call is hardened — it demonstrates the
+// invariant, it does not merely assert it (P1).
+describe('git-config injection hardening (RCE)', () => {
+  const tmp = useTmpDir();
+  stubProcessExit();
+
+  it('gitTrackedFileCount does not execute a malicious core.fsmonitor', () => {
+    initGitWithFiles(tmp.path(), 5, true);
+    const sentinel = join(tmp.path(), 'PWNED_ls_files');
+    setMaliciousFsmonitor(tmp.path(), sentinel);
+    const count = gitTrackedFileCount(tmp.path());
+    expect(existsSync(sentinel)).toBe(false); // no code executed
+    expect(count).toBe(5); // freshness signal preserved
+  });
+
+  it('gitCommitCount does not execute a malicious core.fsmonitor', () => {
+    initGit(tmp.path(), 3);
+    const sentinel = join(tmp.path(), 'PWNED_rev_list');
+    setMaliciousFsmonitor(tmp.path(), sentinel);
+    const count = gitCommitCount(tmp.path());
+    expect(existsSync(sentinel)).toBe(false);
+    expect(count).toBe(3);
+  });
+
+  it('runFreshCheck does not execute a malicious core.fsmonitor on the fresh path', async () => {
+    // 1 commit + few files → the fresh path, which still reaches gitTrackedFileCount.
+    initGitWithFiles(tmp.path(), 5, true);
+    const sentinel = join(tmp.path(), 'PWNED_fresh_check');
+    setMaliciousFsmonitor(tmp.path(), sentinel);
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
+    vi.mocked(prompts.confirm).mockReset().mockResolvedValue(true);
+    await expect(runFreshCheck()).resolves.toBeUndefined();
+    expect(existsSync(sentinel)).toBe(false);
+    expect(prompts.confirm).not.toHaveBeenCalled();
     cwd.mockRestore();
   });
 });
