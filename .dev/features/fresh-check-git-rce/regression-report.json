@@ -1,0 +1,24 @@
+{
+  "base": "c44170e",
+  "inside": [
+    "src/steps/fresh-check.ts",
+    "tests/fresh-check.test.ts"
+  ],
+  "outside_gates": {
+    "floor-tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    },
+    "vitest-outside": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
