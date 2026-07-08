@@ -7,6 +7,7 @@ import { cancelAndExit } from '../lib/confirm.js';
 import { DOCS_URL, FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { fetchAndInstall } from '../lib/installer.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
+import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import {
   configPath,
   readPharnConfig,
@@ -80,6 +81,8 @@ export async function runInstall(config: WizardConfig): Promise<void> {
     installedAt: new Date().toISOString(),
     // Per-stage model routing, written on every fresh install (P7 — additive).
     models: DEFAULT_MODEL_ROUTING,
+    // Seam-resolution policy, written on every fresh install (P7 — additive).
+    seam: DEFAULT_SEAM_CONFIG,
     // schemaVersion 2: persist the wizard answers + selected skills so add and
     // update can re-resolve without re-asking. Omitted entirely on legacy installs.
     ...(config.stackAnswers ? { stackAnswers: config.stackAnswers } : {}),

@@ -1,0 +1,25 @@
+{
+  "base": "d1c4829",
+  "inside": [
+    "src/lib/seam-config.ts",
+    "src/types.ts",
+    "src/lib/pharn-config.ts",
+    "src/steps/install.ts",
+    "src/steps/install-archetype.ts",
+    "tests/seam-config.test.ts",
+    "tests/pharn-config.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

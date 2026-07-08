@@ -186,6 +186,36 @@ export interface ModelRouting {
   stages: Partial<Record<PipelineStage, StageModel>>;
 }
 
+// ---------------------------------------------------------------------------
+// Seam-resolution config — the `seam` block in pharn.config.json. The CLI owns
+// this schema; it conforms to pharn-contracts/seam-config.md (the SoT) and the
+// parallel floor validator .dev/floor/check-seam-config.mjs. It is the policy
+// for the agnostic seam resolver's confidence-gated chain (ARCHITECTURE.md §5):
+// an ordered resolutionOrder walked until a step resolves, with a MANDATORY
+// terminal `ask` (P5, fail-closed). Config shape + validator only — the runtime
+// resolver that walks it is a later increment (a pharn-core capability).
+// ---------------------------------------------------------------------------
+
+// One step in the seam-resolution chain (ARCHITECTURE.md §5 sources). Runtime
+// allowlist: RESOLUTION_STEPS in src/lib/seam-config.ts.
+export type ResolutionStep =
+  'official-skill' | 'pinned-docs' | 'fetch' | 'model' | 'ask';
+
+// The confidence bar at the `model` step ({low, medium, high} — the seam-config
+// contract's scale, NOT model-routing's effort enum). Runtime allowlist:
+// SEAM_CONFIDENCE_LEVELS in src/lib/seam-config.ts.
+export type SeamConfidence = 'low' | 'medium' | 'high';
+
+// The `seam` block: an ordered resolutionOrder (non-empty, every element a known
+// step, MUST contain the terminal `ask`) plus two optional policy knobs. Absent
+// optional fields ⇒ the runtime default applies (seam-config.md). Validated by
+// validateSeamConfig (src/lib/seam-config.ts).
+export interface SeamConfig {
+  resolutionOrder: ResolutionStep[];
+  modelConfidenceThreshold?: SeamConfidence;
+  haltOnUnknown?: boolean;
+}
+
 export interface PharnConfig {
   pharnVersion: string;
   skillsVersion: string;
@@ -205,6 +235,10 @@ export interface PharnConfig {
   // with DEFAULT_MODEL_ROUTING; absent on legacy installs predating it (P7 —
   // additive). Validated by validateModelRouting (src/lib/model-routing.ts).
   models?: ModelRouting;
+  // Seam-resolution policy (the `seam` block). Written on every fresh install
+  // with DEFAULT_SEAM_CONFIG; absent on legacy installs predating it (P7 —
+  // additive). Validated by validateSeamConfig (src/lib/seam-config.ts).
+  seam?: SeamConfig;
   // schemaVersion 2 additions (absent on legacy installs):
   stackAnswers?: Record<string, string>;
   installedSkills?: InstalledSkill[];
