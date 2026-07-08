@@ -1,4 +1,4 @@
-import { fetchRepo, fetchCommitSha } from './repo.js';
+import { fetchRepo } from './repo.js';
 import { readManifest, resolveModules } from './manifest.js';
 import {
   assertSkillSourcesExist,
@@ -56,7 +56,10 @@ export async function fetchAndInstall(params: {
       );
     }
 
-    const commit = await fetchCommitSha();
+    // The SHA the tree was pinned to (recorded == fetched, or null when the SHA
+    // was unresolved and the branch was floated — LIMITS.md §3b). No separate
+    // fetch: reusing repo.sha closes the resolve/fetch TOCTOU.
+    const commit = repo.sha;
     return {
       skillsVersion: manifest.skillsVersion,
       commit,

@@ -20,7 +20,7 @@ import { findSkillOption, listSkillAddresses } from '../lib/wizard.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { installCapabilityDirs } from '../lib/install-capabilities.js';
-import { fetchRepo, fetchCommitSha } from '../lib/repo.js';
+import { fetchRepo } from '../lib/repo.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import { assertPrerequisites } from '../steps/prereqs.js';
 import { fetchAndInstall } from '../lib/installer.js';
@@ -281,7 +281,14 @@ async function runArchetypeAdd(
   // and the exit/outro happens after it (Node skips finally on process.exit).
   let result: AddResult;
   try {
-    result = await resolveArchetypeAdd(repo.dir, config, cwd, parsed, arg);
+    result = await resolveArchetypeAdd(
+      repo.dir,
+      repo.sha,
+      config,
+      cwd,
+      parsed,
+      arg,
+    );
   } catch (err) {
     if (process.env.PHARN_DEBUG) console.error(err);
     result = {
@@ -315,6 +322,7 @@ type AddResult =
 // caller owns cleanup + exit (this returns a typed outcome instead).
 async function resolveArchetypeAdd(
   repoDir: string,
+  sha: string | null,
   config: PharnConfig,
   cwd: string,
   parsed: { name: string; role?: 'griller' | 'lens' },
@@ -346,7 +354,9 @@ async function resolveArchetypeAdd(
   }
   installCapabilityDirs(repoDir, cwd, [{ name: cap.name, role: cap.role }]);
   const version = readSkillsVersion(repoDir);
-  const commit = await fetchCommitSha();
+  // The SHA the tree was pinned to (recorded == fetched, or null when the branch
+  // was floated — LIMITS.md §3b); threaded from fetchRepo, no separate fetch.
+  const commit = sha;
   await writePharnConfig(cwd, {
     ...config,
     skillsVersion: version,

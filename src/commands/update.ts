@@ -17,7 +17,7 @@ import { fetchAndInstall } from '../lib/installer.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
-import { fetchRepo, fetchCommitSha } from '../lib/repo.js';
+import { fetchRepo } from '../lib/repo.js';
 import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
@@ -236,7 +236,9 @@ async function runArchetypeUpdate(
     }));
     installedVersion = readSkillsVersion(repo.dir);
     capCount = capabilities.length;
-    const commit = await fetchCommitSha();
+    // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
+    // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
+    const commit = repo.sha;
     await writePharnConfig(cwd, {
       ...config,
       skillsVersion: installedVersion,

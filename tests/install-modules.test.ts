@@ -3,18 +3,37 @@ import {
   readFileSync,
   writeFileSync,
   existsSync,
+  lstatSync,
   rmSync,
+  symlinkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
-import { installModule, materializeCore } from '../src/lib/install-modules.js';
+import {
+  installModule,
+  installSkills,
+  assertSkillSourcesExist,
+  materializeCore,
+} from '../src/lib/install-modules.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 import type { ManifestModule } from '../src/types.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, content);
+}
+
+// True if ANYTHING exists at `path` (file, dir, OR symlink) — lstat does not
+// follow the link, so a skipped-but-somehow-present symlink is still detected
+// (existsSync would follow a dangling link and report it missing).
+function lexists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Build a fake fetched-repo on disk with a pharn-core module.
@@ -270,5 +289,176 @@ describe('materializeCore', () => {
     expect(() => materializeCore(repoDir, claudeDir, 'standard')).toThrow(
       ManifestValidationError,
     );
+  });
+
+  it('rejects a symlinked memory-bank source (untrusted repo, P2)', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    scaffoldCore(repoDir);
+    const outside = join(tmp.path(), 'outside-mb');
+    write(join(outside, 'x.md'), 'x');
+    // Swap the real memory-bank template dir for a symlink onto an out-of-tree
+    // dir — a malicious clone plants it; materializeCore must refuse.
+    rmSync(join(repoDir, 'pharn-core', 'templates', 'memory-bank'), {
+      recursive: true,
+    });
+    symlinkSync(
+      outside,
+      join(repoDir, 'pharn-core', 'templates', 'memory-bank'),
+    );
+    expect(() => materializeCore(repoDir, claudeDir, 'standard')).toThrow(
+      ManifestValidationError,
+    );
+  });
+});
+
+// --- FIX 2: symlink-escape defense (P2), mirroring install-capabilities.ts ----
+describe('installModule — untrusted-copy guards (P2)', () => {
+  const tmp = useTmpDir();
+
+  function writeModuleJson(repoDir: string, installs: Record<string, string>) {
+    write(
+      join(repoDir, 'pharn-core', 'module.json'),
+      JSON.stringify({
+        name: 'pharn-core',
+        version: '0.2.0',
+        required: true,
+        dependsOn: [],
+        description: 'core',
+        installs,
+      }),
+    );
+  }
+
+  it('rejects an installs source that is a symlink (Layer 1 root)', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    const outside = join(tmp.path(), 'outside');
+    write(join(outside, 'x.md'), 'x');
+    writeModuleJson(repoDir, { commands: 'commands/' });
+    // `commands` is a symlink onto a real dir outside the module.
+    symlinkSync(outside, join(repoDir, 'pharn-core', 'commands'));
+    expect(() => installModule(repoDir, claudeDir, coreModule)).toThrow(
+      ManifestValidationError,
+    );
+  });
+
+  it('skips a nested symlink inside an installs dir (never materialized)', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    const outside = join(tmp.path(), 'outside');
+    write(join(outside, 'secret.md'), 'secret');
+    writeModuleJson(repoDir, { commands: 'commands/' });
+    write(join(repoDir, 'pharn-core', 'commands', 'real.md'), 'real');
+    symlinkSync(
+      join(outside, 'secret.md'),
+      join(repoDir, 'pharn-core', 'commands', 'link.md'),
+    );
+    installModule(repoDir, claudeDir, coreModule);
+    // real sibling copied; the nested symlink skipped by the copy filter.
+    expect(existsSync(join(claudeDir, 'commands', 'real.md'))).toBe(true);
+    expect(lexists(join(claudeDir, 'commands', 'link.md'))).toBe(false);
+  });
+
+  it('refuses to write through a pre-planted symlink that escapes .claude/ (Layer 2)', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    const outside = join(tmp.path(), 'outside');
+    mkdirSync(outside, { recursive: true });
+    // Pre-plant .claude/escape as a symlink onto an out-of-tree dir (a prior run
+    // / out-of-band). A single-entry write through it has no ".." and passes the
+    // lexical safeJoin — the realpath backstop must still refuse it.
+    mkdirSync(claudeDir, { recursive: true });
+    symlinkSync(outside, join(claudeDir, 'escape'));
+    writeModuleJson(repoDir, { real: 'escape/pwned' });
+    write(join(repoDir, 'pharn-core', 'real'), 'pwn');
+    expect(() => installModule(repoDir, claudeDir, coreModule)).toThrow(
+      ManifestValidationError,
+    );
+    // Nothing was written outside .claude/.
+    expect(existsSync(join(outside, 'pwned'))).toBe(false);
+  });
+});
+
+describe('assertSkillSourcesExist / installSkills — symlink guard (P2)', () => {
+  const tmp = useTmpDir();
+
+  it('rejects a skill source that is a symlink (pre-flight, nothing written)', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const outside = join(tmp.path(), 'outside');
+    write(join(outside, 'SKILL.md'), 'x');
+    mkdirSync(join(repoDir, 'pharn-skills-orm', 'skills'), { recursive: true });
+    symlinkSync(
+      outside,
+      join(repoDir, 'pharn-skills-orm', 'skills', 'drizzle'),
+    );
+    expect(() =>
+      assertSkillSourcesExist(repoDir, [
+        { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
+      ]),
+    ).toThrow(ManifestValidationError);
+  });
+
+  it('skips a nested symlink when installing a real skill dir', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    const outside = join(tmp.path(), 'outside');
+    write(join(outside, 'secret.md'), 'secret');
+    write(
+      join(repoDir, 'pharn-skills-orm', 'skills', 'drizzle', 'SKILL.md'),
+      'skill',
+    );
+    symlinkSync(
+      join(outside, 'secret.md'),
+      join(repoDir, 'pharn-skills-orm', 'skills', 'drizzle', 'link.md'),
+    );
+    installSkills(repoDir, claudeDir, [
+      { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
+    ]);
+    expect(existsSync(join(claudeDir, 'skills', 'drizzle', 'SKILL.md'))).toBe(
+      true,
+    );
+    expect(lexists(join(claudeDir, 'skills', 'drizzle', 'link.md'))).toBe(
+      false,
+    );
+  });
+});
+
+// --- FIX 3: dev/product allowlist on the legacy path (Surface A) --------------
+describe('installModule — dev/product allowlist (Surface A)', () => {
+  const tmp = useTmpDir();
+
+  it('excludes pharn-dev-* commands and *.test.* files from a legacy install', () => {
+    const repoDir = join(tmp.path(), 'repo');
+    const claudeDir = join(tmp.path(), '.claude');
+    write(
+      join(repoDir, 'pharn-core', 'module.json'),
+      JSON.stringify({
+        name: 'pharn-core',
+        version: '0.2.0',
+        required: true,
+        dependsOn: [],
+        description: 'core',
+        installs: { commands: 'commands/' },
+      }),
+    );
+    write(join(repoDir, 'pharn-core', 'commands', 'pharn-plan.md'), 'product');
+    write(
+      join(repoDir, 'pharn-core', 'commands', 'pharn-dev-build.md'),
+      'devloop',
+    );
+    write(
+      join(repoDir, 'pharn-core', 'commands', 'set-writes-scope.test.cjs'),
+      'test',
+    );
+    installModule(repoDir, claudeDir, coreModule);
+    // product command copied; dev-loop command + test file structurally skipped.
+    expect(existsSync(join(claudeDir, 'commands', 'pharn-plan.md'))).toBe(true);
+    expect(existsSync(join(claudeDir, 'commands', 'pharn-dev-build.md'))).toBe(
+      false,
+    );
+    expect(
+      existsSync(join(claudeDir, 'commands', 'set-writes-scope.test.cjs')),
+    ).toBe(false);
   });
 });

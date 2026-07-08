@@ -359,10 +359,11 @@ describe('runAdd (archetype)', () => {
 
   function mockClone(): ReturnType<typeof vi.fn> {
     const cleanup = vi.fn();
-    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+    // fetchRepo now carries the pinned SHA; the archetype-add path records
+    // repo.sha as `commit` (FIX 1), no separate fetchCommitSha call.
+    fetchRepo.mockResolvedValue({ dir: '/repo', sha: 'sha', cleanup });
     parseCapabilityIndex.mockReturnValue(index);
     readSkillsVersion.mockReturnValue('1.0.0');
-    fetchCommitSha.mockResolvedValue('sha');
     return cleanup;
   }
 

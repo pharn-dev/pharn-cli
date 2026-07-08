@@ -1,0 +1,29 @@
+{
+  "base": "HEAD",
+  "inside": [
+    "src/commands/add.ts",
+    "src/commands/init.ts",
+    "src/commands/update.ts",
+    "src/lib/install-modules.ts",
+    "src/lib/installer.ts",
+    "src/lib/repo.ts",
+    "tests/add.test.ts",
+    "tests/install-modules.test.ts",
+    "tests/installer.test.ts",
+    "tests/repo.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

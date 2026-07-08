@@ -196,7 +196,8 @@ describe('runUpdate (archetype)', () => {
     fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     const cleanup = vi.fn();
-    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+    // fetchRepo now carries the pinned SHA; update records repo.sha as `commit`.
+    fetchRepo.mockResolvedValue({ dir: '/repo', sha: 'sha', cleanup });
     parseCapabilityIndex.mockReturnValue({ capabilities: [] });
     resolveCapabilities.mockReturnValue({
       selected: [
@@ -206,7 +207,6 @@ describe('runUpdate (archetype)', () => {
       skipped: [],
     });
     readSkillsVersion.mockReturnValue('1.1.0');
-    fetchCommitSha.mockResolvedValue('sha');
 
     await runUpdate();
 

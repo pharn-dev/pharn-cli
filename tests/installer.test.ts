@@ -2,8 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ManifestModule } from '../src/types.js';
 
 const cleanup = vi.fn();
-const fetchRepo = vi.fn(async () => ({ dir: '/tmp/repo', cleanup }));
-const fetchCommitSha = vi.fn(async () => 'sha123');
+// fetchRepo now returns the pinned SHA; installer records it as `commit`
+// (repo.sha), no separate fetchCommitSha call (FIX 1 — closes the TOCTOU).
+const fetchRepo = vi.fn(async () => ({
+  dir: '/tmp/repo',
+  sha: 'sha123',
+  cleanup,
+}));
 const readManifest = vi.fn(() => ({
   schemaVersion: 1,
   skillsVersion: '0.68.1',
@@ -24,7 +29,7 @@ const installSkills = vi.fn();
 const assertSkillSourcesExist = vi.fn();
 const materializeCore = vi.fn();
 
-vi.mock('../src/lib/repo.js', () => ({ fetchRepo, fetchCommitSha }));
+vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
 vi.mock('../src/lib/manifest.js', () => ({ readManifest, resolveModules }));
 vi.mock('../src/lib/install-modules.js', () => ({
   installModule,

@@ -12,7 +12,7 @@ import { applyDefaults, collectInstalls } from '../lib/wizard.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
-import { fetchRepo, fetchCommitSha } from '../lib/repo.js';
+import { fetchRepo } from '../lib/repo.js';
 import { configPath, readPharnConfig } from '../lib/pharn-config.js';
 import { runGitPrereq, assertPrerequisites } from '../steps/prereqs.js';
 import { runFreshCheck } from '../steps/fresh-check.js';
@@ -88,7 +88,9 @@ async function runInitArchetype(): Promise<void> {
 
     const action = await runArchetypeSummary(archetypes, selection);
     if (action === 'install' && (await confirmOverwriteIfExists(cwd))) {
-      const commit = await fetchCommitSha();
+      // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
+      // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
+      const commit = repo.sha;
       await runInstallArchetype(repo.dir, cwd, archetypes, selection, commit);
       outcome = 'installed';
     }
