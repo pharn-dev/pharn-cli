@@ -14,14 +14,29 @@ describe('fetchRepo', () => {
     vi.unstubAllGlobals();
   });
 
-  it('clones the pinned repo+branch into a temp dir and exposes cleanup', async () => {
+  // Stub the GitHub-API SHA resolution fetchRepo now performs before cloning.
+  function stubSha(sha: string | null): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        sha === null
+          ? { ok: false, json: async () => ({}) }
+          : { ok: true, json: async () => ({ sha }) },
+      ),
+    );
+  }
+
+  it('pins degit to the resolved commit SHA and records it (recorded == fetched)', async () => {
+    stubSha('deadbeefcafe');
     clone.mockResolvedValueOnce(undefined);
     const repo = await fetchRepo();
 
-    expect(degit).toHaveBeenCalledWith(`${REPO}#${REPO_BRANCH}`, {
+    // Pinned to the SHA, not the floating branch — and the SAME value recorded.
+    expect(degit).toHaveBeenCalledWith(`${REPO}#deadbeefcafe`, {
       force: true,
       cache: false,
     });
+    expect(repo.sha).toBe('deadbeefcafe');
     expect(clone).toHaveBeenCalledWith(repo.dir);
     expect(existsSync(repo.dir)).toBe(true);
 
@@ -29,7 +44,22 @@ describe('fetchRepo', () => {
     expect(existsSync(repo.dir)).toBe(false);
   });
 
+  it('falls back to the branch and records sha:null when the SHA is unresolved (LIMITS §3b)', async () => {
+    stubSha(null);
+    clone.mockResolvedValueOnce(undefined);
+    const repo = await fetchRepo();
+
+    expect(degit).toHaveBeenCalledWith(`${REPO}#${REPO_BRANCH}`, {
+      force: true,
+      cache: false,
+    });
+    expect(repo.sha).toBeNull();
+
+    repo.cleanup();
+  });
+
   it('removes the temp dir and rethrows when clone fails', async () => {
+    stubSha('deadbeefcafe');
     clone.mockRejectedValueOnce(new Error('boom'));
     await expect(fetchRepo()).rejects.toThrow('boom');
   });
