@@ -18,9 +18,8 @@ PHARN skills in your project read this file at runtime (e.g. to discover the ins
 | `installedAt` | string | ISO timestamp of the install / last update |
 | `stackAnswers` | object | _schemaVersion 2 only._ Wizard answers, `questionId → value` (including `"skip"`) |
 | `installedSkills` | array | _schemaVersion 2 only._ Per-technology skills copied into `.claude/skills/`, each `{ skill, from }` (`from` is the repo-relative source path) |
-| `vendorSkills` | array | _schemaVersion 2 only._ Names of the vendor official skills you consented to. At `init`, any with a known source are fetched automatically from the vendor's registry; only the names are stored here |
 
-The three `schemaVersion 2` fields are **additive** — installs against an older (`schemaVersion 1`) manifest omit them entirely, and existing configs stay valid.
+The two `schemaVersion 2` fields are **additive** — installs against an older (`schemaVersion 1`) manifest omit them entirely, and existing configs stay valid.
 
 ## Example
 
@@ -61,8 +60,7 @@ The `modules` array lists the **resolved** set: your explicit selections plus ev
     { "skill": "drizzle", "from": "pharn-skills-orm/skills/drizzle" },
     { "skill": "better-auth", "from": "pharn-skills-auth/skills/better-auth" },
     { "skill": "resend", "from": "pharn-skills-email/skills/resend" }
-  ],
-  "vendorSkills": ["supabase"]
+  ]
 }
 ```
 

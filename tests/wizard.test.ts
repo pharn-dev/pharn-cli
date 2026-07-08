@@ -3,7 +3,6 @@ import {
   applyDefaults,
   applyRulesToQuestion,
   collectInstalls,
-  collectVendorSkills,
   describeAnswers,
   detectAnswers,
   findSkillOption,
@@ -123,18 +122,6 @@ describe('collectInstalls', () => {
     expect(
       collectInstalls(wizard, { database: 'supabase', payments: 'skip' }),
     ).toEqual([]);
-  });
-});
-
-describe('collectVendorSkills', () => {
-  it('collects vendorSkill of answered options', () => {
-    expect(collectVendorSkills(wizard, { database: 'supabase' })).toEqual([
-      {
-        name: 'supabase',
-        source: 'github:supabase/supabase-skills/database',
-      },
-    ]);
-    expect(collectVendorSkills(wizard, { database: 'neon' })).toEqual([]);
   });
 });
 

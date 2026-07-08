@@ -18,8 +18,6 @@ export function wizardSpec(): WizardSpec {
                 label: 'Supabase',
                 default: true,
                 install: null,
-                vendorSkill: 'supabase',
-                source: 'github:supabase/supabase-skills/database',
                 detect: ['@supabase/supabase-js'],
               },
               {

@@ -61,7 +61,7 @@ pharn-cli/
   src/
     index.ts              CLI entry, command routing
     commands/             init, add, update
-    steps/                wizard steps (prereqs, fresh-check, mode-select, wizard-questions, module/stackpack/constitution select, vendor-consent, summary, install)
+    steps/                wizard steps (prereqs, fresh-check, mode-select, wizard-questions, module/stackpack/constitution select, summary, install)
     lib/                  manifest, wizard, repo, installer, install-modules, pharn-config, validate, constants, banner, confirm, format
     types.ts              Manifest / ModuleManifest / WizardConfig / PharnConfig
   tests/                  vitest specs
@@ -88,7 +88,6 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the init step pip
 | `wizard.test.ts` | `matchCondition` and the pure rule engine / answer resolver (`lib/wizard.ts`) |
 | `wizard-questions.test.ts` | `runWizardQuestions` Custom-mode rendering (hide / relabel / coming-soon / warn rules) |
 | `mode-select.test.ts` | Default vs Custom stack mode select |
-| `vendor-consent.test.ts` | `runVendorConsent` consent recording |
 | `install-modules.test.ts` / `install-skills.test.ts` | Copy `installs` maps, materialize memory-bank + constitution; selective `installSkills`; path-escape guards |
 | `installer.test.ts` / `install.test.ts` | `fetchAndInstall` shared core; `runInstall` step |
 | `init.test.ts` / `init-v2.test.ts` | v1 and v2 init pipelines end to end |

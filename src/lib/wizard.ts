@@ -7,7 +7,6 @@ import type {
   WizardQuestion,
   WizardRule,
   WizardSpec,
-  VendorSkill,
 } from '../types.js';
 
 type WarnRule = Extract<WizardRule, { type: 'warn' }>;
@@ -129,25 +128,6 @@ export function collectInstalls(
     }
   }
   return skills;
-}
-
-/**
- * Vendor official skills to feed the consent step: every answered option
- * carrying a non-null `vendorSkill`, paired with its degit `source` (or null
- * when no official-skill location is known → manual install).
- */
-export function collectVendorSkills(
-  wizard: WizardSpec,
-  answers: Answers,
-): VendorSkill[] {
-  const vendors: VendorSkill[] = [];
-  for (const question of eachQuestion(wizard)) {
-    const option = findChosenOption(question, answers);
-    if (option?.vendorSkill) {
-      vendors.push({ name: option.vendorSkill, source: option.source ?? null });
-    }
-  }
-  return vendors;
 }
 
 /**

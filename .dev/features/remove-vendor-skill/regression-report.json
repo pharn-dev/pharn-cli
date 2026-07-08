@@ -1,0 +1,43 @@
+{
+  "base": "74c5653",
+  "inside": [
+    "docs/commands/init.md",
+    "docs/contributing.md",
+    "docs/reference/pharn-config.md",
+    "src/commands/init.ts",
+    "src/lib/manifest.ts",
+    "src/lib/validate.ts",
+    "src/lib/vendor-fetch.ts",
+    "src/lib/wizard.ts",
+    "src/steps/install.ts",
+    "src/steps/summary.ts",
+    "src/steps/vendor-consent.ts",
+    "src/types.ts",
+    "tests/init-v2.test.ts",
+    "tests/install.test.ts",
+    "tests/manifest-v2.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/summary.test.ts",
+    "tests/vendor-consent.test.ts",
+    "tests/vendor-fetch.test.ts",
+    "tests/wizard-fixture.ts",
+    "tests/wizard.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    },
+    "vitest": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

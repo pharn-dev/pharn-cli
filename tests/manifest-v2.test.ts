@@ -39,11 +39,26 @@ describe('parseManifest schemaVersion routing', () => {
     expect(supabase?.detect).toEqual(['@supabase/supabase-js']);
   });
 
-  it('round-trips a vendor option source (oss-6)', () => {
-    const m = parseManifest(rawV2Manifest());
-    const db = m.wizard?.sections[0]?.questions[0];
-    const supabase = db?.options.find((o) => o.value === 'supabase');
-    expect(supabase?.source).toBe('github:supabase/supabase-skills/database');
+  it('tolerates stray vendorSkill/source keys on an option (forward-compat)', () => {
+    // A pinned/older schemaVersion 2 manifest may still ship these now-removed
+    // keys; parse must not throw (P7 — old pins never break), and must not
+    // surface them on the parsed option.
+    const raw = rawV2Manifest();
+    const options = (
+      raw.wizard as {
+        sections: { questions: { options: Record<string, unknown>[] }[] }[];
+      }
+    ).sections[0]!.questions[0]!.options;
+    options[0]!.vendorSkill = 'supabase';
+    options[0]!.source = 'github:supabase/supabase-skills/database';
+    const supabase = parseManifest(
+      raw,
+    ).wizard?.sections[0]?.questions[0]?.options.find(
+      (o) => o.value === 'supabase',
+    ) as Record<string, unknown> | undefined;
+    expect(supabase).toBeDefined();
+    expect(supabase?.vendorSkill).toBeUndefined();
+    expect(supabase?.source).toBeUndefined();
   });
 
   it('rejects unknown schema versions', () => {
@@ -238,18 +253,6 @@ describe('parseWizard validation', () => {
     [
       'option detect containing ..',
       (w) => (sectionsOf(w)[0]!.questions[0]!.options[0]!.detect = ['a..b']),
-    ],
-    [
-      'option source with a bad charset',
-      (w) =>
-        (sectionsOf(w)[0]!.questions[0]!.options[0]!.source =
-          'github:acme/repo branch'),
-    ],
-    [
-      'option source containing ..',
-      (w) =>
-        (sectionsOf(w)[0]!.questions[0]!.options[0]!.source =
-          'github:acme/../etc'),
     ],
   ])('rejects: %s', (_label, mutate) => {
     const raw = rawV2Manifest();
