@@ -53,11 +53,6 @@ export interface WizardOption {
   default?: boolean;
   // Repo-relative skill subfolder to copy, or null (nothing to install).
   install: string | null;
-  // Vendor official-skill name for the consent step, or null/absent.
-  vendorSkill?: string | null;
-  // degit-compatible source for the vendor's official skill (oss-6), or
-  // null/absent when no official-skill location is known (manual install only).
-  source?: string | null;
   // Rendered dimmed + "(coming soon)"; not selectable.
   comingSoon?: boolean;
   // npm packages whose presence in package.json (deps or devDeps) marks this
@@ -125,18 +120,9 @@ export interface WizardConfig {
   // from the installed constitution at materialize time.
   isMultiTenant: boolean;
   // schemaVersion 2 only: per-tech wizard answers (questionId → value, incl.
-  // "skip"), the skill subfolders to copy, and the vendor skills consented to.
+  // "skip") and the skill subfolders to copy.
   stackAnswers?: Record<string, string>;
   installedSkills?: InstalledSkill[];
-  vendorSkills?: VendorSkill[];
-}
-
-// A consented vendor official skill carried through the init flow. `source` is
-// the degit location to auto-fetch from, or null (manual install only). The
-// persisted pharn.config.json keeps only the names (see PharnConfig).
-export interface VendorSkill {
-  name: string;
-  source: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +208,6 @@ export interface PharnConfig {
   // schemaVersion 2 additions (absent on legacy installs):
   stackAnswers?: Record<string, string>;
   installedSkills?: InstalledSkill[];
-  vendorSkills?: string[];
   // Archetype (capability) installs (pharn init --archetype). Additive; absent on
   // legacy module installs. `modules` is [] for an archetype install; these record
   // the detected archetypes and the capabilities copied for them.

@@ -45,15 +45,6 @@ export async function runSummary(
           ),
         ]
       : []),
-    ...(config.vendorSkills && config.vendorSkills.length > 0
-      ? [
-          '',
-          '  VENDOR SKILLS (recorded)',
-          ...config.vendorSkills.map((v) =>
-            row(v.name, v.source ? 'fetch: auto' : 'install by hand'),
-          ),
-        ]
-      : []),
     '',
     '────────────────────────────────────────',
   ];

@@ -61,7 +61,7 @@ describe('runSummary', () => {
     expect(note).toMatch(/Stack pack\s+None/);
   });
 
-  it('renders the skills and vendor blocks for a schemaVersion 2 config', async () => {
+  it('renders the skills block for a schemaVersion 2 config', async () => {
     vi.mocked(prompts.select).mockResolvedValue('install');
     const v2: WizardConfig = {
       ...config,
@@ -69,18 +69,12 @@ describe('runSummary', () => {
       installedSkills: [
         { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
       ],
-      vendorSkills: [
-        { name: 'supabase', source: 'github:acme/supabase' },
-        { name: 'stripe', source: null },
-      ],
     };
     await runSummary(v2, resolved, '0.69.0');
     const note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
     expect(note).toContain('SKILLS (selected)');
     expect(note).toContain('drizzle');
-    expect(note).toContain('VENDOR SKILLS (recorded)');
-    expect(note).toMatch(/supabase\s+fetch: auto/);
-    expect(note).toMatch(/stripe\s+install by hand/);
+    expect(note).not.toContain('VENDOR SKILLS');
   });
 
   it('renders the multi-tenant SaaS row (Yes; No adds a P2 note)', async () => {

@@ -8,11 +8,7 @@ import {
   fetchRemoteManifest,
   resolveModules,
 } from '../lib/manifest.js';
-import {
-  applyDefaults,
-  collectInstalls,
-  collectVendorSkills,
-} from '../lib/wizard.js';
+import { applyDefaults, collectInstalls } from '../lib/wizard.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
@@ -27,7 +23,6 @@ import { runModuleSelect } from '../steps/module-select.js';
 import { runStackPackSelect } from '../steps/stackpack-select.js';
 import { runConstitutionSelect } from '../steps/constitution-select.js';
 import { runMultiTenantSelect } from '../steps/multitenant-select.js';
-import { runVendorConsent } from '../steps/vendor-consent.js';
 import { runSummary } from '../steps/summary.js';
 import { runInstall } from '../steps/install.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
@@ -166,10 +161,6 @@ async function runInitV2(
     const isMultiTenant = await runMultiTenantSelect(previous?.isMultiTenant);
 
     const installedSkills = collectInstalls(wizard, stackAnswers);
-    const vendorSkills = await runVendorConsent(
-      collectVendorSkills(wizard, stackAnswers),
-      previous?.vendorSkills,
-    );
 
     const config: WizardConfig = {
       modules,
@@ -178,7 +169,6 @@ async function runInitV2(
       isMultiTenant,
       stackAnswers,
       installedSkills,
-      vendorSkills,
     };
 
     const selected = [...modules, ...(stackPack ? [stackPack] : [])];

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit } from './helpers.js';
 import { v2Manifest } from './wizard-fixture.js';
-import type { VendorSkill, WizardConfig } from '../src/types.js';
+import type { WizardConfig } from '../src/types.js';
 import type { Detected } from '../src/steps/detect.js';
 import type { Answers } from '../src/lib/wizard.js';
 
@@ -25,7 +25,7 @@ vi.mock('../src/lib/manifest.js', () => ({
   resolveModules,
 }));
 
-// Real wizard.js (applyDefaults/collectInstalls/collectVendorSkills) runs.
+// Real wizard.js (applyDefaults/collectInstalls) runs.
 const runGitPrereq = vi.fn();
 const assertPrerequisites = vi.fn();
 const runFreshCheck = vi.fn(async () => undefined);
@@ -42,9 +42,6 @@ const runStackPackSelect = vi.fn<
 >(async () => null);
 const runConstitutionSelect = vi.fn(async () => 'standard' as const);
 const runMultiTenantSelect = vi.fn(async () => true);
-const runVendorConsent = vi.fn(
-  async (c: VendorSkill[], _initial?: VendorSkill[]) => c,
-);
 const runSummary = vi.fn();
 const runInstall = vi.fn<(config: WizardConfig) => Promise<void>>(
   async () => undefined,
@@ -63,7 +60,6 @@ vi.mock('../src/steps/constitution-select.js', () => ({
   runConstitutionSelect,
 }));
 vi.mock('../src/steps/multitenant-select.js', () => ({ runMultiTenantSelect }));
-vi.mock('../src/steps/vendor-consent.js', () => ({ runVendorConsent }));
 vi.mock('../src/steps/summary.js', () => ({ runSummary }));
 vi.mock('../src/steps/install.js', () => ({ runInstall }));
 
@@ -91,13 +87,7 @@ describe('runInit (schemaVersion 2)', () => {
       email: 'resend',
       payments: 'stripe',
     });
-    // supabase carries a vendorSkill; drizzle/better-auth/resend/stripe install.
-    expect(config.vendorSkills).toEqual([
-      {
-        name: 'supabase',
-        source: 'github:supabase/supabase-skills/database',
-      },
-    ]);
+    // supabase installs nothing; drizzle/better-auth/resend/stripe install.
     expect(config.installedSkills?.map((s) => s.skill)).toEqual([
       'drizzle',
       'better-auth',
@@ -129,20 +119,24 @@ describe('runInit (schemaVersion 2)', () => {
     ]);
   });
 
-  it('preserves vendor consent across a summary loop-back', async () => {
+  it('preserves prior answers across a summary loop-back', async () => {
     fetchRemoteManifest.mockResolvedValue(v2Manifest());
     runModeSelect.mockResolvedValue('default');
     runSummary.mockResolvedValueOnce('back').mockResolvedValueOnce('install');
 
     await runInit();
 
-    expect(runVendorConsent).toHaveBeenCalledTimes(2);
-    expect(runVendorConsent.mock.calls[0]![1]).toBeUndefined();
-    expect(runVendorConsent.mock.calls[1]![1]).toEqual([
-      {
-        name: 'supabase',
-        source: 'github:supabase/supabase-skills/database',
-      },
+    // Two summary passes (back → install); install runs once with the resolved
+    // skills intact — the loop-back preserved the prior answers (non-vendor
+    // signal, replacing the removed vendor-consent assertion).
+    expect(runSummary).toHaveBeenCalledTimes(2);
+    expect(runInstall).toHaveBeenCalledTimes(1);
+    const config = runInstall.mock.calls[0]![0];
+    expect(config.installedSkills?.map((s) => s.skill)).toEqual([
+      'drizzle',
+      'better-auth',
+      'resend',
+      'stripe',
     ]);
   });
 

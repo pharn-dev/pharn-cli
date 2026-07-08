@@ -90,7 +90,6 @@ describe('pharn-config', () => {
         { skill: 'better-auth', from: 'pharn-skills-auth/skills/better-auth' },
         { skill: 'resend', from: 'pharn-skills-email/skills/resend' },
       ],
-      vendorSkills: ['supabase'],
     };
     await writePharnConfig(tmp.path(), v2);
     const read = readPharnConfig(tmp.path());
@@ -105,6 +104,19 @@ describe('pharn-config', () => {
     expect(read?.constitution).toBe('standard');
     expect(read?.archetypes).toBeUndefined();
     expect(read?.capabilities).toBeUndefined();
+  });
+
+  it('still loads a config carrying a removed vendorSkills key (P7 additive)', async () => {
+    // A config written by an older CLI may carry the now-removed vendorSkills
+    // field; the passthrough loader ignores unknown keys and still reads it.
+    const withRemovedField = {
+      ...sample,
+      vendorSkills: ['supabase'],
+    } as PharnConfig & { vendorSkills: string[] };
+    await writePharnConfig(tmp.path(), withRemovedField);
+    const read = readPharnConfig(tmp.path());
+    expect(read?.skillsVersion).toBe(sample.skillsVersion);
+    expect(read?.constitution).toBe('standard');
   });
 
   it('round-trips an archetype install config (no constitution, modules:[], capabilities)', async () => {

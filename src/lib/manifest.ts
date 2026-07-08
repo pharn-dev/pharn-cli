@@ -11,7 +11,6 @@ import {
   VERSION_RE,
   INSTALL_PATH_RE,
   WIZARD_VALUE_RE,
-  VENDOR_SOURCE_RE,
   PACKAGE_NAME_RE,
   assertSafeString,
   assertNoDotDot,
@@ -380,26 +379,6 @@ function parseWizardOption(
       );
     }
   }
-  let vendorSkill: string | null | undefined;
-  if (raw.vendorSkill !== null && raw.vendorSkill !== undefined) {
-    vendorSkill = assertSafeString(
-      raw.vendorSkill,
-      `${path}.vendorSkill`,
-      WIZARD_VALUE_RE,
-    );
-  } else {
-    vendorSkill = raw.vendorSkill as null | undefined;
-  }
-  // Optional `source` (oss-6): degit location for the vendor's official skill.
-  // Validated against a strict allowlist + '..' check since it is handed to
-  // degit at install time. Absent/null = no known location (manual install).
-  let source: string | null | undefined;
-  if (raw.source !== null && raw.source !== undefined) {
-    source = assertSafeString(raw.source, `${path}.source`, VENDOR_SOURCE_RE);
-    assertNoDotDot(source, `${path}.source`);
-  } else {
-    source = raw.source as null | undefined;
-  }
   // Optional `detect` (schemaVersion 2 / oss-6): npm packages whose presence in
   // the project marks this option as detected for wizard pre-fill. Validated
   // like prerequisites — package-name charset and no '..' (compared against
@@ -414,8 +393,6 @@ function parseWizardOption(
     label,
     default: raw.default as boolean | undefined,
     install,
-    vendorSkill,
-    source,
     comingSoon: raw.comingSoon as boolean | undefined,
     detect,
   };

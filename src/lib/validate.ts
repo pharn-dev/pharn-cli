@@ -13,10 +13,6 @@ export const VERSION_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 export const INSTALL_PATH_RE = /^[a-z0-9_-]+(\/[a-z0-9_-]+)*\/?$/;
 // Wizard answer values + ids (e.g. "supabase", "better-auth", "skip").
 export const WIZARD_VALUE_RE = /^[a-z0-9-]+$/;
-// degit-compatible vendor skill source (e.g. "github:supabase/skills/foo",
-// "user/repo#main", "https://github.com/user/repo"). Handed to degit, so kept
-// to a strict allowlist and additionally checked for '..' / control chars.
-export const VENDOR_SOURCE_RE = /^[A-Za-z0-9@:/._#-]+$/;
 // npm package names: optional @scope/, then lowercase letters, digits, '-',
 // '_', '.'. Compared against package.json keys (never path-joined), but kept
 // strict + checked for '..' for defense in depth.
