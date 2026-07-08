@@ -10,6 +10,7 @@ import {
 } from '../src/lib/pharn-config.js';
 import type { PharnConfig } from '../src/types.js';
 import { DEFAULT_MODEL_ROUTING } from '../src/lib/model-routing.js';
+import { DEFAULT_SEAM_CONFIG } from '../src/lib/seam-config.js';
 
 const sample: PharnConfig = {
   pharnVersion: '0.2.0',
@@ -62,6 +63,27 @@ describe('pharn-config', () => {
         skillsVersion: '0.1.0',
         modules: [],
         models: { default: { model: 'gpt-4', effort: 'high' } },
+      }),
+    );
+    expect(readPharnConfig(tmp.path())).toBeNull();
+  });
+
+  it('round-trips a config with a valid seam block', async () => {
+    const withSeam: PharnConfig = {
+      ...sample,
+      seam: DEFAULT_SEAM_CONFIG,
+    };
+    await writePharnConfig(tmp.path(), withSeam);
+    expect(readPharnConfig(tmp.path())).toEqual(withSeam);
+  });
+
+  it('returns null when the seam block is invalid (hand-edited, "ask" removed)', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '0.1.0',
+        modules: [],
+        seam: { resolutionOrder: ['official-skill', 'model', 'fetch'] },
       }),
     );
     expect(readPharnConfig(tmp.path())).toBeNull();

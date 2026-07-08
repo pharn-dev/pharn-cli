@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/remove-vendor-skill/SHIP.md"
+    ".dev/features/seam-config-block/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-08T08:24:48.439Z"
+  "set_at": "2026-07-08T10:16:36.795Z"
 }

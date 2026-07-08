@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { isPlainObject } from './validate.js';
 import { validateModelRouting } from './model-routing.js';
+import { validateSeamConfig } from './seam-config.js';
 import type { InstalledModule, PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
@@ -27,6 +28,12 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     // and is caught below. An absent `models` is legacy/valid (P7, additive).
     if (raw.models !== undefined) {
       validateModelRouting(raw.models);
+    }
+    // Same posture for the `seam` block: a present-but-invalid seam block makes
+    // the config unloadable (→ "run init") — validateSeamConfig throws and is
+    // caught below. An absent `seam` is legacy/valid (P7, additive).
+    if (raw.seam !== undefined) {
+      validateSeamConfig(raw.seam);
     }
     return raw as unknown as PharnConfig;
   } catch {
