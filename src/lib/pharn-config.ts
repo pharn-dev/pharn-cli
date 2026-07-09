@@ -69,9 +69,9 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
  * never swallowed (so this helper can never re-become the disease it fixes).
  */
 export function loadConfigOrExit(cwd: string): PharnConfig {
-  let config: PharnConfig | null = null;
   try {
-    config = readPharnConfig(cwd);
+    const config = readPharnConfig(cwd);
+    if (config) return config;
   } catch (err) {
     if (isConfigValidationError(err)) {
       log.error(err.message);
@@ -79,11 +79,9 @@ export function loadConfigOrExit(cwd: string): PharnConfig {
     }
     throw err;
   }
-  if (!config) {
-    log.error('No pharn.config.json found. Run `pharn init` first.');
-    process.exit(1);
-  }
-  return config;
+  // Reached only when readPharnConfig returned null (absent / malformed / wrong-shape).
+  log.error('No pharn.config.json found. Run `pharn init` first.');
+  process.exit(1);
 }
 
 /**
