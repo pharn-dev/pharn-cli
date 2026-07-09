@@ -204,9 +204,10 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
     });
   });
 
-  // archetype-enum-align (reverses decision #2): a .sql file or a migrations/
-  // dir now maps to `backend` — a DB concern folds onto the backend archetype
-  // (the enum still has no `db` member).
+  // A DB-located `.sql` (db/schema.sql) and a top-level migrations/ dir both map
+  // to `backend` — a DB concern folds onto the backend archetype (the enum has no
+  // `db` member). archetype-path-context scopes WHERE these count (see the
+  // path-context block below); both fixtures here are in-location.
   it('.sql files and a migrations/ dir → backend', () => {
     touch(tmp.path(), 'db/schema.sql');
     touch(tmp.path(), 'migrations/001_init.sql');
@@ -216,11 +217,13 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
     });
   });
 
-  // The .sql FILE signal in isolation (no migrations/ dir).
-  it('a lone .sql file → backend', () => {
+  // archetype-path-context (scopes archetype-enum-align): a lone `.sql` OUTSIDE a
+  // DB-location dir is a committed seed/query file, NOT proof of a backend — it no
+  // longer fires (was ['backend'] under the earlier "anywhere" rule).
+  it('a lone .sql file outside a DB dir → lib (not backend)', () => {
     touch(tmp.path(), 'queries.sql');
     expect(detectArchetypesFromProject(tmp.path())).toEqual({
-      archetypes: ['backend'],
+      archetypes: ['lib'],
       packageJsonFound: false,
     });
   });
@@ -235,10 +238,22 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
     });
   });
 
-  // Merge: a DB signal + a client-UI signal → backend + spa (both, in order).
-  it('a .sql file + a .tsx file → backend + spa', () => {
+  // archetype-path-context: a ROOT `.sql` beside a `.tsx` no longer adds backend —
+  // the seed file is not in a DB location — so only the client-UI signal survives.
+  it('a root .sql file + a .tsx file → spa only (root .sql no longer backend)', () => {
     touch(tmp.path(), 'schema.sql');
     touch(tmp.path(), 'App.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: false,
+    });
+  });
+
+  // Merge preserved with a DB-LOCATED `.sql`: db/schema.sql (backend) + a .tsx
+  // (spa) → backend + spa, in ARCHETYPE_ORDER.
+  it('a db/ .sql file + a .tsx file → backend + spa', () => {
+    touch(tmp.path(), 'db/schema.sql');
+    touch(tmp.path(), 'web/App.tsx');
     expect(detectArchetypesFromProject(tmp.path())).toEqual({
       archetypes: ['backend', 'spa'],
       packageJsonFound: false,
@@ -297,6 +312,178 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
       archetypes: ['lib'],
       packageJsonFound: false,
     });
+  });
+});
+
+describe('detectArchetypesFromProject — path-context scoping (archetype-path-context)', () => {
+  const tmp = useTmpDir();
+
+  // ---- Rule 1: api/ dir scoped to top-level | pages/api | app/api ----
+
+  // The headline false-positive fix: a nested `src/api/` (client fetch wrappers)
+  // is a FRONTEND convention → it must NOT contribute backend. react → spa only.
+  it('react dep + src/api/ (client wrappers) → spa only (src/api not backend)', () => {
+    writePkg(tmp.path(), { dependencies: { react: '18' } });
+    touch(tmp.path(), 'src/api/client.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: true,
+    });
+  });
+
+  // src/api/ in isolation (no dep, no other signal) → lib, never backend.
+  it('a lone src/api/ dir → lib (nested api is not a backend signal)', () => {
+    touch(tmp.path(), 'src/api/users.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['lib'],
+      packageJsonFound: false,
+    });
+  });
+
+  // Fable #1 literal (GATE-1 Q3): a REAL express dep makes it backend
+  // legitimately; react makes it spa; src/api/ correctly adds nothing.
+  it('express + react deps + src/api/ → backend + spa (backend from express)', () => {
+    writePkg(tmp.path(), { dependencies: { express: '4', react: '18' } });
+    touch(tmp.path(), 'src/api/client.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend', 'spa'],
+      packageJsonFound: true,
+    });
+  });
+
+  // Legit backend api location still fires: Pages-Router `pages/api`.
+  it('pages/api/ (Pages Router) → backend', () => {
+    touch(tmp.path(), 'pages/api/users.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
+  // ---- Rule 3: route.* scoped to an App-Router `app/` ancestor ----
+
+  // A non-Next client router's route.ts (e.g. Vue) → NOT backend. vue → spa only.
+  it('vue dep + src/router/route.ts (client router) → spa only (not backend)', () => {
+    writePkg(tmp.path(), { dependencies: { vue: '3' } });
+    touch(tmp.path(), 'src/router/route.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: true,
+    });
+  });
+
+  // An App-Router handler under src/app/** still fires (app ancestor, nested).
+  it('src/app/users/route.ts → backend (App-Router ancestor under src/)', () => {
+    touch(tmp.path(), 'src/app/users/route.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
+  // ---- Rule 4: .sql scoped to a DB-location dir; migrations/ scoped too (Q2) ----
+
+  // A frontend's committed seed.sql at the root → NOT backend. react → spa only.
+  it('react dep + root seed.sql → spa only (committed seed is not backend)', () => {
+    writePkg(tmp.path(), { dependencies: { react: '18' } });
+    touch(tmp.path(), 'seed.sql');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: true,
+    });
+  });
+
+  // A DB-located .sql → backend.
+  it('db/seed.sql → backend (.sql inside a DB-location dir)', () => {
+    touch(tmp.path(), 'db/seed.sql');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
+  // GATE-1 Q2: a deep, non-DB migrations/ dir (e.g. client state migrations) →
+  // NOT backend. react → spa only.
+  it('react dep + src/state/migrations/ (non-DB) → spa only (migrations scoped)', () => {
+    writePkg(tmp.path(), { dependencies: { react: '18' } });
+    touch(tmp.path(), 'src/state/migrations/v1.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: true,
+    });
+  });
+
+  // GATE-1 Q2: a migrations/ dir UNDER a DB-location ancestor (prisma/) → backend.
+  it('prisma/migrations/ → backend (migrations under a DB ancestor)', () => {
+    touch(tmp.path(), 'prisma/migrations/001_init.sql');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
+  // ---- Rule 2: .tsx/.jsx excluded in test trees / email templates ----
+
+  // A backend with react-email templates (emails/*.tsx) must not become spa.
+  it('express dep + emails/Welcome.tsx → backend only (email template not spa)', () => {
+    writePkg(tmp.path(), { dependencies: { express: '4' } });
+    touch(tmp.path(), 'emails/Welcome.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: true,
+    });
+  });
+
+  // A real component still yields spa (the required inverse).
+  it('components/Button.tsx (real component) → spa', () => {
+    touch(tmp.path(), 'components/Button.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: false,
+    });
+  });
+
+  // A *.test.tsx fixture alone is not a UI signal (basename regex).
+  it('a lone Button.test.tsx fixture → lib (test fixture, not spa)', () => {
+    touch(tmp.path(), 'src/Button.test.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['lib'],
+      packageJsonFound: false,
+    });
+  });
+
+  // grill #2 coverage: the `.spec.jsx` arm of the fixture regex.
+  it('a lone widget.spec.jsx fixture → lib (spec fixture, not spa)', () => {
+    touch(tmp.path(), 'widget.spec.jsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['lib'],
+      packageJsonFound: false,
+    });
+  });
+
+  // grill #2 coverage: a `.tsx` under a tests/ tree (NON_UI_DIRS member).
+  it('a .tsx under tests/ → lib (test tree excluded)', () => {
+    touch(tmp.path(), 'tests/Example.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['lib'],
+      packageJsonFound: false,
+    });
+  });
+
+  // Determinism holds on a path-scoped multi-signal tree.
+  it('is deterministic on a path-scoped tree', () => {
+    writePkg(tmp.path(), { dependencies: { react: '18' } });
+    touch(tmp.path(), 'src/api/client.ts');
+    touch(tmp.path(), 'db/schema.sql');
+    touch(tmp.path(), 'emails/Welcome.tsx');
+    // react → spa; db/schema.sql → backend; src/api & emails/*.tsx contribute
+    // nothing. → backend + spa (ARCHETYPE_ORDER), stable across runs.
+    const expected: ArchetypeDetection = {
+      archetypes: ['backend', 'spa'],
+      packageJsonFound: true,
+    };
+    expect(detectArchetypesFromProject(tmp.path())).toEqual(expected);
+    expect(detectArchetypesFromProject(tmp.path())).toEqual(expected);
   });
 });
 

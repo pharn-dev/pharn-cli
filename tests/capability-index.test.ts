@@ -59,6 +59,41 @@ describe('parseCapabilityIndex', () => {
     expect(entry!.applies).toBe('universal');
   });
 
+  // archetype-path-context: `applies` tokens may be UNQUOTED YAML — pharn-oss is
+  // not required to quote them. `[ssr, backend]` parses like `["ssr","backend"]`.
+  it('accepts unquoted YAML applies tokens ([ssr, backend])', () => {
+    const repo = tmp.path();
+    scaffold(repo);
+    writeCap(repo, GRILLERS, 'a11y', fm('griller', '[ssr, backend]'));
+    const [entry] = parseCapabilityIndex(repo).capabilities;
+    expect(entry!.applies).toEqual(['ssr', 'backend']);
+  });
+
+  it('accepts unquoted [universal] → the string (resolver contract)', () => {
+    const repo = tmp.path();
+    scaffold(repo);
+    writeCap(repo, GRILLERS, 'security', fm('griller', '[universal]'));
+    const [entry] = parseCapabilityIndex(repo).capabilities;
+    expect(entry!.applies).toBe('universal');
+  });
+
+  it('accepts mixed quoted/unquoted tokens ([ssr, "backend"])', () => {
+    const repo = tmp.path();
+    scaffold(repo);
+    writeCap(repo, GRILLERS, 'a11y', fm('griller', '[ssr, "backend"]'));
+    const [entry] = parseCapabilityIndex(repo).capabilities;
+    expect(entry!.applies).toEqual(['ssr', 'backend']);
+  });
+
+  // The enum gate must survive the loosening: an unknown UNQUOTED token still
+  // hard-fails (fail-closed, P2/P5) — the split validates each element WHOLE.
+  it('still hard-fails an unknown unquoted token (enum gate survives loosening)', () => {
+    const repo = tmp.path();
+    scaffold(repo);
+    writeCap(repo, GRILLERS, 'a11y', fm('griller', '[ssr, mobile]'));
+    expect(() => parseCapabilityIndex(repo)).toThrow(/mobile|invalid applies/);
+  });
+
   it('is deterministic — identical result across repeated parses', () => {
     const repo = tmp.path();
     scaffold(repo);

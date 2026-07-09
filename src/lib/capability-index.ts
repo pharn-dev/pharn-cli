@@ -150,7 +150,11 @@ function stripQuotes(value: string): string {
 /**
  * Parse + validate the `applies` frontmatter value into the resolver's shape:
  * `["universal"]` → `'universal'` (always selected); a non-empty archetype array
- * → `Archetype[]`. Hard-fails (P2/P5) on: not a bracketed array, an empty array,
+ * → `Archetype[]`. Tokens may be quoted or bare — `[ssr, backend]` and
+ * `["ssr","backend"]` parse identically (pharn-oss is not required to quote its
+ * YAML). Each comma-separated element is validated WHOLE against the archetype
+ * enum, so a dangerous element (e.g. `[../etc]`) hard-fails rather than being
+ * silently skipped. Hard-fails (P2/P5) on: not a bracketed array, an empty array,
  * an unknown token, or `universal` mixed with archetypes (an ambiguous,
  * malformed declaration).
  */
@@ -160,7 +164,15 @@ function parseApplies(raw: string, name: string): 'universal' | Archetype[] {
       `Capability "${name}" has a malformed "applies" value ${JSON.stringify(raw)} (expected a "[...]" array).`,
     );
   }
-  const tokens = [...raw.matchAll(/["']([a-z0-9]+)["']/g)].map((m) => m[1]!);
+  // Split the bracketed array into comma-separated elements and normalize each
+  // (trim + strip a matching quote pair via stripQuotes). Accepts quoted OR bare
+  // YAML tokens; empties (a trailing comma, `[]`) drop out. Every surviving
+  // element is enum-validated below — nothing is skipped, so junk hard-fails.
+  const tokens = raw
+    .slice(1, -1)
+    .split(',')
+    .map((t) => stripQuotes(t))
+    .filter((t) => t.length > 0);
   if (tokens.length === 0) {
     throw new ManifestValidationError(
       `Capability "${name}" has an empty "applies" array — every capability must declare its applicability.`,
