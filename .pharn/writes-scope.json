@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/archetype-path-context/SHIP.md"
+    ".dev/memory-bank/lessons-learned.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-09T14:03:15.756Z"
+  "set_by": ".claude/commands/pharn-dev-memory-promote.md",
+  "set_at": "2026-07-09T14:10:26.121Z"
 }
