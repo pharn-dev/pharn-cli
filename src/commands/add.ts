@@ -26,7 +26,7 @@ import { assertPrerequisites } from '../steps/prereqs.js';
 import { fetchAndInstall } from '../lib/installer.js';
 import {
   isArchetypeConfig,
-  readPharnConfig,
+  loadConfigOrExit,
   toInstalledModules,
   writePharnConfig,
 } from '../lib/pharn-config.js';
@@ -41,11 +41,7 @@ export async function runAdd(moduleArg: string | undefined): Promise<void> {
   intro('pharn add');
 
   const cwd = process.cwd();
-  const config = readPharnConfig(cwd);
-  if (!config) {
-    log.error('No pharn.config.json found. Run `pharn init` first.');
-    process.exit(1);
-  }
+  const config = loadConfigOrExit(cwd);
 
   // Archetype (capability) install: `add <name>` / `add <role>:<name>` installs
   // one capability. Separate path (there is no manifest); legacy flow unchanged.

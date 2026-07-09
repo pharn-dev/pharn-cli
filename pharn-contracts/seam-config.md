@@ -68,6 +68,22 @@ config is `ask` _absent_.
   / `haltOnUnknown`, when present, must be well-typed (enum / boolean). These are enum / type checks
   (`ARCHITECTURE.md §2` primitive #3), fail-closed on any non-member.
 
+### Strict-config rejections (the strict posture — BUG 2 / BUG 4)
+
+Beyond the terminal-`ask` safety invariant, the validator **rejects** — naming the offender
+(JSON-escaped as DATA, P2) — three hand-edit slips a behavior-driving config should not swallow. Each
+is an enum / set-membership check (`ARCHITECTURE.md §2` primitive #3), fail-closed:
+
+- **Unknown top-level key → REJECTED (BUG 2).** Only `resolutionOrder`, `modelConfidenceThreshold`,
+  and `haltOnUnknown` are permitted; a typo'd knob (e.g. `haltOnUnknwon`) is named, not silently
+  ignored — so it can never quietly disable the knob the user meant to set. This **supersedes** the
+  earlier "extra fields ignored" stance (see "Trust class" + "Forward-compat").
+- **Duplicate `resolutionOrder` step → REJECTED (BUG 4a).** Each step may appear at most once; a
+  repeat is a copy-paste slip. (Distinct steps rendered unreachable by an earlier `ask` stay **valid**
+  — see "Presence, not last-ness"; that is position, not repetition.)
+- **`modelConfidenceThreshold` with no `model` step → REJECTED (BUG 4b).** The threshold gates the
+  `model` step; with no `model` step it is a dead knob — add `model` or drop the threshold.
+
 ## The default (matches ARCHITECTURE §5)
 
 `["official-skill", "pinned-docs", "model", "fetch", "ask"]` — the §5 chain order verbatim (model
@@ -105,11 +121,25 @@ for "therefore guaranteed":
 
 A seam config can originate in **untrusted** input (a forked/poisoned repo — `THREAT-MODEL.md §2`,
 seam-resolver fetch fallback / seam-record poisoning). The validator's verdict ranges **only** over
-enum-gated / type-checked fields (`resolutionOrder` steps ∈ enum, `ask` presence, the threshold enum,
-the boolean type) — **never** over any free-text. A poisoned config can therefore only name an invalid
-step (→ RED), drop `ask` (→ RED), or carry extra free-text fields (→ **ignored**, unread by the
-verdict). Taint cannot flip the verdict through free-text. Same posture as `finding-shape.md`: the
-config's free-text is DATA, never an instruction.
+enum-gated / key-set / type-checked fields (`resolutionOrder` steps ∈ enum, no duplicates, `ask`
+presence, the threshold enum + its `model`-step cross-field, the boolean type, and the **allowed key
+set**) — **never** over any free-text VALUE. A poisoned config can therefore only name an invalid step,
+drop `ask`, duplicate a step, set a dead threshold, or **carry an unknown key** — every one of which is
+a **RED (rejected, named)**. Taint can flip the verdict **only toward RED (fail-closed)**, **never** to
+a wrong-GREEN, and the offending key/value is echoed **JSON-escaped as DATA**, never executed. This is
+*stricter than* — and supersedes — the earlier "extra fields ignored" posture: rejecting an unknown key
+is more fail-closed than ignoring it. (`finding-shape.md` keeps the ignore posture for finding
+_ingestion_; a behavior-driving **config** is validated strictly — see "Forward-compat".)
+
+## Forward-compat (P7 — an honest limit)
+
+Rejecting unknown keys means a **future** schema field here is rejected by an **older** CLI that
+predates it. Accepted tradeoff, not oversight: this schema is **CLI-owned** (P3) and written + read by
+the **same** CLI version at install time, so a config never legitimately carries a key the reading CLI
+does not know. A new optional field is introduced by **bumping the allowed key set in lockstep** — the
+CLI validator (`src/lib/seam-config.ts`), this contract, and the floor validator
+(`.dev/floor/check-seam-config.mjs`) together — at which point the field is "known". Legacy configs
+simply **omit** the `seam` block (absent ⇒ fine), so no legacy config breaks (P7). Stated here, not hidden.
 
 ## Determinism (P5)
 

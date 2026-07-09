@@ -80,10 +80,10 @@ vi.mock('../src/lib/install-capabilities.js', () => ({
 const readSkillsVersion = vi.fn();
 vi.mock('../src/lib/skills-version.js', () => ({ readSkillsVersion }));
 
-const readPharnConfig = vi.fn();
+const loadConfigOrExit = vi.fn();
 const writePharnConfig = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
-  readPharnConfig,
+  loadConfigOrExit,
   writePharnConfig,
   isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
   toInstalledModules: (m: { name: string; version: string }[]) =>
@@ -114,12 +114,14 @@ describe('runAdd', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('exits(1) when there is no config', async () => {
-    readPharnConfig.mockReturnValue(null);
+    loadConfigOrExit.mockImplementationOnce(() => {
+      throw new ProcessExit(1);
+    });
     await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
   });
 
   it('reports when everything is already installed', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config([
         'pharn-core',
         'pharn-pipeline',
@@ -135,7 +137,7 @@ describe('runAdd', () => {
   });
 
   it('reports when the requested module is already installed', async () => {
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-pipeline']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-pipeline']));
     await runAdd('pharn-pipeline');
     expect(prompts.outro).toHaveBeenCalledWith(
       'pharn-pipeline is already installed.',
@@ -143,7 +145,7 @@ describe('runAdd', () => {
   });
 
   it('installs a valid module argument and updates the config', async () => {
-    readPharnConfig.mockReturnValue(config(['pharn-core']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core']));
     fetchAndInstall.mockResolvedValue({
       skillsVersion: '0.68.1',
       commit: 'new',
@@ -168,7 +170,7 @@ describe('runAdd', () => {
   });
 
   it('prompts for a module when the argument is not addable', async () => {
-    readPharnConfig.mockReturnValue(config(['pharn-core']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core']));
     vi.mocked(prompts.select).mockResolvedValue('pharn-review');
     fetchAndInstall.mockResolvedValue({
       skillsVersion: '0.68.1',
@@ -184,7 +186,7 @@ describe('runAdd', () => {
   });
 
   it('exits(1) when the install fails', async () => {
-    readPharnConfig.mockReturnValue(config(['pharn-core']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core']));
     fetchAndInstall.mockRejectedValue(new Error('boom'));
     await expect(runAdd('pharn-review')).rejects.toMatchObject(
       new ProcessExit(1),
@@ -192,7 +194,7 @@ describe('runAdd', () => {
   });
 
   it('exits(1) when the module catalog cannot be loaded', async () => {
-    readPharnConfig.mockReturnValue(config(['pharn-core']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core']));
     fetchRemoteManifest.mockRejectedValueOnce(new Error('offline'));
     await expect(runAdd('pharn-review')).rejects.toMatchObject(
       new ProcessExit(1),
@@ -230,7 +232,7 @@ describe('runAdd category:skill', () => {
   }
 
   it('installs a category:skill and appends it to installedSkills', async () => {
-    readPharnConfig.mockReturnValue(configWithSkills([]));
+    loadConfigOrExit.mockReturnValue(configWithSkills([]));
     mockInstallOk();
 
     await runAdd('orm:prisma');
@@ -249,7 +251,7 @@ describe('runAdd category:skill', () => {
   });
 
   it('no-ops when the skill is already installed', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       configWithSkills([
         { skill: 'prisma', from: 'pharn-skills-orm/skills/prisma' },
       ]),
@@ -260,7 +262,7 @@ describe('runAdd category:skill', () => {
   });
 
   it('warns on a conflicting sibling, installs on yes, leaves stackAnswers untouched', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       configWithSkills(
         [{ skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' }],
         { orm: 'drizzle' },
@@ -286,7 +288,7 @@ describe('runAdd category:skill', () => {
   });
 
   it('cancels when the conflict prompt is declined', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       configWithSkills([
         { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
       ]),
@@ -299,7 +301,7 @@ describe('runAdd category:skill', () => {
   });
 
   it('exits(1) listing valid options for an unknown skill', async () => {
-    readPharnConfig.mockReturnValue(configWithSkills([]));
+    loadConfigOrExit.mockReturnValue(configWithSkills([]));
     await expect(runAdd('orm:sequelize')).rejects.toMatchObject(
       new ProcessExit(1),
     );
@@ -308,7 +310,7 @@ describe('runAdd category:skill', () => {
   });
 
   it('exits(1) when the skill install fails', async () => {
-    readPharnConfig.mockReturnValue(configWithSkills([]));
+    loadConfigOrExit.mockReturnValue(configWithSkills([]));
     fetchAndInstall.mockRejectedValue(new Error('boom'));
     await expect(runAdd('orm:prisma')).rejects.toMatchObject(
       new ProcessExit(1),
@@ -317,7 +319,7 @@ describe('runAdd category:skill', () => {
   });
 
   it('exits(1) when the manifest is schemaVersion 1', async () => {
-    readPharnConfig.mockReturnValue(configWithSkills([]));
+    loadConfigOrExit.mockReturnValue(configWithSkills([]));
     fetchRemoteManifest.mockResolvedValue({
       schemaVersion: 1,
       skillsVersion: '0.68.1',
@@ -368,7 +370,7 @@ describe('runAdd (archetype)', () => {
   }
 
   it('installs a capability by name and appends it (archetypes untouched)', async () => {
-    readPharnConfig.mockReturnValue(archConfig());
+    loadConfigOrExit.mockReturnValue(archConfig());
     const cleanup = mockClone();
 
     await runAdd('a11y');
@@ -386,7 +388,7 @@ describe('runAdd (archetype)', () => {
   });
 
   it('resolves role:name addressing', async () => {
-    readPharnConfig.mockReturnValue(archConfig());
+    loadConfigOrExit.mockReturnValue(archConfig());
     mockClone();
 
     await runAdd('lens:n-plus-one');
@@ -397,7 +399,7 @@ describe('runAdd (archetype)', () => {
   });
 
   it('is a no-op when the capability is already installed', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       archConfig([{ name: 'a11y', role: 'griller' }]),
     );
     const cleanup = mockClone();
@@ -410,7 +412,7 @@ describe('runAdd (archetype)', () => {
   });
 
   it('exits(1) listing valid capabilities for an unknown name (cleans up)', async () => {
-    readPharnConfig.mockReturnValue(archConfig());
+    loadConfigOrExit.mockReturnValue(archConfig());
     const cleanup = mockClone();
 
     await expect(runAdd('bogus')).rejects.toMatchObject(new ProcessExit(1));
@@ -420,7 +422,7 @@ describe('runAdd (archetype)', () => {
   });
 
   it('exits(1) with no arg, before any fetch', async () => {
-    readPharnConfig.mockReturnValue(archConfig());
+    loadConfigOrExit.mockReturnValue(archConfig());
     await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
     expect(fetchRepo).not.toHaveBeenCalled();
   });

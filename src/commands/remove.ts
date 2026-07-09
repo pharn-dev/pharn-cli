@@ -28,7 +28,7 @@ import { parseCapabilityArg } from '../lib/capability-address.js';
 import { safeJoin } from '../lib/install-modules.js';
 import {
   isArchetypeConfig,
-  readPharnConfig,
+  loadConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
 import { ManifestValidationError } from '../lib/validate.js';
@@ -44,11 +44,7 @@ export async function runRemove(
   intro('pharn remove');
 
   const cwd = process.cwd();
-  const config = readPharnConfig(cwd);
-  if (!config) {
-    log.error('No pharn.config.json found. Run `pharn init` first.');
-    process.exit(1);
-  }
+  const config = loadConfigOrExit(cwd);
   const claudeDir = resolve(cwd, '.claude');
 
   // Archetype (capability) install: remove one capability (no clone, no network).

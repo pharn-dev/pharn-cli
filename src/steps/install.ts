@@ -10,6 +10,7 @@ import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import {
   configPath,
+  isConfigValidationError,
   readPharnConfig,
   toInstalledModules,
   writePharnConfig,
@@ -26,11 +27,21 @@ export async function runInstall(config: WizardConfig): Promise<void> {
   const claudeDir = resolve(cwd, '.claude');
 
   if (existsSync(configPath(cwd))) {
-    const existing = readPharnConfig(cwd);
-    if (existing) {
-      log.info(
-        `Existing pharn.config.json found (skillsVersion ${existing.skillsVersion ?? 'unknown'}).`,
-      );
+    try {
+      const existing = readPharnConfig(cwd);
+      if (existing) {
+        log.info(
+          `Existing pharn.config.json found (skillsVersion ${existing.skillsVersion ?? 'unknown'}).`,
+        );
+      }
+    } catch (e) {
+      // Present-but-invalid existing config: name it, don't crash / silently
+      // treat-as-absent. Overwrite is still offered (install is the repair path).
+      if (isConfigValidationError(e)) {
+        log.warn(`Existing pharn.config.json is invalid: ${e.message}`);
+      } else {
+        throw e;
+      }
     }
     if (!(await confirmOverwrite('Overwrite existing pharn.config.json?'))) {
       cancelAndExit();
