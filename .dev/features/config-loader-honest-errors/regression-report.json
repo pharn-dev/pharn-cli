@@ -1,0 +1,41 @@
+{
+  "base": "cb27fbb",
+  "inside": [
+    ".dev/floor/check-seam-config.mjs",
+    ".dev/floor/check-seam-config.test.mjs",
+    "CHANGELOG.md",
+    "docs/troubleshooting.md",
+    "pharn-contracts/seam-config.md",
+    "src/commands/add.ts",
+    "src/commands/init.ts",
+    "src/commands/list.ts",
+    "src/commands/remove.ts",
+    "src/commands/status.ts",
+    "src/commands/update.ts",
+    "src/lib/model-routing.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/seam-config.ts",
+    "src/steps/install.ts",
+    "tests/add.test.ts",
+    "tests/list.test.ts",
+    "tests/model-routing.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/remove.test.ts",
+    "tests/seam-config.test.ts",
+    "tests/status.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

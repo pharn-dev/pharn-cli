@@ -367,8 +367,7 @@ describe('runList --json', () => {
     );
     expect(logSpy).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalled();
-    const msg = errSpy.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(msg).toMatch(/gpt-4/);
+    expect(String(errSpy.mock.calls[0]![0])).toMatch(/gpt-4/);
   });
 
   it('keeps stdout clean and exits(1) when the fetch fails', async () => {
