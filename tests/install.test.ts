@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CANCEL, ProcessExit, stubProcessExit } from './helpers.js';
 import type { WizardConfig } from '../src/types.js';
-import { DEFAULT_MODEL_ROUTING } from '../src/lib/model-routing.js';
+import {
+  DEFAULT_MODEL_ROUTING,
+  ModelRoutingError,
+} from '../src/lib/model-routing.js';
+import { SeamConfigError } from '../src/lib/seam-config.js';
 
 const { existsSync } = vi.hoisted(() => ({ existsSync: vi.fn() }));
 vi.mock('node:fs', async (importOriginal) => ({
@@ -28,6 +32,9 @@ vi.mock('../src/lib/pharn-config.js', () => ({
   writePharnConfig,
   toInstalledModules: (m: { name: string; version: string }[]) =>
     m.map(({ name, version }) => ({ name, version })),
+  // Real config-error discriminator so the invalid-existing-config branch is faithful.
+  isConfigValidationError: (e: unknown) =>
+    e instanceof ModelRoutingError || e instanceof SeamConfigError,
 }));
 
 const { runInstall } = await import('../src/steps/install.js');
@@ -153,6 +160,25 @@ describe('runInstall', () => {
 
     await expect(runInstall(config)).rejects.toMatchObject(new ProcessExit(0));
     expect(fetchAndInstall).not.toHaveBeenCalled();
+  });
+
+  it('warns (naming it) and still offers overwrite when the existing config is INVALID (BUG 1)', async () => {
+    // Mirrors init.ts's confirmOverwriteIfExists (identical tolerate-and-warn
+    // branch): a present-but-invalid config must be NAMED, never crash and never
+    // be silently treated as absent (then clobbered).
+    existsSync.mockReturnValue(true);
+    readPharnConfig.mockImplementationOnce(() => {
+      throw new SeamConfigError('seam.resolutionOrder must contain "ask"');
+    });
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+    fetchAndInstall.mockResolvedValue(okResult);
+
+    await runInstall(config);
+
+    const warn = String(vi.mocked(prompts.log.warn).mock.calls[0]?.[0] ?? '');
+    expect(warn).toMatch(/invalid/);
+    expect(warn).toMatch(/ask/);
+    expect(writePharnConfig).toHaveBeenCalled(); // proceeded, did not crash
   });
 
   it('exits(1) when the install fails', async () => {

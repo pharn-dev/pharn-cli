@@ -1,7 +1,30 @@
 {
   "scope": [
-    ".dev/features/config-loader-honest-errors/SHIP.md"
+    "src/lib/pharn-config.ts",
+    "src/commands/add.ts",
+    "src/commands/status.ts",
+    "src/commands/update.ts",
+    "src/commands/remove.ts",
+    "src/commands/list.ts",
+    "src/commands/init.ts",
+    "src/steps/install.ts",
+    "src/lib/model-routing.ts",
+    "src/lib/seam-config.ts",
+    "pharn-contracts/seam-config.md",
+    ".dev/floor/check-seam-config.mjs",
+    ".dev/floor/check-seam-config.test.mjs",
+    "docs/troubleshooting.md",
+    "CHANGELOG.md",
+    "tests/pharn-config.test.ts",
+    "tests/seam-config.test.ts",
+    "tests/model-routing.test.ts",
+    "tests/add.test.ts",
+    "tests/status.test.ts",
+    "tests/update.test.ts",
+    "tests/remove.test.ts",
+    "tests/list.test.ts",
+    "tests/install.test.ts"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-09T12:15:25.889Z"
+  "set_by": ".dev/features/config-loader-honest-errors/PLAN.md",
+  "set_at": "2026-07-09T12:26:12.284Z"
 }

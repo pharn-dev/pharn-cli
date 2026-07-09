@@ -103,6 +103,7 @@ fine, unchanged), so no legacy config breaks. This tradeoff is written into the 
 - `tests/update.test.ts` — caller mock: `readPharnConfig` → `loadConfigOrExit`. — test
 - `tests/remove.test.ts` — caller mock: `readPharnConfig` → `loadConfigOrExit`. — test
 - `tests/list.test.ts` — invalid-config → `emitError` + exit path (json + human); mock `isConfigValidationError`. — test
+- `tests/install.test.ts` — invalid existing config → `log.warn`-and-proceed (no crash); mock `isConfigValidationError` (grill P1). — test
 
 ## Contracts satisfied
 
