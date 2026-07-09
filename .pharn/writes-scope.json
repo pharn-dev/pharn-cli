@@ -1,10 +1,7 @@
 {
   "scope": [
-    "src/lib/detect-archetype.ts",
-    "src/lib/capability-index.ts",
-    "tests/detect-archetype.test.ts",
-    "tests/capability-index.test.ts"
+    ".dev/features/archetype-path-context/SHIP.md"
   ],
-  "set_by": ".dev/features/archetype-path-context/PLAN.md",
-  "set_at": "2026-07-09T13:04:47.211Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-07-09T13:38:10.592Z"
 }

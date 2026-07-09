@@ -1,0 +1,24 @@
+{
+  "base": "186b55d",
+  "inside": [
+    "src/lib/detect-archetype.ts",
+    "src/lib/capability-index.ts",
+    "tests/detect-archetype.test.ts",
+    "tests/capability-index.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}
