@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   archetypesFromSignals,
+  classifyEntry,
   mergeSignals,
   packageSignals,
 } from './archetype.js';
@@ -10,11 +11,12 @@ import type { Archetype } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Archetype detection — I/O boundary (project root → ArchetypeDetection). This
-// is the ONLY archetype file that touches disk; the pure classification rules
-// stay next door in archetype.ts (P3 — one axis of change per file: this file
-// changes if the READING STRATEGY changes, archetype.ts if the classification
-// rules do). Detection merges TWO fact sources, then applies the archetype rule
-// once (ARCHITECTURE.md §5, "detected deterministically"):
+// is the ONLY archetype file that touches disk; the pure classification rules —
+// packageSignals AND the file-entry classifyEntry (imported below) — stay next
+// door in archetype.ts (P3 — one axis of change per file: this file changes if
+// the READING STRATEGY changes, archetype.ts if the classification rules do).
+// Detection merges TWO fact sources, then applies the archetype rule once
+// (ARCHITECTURE.md §5, "detected deterministically"):
 //
 //   1. package.json dependency NAMES  (readPackageSignals, below)
 //   2. file-tree structural signals   (scanFileTreeSignals, below)
@@ -58,44 +60,10 @@ const MAX_DEPTH = 24;
 const MAX_ENTRIES = 50_000;
 
 /**
- * The file-tree signal rule (pure): a single entry NAME (+ whether it is a
- * directory) → the raw signals it contributes. Names are matched
- * case-insensitively so `API/`, `.TSX`, `Next.config.js` behave the same as
- * their lowercase forms across case-insensitive filesystems (P5). A `.sql` file
- * or a `migrations/` dir → a `backend` signal: a DB concern folds onto the
- * `backend` archetype (the enum has no `db` member). This is the
- * archetype-enum-align increment, which reverses decision #2 of
- * archetype-file-tree-scan (where `.sql` / `migrations/` contributed nothing).
- */
-function classifyEntry(name: string, isDir: boolean): ArchetypeSignals {
-  const lower = name.toLowerCase();
-  if (isDir) {
-    // A dir named `api` (top-level `api/` or `pages/api`), or `migrations`
-    // (a DB concern), → backend.
-    return {
-      ssr: false,
-      backend: lower === 'api' || lower === 'migrations',
-      clientUi: false,
-    };
-  }
-  return {
-    // `next.config.{js,ts,mjs,cjs,…}` → an SSR meta-framework config.
-    ssr: lower.startsWith('next.config.'),
-    // App-Router route handlers (`app/**/route.ts`), or a `.sql` file (a DB
-    // concern), → a backend surface.
-    backend:
-      lower === 'route.ts' ||
-      lower === 'route.tsx' ||
-      lower === 'route.js' ||
-      lower === 'route.mjs' ||
-      lower.endsWith('.sql'),
-    // A `.tsx` / `.jsx` file anywhere → a client-UI (frontend) signal.
-    clientUi: lower.endsWith('.tsx') || lower.endsWith('.jsx'),
-  };
-}
-
-/**
  * Walk the project tree once and collect the merged file-tree ArchetypeSignals.
+ * The per-entry classification rule is the pure `classifyEntry` (archetype.ts);
+ * this function owns only the READING STRATEGY — the bounded, sorted, symlink-safe
+ * walk that produces each entry's ancestor `segments` and feeds them in.
  *
  * Deterministic (P5): signals are booleans (OR-merge is order-independent) and
  * per-directory entries are sorted by name before traversal, so even a
@@ -119,7 +87,11 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
     }
   };
 
-  const walk = (dir: string, depth: number): void => {
+  const walk = (
+    dir: string,
+    depth: number,
+    segments: readonly string[],
+  ): void => {
     if (depth > MAX_DEPTH || budget <= 0 || allFound()) return;
     const entries = readEntries(dir).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -134,12 +106,17 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
       if (!isDir && name.toLowerCase().startsWith('.env')) continue;
       if (!isDir && !entry.isFile()) continue; // sockets/fifos/etc.: not signals
       budget -= 1;
-      acc = mergeSignals(acc, classifyEntry(name, isDir));
-      if (isDir) walk(join(dir, name), depth + 1);
+      acc = mergeSignals(acc, classifyEntry(name, isDir, segments));
+      // Recurse with this dir appended to the (lowercased) ancestor chain, so a
+      // child sees its full path context. Determinism is preserved: `segments`
+      // derives from the same sorted, bounded walk (P5).
+      if (isDir) {
+        walk(join(dir, name), depth + 1, [...segments, name.toLowerCase()]);
+      }
     }
   };
 
-  walk(root, 0);
+  walk(root, 0, []);
   return acc;
 }
 

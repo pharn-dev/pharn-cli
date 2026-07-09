@@ -360,3 +360,16 @@ evidence L5's input-capture boundary recurs and its fix holds. Complements L9 (d
 - source: `.dev/features/product-loop/REVIEW.md` (proposed lesson candidate) +
   `.dev/features/build-format-step/PLAN.md`
 - promoted: 2026-07-06 via gated `/pharn-dev-memory-promote` (human-approved).
+
+## L13 — Scope structural (file-tree) signals to their documented location on introduction, not basename-only
+
+A file-tree signal that keys off a basename or extension ALONE (`api/`, `route.ts`, `.sql`, `.tsx`) over-classifies: a file merely NAMED `x` does not mean the project HAS surface `x`. `src/api/` is a near-universal FRONTEND fetch-wrapper convention, a Vue router has a `route.ts`, a frontend commits a `seed.sql`, and a backend holds react-email `.tsx` templates — each basename-only rule mis-fired to the wrong archetype (a wrong [backend, spa]). The remedy is to thread ANCESTOR PATH-CONTEXT (the lowercased parent-dir `segments`) into the classifier and gate each signal on the location where that surface actually lives: `api/` → top-level or a `pages`/`app` parent; `route.*` → an `app/` ancestor; `.sql` → a DB-location dir; `.tsx`/`.jsx` → excluding test/email dirs. Determinism is preserved (every branch stays a membership test); the trade is a common false POSITIVE for a rarer, DOCUMENTED false NEGATIVE on nonconventional layouts.
+
+**Why it matters.** Basename-only breadth is not a one-off bug — it RECURS and CHURNS. The `.sql` signal alone flipped THREE times across increments: `archetype-file-tree-scan` dropped it → `archetype-enum-align` added it at ANY depth → `archetype-path-context` scoped it to DB-location dirs; Fable independently found the same over-broadness in `api/`, `route.*`, and `.tsx`/`.jsx`. Each flip re-litigated a pinned test. Introducing a structural signal WITH its path scope from the start (check the path, not just the name) avoids the churn and the wrong archetype capabilities it produces — a SPA wrongly receiving ssrf / path-traversal / migrations lenses, a backend wrongly receiving a11y / i18n. The scope stays deterministic membership (P5), so precision costs no guarantee; only the accuracy improves, and accuracy is an advisory trade that must be LABELED as such (P0), never sold as guaranteed-correct detection.
+
+**Provenance.**
+
+- feature: `archetype-path-context`
+- commit: `6acb6aa845f39dbd3e962c0d72c270fb27163209`
+- source: `.dev/features/archetype-path-context/REVIEW.md` (proposed lesson candidate) + `GRILL.md` F4 (third-flip churn)
+- promoted: 2026-07-09 via gated `/pharn-dev-memory-promote` (human-approved).
