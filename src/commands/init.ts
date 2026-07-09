@@ -13,7 +13,11 @@ import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
-import { configPath, readPharnConfig } from '../lib/pharn-config.js';
+import {
+  configPath,
+  isConfigValidationError,
+  readPharnConfig,
+} from '../lib/pharn-config.js';
 import { runGitPrereq, assertPrerequisites } from '../steps/prereqs.js';
 import { runFreshCheck } from '../steps/fresh-check.js';
 import { runModeSelect } from '../steps/mode-select.js';
@@ -115,11 +119,22 @@ async function runInitArchetype(): Promise<void> {
 // proceed. No process.exit here — the caller handles cancel after cleanup.
 async function confirmOverwriteIfExists(cwd: string): Promise<boolean> {
   if (!existsSync(configPath(cwd))) return true;
-  const existing = readPharnConfig(cwd);
-  if (existing) {
-    log.info(
-      `Existing pharn.config.json found (skillsVersion ${existing.skillsVersion ?? 'unknown'}).`,
-    );
+  try {
+    const existing = readPharnConfig(cwd);
+    if (existing) {
+      log.info(
+        `Existing pharn.config.json found (skillsVersion ${existing.skillsVersion ?? 'unknown'}).`,
+      );
+    }
+  } catch (e) {
+    // A present-but-invalid existing config must NAME the problem, not crash and
+    // not be silently treated as absent (then clobbered). Warn and let the user
+    // decide to overwrite it — init is the repair path.
+    if (isConfigValidationError(e)) {
+      log.warn(`Existing pharn.config.json is invalid: ${e.message}`);
+    } else {
+      throw e;
+    }
   }
   const ok = await confirm({
     message: 'Overwrite existing pharn.config.json?',

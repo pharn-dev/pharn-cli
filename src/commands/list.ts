@@ -3,7 +3,11 @@ import pc from 'picocolors';
 import { categorizeModules, fetchRemoteManifest } from '../lib/manifest.js';
 import { listSkillAddresses } from '../lib/wizard.js';
 import { row, shortDescription } from '../lib/format.js';
-import { isArchetypeConfig, readPharnConfig } from '../lib/pharn-config.js';
+import {
+  isArchetypeConfig,
+  isConfigValidationError,
+  readPharnConfig,
+} from '../lib/pharn-config.js';
 import type { Archetype, Manifest, PharnConfig } from '../types.js';
 
 // A single, JSON-serializable snapshot of what's installed vs. available. Both
@@ -38,7 +42,19 @@ export async function runList(opts: { json?: boolean } = {}): Promise<void> {
   const cwd = process.cwd();
   if (!json) intro('pharn list');
 
-  const config = readPharnConfig(cwd);
+  let config: PharnConfig | null;
+  try {
+    config = readPharnConfig(cwd);
+  } catch (e) {
+    // A present-but-invalid models/seam block: surface the loud, named error
+    // (json-aware, to stderr) + exit — never the "run init" lie (BUG 1). A
+    // non-config error is a bug: rethrow, never swallow.
+    if (isConfigValidationError(e)) {
+      emitError(e.message, json);
+      process.exit(1);
+    }
+    throw e;
+  }
   if (!config) {
     emitError('No pharn.config.json found. Run `pharn init` first.', json);
     process.exit(1);

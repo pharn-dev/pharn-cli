@@ -7,6 +7,8 @@ import type {
   ManifestModule,
   PharnConfig,
 } from '../src/types.js';
+import { ModelRoutingError } from '../src/lib/model-routing.js';
+import { SeamConfigError } from '../src/lib/seam-config.js';
 
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
@@ -56,6 +58,9 @@ vi.mock('../src/lib/pharn-config.js', () => ({
   readPharnConfig,
   // Real discriminator logic so the archetype branch is exercised faithfully.
   isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
+  // Real config-error discriminator so list's invalid-config branch is faithful.
+  isConfigValidationError: (e: unknown) =>
+    e instanceof ModelRoutingError || e instanceof SeamConfigError,
 }));
 
 const { runList } = await import('../src/commands/list.js');
@@ -95,6 +100,20 @@ describe('runList', () => {
   it('exits(1) when there is no config', async () => {
     readPharnConfig.mockReturnValue(null);
     await expect(runList()).rejects.toMatchObject(new ProcessExit(1));
+    expect(fetchRemoteManifest).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the loud validator error (NOT "run init") when the config is invalid (BUG 1)', async () => {
+    readPharnConfig.mockImplementationOnce(() => {
+      throw new SeamConfigError('seam.resolutionOrder must contain "ask"');
+    });
+    await expect(runList()).rejects.toMatchObject(new ProcessExit(1));
+    const msg = vi
+      .mocked(prompts.log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(msg).toMatch(/ask/);
+    expect(msg).not.toMatch(/pharn init/);
     expect(fetchRemoteManifest).not.toHaveBeenCalled();
   });
 
@@ -337,6 +356,19 @@ describe('runList --json', () => {
     );
     expect(logSpy).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalled();
+  });
+
+  it('emits the loud validator error to stderr (stdout clean) when config is invalid (BUG 1)', async () => {
+    readPharnConfig.mockImplementationOnce(() => {
+      throw new ModelRoutingError('models.default has invalid model "gpt-4"');
+    });
+    await expect(runList({ json: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalled();
+    const msg = errSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(msg).toMatch(/gpt-4/);
   });
 
   it('keeps stdout clean and exits(1) when the fetch fails', async () => {

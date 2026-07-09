@@ -41,6 +41,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docs: the root `README.md` Commands table and the `pharn -h` help text now document the
   already-implemented `add <category>:<skill>` form (install one technology skill, e.g.
   `orm:prisma`) alongside the whole-module `add <module>` form. No CLI code change.
+- **Stricter `models` / `seam` validation in `pharn.config.json`.** The `models` and `seam` blocks now
+  reject — naming the offender — an unknown/typo'd key (e.g. `stgaes`, `haltOnUnknwon`), a duplicate
+  `resolutionOrder` step, and a `modelConfidenceThreshold` with no `model` step to gate. Previously
+  such slips were silently ignored, leaving the intended setting quietly dead. The seam contract
+  (`pharn-contracts/seam-config.md`) and its floor validator move to this strict posture in lockstep;
+  offending keys are echoed JSON-escaped as data.
+
+### Fixed
+
+- **A hand-edited `pharn.config.json` now fails loudly instead of lying.** A present-but-invalid
+  `models` / `seam` block previously made `add` / `status` / `update` / `remove` / `list` print
+  `No pharn.config.json found. Run pharn init first.` — a lie that risked clobbering your edits. They
+  now surface the validator's specific, offender-naming message and exit non-zero; `init` names an
+  invalid existing config before offering to overwrite it, instead of silently treating it as absent.
 
 ## [0.2.0] — 2026-06-11
 

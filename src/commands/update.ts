@@ -25,7 +25,7 @@ import {
 import { row } from '../lib/format.js';
 import {
   isArchetypeConfig,
-  readPharnConfig,
+  loadConfigOrExit,
   toInstalledModules,
   writePharnConfig,
 } from '../lib/pharn-config.js';
@@ -39,11 +39,7 @@ export async function runUpdate(): Promise<void> {
   intro('pharn update');
 
   const cwd = process.cwd();
-  const config = readPharnConfig(cwd);
-  if (!config) {
-    log.error('No pharn.config.json found. Run `pharn init` first.');
-    process.exit(1);
-  }
+  const config = loadConfigOrExit(cwd);
 
   // Archetype (capability) install: refresh via SKILLS_VERSION + re-resolved
   // capabilities (there is no manifest). Separate path; legacy flow unchanged.

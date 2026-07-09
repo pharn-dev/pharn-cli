@@ -56,12 +56,42 @@ export const DEFAULT_MODEL_ROUTING: ModelRouting = {
   },
 };
 
+// Known keys for the two shape checks below. An unknown sibling key (e.g. a
+// typo'd `stgaes` beside `stages`, or a stray key inside a stage entry) is
+// REJECTED, naming it (P5, fail-closed) — so a hand-edit typo can never silently
+// disable per-stage routing. `satisfies` keeps each set honest against its type.
+const ROUTING_KEYS = [
+  'default',
+  'stages',
+] as const satisfies readonly (keyof ModelRouting)[];
+const STAGE_MODEL_KEYS = [
+  'model',
+  'effort',
+] as const satisfies readonly (keyof StageModel)[];
+
+// Reject any key not in `known`, naming the first offender (JSON-escaped so a
+// control-char key is echoed as DATA, never raw — P2). Local to this axis.
+function assertNoUnknownKeys(
+  obj: Record<string, unknown>,
+  known: readonly string[],
+  label: string,
+): void {
+  for (const key of Object.keys(obj)) {
+    if (!known.includes(key)) {
+      throw new ModelRoutingError(
+        `${label} has unknown key ${JSON.stringify(key)} (expected one of ${known.join(', ')})`,
+      );
+    }
+  }
+}
+
 // value ∈ allowlist. Mirrors validate.ts's assertRole/assertAppliesToken pattern
 // (typeof guard + enum membership, not regex). Kept local to this axis.
 function assertStageModel(value: unknown, label: string): StageModel {
   if (!isPlainObject(value)) {
     throw new ModelRoutingError(`${label} must be an object`);
   }
+  assertNoUnknownKeys(value, STAGE_MODEL_KEYS, label);
   const { model, effort } = value;
   if (
     typeof model !== 'string' ||
@@ -95,6 +125,9 @@ export function validateModelRouting(input: unknown): ModelRouting {
   if (!isPlainObject(input)) {
     throw new ModelRoutingError('models must be an object');
   }
+  // Reject unknown sibling keys (e.g. a typo'd `stgaes`) BEFORE validating the
+  // shape, so the typo — not a downstream "missing default" — is what is named.
+  assertNoUnknownKeys(input, ROUTING_KEYS, 'models');
   const routingDefault = assertStageModel(input.default, 'models.default');
 
   const stages: Partial<Record<PipelineStage, StageModel>> = {};

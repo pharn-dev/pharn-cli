@@ -20,10 +20,10 @@ const cleanup = vi.fn();
 const fetchRepo = vi.fn();
 vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
 
-const readPharnConfig = vi.fn();
+const loadConfigOrExit = vi.fn();
 const writePharnConfig = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
-  readPharnConfig,
+  loadConfigOrExit,
   writePharnConfig,
   isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
   toInstalledModules: (m: { name: string; version: string }[]) =>
@@ -145,7 +145,9 @@ describe('runRemove', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('exits(1) when there is no config', async () => {
-    readPharnConfig.mockReturnValue(null);
+    loadConfigOrExit.mockImplementationOnce(() => {
+      throw new ProcessExit(1);
+    });
     await expect(runRemove('pharn-review')).rejects.toMatchObject(
       new ProcessExit(1),
     );
@@ -157,7 +159,7 @@ describe('runRemove', () => {
   it('removes an installed skill and leaves siblings + config fields intact', async () => {
     write(join(proj, '.claude', 'skills', 'prisma', 'SKILL.md'), 'p');
     write(join(proj, '.claude', 'skills', 'drizzle', 'SKILL.md'), 'd');
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config(['pharn-core'], {
         stackAnswers: { orm: 'prisma' },
         installedSkills: [
@@ -186,7 +188,7 @@ describe('runRemove', () => {
   });
 
   it('drops the config entry even when the skill dir is already gone', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config(['pharn-core'], {
         installedSkills: [
           { skill: 'prisma', from: 'pharn-skills-orm/skills/prisma' },
@@ -200,7 +202,7 @@ describe('runRemove', () => {
   });
 
   it('no-ops without writing when the skill is not installed', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config(['pharn-core'], {
         installedSkills: [
           { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
@@ -215,7 +217,7 @@ describe('runRemove', () => {
   });
 
   it('lists installed skills (not the manifest) for an unrecognized skill', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config(['pharn-core'], {
         installedSkills: [
           { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
@@ -235,7 +237,7 @@ describe('runRemove', () => {
   // §B — module removal (clones once) ----------------------------------------
 
   it('refuses to remove pharn-core before any clone', async () => {
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
     await expect(runRemove('pharn-core')).rejects.toMatchObject(
       new ProcessExit(1),
     );
@@ -244,7 +246,7 @@ describe('runRemove', () => {
   });
 
   it('refuses to remove a module that is not installed, before any clone', async () => {
-    readPharnConfig.mockReturnValue(config(['pharn-core']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core']));
     await expect(runRemove('pharn-review')).rejects.toMatchObject(
       new ProcessExit(1),
     );
@@ -262,7 +264,7 @@ describe('runRemove', () => {
       },
     ]);
     write(join(proj, '.claude', 'commands', 'init.md'), 'i');
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config(['pharn-core', 'pharn-stack-react', 'pharn-stack-nextjs']),
     );
 
@@ -287,7 +289,7 @@ describe('runRemove', () => {
       { name: 'pharn-mid', dependsOn: ['pharn-base'] },
       { name: 'pharn-top', dependsOn: ['pharn-mid'] },
     ]);
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config(['pharn-core', 'pharn-base', 'pharn-mid', 'pharn-top']),
     );
 
@@ -303,7 +305,7 @@ describe('runRemove', () => {
 
   it('deletes only the target files, keeps shared-dir siblings, prunes empties', async () => {
     scaffoldCoreReview(repo, proj);
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
 
     await runRemove('pharn-review', { yes: true });
 
@@ -344,7 +346,7 @@ describe('runRemove', () => {
     ]);
     write(join(proj, '.claude', 'commands', 'init.md'), 'i');
     write(join(proj, '.claude', 'license'), 'MIT');
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-extras']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-extras']));
 
     await runRemove('pharn-extras', { yes: true });
 
@@ -374,7 +376,7 @@ describe('runRemove', () => {
     ]);
     write(join(proj, '.claude', 'commands', 'init.md'), 'i');
     write(join(proj, '.claude', 'rules', 'lens.md'), 'l');
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
 
     await runRemove('pharn-review', { yes: true });
 
@@ -395,7 +397,7 @@ describe('runRemove', () => {
       },
     ]);
     write(join(proj, '.claude', 'commands', 'plan.md'), 'p');
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-pipeline']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-pipeline']));
 
     await expect(
       runRemove('pharn-pipeline', { yes: true }),
@@ -429,7 +431,7 @@ describe('runRemove', () => {
       join(proj, '.claude', 'memory-bank', 'architecture-context.md'),
       'user-owned',
     );
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-rogue']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-rogue']));
 
     await runRemove('pharn-rogue', { yes: true });
 
@@ -443,7 +445,7 @@ describe('runRemove', () => {
 
   it('asks for confirmation and removes on yes', async () => {
     scaffoldCoreReview(repo, proj);
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
     vi.mocked(prompts.confirm).mockResolvedValue(true);
 
     await runRemove('pharn-review');
@@ -456,7 +458,7 @@ describe('runRemove', () => {
 
   it('cancels without deleting or writing when the confirm is declined', async () => {
     scaffoldCoreReview(repo, proj);
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
     vi.mocked(prompts.confirm).mockResolvedValue(false);
 
     await expect(runRemove('pharn-review')).rejects.toMatchObject(
@@ -472,7 +474,7 @@ describe('runRemove', () => {
 
   it('reports a clean error (not a raw throw) and cleans up when the manifest cannot be read', async () => {
     write(join(repo, 'manifest.json'), 'not json');
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
 
     await expect(
       runRemove('pharn-review', { yes: true }),
@@ -483,7 +485,7 @@ describe('runRemove', () => {
 
   it('exits(1) when the clone fails', async () => {
     fetchRepo.mockRejectedValue(new Error('offline'));
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
     await expect(
       runRemove('pharn-review', { yes: true }),
     ).rejects.toMatchObject(new ProcessExit(1));
@@ -493,7 +495,7 @@ describe('runRemove', () => {
 
   it('picker lists only removable items and removes the chosen module', async () => {
     scaffoldCoreReview(repo, proj);
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
     vi.mocked(prompts.select).mockResolvedValue('pharn-review');
 
     await runRemove(undefined);
@@ -515,7 +517,7 @@ describe('runRemove', () => {
   it('picker can remove an installed skill', async () => {
     scaffoldRepo(repo, [{ name: 'pharn-core', required: true }]);
     write(join(proj, '.claude', 'skills', 'prisma', 'SKILL.md'), 'p');
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       config(['pharn-core'], {
         installedSkills: [
           { skill: 'prisma', from: 'pharn-skills-orm/skills/prisma' },
@@ -534,7 +536,7 @@ describe('runRemove', () => {
 
   it('picker reports nothing to remove when only core is installed', async () => {
     scaffoldRepo(repo, [{ name: 'pharn-core', required: true }]);
-    readPharnConfig.mockReturnValue(config(['pharn-core']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core']));
 
     await runRemove(undefined);
 
@@ -546,7 +548,7 @@ describe('runRemove', () => {
 
   it('picker cancels cleanly, cleaning up the clone', async () => {
     scaffoldCoreReview(repo, proj);
-    readPharnConfig.mockReturnValue(config(['pharn-core', 'pharn-review']));
+    loadConfigOrExit.mockReturnValue(config(['pharn-core', 'pharn-review']));
     vi.mocked(prompts.select).mockResolvedValue(CANCEL);
 
     await expect(runRemove(undefined)).rejects.toMatchObject(
@@ -572,7 +574,7 @@ describe('runRemove (archetype)', () => {
     config([], { modules: [], archetypes: ['ssr'], capabilities: caps });
 
   it('deletes the capability dir and drops it (siblings untouched, no clone)', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       archConfig([
         { name: 'a11y', role: 'griller' },
         { name: 'n-plus-one', role: 'lens' },
@@ -594,7 +596,7 @@ describe('runRemove (archetype)', () => {
   });
 
   it('resolves role:name and leaves archetypes untouched', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       archConfig([{ name: 'n-plus-one', role: 'lens' }]),
     );
     write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
@@ -607,7 +609,7 @@ describe('runRemove (archetype)', () => {
   });
 
   it('is a no-op for a capability that is not installed', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       archConfig([{ name: 'a11y', role: 'griller' }]),
     );
 
@@ -618,7 +620,7 @@ describe('runRemove (archetype)', () => {
   });
 
   it('exits(1) on a name installed in both roles (ambiguous)', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       archConfig([
         { name: 'dup', role: 'griller' },
         { name: 'dup', role: 'lens' },
@@ -630,7 +632,7 @@ describe('runRemove (archetype)', () => {
   });
 
   it('no-arg picker selects from installed capabilities', async () => {
-    readPharnConfig.mockReturnValue(
+    loadConfigOrExit.mockReturnValue(
       archConfig([{ name: 'a11y', role: 'griller' }]),
     );
     write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');

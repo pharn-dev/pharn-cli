@@ -87,6 +87,19 @@ No pharn.config.json found. Run `pharn init` first.
 
 Both commands operate on an already-installed project. Run `pharn init` to create `pharn.config.json`.
 
+## A command rejects an invalid config (does NOT say "run init")
+
+```text
+models.default has invalid model "gpt-4" (expected one of opus-4-8, sonnet-5, fable-5, haiku-4-5)
+```
+
+If `pharn.config.json` **exists but was hand-edited into an invalid state**, `add` / `status` /
+`update` / `remove` / `list` print the loud, specific error above (naming the offending field) and
+exit non-zero — they do **not** say to run `pharn init` (the file is there; re-running init would
+offer to clobber your edits). Fix the named field and re-run. The `models` / `seam` blocks reject an
+out-of-enum value, an unknown key (e.g. a typo'd `stgaes` / `haltOnUnknwon`), a duplicate
+`resolutionOrder` step, or a `modelConfidenceThreshold` with no `model` step to gate.
+
 ## Unknown command
 
 ```text

@@ -37,6 +37,7 @@ import { readFileSync } from "node:fs";
 const STEP_ENUM = ["official-skill", "pinned-docs", "fetch", "model", "ask"]; // ARCHITECTURE §5 chain sources
 const CONFIDENCE_ENUM = ["low", "medium", "high"]; // the modelConfidenceThreshold bar
 const TERMINAL = "ask"; // the required terminal fallback (§5, P5) — the floor invariant
+const KNOWN_KEYS = ["resolutionOrder", "modelConfidenceThreshold", "haltOnUnknown"]; // the only allowed top-level keys
 
 const reds = [];
 function red(kind, detail) {
@@ -79,6 +80,14 @@ function main() {
     return fail();
   }
 
+  // (0) reject unknown top-level keys — a typo'd knob (e.g. haltOnUnknwon) must NOT silently pass
+  //     (BUG 2, fail-closed). Names the offender, JSON-escaped so a control-char key is DATA (P2).
+  for (const key of Object.keys(cfg)) {
+    if (!KNOWN_KEYS.includes(key)) {
+      red("unknown-key", `seam has unknown key ${JSON.stringify(key)} (expected one of ${KNOWN_KEYS.join(", ")})`);
+    }
+  }
+
   // (1) resolutionOrder is a non-empty ARRAY — the walk needs at least one step (P5).
   const order = cfg.resolutionOrder;
   if (!Array.isArray(order)) {
@@ -96,6 +105,15 @@ function main() {
     }
   }
 
+  // (2b) reject duplicate steps — a repeated step is a hand-edit slip, not a valid walk (BUG 4a).
+  const seen = new Set();
+  for (const step of order) {
+    if (seen.has(step)) {
+      red("duplicate", `resolutionOrder has duplicate step ${JSON.stringify(step)} (each step may appear at most once)`);
+    }
+    seen.add(step);
+  }
+
   // (3) resolutionOrder CONTAINS "ask" — THE FLOOR INVARIANT (ARCHITECTURE §5 "terminal fallback is
   //     ask", P5). Without it an unknown seam has no defined stop = a fall-through into a guess. Presence
   //     (not last-ness) is the invariant: "ask" always resolves, so its presence guarantees termination.
@@ -109,6 +127,11 @@ function main() {
       "modelConfidenceThreshold",
       `modelConfidenceThreshold ${JSON.stringify(cfg.modelConfidenceThreshold)} not in {${CONFIDENCE_ENUM.join(", ")}}`
     );
+  }
+
+  // (4b) cross-field: a threshold with no "model" step to gate is a dead knob (BUG 4b).
+  if ("modelConfidenceThreshold" in cfg && !order.includes("model")) {
+    red("cross-field", `modelConfidenceThreshold is set but resolutionOrder has no "model" step for it to gate (add "model" or remove the threshold)`);
   }
 
   // (5) haltOnUnknown, if present, is a boolean — type check (P5). Optional: absent is fine.

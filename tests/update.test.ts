@@ -39,10 +39,10 @@ vi.mock('../src/lib/resolve-capabilities.js', () => ({ resolveCapabilities }));
 const installCapabilities = vi.fn();
 vi.mock('../src/lib/install-capabilities.js', () => ({ installCapabilities }));
 
-const readPharnConfig = vi.fn();
+const loadConfigOrExit = vi.fn();
 const writePharnConfig = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
-  readPharnConfig,
+  loadConfigOrExit,
   writePharnConfig,
   isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
   toInstalledModules: (m: { name: string; version: string }[]) =>
@@ -76,12 +76,14 @@ describe('runUpdate', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('exits(1) when there is no config', async () => {
-    readPharnConfig.mockReturnValue(null);
+    loadConfigOrExit.mockImplementationOnce(() => {
+      throw new ProcessExit(1);
+    });
     await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
   });
 
   it('reports when already up to date', async () => {
-    readPharnConfig.mockReturnValue(config);
+    loadConfigOrExit.mockReturnValue(config);
     fetchRemoteManifest.mockResolvedValue(manifest('0.68.0'));
     await runUpdate();
     expect(prompts.outro).toHaveBeenCalledWith(
@@ -91,7 +93,7 @@ describe('runUpdate', () => {
   });
 
   it('re-fetches modules after confirmation', async () => {
-    readPharnConfig.mockReturnValue(config);
+    loadConfigOrExit.mockReturnValue(config);
     fetchRemoteManifest.mockResolvedValue(manifest('0.68.1', '0.3.0'));
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     fetchAndInstall.mockResolvedValue({
@@ -112,7 +114,7 @@ describe('runUpdate', () => {
   });
 
   it('cancels when the user declines', async () => {
-    readPharnConfig.mockReturnValue(config);
+    loadConfigOrExit.mockReturnValue(config);
     fetchRemoteManifest.mockResolvedValue(manifest('0.68.1'));
     vi.mocked(prompts.confirm).mockResolvedValue(false);
     await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(0));
@@ -120,13 +122,13 @@ describe('runUpdate', () => {
   });
 
   it('exits(1) when the manifest check fails', async () => {
-    readPharnConfig.mockReturnValue(config);
+    loadConfigOrExit.mockReturnValue(config);
     fetchRemoteManifest.mockRejectedValue(new Error('offline'));
     await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
   });
 
   it('exits(1) when re-fetching modules fails', async () => {
-    readPharnConfig.mockReturnValue(config);
+    loadConfigOrExit.mockReturnValue(config);
     fetchRemoteManifest.mockResolvedValue(manifest('0.68.1', '0.3.0'));
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     fetchAndInstall.mockRejectedValue(new Error('boom'));
@@ -134,7 +136,7 @@ describe('runUpdate', () => {
   });
 
   it('re-resolves installed skills, dropping ones that no longer exist upstream', async () => {
-    readPharnConfig.mockReturnValue({
+    loadConfigOrExit.mockReturnValue({
       ...config,
       installedSkills: [
         { skill: 'drizzle', from: 'pharn-skills-orm/skills/drizzle' },
@@ -179,7 +181,7 @@ describe('runUpdate (archetype)', () => {
   };
 
   it('reports already up to date without cloning', async () => {
-    readPharnConfig.mockReturnValue(archConfig);
+    loadConfigOrExit.mockReturnValue(archConfig);
     fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
 
     await runUpdate();
@@ -192,7 +194,7 @@ describe('runUpdate (archetype)', () => {
   });
 
   it('re-resolves + re-copies capabilities after confirmation', async () => {
-    readPharnConfig.mockReturnValue(archConfig);
+    loadConfigOrExit.mockReturnValue(archConfig);
     fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     const cleanup = vi.fn();
@@ -229,7 +231,7 @@ describe('runUpdate (archetype)', () => {
   });
 
   it('cancels when declined — no clone, no copy', async () => {
-    readPharnConfig.mockReturnValue(archConfig);
+    loadConfigOrExit.mockReturnValue(archConfig);
     fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
     vi.mocked(prompts.confirm).mockResolvedValue(false);
 

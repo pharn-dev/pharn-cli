@@ -10,7 +10,7 @@ import {
 import { fetchRepo } from '../lib/repo.js';
 import { diffInstalled, diffInstalledCapabilities } from '../lib/diff.js';
 import { row } from '../lib/format.js';
-import { isArchetypeConfig, readPharnConfig } from '../lib/pharn-config.js';
+import { isArchetypeConfig, loadConfigOrExit } from '../lib/pharn-config.js';
 import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
@@ -37,11 +37,7 @@ export async function runStatus(
   intro('pharn status');
 
   const cwd = process.cwd();
-  const config = readPharnConfig(cwd);
-  if (!config) {
-    log.error('No pharn.config.json found. Run `pharn init` first.');
-    process.exit(1);
-  }
+  const config = loadConfigOrExit(cwd);
   const claudeDir = resolve(cwd, '.claude');
 
   // Archetype (capability) install: version via SKILLS_VERSION (there is no

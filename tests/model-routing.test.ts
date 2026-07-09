@@ -114,6 +114,29 @@ describe('validateModelRouting', () => {
       ).not.toThrow();
     }
   });
+
+  it('rejects an unknown sibling key (a typo\'d "stgaes"), naming it (BUG 2)', () => {
+    expect(() =>
+      validateModelRouting({
+        default: { model: 'sonnet-5', effort: 'high' },
+        stgaes: { build: { model: 'sonnet-5', effort: 'low' } },
+      }),
+    ).toThrow(/stgaes/);
+    expect(() =>
+      validateModelRouting({
+        default: { model: 'sonnet-5', effort: 'high' },
+        stgaes: {},
+      }),
+    ).toThrow(ModelRoutingError);
+  });
+
+  it('rejects an unknown key inside a stage entry (StageModel), naming it (BUG 2)', () => {
+    expect(() =>
+      validateModelRouting({
+        default: { model: 'sonnet-5', effort: 'high', modol: 'x' },
+      }),
+    ).toThrow(/modol/);
+  });
 });
 
 describe('DEFAULT_MODEL_ROUTING', () => {

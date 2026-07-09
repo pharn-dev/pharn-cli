@@ -1,16 +1,31 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { useTmpDir } from './helpers.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { log } from '@clack/prompts';
+import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import {
   readPharnConfig,
+  loadConfigOrExit,
+  isConfigValidationError,
   writePharnConfig,
   toInstalledModules,
   isArchetypeConfig,
 } from '../src/lib/pharn-config.js';
 import type { PharnConfig } from '../src/types.js';
-import { DEFAULT_MODEL_ROUTING } from '../src/lib/model-routing.js';
-import { DEFAULT_SEAM_CONFIG } from '../src/lib/seam-config.js';
+import {
+  DEFAULT_MODEL_ROUTING,
+  ModelRoutingError,
+} from '../src/lib/model-routing.js';
+import {
+  DEFAULT_SEAM_CONFIG,
+  SeamConfigError,
+} from '../src/lib/seam-config.js';
+
+// pharn-config.ts imports `log` from @clack/prompts for loadConfigOrExit; mock it
+// so the loud-vs-"run init" message can be asserted (and no real terminal output).
+vi.mock('@clack/prompts', () => ({
+  log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+}));
 
 const sample: PharnConfig = {
   pharnVersion: '0.2.0',
@@ -56,7 +71,7 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toEqual(withModels);
   });
 
-  it('returns null when the models block is invalid (hand-edited)', () => {
+  it('THROWS (naming the offender), not null, when the models block is invalid (BUG 1)', () => {
     writeFileSync(
       join(tmp.path(), 'pharn.config.json'),
       JSON.stringify({
@@ -65,7 +80,8 @@ describe('pharn-config', () => {
         models: { default: { model: 'gpt-4', effort: 'high' } },
       }),
     );
-    expect(readPharnConfig(tmp.path())).toBeNull();
+    expect(() => readPharnConfig(tmp.path())).toThrow(ModelRoutingError);
+    expect(() => readPharnConfig(tmp.path())).toThrow(/gpt-4/);
   });
 
   it('round-trips a config with a valid seam block', async () => {
@@ -77,7 +93,7 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toEqual(withSeam);
   });
 
-  it('returns null when the seam block is invalid (hand-edited, "ask" removed)', () => {
+  it('THROWS (naming the offender), not null, when the seam block is invalid (BUG 1)', () => {
     writeFileSync(
       join(tmp.path(), 'pharn.config.json'),
       JSON.stringify({
@@ -86,7 +102,22 @@ describe('pharn-config', () => {
         seam: { resolutionOrder: ['official-skill', 'model', 'fetch'] },
       }),
     );
-    expect(readPharnConfig(tmp.path())).toBeNull();
+    expect(() => readPharnConfig(tmp.path())).toThrow(SeamConfigError);
+    expect(() => readPharnConfig(tmp.path())).toThrow(/ask/);
+  });
+
+  it('THROWS naming an unknown key in the seam block — raw does NOT survive (BUG 2/BUG 3)', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '0.1.0',
+        modules: [],
+        seam: { resolutionOrder: ['ask'], EXTRA: 'x' },
+      }),
+    );
+    // The loader returns the validators' result, not `raw` — so an unknown key is
+    // rejected (named), never carried verbatim into the runtime config.
+    expect(() => readPharnConfig(tmp.path())).toThrow(/EXTRA/);
   });
 
   it('strips extra fields when normalizing modules', () => {
@@ -181,5 +212,55 @@ describe('isArchetypeConfig', () => {
   it('is false when capabilities is absent, even with empty modules', () => {
     // Empty modules alone is NOT the marker — only a `capabilities` array is.
     expect(isArchetypeConfig({ ...sample, modules: [] })).toBe(false);
+  });
+});
+
+describe('loadConfigOrExit', () => {
+  const tmp = useTmpDir();
+  stubProcessExit();
+  afterEach(() => vi.mocked(log.error).mockClear());
+
+  it('exits(1) with the offender-naming message (NOT "run init") on invalid models (BUG 1)', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '0.1.0',
+        modules: [],
+        models: { default: { model: 'gpt-4', effort: 'high' } },
+      }),
+    );
+    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    const msg = vi
+      .mocked(log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(msg).toMatch(/gpt-4/);
+    expect(msg).not.toMatch(/pharn init/);
+  });
+
+  it('prints "run init" and exits(1) when the config is absent', () => {
+    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    const msg = vi
+      .mocked(log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(msg).toMatch(/pharn init/);
+  });
+
+  it('returns the config when valid', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify(sample),
+    );
+    expect(loadConfigOrExit(tmp.path())).toEqual(sample);
+  });
+});
+
+describe('isConfigValidationError', () => {
+  it('is true for the named validator errors, false for a plain Error (the config-vs-bug boundary)', () => {
+    expect(isConfigValidationError(new ModelRoutingError('x'))).toBe(true);
+    expect(isConfigValidationError(new SeamConfigError('x'))).toBe(true);
+    expect(isConfigValidationError(new Error('x'))).toBe(false);
+    expect(isConfigValidationError('nope')).toBe(false);
   });
 });

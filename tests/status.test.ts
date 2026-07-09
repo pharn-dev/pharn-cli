@@ -29,9 +29,9 @@ vi.mock('../src/lib/diff.js', () => ({
   diffInstalledCapabilities,
 }));
 
-const readPharnConfig = vi.fn();
+const loadConfigOrExit = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
-  readPharnConfig,
+  loadConfigOrExit,
   isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
 }));
 
@@ -88,7 +88,7 @@ describe('runStatus', () => {
   beforeEach(() => {
     vi.spyOn(process, 'cwd').mockReturnValue('/proj');
     cleanup = vi.fn();
-    readPharnConfig.mockReturnValue(config());
+    loadConfigOrExit.mockReturnValue(config());
     fetchRepo.mockResolvedValue({ dir: '/clone', cleanup });
     readManifest.mockReturnValue(manifest());
     fetchRemoteManifest.mockResolvedValue(manifest());
@@ -98,7 +98,9 @@ describe('runStatus', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('exits(1) when there is no config', async () => {
-    readPharnConfig.mockReturnValue(null);
+    loadConfigOrExit.mockImplementationOnce(() => {
+      throw new ProcessExit(1);
+    });
     await expect(runStatus()).rejects.toMatchObject(new ProcessExit(1));
     expect(fetchRepo).not.toHaveBeenCalled();
     expect(fetchRemoteManifest).not.toHaveBeenCalled();
@@ -219,7 +221,7 @@ describe('runStatus (archetype)', () => {
     });
 
   it('--no-drift: version via SKILLS_VERSION fetch, no manifest fetch, no clone', async () => {
-    readPharnConfig.mockReturnValue(archConfig());
+    loadConfigOrExit.mockReturnValue(archConfig());
     fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
 
     await runStatus({ drift: false });
@@ -231,7 +233,7 @@ describe('runStatus (archetype)', () => {
   });
 
   it('default: clones, reads SKILLS_VERSION, diffs capabilities, cleans up', async () => {
-    readPharnConfig.mockReturnValue(archConfig());
+    loadConfigOrExit.mockReturnValue(archConfig());
     const cleanup = vi.fn();
     fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
     readSkillsVersion.mockReturnValue('1.0.0');
@@ -249,7 +251,7 @@ describe('runStatus (archetype)', () => {
   });
 
   it('--strict exits 1 on capability drift, cleaning up first', async () => {
-    readPharnConfig.mockReturnValue(archConfig());
+    loadConfigOrExit.mockReturnValue(archConfig());
     const cleanup = vi.fn();
     fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
     readSkillsVersion.mockReturnValue('1.0.0');
