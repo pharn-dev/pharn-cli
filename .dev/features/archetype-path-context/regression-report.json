@@ -1,10 +1,12 @@
 {
   "base": "186b55d4c9be259142fc9f7513828a06aa86191c",
   "inside": [
-    "src/lib/detect-archetype.ts",
+    "src/lib/archetype.ts",
     "src/lib/capability-index.ts",
-    "tests/detect-archetype.test.ts",
-    "tests/capability-index.test.ts"
+    "src/lib/detect-archetype.ts",
+    "tests/archetype.test.ts",
+    "tests/capability-index.test.ts",
+    "tests/detect-archetype.test.ts"
   ],
   "outside_gates": {
     "tests": {

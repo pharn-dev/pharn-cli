@@ -360,6 +360,17 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
     });
   });
 
+  // App-Router `app/api` folder → backend (the api dir whose immediate parent is
+  // `app`). A non-route file isolates the api-DIR rule (parent === 'app') from the
+  // route.ts rule.
+  it('app/api/ (App Router api folder) → backend (parent app)', () => {
+    touch(tmp.path(), 'app/api/health.ts');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['backend'],
+      packageJsonFound: false,
+    });
+  });
+
   // ---- Rule 3: route.* scoped to an App-Router `app/` ancestor ----
 
   // A non-Next client router's route.ts (e.g. Vue) → NOT backend. vue → spa only.

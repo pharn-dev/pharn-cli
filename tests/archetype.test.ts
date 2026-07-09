@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   archetypesFromSignals,
+  classifyEntry,
   detectArchetypes,
   mergeSignals,
   packageSignals,
@@ -178,5 +179,132 @@ describe('mergeSignals', () => {
     const b: ArchetypeSignals = { ssr: false, backend: true, clientUi: false };
     expect(mergeSignals(a, b)).toEqual(mergeSignals(b, a));
     expect(mergeSignals(a, a)).toEqual(a);
+  });
+});
+
+// classifyEntry — the pure file-tree signal rule, extracted here beside
+// packageSignals (P3). Path-context scoping (archetype-path-context): a name
+// alone never decides; the lowercased ancestor `segments` scope each structural
+// signal. Direct unit coverage of every branch, incl. the app/api parent,
+// route.js/.mjs, and a deep DB location.
+describe('classifyEntry (file-tree path-context rule)', () => {
+  const NONE: ArchetypeSignals = {
+    ssr: false,
+    backend: false,
+    clientUi: false,
+  };
+  const BACKEND: ArchetypeSignals = {
+    ssr: false,
+    backend: true,
+    clientUi: false,
+  };
+  const CLIENT: ArchetypeSignals = {
+    ssr: false,
+    backend: false,
+    clientUi: true,
+  };
+  const SSR: ArchetypeSignals = { ssr: true, backend: false, clientUi: false };
+
+  it.each<[string, string, boolean, string[], ArchetypeSignals]>([
+    // Rule 1 — api/ dir: top-level | pages/api | app/api only.
+    ['top-level api/ → backend', 'api', true, [], BACKEND],
+    ['pages/api → backend', 'api', true, ['pages'], BACKEND],
+    ['app/api → backend', 'api', true, ['app'], BACKEND],
+    ['nested src/api → none', 'api', true, ['src'], NONE],
+    [
+      'app/dashboard/api (parent not app/pages) → none',
+      'api',
+      true,
+      ['app', 'dashboard'],
+      NONE,
+    ],
+    [
+      'API uppercase, top-level → backend (case-insensitive)',
+      'API',
+      true,
+      [],
+      BACKEND,
+    ],
+
+    // Rule 4 — migrations/ dir: top-level | under a DB ancestor.
+    ['top-level migrations/ → backend', 'migrations', true, [], BACKEND],
+    ['prisma/migrations → backend', 'migrations', true, ['prisma'], BACKEND],
+    [
+      'deep non-DB src/state/migrations → none',
+      'migrations',
+      true,
+      ['src', 'state'],
+      NONE,
+    ],
+    ['a plain dir → none', 'components', true, ['src'], NONE],
+
+    // Rule 3 — route.* under an app/ ancestor (incl. .js/.mjs).
+    ['app/route.ts → backend', 'route.ts', false, ['app'], BACKEND],
+    [
+      'src/app/users/route.ts → backend',
+      'route.ts',
+      false,
+      ['src', 'app', 'users'],
+      BACKEND,
+    ],
+    ['route.js under app → backend', 'route.js', false, ['app'], BACKEND],
+    ['route.mjs under app → backend', 'route.mjs', false, ['app'], BACKEND],
+    [
+      'client router src/router/route.ts → none',
+      'route.ts',
+      false,
+      ['src', 'router'],
+      NONE,
+    ],
+
+    // Rule 4 — .sql inside a DB location (incl. a deep DB ancestor).
+    ['db/seed.sql → backend', 'seed.sql', false, ['db'], BACKEND],
+    [
+      'deep server/db/schema.sql → backend',
+      'schema.sql',
+      false,
+      ['server', 'db'],
+      BACKEND,
+    ],
+    ['root seed.sql → none', 'seed.sql', false, [], NONE],
+    ['non-DB fixtures/seed.sql → none', 'seed.sql', false, ['fixtures'], NONE],
+
+    // ssr — next.config.*
+    ['next.config.mjs → ssr', 'next.config.mjs', false, [], SSR],
+
+    // Rule 2 — .tsx/.jsx client-UI, excluding test trees / email templates.
+    ['src/App.tsx → clientUi', 'App.tsx', false, ['src'], CLIENT],
+    ['root Button.jsx → clientUi', 'Button.jsx', false, [], CLIENT],
+    [
+      'Widget.TSX under components → clientUi (case-insensitive)',
+      'Widget.TSX',
+      false,
+      ['components'],
+      CLIENT,
+    ],
+    [
+      'emails/Welcome.tsx → none (email template)',
+      'Welcome.tsx',
+      false,
+      ['emails'],
+      NONE,
+    ],
+    [
+      'tests/Example.tsx → none (test tree)',
+      'Example.tsx',
+      false,
+      ['tests'],
+      NONE,
+    ],
+    [
+      'co-located Button.test.tsx → none (fixture)',
+      'Button.test.tsx',
+      false,
+      ['src'],
+      NONE,
+    ],
+    ['widget.spec.jsx → none (fixture)', 'widget.spec.jsx', false, [], NONE],
+  ])('%s', (_label, name, isDir, segments, expected) => {
+    expect(classifyEntry(name, isDir, segments)).toEqual(expected);
   });
 });

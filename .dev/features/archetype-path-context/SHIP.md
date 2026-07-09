@@ -46,6 +46,22 @@ scoped the four over-broad file-tree rules to their documented locations (`api/`
 `applies` tokens (split-whole-then-validate, fail-closed preserved). Determinism preserved; no new
 archetype/enum member; no `pharn.config.json`/legacy-pin surface touched.
 
+## GATE-2 fix iteration (human-directed: "fix advisory findings first")
+
+At the first GATE 2 the human chose to fix the review's advisory findings before deciding. Applied within
+an extended plan `## Files` (re-scoped, fix #7), then **re-verified** — all floor verdicts still GREEN:
+
+- **P3 (important):** extracted the pure `classifyEntry` + its 3 constants from `detect-archetype.ts` (I/O)
+  to `archetype.ts` (pure rules), exported; the I/O file now imports it and owns only the walk + read.
+- **P1 (minor ×2):** added a direct `classifyEntry` unit-test block (every branch incl. `app/api`,
+  `route.js`/`route.mjs`, deep DB) + an `app/api/` integration case.
+- **Re-verified verdicts:** `/pharn-dev-verify` → `verify-report.json` .verdict = **`PASS`** (594 vitest
+  tests); `/pharn-dev-regress` → `regression-report.json` .verdict = **`no-regressions`** (base
+  `186b55d…191c`, full increment+fix). `REVIEW.md` addendum records all three advisory findings **addressed**.
+
+The fix is currently **uncommitted** on top of `b7dc5b6` (2 src + 2 test files changed + the plan/artifacts).
+The run is back at **GATE 2** for the human's decision.
+
 ## The standing decision is the human's
 
 Chain ran; the named floor verdicts are as shown — this is **NOT** a judgment that the increment is good

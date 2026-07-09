@@ -79,8 +79,19 @@ unknown-token / `universal`-mixed hard-fails are all preserved.
   test/spec (P1).
 - `tests/capability-index.test.ts` — **add** unquoted-`applies` cases — layer: test/spec (P1).
 
-**Not touched (correct today):** `src/lib/archetype.ts` (pure signals→archetype rule + package-name
-allowlists), `src/types.ts` (the `Archetype` enum — no new member), `src/lib/validate.ts`
+**GATE-2 fix iteration (human-directed; addresses REVIEW.md advisory findings — floor stays GREEN, re-verified):**
+
+- `src/lib/archetype.ts` — **extract** the pure file-entry classifier here (P3 REVIEW finding): move
+  `classifyEntry` + `SQL_HOST_DIRS` / `NON_UI_DIRS` / `TEST_FIXTURE_RE` out of the I/O file into the
+  pure-rules file (beside `packageSignals`), exported, so all pure classification lives in one file and
+  the file header's stated axis holds — layer: pure classification rules (§5).
+- `tests/archetype.test.ts` — **add** direct `classifyEntry` unit tests covering every branch incl. the
+  cited gaps (P1 REVIEW findings): `app/api` (parent `app`), `route.js` / `route.mjs` under `app`, a deep
+  DB location — layer: test/spec (P1).
+- (also) `tests/detect-archetype.test.ts` gains one `app/api/` integration case; `src/lib/detect-archetype.ts`
+  now imports `classifyEntry` from `archetype.ts` and keeps only the walk + package read (I/O).
+
+**Not touched (correct today):** `src/types.ts` (the `Archetype` enum — no new member), `src/lib/validate.ts`
 (`assertAppliesToken` enum gate reused as-is), `src/lib/resolve-capabilities.ts`. `ARCHITECTURE.md §5`
 needs no edit (adds no enum member; hook-protected regardless).
 

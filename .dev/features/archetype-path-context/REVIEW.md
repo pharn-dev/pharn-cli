@@ -79,3 +79,22 @@ observation, 2 minor P1 coverage gaps) + 1 proposed lesson. The increment is don
 advisory findings are inputs for the human's post-review decision — none blocks. This certifies the floor
 (GREEN) and records advisory judgment; it is **not** a guarantee the increment is correct beyond what the
 gates check (P0).
+
+## Fix iteration outcome (GATE-2, human-directed)
+
+The human chose "fix advisory findings first." All three advisory findings are now **addressed**, floor
+re-verified GREEN (verify `PASS`, regress `no-regressions`, 594 vitest tests):
+
+- **P3 (important) — ADDRESSED.** `classifyEntry` + `SQL_HOST_DIRS`/`NON_UI_DIRS`/`TEST_FIXTURE_RE`
+  extracted from the I/O file to `src/lib/archetype.ts` (beside `packageSignals`), exported;
+  `detect-archetype.ts` imports it and now owns only the walk + package read. The file header's stated
+  axis holds. Behaviour-preserving — every prior integration test still green.
+- **P1 (minor, app/api) — ADDRESSED.** `tests/detect-archetype.test.ts` gains an `app/api/` integration
+  case; `tests/archetype.test.ts` unit-tests the `parent === 'app'` branch directly.
+- **P1 (minor, representative) — ADDRESSED.** The new `classifyEntry` unit block exercises `route.js`/
+  `route.mjs` under `app` and a deep (`server/db`) DB location explicitly.
+- **Lesson candidate — still open** (the human did not select promote); available for a future
+  human-gated `/pharn-dev-memory-promote`.
+
+This addendum records that the advisory findings were resolved; it remains advisory and certifies only the
+re-run floor gates (P0).
