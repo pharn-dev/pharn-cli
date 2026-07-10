@@ -4,7 +4,7 @@ import { confirm, isCancel, log, outro, spinner } from '@clack/prompts';
 import { createRequire } from 'node:module';
 import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
-import { DOCS_URL, FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
+import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { fetchAndInstall } from '../lib/installer.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
@@ -120,8 +120,6 @@ export async function runInstall(config: WizardConfig): Promise<void> {
       pc.bold('Next steps'),
       `  ${pc.cyan('1.')}  ${pc.bold('claude')}            ${pc.dim('open Claude Code')}`,
       `  ${pc.cyan('2.')}  ${pc.bold(FIRST_FEATURE_COMMAND)}       ${pc.dim('plan your first feature')}`,
-      '',
-      `${pc.bold('Docs')}  ${pc.cyan(DOCS_URL)}`,
     ].join('\n'),
   );
 }

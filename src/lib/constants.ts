@@ -10,7 +10,6 @@ export const REPO_URL = 'github.com/pharn-dev/pharn-oss';
 // cloning the whole repo.
 export const MANIFEST_RAW_PATH = `${REPO}/${REPO_BRANCH}/manifest.json`;
 
-export const DOCS_URL = 'https://github.com/pharn-dev/pharn-oss/tree/main/docs';
 export const FIRST_FEATURE_COMMAND = '/pharn-plan';
 
 // pharn-core is always installed; it is the foundation every other module
