@@ -6,15 +6,11 @@ import { readModuleManifest } from './manifest.js';
 import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
-  CONTRACTS_DIR,
   DEV_COMMAND_PREFIX,
-  FLOOR_DIR,
-  GRILLERS_DIR,
-  LENSES_DIR,
   PRODUCT_COMMAND_PREFIX,
-  TRUSTED_DOCS,
 } from './constants.js';
-import type { InstalledCapability, InstalledSkill } from '../types.js';
+import { layoutPaths } from './layout.js';
+import type { InstalledCapability, InstalledSkill, Layout } from '../types.js';
 
 export interface InstallDiff {
   // .claude-relative paths present on disk but whose bytes differ from upstream.
@@ -103,8 +99,15 @@ export function diffInstalledCapabilities(params: {
   repoDir: string;
   projectRoot: string;
   capabilities: InstalledCapability[];
+  // The project's recorded layout (config.layout via configLayout). The expected
+  // set is derived at the layout's paths for BOTH the clone source and the project
+  // dest (the mirror). A clone at @main whose layout differs simply lacks the
+  // source (existsSync false → skipped) — the same pre-existing "@main packaging"
+  // bound already documented below.
+  layout: Layout;
 }): InstallDiff {
-  const { repoDir, projectRoot, capabilities } = params;
+  const { repoDir, projectRoot, capabilities, layout } = params;
+  const paths = layoutPaths(layout);
   const expected = new Map<string, string>();
   const add = (rel: string, repoPath: string): void => {
     expected.set(toPosix(rel), repoPath);
@@ -120,9 +123,9 @@ export function diffInstalledCapabilities(params: {
     }
   };
 
-  // Selected capabilities (whole dir, incl. evals).
+  // Selected capabilities (whole dir, incl. evals) at the layout's subtree.
   for (const cap of capabilities) {
-    const subtree = cap.role === 'griller' ? GRILLERS_DIR : LENSES_DIR;
+    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
     addDir(`${subtree}/${cap.name}`);
   }
   // Product commands: top-level non-dev pharn-*.md.
@@ -140,14 +143,14 @@ export function diffInstalledCapabilities(params: {
     (rel) =>
       !rel.includes('/') && rel.endsWith('.cjs') && !rel.endsWith('.test.cjs'),
   );
-  // Trusted docs (root files).
-  for (const doc of TRUSTED_DOCS) {
+  // Trusted docs (flat: root files; pharn: CONSTITUTION + ARCHITECTURE under pharn/).
+  for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
     if (existsSync(from)) add(doc, from);
   }
-  // Contracts (whole dir) + floor checkers (test files excluded).
-  addDir(CONTRACTS_DIR);
-  addDir(FLOOR_DIR, (rel) => !/\.test\.(mjs|cjs)$/.test(rel));
+  // Contracts (whole dir) + floor checkers (test files excluded), at layout paths.
+  addDir(paths.contracts);
+  addDir(paths.floor, (rel) => !/\.test\.(mjs|cjs)$/.test(rel));
 
   return compareExpected(expected, projectRoot);
 }

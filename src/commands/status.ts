@@ -9,6 +9,7 @@ import {
 } from '../lib/manifest.js';
 import { fetchRepo } from '../lib/repo.js';
 import { diffInstalled, diffInstalledCapabilities } from '../lib/diff.js';
+import { configLayout } from '../lib/layout.js';
 import { row } from '../lib/format.js';
 import { isArchetypeConfig, loadConfigOrExit } from '../lib/pharn-config.js';
 import {
@@ -163,6 +164,7 @@ async function runArchetypeStatus(
       repoDir: repo.dir,
       projectRoot: cwd,
       capabilities: config.capabilities ?? [],
+      layout: configLayout(config),
     });
     printDriftSection(result);
     if (

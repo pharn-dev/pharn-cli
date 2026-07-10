@@ -243,10 +243,38 @@ describe('runStatus (archetype)', () => {
 
     expect(readSkillsVersion).toHaveBeenCalledWith('/repo');
     expect(diffInstalledCapabilities).toHaveBeenCalledWith(
-      expect.objectContaining({ repoDir: '/repo', projectRoot: '/proj' }),
+      expect.objectContaining({
+        repoDir: '/repo',
+        projectRoot: '/proj',
+        // No recorded layout → flat, the safe default (P7).
+        layout: 'flat',
+      }),
     );
     // The legacy module-diff path is not taken for an archetype config.
     expect(diffInstalled).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('passes the recorded layout: pharn through to the capability diff', async () => {
+    loadConfigOrExit.mockReturnValue(
+      config({
+        skillsVersion: '1.0.0',
+        modules: [],
+        archetypes: ['ssr'],
+        capabilities: [{ name: 'a11y', role: 'griller' }],
+        layout: 'pharn',
+      }),
+    );
+    const cleanup = vi.fn();
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+    await runStatus({});
+
+    expect(diffInstalledCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ layout: 'pharn' }),
+    );
     expect(cleanup).toHaveBeenCalled();
   });
 

@@ -13,11 +13,10 @@ import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
 import {
   CORE_MODULE,
-  GRILLERS_DIR,
-  LENSES_DIR,
   REPO_URL,
   SKILL_MODULE_PREFIX,
 } from '../lib/constants.js';
+import { configLayout, layoutPaths } from '../lib/layout.js';
 import {
   readManifest,
   readModuleManifest,
@@ -191,7 +190,11 @@ async function removeCapability(
   }
 
   const target = matches[0]!;
-  const subtree = target.role === 'griller' ? GRILLERS_DIR : LENSES_DIR;
+  // Address the capability at the project's recorded layout (flat OR pharn/), so
+  // a pharn-layout install deletes pharn/pharn-review|pharn-pipeline/grillers/<name>
+  // (lib/layout.ts). Legacy/absent layout → flat, the safe default (P5/P7).
+  const paths = layoutPaths(configLayout(config));
+  const subtree = target.role === 'griller' ? paths.grillers : paths.lenses;
   const dir = safeJoin(cwd, `${subtree}/${target.name}`);
   let note = '';
   if (existsSync(dir)) {

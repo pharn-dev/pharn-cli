@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
-import { DOCS_URL, FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
+import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
@@ -10,6 +10,7 @@ import { readSkillsVersion } from '../lib/skills-version.js';
 import type {
   Archetype,
   InstalledCapability,
+  Layout,
   PharnConfig,
   Selection,
 } from '../types.js';
@@ -37,10 +38,12 @@ export async function runInstallArchetype(
   let capabilities: InstalledCapability[];
   let settingsPreserved: boolean;
   let skillsVersion: string;
+  let layout: Layout;
   try {
     const result = installCapabilities(repoDir, cwd, selection);
     capabilities = result.capabilities;
     settingsPreserved = result.settingsPreserved;
+    layout = result.layout;
     skillsVersion = readSkillsVersion(repoDir);
   } catch (err) {
     // Stop the spinner and propagate — the orchestrator cleans up the fetched
@@ -71,6 +74,9 @@ export async function runInstallArchetype(
     seam: DEFAULT_SEAM_CONFIG,
     archetypes,
     capabilities,
+    // The layout mirrored from the fetched clone (flat OR pharn/) — status/remove
+    // read this back to address the project the same way (lib/layout.ts).
+    layout,
   };
   await writePharnConfig(cwd, config);
 
@@ -88,8 +94,6 @@ export async function runInstallArchetype(
       pc.bold('Next steps'),
       `  ${pc.cyan('1.')}  ${pc.bold('claude')}            ${pc.dim('open Claude Code')}`,
       `  ${pc.cyan('2.')}  ${pc.bold(FIRST_FEATURE_COMMAND)}       ${pc.dim('plan your first feature')}`,
-      '',
-      `${pc.bold('Docs')}  ${pc.cyan(DOCS_URL)}`,
     ].join('\n'),
   );
 }

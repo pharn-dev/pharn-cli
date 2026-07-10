@@ -1,0 +1,23 @@
+{
+  "base": "b680a990d25b54ca8096aa2e64c56468e1b464b6",
+  "inside": [
+    "src/lib/constants.ts",
+    "src/steps/install.ts",
+    "src/steps/install-archetype.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}

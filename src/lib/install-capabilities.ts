@@ -11,15 +11,11 @@ import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
-  CONTRACTS_DIR,
   DEV_COMMAND_PREFIX,
-  FLOOR_DIR,
-  GRILLERS_DIR,
-  LENSES_DIR,
   PRODUCT_COMMAND_PREFIX,
-  TRUSTED_DOCS,
 } from './constants.js';
-import type { InstalledCapability, Selection } from '../types.js';
+import { detectLayout, layoutPaths, type LayoutPaths } from './layout.js';
+import type { InstalledCapability, Layout, Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Capability copy routine (archetype install). Copies the RESOLVED capabilities
@@ -49,6 +45,9 @@ export interface InstallCapabilitiesResult {
   // NOT overwrite it (the user's Claude Code config is preserved). The caller
   // surfaces this so the user knows the hooks may need wiring by hand.
   settingsPreserved: boolean;
+  // The layout mirrored from the fetched clone (flat OR pharn/). Recorded in
+  // pharn.config.json so status/remove address the project the same way.
+  layout: Layout;
 }
 
 const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
@@ -79,11 +78,15 @@ export function installCapabilityDirs(
   repoDir: string,
   projectRoot: string,
   capabilities: InstalledCapability[],
+  // The layout to mirror; defaults to the fetched clone's own layout (flat OR
+  // pharn/). `add` uses the default; `installCapabilities` passes the layout it
+  // detected once, so contracts/floor/docs stay consistent with the subtrees.
+  paths: LayoutPaths = layoutPaths(detectLayout(repoDir)),
 ): InstalledCapability[] {
   const planned = capabilities.map((cap) => {
     assertSafeString(cap.name, `capability "${cap.name}"`, CAPABILITY_NAME_RE);
     assertNoDotDot(cap.name, `capability "${cap.name}"`);
-    const subtree = cap.role === 'griller' ? GRILLERS_DIR : LENSES_DIR;
+    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
     const from = safeJoin(repoDir, `${subtree}/${cap.name}`);
     if (!existsSync(from)) {
       throw new ManifestValidationError(
@@ -112,11 +115,17 @@ export function installCapabilities(
   projectRoot: string,
   selection: Selection,
 ): InstallCapabilitiesResult {
+  // Mirror whichever layout the fetched clone has (flat OR the relocated pharn/).
+  // The resolved relative paths are the clone SOURCE and the project DEST at once —
+  // the CLI never rewrites copied file contents (lib/layout.ts).
+  const paths = layoutPaths(detectLayout(repoDir));
+
   // Copy the selected capability dirs (pre-flighted; no partial installs).
   const capabilities = installCapabilityDirs(
     repoDir,
     projectRoot,
     selection.selected,
+    paths,
   );
 
   // --- product commands: pharn-*.md, excluding pharn-dev-*.md ----------------
@@ -145,35 +154,36 @@ export function installCapabilities(
     cpSync(settingsFrom, settingsTo, { force: true });
   }
 
-  // --- trusted docs (root) ---------------------------------------------------
-  for (const doc of TRUSTED_DOCS) {
+  // --- trusted docs (flat: 4 at root; pharn: CONSTITUTION + ARCHITECTURE under
+  // pharn/, THREAT-MODEL/LIMITS dropped — they are not under pharn/) -----------
+  for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
     if (existsSync(from) && !isSymlink(from)) {
       cpSync(from, safeJoin(projectRoot, doc), { force: true });
     }
   }
 
-  // --- pharn-contracts/ (whole dir) ------------------------------------------
-  const contractsFrom = safeJoin(repoDir, CONTRACTS_DIR);
+  // --- contracts (whole dir; mirrored at the layout's path) ------------------
+  const contractsFrom = safeJoin(repoDir, paths.contracts);
   if (existsSync(contractsFrom) && !isSymlink(contractsFrom)) {
-    cpSync(contractsFrom, safeJoin(projectRoot, CONTRACTS_DIR), {
+    cpSync(contractsFrom, safeJoin(projectRoot, paths.contracts), {
       recursive: true,
       force: true,
       filter: noSymlinks,
     });
   }
 
-  // --- .dev/floor/ (checkers only — test files excluded) ---------------------
-  const floorFrom = safeJoin(repoDir, FLOOR_DIR);
+  // --- floor checkers (whole dir minus test files; mirrored at layout path) --
+  const floorFrom = safeJoin(repoDir, paths.floor);
   if (existsSync(floorFrom) && !isSymlink(floorFrom)) {
-    cpSync(floorFrom, safeJoin(projectRoot, FLOOR_DIR), {
+    cpSync(floorFrom, safeJoin(projectRoot, paths.floor), {
       recursive: true,
       force: true,
       filter: (src) => !isTestFile(src) && noSymlinks(src),
     });
   }
 
-  return { capabilities, settingsPreserved };
+  return { capabilities, settingsPreserved, layout: paths.layout };
 }
 
 /**

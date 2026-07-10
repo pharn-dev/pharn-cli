@@ -1,0 +1,37 @@
+{
+  "base": "b739a6fd5c9f663bd1fddc0e79c3ab98da2efe2e",
+  "inside": [
+    "src/lib/layout.ts",
+    "src/lib/constants.ts",
+    "src/lib/capability-index.ts",
+    "src/lib/install-capabilities.ts",
+    "src/lib/diff.ts",
+    "src/lib/pharn-config.ts",
+    "src/types.ts",
+    "src/steps/install-archetype.ts",
+    "src/commands/status.ts",
+    "src/commands/remove.ts",
+    "tests/layout.test.ts",
+    "tests/install-capabilities.test.ts",
+    "tests/capability-index.test.ts",
+    "tests/diff.test.ts",
+    "tests/status.test.ts",
+    "tests/remove.test.ts",
+    "tests/pharn-config.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}
