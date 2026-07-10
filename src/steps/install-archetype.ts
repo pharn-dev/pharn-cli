@@ -10,6 +10,7 @@ import { readSkillsVersion } from '../lib/skills-version.js';
 import type {
   Archetype,
   InstalledCapability,
+  Layout,
   PharnConfig,
   Selection,
 } from '../types.js';
@@ -37,10 +38,12 @@ export async function runInstallArchetype(
   let capabilities: InstalledCapability[];
   let settingsPreserved: boolean;
   let skillsVersion: string;
+  let layout: Layout;
   try {
     const result = installCapabilities(repoDir, cwd, selection);
     capabilities = result.capabilities;
     settingsPreserved = result.settingsPreserved;
+    layout = result.layout;
     skillsVersion = readSkillsVersion(repoDir);
   } catch (err) {
     // Stop the spinner and propagate — the orchestrator cleans up the fetched
@@ -71,6 +74,9 @@ export async function runInstallArchetype(
     seam: DEFAULT_SEAM_CONFIG,
     archetypes,
     capabilities,
+    // The layout mirrored from the fetched clone (flat OR pharn/) — status/remove
+    // read this back to address the project the same way (lib/layout.ts).
+    layout,
   };
   await writePharnConfig(cwd, config);
 

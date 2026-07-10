@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { safeJoin } from './install-modules.js';
-import { GRILLERS_DIR, LENSES_DIR } from './constants.js';
+import { detectLayout, layoutPaths } from './layout.js';
 import {
   assertAppliesToken,
   assertNoDotDot,
@@ -37,14 +37,6 @@ import type { Archetype, CapabilityEntry, CapabilityIndex } from '../types.js';
 // in resolve-capabilities.ts, and the archetype detection in detect-archetype.ts.
 // ---------------------------------------------------------------------------
 
-// One capability subtree in the fetched repo and the role every capability under
-// it carries. The subtree is authoritative for `role`; the frontmatter `role` is
-// cross-checked against it (a file in the wrong subtree hard-fails).
-const SUBTREES: { dir: string; role: 'griller' | 'lens' }[] = [
-  { dir: GRILLERS_DIR, role: 'griller' },
-  { dir: LENSES_DIR, role: 'lens' },
-];
-
 /**
  * Parse + validate the capability index from a fetched pharn-oss clone.
  * Deterministic (P5): capabilities are enumerated in sorted directory order
@@ -56,7 +48,17 @@ const SUBTREES: { dir: string; role: 'griller' | 'lens' }[] = [
 export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
   const capabilities: CapabilityEntry[] = [];
 
-  for (const subtree of SUBTREES) {
+  // Mirror the fetched clone's layout (flat OR the relocated pharn/) so the CLI
+  // enumerates capabilities wherever pharn-oss put them (P5 — membership on the
+  // clone, lib/layout.ts). Each subtree is authoritative for `role`; the
+  // frontmatter `role` is cross-checked against it (wrong subtree → hard-fail).
+  const paths = layoutPaths(detectLayout(repoDir));
+  const subtrees: { dir: string; role: 'griller' | 'lens' }[] = [
+    { dir: paths.grillers, role: 'griller' },
+    { dir: paths.lenses, role: 'lens' },
+  ];
+
+  for (const subtree of subtrees) {
     const subtreeDir = safeJoin(repoDir, subtree.dir);
     if (!existsSync(subtreeDir)) {
       throw new ManifestValidationError(

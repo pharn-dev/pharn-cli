@@ -45,6 +45,31 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toEqual(sample);
   });
 
+  it('round-trips the additive layout field (pharn)', async () => {
+    const withLayout: PharnConfig = { ...sample, layout: 'pharn' };
+    await writePharnConfig(tmp.path(), withLayout);
+    expect(readPharnConfig(tmp.path())).toEqual(withLayout);
+  });
+
+  it('loads a legacy config with NO layout field (P7 additive)', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify(sample),
+    );
+    const loaded = readPharnConfig(tmp.path());
+    expect(loaded).toEqual(sample);
+    expect(loaded && 'layout' in loaded).toBe(false);
+  });
+
+  it('drops a garbage layout value on read (→ flat downstream, P5)', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({ ...sample, layout: 'sideways' }),
+    );
+    const loaded = readPharnConfig(tmp.path());
+    expect(loaded && 'layout' in loaded).toBe(false);
+  });
+
   it('returns null when no config exists', () => {
     expect(readPharnConfig(tmp.path())).toBeNull();
   });

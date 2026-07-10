@@ -118,12 +118,14 @@ describe('installCapabilities', () => {
     expect(existsSync(join(proj, 'pharn-review/trust-fence'))).toBe(false);
   });
 
-  it('returns the copied capability list (name + role)', () => {
+  it('returns the copied capability list (name + role) and records layout: flat', () => {
     const { result } = run();
     expect(result.capabilities).toEqual([
       { name: 'a11y', role: 'griller' },
       { name: 'n-plus-one', role: 'lens' },
     ]);
+    // A flat clone (no pharn/pharn-contracts marker) → the legacy layout (P7).
+    expect(result.layout).toBe('flat');
   });
 
   it('copies product pharn-*.md commands but EXCLUDES pharn-dev-*.md and non-pharn files', () => {
@@ -340,5 +342,98 @@ describe('installCapabilityDirs', () => {
         { name: '../escape', role: 'griller' },
       ]),
     ).toThrow(ManifestValidationError);
+  });
+});
+
+describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
+  const tmp = useTmpDir();
+
+  // A fetched clone in the new pharn/ single-install layout: runtime surfaces
+  // under pharn/, .claude/* at root, THREAT-MODEL/LIMITS at root but NOT under
+  // pharn/ (so a pharn install drops them). The pharn/pharn-contracts dir is the
+  // detection marker.
+  function scaffoldRepoPharn(repo: string): void {
+    write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a11y');
+    write(
+      join(repo, 'pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md'),
+      'case',
+    );
+    write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'), 'npo');
+    write(join(repo, '.claude/commands/pharn-plan.md'), 'plan');
+    write(join(repo, '.claude/commands/pharn-dev-plan.md'), 'DEV');
+    write(join(repo, '.claude/hooks/set-writes-scope.cjs'), 'hook');
+    write(join(repo, '.claude/hooks/set-writes-scope.test.cjs'), 'HOOKTEST');
+    write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
+    write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
+    write(join(repo, 'pharn/ARCHITECTURE.md'), 'A');
+    write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
+    write(join(repo, 'pharn/floor/validate.mjs'), 'floor');
+    write(join(repo, 'pharn/floor/validate.test.mjs'), 'FLOORTEST');
+    // dev-only surfaces that stay at root and must NOT be installed under pharn:
+    write(join(repo, 'THREAT-MODEL.md'), 'T');
+    write(join(repo, 'LIMITS.md'), 'L');
+  }
+
+  function run(): { repo: string; proj: string } {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepoPharn(repo);
+    const result = installCapabilities(repo, proj, selection());
+    expect(result.layout).toBe('pharn');
+    return { repo, proj };
+  }
+
+  it('detects and records layout: pharn', () => {
+    run(); // the assertion is inside run()
+  });
+
+  it('mirrors capabilities + fixed surfaces UNDER pharn/ (test files excluded)', () => {
+    const { proj } = run();
+    expect(
+      existsSync(join(proj, 'pharn/pharn-pipeline/grillers/a11y/a11y.md')),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(proj, 'pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md'),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(join(proj, 'pharn/pharn-review/n-plus-one/n-plus-one.md')),
+    ).toBe(true);
+    expect(
+      existsSync(join(proj, 'pharn/pharn-contracts/finding-shape.md')),
+    ).toBe(true);
+    expect(existsSync(join(proj, 'pharn/floor/validate.mjs'))).toBe(true);
+    expect(existsSync(join(proj, 'pharn/floor/validate.test.mjs'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(true);
+    expect(existsSync(join(proj, 'pharn/ARCHITECTURE.md'))).toBe(true);
+  });
+
+  it('DROPS THREAT-MODEL/LIMITS and leaves nothing flat at the project root', () => {
+    const { proj } = run();
+    expect(existsSync(join(proj, 'THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(join(proj, 'LIMITS.md'))).toBe(false);
+    // No flat-layout leakage at root:
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn-contracts'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn-pipeline'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn-review'))).toBe(false);
+    expect(existsSync(join(proj, '.dev'))).toBe(false);
+  });
+
+  it('keeps .claude/* at root (layout-invariant), excluding pharn-dev + *.test', () => {
+    const { proj } = run();
+    expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(true);
+    expect(existsSync(join(proj, '.claude/commands/pharn-dev-plan.md'))).toBe(
+      false,
+    );
+    expect(existsSync(join(proj, '.claude/hooks/set-writes-scope.cjs'))).toBe(
+      true,
+    );
+    expect(
+      existsSync(join(proj, '.claude/hooks/set-writes-scope.test.cjs')),
+    ).toBe(false);
+    expect(existsSync(join(proj, '.claude/settings.json'))).toBe(true);
   });
 });

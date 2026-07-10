@@ -51,6 +51,32 @@ describe('parseCapabilityIndex', () => {
     ]);
   });
 
+  it('enumerates the pharn/ layout when the clone uses it (marker: pharn/pharn-contracts)', () => {
+    const repo = tmp.path();
+    // The detection marker + both pharn/ subtree roots.
+    mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
+    mkdirSync(join(repo, 'pharn/pharn-pipeline/grillers'), { recursive: true });
+    mkdirSync(join(repo, 'pharn/pharn-review'), { recursive: true });
+    writeCap(
+      repo,
+      'pharn/pharn-pipeline/grillers',
+      'a11y',
+      fm('griller', '["ssr"]'),
+    );
+    writeCap(
+      repo,
+      'pharn/pharn-review',
+      'n-plus-one',
+      fm('lens', '["backend"]'),
+    );
+
+    const index = parseCapabilityIndex(repo);
+    expect(index.capabilities).toEqual([
+      { name: 'a11y', role: 'griller', applies: ['ssr'] },
+      { name: 'n-plus-one', role: 'lens', applies: ['backend'] },
+    ]);
+  });
+
   it('maps ["universal"] to the string, not an array (the resolver contract)', () => {
     const repo = tmp.path();
     scaffold(repo);

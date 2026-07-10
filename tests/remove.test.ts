@@ -154,6 +154,46 @@ describe('runRemove', () => {
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 
+  // §A2 — capability removal (archetype install; no clone, no network) --------
+
+  it('removes a capability from a FLAT install (deletes pharn-review/<name>)', async () => {
+    write(join(proj, 'pharn-review', 'n-plus-one', 'n-plus-one.md'), 'npo');
+    loadConfigOrExit.mockReturnValue(
+      config([], {
+        archetypes: ['ssr'],
+        capabilities: [{ name: 'n-plus-one', role: 'lens' }],
+      }),
+    );
+
+    await runRemove('lens:n-plus-one');
+
+    expect(existsSync(join(proj, 'pharn-review', 'n-plus-one'))).toBe(false);
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(lastWritten().capabilities).toEqual([]);
+  });
+
+  it('removes a capability from a PHARN-layout install (deletes pharn/pharn-review/<name>)', async () => {
+    write(
+      join(proj, 'pharn', 'pharn-review', 'n-plus-one', 'n-plus-one.md'),
+      'npo',
+    );
+    loadConfigOrExit.mockReturnValue(
+      config([], {
+        archetypes: ['ssr'],
+        capabilities: [{ name: 'n-plus-one', role: 'lens' }],
+        layout: 'pharn',
+      }),
+    );
+
+    await runRemove('lens:n-plus-one');
+
+    expect(existsSync(join(proj, 'pharn', 'pharn-review', 'n-plus-one'))).toBe(
+      false,
+    );
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(lastWritten().capabilities).toEqual([]);
+  });
+
   // §A — category:skill removal (no clone, no network) -----------------------
 
   it('removes an installed skill and leaves siblings + config fields intact', async () => {

@@ -247,7 +247,16 @@ export interface PharnConfig {
   // the detected archetypes and the capabilities copied for them.
   archetypes?: Archetype[];
   capabilities?: InstalledCapability[];
+  // The install layout mirrored from the fetched clone (lib/layout.ts). Additive;
+  // absent on legacy installs → read as 'flat' (the safe default, P7). 'pharn' =
+  // the relocated single-install layout (everything under pharn/); 'flat' = the
+  // legacy root layout.
+  layout?: Layout;
 }
+
+// The two install layouts pharn-oss ships (lib/layout.ts). Kept here (not in
+// layout.ts) so PharnConfig can reference it without a types↔layout import cycle.
+export type Layout = 'pharn' | 'flat';
 
 // ---------------------------------------------------------------------------
 // Capability resolver — archetype detection + capability selection. pharn-cli

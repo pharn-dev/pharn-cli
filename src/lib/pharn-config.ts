@@ -50,11 +50,19 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     raw.models !== undefined ? validateModelRouting(raw.models) : undefined;
   const seam =
     raw.seam !== undefined ? validateSeamConfig(raw.seam) : undefined;
-  return {
+  const config: PharnConfig = {
     ...(raw as unknown as PharnConfig),
     ...(models !== undefined ? { models } : {}),
     ...(seam !== undefined ? { seam } : {}),
   };
+  // Additive `layout` (lib/layout.ts): coerce to the {pharn, flat} enum. A legacy
+  // config omits it and a hand-edited garbage value is dropped — both resolve to
+  // 'flat' downstream (configLayout), the safe default (P5/P7). Only 'pharn' /
+  // 'flat' survive verbatim, so the field round-trips.
+  if (config.layout !== 'pharn' && config.layout !== 'flat') {
+    delete config.layout;
+  }
+  return config;
 }
 
 /**

@@ -51,6 +51,25 @@ export const CONTRACTS_DIR = 'pharn-contracts';
 // Copied whole EXCEPT test files (see install-capabilities.ts). NOT `.dev/`
 // wholesale — `.dev/features` and `.dev/memory-bank` are dev-only and excluded.
 export const FLOOR_DIR = '.dev/floor';
+
+// ---------------------------------------------------------------------------
+// The new pharn/ single-install layout (pharn-oss PR #86 / pharn-runtime-layout):
+// every runtime-read surface relocates under pharn/ so the dev repo and the
+// installed project share ONE tree. The CLI mirrors whichever layout the fetched
+// clone actually has (lib/layout.ts → detectLayout); these are the pharn/
+// counterparts of the flat constants above. `.claude/*` command/hook/settings
+// paths are identical in both layouts. THREAT-MODEL.md / LIMITS.md are NOT under
+// pharn/ (they stay dev-only), so the pharn docs set is CONSTITUTION + ARCHITECTURE
+// only — the flat set's THREAT-MODEL/LIMITS are dropped from a pharn install.
+// ---------------------------------------------------------------------------
+export const PHARN_GRILLERS_DIR = 'pharn/pharn-pipeline/grillers';
+export const PHARN_LENSES_DIR = 'pharn/pharn-review';
+export const PHARN_CONTRACTS_DIR = 'pharn/pharn-contracts';
+export const PHARN_FLOOR_DIR = 'pharn/floor';
+export const PHARN_TRUSTED_DOCS = [
+  'pharn/CONSTITUTION.md',
+  'pharn/ARCHITECTURE.md',
+];
 // Claude Code surfaces.
 export const CLAUDE_COMMANDS_DIR = '.claude/commands';
 export const CLAUDE_HOOKS_DIR = '.claude/hooks';
