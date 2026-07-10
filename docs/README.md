@@ -1,6 +1,6 @@
 # PHARN CLI documentation
 
-`pharn-cli` installs [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code — into your project. Run `pharn init` to pick which modules and stack pack you want; the CLI fetches them from `pharn-dev/pharn-oss`, copies them into `.claude/`, materializes your constitution + memory bank, and writes `pharn.config.json`.
+`pharn-cli` installs [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code — into your project. Run `pharn init` to detect your project's archetype(s) and install the applicable PHARN **capabilities** (grillers + lenses) from `pharn-dev/pharn-oss` into the mirrored layout (`.claude/` + `pharn/`), copying the canonical constitution and writing `pharn.config.json`.
 
 ## Getting started
 
@@ -8,11 +8,11 @@
 
 ## Commands
 
-- [init](commands/init.md) — interactive setup wizard
-- [add](commands/add.md) — add a module to an existing project
-- [remove](commands/remove.md) — remove a module or skill from an existing project
-- [update](commands/update.md) — update installed modules to the latest skills version
-- [list](commands/list.md) — list installed and available modules/skills
+- [init](commands/init.md) — detect archetypes and install capabilities (the default command)
+- [add](commands/add.md) — add a single capability to an existing project
+- [remove](commands/remove.md) — remove an installed capability from an existing project
+- [update](commands/update.md) — re-fetch installed capabilities at the latest skills version
+- [list](commands/list.md) — list installed archetypes + capabilities
 - [status](commands/status.md) — read-only version + local-drift audit
 
 ## Reference

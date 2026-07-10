@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ManifestValidationError,
@@ -10,6 +11,7 @@ import {
   assertRole,
   assertAppliesToken,
   isPlainObject,
+  safeJoin,
 } from '../src/lib/validate.js';
 
 describe('assertSafeString', () => {
@@ -133,5 +135,35 @@ describe('assertAppliesToken', () => {
 
   it('throws on an unknown token', () => {
     expect(() => assertAppliesToken('mobile', 'a11y')).toThrow(/a11y/);
+  });
+});
+
+// safeJoin is the lexical path-containment floor shared by the archetype install
+// (install-capabilities.ts), the drift check (diff.ts), and remove.ts — the last
+// non-capability copy path (install-modules.ts) was deleted, so this is where the
+// escape invariant is demonstrated directly (P1/P2).
+describe('safeJoin (path containment)', () => {
+  const base = resolve('/tmp/pharn-base');
+
+  it('returns the joined path for an in-base relative path', () => {
+    expect(safeJoin(base, 'a/b')).toBe(resolve(base, 'a/b'));
+    expect(safeJoin(base, '.')).toBe(base);
+  });
+
+  it('throws on `..` traversal that escapes the base', () => {
+    expect(() => safeJoin(base, '../evil')).toThrow(ManifestValidationError);
+    expect(() => safeJoin(base, 'a/../../evil')).toThrow(/escape/);
+  });
+
+  it('throws on an absolute path outside the base', () => {
+    expect(() => safeJoin(base, '/etc/passwd')).toThrow(
+      ManifestValidationError,
+    );
+  });
+
+  it('rejects a sibling dir sharing the base prefix (the + sep guard)', () => {
+    // resolve(base, '../pharn-base-evil') lexically startsWith the base string
+    // but is NOT under base/ — the `root + sep` check must still reject it.
+    expect(() => safeJoin(base, '../pharn-base-evil')).toThrow(/escape/);
   });
 });

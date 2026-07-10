@@ -6,30 +6,24 @@ What PHARN CLI does today versus what is planned.
 
 | Capability | Status |
 | ---------- | ------ |
-| Interactive `pharn init` wizard (modules + stack pack + constitution) | Shipped |
-| Manifest-driven wizard (`schemaVersion 2`): Default/Custom stack questions + per-tech skills | Shipped |
-| Selective skill install + `pharn add <category>:<skill>` | Shipped |
-| Fetch module catalog from `pharn-dev/pharn-oss` `manifest.json` | Shipped |
-| Dependency resolution + stack-pack exclusivity | Shipped |
-| Clone repo and copy each module's `installs` into `.claude/` | Shipped |
-| Materialize `memory-bank/` and the chosen `CONSTITUTION.md` | Shipped |
-| Pin commit SHA + write `pharn.config.json` | Shipped |
-| `pharn add <module>` — add a module to an existing project | Shipped |
-| `pharn remove <module \| category:skill>` — remove a module or skill | Shipped |
-| `pharn update` — refresh installed modules to the latest version | Shipped |
-| `pharn list` — show installed + available modules/skills (read-only, `--json`) | Shipped |
-| `pharn status` — read-only version + local-drift report (modified/missing PHARN-owned files; `--strict`, `--no-drift`) | Shipped |
-| Vendor official-skill fetching — `init` auto-fetches consented vendor skills (e.g. Supabase) from their declared `source` into `.claude/skills/`, degrading to manual install where no source is known | Shipped |
+| Archetype-driven `pharn init` — detect `ssr`/`backend`/`spa`/`lib` from `package.json` names + a bounded, symlink-safe file-tree scan | Shipped |
+| Resolve applicable capabilities (grillers + lenses) by `applies` (`universal` or an intersecting archetype), skipping the rest with a reason | Shipped |
+| Degit-clone `pharn-dev/pharn-oss` (SHA-pinned) and copy capabilities + fixed product surfaces into the mirrored layout (`flat` or `pharn/`) | Shipped |
+| Copy the canonical `CONSTITUTION.md` verbatim + write `pharn.config.json` (archetypes, capabilities, layout) | Shipped |
+| `pharn add <name \| role:name>` — add one capability to an existing project | Shipped |
+| `pharn remove <name \| role:name>` — remove an installed capability (no clone, no network) | Shipped |
+| `pharn update` — re-resolve recorded archetypes and re-fetch capabilities at the latest version | Shipped |
+| `pharn list` — read-only inventory of installed archetypes + capabilities (`--json`) | Shipped |
+| `pharn status` — read-only version + capability-drift report (modified/missing PHARN-owned files; `--strict`, `--no-drift`) | Shipped |
 
 ## Planned
 
 | Capability | Description |
 | ---------- | ----------- |
-| Vendor skill SHA pinning | Vendor fetches are by `source` reference today; pinning each fetched vendor skill to a commit SHA is not built yet |
-| Stack scaffolding | Install npm packages / generate app code from the stack pack |
-| Additional stack packs | Beyond `pharn-stack-nextjs` |
+| Framework-specific capabilities | Beyond today's universal + archetype-triggered set |
+| Stack scaffolding | Install npm packages / generate app code for a detected framework |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only warns) |
-| Orphaned-file detection in `pharn status` | `status` today reports modified + missing PHARN-owned files; flagging files left orphaned in `.claude/` after an upstream rename (see [remove](commands/remove.md)) is not built yet |
+| Orphaned-file detection in `pharn status` | `status` today reports modified + missing PHARN-owned files; flagging files left orphaned after an upstream rename is not built yet |
 | Other agents | Codex and Cursor in addition to Claude Code |
 
 ## Related

@@ -6,10 +6,11 @@ PHARN does not scaffold your app. You create your project (e.g. with `create-nex
 
 | Requirement | How PHARN checks | When |
 | ----------- | ---------------- | ---- |
-| Git | A `.git` directory exists in the project root | Always — checked up front, before the wizard |
-| Stack-pack packages | Every package a selected stack pack declares (via the manifest's `prerequisites`) is in `package.json` `dependencies` or `devDependencies` | Only when you pick a pack that declares one — e.g. `pharn-stack-nextjs` requires `next` |
+| Git | A `.git` directory exists in the project root | Always — checked up front, before detection |
 
-`.git` is required for every install. Package prerequisites are **conditional on your stack-pack choice**: selecting **None** (or a pack with no prerequisites) installs without any framework package. If a check fails, the CLI prints the stack pack's own fix instructions and exits. See [Troubleshooting](troubleshooting.md).
+`.git` is required for every install. `pharn init` then detects your project's archetype(s) from
+`package.json` dependency names plus a bounded file-tree scan — there is no stack-pack selection and no
+package prerequisite to satisfy. See [Troubleshooting](troubleshooting.md).
 
 PHARN works best on **fresh** projects. The wizard may warn (framework-neutral, git-based) when:
 
@@ -41,46 +42,37 @@ npx pharn init
 
 `pharn` with no subcommand runs `init` (same as `pharn init`).
 
-## The wizard
+## The install flow
 
-The wizard adapts to the manifest the CLI fetches. Newer manifests (`schemaVersion 2`) drive the per-tech questions from the manifest itself; older pinned versions (`schemaVersion 1`) use the original three-question flow. The CLI picks the right flow automatically.
+`pharn init` is archetype-driven — there is no questionnaire:
 
-### Stack mode (schemaVersion 2)
+1. **Detect archetypes.** The CLI merges your `package.json` dependency names with a bounded,
+   symlink-safe file-tree scan (names only, never file bodies) into an archetype set — `ssr`, `backend`,
+   `spa`, `lib` (a project may match several, e.g. Next + Express → `ssr` + `backend`). It shows what it
+   detected.
+2. **Fetch + resolve.** It degit-clones `pharn-dev/pharn-oss` at a pinned SHA and selects the
+   capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the rest
+   with a reason.
+3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus
+   the fixed product surfaces (commands, hooks, contracts, floor checkers, and the canonical
+   constitution) into the mirrored layout and writes `pharn.config.json`.
 
-First the CLI reads your `package.json` and pre-fills the wizard from the manifest's detection metadata — the stack pack (when a pack's `prerequisites` are all present, e.g. `next` → `pharn-stack-nextjs`) and each technology answer (when an option's `detect` package is present, e.g. `drizzle-orm` → Drizzle). What it found is shown in a note; you can override anything, and any question with no match keeps its normal default (the recommended value in Default mode, or the option marked default in Custom mode).
-
-Then you choose a mode:
-
-- **Default** — takes the recommended stack from the manifest, overlaid with any detected answers (detection wins; undetected questions keep the recommended default), and asks **no** per-technology questions.
-- **Custom** — walks each section (database, ORM, auth, email, payments, …) with detected answers pre-selected. Options that don't apply are hidden based on earlier answers, some options are relabeled for context, and anything marked **(coming soon)** is shown but not selectable.
-
-Then, regardless of mode, the wizard asks:
-
-1. **Methodology modules** — a multiselect of optional modules (`pharn-pipeline`, `pharn-review`, `pharn-audits`). `pharn-core` is always included.
-2. **Stack pack** — a single choice (`pharn-stack-nextjs`, or none), pre-selected from what was detected. The stack pack pulls in its React base automatically.
-3. **Privacy posture** — picks your constitution variant (`gdpr-strict`, `standard`, or `minimal`).
-4. **Vendor skills** — for technologies whose skill is published by the vendor (e.g. Supabase), the wizard records your consent to use it. On install, any consented skill with a known source is fetched automatically from the vendor's registry into `.claude/skills/`; a vendor with no known source yet is shown as **(manual install)** and recorded in `pharn.config.json` for you to install by hand. A vendor fetch failure is non-fatal — the rest of the install still completes.
-
-For each answered technology, the CLI copies only the matching skill folder into `.claude/skills/<skill>/` — never the sibling options you didn't pick.
-
-### Three questions (schemaVersion 1)
-
-Against an older pinned manifest, `pharn init` asks just the three module/stack-pack/posture questions above.
-
-Dependencies are resolved from the repo's `manifest.json`, so selecting a stack pack or any module also installs whatever it depends on.
+To add a capability the detection didn't select — or remove one it did — use
+[`pharn add`](commands/add.md) / [`pharn remove`](commands/remove.md) afterward.
 
 ## What you get
 
-After a successful install, your project's `.claude/` contains the selected modules merged together:
+After a successful install, your project contains the selected capabilities plus the fixed product
+surfaces:
 
 | Artifact | Description |
 | -------- | ----------- |
-| `commands/`, `skills/`, `rules/`, `hooks/` | The slash commands and logic for your chosen modules |
-| `skills/<skill>/` | The per-technology skills selected in the wizard (schemaVersion 2) |
-| `ai_docs/`, `templates/`, … | Stack-pack reference docs and templates |
-| `memory-bank/` | Markdown files that persist project context across sessions |
-| `CONSTITUTION.md` | Your chosen constitution variant |
-| `pharn.config.json` | `skillsVersion`, commit SHA, installed modules, constitution variant, and (schemaVersion 2) your stack answers + installed skills |
+| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The installed grillers + lenses (flat layout; or the same under `pharn/`) |
+| `.claude/commands/` | The `pharn-*` product slash commands |
+| `.claude/hooks/` | The deterministic `.cjs` floor hooks |
+| `pharn-contracts/`, `.dev/floor/` | Inter-layer schemas + the floor checkers the commands invoke |
+| `CONSTITUTION.md` | The canonical PHARN constitution, copied verbatim |
+| `pharn.config.json` | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout |
 
 See [pharn.config.json](reference/pharn-config.md) for the exact schema.
 
@@ -94,5 +86,5 @@ The day-to-day loop: `/pharn-plan → /pharn-grill → /pharn-build → /pharn-r
 ## Next steps
 
 - Review what was written: [pharn.config.json](reference/pharn-config.md)
-- Add a module later: [add command](commands/add.md)
+- Add a capability later: [add command](commands/add.md)
 - Refresh to the latest skills: [update command](commands/update.md)

@@ -13,23 +13,21 @@ import { runStatus } from './commands/status.js';
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string };
 
-const USAGE = `Pharn - Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx pharn init detects your project's archetype and installs the applicable PHARN capabilities into .claude/; pharn add installs another module later; pharn update bumps to the latest skills version.
+const USAGE = `Pharn - Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
 
 Usage:
   pharn [command] [options]
 
 Commands:
-  init                       Run the setup wizard (default)
-  add <module>               Add a methodology module or stack pack
-  add <category>:<skill>     Add one technology skill (e.g. orm:prisma)
-  remove <module|cat:skill>  Remove a module or skill from this project
-  update                     Update installed modules to the latest version
-  list                       List installed and available modules/skills
+  init                       Detect archetypes and install capabilities (default)
+  add <capability>           Add one capability, e.g. a11y or lens:n-plus-one
+  remove <capability>        Remove an installed capability (no arg: pick one)
+  update                     Re-fetch installed capabilities at the latest version
+  list                       List installed archetypes + capabilities
   status                     Show version + local-drift status (read-only)
 
 Options:
       --archetype    init: deprecated no-op — archetype detection is now the default
-  -y, --yes          Skip the remove confirmation prompt
       --strict       Make status exit 1 on any outdated/modified/missing file
       --no-drift     Skip the status byte-level drift check
       --json         Emit list output as JSON

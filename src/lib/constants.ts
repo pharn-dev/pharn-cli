@@ -1,25 +1,12 @@
-// PHARN OSS lives in a single repo with module subfolders (pharn-core,
-// pharn-pipeline, …). The CLI fetches the whole repo, then copies the
-// selected modules' `installs` maps into the user's `.claude/`.
+// PHARN OSS lives in a single repo with capability subtrees (pharn-pipeline/
+// grillers, pharn-review, …). The CLI degit-clones the whole repo at a pinned
+// SHA, then copies the resolved capabilities + the fixed product surfaces into
+// the user's project (lib/install-capabilities.ts).
 export const REPO = 'pharn-dev/pharn-oss';
 export const REPO_BRANCH = 'main';
 export const REPO_URL = 'github.com/pharn-dev/pharn-oss';
 
-// raw.githubusercontent.com path to the authoritative version + dependency
-// manifest. Used by `pharn update` to check the latest skillsVersion without
-// cloning the whole repo.
-export const MANIFEST_RAW_PATH = `${REPO}/${REPO_BRANCH}/manifest.json`;
-
 export const FIRST_FEATURE_COMMAND = '/pharn-plan';
-
-// pharn-core is always installed; it is the foundation every other module
-// depends on.
-export const CORE_MODULE = 'pharn-core';
-
-// schemaVersion 2 skill-category modules follow the `pharn-skills-<category>`
-// convention (e.g. `orm` → `pharn-skills-orm`). Every installable wizard option
-// is rooted at one of these so `add <category>:<skill>` can address it.
-export const SKILL_MODULE_PREFIX = 'pharn-skills-';
 
 // ---------------------------------------------------------------------------
 // Archetype (capability) install (pharn init --archetype). Repo-relative source

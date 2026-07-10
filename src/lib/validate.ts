@@ -1,3 +1,5 @@
+import { resolve, sep } from 'node:path';
+
 export class ManifestValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -106,4 +108,22 @@ export function assertNoDotDot(value: string, label: string): void {
 
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+// Defense-in-depth against path traversal in fetched/copied paths (already
+// validated by INSTALL_PATH_RE / CAPABILITY_NAME_RE upstream, but never let a
+// copy or read escape its base directory). This is the LEXICAL gate (resolve +
+// startsWith); it does NOT resolve symlinks — the symlink-aware backstop lives
+// at the copy write sites in install-capabilities.ts (P2). Co-located with the
+// other structural-validation primitives (one security-validation axis, P3);
+// the archetype install + drift check + remove all guard their fs access with it.
+export function safeJoin(base: string, rel: string): string {
+  const target = resolve(base, rel);
+  const root = resolve(base);
+  if (target !== root && !target.startsWith(root + sep)) {
+    throw new ManifestValidationError(
+      `Refusing path escape: ${rel} resolves outside ${base}`,
+    );
+  }
+  return target;
 }

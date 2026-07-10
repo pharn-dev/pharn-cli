@@ -4,25 +4,18 @@
 
 | Situation | Exit code |
 | --------- | --------- |
-| Prerequisite failure (no `.git`, or a selected stack pack's required package is missing) | 1 |
-| Module catalog / install failure | 1 |
+| Prerequisite failure (no `.git`) | 1 |
+| Capability fetch / install failure | 1 |
 | Unknown command | 1 |
-| `add` / `update` with no `pharn.config.json` | 1 |
+| `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1 |
 | User cancel at summary, or overwrite declined | 0 |
 | Successful install | 0 |
 
 ## Prerequisites failed
 
-### Stack-pack prerequisite missing
-
-When you select a stack pack, every package it declares as a prerequisite must already be in your `package.json` (`dependencies` or `devDependencies`). If any are missing, the CLI prints each one's `reason` and exits with code **1**. The exact wording is defined by the manifest (PHARN owns it), so it may differ from the example below, and multiple missing packages are listed together. For `pharn-stack-nextjs`, for instance:
-
-```text
-✗ pharn-stack-nextjs targets Next.js. Run: npx create-next-app@latest
-  Then re-run: npx pharn init
-```
-
-Install the package and re-run — or pick a different stack pack, or **None**. The check is conditional on your choice: a no-pack (or non-Next) install has no package prerequisite. The same gate runs for [`pharn add <stack-pack>`](commands/add.md) (its hint says `npx pharn add …`), so a pack can't bypass it by being added after init.
+`pharn init` has one prerequisite — a git repository. There is no stack-pack or package prerequisite:
+archetype detection reads `package.json` names and the file tree, and installs whatever capabilities
+apply.
 
 ### Git not found
 
@@ -38,7 +31,7 @@ Exits with code **1**.
 
 ### Monorepos / workspaces
 
-`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there for any stack-pack prerequisites, and installs `.claude/` there. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
+`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there for archetype detection, and installs into that directory. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
 
 ## Fresh-project warnings
 
@@ -52,24 +45,24 @@ Checks run in order; only the first matching rule applies:
 | Existing commits | 2–5 commits |
 | Customized scaffold | 0–1 commits but > 3 unrecognized files |
 
-## Module catalog could not be loaded
+## Capabilities could not be fetched
 
 Symptoms:
 
-- Spinner stops with "Failed to load module catalog"
+- Spinner stops with "Failed to fetch PHARN" / "Failed to fetch capabilities"
 - Message references `github.com/pharn-dev/pharn-oss`
 - Exit code 1
 
-The wizard fetches `manifest.json` from `raw.githubusercontent.com/pharn-dev/pharn-oss/main/manifest.json`. Check network access to GitHub and that the repo is reachable.
+`init` / `add` / `update` degit-clone `pharn-dev/pharn-oss`; `update` and `status --no-drift` also fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com`. Check network access to GitHub and that the repo is reachable.
 
 ## Install failed
 
 Symptoms:
 
-- Spinner stops with "Failed to install skills"
+- Spinner stops with "Failed to install capabilities"
 - Exit code 1
 
-Causes include a degit clone failure (network/GitHub), a module declaring an `installs` path it doesn't ship, or an unknown constitution variant. Set `PHARN_DEBUG=1` and re-run for the full stack trace:
+Causes include a degit clone failure (network/GitHub), or a selected capability missing at its expected path (`<subtree>/<name>/<name>.md`) in the fetched repo. Set `PHARN_DEBUG=1` and re-run for the full stack trace:
 
 ```bash
 PHARN_DEBUG=1 npx pharn init
@@ -85,7 +78,15 @@ If you decline overwriting `pharn.config.json`, the wizard cancels with exit 0 a
 No pharn.config.json found. Run `pharn init` first.
 ```
 
-Both commands operate on an already-installed project. Run `pharn init` to create `pharn.config.json`.
+All non-`init` commands operate on an already-installed project. Run `pharn init` to create `pharn.config.json`.
+
+### Legacy (pre-archetype) config
+
+```text
+This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` to reinstall with the archetype/capability model.
+```
+
+If your `pharn.config.json` predates the archetype model (it has `modules` but no `capabilities`), the module/manifest install path it relied on has been removed (live pharn-oss ships no `manifest.json`). Re-run `pharn init` to reinstall using archetype detection.
 
 ## A command rejects an invalid config (does NOT say "run init")
 
@@ -106,7 +107,7 @@ out-of-enum value, an unknown key (e.g. a typo'd `stgaes` / `haltOnUnknwon`), a 
 Unknown command: ...
 ```
 
-Run `pharn --help`. Valid commands: `init`, `add`, `update`.
+Run `pharn --help`. Valid commands: `init`, `add`, `remove`, `update`, `list`, `status`.
 
 ## Local development issues
 

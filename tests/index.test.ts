@@ -59,27 +59,27 @@ describe('main (argv dispatch)', () => {
   });
 
   it('routes `add <arg>` to runAdd with the argument', async () => {
-    setArgv('add', 'orm:prisma');
+    setArgv('add', 'lens:n-plus-one');
     await main();
-    expect(runAdd).toHaveBeenCalledWith('orm:prisma');
+    expect(runAdd).toHaveBeenCalledWith('lens:n-plus-one');
   });
 
   it('routes `remove <arg>` to runRemove with the argument and yes:false', async () => {
-    setArgv('remove', 'pharn-review');
+    setArgv('remove', 'a11y');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('pharn-review', { yes: false });
+    expect(runRemove).toHaveBeenCalledWith('a11y', { yes: false });
   });
 
   it('passes yes:true through for `remove --yes`', async () => {
-    setArgv('remove', 'pharn-review', '--yes');
+    setArgv('remove', 'a11y', '--yes');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('pharn-review', { yes: true });
+    expect(runRemove).toHaveBeenCalledWith('a11y', { yes: true });
   });
 
   it('routes the `rm` alias to runRemove', async () => {
-    setArgv('rm', 'orm:prisma');
+    setArgv('rm', 'lens:n-plus-one');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('orm:prisma', { yes: false });
+    expect(runRemove).toHaveBeenCalledWith('lens:n-plus-one', { yes: false });
   });
 
   it('routes `update` to runUpdate', async () => {
@@ -132,6 +132,9 @@ describe('main (argv dispatch)', () => {
       .map((c: unknown[]) => String(c[0] ?? ''))
       .join('\n');
     expect(printed).toContain('Usage:');
+    // USAGE is synced to the capability model (grill F3) — no module wording.
+    expect(printed).toMatch(/capabilit/i);
+    expect(printed).not.toMatch(/methodology module|stack pack/i);
     expect(runInit).not.toHaveBeenCalled();
   });
 

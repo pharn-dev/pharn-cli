@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { safeJoin } from './install-modules.js';
+import { safeJoin } from './validate.js';
 import {
   CONTRACTS_DIR,
   FLOOR_DIR,

@@ -1,52 +1,41 @@
 # pharn remove
 
-Remove a PHARN module or a single technology skill from an existing project (one with a `pharn.config.json`). The inverse of [`add`](add.md): it deletes exactly the files the module or skill contributed and updates `pharn.config.json` to match.
+Remove a single installed **capability** — a griller or a lens — from an existing project (one with a
+`pharn.config.json`). The inverse of [`add`](add.md): it deletes exactly that capability's directory and
+drops its entry from `pharn.config.json`.
 
 ```bash
-pharn remove <module>            # a whole methodology module / stack pack
-pharn remove <category>:<skill>  # a single technology skill (schemaVersion 2)
-pharn remove                     # interactive picker
-pharn remove <module> --yes      # skip the confirmation prompt
+pharn remove <name>          # e.g. pharn remove a11y
+pharn remove <role>:<name>   # e.g. pharn remove lens:n-plus-one
+pharn remove                 # interactive picker over installed capabilities
 ```
 
 `rm` is accepted as an alias for `remove`.
 
 ## Behavior
 
-1. Reads `pharn.config.json`. If none exists, exits with a hint to run `pharn init` first.
-2. An argument containing `:` removes a **skill** (§A); any other argument removes a **module** (§B); no argument opens the **interactive picker**, which lists only items that are genuinely removable (so you never pick something the command would refuse).
+1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
+   a hint to run `pharn init` first.
+2. With no argument, opens an interactive picker listing the capabilities you have installed. With an
+   argument, resolves it to one installed capability.
+3. Deletes that capability's isolated directory and drops its entry from `capabilities`.
 
-`CONSTITUTION.md` and everything under `memory-bank/` are **never** deleted — they are user-owned and materialized only at `init`.
+Removal needs **no network and no clone** — everything is derivable from `capabilities` plus your
+filesystem. `CONSTITUTION.md`, `memory-bank/`, and your detected `archetypes` are **never** touched.
 
-## Removing a skill (`<category>:<skill>`)
+## The capability argument
 
-Each skill lives in its own isolated `.claude/skills/<name>/` directory, so removal is precise and needs **no network and no clone** — the CLI works entirely from `installedSkills` plus your filesystem.
+Each capability lives in its own directory, addressed at your project's recorded layout — flat
+(`pharn-review/<name>` for a lens, `pharn-pipeline/grillers/<name>` for a griller) or the same paths
+under `pharn/`. Removal is therefore precise; siblings are never touched.
 
-```bash
-pharn remove orm:prisma   # deletes .claude/skills/prisma/
-pharn remove auth:clerk   # deletes .claude/skills/clerk/
-```
-
-- Deletes the skill's directory and drops its entry from `installedSkills`.
-- **Does not** touch `stackAnswers`, `modules`, `skillsVersion`, or `commit` — your recorded wizard answer stays authoritative.
-- **Not installed** → a no-op (nothing is written). For an unrecognized address, the CLI lists the skills you actually have installed as the valid values.
+- **Not installed** → a no-op (nothing is written); the CLI lists the capabilities you actually have as
+  the valid values.
+- **Ambiguous** (a name installed in both roles, given without a role) → the CLI asks you to
+  disambiguate with `griller:` / `lens:`.
 - Already-deleted directory → treated as done (idempotent).
 
-## Removing a module (`<module>`)
-
-Modules share destination directories (`pharn-core`, `pharn-pipeline`, `pharn-review`, and `pharn-audits` all merge into `commands/`, `skills/`, `hooks/`, …), so `remove` never wipes a directory. It clones `pharn-dev/pharn-oss` once, reads the module's `installs` from the clone, computes the **exact** set of files that module contributed, and deletes only those — then prunes any directories left empty (never one that still holds another module's files).
-
-Refusals (checked **before** anything is deleted or written — no partial removals):
-
-- **`pharn-core`** is required by every other module and cannot be removed.
-- A module that **is not installed** is reported and nothing happens.
-- A module with **installed dependents** is refused, naming them — remove those first. (There is no automatic cascade.) This also blocks removing a stack pack's base, e.g. `pharn-stack-react` while `pharn-stack-nextjs` is installed.
-
-Unless `--yes` / `-y` is given, the CLI confirms before deleting. `modules` in `pharn.config.json` is rewritten to the resolved survivor set; `skillsVersion`, `commit`, `stackAnswers`, and `installedSkills` are left unchanged.
-
-### Orphan caveat
-
-The contributed file set is computed from the repository's `main` branch, **not** the pinned `commit` recorded at install. If a file was renamed or removed upstream since you installed, an orphaned copy may remain in `.claude/`. This is acceptable for now; `pharn status` is planned to surface such orphans (see the [roadmap](../roadmap.md)).
+`--yes` / `-y` is accepted but has no effect — capability removal has no confirmation prompt to skip.
 
 ## Related
 
