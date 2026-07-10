@@ -6,10 +6,12 @@ import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import {
   readPharnConfig,
   loadConfigOrExit,
+  loadArchetypeConfigOrExit,
   isConfigValidationError,
   writePharnConfig,
   toInstalledModules,
   isArchetypeConfig,
+  LEGACY_CONFIG_MESSAGE,
 } from '../src/lib/pharn-config.js';
 import type { PharnConfig } from '../src/types.js';
 import {
@@ -287,5 +289,50 @@ describe('isConfigValidationError', () => {
     expect(isConfigValidationError(new SeamConfigError('x'))).toBe(true);
     expect(isConfigValidationError(new Error('x'))).toBe(false);
     expect(isConfigValidationError('nope')).toBe(false);
+  });
+});
+
+describe('loadArchetypeConfigOrExit', () => {
+  const tmp = useTmpDir();
+  stubProcessExit();
+  afterEach(() => vi.mocked(log.error).mockClear());
+
+  it('returns an archetype (capability) config unchanged', () => {
+    const archetype: PharnConfig = {
+      ...sample,
+      modules: [],
+      archetypes: ['ssr'],
+      capabilities: [{ name: 'a11y', role: 'griller' }],
+    };
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify(archetype),
+    );
+    expect(loadArchetypeConfigOrExit(tmp.path())).toEqual(archetype);
+  });
+
+  it('rejects a legacy (module) config with the exact LEGACY_CONFIG_MESSAGE + exit(1)', () => {
+    // `sample` is a legacy module install: modules present, no capabilities.
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify(sample),
+    );
+    expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    const msg = vi
+      .mocked(log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(msg).toBe(LEGACY_CONFIG_MESSAGE);
+    expect(msg).toMatch(/no longer supported/);
+    expect(msg).toMatch(/pharn init/); // the remediation is to re-run init
+  });
+
+  it('exits(1) via loadConfigOrExit when the config is absent (unchanged)', () => {
+    expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    const msg = vi
+      .mocked(log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(msg).toMatch(/pharn init/);
   });
 });

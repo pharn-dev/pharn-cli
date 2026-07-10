@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { REPO, REPO_BRANCH, SKILLS_VERSION_FILE } from './constants.js';
-import { safeJoin } from './install-modules.js';
 import {
   assertSafeString,
   ManifestValidationError,
+  safeJoin,
   VERSION_RE,
 } from './validate.js';
 
@@ -36,9 +36,9 @@ export function readSkillsVersion(repoDir: string): string {
 
 /**
  * Fetch the latest `SKILLS_VERSION` from `@main` without cloning — the
- * lightweight currency check `status --no-drift` uses. Mirrors
- * `fetchRemoteManifest`'s three network guards (redirect:'error', an 8s timeout,
- * a 256KB body cap) and validates the result (P2).
+ * lightweight currency check `status --no-drift` / `update` uses. Applies the
+ * three network guards (redirect:'error', an 8s timeout, a 256KB body cap) and
+ * validates the result (P2).
  */
 export async function fetchRemoteSkillsVersion(): Promise<string> {
   const url = `${RAW}/${REPO}/${REPO_BRANCH}/${SKILLS_VERSION_FILE}`;

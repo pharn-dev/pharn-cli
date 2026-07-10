@@ -133,3 +133,29 @@ export function toInstalledModules(
 export function isArchetypeConfig(config: PharnConfig): boolean {
   return Array.isArray(config.capabilities);
 }
+
+// The single message shown when a command runs against a pre-archetype (module)
+// config, which is no longer operable: the module/manifest install path was
+// removed (live pharn-oss ships no manifest.json), so add/update/status/remove
+// cannot resolve it. `list` emits this json-aware (to stderr in --json); the
+// other four go through loadArchetypeConfigOrExit. Deterministic (P5): the branch
+// is the isArchetypeConfig membership test and its terminal is this named
+// hard-fail, never a guess or a silent proceed (P6).
+export const LEGACY_CONFIG_MESSAGE =
+  'This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` to reinstall with the archetype/capability model.';
+
+/**
+ * Load pharn.config.json and require it be an archetype (capability) install, or
+ * exit(1) with the single `LEGACY_CONFIG_MESSAGE`. The shared load surface for
+ * `add`/`update`/`status`/`remove` after the module/manifest path was removed —
+ * it single-sources the legacy reject (P3, no 5× copy). `list` keeps its own
+ * json-aware check because its error must stay on stderr in `--json`.
+ */
+export function loadArchetypeConfigOrExit(cwd: string): PharnConfig {
+  const config = loadConfigOrExit(cwd);
+  if (!isArchetypeConfig(config)) {
+    log.error(LEGACY_CONFIG_MESSAGE);
+    process.exit(1);
+  }
+  return config;
+}

@@ -1,11 +1,11 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
-import { safeJoin } from './install-modules.js';
 import {
   assertNoDotDot,
   assertSafeString,
   CAPABILITY_NAME_RE,
   COPY_FILENAME_RE,
   ManifestValidationError,
+  safeJoin,
 } from './validate.js';
 import {
   CLAUDE_COMMANDS_DIR,

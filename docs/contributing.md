@@ -60,44 +60,45 @@ A separate CodeQL workflow analyzes the JavaScript/TypeScript surface on PRs, pu
 pharn-cli/
   src/
     index.ts              CLI entry, command routing
-    commands/             init, add, update
-    steps/                wizard steps (prereqs, fresh-check, mode-select, wizard-questions, module/stackpack/constitution select, summary, install)
-    lib/                  manifest, wizard, repo, installer, install-modules, pharn-config, validate, constants, banner, confirm, format
-    types.ts              Manifest / ModuleManifest / WizardConfig / PharnConfig
+    commands/             init, add, remove, update, list, status
+    steps/                init stages (prereqs, fresh-check, archetype-summary, install-archetype)
+    lib/                  install-capabilities, capability-index, resolve-capabilities, detect-archetype, layout, repo, diff, skills-version, pharn-config, validate, constants, banner, confirm, format
+    types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
   scripts/install-local.mjs
 ```
 
-See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the init step pipeline, dependency resolution, and the security-sensitive libs).
+See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype install flow, capability resolution, and the security-sensitive libs).
 
 ## Security-sensitive files
 
-`lib/validate.ts`, `lib/manifest.ts`, and `lib/install-modules.ts` handle all remote input (manifest, module names, install/skill paths, wizard values). Preserve their invariants when editing:
+`lib/validate.ts` and `lib/install-capabilities.ts` handle all untrusted remote input (capability names, install paths, frontmatter). Preserve their invariants when editing:
 
-- Strict regex allowlists (`MODULE_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`, `WIZARD_VALUE_RE`), `..` rejection, and control-char rejection.
-- Every copy — modules and skills — is guarded by `safeJoin` so nothing escapes its base directory.
-- Remote fetches use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
-- The manifest `schemaVersion` must be exactly `1` or `2` — anything else hard-fails by design so old CLIs don't guess at a new schema.
+- Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`, `COPY_FILENAME_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
+- `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
+- Remote fetches (`lib/skills-version.ts`) use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
 
 ## Test map
 
 | Test file | Behavior covered |
 | --------- | ---------------- |
-| `manifest.test.ts` / `manifest-v2.test.ts` | v1 parse/validate of manifest + module.json, dependency resolution, exclusivity, categorization; `parseManifest` schemaVersion routing + `wizard` block validation |
-| `wizard.test.ts` | `matchCondition` and the pure rule engine / answer resolver (`lib/wizard.ts`) |
-| `wizard-questions.test.ts` | `runWizardQuestions` Custom-mode rendering (hide / relabel / coming-soon / warn rules) |
-| `mode-select.test.ts` | Default vs Custom stack mode select |
-| `install-modules.test.ts` / `install-skills.test.ts` | Copy `installs` maps, materialize memory-bank + constitution; selective `installSkills`; path-escape guards |
-| `installer.test.ts` / `install.test.ts` | `fetchAndInstall` shared core; `runInstall` step |
-| `init.test.ts` / `init-v2.test.ts` | v1 and v2 init pipelines end to end |
-| `add.test.ts` / `update.test.ts` | `runAdd` (module + `category:skill`) and `runUpdate` re-resolution |
-| `validate.test.ts` | `assertSafeString` allowlists, `..` and control-char rejection |
-| `pharn-config.test.ts` | Read/write/round-trip `pharn.config.json`, incl. v2 additive fields |
-| `prereqs.test.ts` | Next.js and git checks |
-| `fresh-check.test.ts` | Commit counts, custom file heuristic |
-| `confirm.test.ts` | Cancel and warn helpers |
-| `repo.test.ts` / `banner.test.ts` / `format.test.ts` | degit clone wrapper; banner; format helpers |
+| `detect-archetype.test.ts` / `archetype.test.ts` | Archetype detection from `package.json` names + file-tree signals |
+| `capability-index.test.ts` | Parse/validate the untrusted capability index (frontmatter → typed entries) |
+| `resolve-capabilities.test.ts` | Select capabilities by `applies` against detected archetypes |
+| `install-capabilities.test.ts` | Copy capability dirs + fixed product surfaces; symlink + path-escape guards |
+| `init.test.ts` / `init-archetype.test.ts` | The archetype init flow end to end |
+| `add.test.ts` / `update.test.ts` | `runAdd` (capability add) and `runUpdate` (archetype re-resolve) |
+| `remove.test.ts` | `runRemove` capability deletion (flat + `pharn/` layouts) |
+| `list.test.ts` / `status.test.ts` | Read-only inventory + version/drift audit |
+| `diff.test.ts` | `diffInstalledCapabilities` expected-set derivation + byte compare |
+| `layout.test.ts` | `detectLayout` / `configLayout` / `layoutPaths` |
+| `validate.test.ts` | Allowlists, `..`/control-char rejection, and `safeJoin` containment |
+| `pharn-config.test.ts` | Round-trip `pharn.config.json`; `loadArchetypeConfigOrExit` legacy reject |
+| `skills-version.test.ts` | Read/fetch + validate `SKILLS_VERSION` |
+| `prereqs.test.ts` / `fresh-check.test.ts` | git check; commit counts + custom-file heuristic |
+| `model-routing.test.ts` / `seam-config.test.ts` | `models` / `seam` config validation |
+| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts` | helpers; degit clone wrapper; banner; format |
 
 When changing behavior, add or update tests before docs.
 
@@ -108,7 +109,7 @@ Keep [`docs/`](./README.md) aligned with code when you change:
 | Code change | Update docs |
 | ----------- | ----------- |
 | Install output or config shape | [reference/pharn-config.md](./reference/pharn-config.md) |
-| Wizard steps or resolution | [commands/init.md](./commands/init.md), [getting-started.md](./getting-started.md) |
+| Archetype detection or capability resolution | [commands/init.md](./commands/init.md), [getting-started.md](./getting-started.md) |
 | New validation or warning | [troubleshooting.md](./troubleshooting.md) |
 | New command or behavior | `commands/*.md`, [roadmap.md](./roadmap.md) |
 | CLI `--help` text | [commands/init.md](./commands/init.md), [README.md](../README.md) |

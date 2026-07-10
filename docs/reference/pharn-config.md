@@ -1,77 +1,71 @@
 # pharn.config.json
 
-Written to the project root on successful `pharn init` install, and updated by `pharn add` / `pharn update`. Source: [`pharn-config.ts`](../../src/lib/pharn-config.ts) and [`install.ts`](../../src/steps/install.ts).
+Written to the project root on a successful `pharn init`, and updated by `pharn add` / `pharn update`.
+Source: [`pharn-config.ts`](../../src/lib/pharn-config.ts) and
+[`install-archetype.ts`](../../src/steps/install-archetype.ts).
 
-PHARN skills in your project read this file at runtime (e.g. to discover the installed module set or pinned commit).
+PHARN skills in your project read this file at runtime (e.g. to discover the installed
+archetypes/capabilities and the pinned commit).
 
-## Top-level fields
+## Top-level fields (archetype install)
 
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `pharnVersion` | string | Version of the PHARN CLI that ran the install |
-| `skillsVersion` | string | `skillsVersion` from the repo's `manifest.json` at the installed commit |
-| `repo` | string | Source repo (`pharn-dev/pharn-oss`) |
-| `commit` | string \| null | Pinned commit SHA of the install; `null` if the GitHub API was unavailable |
-| `constitution` | string | Chosen variant: `gdpr-strict`, `standard`, or `minimal` |
-| `isMultiTenant` | boolean | Whether the project is a multi-tenant SaaS. Written on every fresh install (absent on legacy installs, where it reads as `true`). When `false`, **Principle 2 (Multi-Tenant Isolation)** was stripped from the installed `CONSTITUTION.md` |
-| `modules` | array | Installed modules (resolved, incl. dependencies), each `{ name, version }` |
-| `installedAt` | string | ISO timestamp of the install / last update |
-| `stackAnswers` | object | _schemaVersion 2 only._ Wizard answers, `questionId → value` (including `"skip"`) |
-| `installedSkills` | array | _schemaVersion 2 only._ Per-technology skills copied into `.claude/skills/`, each `{ skill, from }` (`from` is the repo-relative source path) |
+| Field           | Type           | Description                                                                    |
+| --------------- | -------------- | ------------------------------------------------------------------------------ |
+| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                  |
+| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                            |
+| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                            |
+| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable            |
+| `installedAt`   | string         | ISO timestamp of the install / last update                                     |
+| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                |
+| `capabilities`  | array          | Installed capabilities, each `{ name, role }` (`role` is `griller` or `lens`)  |
+| `layout`        | string         | Install layout mirrored from the clone: `flat` or `pharn` (absent → `flat`)    |
+| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)        |
+| `models`        | object         | Per-stage model routing ([`model-routing.ts`](../../src/lib/model-routing.ts)) |
+| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |
 
-The two `schemaVersion 2` fields are **additive** — installs against an older (`schemaVersion 1`) manifest omit them entirely, and existing configs stay valid.
+`isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 
 ## Example
 
 ```json
 {
   "pharnVersion": "0.2.0",
-  "skillsVersion": "0.70.0",
+  "skillsVersion": "1.0.0",
   "repo": "pharn-dev/pharn-oss",
   "commit": "daa06788…",
-  "constitution": "standard",
-  "isMultiTenant": true,
-  "modules": [
-    { "name": "pharn-core", "version": "0.2.0" },
-    { "name": "pharn-stack-react", "version": "0.1.2" },
-    { "name": "pharn-stack-nextjs", "version": "0.31.0" },
-    { "name": "pharn-pipeline", "version": "0.6.0" },
-    { "name": "pharn-review", "version": "0.4.0" },
-    { "name": "pharn-audits", "version": "0.11.1" }
+  "installedAt": "2026-06-11T00:00:00.000Z",
+  "archetypes": ["ssr", "backend"],
+  "capabilities": [
+    { "name": "a11y", "role": "griller" },
+    { "name": "security", "role": "griller" },
+    { "name": "n-plus-one", "role": "lens" }
   ],
-  "installedAt": "2026-06-11T00:00:00.000Z"
+  "layout": "flat",
+  "modules": []
 }
 ```
 
-The `modules` array lists the **resolved** set: your explicit selections plus every transitive dependency, in install order (dependencies before dependents).
+## Legacy fields (pre-archetype configs still load)
 
-### schemaVersion 2 example (added fields)
+The schema is **additive** (P7): a `pharn.config.json` written by an older, module-based CLI still loads,
+and its now-unused fields are preserved on read.
 
-```json
-{
-  "stackAnswers": {
-    "database": "supabase",
-    "orm": "drizzle",
-    "auth": "better-auth",
-    "email": "resend",
-    "payments": "skip"
-  },
-  "installedSkills": [
-    { "skill": "drizzle", "from": "pharn-skills-orm/skills/drizzle" },
-    { "skill": "better-auth", "from": "pharn-skills-auth/skills/better-auth" },
-    { "skill": "resend", "from": "pharn-skills-email/skills/resend" }
-  ]
-}
-```
+| Field             | Type   | Note                                                             |
+| ----------------- | ------ | ---------------------------------------------------------------- |
+| `constitution`    | string | Legacy constitution variant (`gdpr-strict`/`standard`/`minimal`) |
+| `installedSkills` | array  | Legacy per-technology skills, each `{ skill, from }`             |
+| `stackAnswers`    | object | Legacy wizard answers, `questionId → value`                      |
 
-`stackAnswers` records every answered question (including `"skip"`); `installedSkills` records only what was actually copied. Both are used by `pharn add` (dedupe / conflict detection) and `pharn update` (skill re-resolution).
+The module/manifest install path itself has been **removed**, so `add` / `update` / `remove` / `list` /
+`status` no longer operate on a pre-archetype config — they exit with a message pointing you to re-run
+`pharn init`.
 
 ## Overwrite behavior
 
-| Command | Existing `pharn.config.json` | Prompt | If declined |
-| ------- | ---------------------------- | ------ | ----------- |
-| `init` | present | "Overwrite existing pharn.config.json?" (default no) | Cancel install (exit 0) |
-| `add` / `update` | required | none — updated in place | n/a |
+| Command          | Existing `pharn.config.json` | Prompt                                               | If declined             |
+| ---------------- | ---------------------------- | ---------------------------------------------------- | ----------------------- |
+| `init`           | present                      | "Overwrite existing pharn.config.json?" (default no) | Cancel install (exit 0) |
+| `add` / `update` | required (archetype)         | none — updated in place                              | n/a                     |
 
 `init` shows the previous `skillsVersion` before asking.
 

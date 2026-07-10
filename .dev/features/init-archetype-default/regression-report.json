@@ -1,0 +1,43 @@
+{
+  "base": "f58094e9e9297cb1c487e242c80534d0bbb07b2d",
+  "inside": [
+    "src/commands/init.ts",
+    "src/index.ts",
+    "src/steps/constitution-select.ts",
+    "src/steps/detect.ts",
+    "src/steps/install.ts",
+    "src/steps/mode-select.ts",
+    "src/steps/module-select.ts",
+    "src/steps/multitenant-select.ts",
+    "src/steps/stackpack-select.ts",
+    "src/steps/summary.ts",
+    "src/steps/wizard-questions.ts",
+    "tests/constitution-select.test.ts",
+    "tests/detect.test.ts",
+    "tests/index.test.ts",
+    "tests/init-v2.test.ts",
+    "tests/init.test.ts",
+    "tests/install.test.ts",
+    "tests/mode-select.test.ts",
+    "tests/module-select.test.ts",
+    "tests/multitenant-select.test.ts",
+    "tests/stackpack-select.test.ts",
+    "tests/summary.test.ts",
+    "tests/wizard-questions.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}

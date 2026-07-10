@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { safeJoin } from './install-modules.js';
 import { detectLayout, layoutPaths } from './layout.js';
 import {
   assertAppliesToken,
@@ -8,6 +7,7 @@ import {
   assertSafeString,
   CAPABILITY_NAME_RE,
   ManifestValidationError,
+  safeJoin,
 } from './validate.js';
 import type { Archetype, CapabilityEntry, CapabilityIndex } from '../types.js';
 

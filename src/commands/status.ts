@@ -1,32 +1,28 @@
-import { resolve } from 'node:path';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { REPO, REPO_BRANCH } from '../lib/constants.js';
-import {
-  fetchRemoteManifest,
-  readManifest,
-  resolveModules,
-} from '../lib/manifest.js';
 import { fetchRepo } from '../lib/repo.js';
-import { diffInstalled, diffInstalledCapabilities } from '../lib/diff.js';
+import { diffInstalledCapabilities } from '../lib/diff.js';
 import { configLayout } from '../lib/layout.js';
 import { row } from '../lib/format.js';
-import { isArchetypeConfig, loadConfigOrExit } from '../lib/pharn-config.js';
+import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
 import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
 } from '../lib/skills-version.js';
-import type { Manifest, PharnConfig } from '../types.js';
+import type { PharnConfig } from '../types.js';
 
 const REF = `${REPO}@${REPO_BRANCH}`;
 
 /**
- * Read-only audit: is the install current (version section) and have any
- * PHARN-owned files drifted from `pharn-dev/pharn-oss@main` (drift section)?
- * Never writes, deletes, or overwrites — fixing is `pharn update` / `pharn add`.
+ * Read-only audit of an archetype install: is it current (version section) and
+ * have any PHARN-owned files drifted from `pharn-dev/pharn-oss@main` (drift
+ * section)? Never writes, deletes, or overwrites — fixing is `pharn update` /
+ * `pharn add`. The module/manifest flow was removed; a pre-archetype config is
+ * rejected up front by loadArchetypeConfigOrExit.
  *
  * Default clones the repo once and reuses it for both sections. `--no-drift`
- * skips the clone and only checks the version (via the lightweight manifest
+ * skips the clone and only checks the version (via the lightweight SKILLS_VERSION
  * fetch). `--strict` exits 1 when anything is outdated, modified, or missing.
  */
 export async function runStatus(
@@ -38,88 +34,13 @@ export async function runStatus(
   intro('pharn status');
 
   const cwd = process.cwd();
-  const config = loadConfigOrExit(cwd);
-  const claudeDir = resolve(cwd, '.claude');
-
-  // Archetype (capability) install: version via SKILLS_VERSION (there is no
-  // manifest) + capability drift. Separate path so the legacy audit is unchanged.
-  if (isArchetypeConfig(config)) {
-    await runArchetypeStatus(config, { strict, drift }, cwd);
-    return;
-  }
-
-  // Version-only: no clone, just the manifest fetch list/update already use.
-  if (!drift) {
-    const s = spinner();
-    s.start('Checking for updates');
-    let manifest;
-    try {
-      manifest = await fetchRemoteManifest();
-      s.stop(`Latest skills v${manifest.skillsVersion}`);
-    } catch (err) {
-      s.stop('Failed to check for updates');
-      reportError(err);
-      process.exit(1);
-    }
-    const { outdated } = printVersionSection(config, manifest);
-    if (strict && outdated) process.exit(1);
-    outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
-    return;
-  }
-
-  // Default: clone once; the HEAD manifest is both the "latest" for the version
-  // section and the source for the byte-level drift comparison (no double fetch).
-  const s = spinner();
-  s.start(`Comparing against ${REF}`);
-  let repo;
-  try {
-    repo = await fetchRepo();
-    s.stop(`Compared against ${REF}`);
-  } catch (err) {
-    s.stop(`Failed to reach ${REPO}`);
-    reportError(err);
-    process.exit(1);
-  }
-
-  // cleanup() must run before any process.exit (Node skips finally on exit), so
-  // record the desired code and exit only after the finally has cleaned up.
-  let exitCode = 0;
-  try {
-    const manifest = readManifest(repo.dir);
-    const { outdated } = printVersionSection(config, manifest);
-
-    const resolved = resolveModules(
-      manifest,
-      config.modules.map((m) => m.name),
-    );
-    const result = diffInstalled({
-      repoDir: repo.dir,
-      claudeDir,
-      moduleNames: resolved.map((m) => m.name),
-      skills: config.installedSkills ?? [],
-    });
-    printDriftSection(result);
-
-    if (
-      strict &&
-      (outdated || result.modified.length || result.missing.length)
-    ) {
-      exitCode = 1;
-    }
-  } catch (err) {
-    reportError(err);
-    exitCode = 1;
-  } finally {
-    repo.cleanup();
-  }
-
-  if (exitCode) process.exit(exitCode);
-  outro(pc.dim('Read-only — nothing changed.'));
+  const config = loadArchetypeConfigOrExit(cwd);
+  await runArchetypeStatus(config, { strict, drift }, cwd);
 }
 
-// Archetype install audit: version via SKILLS_VERSION + capability drift. Mirrors
-// the module path's structure (cleanup before exit; --strict gate) but reads the
-// version from SKILLS_VERSION and diffs the copied capabilities/product surfaces.
+// Archetype install audit: version via SKILLS_VERSION + capability drift.
+// Cleanup runs before any process.exit (Node skips finally on exit), so the
+// desired exit code is recorded and applied only after the finally.
 async function runArchetypeStatus(
   config: PharnConfig,
   opts: { strict: boolean; drift: boolean },
@@ -201,34 +122,6 @@ function printArchetypeVersion(config: PharnConfig, latest: string): boolean {
     'VERSION',
   );
   return outdated;
-}
-
-// VERSION note: skillsVersion + any per-module version bumps. Returns whether
-// the install is behind upstream (drives the --strict gate). Mirrors the diff
-// computation in `pharn update`.
-function printVersionSection(
-  config: PharnConfig,
-  manifest: Manifest,
-): { outdated: boolean } {
-  const latest = new Map(manifest.modules.map((m) => [m.name, m.version]));
-  const changes = config.modules
-    .filter((m) => latest.has(m.name) && latest.get(m.name) !== m.version)
-    .map((m) => ({ name: m.name, from: m.version, to: latest.get(m.name)! }));
-  const outdated =
-    config.skillsVersion !== manifest.skillsVersion || changes.length > 0;
-
-  const skillsLine =
-    config.skillsVersion === manifest.skillsVersion
-      ? `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim('(up to date)')}`
-      : `${row('Skills version', `v${config.skillsVersion} → v${manifest.skillsVersion}`)} ${pc.dim('(update available, run `pharn update`)')}`;
-
-  const lines = [skillsLine];
-  if (changes.length) {
-    lines.push('', '  MODULE UPDATES');
-    for (const c of changes) lines.push(row(c.name, `v${c.from} → v${c.to}`));
-  }
-  note(lines.join('\n'), 'VERSION');
-  return { outdated };
 }
 
 // DRIFT note: locally-modified and missing PHARN-owned files, or a clean bill.

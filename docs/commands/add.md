@@ -1,43 +1,35 @@
 # pharn add
 
-Add a PHARN module to an existing project (one with a `pharn.config.json`).
+Add a single PHARN **capability** — a griller or a lens — to an existing project (one with a
+`pharn.config.json`). This is a manual override of the archetype auto-selection [`init`](init.md)
+performs.
 
 ```bash
-pharn add <module>            # whole methodology module / stack pack
-pharn add <category>:<skill>  # a single technology skill (schemaVersion 2)
-pharn add                     # interactive module picker
+pharn add <name>          # e.g. pharn add a11y
+pharn add <role>:<name>   # e.g. pharn add lens:n-plus-one (role disambiguates)
 ```
 
 ## Behavior
 
-1. Reads `pharn.config.json`. If none exists, exits with a hint to run `pharn init` first.
-2. Fetches `manifest.json` to list available modules.
-3. Resolves the **union** of already-installed modules plus the new one, so any dependencies of the new module are pulled in too.
-4. **Checks prerequisites** for the newly-introduced modules: any package a module declares (in the manifest's `prerequisites`) must already be in your `package.json`. This is the same gate as [`init`](init.md) — e.g. `pharn add pharn-stack-nextjs` requires `next` — so a pack can't bypass it by being added after init. Missing prerequisites print their `reason` and exit **1** (see [Troubleshooting](../troubleshooting.md#stack-pack-prerequisite-missing)).
-5. Clones `pharn-dev/pharn-oss`, copies the resolved modules' `installs` into `.claude/`, and updates `pharn.config.json` (`modules`, `skillsVersion`, `commit`).
+1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
+   a hint to run `pharn init` first.
+2. Clones `pharn-dev/pharn-oss` (SHA-pinned) and reads the capability index from the clone.
+3. Resolves your argument against that index. If it uniquely names a capability you don't already have,
+   it copies that capability's directory into the mirrored layout and **appends** it to `capabilities`
+   in `pharn.config.json` (also refreshing `skillsVersion` and `commit`).
 
-`CONSTITUTION.md` is **not** touched — `add` never changes your constitution.
+`CONSTITUTION.md` is **not** touched — `add` never changes your constitution. Your detected `archetypes`
+are left unchanged; `add` only appends to `capabilities`.
 
-## Module argument
+## The capability argument
 
-`<module>` must be a full module name (e.g. `pharn-review`, `pharn-stack-nextjs`). If you pass an unknown or already-installed name, the CLI tells you and falls back to the interactive picker, which lists only modules you don't already have.
+`<name>` is a capability's directory name (e.g. `a11y`, `security`, `n-plus-one`). Use the
+`<role>:<name>` form (`griller:` or `lens:`) when the same name exists in both roles, or to be explicit.
 
-## Category skill argument (schemaVersion 2)
-
-`<category>:<skill>` installs one technology skill from a category module — for example:
-
-```bash
-pharn add orm:prisma     # installs pharn-skills-orm/skills/prisma
-pharn add auth:clerk     # installs pharn-skills-auth/skills/clerk
-```
-
-`<category>` maps to `pharn-skills-<category>`; `<skill>` must be one of that category's wizard options. Behavior:
-
-- **Already installed** → no-op with a message.
-- **Conflicting sibling** (e.g. `orm:drizzle` already installed, you add `orm:prisma`) → the CLI asks before installing the second one alongside it. On yes, it appends to `installedSkills` but **does not** change your recorded `stackAnswers`.
-- **Unknown category or skill** → the CLI lists the valid `category:skill` values.
-
-This form requires a `schemaVersion 2` manifest (skills v0.69+). Against an older manifest, use a plain module name.
+- **Already installed** → a no-op with a message.
+- **Unknown name** → the CLI lists every valid `role:name` address.
+- **Ambiguous** (a name in both roles, given without a role) → the CLI asks you to disambiguate with
+  `griller:` / `lens:`.
 
 ## Related
 

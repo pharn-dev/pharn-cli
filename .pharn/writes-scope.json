@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/installer-layout-mirror/SHIP.md"
+    ".dev/features/commands-off-manifest/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-10T07:57:30.084Z"
+  "set_at": "2026-07-10T12:07:26.630Z"
 }
