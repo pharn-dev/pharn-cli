@@ -40,6 +40,8 @@ Written / modified (in writes-scope; every path below exists after build):
 - `tests/init.test.ts` — `runInit()` (no opts) now drives the archetype flow (mirror `tests/init-archetype.test.ts` fixture setup); assert the archetype path IS taken and that `src/commands/init.ts` no longer imports `../lib/manifest.js` (the sharpened no-404 guard, grill #2).
 - `tests/init-archetype.test.ts` — archetype is now the default; exercise via `runInit()` with no opts; keep coverage.
 - `tests/index.test.ts` — update the two dispatch assertions (`:49`, `:57`) for the no-op-alias flag handling.
+- `CLAUDE.md` — doc-sync (added at GATE 2 per the human's "doc-sync then merge" decision): reframe the init description + the "commands/init.ts is a step pipeline" section to the archetype/capability flow; note the module/manifest/wizard machinery now serves ONLY as legacy-config back-compat for `add`/`update`/`list`/`status`/`remove`.
+- `docs/commands/init.md` — doc-sync (GATE 2): rewrite the user-facing init page for the archetype-default flow (detect archetypes → resolve capabilities → summary → install), replacing the legacy module/wizard/schemaVersion content.
 
 ### Deleted (verified orphans — `init.ts`-only importers; removed via `git rm`, never written — deliberately OUTSIDE the writes-scope and the build-completeness set)
 

@@ -8,6 +8,10 @@ pharn init
 pharn
 ```
 
+`init` detects your project's **archetype(s)** and installs the PHARN **capabilities** that apply to them. It fetches nothing you did not ask for: only the capabilities matching your project, plus the fixed product surfaces (commands, hooks, docs, contracts, floor), are copied. There is no module catalog and no `manifest.json` fetch — capabilities are the install unit.
+
+> The `--archetype` flag is a **deprecated no-op** kept for one release: archetype detection is now the default, so `pharn init --archetype` behaves identically to `pharn init`.
+
 ## Flow
 
 ```mermaid
@@ -16,11 +20,9 @@ sequenceDiagram
   participant CLI as pharn_init
   participant Prereqs
   participant Fresh as fresh_check
-  participant Catalog as manifest_fetch
-  participant Modules as module_select
-  participant Stack as stackpack_select
-  participant Const as constitution_select
-  participant Tenant as multitenant_select
+  participant Detect as detect_archetype
+  participant Fetch as fetch_pharn_oss
+  participant Resolve as resolve_capabilities
   participant Summary
   participant Install
 
@@ -29,38 +31,20 @@ sequenceDiagram
   Prereqs-->>CLI: ok or exit
   CLI->>Fresh: commit + tracked-file heuristics
   Fresh-->>User: optional warnings
-  CLI->>Catalog: fetch manifest.json
-  loop Until install or cancel
-    CLI->>Modules: optional modules multiselect
-    CLI->>Stack: stack pack (single, or none)
-    CLI->>Const: privacy posture → constitution
-    CLI->>Tenant: multi-tenant SaaS? (gates Principle 2)
-    CLI->>Summary: resolved module set + versions
-    Summary-->>User: install / back / cancel
-  end
-  CLI->>Prereqs: stack-pack package prerequisites
-  Prereqs-->>CLI: ok or exit
-  CLI->>Install: clone repo, copy modules, write config
+  CLI->>Detect: package.json + file-tree signals
+  Detect-->>User: "Detected archetypes" note
+  CLI->>Fetch: clone pharn-dev/pharn-oss (degit)
+  CLI->>Resolve: capability index vs detected archetypes
+  CLI->>Summary: capabilities selected + skipped (with reason)
+  Summary-->>User: install / cancel
+  CLI->>Install: copy capabilities + product surfaces, write config
   Install-->>User: next steps
 ```
 
-> The diagram shows the **schemaVersion 1** flow. Against a **schemaVersion 2** manifest the CLI runs the wizard flow below before the methodology/stack/constitution steps.
+## Archetypes and capabilities
 
-## schemaVersion 2 wizard
-
-When the fetched `manifest.json` is `schemaVersion 2`, `init` first reads your `package.json` and pre-fills the wizard from the manifest's detection metadata:
-
-- **Stack pack** — preselected when every package a pack lists in `prerequisites` is present in `dependencies`/`devDependencies` (e.g. `next` → `pharn-stack-nextjs`); otherwise **None**.
-- **Per-technology answers** — each question's answer is preselected when one of an option's `detect` packages is present (e.g. `drizzle-orm` → Drizzle, `@supabase/supabase-js` → Supabase). `(coming soon)` options are never auto-selected.
-
-Detected values are shown in a "Detected from package.json" note; you can override every choice, and with no matches the wizard falls back to defaults / None.
-
-`init` then asks how to configure your stack:
-
-- **Default** — every per-technology answer is taken from `manifest.wizard.defaults`, overlaid with any detected answers (detection wins; undetected questions keep their default); the manifest's `hide`/`hideQuestion` rules are then applied so the result matches what Custom mode would produce with every default accepted (a question a rule hides is recorded as `skip`, never installed). No per-tech questions are asked.
-- **Custom** — each wizard section (database, ORM, auth, …) is rendered as a single-select with detected answers pre-checked. Options are hidden, relabeled, or whole questions skipped based on your earlier answers (the manifest's `rules`); `(coming soon)` options are shown but not selectable; soft warnings confirm risky combinations.
-
-After the stack questions it continues with the methodology multiselect (which excludes the `pharn-skills-*` category modules), stack pack, constitution, and the **multi-tenant SaaS** flag as below. The summary lists the per-technology skills, and install copies only those skill folders into `.claude/skills/`. Your answers and installed skills are written to `pharn.config.json` (`stackAnswers`, `installedSkills`).
+- **Archetype** — a closed set describing what your project is: `ssr`, `backend`, `spa`, or `lib` (the frameworkless base). Detection merges two untrusted-but-name-only fact sources — your `package.json` dependency **names** and **file-tree** structural signals (e.g. a `.tsx` file → `spa`) — then applies the archetype rule once. It is deterministic: the same project always yields the same archetypes. A wholly signal-less project resolves to `lib`.
+- **Capability** — one griller or lens (an auditor PHARN ships). Each declares `applies: 'universal'` (always selected) or a set of archetypes. A capability is **selected** iff it is universal or its `applies` set intersects your detected archetypes; otherwise it is **skipped**, with the reason shown.
 
 ## Steps
 
@@ -70,10 +54,7 @@ Shows the PHARN logo and CLI version.
 
 ### 2. Prerequisites
 
-Hard requirements. See [Getting started](../getting-started.md#prerequisites).
-
-- **`.git` present** — checked up front, before the wizard (universal, framework-agnostic).
-- **Stack-pack packages** — after you pick a stack pack, every package it declares in the manifest's `prerequisites` must be in `package.json` (`dependencies`/`devDependencies`). Validated just before install, only for the pack you chose: **None** or a non-Next pack needs no framework package, while `pharn-stack-nextjs` requires `next`. The failure message is the manifest's own `reason`.
+- **`.git` present** — checked up front, before anything else (universal, framework-agnostic). Hard-fails if absent.
 
 ### 3. Fresh check
 
@@ -87,59 +68,47 @@ Soft warnings based on git signals only (framework-neutral). Thresholds:
 
 Default for "Continue anyway?" is **no** (false).
 
-### 4. Module catalog
+### 4. Detect archetypes
 
-Fetches `manifest.json` from `raw.githubusercontent.com/pharn-dev/pharn-oss/main/manifest.json`. This drives the wizard options (module names, descriptions, versions) and dependency resolution. If the fetch fails, the CLI exits — re-run with `PHARN_DEBUG=1` for details.
+Reads `package.json` dependency names and walks the project tree (bounded, symlink-safe, `node_modules`/`.git`/`dist`/`build` skipped) for structural signals, then reduces both to an `Archetype[]`. The detected set is shown in a "Detected archetypes" note. Only names are tested against fixed in-code allowlists — no discovered file body is read (other than `package.json`) and no untrusted value is executed, interpolated, or logged.
 
-### 5. Module select
+### 5. Fetch PHARN
 
-A multiselect of **optional** modules (required modules and stack-pack bases are excluded). `pharn-core` is always installed. All optional modules are pre-selected by default.
+Clones `pharn-dev/pharn-oss` into a temp dir via degit. If the fetch fails, the CLI exits — re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up (even on cancel or error).
 
-### 6. Stack pack select
+### 6. Resolve capabilities
 
-A single choice among the available stack packs (currently `pharn-stack-nextjs`), or **None**. The initial selection is the pack detected from `package.json` (see the wizard section above), or **None** when nothing matches. Stack packs are mutually exclusive; the chosen pack's dependencies (e.g. the React base) are pulled in automatically.
+Parses the capability index from the fetched clone and selects the capabilities that apply to your archetypes (universal + archetype-matched), in the index's declared order. Skipped capabilities are kept with a reason (e.g. `applies to [backend]; detected [ssr]`).
 
-### 7. Privacy posture / constitution
+### 7. Summary
 
-Maps your answer to a constitution variant shipped in `pharn-core/templates/constitution/`:
-
-| Answer | Variant | Principles |
-| ------ | ------- | ---------- |
-| GDPR / EU users / strict compliance | `gdpr-strict` | 1–6 |
-| Standard SaaS with user data | `standard` | 1–4 |
-| Internal tools / B2B, no end-user PII | `minimal` | 2–4 |
-
-### 8. Multi-tenant SaaS
-
-"Is this a multi-tenant SaaS?" — recorded as `isMultiTenant` in `pharn.config.json` (default **Yes**). It gates **Principle 2 (Multi-Tenant Isolation)** in the installed constitution:
-
-- **Yes** (default) — the chosen constitution variant is installed verbatim, including Principle 2.
-- **No** — Principle 2 is stripped from the copied `CONSTITUTION.md`: its `## Principle 2` section is removed and `2` is dropped from the `principles_included` frontmatter, so a non-SaaS project is not blocked by a principle that does not apply. Every other principle and the file's structure are unchanged.
-
-### 9. Summary
-
-Displays the **resolved** module set (your selections plus all transitive dependencies, with versions), the skills version, the constitution variant, and whether the project is a multi-tenant SaaS. Then:
+Lists the **selected** capabilities (name, role, and why — `universal` or the matched archetype) and the **skipped** ones (with reason). Then:
 
 | Action | Result |
 | ------ | ------ |
-| Yes, install | Clone the repo and install |
-| Go back and change something | Re-run the selection steps, keeping your previous answers |
+| Yes, install | Copy the capabilities + product surfaces and write config |
 | Cancel | Exit 0; nothing written |
 
-### 10. Install
+An overwrite prompt appears first if `pharn.config.json` already exists (default: do not overwrite). A present-but-invalid existing config is reported by name rather than silently clobbered — `init` is the repair path.
+
+### 8. Install
 
 | Action | Behavior |
 | ------ | -------- |
-| Clone `pharn-dev/pharn-oss` | Whole repo into a temp dir (via degit) |
-| Resolve modules | From the cloned `manifest.json` — dependencies + exclusivity |
-| Copy modules | Each module's `installs` map merged into `.claude/` |
-| Materialize core | `memory-bank/` and the chosen `CONSTITUTION.md` (Principle 2 stripped when not a multi-tenant SaaS) |
-| Pin commit SHA | Best-effort via the GitHub API (null if unavailable) |
-| Write `pharn.config.json` | `skillsVersion`, `commit`, `modules`, `constitution`, `isMultiTenant` |
+| Copy capabilities | Each selected griller/lens dir (with its `evals/`) → the mirrored project path |
+| Copy product surfaces | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs` hooks, the trusted docs, `pharn-contracts/`, and `.dev/floor/` (minus test files) |
+| Preserve settings | An existing `.claude/settings.json` is **never** overwritten (a note tells you to wire the hooks by hand if needed) |
+| Mirror the layout | Whichever layout the fetched clone uses — flat, or the relocated `pharn/` — is mirrored verbatim; the CLI never rewrites copied file contents |
+| Pin commit SHA | Best-effort (the SHA the tree was pinned to; `null` if unavailable) |
+| Write `pharn.config.json` | `skillsVersion` (from the repo's `SKILLS_VERSION`), `commit`, `archetypes`, `capabilities`, `layout`, `models`, `seam`, `modules: []` |
 
-Overwrite prompt if `pharn.config.json` already exists (default: do not overwrite).
+The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 
-On success, the CLI suggests opening Claude Code and running `/pharn-plan`.
+On success, the CLI reports the capability count and suggests opening Claude Code and running `/pharn-plan`.
+
+## Legacy configs
+
+`init` always writes an **archetype** config. The `add`, `remove`, `list`, `update`, and `status` commands still understand an older **module**-based `pharn.config.json` (from a pre-archetype install) and fall back to the module/manifest path for it — so an existing legacy install keeps working. Only `init` is archetype-only.
 
 ## Related
 
