@@ -3,4 +3,10 @@ dist
 *.log
 .DS_Store
 coverage/
-test-app
+test-backend
+test-edge
+test-edge2
+test-full
+test-lib
+test-next
+test-spa
