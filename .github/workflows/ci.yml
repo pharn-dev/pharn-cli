@@ -39,3 +39,6 @@ jobs:
       - name: Test
         if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run test:coverage
+      - name: Build
+        if: ${{ always() && steps.install.outcome == 'success' }}
+        run: npm run build

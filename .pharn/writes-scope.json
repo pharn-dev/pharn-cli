@@ -1,7 +1,14 @@
 {
   "scope": [
-    ".dev/features/npm-publish-metadata/SHIP.md"
+    "scripts/build.mjs",
+    "package.json",
+    "CLAUDE.md",
+    ".github/workflows/ci.yml",
+    "src/version.ts",
+    "src/index.ts",
+    "src/lib/banner.ts",
+    "src/steps/install-archetype.ts"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-22T12:49:20.120Z"
+  "set_by": "manual-adhoc (user-authorized in chat: esbuild bundle+minify for dist/; extended to fix a bundling-exposed package.json-path bug in src/)",
+  "set_at": "2026-07-22T00:00:00.000Z"
 }
