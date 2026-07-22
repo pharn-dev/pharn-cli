@@ -1,8 +1,8 @@
 # PLAN — capability-resolver (archetype detection → capability selection, pure core)
 
 - spec_content_hash: 11cd9ad5983188623fe0931d13588c16435a5565888344e20669748947d1d969 # fix #4 — sha256 of ARCHITECTURE.md, read this run
-- increment: Add pharn-cli's **pure, deterministic** archetype-detection + capability-selection core — `(package.json, capability-index) → { selected, skipped }` — with its test suite. **No fetch, no install, no command/hook/doc copying** (all deferred).
-- layer(s): **product** (`pharn-cli` CLI, `src/`) — NOT a `pharn-*` methodology Capability. This is the installer's selection logic, consumer of the pharn-oss capability catalog.
+- increment: Add pharn's **pure, deterministic** archetype-detection + capability-selection core — `(package.json, capability-index) → { selected, skipped }` — with its test suite. **No fetch, no install, no command/hook/doc copying** (all deferred).
+- layer(s): **product** (`pharn` CLI, `src/`) — NOT a `pharn-*` methodology Capability. This is the installer's selection logic, consumer of the pharn-oss capability catalog.
 - constitution_refs: [P3, P5, P6, P7, P0]
 
 ## Decisions carried in (human-selected at the plan HALT, this run)
@@ -15,7 +15,7 @@
 
 - pharn-oss has **no `manifest.json`/`module.json`** anymore (only `SKILLS_VERSION`); it ships capabilities: `pharn-pipeline/grillers/<n>/<n>.md` (11) + `pharn-review/<n>/<n>.md` (22), each with `evals/`.
 - **Every** capability frontmatter is `coupling: agnostic` with **no** archetype/stack/`applies_when` field — applicability is **not** declared anywhere machine-readable today. Hence decision #1 (a new index).
-- `pharn-contracts/` (both repos) has only `eval-format.md`, `finding-shape.md`, `seam-config.md` — **no archetype enum, no index contract** exists yet, though `ARCHITECTURE.md §4` promises them. So the `Archetype` enum + index shape are defined **consumer-side in pharn-cli** for now (mirrors how `src/lib/manifest.ts` already owns pharn-cli's parse of a pharn-oss-owned schema). Coordination note, not a blocker.
+- `pharn-contracts/` (both repos) has only `eval-format.md`, `finding-shape.md`, `seam-config.md` — **no archetype enum, no index contract** exists yet, though `ARCHITECTURE.md §4` promises them. So the `Archetype` enum + index shape are defined **consumer-side in pharn** for now (mirrors how `src/lib/manifest.ts` already owns pharn's parse of a pharn-oss-owned schema). Coordination note, not a blocker.
 - No existing `archetype` code in `src/` (greenfield). Product floor = **`npm run check`** (`format:check && lint && typecheck && test`); `.dev/floor/validate.mjs` walks only `.md` capabilities and **excludes `src/`** — so this increment's deterministic floor is the **vitest suite + tsc + eslint + prettier**, not `validate.mjs`.
 
 ## Files
@@ -43,7 +43,7 @@ Multi-archetype is intentional and deterministic (e.g. Next + Express ⇒ `[ssr,
 
 - **`ARCHITECTURE.md §5` (archetype + map-consistency)** — implements "archetype ∈ {ssr,backend,spa,lib}, detected deterministically (membership over `package.json`)" as a pure function. Cited, not restated (P4).
 - **`ARCHITECTURE.md §4`** — "A frameworkless lib runs on core alone" ⇒ the `lib` empty-set fallback. Cited (P4).
-- **(future) capability-index schema** — this increment defines the **consumer-side** shape pharn-cli will parse; the **authoritative** schema stays pharn-oss's to own (P4). Named as a coordination point, not claimed as satisfied here.
+- **(future) capability-index schema** — this increment defines the **consumer-side** shape pharn will parse; the **authoritative** schema stays pharn-oss's to own (P4). Named as a coordination point, not claimed as satisfied here.
 
 ## Evals to write (P1 — for product TS, the vitest suite IS the eval/spec)
 

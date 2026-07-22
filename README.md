@@ -1,10 +1,10 @@
 <div align="center">
 
-# pharn-cli
+# pharn
 
 **Install PHARN into your project in one command.**
 
-The interactive installer for [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code that keeps comprehension debt legible instead of silent.
+The installer for [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code that keeps comprehension debt legible instead of silent.
 
 [![npm](https://img.shields.io/npm/v/pharn)](https://www.npmjs.com/package/pharn)
 [![CI](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml)
@@ -49,7 +49,7 @@ npx pharn@latest init
 
 Vibe-coding with an AI agent is fast — until the chat history scrolls away and takes the _understanding_ with it. That gap is **comprehension debt** ([coined by Addy Osmani](https://addyosmani.com/blog/comprehension-debt/)), and it compounds faster than any other kind. PHARN keeps a markdown-canonical record — spec, constitution, diff, audit trail — in your repo, readable and diffable.
 
-`pharn-cli` is how you get it. Run `pharn init` in your project to pick which PHARN modules and stack pack you want; the CLI fetches them from `pharn-dev/pharn-oss`, copies them into `.claude/`, materializes your constitution + memory bank, and writes `pharn.config.json`.
+`pharn` is how you get it. Run `pharn init` in your project; the CLI detects your project's **archetype(s)**, fetches the applicable PHARN **capabilities** from `pharn-dev/pharn-oss`, copies them plus the canonical constitution into the mirrored layout (`.claude/` + `pharn/`), and writes `pharn.config.json`.
 
 > The npm package is `pharn`; it installs a single `pharn` binary.
 
@@ -57,17 +57,23 @@ Vibe-coding with an AI agent is fast — until the chat history scrolls away and
 
 ## What it installs
 
-PHARN ships as **modules** (subfolders of the pharn-oss repo). `pharn-core` is required; everything else is optional and depends on it.
+`pharn init` detects your project's **archetype(s)** and installs the PHARN **capabilities** that apply to them — nothing you didn't ask for. There is no module catalog and no `manifest.json`: capabilities are the install unit.
 
-| Module | What you get |
-| ------ | ------------ |
-| `pharn-core` | Constitution, markdown memory bank, privacy-shield + constitution-guard hooks, base skills |
-| `pharn-pipeline` | The spec → plan → grill → build → regress → verify → ship pipeline |
-| `pharn-review` | `/pharn-review` with 13 context lenses + fingerprint ledger |
-| `pharn-audits` | 8 standalone audits (privacy, security, a11y, supply-chain, …) |
-| `pharn-stack-nextjs` | Next.js + Supabase + Better Auth + Drizzle stack pack (pulls in the React base) |
+- **Archetype** — a closed set describing what your project _is_: `ssr`, `backend`, `spa`, or `lib` (the frameworkless base). Detection merges your `package.json` dependency **names** with a bounded, symlink-safe file-tree scan (names only, never file bodies). A project can match several (Next + Express → `ssr` + `backend`); a signal-less project resolves to `lib`.
+- **Capability** — one **griller** (a pipeline auditor) or **lens** (a review lens). Each declares `applies: 'universal'` or a set of archetypes; it is **selected** when universal or when its `applies` intersects your detected archetypes, and **skipped** otherwise (with the reason shown).
 
-The wizard also asks a **privacy-posture** question and writes the matching constitution variant (`gdpr-strict`, `standard`, or `minimal`) to `.claude/CONSTITUTION.md`. On newer manifests it additionally installs only the per-technology skills you answer for (e.g. your ORM, database, auth) — never the sibling options you didn't pick.
+After a summary of what was selected vs. skipped and your confirmation, the CLI copies the selected capabilities plus the fixed product surfaces into the mirrored layout and writes `pharn.config.json`:
+
+| Artifact | What lands in your project |
+| -------- | -------------------------- |
+| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The selected grillers + lenses (flat layout, or the same under `pharn/`) |
+| `.claude/commands/` | The `pharn-*` product slash commands |
+| `.claude/hooks/` | The deterministic `.cjs` floor hooks |
+| `pharn-contracts/`, `.dev/floor/` | Inter-layer schemas + the floor checkers the commands invoke |
+| `CONSTITUTION.md` | The canonical PHARN constitution, copied verbatim |
+| `pharn.config.json` | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and layout |
+
+An existing `.claude/settings.json` is **never** overwritten. To adjust the selection afterward, use [`pharn add`](docs/commands/add.md) / [`pharn remove`](docs/commands/remove.md).
 
 ---
 
@@ -76,7 +82,7 @@ The wizard also asks a **privacy-posture** question and writes the matching cons
 Once installed, PHARN gives Claude Code a spine of typed stages — each links back to the spec:
 
 ```text
-spec → plan → grill → build → regress → verify → ship
+spec → plan → grill → build → regress → verify → review → ship
 ```
 
 After `pharn init`, open Claude Code and run **`/pharn-plan`** to plan your first feature (or **`/pharn-spec`** first for a fuzzy or larger feature).
@@ -87,12 +93,11 @@ After `pharn init`, open Claude Code and run **`/pharn-plan`** to plan your firs
 
 | Command | Description |
 | ------- | ----------- |
-| `pharn init` | Interactive setup wizard (default) |
-| `pharn add <module>` | Add a module to an existing PHARN project |
-| `pharn add <category>:<skill>` | Add one technology skill (e.g. `orm:prisma`) |
-| `pharn remove <module\|category:skill>` | Remove a module or skill from this project |
-| `pharn update` | Update installed modules to the latest skills version |
-| `pharn list` | List installed and available modules/skills (`--json`) |
+| `pharn init` | Detect archetypes and install the applicable capabilities (default) |
+| `pharn add <capability>` | Add one capability, e.g. `a11y` or `lens:n-plus-one` |
+| `pharn remove <capability>` | Remove an installed capability (no arg: pick one interactively) |
+| `pharn update` | Re-fetch installed capabilities at the latest skills version |
+| `pharn list` | List installed archetypes + capabilities (`--json`) |
 | `pharn status` | Show version + local-drift status (read-only; `--strict`, `--no-drift`) |
 | `pharn -h`, `--help` | Show help |
 | `pharn -v`, `--version` | Show version |
@@ -101,10 +106,9 @@ After `pharn init`, open Claude Code and run **`/pharn-plan`** to plan your firs
 
 ## Prerequisites
 
-- **Git** initialized in the project (required for every install)
-- **Stack-pack packages** — only when you pick a pack that declares them (e.g. `pharn-stack-nextjs` requires `next` in `package.json`)
+- **Git** initialized in the project — the only requirement, checked up front before detection.
 
-See [Getting started](docs/getting-started.md) for the full flow and fresh-project warnings.
+There is no stack-pack selection and no package prerequisite to satisfy. See [Getting started](docs/getting-started.md) for the full flow and fresh-project warnings.
 
 ---
 
@@ -138,7 +142,7 @@ npm run build:install-local   # link pharn into the local test-app/
 
 ## Security
 
-All remote input (manifest, repo/branch/commit, module and skill paths) is validated against strict allowlists, checked for path escapes, and fetched with `redirect: 'error'`, an 8s timeout, and a 256KB body cap. Found a vulnerability? Please follow [`SECURITY.md`](SECURITY.md) rather than opening a public issue.
+All remote input (repo/branch/commit, capability names and paths, and capability frontmatter) is validated against strict allowlists, checked for path escapes, and fetched with `redirect: 'error'`, an 8s timeout, and a 256KB body cap. Contents copied from the clone are never executed or parsed by the CLI. Found a vulnerability? Please follow [`SECURITY.md`](SECURITY.md) rather than opening a public issue.
 
 ---
 

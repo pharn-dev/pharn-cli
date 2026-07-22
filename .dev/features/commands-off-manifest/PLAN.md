@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 (ARCHITECTURE.md)
 - increment: Migrate `add`/`list`/`remove`/`status`/`update` fully onto the archetype/capability model + `pharn/` layout, then delete the now-orphaned manifest/module/wizard install path — closing Fable's symlink finding (`install-modules.ts`).
-- layer(s): pharn-cli (the installer) — `src/commands/*`, `src/lib/*`, `src/steps/*`, `tests/*`, docs
+- layer(s): pharn (the installer) — `src/commands/*`, `src/lib/*`, `src/steps/*`, `tests/*`, docs
 - constitution_refs: [P0, P1, P2, P3, P4, P5, P6, P7]
 
 ## Context (live state, verified this run)
@@ -119,7 +119,7 @@ message, decision Q1). Single-source the reject via a shared helper (grill F4/P3
   archetype paths resolve live now.
 - `CONSTITUTION.md` P2/P3/P5/P6 — preserved by construction (see audits below).
 
-## Evals to write (P1) # pharn-cli's evals ARE its vitest tests (P1: "tests are the spec")
+## Evals to write (P1) # pharn's evals ARE its vitest tests (P1: "tests are the spec")
 
 - `safeJoin` (relocated) → path escaping `..`/absolute/outside-base → throws; in-base → returns joined path.
 - `add` (archetype) → `add lens:n-plus-one` copies one capability + appends to config; already-installed → noop.

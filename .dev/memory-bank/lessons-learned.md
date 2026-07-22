@@ -373,3 +373,16 @@ A file-tree signal that keys off a basename or extension ALONE (`api/`, `route.t
 - commit: `6acb6aa845f39dbd3e962c0d72c270fb27163209`
 - source: `.dev/features/archetype-path-context/REVIEW.md` (proposed lesson candidate) + `GRILL.md` F4 (third-flip churn)
 - promoted: 2026-07-09 via gated `/pharn-dev-memory-promote` (human-approved).
+
+## L14 — Untracked local test-*/ app installs redden the whole-repo floor — false build/verify FAILs for non-capability increments
+
+**Lesson.** The pharn-cli working tree carries UNTRACKED local `test-*/` PHARN app installs (`git ls-files 'test-*'` -> 0). They sit on the floor's SCAN surface: `validate.mjs .` walks every `.md` and hits their intentional `pharn/floor/test-fixtures/red/skill.md` fixtures (RED), and `lens-scanner-map.test.mjs` counts their installed `role: lens` copies (live 142 != map -> the `tests` gate REDs). So for an increment that touches NO capability (e.g. a `.github/workflows/*.yml` edit, read by NO floor gate), `/pharn-dev-build`'s validate verdict and `/pharn-dev-verify`'s validate gate both go RED, and `/pharn-dev-regress`'s `git worktree` baseline (which OMITS untracked files) reads these whole-repo gates GREEN@base / RED@head -> a FALSE regression -- none of it caused by the increment. Remedy: measure the CI-equivalent -- `validate.mjs` in a clean `git worktree` at HEAD (no untracked apps) is the verdict CI actually computes (exit 0 here); classify untracked-`test-*/` RED as pre-existing (verify saw 0 validate offenders outside `test-*/`); and for regress, hold the untracked context CONSTANT (measure base and head over the same working tree -- valid because `git diff --name-only HEAD` showed 0 gate-domain files, i.e. no `.md`/`.test.*`/`findings.json`, changed) rather than a worktree baseline.
+
+**Why it matters.** This is L11's principle -- a WHOLE-REPO gate blaming the feature for a pre-existing UNRELATED condition that `/pharn-dev-verify` cannot classify as pre-existing the way `/pharn-dev-regress` can -- extended along three axes L11 does not cover: (1) the offender is UNTRACKED local scratch, so L11's 'keep the repo style-clean at merge' remedy does NOT apply (you cannot commit-clean a developer's local install); (2) it reddens `validate` + the `lens-scanner-map` `tests` gate, not only style gates; (3) it also breaks `/pharn-dev-regress`'s `git worktree` BASELINE (verify has no baseline; regress does, and the worktree omits the untracked apps), so the remedy is the CI-equivalent clean-worktree measurement, not a base-vs-head style diff. Concretely this run: the `publish-oidc-trusted` increment (a `.yml`-only change, invariant under every floor gate) hit RED validate at `/pharn-dev-build` (human chose Continue), FAIL at `/pharn-dev-verify` (sole gate `validate`), and a worktree-baseline false-regression risk at `/pharn-dev-regress` -- all resolved only by proving `validate` exit 0 in a clean HEAD worktree. Complements L11 (verify, committed offender) and L10 (the validate scan surface).
+
+**Provenance.**
+
+- feature: `publish-oidc-trusted`
+- commit: `db11f65113d3580b07369b47653417a8cc2a1dea`
+- source: `.dev/features/publish-oidc-trusted/REVIEW.md` (proposed lesson candidate) + `VERIFY.md` + `regression-report.json`
+- promoted: 2026-07-22 via gated `/pharn-dev-memory-promote` (human-approved).

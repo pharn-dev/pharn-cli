@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 — sha256(ARCHITECTURE.md), read this run
 - increment: Add a `models` block to the `pharn.config.json` schema (per-stage `{model, effort}` with a `default` fallback), a deterministic **validator** (reject bad model / effort / stage key) and a pure **resolver** (`stage → {model,effort}`, missing → default), and write the block with sensible defaults on `init`.
-- layer(s): **product** (`pharn-cli` CLI, `src/`) — NOT a `pharn-*` methodology Capability and NOT an ARCHITECTURE §4 methodology layer. This is installer schema + logic; the CLI owns the `pharn.config.json` schema (P3, CLAUDE.md). Its floor is `npm run check`, not `.dev/floor/validate.mjs` (which walks only `.md` capabilities and excludes `src/`).
+- layer(s): **product** (`pharn` CLI, `src/`) — NOT a `pharn-*` methodology Capability and NOT an ARCHITECTURE §4 methodology layer. This is installer schema + logic; the CLI owns the `pharn.config.json` schema (P3, CLAUDE.md). Its floor is `npm run check`, not `.dev/floor/validate.mjs` (which walks only `.md` capabilities and excludes `src/`).
 - constitution_refs: [P0, P1, P3, P5, P6, P7]
 
 ## What this increment IS (and is NOT)
@@ -27,7 +27,7 @@
 
 ## Naming-collision note (surfaced, NOT resolved by me — trusted docs are hook-protected)
 
-`ARCHITECTURE.md §3.1` already defines `model_tier ∈ {haiku, sonnet, opus}` as **advisory metadata on a pharn-oss Capability's frontmatter**. That is a **different concept** from this `models` block (versioned model **ids** + an **effort** level, in `pharn.config.json`, owned by pharn-cli). This increment does **not** touch, redefine, or edit `§3.1` / `model_tier` (ARCHITECTURE.md is trusted + hook-protected; I will not edit it). The two coexist on different axes (P3). Named for a human, not merged.
+`ARCHITECTURE.md §3.1` already defines `model_tier ∈ {haiku, sonnet, opus}` as **advisory metadata on a pharn-oss Capability's frontmatter**. That is a **different concept** from this `models` block (versioned model **ids** + an **effort** level, in `pharn.config.json`, owned by pharn). This increment does **not** touch, redefine, or edit `§3.1` / `model_tier` (ARCHITECTURE.md is trusted + hook-protected; I will not edit it). The two coexist on different axes (P3). Named for a human, not merged.
 
 ## Files
 
@@ -69,7 +69,7 @@
 
 ## Contracts satisfied
 
-- **None in `pharn-contracts/`** — it holds only `eval-format.md`, `finding-shape.md`, `seam-config.md`, none of which govern `pharn.config.json`. **pharn-cli owns the `pharn.config.json` schema** (P3, CLAUDE.md); no methodology contract applies. Stated, not fabricated (P4).
+- **None in `pharn-contracts/`** — it holds only `eval-format.md`, `finding-shape.md`, `seam-config.md`, none of which govern `pharn.config.json`. **pharn owns the `pharn.config.json` schema** (P3, CLAUDE.md); no methodology contract applies. Stated, not fabricated (P4).
 
 ## Evals to write (P1 — for product TS, the vitest suite IS the spec)
 

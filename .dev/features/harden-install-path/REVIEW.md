@@ -48,9 +48,9 @@
   rule_id: P1
   severity: minor
   file: "src/lib/repo.ts:35"
-  problem: "The 'degit fails closed if REPO_BRANCH moves mid-fetch' property (part of FIX 1's honesty) is documented as DEGIT behavior from a source-read this run, and is not covered by a pharn-cli test (repo.test.ts mocks degit)."
+  problem: "The 'degit fails closed if REPO_BRANCH moves mid-fetch' property (part of FIX 1's honesty) is documented as DEGIT behavior from a source-read this run, and is not covered by a pharn test (repo.test.ts mocks degit)."
   evidence: "and if REPO_BRANCH moves mid-fetch degit's own resolution fails (the SHA is no longer a ref tip) rather than fetching drift"
-  # Correctly SCOPED as degit's behavior (not a pharn-cli guarantee) per the grill's P1 finding —
+  # Correctly SCOPED as degit's behavior (not a pharn guarantee) per the grill's P1 finding —
   # reflected honestly in the comment. Testing it would test degit (out of scope). Noted for the human.
 
 - type: FINDING

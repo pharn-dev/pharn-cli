@@ -60,7 +60,7 @@ function resolveWriteTarget(p) {
 // the Write tool cannot self-escalate by editing the gate's input.
 const ALWAYS = [".pharn/**"];
 
-// Fail-closed allow-list used when no scope file is set. pharn-cli's editable code (src/, tests/) +
+// Fail-closed allow-list used when no scope file is set. pharn's editable code (src/, tests/) +
 // the dev-loop's own build artifacts (.dev/features/) + the legacy root artifact zone (features/,
 // retained, harmless) + process scratch (.pharn/, via ALWAYS). The sensitive zones (.dev/floor/,
 // .dev/memory-bank/, .claude/, root spec docs, docs/, config) are intentionally absent — reaching

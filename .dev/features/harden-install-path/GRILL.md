@@ -22,9 +22,9 @@
   rule_id: P1
   severity: important
   file: ".dev/features/harden-install-path/PLAN.md:70"
-  problem: "The 'degit fails closed if it cannot fetch that sha' half of the FIX 1 floor claim has no planned eval — the repo.test.ts cases mock degit to capture the src argument, so they cannot demonstrate fail-closed; the property rests on a source-read of degit this run, not on a pharn-cli test."
+  problem: "The 'degit fails closed if it cannot fetch that sha' half of the FIX 1 floor claim has no planned eval — the repo.test.ts cases mock degit to capture the src argument, so they cannot demonstrate fail-closed; the property rests on a source-read of degit this run, not on a pharn test."
   evidence: "\"degit fails closed if it cannot fetch that sha. Testable (P1).\" — but the two repo.test.ts cases (:60-61) stub degit, exercising only the ref STRING passed, not degit's real resolution."
-  # resolution (build): either scope 'fail-closed' as DEGIT behavior (source-grounded, advisory — not a pharn-cli-tested guarantee), or drop it from the floor claim and rest the floor on the tested 'recorded == resolved-sha XOR null' property only.
+  # resolution (build): either scope 'fail-closed' as DEGIT behavior (source-grounded, advisory — not a pharn-tested guarantee), or drop it from the floor claim and rest the floor on the tested 'recorded == resolved-sha XOR null' property only.
 
 - type: FINDING
   rule_id: P2
@@ -56,7 +56,7 @@ The concerns cluster on **FIX 1**, and both important findings are *precision*, 
 
 Two minor suggestions (a check-then-write honesty note; a shared-helper refactor to pre-empt copy-paste drift) are for build/human to weigh.
 
-**On eval shape:** the plan's "evals" are `vitest` tests — correct for pharn-cli code (CONSTITUTION P1). `eval-format.md`'s `structural[]`/`semantic[]` split governs **methodology-capability** evals (`{case, expected}` markdown skills), **not** CLI unit tests, so it does not strictly apply; every planned assertion is deterministic (`toThrow`, `existsSync`, captured `degit` arg) with **zero** LLM judge — the ideal the split exists to protect. Not a finding.
+**On eval shape:** the plan's "evals" are `vitest` tests — correct for pharn code (CONSTITUTION P1). `eval-format.md`'s `structural[]`/`semantic[]` split governs **methodology-capability** evals (`{case, expected}` markdown skills), **not** CLI unit tests, so it does not strictly apply; every planned assertion is deterministic (`toThrow`, `existsSync`, captured `degit` arg) with **zero** LLM judge — the ideal the split exists to protect. Not a finding.
 
 **On scope (P7):** the plan raised the bundle-vs-split question itself (OQ1) and the human resolved it at GATE 1 (bundle all three). Not re-litigated here.
 

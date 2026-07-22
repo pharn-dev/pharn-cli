@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4
 - increment: `npx pharn init` (no flag) runs the archetype/capability flow by default; the init-only legacy wizard flow (`runInitLegacy`/`runInitV2`/`loadManifest` and its 9 orphaned step files) is deleted.
-- layer(s): pharn-cli product surface (`src/commands/init.ts`, `src/index.ts`, `src/steps/*`) — not a PHARN methodology layer.
+- layer(s): pharn product surface (`src/commands/init.ts`, `src/index.ts`, `src/steps/*`) — not a PHARN methodology layer.
 - constitution_refs: [P0, P5, P6, P7]
 
 ## Discovery findings (live state, this run)

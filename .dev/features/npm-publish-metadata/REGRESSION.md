@@ -32,7 +32,7 @@ Identical. My increment changed **no** `src/`, `tests/`, floor, hook, or capabil
 
 ## The CLI's real suite (named residual, P0/P7)
 
-`/pharn-dev-regress`'s `--tests` glob (`*.test.mjs`/`*.test.cjs`) targets the **methodology floor** tests, not the pharn-cli **vitest** suite (`tests/*.test.ts`, run by `npm run check`). That vitest suite is this increment's true regression surface. It is **byte-identical at base and head** — the diff touches no `src/` or `tests/` file — so a flip is provably impossible (the same reasoning `/pharn-dev-regress` uses to skip style gates over byte-identical files). It was also run directly at HEAD during build: **`npm run check` GREEN, 378/378 tests pass.**
+`/pharn-dev-regress`'s `--tests` glob (`*.test.mjs`/`*.test.cjs`) targets the **methodology floor** tests, not the pharn **vitest** suite (`tests/*.test.ts`, run by `npm run check`). That vitest suite is this increment's true regression surface. It is **byte-identical at base and head** — the diff touches no `src/` or `tests/` file — so a flip is provably impossible (the same reasoning `/pharn-dev-regress` uses to skip style gates over byte-identical files). It was also run directly at HEAD during build: **`npm run check` GREEN, 378/378 tests pass.**
 
 ## Verdict
 

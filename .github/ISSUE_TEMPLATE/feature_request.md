@@ -26,7 +26,7 @@ What you'd like the `pharn` CLI to do.
 ## Checks
 
 - [ ] I searched existing issues for an overlapping request.
-- [ ] This belongs in `pharn-cli` (the bootstrapper/wizard), not in the PHARN skills repo.
+- [ ] This belongs in `pharn` (the bootstrapper/wizard), not in the PHARN skills repo.
 - [ ] If this is stack scaffolding or `npm` package installation, I understand it is **v0.2 scope** (see the `TODO(v0.2)` markers and `docs/roadmap.md`).
 
 ## Alternatives considered

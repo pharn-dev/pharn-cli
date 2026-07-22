@@ -33,7 +33,7 @@ refactor, out of scope now (P7).
 
 ## Contracts satisfied
 
-- **N/A — no `pharn-contracts` reference** (a pharn-cli-internal `src/lib/` boundary, as in the prior
+- **N/A — no `pharn-contracts` reference** (a pharn-internal `src/lib/` boundary, as in the prior
   increment).
 - **Spec cited, not restated (P4):** ARCHITECTURE.md §5 (`archetype ∈ {ssr, backend, spa, lib}`,
   "membership over `package.json`") and §4 (frameworkless `lib` base). The change only enriches the

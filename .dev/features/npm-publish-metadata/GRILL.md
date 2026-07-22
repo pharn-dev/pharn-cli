@@ -48,7 +48,7 @@ _Not strictly blocking_ (the `## Decisions` block does resolve all five, human-a
   severity: minor
   file: ".dev/features/npm-publish-metadata/PLAN.md:24"
   problem: "`repository.url` is asserted 'EXACT' but no check verifies it matches the building repo's actual git remote. A drift here does not fail locally — it fails provenance attestation late, in the PR2 publish CI."
-  evidence: "`repository`: `{ \"type\": \"git\", \"url\": \"git+https://github.com/pharn-dev/pharn-cli.git\" }` (EXACT — provenance attestation validates this against the building repo)"
+  evidence: "`repository`: `{ \"type\": \"git\", \"url\": \"git+https://github.com/pharn-dev/pharn.git\" }` (EXACT — provenance attestation validates this against the building repo)"
 ```
 
 ## Prose summary (concerns for the human/builder to weigh)
@@ -59,7 +59,7 @@ The plan is well-scoped and its guarantee audit is honest (the provenance claim 
 2. **Name the deterministic checks (minor).** Two load-bearing claims — "no `src/` changed" and "zero junk in the tarball" — should each cite the concrete command that verifies them (`git diff --name-only` shows no `src/**`; the `npm pack --dry-run` file list is inspected). Building will run exactly these, so this is a wording tightening, not new work.
 3. **Provenance precondition (minor).** Add a build-time confirmation that the declared `repository.url` matches `git remote get-url origin`, so a wrong URL fails now, not in the PR2 publish.
 
-**Out of scope for this increment (dev-tooling observation, not a plan defect):** `count-grillers .` (and by extension the verify-stage counters) register 81 capabilities from gitignored `test-*/` scratch installs — the pharn-cli repo's own dev-loop has none. The discovery scan should probably exclude gitignored/scratch trees. Flagged for the human; unrelated to publishing the package.
+**Out of scope for this increment (dev-tooling observation, not a plan defect):** `count-grillers .` (and by extension the verify-stage counters) register 81 capabilities from gitignored `test-*/` scratch installs — the pharn repo's own dev-loop has none. The discovery scan should probably exclude gitignored/scratch trees. Flagged for the human; unrelated to publishing the package.
 
 ## Verdict
 

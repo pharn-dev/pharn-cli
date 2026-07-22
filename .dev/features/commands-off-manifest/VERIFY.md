@@ -13,7 +13,7 @@
 | `lint:md`      | 0    | markdownlint clean (docs + root markdown)          |
 
 `check-verify.mjs` verdict: **PASS** (every gate exit 0), `failing_gates: []`. This gate set is exactly
-the repo's `npm run check` aggregate (+ `lint:md`) — the floor CLAUDE.md/CI define for pharn-cli.
+the repo's `npm run check` aggregate (+ `lint:md`) — the floor CLAUDE.md/CI define for pharn.
 
 ## Gate deliberately excluded (documented, not silent)
 
@@ -21,10 +21,10 @@ the repo's `npm run check` aggregate (+ `lint:md`) — the floor CLAUDE.md/CI de
   findings are in **untracked `test-app/`** (`test-fixtures/red/skill.md`, a *deliberately-red* fixture
   that `validate.test.mjs` uses to prove the checker catches red capabilities). That RED is unrelated to
   this increment — which changed **zero** capabilities, **zero** `.dev/floor/`, and **zero** `test-app/`
-  files — and to pharn-cli's own source. pharn-cli's CI floor is `npm run check` (CLAUDE.md), not
+  files — and to pharn's own source. pharn's CI floor is `npm run check` (CLAUDE.md), not
   `validate.mjs`; the `/pharn-dev-build` command itself states `validate.mjs` "gates nothing" for an
   increment that adds no PHARN markdown capability (this one adds none). Including it would make *every*
-  pharn-cli increment fail verify on unrelated scratch — a false RED. The exclusion is the verify
+  pharn increment fail verify on unrelated scratch — a false RED. The exclusion is the verify
   command's sanctioned "gate SET is advisory orchestration" latitude, applied to a confounded gate, and
   surfaced here rather than hidden.
 

@@ -3,7 +3,7 @@
 Plan under interrogation: `.dev/features/remove-dead-docs-url/PLAN.md` (trust: untrusted to this griller).
 Spec-hash check: recomputed `sha256(ARCHITECTURE.md)` = `bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e` — **matches** the plan's `spec_content_hash` (no drift; `/pharn-dev-build`'s fix #4 gate is the actual block).
 
-Griller discovery (`.dev/floor/count-grillers.mjs .`, membership FLOOR): 13 `role: griller` files registered, **all under `test-app/`** — the installed test fixture (the CLI's product *output*), not this dev repo's own methodology. None is a dev-loop griller for a pharn-cli plan, so the pluggable slot runs none over this plan. The one relevant axis — **testability** — is applied inline below from `test-app/…/testability/testability.md` (the only copy present), since the plan makes an explicit "no new test" claim.
+Griller discovery (`.dev/floor/count-grillers.mjs .`, membership FLOOR): 13 `role: griller` files registered, **all under `test-app/`** — the installed test fixture (the CLI's product *output*), not this dev repo's own methodology. None is a dev-loop griller for a pharn plan, so the pluggable slot runs none over this plan. The one relevant axis — **testability** — is applied inline below from `test-app/…/testability/testability.md` (the only copy present), since the plan makes an explicit "no new test" claim.
 
 ## Findings — by axis
 

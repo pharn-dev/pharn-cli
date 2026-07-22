@@ -50,7 +50,7 @@ deliberately **out of scope** here (P7 — smallest coherent increment).
 ## Contracts satisfied
 
 - **N/A — no `pharn-contracts` reference.** `pharn-contracts` is a PHARN-*product* layer (ARCHITECTURE.md
-  §4); this increment is a pharn-cli-internal `src/lib/` boundary and satisfies no product contract.
+  §4); this increment is a pharn-internal `src/lib/` boundary and satisfies no product contract.
 - **Spec cited, not restated (P4):** ARCHITECTURE.md §5 (`archetype ∈ {ssr, backend, spa, lib}`, "detected
   deterministically (membership over `package.json`)") and §4 (the frameworkless `lib` base). The new
   boundary adds the I/O around that rule; it does not re-implement or restate the rule.

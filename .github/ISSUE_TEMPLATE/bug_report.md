@@ -14,7 +14,7 @@ A clear description of the bug.
 
 - **Command**: <!-- pharn init | pharn add | pharn update -->
 - **Step / area**: <!-- e.g. prereqs check, fresh-check, custom-mode wizard, vendor-consent, install/clone, pharn.config.json output -->
-- **`pharn-cli` version** (`npx pharn --version`, or `pharnVersion` in `pharn.config.json`):
+- **`pharn` version** (`npx pharn --version`, or `pharnVersion` in `pharn.config.json`):
 - **Skills version** (`.claude/SKILLS_VERSION`, or `skillsVersion` in `pharn.config.json`):
 
 ## Steps to reproduce

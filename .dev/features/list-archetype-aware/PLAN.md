@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 — sha256 of ARCHITECTURE.md, read this run
 - increment: Add a shared `isArchetypeConfig` discriminator and make `pharn list` render an archetype install's capabilities/archetypes **offline** (no manifest fetch) instead of crashing — **slice 1 of 5** toward full sibling-command archetype parity.
-- layer(s): **product** (`pharn-cli` CLI, `src/`).
+- layer(s): **product** (`pharn` CLI, `src/`).
 - constitution_refs: [P3, P4, P5, P6, P7]
 
 ## Context (this run, live reads)

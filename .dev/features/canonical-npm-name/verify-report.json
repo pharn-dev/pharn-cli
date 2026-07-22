@@ -1,0 +1,18 @@
+{
+  "feature": "canonical-npm-name",
+  "gates": {
+    "format:check": 0,
+    "lint": 0,
+    "lint:md": 0,
+    "test": 0,
+    "validate": 1
+  },
+  "verdict": "FAIL",
+  "failing_gates": [
+    "validate"
+  ],
+  "verifiers": {
+    "registered": 0,
+    "findings": []
+  }
+}

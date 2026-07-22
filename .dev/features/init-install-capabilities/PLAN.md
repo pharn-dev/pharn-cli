@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 — sha256 of ARCHITECTURE.md, read this run
 - increment: Wire the existing pure **detect** (`detect-archetype.ts`) + **resolve** (`resolve-capabilities.ts`) into a **working, flag-gated** `pharn init --archetype`: fetch pharn-oss, derive a validated capability index from capability frontmatter, resolve against detected archetypes, show selected/skipped + confirm, copy the product surfaces (excluding dev-only), and write `pharn.config.json`.
-- layer(s): **product** (`pharn-cli` CLI, `src/`) — the installer, not a `pharn-*` methodology Capability.
+- layer(s): **product** (`pharn` CLI, `src/`) — the installer, not a `pharn-*` methodology Capability.
 - constitution_refs: [P0, P1, P2, P3, P5, P6, P7]
 
 ## Decisions carried in (human-selected at this plan's HALT, this run)

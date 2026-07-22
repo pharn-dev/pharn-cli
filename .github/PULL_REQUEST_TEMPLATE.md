@@ -1,5 +1,5 @@
 <!--
-Thanks for contributing to pharn-cli! Please read CONTRIBUTING.md and CLAUDE.md first.
+Thanks for contributing to pharn! Please read CONTRIBUTING.md and CLAUDE.md first.
 Keep one logical change per PR; split mechanical reformat from real edits.
 -->
 

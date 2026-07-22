@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 (ARCHITECTURE.md)
 - increment: Give `classifyEntry` (detect-archetype.ts) the **path context** its four file-tree rules already assume in their comments — scope `api/`, `route.*`, `.sql`, and `.tsx/.jsx` matches to their documented locations so a file merely _named_ x no longer implies the project _has_ surface x; and (secondary) loosen `parseApplies` (capability-index.ts) to accept unquoted YAML `applies` tokens. No new archetype/enum member; determinism preserved.
-- layer(s): pharn-cli `src/lib` — the archetype-detection **I/O boundary** (`detect-archetype.ts`) and the capability **fetch boundary** (`capability-index.ts`), both under ARCHITECTURE.md §5 "Archetype + map-consistency" / "Trust-fence". No `pharn-contracts` / `pharn-core` / `ARCHITECTURE.md` files touched (§5 is hook-protected + human-only).
+- layer(s): pharn `src/lib` — the archetype-detection **I/O boundary** (`detect-archetype.ts`) and the capability **fetch boundary** (`capability-index.ts`), both under ARCHITECTURE.md §5 "Archetype + map-consistency" / "Trust-fence". No `pharn-contracts` / `pharn-core` / `ARCHITECTURE.md` files touched (§5 is hook-protected + human-only).
 - constitution_refs: [P5, P2, P6, P7, P1, P3]
 
 ## Discovery findings — READ FIRST (grounded in reads this run, not memory — P6)

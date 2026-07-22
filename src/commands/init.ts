@@ -27,8 +27,8 @@ export async function runInit(): Promise<void> {
   // Archetype-driven install is the default (and only) init flow: detect the
   // project's archetype(s) and install the applicable capabilities. Framework-
   // agnostic — no module catalog / manifest fetch. (The legacy module/wizard
-  // flow was removed; add/update still fall back to the manifest for
-  // pre-archetype configs.)
+  // flow was removed entirely; add/update/status/remove reject a pre-archetype
+  // config up front via loadArchetypeConfigOrExit — there is no manifest fallback.)
   await runInitArchetype();
 }
 

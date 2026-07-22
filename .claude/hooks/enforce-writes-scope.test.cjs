@@ -41,7 +41,7 @@ function setter(cwd, ...args) {
 
 // --- Hook, no scope file: fail-closed default-safe-set ---
 
-test("no scope: src/ (pharn-cli source) is ALLOWED", () => {
+test("no scope: src/ (pharn source) is ALLOWED", () => {
   assert.equal(hook(tmp(), "src/lib/installer.ts").status, 0);
 });
 
@@ -49,7 +49,7 @@ test("no scope: tests/ is ALLOWED", () => {
   assert.equal(hook(tmp(), "tests/installer.test.ts").status, 0);
 });
 
-test("no scope: a pharn-oss module path (pharn-review/) is DENIED (pharn-cli has no module dirs — not in the safe-set)", () => {
+test("no scope: a pharn-oss module path (pharn-review/) is DENIED (pharn has no module dirs — not in the safe-set)", () => {
   assert.equal(hook(tmp(), "pharn-review/foo.md").status, 2);
 });
 

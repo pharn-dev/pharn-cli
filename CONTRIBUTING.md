@@ -1,6 +1,6 @@
-# Contributing to pharn-cli
+# Contributing to pharn
 
-Thanks for your interest in improving PHARN. This repository **is `pharn-cli`** — the ESM-only Node CLI that fetches PHARN modules from `pharn-dev/pharn-oss` and installs them into a project's `.claude/`. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
+Thanks for your interest in improving PHARN. This repository **is `pharn`** — the ESM-only Node CLI that fetches PHARN modules from `pharn-dev/pharn-oss` and installs them into a project's `.claude/`. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
 
 ## Read first
 
@@ -16,6 +16,7 @@ Before changing anything, read these in order:
 - **Where your change goes** → [`CLAUDE.md`](./CLAUDE.md) architecture section and the [test map](./docs/contributing.md#test-map)
 - **The rules of the repo** → [`CLAUDE.md`](./CLAUDE.md) (source of truth — read it before adding, editing, or removing anything)
 - **User-facing docs** → [`docs/`](./docs/README.md)
+- **Releasing (maintainers)** → [`docs/RELEASING.md`](./docs/RELEASING.md) (version bump → GitHub Release → npm via Trusted Publishing)
 - **Community standards** → [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
 
 ## The 30-second version
@@ -27,7 +28,7 @@ Before changing anything, read these in order:
 4. **Branch**: `feat/…`, `fix/…`, or `docs/…`.
 5. **Commit** in [Conventional Commits](https://www.conventionalcommits.org/) style, one logical change per commit.
 6. **Tests first** — when changing wizard behavior, update the matching `tests/*.test.ts` before touching code. The suite mirrors `steps/` and `lib/` one-to-one.
-7. **Security-sensitive files** (`lib/validate.ts`, `lib/manifest.ts`, `lib/install-modules.ts`) — preserve the validation invariants (regex allowlists, `safeJoin` path guard, `redirect: 'error'`, timeout/size caps, `schemaVersion === 1`) called out in [`CLAUDE.md`](./CLAUDE.md).
+7. **Security-sensitive files** (`lib/validate.ts`, `lib/install-capabilities.ts`, `lib/skills-version.ts`) — preserve the validation invariants (regex/enum allowlists, `safeJoin` path guard, symlink rejection, `redirect: 'error'`, and the fetch timeout/size caps) called out in [`CLAUDE.md`](./CLAUDE.md).
 8. **Keep docs in sync** — see the [Documentation maintenance](./docs/contributing.md#documentation-maintenance) table.
 
 ## Conduct and security

@@ -22,12 +22,10 @@ You can continue after any warning by confirming.
 
 ## Running the CLI
 
-The npm package name is **`pharn-cli`**. It installs two equivalent commands: **`pharn`** (preferred) and **`pharn-cli`**.
+The npm package name is **`pharn`**. It installs a single command, **`pharn`**.
 
 ```bash
 npx pharn init
-# same entry point
-npx pharn-cli init
 ```
 
 ## Quick start

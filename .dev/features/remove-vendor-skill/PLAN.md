@@ -74,7 +74,7 @@ symbols are cross-cutting, so a partial removal leaves dangling references and t
 - The CLI's own `pharn.config.json` schema ownership (CLAUDE.md, "this CLI owns the config schema"):
   the schema stays **additive** — a legacy config carrying a now-unused `vendorSkills` key still loads
   (`readPharnConfig` is a passthrough; P7). Cite, don't restate. (No `pharn-contracts/` contract is
-  implemented — this is a removal within pharn-cli.)
+  implemented — this is a removal within pharn.)
 
 ## Evals to write (P1 — the updated tests ARE the new spec)
 

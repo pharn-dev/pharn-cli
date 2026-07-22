@@ -1,5 +1,8 @@
-// Pure (no-I/O) constitution transforms. Sits with lib/wizard.ts and lib/diff.ts
-// as a testable helper used by the installer when materializing CONSTITUTION.md.
+// Pure (no-I/O) constitution transforms. A testable helper retained from the
+// legacy constitution-variant materialization; the archetype install copies
+// pharn-oss's canonical CONSTITUTION.md verbatim, so no production command calls
+// this today — it is exercised only by tests/constitution.test.ts (its former
+// caller lib/wizard.ts was deleted).
 
 // Principle 2 is "Multi-Tenant Isolation" across every shipped constitution
 // variant. It is gated on the project's multi-tenant SaaS flag: a non-SaaS

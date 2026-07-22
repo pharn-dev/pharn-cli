@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `pharn-cli` are documented in this file.
+All notable changes to `pharn` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pharn-cli` bin alias for a single `pharn` bin; and added a `prepack` build so `npm publish` always
   ships a freshly compiled `dist/`. No CLI behavior change and `version` is unchanged; the package now
   installs via `npx pharn@latest init`.
+- Initially published to npm as `@pharn-dev/pharn` (unpublished on 2026-07-22); the canonical name is `pharn`.
 - Docs: surfaced the new optional `/pharn-spec` stage (intent capture before `/pharn-plan`) in
   getting-started and the `pharn-pipeline` module description, matching `pharn-oss`. No CLI code
   change — `/pharn-spec` ships transparently via the existing whole-module install from `main`.
@@ -92,8 +93,8 @@ Realigned the CLI with the current `pharn-dev/pharn-oss`, which is now a
 
 ## [0.1.0] — 2026-06-11
 
-Initial published release. `pharn-cli` bootstraps the PHARN stack into an existing
-Next.js project. Exposes both `pharn` and `pharn-cli` bins.
+Initial published release. `pharn` bootstraps the PHARN stack into an existing
+Next.js project. Exposes both `pharn` and `pharn` bins.
 
 ### Added
 
