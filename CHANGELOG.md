@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pharn-cli` bin alias for a single `pharn` bin; and added a `prepack` build so `npm publish` always
   ships a freshly compiled `dist/`. No CLI behavior change and `version` is unchanged; the package now
   installs via `npx pharn@latest init`.
-- Initially published to npm as `@pharn-dev/pharn` (now deprecated); the canonical name is `pharn`.
+- Initially published to npm as `@pharn-dev/pharn` (unpublished on 2026-07-22); the canonical name is `pharn`.
 - Docs: surfaced the new optional `/pharn-spec` stage (intent capture before `/pharn-plan`) in
   getting-started and the `pharn-pipeline` module description, matching `pharn-oss`. No CLI code
   change — `/pharn-spec` ships transparently via the existing whole-module install from `main`.

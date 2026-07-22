@@ -25,7 +25,17 @@ npm run check                # format:check + lint + typecheck + test (aggregate
 npx vitest run tests/install-capabilities.test.ts   # single test file
 ```
 
-CI (`.github/workflows/ci.yml`) runs six gates independently (so one failure can't mask the others) — format:check, lint, lint:md, typecheck, test (via `test:coverage`), and build — all must pass. `PHARN_DEBUG=1` enables full error output for fetch/install failures.
+CI (`.github/workflows/ci.yml`) runs six gates independently (so one failure can't mask the others) — format:check, lint, lint:md, typecheck, test (via `test:coverage`), and build — all must pass. A second workflow, `.github/workflows/publish.yml`, publishes to npm on a published GitHub Release — see **Releasing** below. `PHARN_DEBUG=1` enables full error output for fetch/install failures.
+
+## Releasing
+
+Canonical npm package: **`pharn`** (unscoped). The scoped `@pharn-dev/pharn` was briefly published, then **unpublished on 2026-07-22** — it was never deprecated; `pharn` is the only name.
+
+Release flow: bump `version` in `package.json` + update `CHANGELOG.md` → merge to `main` → cut a **GitHub Release** tagged `vX.Y.Z` (a guard step in `publish.yml` fails the run unless the tag, minus its leading `v`, equals `package.json` `version`). Publishing the Release triggers **`.github/workflows/publish.yml`**, which publishes via **npm Trusted Publishing (OIDC)** — workflow `publish.yml`, environment `npm-publish`, node 24 (npm >= 11.5.1), `npm publish --provenance` (the flag overrides `publishConfig.provenance: false`, so releases carry a signed provenance attestation).
+
+**No npm tokens exist anywhere** — no repo secrets, none in Actions; auth is the short-lived OIDC id-token exchanged at publish time. If a token ever seems to be "needed," the Trusted Publisher config is broken — fix it on npmjs.com, **never** add a secret.
+
+**First-publish exception:** the very first publish of a *new* package name is a manual, local `npm publish` (provenance off) by a maintainer, because npm only allows configuring a Trusted Publisher on an *existing* package. Every later release goes through `publish.yml`. Full maintainer steps: [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## ESM / module conventions
 

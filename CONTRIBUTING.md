@@ -16,6 +16,7 @@ Before changing anything, read these in order:
 - **Where your change goes** → [`CLAUDE.md`](./CLAUDE.md) architecture section and the [test map](./docs/contributing.md#test-map)
 - **The rules of the repo** → [`CLAUDE.md`](./CLAUDE.md) (source of truth — read it before adding, editing, or removing anything)
 - **User-facing docs** → [`docs/`](./docs/README.md)
+- **Releasing (maintainers)** → [`docs/RELEASING.md`](./docs/RELEASING.md) (version bump → GitHub Release → npm via Trusted Publishing)
 - **Community standards** → [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
 
 ## The 30-second version
