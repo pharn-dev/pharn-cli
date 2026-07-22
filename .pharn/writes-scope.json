@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".github/workflows/publish.yml"
+    ".dev/memory-bank/lessons-learned.md"
   ],
-  "set_by": ".dev/features/publish-oidc-trusted/PLAN.md",
-  "set_at": "2026-07-22T20:18:15.526Z"
+  "set_by": ".claude/commands/pharn-dev-memory-promote.md",
+  "set_at": "2026-07-22T20:28:24.625Z"
 }

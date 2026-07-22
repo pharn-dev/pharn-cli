@@ -4,7 +4,7 @@ PHARN is an audit-grade methodology — taking security seriously is part of the
 
 ## What `pharn` is, and its security surface
 
-This repository **is `pharn`** — an ESM-only Node CLI (`"type": "module"`, NodeNext, `engines.node >= 20`) that runs a wizard, fetches the selected PHARN modules from `pharn-dev/pharn-oss` via `degit`, copies them into the user's `.claude/`, and writes `pharn.config.json`. It has a small, thin dependency set (`@clack/prompts`, `degit`, `minimist`, `picocolors`), no bundled runtime services, and no telemetry. Its security-relevant surface is exactly the two things that cross a trust boundary: **remote input** (the `manifest.json` / `module.json` it reads and the repo content it clones) and **file-system writes** (everything it copies into `.claude/` and the config it writes).
+This repository **is `pharn`** — an ESM-only Node CLI (`"type": "module"`, NodeNext, `engines.node >= 20`) that runs a wizard, fetches the selected PHARN modules from `pharn-dev/pharn-oss` via `degit`, copies them into the user's project — the `.claude/` command/hook surfaces, the mirrored capability dirs (`pharn-pipeline/grillers/`, `pharn-review/`), and the trusted docs / `pharn-contracts/` / `.dev/floor/` product surfaces at the project root (or all of it under `pharn/`) — and writes `pharn.config.json`. It has a small, thin dependency set (`@clack/prompts`, `degit`, `minimist`, `picocolors`), no bundled runtime services, and no telemetry. Its security-relevant surface is exactly the two things that cross a trust boundary: **remote input** (the `manifest.json` / `module.json` it reads and the repo content it clones) and **file-system writes** (everything it copies into the project — the `.claude/` surfaces, the mirrored capability dirs, and the root/`pharn/` product surfaces — plus the `pharn.config.json` it writes).
 
 The CLI's security model is **deterministic, not model-driven**: it never asks an AI to decide what is safe. Every value that arrives from the network is validated against strict regex allowlists, rejected for `..` and control characters, and every copy is confined with a `safeJoin` guard so nothing can escape its intended target — checks that hold regardless of what the fetched content says. Preserve that shape: a security fix that relies on "the content will be well-behaved" is not a fix.
 
@@ -73,7 +73,7 @@ Scope follows the surface described above: everything that touches remote input 
 
 `pharn`'s input validation and consent prompts are defense-in-depth, not a guarantee. When using the CLI:
 
-1. **Run it in an existing, version-controlled project** so you can diff exactly what `init` wrote (`.claude/` and `pharn.config.json`) before committing.
+1. **Run it in an existing, version-controlled project** so you can diff exactly what `init` wrote (the `.claude/` surfaces, the capability dirs and product surfaces, and `pharn.config.json`) before committing.
 2. **Review the vendor skills** the wizard offers before accepting them — vendor selection is opt-in and nothing is selected by default; only accept vendors you recognize.
 3. **Prefer `npx pharn@latest`** so you run the current, supported release rather than a stale pinned copy.
 4. **Inspect the cloned `.claude/` skills** before running them through your AI tool — installation fetches remote content.
