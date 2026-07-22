@@ -1,19 +1,41 @@
 {
-  "name": "pharn-cli",
+  "name": "pharn",
   "version": "0.2.0",
+  "description": "Audit-grade AI development methodology for Claude Code — spec, plan, grill, build, verify, ship.",
+  "keywords": [
+    "claude-code",
+    "ai",
+    "methodology",
+    "code-review",
+    "audit",
+    "agents"
+  ],
   "license": "Apache-2.0",
-  "description": "Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx pharn init picks your modules and stack pack and copies them into .claude/; pharn add installs another module later; pharn update bumps to the latest skills version.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pharn-dev/pharn-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pharn-dev/pharn-cli/issues"
+  },
+  "homepage": "https://github.com/pharn-dev/pharn-cli#readme",
   "type": "module",
   "bin": {
-    "pharn": "dist/index.js",
-    "pharn-cli": "dist/index.js"
+    "pharn": "dist/index.js"
   },
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc",
-    "build:install-local": "tsc && node scripts/install-local.mjs",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc --noEmit && node scripts/build.mjs",
+    "build:install-local": "npm run build && node scripts/install-local.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.config.ts\"",
@@ -22,10 +44,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test"
-  },
-  "engines": {
-    "node": ">=20"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
@@ -42,6 +63,7 @@
     "markdownlint-cli2": "^0.23.1",
     "prettier": "^3.9.6",
     "tsx": "^4.23.1",
+    "esbuild": "^0.28.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"

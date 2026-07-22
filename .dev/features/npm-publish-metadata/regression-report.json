@@ -1,0 +1,20 @@
+{
+  "base": "HEAD (working-tree dogfood; scratch-constant stash baseline)",
+  "inside": [
+    "package.json",
+    "README.md",
+    "CHANGELOG.md",
+    "CLAUDE.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import minimist from 'minimist';
 import { runInit } from './commands/init.js';
@@ -9,9 +8,7 @@ import { runRemove } from './commands/remove.js';
 import { runUpdate } from './commands/update.js';
 import { runList } from './commands/list.js';
 import { runStatus } from './commands/status.js';
-
-const require = createRequire(import.meta.url);
-const pkg = require('../package.json') as { version: string };
+import { PHARN_VERSION } from './version.js';
 
 const USAGE = `Pharn - Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
 
@@ -46,7 +43,7 @@ export async function main(): Promise<void> {
   });
 
   if (argv.version) {
-    console.log(pkg.version);
+    console.log(PHARN_VERSION);
     return;
   }
 

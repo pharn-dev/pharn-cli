@@ -1,8 +1,5 @@
-import { createRequire } from 'node:module';
 import pc from 'picocolors';
-
-const require = createRequire(import.meta.url);
-const pkg = require('../../package.json') as { version: string };
+import { PHARN_VERSION } from '../version.js';
 
 const LOGO = [
   '██████╗ ██╗  ██╗ █████╗ ██████╗ ███╗   ██╗',
@@ -20,7 +17,7 @@ export function showBanner(): void {
   }
   console.log();
   console.log(
-    `  ${pc.dim(`Audit-grade methodology for Claude Code · v${pkg.version}`)}`,
+    `  ${pc.dim(`Audit-grade methodology for Claude Code · v${PHARN_VERSION}`)}`,
   );
   console.log();
 }

@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
@@ -7,6 +6,7 @@ import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import { writePharnConfig } from '../lib/pharn-config.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
+import { PHARN_VERSION } from '../version.js';
 import type {
   Archetype,
   InstalledCapability,
@@ -14,10 +14,6 @@ import type {
   PharnConfig,
   Selection,
 } from '../types.js';
-
-const require = createRequire(import.meta.url);
-const pkg = require('../../package.json') as { version: string };
-const PHARN_VERSION = pkg.version;
 
 // The archetype-install apply stage (pharn init --archetype). Copies the
 // resolved capabilities + product surfaces from the already-fetched `repoDir`,
