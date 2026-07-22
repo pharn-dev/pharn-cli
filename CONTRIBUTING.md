@@ -28,7 +28,7 @@ Before changing anything, read these in order:
 4. **Branch**: `feat/…`, `fix/…`, or `docs/…`.
 5. **Commit** in [Conventional Commits](https://www.conventionalcommits.org/) style, one logical change per commit.
 6. **Tests first** — when changing wizard behavior, update the matching `tests/*.test.ts` before touching code. The suite mirrors `steps/` and `lib/` one-to-one.
-7. **Security-sensitive files** (`lib/validate.ts`, `lib/manifest.ts`, `lib/install-modules.ts`) — preserve the validation invariants (regex allowlists, `safeJoin` path guard, `redirect: 'error'`, timeout/size caps, `schemaVersion === 1`) called out in [`CLAUDE.md`](./CLAUDE.md).
+7. **Security-sensitive files** (`lib/validate.ts`, `lib/install-capabilities.ts`, `lib/skills-version.ts`) — preserve the validation invariants (regex/enum allowlists, `safeJoin` path guard, symlink rejection, `redirect: 'error'`, and the fetch timeout/size caps) called out in [`CLAUDE.md`](./CLAUDE.md).
 8. **Keep docs in sync** — see the [Documentation maintenance](./docs/contributing.md#documentation-maintenance) table.
 
 ## Conduct and security
