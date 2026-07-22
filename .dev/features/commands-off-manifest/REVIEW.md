@@ -63,11 +63,11 @@ Advisory: a one-line comment in an out-of-scope file; fold into the same follow-
   rule_id: P0
   severity: minor
   file: ".dev/features/commands-off-manifest/VERIFY.md:1"
-  problem: "pharn-cli's deterministic floor is `npm run check`, NOT `.dev/floor/validate.mjs .` — the latter always RED at the repo root because it scans untracked test-app red fixtures. The dev-loop stage commands assume validate.mjs is the build/verify floor."
-  evidence: "validate.mjs . → RED from test-app/test-fixtures/red/skill.md, unrelated to any pharn-cli source change."
+  problem: "pharn's deterministic floor is `npm run check`, NOT `.dev/floor/validate.mjs .` — the latter always RED at the repo root because it scans untracked test-app red fixtures. The dev-loop stage commands assume validate.mjs is the build/verify floor."
+  evidence: "validate.mjs . → RED from test-app/test-fixtures/red/skill.md, unrelated to any pharn source change."
 ```
 
-Advisory + a doc-reconciliation for the human: for a TS installer repo like pharn-cli, the ship/build/
+Advisory + a doc-reconciliation for the human: for a TS installer repo like pharn, the ship/build/
 verify stages' "read validate.mjs" instruction maps to `npm run check`. Surfaced consistently across
 GRILL/REGRESSION/VERIFY; not a defect in the increment.
 

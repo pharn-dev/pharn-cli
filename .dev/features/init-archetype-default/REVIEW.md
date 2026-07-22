@@ -31,7 +31,7 @@ The increment emits no findings/free-text and ingests no new untrusted input —
 
 ### L-axis → P3 — GREEN
 
-Each changed file carries one coherent axis: `init.ts` (make archetype the default + delete legacy), `index.ts` (flag no-op + honest help + call change). No cross-sibling-module reference (pharn-cli is a single package; no `pharn-contracts` routing applies). The A-clean bundle (behavior change + dead-code sweep) is a P7-scope choice, human-accepted at GATE 1 — not a P3 file-axis violation.
+Each changed file carries one coherent axis: `init.ts` (make archetype the default + delete legacy), `index.ts` (flag no-op + honest help + call change). No cross-sibling-module reference (pharn is a single package; no `pharn-contracts` routing applies). The A-clean bundle (behavior change + dead-code sweep) is a P7-scope choice, human-accepted at GATE 1 — not a P3 file-axis violation.
 
 ## Advisory findings (inform the GATE-2 decision; block nothing)
 

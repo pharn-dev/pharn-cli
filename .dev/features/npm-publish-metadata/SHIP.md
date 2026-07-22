@@ -18,7 +18,7 @@ Advisory stages (no structural verdict): `/pharn-dev-grill` → `GRILL.md` (4 co
 
 ## What landed (git diff — 4 files, no `src/`)
 
-- `package.json` — `name` pharn-cli→**pharn**; `description`/`keywords`/`repository`/`bugs`/`homepage`; single `pharn` bin; `publishConfig{access:public, provenance:true}`; `scripts.prepack "npm run build"` + `scripts.prepublishOnly "npm run check"`; **`build` → clean-then-`tsc`**; `engines` kept `>=20`.
+- `package.json` — `name` pharn→**pharn**; `description`/`keywords`/`repository`/`bugs`/`homepage`; single `pharn` bin; `publishConfig{access:public, provenance:true}`; `scripts.prepack "npm run build"` + `scripts.prepublishOnly "npm run check"`; **`build` → clean-then-`tsc`**; `engines` kept `>=20`.
 - `README.md` — Install section (`npx pharn@latest init`); npm badge → `pharn`; single-bin note.
 - `CHANGELOG.md` — `[Unreleased]` rename entry.
 - `CLAUDE.md` — rename note (single `pharn` bin).

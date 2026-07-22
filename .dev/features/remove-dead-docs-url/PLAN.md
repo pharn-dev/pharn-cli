@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 (ARCHITECTURE.md)
 - increment: Remove the dead `DOCS_URL` constant and its two post-install "Docs" output lines — no replacement URL (human decision: "just remove the URL").
-- layer(s): pharn-cli product source — `src/lib/` (constants) + `src/steps/` (two install stages). ARCHITECTURE.md §4.
+- layer(s): pharn product source — `src/lib/` (constants) + `src/steps/` (two install stages). ARCHITECTURE.md §4.
 - constitution_refs: [P4, P7, P1]
 
 ## Files

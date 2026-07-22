@@ -138,7 +138,7 @@ export interface PharnConfig {
 export type Layout = 'pharn' | 'flat';
 
 // ---------------------------------------------------------------------------
-// Capability resolver — archetype detection + capability selection. pharn-cli
+// Capability resolver — archetype detection + capability selection. pharn
 // reads pharn-oss's capability index and selects which grillers/lenses apply to
 // a project (ARCHITECTURE.md §5). Pure + deterministic; the untrusted index is
 // parsed + validated at the fetch boundary (a later increment).
@@ -158,7 +158,7 @@ export type Layout = 'pharn' | 'flat';
 export type Archetype = 'ssr' | 'backend' | 'spa' | 'lib';
 
 // One capability in the pharn-oss-published index. pharn-oss owns the
-// authoritative schema; this is pharn-cli's consumer-side shape. `role` is
+// authoritative schema; this is pharn's consumer-side shape. `role` is
 // narrowed to the installable kinds shipped today (grillers + lenses); the full
 // ARCHITECTURE.md §3.1 role enum is not needed here until an installable
 // skill/auditor ships. `applies` is 'universal' (always selected) or the

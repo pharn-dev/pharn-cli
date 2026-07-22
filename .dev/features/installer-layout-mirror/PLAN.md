@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 (ARCHITECTURE.md)
 - increment: Make the CLI **mirror whichever layout the fetched pharn-oss clone has** — the new `pharn/` single-install layout (pharn-oss PR #86 / `pharn-runtime-layout`) OR the current flat layout — across ALL archetype surfaces (install, status/drift, remove), via one deterministic layout resolver, recording the installed layout in `pharn.config.json`. Scope: all-at-once (write + read side) per GATE-1 decision; clone ref stays `main`.
-- layer(s): pharn-cli product source — `src/lib/` (resolver, constants, types, capability-index, install-capabilities, diff, pharn-config) + `src/steps/` (install-archetype) + `src/commands/` (status, remove). ARCHITECTURE.md §4.
+- layer(s): pharn product source — `src/lib/` (resolver, constants, types, capability-index, install-capabilities, diff, pharn-config) + `src/steps/` (install-archetype) + `src/commands/` (status, remove). ARCHITECTURE.md §4.
 - constitution_refs: [P7, P5, P2, P1, P3]
 
 ## Files

@@ -29,7 +29,7 @@ symlink-write finding.
   **exit 1**, but exclusively from untracked `test-app/test-fixtures/red/skill.md` (a deliberately-red
   scratch fixture, pre-existing, unrelated to this increment); the `/pharn-dev-build` command states
   validate.mjs "gates nothing" for an increment adding no PHARN markdown capability (this one adds none).
-  For pharn-cli the deterministic build floor is `npm run check`, and it is GREEN.
+  For pharn the deterministic build floor is `npm run check`, and it is GREEN.
 - **`/pharn-dev-regress` → `regression-report.json` `.verdict`:** `"no-regressions"` (the outside
   `.mjs/.cjs` suite is RED at both base and HEAD — pre-existing, identical, no pass→fail flip; `validate`
   excluded as confounded by untracked `test-app/`; style gates skipped — config untouched).

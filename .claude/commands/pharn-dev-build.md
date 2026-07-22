@@ -57,7 +57,7 @@ For each file the plan names in `## Files`:
 - Determinism (P5): branches are membership tests; the terminal fallback is "ask", never a guess.
 
 > Building a PHARN **markdown capability** (frontmatter contract, `evals/cases` + `evals/expected`,
-> `seal:`) applies only when the increment adds one. pharn-cli is TypeScript — its "capabilities"
+> `seal:`) applies only when the increment adds one. pharn is TypeScript — its "capabilities"
 > are modules and its "evals" are vitest tests; the structural `validate.mjs` floor below stays
 > vacuously-green until a markdown capability is actually added.
 

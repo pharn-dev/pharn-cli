@@ -2,12 +2,12 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 (ARCHITECTURE.md)
 - increment: Map DB signals (`.sql` files, `migrations/` dirs, and `prisma` / `@prisma/client` / `drizzle-orm` deps) to the existing `backend` archetype — the one residual after discovery found the enum alignment already complete. **Approved by the human at the halt (this run); knowingly reverses the tested decision #2 of increment #21.** (The enum↔pharn-oss alignment itself was already implemented across #17/#20/#21 — confirmed, no change needed.)
-- layer(s): pharn-cli `src/lib` capability-resolver (ARCHITECTURE.md §5, "Archetype + map-consistency") — no `pharn-contracts` / `pharn-core` module files touched
+- layer(s): pharn `src/lib` capability-resolver (ARCHITECTURE.md §5, "Archetype + map-consistency") — no `pharn-contracts` / `pharn-core` module files touched
 - constitution_refs: [P6, P7, P5, P2, P3]
 
 ## Discovery finding — READ FIRST (the increment's premise is stale)
 
-Everything the request describes as a *change* is **already in the tree** (verified by reads this run, not memory — P6). The task's premise — _"pharn-cli's archetype.ts currently uses {frontend, db, …} — mismatched"_ — is **false against live state**:
+Everything the request describes as a *change* is **already in the tree** (verified by reads this run, not memory — P6). The task's premise — _"pharn's archetype.ts currently uses {frontend, db, …} — mismatched"_ — is **false against live state**:
 
 | Requested change | Live state | Evidence |
 | --- | --- | --- |

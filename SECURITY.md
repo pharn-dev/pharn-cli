@@ -1,23 +1,23 @@
 # Security Policy
 
-PHARN is an audit-grade methodology — taking security seriously is part of the brand, not an afterthought. `pharn-cli` is the bootstrapper that fetches and installs that methodology, so it sits at a trust boundary: it pulls remote content over the network and writes it into a user's project. We welcome coordinated disclosure of any vulnerability in this repository.
+PHARN is an audit-grade methodology — taking security seriously is part of the brand, not an afterthought. `pharn` is the bootstrapper that fetches and installs that methodology, so it sits at a trust boundary: it pulls remote content over the network and writes it into a user's project. We welcome coordinated disclosure of any vulnerability in this repository.
 
-## What `pharn-cli` is, and its security surface
+## What `pharn` is, and its security surface
 
-This repository **is `pharn-cli`** — an ESM-only Node CLI (`"type": "module"`, NodeNext, `engines.node >= 20`) that runs a wizard, fetches the selected PHARN modules from `pharn-dev/pharn-oss` via `degit`, copies them into the user's `.claude/`, and writes `pharn.config.json`. It has a small, thin dependency set (`@clack/prompts`, `degit`, `minimist`, `picocolors`), no bundled runtime services, and no telemetry. Its security-relevant surface is exactly the two things that cross a trust boundary: **remote input** (the `manifest.json` / `module.json` it reads and the repo content it clones) and **file-system writes** (everything it copies into `.claude/` and the config it writes).
+This repository **is `pharn`** — an ESM-only Node CLI (`"type": "module"`, NodeNext, `engines.node >= 20`) that runs a wizard, fetches the selected PHARN modules from `pharn-dev/pharn-oss` via `degit`, copies them into the user's `.claude/`, and writes `pharn.config.json`. It has a small, thin dependency set (`@clack/prompts`, `degit`, `minimist`, `picocolors`), no bundled runtime services, and no telemetry. Its security-relevant surface is exactly the two things that cross a trust boundary: **remote input** (the `manifest.json` / `module.json` it reads and the repo content it clones) and **file-system writes** (everything it copies into `.claude/` and the config it writes).
 
 The CLI's security model is **deterministic, not model-driven**: it never asks an AI to decide what is safe. Every value that arrives from the network is validated against strict regex allowlists, rejected for `..` and control characters, and every copy is confined with a `safeJoin` guard so nothing can escape its intended target — checks that hold regardless of what the fetched content says. Preserve that shape: a security fix that relies on "the content will be well-behaved" is not a fix.
 
 ## Supported versions
 
-`pharn-cli` is published to npm as [`pharn-cli`](https://www.npmjs.com/package/pharn-cli) and is typically run via `npx pharn init`. We patch security issues against the **latest** published version only; `npx pharn@latest ...` always resolves to a supported release.
+`pharn` is published to npm as [`pharn`](https://www.npmjs.com/package/pharn) and is typically run via `npx pharn init`. We patch security issues against the **latest** published version only; `npx pharn@latest ...` always resolves to a supported release.
 
 | Version  | Supported          |
 | -------- | ------------------ |
 | Latest   | :white_check_mark: |
 | < Latest | :x:                |
 
-Because the CLI is normally invoked through `npx`, most users run the latest version automatically. If you have a pinned or globally installed copy, update it (`npm i -g pharn-cli@latest`) or invoke `npx pharn@latest` to pick up fixes.
+Because the CLI is normally invoked through `npx`, most users run the latest version automatically. If you have a pinned or globally installed copy, update it (`npm i -g pharn@latest`) or invoke `npx pharn@latest` to pick up fixes.
 
 ## Reporting a vulnerability
 
@@ -25,7 +25,7 @@ Because the CLI is normally invoked through `npx`, most users run the latest ver
 
 Instead, report privately through one of these channels:
 
-1. **GitHub Security Advisories (preferred)** — use [private vulnerability reporting](https://github.com/pharn-dev/pharn-cli/security/advisories/new) to open a confidential report. No email is exposed and the report stays embargoed until a fix ships.
+1. **GitHub Security Advisories (preferred)** — use [private vulnerability reporting](https://github.com/pharn-dev/pharn/security/advisories/new) to open a confidential report. No email is exposed and the report stays embargoed until a fix ships.
 2. **Email** — if you cannot use GitHub advisories, email `support@pharn.dev` with `[PHARN SECURITY]` in the subject.
 
 Please include as much of the following as you can — it speeds up triage:
@@ -33,7 +33,7 @@ Please include as much of the following as you can — it speeds up triage:
 - The type of issue (e.g. path traversal, command injection, SSRF, supply-chain, insufficient input validation).
 - Full paths of the source file(s) involved (step, lib, command, or config).
 - The location of the affected code (tag/branch/commit or a direct URL).
-- The published `pharn-cli` version and Node.js version, if relevant.
+- The published `pharn` version and Node.js version, if relevant.
 - Any configuration or stack choices required to reproduce.
 - Step-by-step reproduction instructions.
 - Proof-of-concept, if you have one.
@@ -62,7 +62,7 @@ Scope follows the surface described above: everything that touches remote input 
 
 ### Out of scope
 
-- Vulnerabilities in the **PHARN skills, hooks, or runners** that `pharn-cli` installs — report those against the skills repository (e.g. its own `SECURITY.md`), not here.
+- Vulnerabilities in the **PHARN skills, hooks, or runners** that `pharn` installs — report those against the skills repository (e.g. its own `SECURITY.md`), not here.
 - Vulnerabilities in **third-party AI tools** the installed stack targets (Claude Code, Codex, Cursor).
 - Issues in **vendor libraries** the docs reference (Stripe, Drizzle, Supabase, etc.) — report those upstream.
 - Vulnerabilities in the CLI's **own npm dependencies** that are fixed by an upstream patch — please report to that project (and feel free to flag it to us so we can bump the floor).
@@ -71,7 +71,7 @@ Scope follows the surface described above: everything that touches remote input 
 
 ## Security best practices for users
 
-`pharn-cli`'s input validation and consent prompts are defense-in-depth, not a guarantee. When using the CLI:
+`pharn`'s input validation and consent prompts are defense-in-depth, not a guarantee. When using the CLI:
 
 1. **Run it in an existing, version-controlled project** so you can diff exactly what `init` wrote (`.claude/` and `pharn.config.json`) before committing.
 2. **Review the vendor skills** the wizard offers before accepting them — vendor selection is opt-in and nothing is selected by default; only accept vendors you recognize.

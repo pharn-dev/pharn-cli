@@ -2,10 +2,10 @@
 file: "THREAT-MODEL.md"
 trust: trusted
 editable_by: "human only"
-purpose: "The security foundation for pharn-cli. Defines the surfaces, the attack surface of consuming untrusted remote content, and how the validation floor answers each. Elaborates P2; never contradicts CONSTITUTION.md."
+purpose: "The security foundation for pharn. Defines the surfaces, the attack surface of consuming untrusted remote content, and how the validation floor answers each. Elaborates P2; never contradicts CONSTITUTION.md."
 ---
 
-# pharn-cli — Threat Model
+# pharn — Threat Model
 
 > Read `CONSTITUTION.md` (esp. P0, P2) and `ARCHITECTURE.md §2, §5, §7` first.
 
@@ -15,20 +15,20 @@ purpose: "The security foundation for pharn-cli. Defines the surfaces, the attac
 
 Conflating "the code we install" with "the code we run" is the most common mistake here.
 
-- **Surface A — the content pharn-cli _writes_ into the user's repo.** pharn-cli copies PHARN
-  methodology files (markdown + a few `.cjs`/`.mjs`) into `.claude/`. **pharn-cli never executes
+- **Surface A — the content pharn _writes_ into the user's repo.** pharn copies PHARN
+  methodology files (markdown + a few `.cjs`/`.mjs`) into `.claude/`. **pharn never executes
   them** — Claude Code does, later, on the user's machine. Whether that methodology is itself correct
-  or safe is pharn-oss's concern and the user's review, not pharn-cli's runtime. **Not the subject of
+  or safe is pharn-oss's concern and the user's review, not pharn's runtime. **Not the subject of
   this document.**
-- **Surface B — pharn-cli _itself_ consuming hostile remote input.** A compromised, forked, or
+- **Surface B — pharn _itself_ consuming hostile remote input.** A compromised, forked, or
   MITM'd source repo serving a poisoned `manifest.json` / `module.json` / `degit` tree. This is
   **architecture** — where the trust boundaries sit — and cannot be bolted on later. **This document
   is B.**
-- **Surface B′ — the dev-loop _building_ pharn-cli**, an agent reading hostile context (an issue, a
+- **Surface B′ — the dev-loop _building_ pharn**, an agent reading hostile context (an issue, a
   PR, another model's output). Answered by the `writes:`-scope + trusted-file write-guard hooks
   (`ARCHITECTURE.md §3.3`).
 
-The framing axiom: **pharn-cli may not assume the remote is honest just because the URL says
+The framing axiom: **pharn may not assume the remote is honest just because the URL says
 `pharn-dev/pharn-oss`.** Defense rests on structural validation independent of "the repo is ours" —
 the floor (`ARCHITECTURE.md §2`).
 
@@ -36,7 +36,7 @@ the floor (`ARCHITECTURE.md §2`).
 
 ## 2. B's attack surface (name it explicitly)
 
-pharn-cli fetches a manifest, per-module `module.json`, and `degit`-clones a subtree, then copies
+pharn fetches a manifest, per-module `module.json`, and `degit`-clones a subtree, then copies
 files into the user's `.claude/`. The concrete surface:
 
 1. **Malicious `installs` / skill path** — a `module.json` `installs` map or a skill `from` path
@@ -72,7 +72,7 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 
 ## 4. Residuals the design accepts (labeled, not hidden — `LIMITS.md`)
 
-- **4a. Provenance, not verification.** pharn-cli trusts the configured source repo by **provenance**
+- **4a. Provenance, not verification.** pharn trusts the configured source repo by **provenance**
   (plus validation), not by a signature over a release. A compromised upstream serving valid-**shaped**
   but malicious methodology passes the structural floor. _Backstop:_ the floor still contains **where**
   bytes land (`safeJoin`) and **how** they are fetched (guards) — a hostile upstream is bounded to
@@ -85,13 +85,13 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 
 ## 5. The one residual (named, bounded, not zeroed)
 
-pharn-cli validates the **structure** of what it installs — paths contained, schema known, fetch
+pharn validates the **structure** of what it installs — paths contained, schema known, fetch
 bounded — but it does not, and cannot, validate the **semantic safety** of the PHARN methodology
 content it copies verbatim into `.claude/`. **"It installed cleanly" means "it landed where it
 should without escaping," NOT "the installed methodology is correct or safe to run."** That judgment
 belongs to pharn-oss (the source) and the user's review.
 
-Co-located: when the **dev-loop** reviews the pharn-cli code it builds, a finding's free-text
+Co-located: when the **dev-loop** reviews the pharn code it builds, a finding's free-text
 (`problem`, `evidence`) inherits the reviewed code's untrusted tag (`ARCHITECTURE.md §8`) — bounded
 by the enum-gated split, not zeroed. This is the one place the trust model rests on **provenance +
 review**, not on the floor.

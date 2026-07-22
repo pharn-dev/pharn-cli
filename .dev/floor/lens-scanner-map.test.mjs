@@ -65,7 +65,7 @@ test("3. every map KEY is a real counted lens — no phantom entry", () => {
 
 test("4. no ORPHAN scanner — every scan-code-*.mjs on disk is wired to some lens", () => {
   const live = countedLensNames();
-  if (live.length === 0) return; // pharn-cli ships floor scanners without product lenses — wiring is enforced once lenses exist
+  if (live.length === 0) return; // pharn ships floor scanners without product lenses — wiring is enforced once lenses exist
   const referenced = new Set(Object.values(MAP.scanners).filter(Boolean));
   for (const s of scannersOnDisk()) {
     assert.ok(referenced.has(s), `scanner '${s}' exists on disk but no lens maps to it (unwired scanner)`);

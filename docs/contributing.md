@@ -1,11 +1,11 @@
-# Contributing to pharn-cli
+# Contributing to pharn
 
-Development guide for the pharn-cli package. This is the full guide; the root [`CONTRIBUTING.md`](../CONTRIBUTING.md) is the quick-start pointer.
+Development guide for the pharn package. This is the full guide; the root [`CONTRIBUTING.md`](../CONTRIBUTING.md) is the quick-start pointer.
 
 ## Setup
 
 ```bash
-cd pharn-cli
+cd pharn
 npm install
 ```
 
@@ -30,7 +30,7 @@ From the `test-app/` directory (which needs its own `package.json`) after `build
 npx pharn init
 ```
 
-Published package `pharn-cli` exposes both `pharn` and `pharn-cli` bins (see `package.json`).
+Published package `pharn` exposes a single `pharn` bin (see `package.json`).
 
 ## Quality gates
 
@@ -57,7 +57,7 @@ A separate CodeQL workflow analyzes the JavaScript/TypeScript surface on PRs, pu
 ## Project layout
 
 ```text
-pharn-cli/
+pharn/
   src/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status

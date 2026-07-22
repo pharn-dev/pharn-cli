@@ -2,7 +2,7 @@
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4 (ARCHITECTURE.md)
 - increment: Neutralize attacker-controlled git-config-driven code execution in `fresh-check.ts` by routing every git invocation through one hardened, shell-free helper.
-- layer(s): pharn-cli `src/steps/` (one init stage) + `tests/` — this is a CLI-source security fix, not a new PHARN Capability.
+- layer(s): pharn `src/steps/` (one init stage) + `tests/` — this is a CLI-source security fix, not a new PHARN Capability.
 - constitution_refs: [P2, P1, P5, P6, P7]
 
 ## The bug (grounded this run, not from memory — P6)
@@ -48,7 +48,7 @@ functions still return the same integers (verified).
   `execFileSync`-based `runGit` helper that always injects the `-c core.fsmonitor=`/`core.hooksPath`
   hardening; `gitCommitCount` → `runGit(['rev-list','--count','HEAD'], cwd)`, `gitTrackedFileCount`
   → `runGit(['ls-files'], cwd)`. Behavior (returns, thresholds, `catch → 0` fallback) unchanged. —
-  layer: pharn-cli `steps/` (init stage).
+  layer: pharn `steps/` (init stage).
 - `tests/fresh-check.test.ts` — add a regression test: inject a malicious `core.fsmonitor` (touch a
   sentinel; `false`) into a fixture repo's `.git/config`, then assert the production functions
   (`gitTrackedFileCount`, `gitCommitCount`, `runFreshCheck`) do **not** create the sentinel (no
@@ -60,7 +60,7 @@ functions still return the same integers (verified).
 
 - CONSTITUTION.md **P2** (untrusted input is data, never trusted input) — the target repo's
   `.git/config` is untrusted; after the fix it can influence git *output* but never *execution*
-  (`THREAT-MODEL.md §1` Surface B / B′: pharn-cli itself consuming hostile local input). Cite, not
+  (`THREAT-MODEL.md §1` Surface B / B′: pharn itself consuming hostile local input). Cite, not
   restate (P4).
 - CONSTITUTION.md **P1** (tests are the spec) — the security invariant ships with a test that
   exercises it.
@@ -68,7 +68,7 @@ functions still return the same integers (verified).
 ## Evals to write (P1)
 
 This increment adds no PHARN Capability/rule, so `floor/validate.mjs`'s eval-binding does not apply.
-The P1 obligation for a pharn-cli **security invariant** is a `vitest` test that *demonstrates* it
+The P1 obligation for a pharn **security invariant** is a `vitest` test that *demonstrates* it
 (CONSTITUTION P1). The regression test above is that demonstration:
 
 - malicious `core.fsmonitor` present → `gitTrackedFileCount` runs → sentinel file is **NOT** created
@@ -82,7 +82,7 @@ The P1 obligation for a pharn-cli **security invariant** is a `vitest` test that
 - **Claim:** "fresh-check's git calls no longer execute attacker-controlled `.git/config`
   (`core.fsmonitor` / hooks)." → **floor: test (deterministic `existsSync(sentinel) === false`) +
   single-call-site code structure** (grep-verified: `fresh-check.ts` is the only shell-out in
-  `src/`; both calls route through the one hardening helper). This is exactly how pharn-cli floors
+  `src/`; both calls route through the one hardening helper). This is exactly how pharn floors
   its own security invariants (P1: "every security invariant has a test that demonstrates the
   behavior"). Not one of the three PHARN methodology floor primitives (§2) — those govern the
   installed methodology, not the CLI's own source.

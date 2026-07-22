@@ -113,7 +113,7 @@ Run `pharn --help`. Valid commands: `init`, `add`, `remove`, `update`, `list`, `
 
 | Problem | Fix |
 | ------- | --- |
-| `pharn` not found after editing CLI | `npm run build:install-local` from `pharn-cli/` |
+| `pharn` not found after editing CLI | `npm run build:install-local` from `pharn/` |
 | Type errors in tests | `npm run typecheck` |
 | Stale dist | `npm run build` |
 

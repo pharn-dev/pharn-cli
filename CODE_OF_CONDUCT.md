@@ -38,7 +38,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-This Code of Conduct is shared across all PHARN projects (including `pharn-cli` and `pharn-oss`), which are governed by a single pharn.dev community and enforcement team.
+This Code of Conduct is shared across all PHARN projects (including `pharn` and `pharn-oss`), which are governed by a single pharn.dev community and enforcement team.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at `support@pharn.dev`. If your report concerns a member of the enforcement team, note that in your message so it can be routed to an uninvolved leader.
 

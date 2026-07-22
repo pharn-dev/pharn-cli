@@ -13,12 +13,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pharn-dev/pharn-cli.git"
+    "url": "git+https://github.com/pharn-dev/pharn.git"
   },
   "bugs": {
-    "url": "https://github.com/pharn-dev/pharn-cli/issues"
+    "url": "https://github.com/pharn-dev/pharn/issues"
   },
-  "homepage": "https://github.com/pharn-dev/pharn-cli#readme",
+  "homepage": "https://github.com/pharn-dev/pharn#readme",
   "type": "module",
   "bin": {
     "pharn": "dist/index.js"
@@ -31,7 +31,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "provenance": true
+    "provenance": false
   },
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc --noEmit && node scripts/build.mjs",

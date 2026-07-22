@@ -1,8 +1,8 @@
 # PLAN — harden-install-path
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # ARCHITECTURE.md (fix #4)
-- increment: Close the three Fable install-path findings on pharn-cli — a symlink-escape arbitrary-write hole and a missing dev/product allowlist on the LEGACY copy path (`install-modules.ts`), plus a floating-`main` degit fetch (`repo.ts`) whose recorded `commit` can diverge from the fetched bytes.
-- layer(s): pharn-cli `lib/` (`repo.ts`, `install-modules.ts`, `installer.ts`) + `commands/` (`init.ts`, `add.ts`, `update.ts`). NB — ARCHITECTURE.md §4's layer tree describes the PHARN **methodology** modules, not the installer's TypeScript source; installer-source layering is **CONSTITUTION P3** (`index → commands → steps → lib`, no sibling imports). All shared logic here stays in `lib/`.
+- increment: Close the three Fable install-path findings on pharn — a symlink-escape arbitrary-write hole and a missing dev/product allowlist on the LEGACY copy path (`install-modules.ts`), plus a floating-`main` degit fetch (`repo.ts`) whose recorded `commit` can diverge from the fetched bytes.
+- layer(s): pharn `lib/` (`repo.ts`, `install-modules.ts`, `installer.ts`) + `commands/` (`init.ts`, `add.ts`, `update.ts`). NB — ARCHITECTURE.md §4's layer tree describes the PHARN **methodology** modules, not the installer's TypeScript source; installer-source layering is **CONSTITUTION P3** (`index → commands → steps → lib`, no sibling imports). All shared logic here stays in `lib/`.
 - constitution_refs: [P0, P1, P2, P5, P6, P7]
 
 ---

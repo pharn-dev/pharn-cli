@@ -4,7 +4,7 @@ Thin, **advisory** roll-up of a gated `/pharn-dev-ship` run. It records that the
 
 ## Increment
 
-Make the pharn-cli installer **layout-aware**: mirror whichever layout the fetched pharn-oss clone has — the new `pharn/` single-install layout (PR #86 / `pharn-runtime-layout`) OR the legacy flat layout — across all archetype surfaces (install, status/drift, remove), recording the installed layout in `pharn.config.json`. This is the layout half of the original `/pharn-dev-ship` request; the DOCS_URL half already shipped as `remove-dead-docs-url`.
+Make the pharn installer **layout-aware**: mirror whichever layout the fetched pharn-oss clone has — the new `pharn/` single-install layout (PR #86 / `pharn-runtime-layout`) OR the legacy flat layout — across all archetype surfaces (install, status/drift, remove), recording the installed layout in `pharn.config.json`. This is the layout half of the original `/pharn-dev-ship` request; the DOCS_URL half already shipped as `remove-dead-docs-url`.
 
 **GATE-1 decisions (human):** all-at-once (write + read side together); clone ref stays `main`; mirror PR #86's current subtree paths (accepted caveat: a follow-up tweak if #86 renames a subtree before merge).
 

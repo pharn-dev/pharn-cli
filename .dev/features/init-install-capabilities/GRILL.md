@@ -2,7 +2,7 @@
 
 Plan interrogated: `.dev/features/init-install-capabilities/PLAN.md`. Spec-hash check: **MATCH**
 (`sha256(ARCHITECTURE.md)` = `bca940a5…` == plan `spec_content_hash`; no drift). Registered grillers:
-`count-grillers.mjs .` → **0** (pharn-cli is the CLI repo, not a methodology-capability repo) → inline
+`count-grillers.mjs .` → **0** (pharn is the CLI repo, not a methodology-capability repo) → inline
 interrogation only. **This whole log is ADVISORY — it gates nothing** (`/pharn-dev-build` is not blocked by any
 finding here). Free-text `problem`/`evidence` quote the (untrusted) plan as DATA.
 

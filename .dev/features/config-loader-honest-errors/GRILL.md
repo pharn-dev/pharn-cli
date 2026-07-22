@@ -55,7 +55,7 @@ grillers: `count-grillers.mjs` → `0` (no external griller axes to run; inline 
   rule_id: "P4"
   severity: important
   file: ".dev/features/config-loader-honest-errors/PLAN.md:83"
-  problem: "pharn-cli is a PUBLISHED CLI and this stricter validation now REJECTS configs that previously loaded (extra/typo'd keys in models/seam) and hard-errors instead of 'run init' — a user-visible, potentially surprising change — yet CHANGELOG.md is absent from the Files list."
+  problem: "pharn is a PUBLISHED CLI and this stricter validation now REJECTS configs that previously loaded (extra/typo'd keys in models/seam) and hard-errors instead of 'run init' — a user-visible, potentially surprising change — yet CHANGELOG.md is absent from the Files list."
   evidence: "'docs/troubleshooting.md — distinguish absent … from present-but-invalid' — the only doc touched; no CHANGELOG entry."
 ```
 

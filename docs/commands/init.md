@@ -108,7 +108,7 @@ On success, the CLI reports the capability count and suggests opening Claude Cod
 
 ## Legacy configs
 
-`init` always writes an **archetype** config. The `add`, `remove`, `list`, `update`, and `status` commands still understand an older **module**-based `pharn.config.json` (from a pre-archetype install) and fall back to the module/manifest path for it — so an existing legacy install keeps working. Only `init` is archetype-only.
+`init` always writes an **archetype** config, and every command is archetype-only. A pre-archetype **module**-based `pharn.config.json` (one with `modules[]` but no `capabilities[]`, from a much older release) is no longer supported: `add`, `remove`, `list`, `update`, and `status` detect it up front and exit with a message to re-run `pharn init` — there is **no** module/manifest fallback (live pharn-oss ships no `manifest.json`). The config schema is additive, so a legacy config's now-unused fields (`modules`, `constitution`, `stackAnswers`, `installedSkills`) still parse; only the absence of `capabilities[]` triggers the rejection.
 
 ## Related
 

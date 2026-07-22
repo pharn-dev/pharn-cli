@@ -1,6 +1,6 @@
 # PHARN CLI documentation
 
-`pharn-cli` installs [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code — into your project. Run `pharn init` to detect your project's archetype(s) and install the applicable PHARN **capabilities** (grillers + lenses) from `pharn-dev/pharn-oss` into the mirrored layout (`.claude/` + `pharn/`), copying the canonical constitution and writing `pharn.config.json`.
+`pharn` installs [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code — into your project. Run `pharn init` to detect your project's archetype(s) and install the applicable PHARN **capabilities** (grillers + lenses) from `pharn-dev/pharn-oss` into the mirrored layout (`.claude/` + `pharn/`), copying the canonical constitution and writing `pharn.config.json`.
 
 ## Getting started
 

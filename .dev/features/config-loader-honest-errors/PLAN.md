@@ -6,7 +6,7 @@
   keys, duplicate steps, and a dead threshold, naming the offender; (3) the loader returns the
   validators' typed result, not `raw`; keeping the CLI validators, the parallel floor validator, and
   the seam contract in lockstep.
-- layer(s): pharn-cli — lib/ (loader + both validators) · commands/ + steps/ (callers) · pharn-contracts
+- layer(s): pharn — lib/ (loader + both validators) · commands/ + steps/ (callers) · pharn-contracts
   (seam SoT) · .dev/floor (parallel validator) · docs/ (P4).
 - constitution_refs: [P0, P1, P2, P3, P4, P5, P6, P7]
 - scope note: LARGE but coherent — one theme (honest+strict config load/validate). Human directed "fix

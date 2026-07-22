@@ -4,7 +4,7 @@
 
 ## FLOOR layer — deterministic gates (owns the verdict)
 
-The gate set mirrors this repo's enforced floor — `npm run check` (`format:check → lint → typecheck → test`) plus the structural `validate`. `lint:md` is **not** part of pharn-cli's `npm run check`/CI and its globs (`docs/**/*.md`, `*.md`) cover none of this increment's files, so it is not a verify gate here.
+The gate set mirrors this repo's enforced floor — `npm run check` (`format:check → lint → typecheck → test`) plus the structural `validate`. `lint:md` is **not** part of pharn's `npm run check`/CI and its globs (`docs/**/*.md`, `*.md`) cover none of this increment's files, so it is not a verify gate here.
 
 | gate           | exit | meaning                                             |
 | -------------- | ---- | --------------------------------------------------- |

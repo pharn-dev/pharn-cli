@@ -86,7 +86,7 @@ Signal → archetype mapping (the enum has no `db`/`frontend`, so names map onto
 ## Contracts satisfied
 
 - **N/A — no `pharn-contracts` reference.** `pharn-contracts` is a PHARN-*product* layer (ARCHITECTURE.md
-  §4); this is a pharn-cli-internal `src/lib/` boundary and satisfies no product contract (as with #20).
+  §4); this is a pharn-internal `src/lib/` boundary and satisfies no product contract (as with #20).
 - **Spec cited, not restated (P4):** ARCHITECTURE.md §5 (`archetype ∈ {ssr, backend, spa, lib}`, deterministic
   detection) and §4 (the frameworkless `lib` base). This increment **extends the detection INPUT surface**
   (adds file-tree signals) while preserving the enum and determinism; it does not restate the rule.
