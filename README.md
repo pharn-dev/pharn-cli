@@ -6,7 +6,7 @@
 
 The interactive installer for [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code that keeps comprehension debt legible instead of silent.
 
-[![npm](https://img.shields.io/npm/v/pharn-cli)](https://www.npmjs.com/package/pharn-cli)
+[![npm](https://img.shields.io/npm/v/pharn)](https://www.npmjs.com/package/pharn)
 [![CI](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/pharn-dev/pharn-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/codeql.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE)
@@ -22,6 +22,7 @@ npx pharn init
 
 ## Contents
 
+- [Install](#install)
 - [Why](#why)
 - [What it installs](#what-it-installs)
 - [The pipeline](#the-pipeline)
@@ -34,13 +35,23 @@ npx pharn init
 
 ---
 
+## Install
+
+```bash
+npx pharn@latest init
+```
+
+`pharn` runs straight from npm — `npx` fetches the latest published version and runs it in your project; no global install. Requires a git-initialized project and Node >= 20.
+
+---
+
 ## Why
 
 Vibe-coding with an AI agent is fast — until the chat history scrolls away and takes the _understanding_ with it. That gap is **comprehension debt** ([coined by Addy Osmani](https://addyosmani.com/blog/comprehension-debt/)), and it compounds faster than any other kind. PHARN keeps a markdown-canonical record — spec, constitution, diff, audit trail — in your repo, readable and diffable.
 
 `pharn-cli` is how you get it. Run `pharn init` in your project to pick which PHARN modules and stack pack you want; the CLI fetches them from `pharn-dev/pharn-oss`, copies them into `.claude/`, materializes your constitution + memory bank, and writes `pharn.config.json`.
 
-> The npm package is `pharn-cli`; it exposes both `pharn` and `pharn-cli` binaries.
+> The npm package is `pharn`; it installs a single `pharn` binary.
 
 ---
 
