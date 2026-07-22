@@ -1,36 +1,46 @@
 name: publish
 
-# Publish to npm when a GitHub Release is published, or on manual dispatch.
+# Publish to npm when a GitHub Release is published.
 # Cut a release (tag vX.Y.Z, matching package.json "version") and this runs.
+#
+# Auth = npm Trusted Publishing (OIDC) — configured on npmjs.org as a Trusted
+# Publisher for this workflow (publish.yml) + environment `npm-publish`. No
+# secrets or tokens appear anywhere in this workflow. The local FIRST publish
+# stays manual (`npm publish`, run once by a maintainer to create the package
+# before the Trusted Publisher can take over).
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write # required for npm provenance (Sigstore attestation via OIDC)
+  id-token: write # required for OIDC: npm Trusted Publishing + provenance attestation
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: npm-publish
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
+      - name: Update npm # Trusted Publishing requires npm >= 11.5.1
+        run: npm install -g npm@latest
       - name: Install
         run: npm ci
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          [ "$TAG" = "$PKG" ] || { echo "tag v$TAG != package.json $PKG"; exit 1; }
       # `npm publish` runs prepublishOnly (npm run check) + prepack (build) first,
-      # so a failing gate blocks the release. `--provenance` overrides the
-      # publishConfig `provenance: false` default: CI gets a signed attestation
-      # (needs id-token: write + a CI OIDC provider) while local `npm publish`
-      # still works without one.
+      # so a failing gate blocks the release. `--provenance` emits a signed
+      # attestation via the same OIDC id-token used for Trusted Publishing
+      # (needs id-token: write). Auth itself is OIDC — no token or secret.
       - name: Publish
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
