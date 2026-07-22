@@ -1,0 +1,31 @@
+{
+  "base": "HEAD",
+  "inside": [
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    "CHANGELOG.md",
+    "README.md",
+    "SECURITY.md",
+    "docs/contributing.md",
+    "docs/getting-started.md",
+    "docs/troubleshooting.md",
+    "package.json",
+    "src/index.ts",
+    "src/steps/prereqs.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 1,
+      "head": 1
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests",
+    "validate"
+  ],
+  "verdict": "no-regressions"
+}

@@ -24,7 +24,7 @@ The CLI message says "git not found" but the check is for a **`.git` directory**
 ```text
 ✗ git not found.
   Run: git init && git add -A && git commit -m 'init'
-  Then re-run: npx @pharn-dev/pharn init
+  Then re-run: npx pharn init
 ```
 
 Exits with code **1**.
@@ -65,7 +65,7 @@ Symptoms:
 Causes include a degit clone failure (network/GitHub), or a selected capability missing at its expected path (`<subtree>/<name>/<name>.md`) in the fetched repo. Set `PHARN_DEBUG=1` and re-run for the full stack trace:
 
 ```bash
-PHARN_DEBUG=1 npx @pharn-dev/pharn init
+PHARN_DEBUG=1 npx pharn init
 ```
 
 ## Overwrite declined

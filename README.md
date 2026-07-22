@@ -6,14 +6,14 @@
 
 The installer for [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code that keeps comprehension debt legible instead of silent.
 
-[![npm](https://img.shields.io/npm/v/@pharn-dev/pharn)](https://www.npmjs.com/package/@pharn-dev/pharn)
+[![npm](https://img.shields.io/npm/v/pharn)](https://www.npmjs.com/package/pharn)
 [![CI](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/pharn-dev/pharn-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/codeql.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](./package.json)
 
 ```bash
-npx @pharn-dev/pharn init
+npx pharn init
 ```
 
 </div>
@@ -38,7 +38,7 @@ npx @pharn-dev/pharn init
 ## Install
 
 ```bash
-npx @pharn-dev/pharn@latest init
+npx pharn@latest init
 ```
 
 `pharn` runs straight from npm — `npx` fetches the latest published version and runs it in your project; no global install. Requires a git-initialized project and Node >= 20.
@@ -51,7 +51,7 @@ Vibe-coding with an AI agent is fast — until the chat history scrolls away and
 
 `pharn` is how you get it. Run `pharn init` in your project; the CLI detects your project's **archetype(s)**, fetches the applicable PHARN **capabilities** from `pharn-dev/pharn-oss`, copies them plus the canonical constitution into the mirrored layout (`.claude/` + `pharn/`), and writes `pharn.config.json`.
 
-> The npm package is `@pharn-dev/pharn`; it installs a single `pharn` binary.
+> The npm package is `pharn`; it installs a single `pharn` binary.
 
 ---
 
