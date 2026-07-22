@@ -21,7 +21,7 @@ Before changing anything, read these in order:
 ## The 30-second version
 
 1. **Open an issue first** for any non-trivial change. PHARN is small-surface on purpose.
-2. **Install**: `cd pharn && npm install` (dev-only tooling; only `dist/` ships to npm).
+2. **Install**: `cd pharn-cli && npm install` (dev-only tooling; only `dist/` ships to npm).
 3. **Run the gates before pushing** — all four must pass (this is exactly what CI runs):
    `npm run format:check` · `npm run lint` · `npm run typecheck` · `npm test`
 4. **Branch**: `feat/…`, `fix/…`, or `docs/…`.

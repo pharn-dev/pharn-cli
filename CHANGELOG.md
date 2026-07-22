@@ -32,11 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Renamed the npm package `pharn` → `pharn`** and made it publish-ready — added `repository`,
+- **Renamed the npm package `pharn-cli` → `@pharn-dev/pharn`** and made it publish-ready — added `repository`,
   `bugs`, `homepage`, `keywords`, and `publishConfig` (public access + provenance); dropped the
-  `pharn` bin alias for a single `pharn` bin; and added a `prepack` build so `npm publish` always
+  `pharn-cli` bin alias for a single `pharn` bin; and added a `prepack` build so `npm publish` always
   ships a freshly compiled `dist/`. No CLI behavior change and `version` is unchanged; the package now
-  installs via `npx pharn@latest init`.
+  installs via `npx @pharn-dev/pharn@latest init`.
 - Docs: surfaced the new optional `/pharn-spec` stage (intent capture before `/pharn-plan`) in
   getting-started and the `pharn-pipeline` module description, matching `pharn-oss`. No CLI code
   change — `/pharn-spec` ships transparently via the existing whole-module install from `main`.
@@ -127,6 +127,6 @@ Next.js project. Exposes both `pharn` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/pharn-dev/pharn/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/pharn-dev/pharn/releases/tag/v0.1.0
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.1.0

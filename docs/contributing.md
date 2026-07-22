@@ -5,7 +5,7 @@ Development guide for the pharn package. This is the full guide; the root [`CONT
 ## Setup
 
 ```bash
-cd pharn
+cd pharn-cli
 npm install
 ```
 
@@ -27,10 +27,10 @@ npm install
 From the `test-app/` directory (which needs its own `package.json`) after `build:install-local`:
 
 ```bash
-npx pharn init
+npx @pharn-dev/pharn init
 ```
 
-Published package `pharn` exposes a single `pharn` bin (see `package.json`).
+Published package `@pharn-dev/pharn` exposes a single `pharn` bin (see `package.json`).
 
 ## Quality gates
 
@@ -57,7 +57,7 @@ A separate CodeQL workflow analyzes the JavaScript/TypeScript surface on PRs, pu
 ## Project layout
 
 ```text
-pharn/
+pharn-cli/
   src/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status

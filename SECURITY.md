@@ -10,14 +10,14 @@ The CLI's security model is **deterministic, not model-driven**: it never asks a
 
 ## Supported versions
 
-`pharn` is published to npm as [`pharn`](https://www.npmjs.com/package/pharn) and is typically run via `npx pharn init`. We patch security issues against the **latest** published version only; `npx pharn@latest ...` always resolves to a supported release.
+`pharn` is published to npm as [`@pharn-dev/pharn`](https://www.npmjs.com/package/@pharn-dev/pharn) and is typically run via `npx @pharn-dev/pharn init`. We patch security issues against the **latest** published version only; `npx @pharn-dev/pharn@latest ...` always resolves to a supported release.
 
 | Version  | Supported          |
 | -------- | ------------------ |
 | Latest   | :white_check_mark: |
 | < Latest | :x:                |
 
-Because the CLI is normally invoked through `npx`, most users run the latest version automatically. If you have a pinned or globally installed copy, update it (`npm i -g pharn@latest`) or invoke `npx pharn@latest` to pick up fixes.
+Because the CLI is normally invoked through `npx`, most users run the latest version automatically. If you have a pinned or globally installed copy, update it (`npm i -g @pharn-dev/pharn@latest`) or invoke `npx @pharn-dev/pharn@latest` to pick up fixes.
 
 ## Reporting a vulnerability
 
@@ -25,7 +25,7 @@ Because the CLI is normally invoked through `npx`, most users run the latest ver
 
 Instead, report privately through one of these channels:
 
-1. **GitHub Security Advisories (preferred)** — use [private vulnerability reporting](https://github.com/pharn-dev/pharn/security/advisories/new) to open a confidential report. No email is exposed and the report stays embargoed until a fix ships.
+1. **GitHub Security Advisories (preferred)** — use [private vulnerability reporting](https://github.com/pharn-dev/pharn-cli/security/advisories/new) to open a confidential report. No email is exposed and the report stays embargoed until a fix ships.
 2. **Email** — if you cannot use GitHub advisories, email `support@pharn.dev` with `[PHARN SECURITY]` in the subject.
 
 Please include as much of the following as you can — it speeds up triage:
@@ -75,7 +75,7 @@ Scope follows the surface described above: everything that touches remote input 
 
 1. **Run it in an existing, version-controlled project** so you can diff exactly what `init` wrote (`.claude/` and `pharn.config.json`) before committing.
 2. **Review the vendor skills** the wizard offers before accepting them — vendor selection is opt-in and nothing is selected by default; only accept vendors you recognize.
-3. **Prefer `npx pharn@latest`** so you run the current, supported release rather than a stale pinned copy.
+3. **Prefer `npx @pharn-dev/pharn@latest`** so you run the current, supported release rather than a stale pinned copy.
 4. **Inspect the cloned `.claude/` skills** before running them through your AI tool — installation fetches remote content.
 5. **Set `PHARN_DEBUG=1`** if a manifest or clone step fails unexpectedly, and report anything that looks like the CLI fetching or writing somewhere it should not.
 

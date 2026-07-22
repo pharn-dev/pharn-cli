@@ -23,9 +23,9 @@ export interface FetchedRepo {
  * Clone the whole pharn-oss repo into a fresh temp directory, PINNED to the
  * resolved commit SHA so the recorded provenance matches the fetched bytes
  * (closing the separate-resolve/separate-fetch TOCTOU where a push between the
- * two reads made `commit` disagree with the tree). The caller reads
- * manifest.json + each module's installs from it, records `sha` as `commit`,
- * then calls cleanup().
+ * two reads made `commit` disagree with the tree). The caller derives the
+ * capability index from the clone (lib/capability-index.ts), records `sha` as
+ * `commit`, then calls cleanup().
  *
  * When the SHA cannot be resolved, fall back to REPO_BRANCH (LIMITS.md §3b — the
  * install still proceeds; `sha` is null). Provenance is by-SHA, NOT

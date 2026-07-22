@@ -1,5 +1,5 @@
 {
-  "name": "pharn",
+  "name": "@pharn-dev/pharn",
   "version": "0.2.0",
   "description": "Audit-grade AI development methodology for Claude Code — spec, plan, grill, build, verify, ship.",
   "keywords": [
@@ -13,12 +13,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pharn-dev/pharn.git"
+    "url": "git+https://github.com/pharn-dev/pharn-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/pharn-dev/pharn/issues"
+    "url": "https://github.com/pharn-dev/pharn-cli/issues"
   },
-  "homepage": "https://github.com/pharn-dev/pharn#readme",
+  "homepage": "https://github.com/pharn-dev/pharn-cli#readme",
   "type": "module",
   "bin": {
     "pharn": "dist/index.js"
