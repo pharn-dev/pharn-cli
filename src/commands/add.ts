@@ -1,8 +1,20 @@
-import { intro, log, outro, spinner } from '@clack/prompts';
+import {
+  groupMultiselect,
+  intro,
+  isCancel,
+  log,
+  outro,
+  spinner,
+} from '@clack/prompts';
 import pc from 'picocolors';
 import { REPO_URL } from '../lib/constants.js';
+import { cancelAndExit } from '../lib/confirm.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
+import {
+  buildAddSelection,
+  interactiveAllowed,
+} from '../lib/capability-picker.js';
 import { installCapabilityDirs } from '../lib/install-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
@@ -10,11 +22,14 @@ import {
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
-import type { PharnConfig } from '../types.js';
+import type { InstalledCapability, PharnConfig } from '../types.js';
 
 // `pharn add <name>` / `add <role>:<name>` installs one capability into an
-// archetype project. The legacy module/manifest flow was removed (live pharn-oss
-// ships no manifest.json); a pre-archetype config is rejected up front by
+// archetype project. Bare `pharn add` in a terminal opens a grouped multi-select
+// over the not-yet-installed capabilities — sugar over the SAME per-name install
+// path (resolveArchetypeAdd), never a second installer. Non-TTY keeps a usage
+// error. The legacy module/manifest flow was removed (live pharn-oss ships no
+// manifest.json); a pre-archetype config is rejected up front by
 // loadArchetypeConfigOrExit with the single LEGACY_CONFIG_MESSAGE.
 export async function runAdd(capabilityArg: string | undefined): Promise<void> {
   intro('pharn add');
@@ -26,19 +41,19 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
 
 // Install one capability into an archetype project (a manual override of
 // archetype auto-selection). Appends to `capabilities`, never touches
-// `archetypes`. The clone lives across no interactive prompt, but cleanup still
-// runs in a finally with every process.exit after it.
+// `archetypes`. The clone lives across no interactive prompt (named path), but
+// cleanup still runs in a finally with every process.exit after it.
 async function runArchetypeAdd(
   config: PharnConfig,
   cwd: string,
   arg: string | undefined,
 ): Promise<void> {
+  // Bare invocation → interactive picker (in a TTY) or a usage error (non-TTY).
   if (arg === undefined) {
-    log.error(
-      'Specify a capability, e.g. `pharn add a11y` or `pharn add lens:n-plus-one`.',
-    );
-    process.exit(1);
+    await runAddPicker(config, cwd);
+    return;
   }
+
   const parsed = parseCapabilityArg(arg);
   if (parsed.error) {
     log.error(parsed.error);
@@ -93,6 +108,153 @@ async function runArchetypeAdd(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Bare `pharn add` — the interactive multi-select picker (additive-only).
+// ---------------------------------------------------------------------------
+
+// Non-TTY (CI, a pipe) → NEVER prompt: a reworded usage error + exit(1), before
+// any fetch (P5 — the terminal fallback is a hard-fail, not a guess). In a TTY,
+// fetch once, then resolve the picker (which lives across the multi-select), with
+// cleanup in a finally and every exit after it.
+async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
+  if (
+    !interactiveAllowed({
+      stdinIsTTY: process.stdin.isTTY,
+      stdoutIsTTY: process.stdout.isTTY,
+    })
+  ) {
+    log.error(
+      'Specify a capability (e.g. `pharn add a11y` or `pharn add lens:n-plus-one`), or run `pharn add` in an interactive terminal to pick from a list.',
+    );
+    process.exit(1);
+  }
+
+  const s = spinner();
+  s.start(`Fetching capabilities from ${REPO_URL}`);
+  let repo;
+  try {
+    repo = await fetchRepo();
+    s.stop(`Capabilities fetched from ${REPO_URL}`);
+  } catch (err) {
+    s.stop('Failed to fetch capabilities');
+    log.error(`⚠ ${err instanceof Error ? err.message : String(err)}`);
+    if (process.env.PHARN_DEBUG) console.error(err);
+    process.exit(1);
+  }
+
+  // Assigned exactly once per path (try or catch) before it is read, so the
+  // finally can run cleanup with every exit after it (mirrors resolveArchetypeAdd).
+  let outcome: PickerAddOutcome;
+  try {
+    outcome = await resolveAddPicker(repo.dir, repo.sha, config, cwd);
+  } catch (err) {
+    if (process.env.PHARN_DEBUG) console.error(err);
+    outcome = {
+      kind: 'error',
+      message: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    repo.cleanup();
+  }
+
+  if (outcome.kind === 'error') {
+    log.error(`⚠ ${outcome.message}`);
+    process.exit(1);
+  }
+  if (outcome.kind === 'all-installed') {
+    outro('All available capabilities are already installed.');
+    return;
+  }
+  if (outcome.kind === 'cancelled') cancelAndExit();
+  if (outcome.kind === 'none') {
+    outro('Nothing selected. No capabilities were added.');
+    return;
+  }
+  outro(
+    `${pc.green('✔')} Added ${outcome.added.length} ${plural(outcome.added.length)}.`,
+  );
+}
+
+type PickerAddOutcome =
+  | { kind: 'installed'; added: string[] }
+  | { kind: 'all-installed' }
+  | { kind: 'none' }
+  | { kind: 'cancelled' }
+  | { kind: 'error'; message: string };
+
+// Build the menu (available = index − installed), multi-select, then install each
+// pick via the EXISTING per-name path (resolveArchetypeAdd), threading the
+// growing config forward so the FINAL pharn.config.json holds every pick — not
+// just the last (resolveArchetypeAdd persists per call off the config passed in).
+// Pure of process.exit — the caller owns cleanup + exit.
+async function resolveAddPicker(
+  repoDir: string,
+  sha: string | null,
+  config: PharnConfig,
+  cwd: string,
+): Promise<PickerAddOutcome> {
+  const index = parseCapabilityIndex(repoDir);
+  const installed = config.capabilities ?? [];
+  const { groups, availableCount } = buildAddSelection(index, installed);
+  if (availableCount === 0) return { kind: 'all-installed' };
+
+  if (installed.length > 0) {
+    log.info(
+      `Installed (${installed.length}): ${installed.map((c) => `${c.name} (${c.role})`).join(', ')}`,
+    );
+  }
+
+  const picked = await groupMultiselect({
+    message: 'Select capabilities to add',
+    options: groups,
+    required: false,
+    selectableGroups: false,
+  });
+  if (isCancel(picked)) return { kind: 'cancelled' };
+  const values = picked as string[];
+  if (values.length === 0) return { kind: 'none' };
+
+  // Thread the config forward across the per-pick installs (grill F1): each
+  // resolveArchetypeAdd writes pharn.config.json off the `cfg` passed in, so cfg
+  // must accumulate every prior pick or the writes clobber down to the last one.
+  const added: string[] = [];
+  let cfg = config;
+  for (const value of values) {
+    const parsed = parseCapabilityArg(value);
+    const result = await resolveArchetypeAdd(
+      repoDir,
+      sha,
+      cfg,
+      cwd,
+      parsed,
+      value,
+    );
+    if (result.kind === 'added') {
+      log.info(`${pc.green('✔')} Added ${result.name}`);
+      added.push(result.name);
+      // parsed.role is always defined — our option `value`s are `role:name`.
+      cfg = {
+        ...cfg,
+        capabilities: [
+          ...(cfg.capabilities ?? []),
+          { name: parsed.name, role: parsed.role! },
+        ],
+      };
+    } else if (result.kind === 'noop') {
+      // Defensive: the picker only offers not-installed capabilities.
+      log.info(`${result.name} is already installed.`);
+    } else {
+      // Defensive: values come from the validated index, so this is unexpected.
+      log.error(`⚠ ${result.message}`);
+    }
+  }
+  return { kind: 'installed', added };
+}
+
+function plural(n: number): string {
+  return n === 1 ? 'capability' : 'capabilities';
+}
+
 type AddResult =
   | { kind: 'added'; name: string; version: string }
   | { kind: 'noop'; name: string }
@@ -138,11 +300,15 @@ async function resolveArchetypeAdd(
   // The SHA the tree was pinned to (recorded == fetched, or null when the branch
   // was floated — LIMITS.md §3b); threaded from fetchRepo, no separate fetch.
   const commit = sha;
+  const capabilities: InstalledCapability[] = [
+    ...existing,
+    { name: cap.name, role: cap.role },
+  ];
   await writePharnConfig(cwd, {
     ...config,
     skillsVersion: version,
     commit,
-    capabilities: [...existing, { name: cap.name, role: cap.role }],
+    capabilities,
     installedAt: new Date().toISOString(),
   });
   return { kind: 'added', name: cap.name, version };

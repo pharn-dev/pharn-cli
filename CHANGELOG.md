@@ -14,9 +14,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `models` block actually written to `pharn.config.json`, plus a pointer to change it
   (`models.stages`). Documented under
   [`docs/reference/pharn-config.md`](docs/reference/pharn-config.md#model-routing).
+- **Bare `pharn add` / `pharn remove` open an interactive picker** — run either with no argument in a
+  terminal to get a grouped multi-select (grillers / lenses). `add` lists the capabilities you don't
+  have yet (installed ones shown as an `Installed (N): …` summary, since `add` is additive-only) and
+  installs each pick through the same per-capability path as `pharn add <name>`; `remove` lists what's
+  installed and, after one confirmation, deletes each pick. Named-argument invocations are unchanged.
+  Documented under [`docs/commands/add.md`](docs/commands/add.md) /
+  [`docs/commands/remove.md`](docs/commands/remove.md).
 
 ### Changed
 
+- **No-argument `add` / `remove` never prompt in a non-interactive context** — in CI or a pipe (stdin
+  or stdout not a TTY), bare `pharn add` / `pharn remove` exit with a usage error instead of opening a
+  prompt. `pharn remove` with no argument previously opened a single-select picker with no such guard;
+  it now opens a multi-select with one confirmation and the non-TTY guard.
 - **Spend-safe `review` default** — a fresh install now routes the `review` stage to `opus-4-8`/`high`
   instead of `fable-5`/`max`. Review fans out across lenses (a backend install ships ~22), so a premium
   model at `max` effort multiplied per lens was the worst-case token cost, applied silently. Cross-model

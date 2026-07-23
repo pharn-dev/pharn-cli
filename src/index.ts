@@ -17,8 +17,8 @@ Usage:
 
 Commands:
   init                       Detect archetypes and install capabilities (default)
-  add <capability>           Add one capability, e.g. a11y or lens:n-plus-one
-  remove <capability>        Remove an installed capability (no arg: pick one)
+  add [capability]           Add a capability, e.g. a11y (no arg: pick interactively)
+  remove [capability]        Remove an installed capability (no arg: pick interactively)
   update                     Re-fetch installed capabilities at the latest version
   list                       List installed archetypes + capabilities
   status                     Show version + local-drift status (read-only)

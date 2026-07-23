@@ -7,7 +7,8 @@ import type { PharnConfig } from '../src/types.js';
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
   isCancel: (v: unknown) => v === CANCEL,
-  select: vi.fn(),
+  groupMultiselect: vi.fn(),
+  confirm: vi.fn(),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   outro: vi.fn(),
 }));
@@ -22,13 +23,27 @@ vi.mock('../src/lib/pharn-config.js', () => ({
 // remove.ts imports NO repo/network module — capability removal is a pure
 // filesystem delete (drop the config entry + rm the isolated dir), so "no clone,
 // no network" is now STRUCTURAL, not just an assertion. layout / capability-address
-// / safeJoin run for real.
+// / capability-picker / safeJoin run for real.
 const { runRemove } = await import('../src/commands/remove.js');
 const prompts = await import('@clack/prompts');
 
 function write(path: string, content = 'x'): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
+}
+
+// process.std*.isTTY drives the bare-invocation guard; set per test, restore after.
+const origStdin = process.stdin.isTTY;
+const origStdout = process.stdout.isTTY;
+function setTTY(stdin?: boolean, stdout?: boolean): void {
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: stdin,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: stdout,
+    configurable: true,
+  });
 }
 
 function archConfig(
@@ -61,7 +76,10 @@ describe('runRemove (archetype)', () => {
     proj = join(tmp.path(), 'proj');
     vi.spyOn(process, 'cwd').mockReturnValue(proj);
   });
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    setTTY(origStdin, origStdout);
+  });
 
   it('exits(1) when the config load rejects (e.g. a legacy config)', async () => {
     loadArchetypeConfigOrExit.mockImplementationOnce(() => {
@@ -159,25 +177,53 @@ describe('runRemove (archetype)', () => {
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
 
-  it('no-arg picker selects from installed capabilities', async () => {
+  // --- bare `pharn remove` (no arg): multi-select picker / non-TTY guard -------
+
+  it('no-arg in a TTY multi-selects, confirms, deletes each + one config write', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(
-      archConfig([{ name: 'a11y', role: 'griller' }]),
+      archConfig([
+        { name: 'a11y', role: 'griller' },
+        { name: 'n-plus-one', role: 'lens' },
+      ]),
     );
     write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
-    vi.mocked(prompts.select).mockResolvedValue('griller:a11y');
+    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
 
     await runRemove(undefined);
 
     expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn-review/n-plus-one'))).toBe(false);
+    expect(writePharnConfig).toHaveBeenCalledTimes(1);
     expect(lastWritten().capabilities).toEqual([]);
   });
 
-  it('no-arg picker reports nothing when no capabilities are installed', async () => {
+  it('no-arg in a NON-TTY exits(1) without prompting', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    setTTY(false, false);
+
+    await expect(runRemove(undefined)).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+
+    expect(prompts.groupMultiselect).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('no-arg reports nothing when no capabilities are installed (even non-TTY)', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(archConfig([]));
+    setTTY(false, false);
 
     await runRemove(undefined);
 
-    expect(prompts.select).not.toHaveBeenCalled();
+    expect(prompts.groupMultiselect).not.toHaveBeenCalled();
     expect(prompts.outro).toHaveBeenCalledWith(
       'No capabilities are installed.',
     );
@@ -188,11 +234,46 @@ describe('runRemove (archetype)', () => {
     loadArchetypeConfigOrExit.mockReturnValue(
       archConfig([{ name: 'a11y', role: 'griller' }]),
     );
-    vi.mocked(prompts.select).mockResolvedValue(CANCEL);
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue(CANCEL);
 
     await expect(runRemove(undefined)).rejects.toMatchObject(
       new ProcessExit(0),
     );
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('no-arg empty selection removes nothing (no confirm, no write)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([]);
+
+    await runRemove(undefined);
+
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(prompts.outro).toHaveBeenCalledWith(
+      'Nothing selected. No capabilities were removed.',
+    );
+  });
+
+  it('no-arg declining the confirm removes nothing (no write)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue(['griller:a11y']);
+    vi.mocked(prompts.confirm).mockResolvedValue(false);
+
+    await expect(runRemove(undefined)).rejects.toMatchObject(
+      new ProcessExit(0),
+    );
+    // Declined → the dir is left in place and no config write happens.
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(true);
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
 });

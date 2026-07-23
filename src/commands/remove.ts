@@ -1,21 +1,36 @@
 import { existsSync, rmSync } from 'node:fs';
-import { intro, isCancel, log, outro, select } from '@clack/prompts';
+import {
+  confirm,
+  groupMultiselect,
+  intro,
+  isCancel,
+  log,
+  outro,
+} from '@clack/prompts';
 import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
-import { configLayout, layoutPaths } from '../lib/layout.js';
+import { configLayout, layoutPaths, type LayoutPaths } from '../lib/layout.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
+import {
+  buildRemoveSelection,
+  interactiveAllowed,
+} from '../lib/capability-picker.js';
 import { safeJoin } from '../lib/validate.js';
 import {
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
-import type { PharnConfig } from '../types.js';
+import type { InstalledCapability, PharnConfig } from '../types.js';
 
-// The inverse of `pharn add`: removes one installed capability from an archetype
-// project (no clone, no network — everything is derivable from config.capabilities
-// + the filesystem). The legacy module/skill removal (which read the manifest)
+// The inverse of `pharn add`: removes installed capabilities from an archetype
+// project (no clone, no network — everything is derivable from
+// config.capabilities + the filesystem). Bare `pharn remove` in a terminal opens
+// a grouped multi-select over the installed capabilities, confirms once, then
+// deletes each via the SAME per-name delete path (deleteCapabilityDir); non-TTY
+// keeps a usage error. The legacy module/skill removal (which read the manifest)
 // was removed; a pre-archetype config is rejected up front. `_opts.yes` is
-// accepted for CLI compat but unused — capability removal has no confirm prompt.
+// accepted for CLI compat but unused — capability removal has no confirm prompt
+// on the named path.
 export async function runRemove(
   arg: string | undefined,
   _opts: { yes?: boolean } = {},
@@ -27,10 +42,9 @@ export async function runRemove(
   await removeCapability(cwd, config, arg);
 }
 
-// Installed capabilities are fully derivable from config.capabilities + the
-// filesystem, so this never clones. Each capability is an isolated dir, so
-// removal is a precise recursive delete (siblings never touched). Touches only
-// `capabilities` (never archetypes / modules).
+// Each capability is an isolated dir, so removal is a precise recursive delete
+// (siblings never touched). Touches only `capabilities` (never archetypes /
+// modules). No arg → the interactive picker; an arg → the named single remove.
 async function removeCapability(
   cwd: string,
   config: PharnConfig,
@@ -38,24 +52,38 @@ async function removeCapability(
 ): Promise<void> {
   const installed = config.capabilities ?? [];
 
-  // No arg → pick from the installed capabilities (or nothing to remove).
-  let address = arg;
-  if (address === undefined) {
-    if (installed.length === 0) {
-      outro('No capabilities are installed.');
-      return;
-    }
-    const choice = await select({
-      message: 'Which capability do you want to remove?',
-      options: installed.map((c) => ({
-        value: `${c.role}:${c.name}`,
-        label: `${c.name} (${c.role})`,
-      })),
-    });
-    if (isCancel(choice)) cancelAndExit();
-    address = choice as string;
+  if (arg === undefined) {
+    await runRemovePicker(cwd, config, installed);
+    return;
   }
+  await removeNamed(cwd, config, installed, arg);
+}
 
+// Delete one capability's isolated dir at the project's recorded layout (flat OR
+// pharn/), returning whether the dir existed. The shared per-name delete path —
+// the named remove and the picker loop both call it, so the two never diverge.
+// Every delete is safeJoin-contained.
+function deleteCapabilityDir(
+  cwd: string,
+  paths: LayoutPaths,
+  target: InstalledCapability,
+): boolean {
+  const subtree = target.role === 'griller' ? paths.grillers : paths.lenses;
+  const dir = safeJoin(cwd, `${subtree}/${target.name}`);
+  const existed = existsSync(dir);
+  if (existed) rmSync(dir, { recursive: true, force: true });
+  return existed;
+}
+
+// `pharn remove <name>` / `<role>:<name>` — resolve to ONE installed capability
+// and delete it. Byte-identical to the pre-picker behavior (now routed through
+// the shared deleteCapabilityDir helper).
+async function removeNamed(
+  cwd: string,
+  config: PharnConfig,
+  installed: InstalledCapability[],
+  address: string,
+): Promise<void> {
   const parsed = parseCapabilityArg(address);
   if (parsed.error) {
     log.error(parsed.error);
@@ -86,18 +114,9 @@ async function removeCapability(
   }
 
   const target = matches[0]!;
-  // Address the capability at the project's recorded layout (flat OR pharn/), so
-  // a pharn-layout install deletes pharn/pharn-review|pharn-pipeline/grillers/<name>
-  // (lib/layout.ts). Legacy/absent layout → flat, the safe default (P5/P7).
   const paths = layoutPaths(configLayout(config));
-  const subtree = target.role === 'griller' ? paths.grillers : paths.lenses;
-  const dir = safeJoin(cwd, `${subtree}/${target.name}`);
-  let note = '';
-  if (existsSync(dir)) {
-    rmSync(dir, { recursive: true, force: true });
-  } else {
-    note = pc.dim(' (its files were already gone)');
-  }
+  const existed = deleteCapabilityDir(cwd, paths, target);
+  const note = existed ? '' : pc.dim(' (its files were already gone)');
 
   await writePharnConfig(cwd, {
     ...config,
@@ -108,4 +127,86 @@ async function removeCapability(
   });
 
   outro(`${pc.green('✔')} Removed ${target.name} (${target.role})${note}`);
+}
+
+// ---------------------------------------------------------------------------
+// Bare `pharn remove` — the interactive multi-select picker (subtractive-only).
+// ---------------------------------------------------------------------------
+
+// Nothing installed → benign message (even non-TTY). Otherwise: non-TTY → a
+// reworded usage error + exit(1) (NEVER a prompt, P5); TTY → multi-select over
+// the installed capabilities, ONE confirm listing the picks (destructive), then
+// delete each + a single config write dropping them all.
+async function runRemovePicker(
+  cwd: string,
+  config: PharnConfig,
+  installed: InstalledCapability[],
+): Promise<void> {
+  if (installed.length === 0) {
+    outro('No capabilities are installed.');
+    return;
+  }
+  if (
+    !interactiveAllowed({
+      stdinIsTTY: process.stdin.isTTY,
+      stdoutIsTTY: process.stdout.isTTY,
+    })
+  ) {
+    log.error(
+      'Specify a capability to remove (e.g. `pharn remove a11y`), or run `pharn remove` in an interactive terminal to pick from a list.',
+    );
+    process.exit(1);
+  }
+
+  const { groups } = buildRemoveSelection(installed);
+  const picked = await groupMultiselect({
+    message: 'Select capabilities to remove',
+    options: groups,
+    required: false,
+    selectableGroups: false,
+  });
+  if (isCancel(picked)) cancelAndExit();
+  const values = picked as string[];
+  if (values.length === 0) {
+    outro('Nothing selected. No capabilities were removed.');
+    return;
+  }
+
+  // Map each picked `role:name` back to its installed entry (the options were
+  // built from `installed`, so each resolves).
+  const targets: InstalledCapability[] = [];
+  for (const value of values) {
+    const parsed = parseCapabilityArg(value);
+    const target = installed.find(
+      (c) => c.name === parsed.name && c.role === parsed.role,
+    );
+    if (target) targets.push(target);
+  }
+
+  // ONE confirm listing what will be removed (default No — destructive).
+  const ok = await confirm({
+    message: `Remove ${targets.length} ${plural(targets.length)}: ${targets
+      .map((t) => `${t.name} (${t.role})`)
+      .join(', ')}?`,
+    initialValue: false,
+  });
+  if (isCancel(ok) || ok !== true) cancelAndExit();
+
+  const paths = layoutPaths(configLayout(config));
+  for (const target of targets) deleteCapabilityDir(cwd, paths, target);
+
+  const removed = new Set(targets.map((t) => `${t.role}:${t.name}`));
+  await writePharnConfig(cwd, {
+    ...config,
+    capabilities: installed.filter((c) => !removed.has(`${c.role}:${c.name}`)),
+    installedAt: new Date().toISOString(),
+  });
+
+  outro(
+    `${pc.green('✔')} Removed ${targets.length} ${plural(targets.length)}.`,
+  );
+}
+
+function plural(n: number): string {
+  return n === 1 ? 'capability' : 'capabilities';
 }

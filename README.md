@@ -91,16 +91,16 @@ After `pharn init`, open Claude Code and run **`/pharn-spec`** to capture your f
 
 ## Commands
 
-| Command                     | Description                                                             |
-| --------------------------- | ----------------------------------------------------------------------- |
-| `pharn init`                | Detect archetypes and install the applicable capabilities (default)     |
-| `pharn add <capability>`    | Add one capability, e.g. `a11y` or `lens:n-plus-one`                    |
-| `pharn remove <capability>` | Remove an installed capability (no arg: pick one interactively)         |
-| `pharn update`              | Re-fetch installed capabilities at the latest skills version            |
-| `pharn list`                | List installed archetypes + capabilities (`--json`)                     |
-| `pharn status`              | Show version + local-drift status (read-only; `--strict`, `--no-drift`) |
-| `pharn -h`, `--help`        | Show help                                                               |
-| `pharn -v`, `--version`     | Show version                                                            |
+| Command                     | Description                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `pharn init`                | Detect archetypes and install the applicable capabilities (default)             |
+| `pharn add [capability]`    | Add a capability, e.g. `a11y` or `lens:n-plus-one` (no arg: pick interactively) |
+| `pharn remove <capability>` | Remove an installed capability (no arg: pick one interactively)                 |
+| `pharn update`              | Re-fetch installed capabilities at the latest skills version                    |
+| `pharn list`                | List installed archetypes + capabilities (`--json`)                             |
+| `pharn status`              | Show version + local-drift status (read-only; `--strict`, `--no-drift`)         |
+| `pharn -h`, `--help`        | Show help                                                                       |
+| `pharn -v`, `--version`     | Show version                                                                    |
 
 ---
 

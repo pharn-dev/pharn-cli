@@ -1,0 +1,31 @@
+{
+  "base": "a8131a2e04c1a9114fc8f2dae12d3d713c0ebe79",
+  "inside": [
+    ".dev/features/capability-picker/GRILL.md",
+    ".dev/features/capability-picker/PLAN.md",
+    "CHANGELOG.md",
+    "README.md",
+    "docs/commands/add.md",
+    "docs/commands/remove.md",
+    "src/commands/add.ts",
+    "src/commands/remove.ts",
+    "src/index.ts",
+    "src/lib/capability-picker.ts",
+    "tests/add.test.ts",
+    "tests/capability-picker.test.ts",
+    "tests/remove.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
