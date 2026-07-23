@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/memory-bank/lessons-learned.md"
+    ".dev/features/init-write-target-check/SHIP.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-memory-promote.md",
-  "set_at": "2026-07-22T20:28:24.625Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-07-23T08:15:57.713Z"
 }

@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`pharn init` overwrite check** — replaced the git-history "fresh project" heuristic (and its
+  broken `/docs/migrate` reference) with a concrete pre-install **write-target conflict check**: just
+  before installing, `init` lists which of its _actual_ write targets already exist in your project
+  (derived from the fetched clone's layout + the resolved selection via `lib/install-manifest.ts`) and
+  confirms before overwriting — default **no**, with **no prompt at all** when nothing conflicts. It
+  subsumes the old `pharn.config.json`-only overwrite prompt; `.claude/settings.json` (always preserved)
+  is excluded. Deleting the old `steps/fresh-check.ts` — the CLI's only `git` caller — also removes the
+  `core.fsmonitor` RCE surface entirely, with a guard test keeping it gone.
 - **Renamed the npm package `pharn-cli` → `pharn`** and made it publish-ready — added `repository`,
   `bugs`, `homepage`, `keywords`, and `publishConfig` (public access + provenance); dropped the
   `pharn-cli` bin alias for a single `pharn` bin; and added a `prepack` build so `npm publish` always

@@ -11,18 +11,18 @@ npm install
 
 ## Scripts
 
-| Script | Purpose |
-| ------ | ------- |
-| `npm run dev` | Run CLI via tsx, e.g. `npm run dev -- init` |
-| `npm run build` | Compile `src/` to `dist/` |
+| Script                        | Purpose                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| `npm run dev`                 | Run CLI via tsx, e.g. `npm run dev -- init`                                                       |
+| `npm run build`               | Compile `src/` to `dist/`                                                                         |
 | `npm run build:install-local` | Build and symlink `pharn` into the local `test-app/node_modules` (no-op if `test-app/` is absent) |
-| `npm run test` | Vitest (single run) |
-| `npm run test:watch` | Vitest watch mode |
-| `npm run test:coverage` | Coverage report |
-| `npm run typecheck` | `tsc` for src and tests |
-| `npm run lint` | ESLint on `src/` |
-| `npm run format` | Prettier write |
-| `npm run format:check` | Prettier check (CI-friendly) |
+| `npm run test`                | Vitest (single run)                                                                               |
+| `npm run test:watch`          | Vitest watch mode                                                                                 |
+| `npm run test:coverage`       | Coverage report                                                                                   |
+| `npm run typecheck`           | `tsc` for src and tests                                                                           |
+| `npm run lint`                | ESLint on `src/`                                                                                  |
+| `npm run format`              | Prettier write                                                                                    |
+| `npm run format:check`        | Prettier check (CI-friendly)                                                                      |
 
 From the `test-app/` directory (which needs its own `package.json`) after `build:install-local`:
 
@@ -61,8 +61,8 @@ pharn-cli/
   src/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status
-    steps/                init stages (prereqs, fresh-check, archetype-summary, install-archetype)
-    lib/                  install-capabilities, capability-index, resolve-capabilities, detect-archetype, layout, repo, diff, skills-version, pharn-config, validate, constants, banner, confirm, format
+    steps/                init stages (prereqs, overwrite-check, archetype-summary, install-archetype)
+    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, layout, repo, diff, skills-version, pharn-config, validate, constants, banner, confirm, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
@@ -81,24 +81,25 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 
 ## Test map
 
-| Test file | Behavior covered |
-| --------- | ---------------- |
-| `detect-archetype.test.ts` / `archetype.test.ts` | Archetype detection from `package.json` names + file-tree signals |
-| `capability-index.test.ts` | Parse/validate the untrusted capability index (frontmatter → typed entries) |
-| `resolve-capabilities.test.ts` | Select capabilities by `applies` against detected archetypes |
-| `install-capabilities.test.ts` | Copy capability dirs + fixed product surfaces; symlink + path-escape guards |
-| `init.test.ts` / `init-archetype.test.ts` | The archetype init flow end to end |
-| `add.test.ts` / `update.test.ts` | `runAdd` (capability add) and `runUpdate` (archetype re-resolve) |
-| `remove.test.ts` | `runRemove` capability deletion (flat + `pharn/` layouts) |
-| `list.test.ts` / `status.test.ts` | Read-only inventory + version/drift audit |
-| `diff.test.ts` | `diffInstalledCapabilities` expected-set derivation + byte compare |
-| `layout.test.ts` | `detectLayout` / `configLayout` / `layoutPaths` |
-| `validate.test.ts` | Allowlists, `..`/control-char rejection, and `safeJoin` containment |
-| `pharn-config.test.ts` | Round-trip `pharn.config.json`; `loadArchetypeConfigOrExit` legacy reject |
-| `skills-version.test.ts` | Read/fetch + validate `SKILLS_VERSION` |
-| `prereqs.test.ts` / `fresh-check.test.ts` | git check; commit counts + custom-file heuristic |
-| `model-routing.test.ts` / `seam-config.test.ts` | `models` / `seam` config validation |
-| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts` | helpers; degit clone wrapper; banner; format |
+| Test file                                                                | Behavior covered                                                                                              |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `detect-archetype.test.ts` / `archetype.test.ts`                         | Archetype detection from `package.json` names + file-tree signals                                             |
+| `capability-index.test.ts`                                               | Parse/validate the untrusted capability index (frontmatter → typed entries)                                   |
+| `resolve-capabilities.test.ts`                                           | Select capabilities by `applies` against detected archetypes                                                  |
+| `install-capabilities.test.ts`                                           | Copy capability dirs + fixed product surfaces; symlink + path-escape guards                                   |
+| `init.test.ts` / `init-archetype.test.ts`                                | The archetype init flow end to end                                                                            |
+| `add.test.ts` / `update.test.ts`                                         | `runAdd` (capability add) and `runUpdate` (archetype re-resolve)                                              |
+| `remove.test.ts`                                                         | `runRemove` capability deletion (flat + `pharn/` layouts)                                                     |
+| `list.test.ts` / `status.test.ts`                                        | Read-only inventory + version/drift audit                                                                     |
+| `diff.test.ts`                                                           | `diffInstalledCapabilities` expected-set derivation + byte compare                                            |
+| `layout.test.ts`                                                         | `detectLayout` / `configLayout` / `layoutPaths`                                                               |
+| `validate.test.ts`                                                       | Allowlists, `..`/control-char rejection, and `safeJoin` containment                                           |
+| `pharn-config.test.ts`                                                   | Round-trip `pharn.config.json`; `loadArchetypeConfigOrExit` legacy reject                                     |
+| `skills-version.test.ts`                                                 | Read/fetch + validate `SKILLS_VERSION`                                                                        |
+| `prereqs.test.ts`                                                        | `.git`-present gate                                                                                           |
+| `overwrite-check.test.ts` / `install-manifest.test.ts`                   | Pre-install write-target conflict check; the shared install manifest (mirror-pinned to `installCapabilities`) |
+| `model-routing.test.ts` / `seam-config.test.ts`                          | `models` / `seam` config validation                                                                           |
+| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts` | helpers; degit clone wrapper; banner; format                                                                  |
 
 When changing behavior, add or update tests before docs.
 
@@ -106,13 +107,13 @@ When changing behavior, add or update tests before docs.
 
 Keep [`docs/`](./README.md) aligned with code when you change:
 
-| Code change | Update docs |
-| ----------- | ----------- |
-| Install output or config shape | [reference/pharn-config.md](./reference/pharn-config.md) |
+| Code change                                  | Update docs                                                                        |
+| -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Install output or config shape               | [reference/pharn-config.md](./reference/pharn-config.md)                           |
 | Archetype detection or capability resolution | [commands/init.md](./commands/init.md), [getting-started.md](./getting-started.md) |
-| New validation or warning | [troubleshooting.md](./troubleshooting.md) |
-| New command or behavior | `commands/*.md`, [roadmap.md](./roadmap.md) |
-| CLI `--help` text | [commands/init.md](./commands/init.md), [README.md](../README.md) |
+| New validation or warning                    | [troubleshooting.md](./troubleshooting.md)                                         |
+| New command or behavior                      | `commands/*.md`, [roadmap.md](./roadmap.md)                                        |
+| CLI `--help` text                            | [commands/init.md](./commands/init.md), [README.md](../README.md)                  |
 
 Do not document behavior that is not implemented without marking **Coming soon** or referencing [roadmap.md](./roadmap.md).
 

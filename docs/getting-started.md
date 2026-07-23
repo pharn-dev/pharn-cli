@@ -4,21 +4,19 @@ PHARN does not scaffold your app. You create your project (e.g. with `create-nex
 
 ## Prerequisites
 
-| Requirement | How PHARN checks | When |
-| ----------- | ---------------- | ---- |
-| Git | A `.git` directory exists in the project root | Always — checked up front, before detection |
+| Requirement | How PHARN checks                              | When                                        |
+| ----------- | --------------------------------------------- | ------------------------------------------- |
+| Git         | A `.git` directory exists in the project root | Always — checked up front, before detection |
 
 `.git` is required for every install. `pharn init` then detects your project's archetype(s) from
 `package.json` dependency names plus a bounded file-tree scan — there is no stack-pack selection and no
 package prerequisite to satisfy. See [Troubleshooting](troubleshooting.md).
 
-PHARN works best on **fresh** projects. The wizard may warn (framework-neutral, git-based) when:
-
-- The repo has **6 or more** commits — checked first; repos with 6+ commits do not also see the 2+ warning
-- The repo has **2–5** commits
-- There are **0–1** commits but more than **40** tracked files (`git ls-files`) — a populated repo rather than a fresh scaffold
-
-You can continue after any warning by confirming.
+PHARN installs **into your existing project**. Just before writing, `pharn init` checks which of its
+actual install targets (the selected capability dirs, the product commands/hooks, `pharn-contracts/`,
+the floor checkers, the constitution, and `pharn.config.json`) already exist in your project. If any
+do, it lists them and asks you to confirm before overwriting — default **no**; if none do, there is no
+prompt at all. Your `.claude/settings.json` is never overwritten, so it is not part of the check.
 
 ## Running the CLI
 
@@ -63,14 +61,14 @@ To add a capability the detection didn't select — or remove one it did — use
 After a successful install, your project contains the selected capabilities plus the fixed product
 surfaces:
 
-| Artifact | Description |
-| -------- | ----------- |
-| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The installed grillers + lenses (flat layout; or the same under `pharn/`) |
-| `.claude/commands/` | The `pharn-*` product slash commands |
-| `.claude/hooks/` | The deterministic `.cjs` floor hooks |
-| `pharn-contracts/`, `.dev/floor/` | Inter-layer schemas + the floor checkers the commands invoke |
-| `CONSTITUTION.md` | The canonical PHARN constitution, copied verbatim |
-| `pharn.config.json` | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout |
+| Artifact                                                  | Description                                                                              |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The installed grillers + lenses (flat layout; or the same under `pharn/`)                |
+| `.claude/commands/`                                       | The `pharn-*` product slash commands                                                     |
+| `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                     |
+| `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                             |
+| `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                        |
+| `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout |
 
 See [pharn.config.json](reference/pharn-config.md) for the exact schema.
 
