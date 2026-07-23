@@ -144,6 +144,7 @@ Next.js project. Exposes both `pharn` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.1.0
