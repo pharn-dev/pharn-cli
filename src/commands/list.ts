@@ -1,6 +1,6 @@
 import { intro, log, note, outro } from '@clack/prompts';
 import pc from 'picocolors';
-import { row } from '../lib/format.js';
+import { renderCapabilityLines } from '../lib/capability-groups.js';
 import {
   isArchetypeConfig,
   isConfigValidationError,
@@ -73,30 +73,12 @@ function buildArchetypeInventory(config: PharnConfig): ArchetypeInventory {
 }
 
 function renderArchetypeHuman(inv: ArchetypeInventory): void {
-  const grillers = inv.capabilities.filter((c) => c.role === 'griller');
-  const lenses = inv.capabilities.filter((c) => c.role === 'lens');
-  const lines: string[] = [
-    row('Skills version', `v${inv.skillsVersion}`),
-    row('Archetypes', inv.archetypes.join(', ') || '(none)'),
-    '',
-    '  CAPABILITIES',
-  ];
-  if (inv.capabilities.length === 0) {
-    lines.push('  (none)');
-  } else {
-    if (grillers.length > 0) {
-      lines.push(row('  grillers', grillers.map((c) => c.name).join(', ')));
-    }
-    if (lenses.length > 0) {
-      lines.push(row('  lenses', lenses.map((c) => c.name).join(', ')));
-    }
-  }
+  // Body built by the pure, shared renderer (lib/capability-groups.ts): the
+  // key-value rows, then capabilities grouped by role, counted, ONE per line.
+  const lines = renderCapabilityLines(inv);
   note(lines.join('\n'), 'INSTALLED (archetype)');
-  outro(
-    pc.dim(
-      'Read-only — nothing changed. `pharn add <capability>` to install more, `pharn status` for drift, `pharn update` to upgrade.',
-    ),
-  );
+  // One short sentence so it survives a narrow terminal without mid-word breaks.
+  outro(pc.dim('Read-only — nothing changed.'));
 }
 
 function emitError(message: string, json: boolean): void {

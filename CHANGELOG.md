@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`pharn list` capabilities are readable at scale** — the human output now groups installed
+  capabilities by role with a per-role count and prints **one capability per line** (dash-bulleted),
+  instead of a single comma-joined string that re-wrapped mid-item inside the box at large capability
+  counts. `pharn list --json` is unchanged (byte-identical). Documented under
+  [`docs/commands/list.md`](docs/commands/list.md).
 - **No-argument `add` / `remove` never prompt in a non-interactive context** — in CI or a pipe (stdin
   or stdout not a TTY), bare `pharn add` / `pharn remove` exit with a usage error instead of opening a
   prompt. `pharn remove` with no argument previously opened a single-select picker with no such guard;

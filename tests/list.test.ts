@@ -106,10 +106,17 @@ describe('runList', () => {
 
     const installed = noteBody('INSTALLED (archetype)');
     expect(installed).toContain('ssr');
-    expect(installed).toContain('a11y');
-    expect(installed).toContain('security');
-    expect(installed).toContain('n-plus-one');
     expect(installed).toContain('v1.0.0');
+    // Grouped by role with counts, ONE capability per line, dash-bulleted — the
+    // readable layout (never the old comma-joined string).
+    expect(installed).toContain('grillers (2)');
+    expect(installed).toContain('lenses (1)');
+    expect(installed).toContain('— a11y');
+    expect(installed).toContain('— security');
+    expect(installed).toContain('— n-plus-one');
+    // No line joins two capability names with a comma.
+    const lines = installed.split('\n');
+    expect(lines.every((l) => !/a11y.*,.*security/.test(l))).toBe(true);
   });
 });
 

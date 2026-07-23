@@ -18,6 +18,20 @@ pharn list --json    # machine-readable JSON (for scripts / CI)
    - the detected `archetypes`;
    - the installed `capabilities`, grouped by role (grillers, lenses).
 
+Capabilities are grouped by role with a per-role count, one capability per line:
+
+```text
+  Skills version            v1.2.3
+  Archetypes                backend, lib
+
+  CAPABILITIES
+    grillers (2)
+      — architecture
+      — comprehension
+    lenses (1)
+      — copy-paste-drift
+```
+
 Nothing is ever written, fetched, or cloned. To see what more you could add, use `pharn add
 <capability>`; for version currency and drift, use [`pharn status`](status.md).
 
