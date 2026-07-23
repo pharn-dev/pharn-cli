@@ -7,7 +7,7 @@ drops its entry from `pharn.config.json`.
 ```bash
 pharn remove <name>          # e.g. pharn remove a11y
 pharn remove <role>:<name>   # e.g. pharn remove lens:n-plus-one
-pharn remove                 # interactive picker over installed capabilities
+pharn remove                 # no arg, in a terminal: interactive multi-select picker
 ```
 
 `rm` is accepted as an alias for `remove`.
@@ -16,9 +16,12 @@ pharn remove                 # interactive picker over installed capabilities
 
 1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
    a hint to run `pharn init` first.
-2. With no argument, opens an interactive picker listing the capabilities you have installed. With an
-   argument, resolves it to one installed capability.
-3. Deletes that capability's isolated directory and drops its entry from `capabilities`.
+2. With no argument **in a terminal**, opens an interactive multi-select picker (grouped by role) over
+   the capabilities you have installed, then asks for one confirmation listing your picks. With an
+   argument, resolves it to one installed capability. In a non-interactive context (CI, a pipe),
+   no-argument `pharn remove` does **not** prompt — it exits with a usage error (unless nothing is
+   installed, which is reported plainly).
+3. Deletes each selected capability's isolated directory and drops its entry from `capabilities`.
 
 Removal needs **no network and no clone** — everything is derivable from `capabilities` plus your
 filesystem. `CONSTITUTION.md`, `memory-bank/`, and your detected `archetypes` are **never** touched.

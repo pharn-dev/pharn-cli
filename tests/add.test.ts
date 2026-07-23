@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProcessExit, stubProcessExit } from './helpers.js';
+import { CANCEL, ProcessExit, stubProcessExit } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
+  isCancel: (v: unknown) => v === CANCEL,
+  groupMultiselect: vi.fn(),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   outro: vi.fn(),
   spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
@@ -30,15 +32,34 @@ vi.mock('../src/lib/pharn-config.js', () => ({
   writePharnConfig,
 }));
 
-// capability-address.js is intentionally NOT mocked — add uses the real
-// parseCapabilityArg (name / role:name parsing).
+// capability-address.js and capability-picker.js are intentionally NOT mocked —
+// add uses the real parseCapabilityArg (name / role:name parsing) and the real
+// buildAddSelection / interactiveAllowed (available = index − installed).
 const { runAdd } = await import('../src/commands/add.js');
 const prompts = await import('@clack/prompts');
+
+// process.std*.isTTY drives the bare-invocation guard; set it per test, restore
+// after (Node reports undefined off a TTY, which reads as non-interactive).
+const origStdin = process.stdin.isTTY;
+const origStdout = process.stdout.isTTY;
+function setTTY(stdin?: boolean, stdout?: boolean): void {
+  Object.defineProperty(process.stdin, 'isTTY', {
+    value: stdin,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: stdout,
+    configurable: true,
+  });
+}
 
 describe('runAdd (archetype)', () => {
   stubProcessExit();
   beforeEach(() => vi.spyOn(process, 'cwd').mockReturnValue('/proj'));
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    setTTY(origStdin, origStdout);
+  });
 
   const archConfig = (
     caps: { name: string; role: 'griller' | 'lens' }[] = [
@@ -135,15 +156,80 @@ describe('runAdd (archetype)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
-  it('exits(1) with no arg, before any fetch', async () => {
-    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
-    await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
-    expect(fetchRepo).not.toHaveBeenCalled();
-  });
-
   it('exits(1) on an invalid role prefix, before any fetch', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(archConfig());
     await expect(runAdd('bogus:x')).rejects.toMatchObject(new ProcessExit(1));
     expect(fetchRepo).not.toHaveBeenCalled();
+  });
+
+  // --- bare `pharn add` (no arg): interactive picker / non-TTY guard ----------
+
+  it('no-arg in a NON-TTY exits(1) before any fetch (never prompts)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    setTTY(false, false);
+
+    await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(prompts.groupMultiselect).not.toHaveBeenCalled();
+  });
+
+  it('no-arg in a TTY installs each pick via the per-name path, threading config', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig()); // installed: security
+    mockClone();
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+
+    await runAdd(undefined);
+
+    expect(installCapabilityDirs).toHaveBeenNthCalledWith(1, '/repo', '/proj', [
+      { name: 'a11y', role: 'griller' },
+    ]);
+    expect(installCapabilityDirs).toHaveBeenNthCalledWith(2, '/repo', '/proj', [
+      { name: 'n-plus-one', role: 'lens' },
+    ]);
+    // grill F1: the FINAL persisted config holds ALL picks, not just the last.
+    const written = writePharnConfig.mock.calls.at(-1)![1] as PharnConfig;
+    expect(written.capabilities).toEqual([
+      { name: 'security', role: 'griller' },
+      { name: 'a11y', role: 'griller' },
+      { name: 'n-plus-one', role: 'lens' },
+    ]);
+  });
+
+  it('no-arg in a TTY with everything installed exits 0 without prompting', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([
+        { name: 'a11y', role: 'griller' },
+        { name: 'security', role: 'griller' },
+        { name: 'n-plus-one', role: 'lens' },
+      ]),
+    );
+    const cleanup = mockClone();
+    setTTY(true, true);
+
+    await runAdd(undefined);
+
+    expect(prompts.groupMultiselect).not.toHaveBeenCalled();
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(prompts.outro).toHaveBeenCalledWith(
+      'All available capabilities are already installed.',
+    );
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('no-arg in a TTY with an empty selection installs nothing (no config write)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([]);
+
+    await runAdd(undefined);
+
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
   });
 });
