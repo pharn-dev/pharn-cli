@@ -154,6 +154,24 @@ describe('DEFAULT_MODEL_ROUTING', () => {
     }
     for (const model of models) expect(MODEL_IDS).toContain(model);
   });
+
+  it('routes review to opus-4-8/high — the spend-safe default (fable-5/max is the opt-in)', () => {
+    expect(DEFAULT_MODEL_ROUTING.stages.review).toEqual({
+      model: 'opus-4-8',
+      effort: 'high',
+    });
+  });
+
+  it('keeps plan opus-4-8/max and default sonnet-5/high', () => {
+    expect(DEFAULT_MODEL_ROUTING.stages.plan).toEqual({
+      model: 'opus-4-8',
+      effort: 'max',
+    });
+    expect(DEFAULT_MODEL_ROUTING.default).toEqual({
+      model: 'sonnet-5',
+      effort: 'high',
+    });
+  });
 });
 
 describe('resolveStageModel', () => {

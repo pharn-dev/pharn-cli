@@ -1,0 +1,28 @@
+{
+  "base": "8b5a87c",
+  "inside": [
+    "CHANGELOG.md",
+    "docs/reference/pharn-config.md",
+    "src/commands/status.ts",
+    "src/lib/model-routing.ts",
+    "src/steps/install-archetype.ts",
+    "tests/init-archetype.test.ts",
+    "tests/model-routing.test.ts",
+    "tests/status.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}

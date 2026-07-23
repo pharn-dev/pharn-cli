@@ -45,6 +45,46 @@ archetypes/capabilities and the pinned commit).
 }
 ```
 
+## Model routing
+
+The `models` block routes each dev-loop stage to a model + effort. It is **written on every fresh
+install** and is **user-owned afterwards** — edit it in `pharn.config.json` and re-run your stages;
+`pharn` never migrates it. Source of truth: [`model-routing.ts`](../../src/lib/model-routing.ts).
+
+The block is a required `default` plus per-stage overrides under `stages`. `default` is the fallback
+for every stage without its own entry (`grill`, `build`, `regress`, `verify`, `ship`); a stage with no
+entry — including an empty `stages` — resolves to `default`.
+
+Defaults written at install:
+
+| Stage     | Model      | Effort |
+| --------- | ---------- | ------ |
+| `default` | `sonnet-5` | `high` |
+| `plan`    | `opus-4-8` | `max`  |
+| `review`  | `opus-4-8` | `high` |
+
+**Why `review` is `opus-4-8`/`high`, not `fable-5`/`max`.** Review is the fan-out stage — a backend
+install ships ~22 lenses, so its cost multiplies per lens; a premium model at `max` effort across that
+fan-out is the worst-case token multiplier, and it would apply silently. `opus-4-8`/`high` is the
+spend-safe default. Cross-model review on `fable-5`/`max` has proven catch value, so it is a
+**documented opt-in** for release audits — set it explicitly under `models.stages.review`:
+
+```json
+{
+  "models": {
+    "default": { "model": "sonnet-5", "effort": "high" },
+    "stages": {
+      "plan": { "model": "opus-4-8", "effort": "max" },
+      "review": { "model": "fable-5", "effort": "max" }
+    }
+  }
+}
+```
+
+Valid `model` ids: `opus-4-8`, `sonnet-5`, `fable-5`, `haiku-4-5`. Valid `effort` levels: `low`,
+`high`, `max`. A hand-edit with an unknown model, effort, or stage key is rejected loudly on the next
+command — see [troubleshooting](../troubleshooting.md); `pharn` never silently falls back.
+
 ## Legacy fields (pre-archetype configs still load)
 
 The schema is **additive** (P7): a `pharn.config.json` written by an older, module-based CLI still loads,

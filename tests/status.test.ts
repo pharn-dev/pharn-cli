@@ -161,6 +161,31 @@ describe('runStatus (archetype)', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it('MODELS note renders the per-stage routing from config.models', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({
+        models: {
+          default: { model: 'sonnet-5', effort: 'high' },
+          stages: { review: { model: 'opus-4-8', effort: 'high' } },
+        },
+      }),
+    );
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+    await runStatus({ drift: false });
+
+    const models = noteBody('MODELS');
+    expect(models).toContain('default   sonnet-5 · high');
+    expect(models).toContain('review    opus-4-8 · high');
+  });
+
+  it('omits the MODELS note when config.models is absent (legacy archetype config)', async () => {
+    // beforeEach returns config() with no `models` block.
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+    await runStatus({ drift: false });
+    expect(noteBody('MODELS')).toBe('');
+  });
+
   it('--no-drift --strict exits(1) when the version is behind', async () => {
     fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
     await expect(

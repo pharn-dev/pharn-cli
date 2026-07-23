@@ -52,7 +52,14 @@ export const DEFAULT_MODEL_ROUTING: ModelRouting = {
   default: { model: 'sonnet-5', effort: 'high' },
   stages: {
     plan: { model: 'opus-4-8', effort: 'max' }, // hardest reasoning
-    review: { model: 'fable-5', effort: 'max' }, // cross-model review
+    // review fans out across lenses (a backend install ships ~22), so its cost
+    // multiplies per lens — a premium model at max effort across that fan-out is
+    // the worst-case token multiplier, and it would apply silently. Default to
+    // opus-4-8/high (spend-safe); fable-5/max cross-model review has proven catch
+    // value but stays the documented release-audit OPT-IN (set
+    // models.stages.review in pharn.config.json). Effort calibration is gated on
+    // the fan-out cost measurement — no speculative knobs added here.
+    review: { model: 'opus-4-8', effort: 'high' },
   },
 };
 

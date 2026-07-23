@@ -5,6 +5,7 @@ import { fetchRepo } from '../lib/repo.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
 import { configLayout } from '../lib/layout.js';
 import { row } from '../lib/format.js';
+import { formatModelRoutingLines } from '../lib/model-routing-format.js';
 import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
 import {
   fetchRemoteSkillsVersion,
@@ -61,6 +62,7 @@ async function runArchetypeStatus(
       process.exit(1);
     }
     const outdated = printArchetypeVersion(config, latest);
+    printModelRouting(config);
     if (strict && outdated) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
     return;
@@ -81,6 +83,7 @@ async function runArchetypeStatus(
   let exitCode = 0;
   try {
     const outdated = printArchetypeVersion(config, readSkillsVersion(repo.dir));
+    printModelRouting(config);
     const result = diffInstalledCapabilities({
       repoDir: repo.dir,
       projectRoot: cwd,
@@ -122,6 +125,15 @@ function printArchetypeVersion(config: PharnConfig, latest: string): boolean {
     'VERSION',
   );
   return outdated;
+}
+
+// MODELS note: the per-stage routing recorded in pharn.config.json, rendered
+// from the same config via formatModelRoutingLines (the init summary's "Models
+// per stage" block, mirrored here). Omitted when `models` is absent — a
+// pre-`models` archetype config (P7 additive/legacy). Read-only: display only.
+function printModelRouting(config: PharnConfig): void {
+  if (config.models === undefined) return;
+  note(formatModelRoutingLines(config.models).join('\n'), 'MODELS');
 }
 
 // DRIFT note: locally-modified and missing PHARN-owned files, or a clean bill.

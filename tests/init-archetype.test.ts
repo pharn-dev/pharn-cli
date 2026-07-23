@@ -117,6 +117,11 @@ describe('archetype install (fixture e2e)', () => {
     expect(config!.constitution).toBeUndefined();
     // Model routing written on every fresh install (archetype path too).
     expect(config!.models).toEqual(DEFAULT_MODEL_ROUTING);
+    // The spend-safe default: review resolves to opus-4-8/high, not fable-5/max.
+    expect(config!.models?.stages.review).toEqual({
+      model: 'opus-4-8',
+      effort: 'high',
+    });
     expect(config!.capabilities).toEqual([
       { name: 'a11y', role: 'griller' },
       { name: 'security', role: 'griller' },
