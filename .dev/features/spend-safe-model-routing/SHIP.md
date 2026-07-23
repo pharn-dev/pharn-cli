@@ -17,6 +17,16 @@ human's at GATE 2.
 
 **Run ended at GATE 2** (post-review human decision) — not a RED-verdict stop.
 
+### Post-GATE-2 (human directed)
+
+At GATE 2 the human chose **"Address P3 first"**. The REVIEW.md **P3 (important)** advisory finding —
+the renderer's home in `model-routing.ts` — was resolved by extracting `formatModelRoutingLines` into a
+new `src/lib/model-routing-format.ts` (a clean `lib→lib` split; its tests moved to
+`tests/model-routing-format.test.ts`). The deterministic gates were re-run **GREEN** (`test` 395/395
+across 32 files; `format:check`/`lint`/`typecheck`/`lint:md`/clean-`validate` all 0). The human then
+chose **"Commit + update artifacts"**; this refactor is committed as a follow-up to `844bc92` (nothing
+pushed, no seal applied).
+
 ## Structural verdicts read (verbatim — the floor clock)
 
 - **`/pharn-dev-build` → floor:** `npm run check` **GREEN** (`format:check` + `lint` + `typecheck` + `test`
@@ -33,9 +43,9 @@ human's at GATE 2.
 ## Advisory artifacts (cited, not restated — P4)
 
 - **`.dev/features/spend-safe-model-routing/REVIEW.md`** — 4 principle-lenses; GREEN, 0 blocking. Two advisory
-  findings for the human to weigh: **P3 (important)** the renderer's home in `model-routing.ts` (adjudicated
-  defensible one-axis, extract later if a second UI renderer lands); **P1 (minor)** the init-outro string is
-  untested (per the `remove-dead-docs-url` repo precedent).
+  findings: **P3 (important)** the renderer's home in `model-routing.ts` — **RESOLVED post-GATE-2** (extracted
+  to `model-routing-format.ts`; see below); **P1 (minor)** the init-outro string is untested (per the
+  `remove-dead-docs-url` repo precedent) — accepted.
 - **`.dev/features/spend-safe-model-routing/GRILL.md`** — advisory pre-build interrogation (6 concerns).
 
 ## What landed (for the human's context)

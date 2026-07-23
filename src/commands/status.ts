@@ -5,7 +5,7 @@ import { fetchRepo } from '../lib/repo.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
 import { configLayout } from '../lib/layout.js';
 import { row } from '../lib/format.js';
-import { formatModelRoutingLines } from '../lib/model-routing.js';
+import { formatModelRoutingLines } from '../lib/model-routing-format.js';
 import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
 import {
   fetchRemoteSkillsVersion,

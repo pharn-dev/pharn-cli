@@ -83,6 +83,13 @@ my behavior. **No L-trust finding.** ✓
 
 **No blocking L-axis finding.**
 
+> **RESOLVED (post-review, at the human's GATE-2 direction).** The renderer was extracted to
+> `src/lib/model-routing-format.ts` (a clean `lib→lib` split), so `model-routing.ts` is now purely
+> schema/allowlists/default/validate/resolve and a display-format change no longer touches the
+> validator. Its 4 tests moved to `tests/model-routing-format.test.ts`. Gates re-run **GREEN** (`test`
+> 395/395 across 32 files; `format:check`/`lint`/`typecheck`/`lint:md`/clean-`validate` all 0). This
+> important-advisory finding is **closed**.
+
 ## Additional (P4 — docs cite code)
 
 The new `docs/reference/pharn-config.md` "Model routing" section documents only shipped behavior, cites
@@ -93,9 +100,10 @@ section clarifies the distinction, so the CLI pointer's "per-stage routing … m
 
 ## Verdict
 
-**GREEN — 0 blocking floor-findings.** Two advisory findings (P1 minor: init-outro string untested per repo
-precedent; P3 important: renderer home is a defensible one-axis call, extract later if a second renderer
-lands). The increment satisfies its requirements; the standing floor verdicts (build/regress/verify) hold.
+**GREEN — 0 blocking floor-findings.** Two advisory findings: **P3 important (renderer home) — RESOLVED
+post-review** by extracting the renderer to `src/lib/model-routing-format.ts`; **P1 minor** (init-outro
+string untested, per the `remove-dead-docs-url` repo precedent) — accepted. The increment satisfies its
+requirements; the standing floor verdicts (build/regress/verify) hold.
 
 No recurring-failure lesson to propose for canon (P7 — this is a one-off design call, not a recurring
 pattern); nothing written to `.dev/memory-bank/**` (out of `/pharn-dev-review` scope by design).

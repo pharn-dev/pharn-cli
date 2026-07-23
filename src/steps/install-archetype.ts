@@ -2,10 +2,8 @@ import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
-import {
-  DEFAULT_MODEL_ROUTING,
-  formatModelRoutingLines,
-} from '../lib/model-routing.js';
+import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
+import { formatModelRoutingLines } from '../lib/model-routing-format.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import { writePharnConfig } from '../lib/pharn-config.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
