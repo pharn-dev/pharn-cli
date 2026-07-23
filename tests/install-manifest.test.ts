@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -139,6 +139,32 @@ describe('collectExpectedInstallPaths (flat)', () => {
     ]) {
       expect(k).not.toContain(p);
     }
+  });
+});
+
+describe('collectExpectedInstallPaths (untrusted symlinks)', () => {
+  const tmp = useTmpDir();
+
+  it('skips a symlink inside a walked dir (mirrors install, which never copies symlinks)', () => {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepo(repo);
+    // Plant a symlink inside a walked capability dir — the clone is untrusted (P2)
+    // and installCapabilities never materializes symlinks, so the mirror must not
+    // enumerate one either (a symlink's Dirent.isDirectory() is false).
+    symlinkSync(
+      join(repo, 'CONSTITUTION.md'),
+      join(repo, 'pharn-pipeline/grillers/a11y/evil.md'),
+    );
+    const keys = [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }).keys(),
+    ];
+    expect(keys).not.toContain('pharn-pipeline/grillers/a11y/evil.md');
+    // The real (non-symlink) sibling in the same dir is still enumerated.
+    expect(keys).toContain('pharn-pipeline/grillers/a11y/a11y.md');
   });
 });
 

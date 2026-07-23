@@ -38,6 +38,12 @@ export const PHARN_CONFIG_FILE = 'pharn.config.json';
 // Relative paths (posix) of every file (not directory) under `dir`, recursively.
 function* walkFiles(dir: string, prefix = ''): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    // Untrusted clone (P2): a symlink's Dirent reports isDirectory()===false, so
+    // it would otherwise be yielded as a file. installCapabilities NEVER copies
+    // symlinks (isSymlink guards + noSymlinks cpSync filters), so the mirror must
+    // skip them too — else the manifest claims a path the installer never writes
+    // (spurious status drift; a symlink-following read in diff.ts).
+    if (entry.isSymbolicLink()) continue;
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       yield* walkFiles(resolve(dir, entry.name), rel);
