@@ -45,7 +45,7 @@ The increment ingests **no** untrusted artifact (no manifest, no `module.json`, 
 Every changed file changes for the **single** axis "canonical npm package name (unscoped → org-scoped)." No new cross-command or step→step import was added (the two `src/*.ts` edits are string-literal changes only). Clean on the blocking sense. Two disclosed, non-blocking notes:
 
 - **`package-lock.json` carries a version-field correction** (`0.2.0 → 0.3.0`) alongside the name change. This is the same packaging-consistency axis (the lock must mirror `package.json`), was disclosed as OQ2 and human-approved, and was kept **minimal** — the benign npm alphabetical re-sort of a devDependency key was reverted, so the lock diff is exactly name×2 + version×2. Not a second axis in substance.
-- **Two build-time P6 corrections** to the plan's line-level classification (documented in the BUILD note): `docs/contributing.md:30`'s `npx pharn init` was **left** (it runs from a test-app after `build:install-local` → resolves the **local bin**; scoping it would break the dev workflow), and the grep-missed package refs at `docs/contributing.md:33` and `docs/RELEASING.md:72` were scoped instead. Correct call; surfaced for the human's awareness.
+- **Two build-time P6 corrections** to the plan's line-level classification (documented in the BUILD note): `docs/contributing.md:30`'s `npx @pharn-dev/pharn init` was **left** (it runs from a test-app after `build:install-local` → resolves the **local bin**; scoping it would break the dev workflow), and the grep-missed package refs at `docs/contributing.md:33` and `docs/RELEASING.md:72` were scoped instead. Correct call; surfaced for the human's awareness.
 
 ## Gates (fix #3)
 

@@ -12,7 +12,7 @@
 - `.github/workflows/publish.yml`: **name-agnostic** — the tag guard reads `package.json.version` (line 39), and `npm publish --provenance --access public` (line 46) publishes `package.json.name` with **no hard-coded name**. `--access public` is present (scoped packages default to `restricted`, so this is now load-bearing). → **verify-only, NO edit** (per task).
 - `package-lock.json`: root + `packages[""]` pin `"name": "pharn"` (lines 2, 8) and a **stale** `"version": "0.2.0"` (line 3). A future `npm install` would rewrite these — see OQ2.
 - **Tests:** no test asserts `package.json.name`. `tests/index.test.ts:134` asserts USAGE `toContain('Usage:')` (not the package name), so the USAGE string edit stays green. → **no test change required**; P1 satisfied vacuously (no new behavior).
-- `scripts/install-local.mjs`: installs the local build into a **hardcoded** `node_modules/pharn` dir (line 31) and a `.bin/pharn` symlink (line 33); its `npx pharn init` message (line 58) resolves the **local binary**, not the registry package. Scoping does not affect it and changing it would break the local-bin call → **LEAVE (Category B/C)**.
+- `scripts/install-local.mjs`: installs the local build into a **hardcoded** `node_modules/pharn` dir (line 31) and a `.bin/pharn` symlink (line 33); its `npx @pharn-dev/pharn init` message (line 58) resolves the **local binary**, not the registry package. Scoping does not affect it and changing it would break the local-bin call → **LEAVE (Category B/C)**.
 - Trusted docs (`CONSTITUTION/ARCHITECTURE/THREAT-MODEL/LIMITS.md`) contain **no** npm-package-name reference; write-protected at the floor (`protect-trusted-paths.cjs`) → **not touched**.
 - This increment is the **inverse of the prior `canonical-npm-name` increment** (2026-07-22, which renamed `@pharn-dev/pharn → pharn`); it is a directed reversal on a new external fact (E403), not a re-litigation.
 
@@ -28,7 +28,7 @@ npm's name-similarity/typosquat rejection (E403) applies to **unscoped** names o
 | --- | --- |
 | `package.json:2` | `"name"` — the core change |
 | `README.md:9` | npm version badge (`img.shields.io/npm/v/pharn`) + link (`npmjs.com/package/pharn`) |
-| `README.md:16`, `:41` | install commands (`npx pharn init` / `npx pharn@latest init`) |
+| `README.md:16`, `:41` | install commands (`npx @pharn-dev/pharn init` / `npx pharn@latest init`) |
 | `README.md:54` | prose "The npm package is `pharn`" (the package↔binary sentence) |
 | `SECURITY.md:13`, `:20`, `:78` | linked package name + `npx`/`npm i -g` invocation examples |
 | `CLAUDE.md:7` | "Published on npm as `pharn`" (project summary) |
@@ -41,8 +41,8 @@ npm's name-similarity/typosquat rejection (E403) applies to **unscoped** names o
 | `docs/RELEASING.md:3`, `:12`, `:13`, `:28`, `:54`, `:57` | package-name prose + npmjs links + Trusted-Publisher target + smoke-test cmd |
 | `docs/RELEASING.md:15–17` | the scoped-name blockquote — **rewrite** (currently backwards) |
 | `.github/ISSUE_TEMPLATE/bug_report.md:17`, `:39` | `npx pharn --version` / install-method hint |
-| `src/index.ts:13` (USAGE) | help-text `npx pharn init` — **OQ1** (bundles into `dist`) |
-| `src/steps/prereqs.ts:11` | git-missing error `npx pharn init` — **OQ1** (bundles into `dist`) |
+| `src/index.ts:13` (USAGE) | help-text `npx @pharn-dev/pharn init` — **OQ1** (bundles into `dist`) |
+| `src/steps/prereqs.ts:11` | git-missing error `npx @pharn-dev/pharn init` — **OQ1** (bundles into `dist`) |
 | `package-lock.json:2`, `:8` | `"name"` — regenerate for `npm ci` consistency — **OQ2** |
 
 **Category B — binary / org paths / brand → MUST NOT change (leave):** the installed `pharn` **bin** (`package.json` bin, README/`docs/commands/**` `pharn init|add|remove|update|list|status` usages, the second `pharn` in the "single `pharn` binary" sentences); every `github.com/pharn-dev/pharn-cli` coordinate (`package.json` repository/bugs/homepage, README/SECURITY/CHANGELOG badges & links); every `pharn-dev/pharn-oss` degit-source reference; the PHARN brand; `/pharn-*` slash-command names; **`scripts/install-local.mjs`** (dev harness — local bin, hardcoded internal dir); **`.github/workflows/publish.yml`** (name-agnostic — verified).
@@ -61,8 +61,8 @@ npm's name-similarity/typosquat rejection (E403) applies to **unscoped** names o
 - `docs/troubleshooting.md` — lines 27, 67 install/debug cmds.
 - `docs/RELEASING.md` — 3, 12, 13, 28, 54, 57 (package name / npmjs links / Trusted-Publisher target / smoke-test) → scoped; **rewrite** the 15–17 blockquote (see draft below). "single `pharn` bin" (13) stays.
 - `.github/ISSUE_TEMPLATE/bug_report.md` — lines 17, 39 `npx pharn …` → `npx @pharn-dev/pharn …`.
-- `src/index.ts` — **(OQ1)** USAGE (13) `npx pharn init` → `npx @pharn-dev/pharn init`. Copy-only (no control-flow); rebuilds `dist/index.js`.
-- `src/steps/prereqs.ts` — **(OQ1)** git-missing error (11) `npx pharn init` → `npx @pharn-dev/pharn init`. Copy-only; rebuilds `dist/index.js`.
+- `src/index.ts` — **(OQ1)** USAGE (13) `npx @pharn-dev/pharn init` → `npx @pharn-dev/pharn init`. Copy-only (no control-flow); rebuilds `dist/index.js`.
+- `src/steps/prereqs.ts` — **(OQ1)** git-missing error (11) `npx @pharn-dev/pharn init` → `npx @pharn-dev/pharn init`. Copy-only; rebuilds `dist/index.js`.
 - `package-lock.json` — **(OQ2)** regenerate name via `npm install --package-lock-only` (also syncs the stale `version` 0.2.0→0.3.0).
 
 ### Narrative-rewrite drafts (key points the build must hit; final prose is build's)
@@ -101,7 +101,7 @@ npm's name-similarity/typosquat rejection (E403) applies to **unscoped** names o
 
 ## Open questions (raised at planning — all resolved at GATE 1; see "Resolved decisions" below)
 
-- **OQ1 — the two `src/*.ts` help/error strings.** The task's file list enumerates package.json/README/docs/CLAUDE.md/CHANGELOG/.github but **omits `src/`**. `src/index.ts:13` (USAGE) and `src/steps/prereqs.ts:11` (git-missing error) embed `npx pharn init` and bundle into `dist/index.js`. Because unscoped `pharn` is now unpublishable, **leaving them makes `--help` and the error advertise a command that resolves to a non-existent package** (P4). **Recommend: edit both** (copy-only, no behavior change; the prior `canonical-npm-name` increment resolved the identical OQ by editing them). Alternative: limit to the enumerated surfaces and ship the string fix next version.
+- **OQ1 — the two `src/*.ts` help/error strings.** The task's file list enumerates package.json/README/docs/CLAUDE.md/CHANGELOG/.github but **omits `src/`**. `src/index.ts:13` (USAGE) and `src/steps/prereqs.ts:11` (git-missing error) embed `npx @pharn-dev/pharn init` and bundle into `dist/index.js`. Because unscoped `pharn` is now unpublishable, **leaving them makes `--help` and the error advertise a command that resolves to a non-existent package** (P4). **Recommend: edit both** (copy-only, no behavior change; the prior `canonical-npm-name` increment resolved the identical OQ by editing them). Alternative: limit to the enumerated surfaces and ship the string fix next version.
 - **OQ2 — `package-lock.json`.** It pins `"name": "pharn"` (lines 2, 8) and a stale `"version": "0.2.0"`. **Recommend: regenerate** via `npm install --package-lock-only` (name → `@pharn-dev/pharn`; also corrects the stale version to 0.3.0). Alternatives: hand-edit only the two `"name"` lines (tightest diff, leaves version stale); or leave it (CI's `npm ci` has tolerated the stale version, but a future `npm install` rewrites it → unrelated noise).
 - **OQ3 — CHANGELOG 0.3.0 edited in place.** The `## [0.3.0] — 2026-07-23` entry is dated, but its naming bullets never reached npm (publish failed) and are now factually wrong. A successful `@pharn-dev/pharn@0.3.0` publish makes 0.3.0 the **first** npm release, so the corrected bullets are forward-consistent. **Recommend: edit 51/55/56 in place** + fold in the required "unscoped `pharn` blocked by npm similarity policy (yarn/charm/sharp)" line (task-directed). Alternative: add a new `[Unreleased]` note and leave 0.3.0's wrong text (internally inconsistent — not recommended).
 

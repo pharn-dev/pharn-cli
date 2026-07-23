@@ -114,7 +114,7 @@ Realigned the CLI with the current `pharn-dev/pharn-oss`, which is now a
 ## [0.1.0] — 2026-06-11
 
 Initial published release. `pharn` bootstraps the PHARN stack into an existing
-Next.js project. Exposes both `pharn` and `pharn` bins.
+Next.js project. Exposes both `pharn-cli` and `pharn` bins.
 
 ### Added
 

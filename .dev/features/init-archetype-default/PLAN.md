@@ -1,7 +1,7 @@
 # PLAN — init: make archetype the default, remove the init-level legacy flow
 
 - spec_content_hash: bca940a5ad247c120e6d8a3acba119d0d8df51dca275964d0e54c48d729d3c4e # fix #4
-- increment: `npx pharn init` (no flag) runs the archetype/capability flow by default; the init-only legacy wizard flow (`runInitLegacy`/`runInitV2`/`loadManifest` and its 9 orphaned step files) is deleted.
+- increment: `npx @pharn-dev/pharn init` (no flag) runs the archetype/capability flow by default; the init-only legacy wizard flow (`runInitLegacy`/`runInitV2`/`loadManifest` and its 9 orphaned step files) is deleted.
 - layer(s): pharn product surface (`src/commands/init.ts`, `src/index.ts`, `src/steps/*`) — not a PHARN methodology layer.
 - constitution_refs: [P0, P5, P6, P7]
 
@@ -80,12 +80,12 @@ Written / modified (in writes-scope; every path below exists after build):
 
 - init default → archetype: `runInit()` (no opts) invokes `detectArchetypesFromProject` + `parseCapabilityIndex` + `resolveCapabilities` + `installCapabilities`, and installs under the mirrored layout (flat / `pharn/` + `.claude/`). — `tests/init.test.ts` / `tests/init-archetype.test.ts`
 - no-404 regression guard (grill #2, sharpened): assert the archetype path IS taken (`detectArchetypesFromProject` + `resolveCapabilities` + `installCapabilities` invoked) and that `src/commands/init.ts` no longer imports `../lib/manifest.js` — a positive assertion + static import check, not a fragile mock-not-called. — `tests/init.test.ts`
-- flag alias: `npx pharn init --archetype` still runs without error and behaves identically to no-flag (no-op alias). — `tests/index.test.ts`
+- flag alias: `npx @pharn-dev/pharn init --archetype` still runs without error and behaves identically to no-flag (no-op alias). — `tests/index.test.ts`
 - legacy-init symbols gone: `typecheck` + `lint` pass with no dangling refs after deletion (the compiler is the enforcement). — CI
 
 ## Guarantee audit (P0)
 
-- "`npx pharn init` (no flag) runs archetype detection, no manifest fetch, no 404" → **floor-adjacent**: enforced by the rewritten `tests/init.test.ts` mock-not-called assertion + `typecheck` (dangling import = compile error). Behavioral, deterministic, CI-gated. Not a new hook/content-hash primitive.
+- "`npx @pharn-dev/pharn init` (no flag) runs archetype detection, no manifest fetch, no 404" → **floor-adjacent**: enforced by the rewritten `tests/init.test.ts` mock-not-called assertion + `typecheck` (dangling import = compile error). Behavioral, deterministic, CI-gated. Not a new hook/content-hash primitive.
 - "Legacy init symbols removed" → **mechanical**: `tsc --noEmit` fails on any surviving reference; `lint` flags unused. Deterministic.
 - **Security (HONEST, narrowed):** removing the init legacy path does **NOT** close the Fable symlink-write finding in `install-modules.ts` — `installModule` remains reachable via the `add`/`update` legacy-config fallback (Scope B territory). The only true security delta here: the **default** `init` install path no longer routes through `installModule` at all (it uses `install-capabilities.ts`, which already rejects symlinks — `isSymlink`/`noSymlinks`). Claiming this PR "closes the symlink finding" would be false (P0) — it narrows exposure, it does not eliminate it.
 

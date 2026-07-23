@@ -27,7 +27,7 @@ npm install
 From the `test-app/` directory (which needs its own `package.json`) after `build:install-local`:
 
 ```bash
-npx pharn init
+npx @pharn-dev/pharn init
 ```
 
 Published package `@pharn-dev/pharn` exposes a single `pharn` bin (see `package.json`).
