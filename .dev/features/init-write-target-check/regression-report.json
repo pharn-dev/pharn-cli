@@ -1,0 +1,30 @@
+{
+  "base": "c425eddf206722cad7fd2d03107c3ea34955bc86",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/commands/init.md",
+    "docs/contributing.md",
+    "docs/getting-started.md",
+    "docs/troubleshooting.md",
+    "src/commands/init.ts",
+    "src/lib/diff.ts",
+    "src/lib/install-manifest.ts",
+    "src/steps/fresh-check.ts",
+    "src/steps/overwrite-check.ts",
+    "tests/fresh-check.test.ts",
+    "tests/init.test.ts",
+    "tests/install-manifest.test.ts",
+    "tests/overwrite-check.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

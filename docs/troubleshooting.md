@@ -2,14 +2,14 @@
 
 ## Exit codes
 
-| Situation | Exit code |
-| --------- | --------- |
-| Prerequisite failure (no `.git`) | 1 |
-| Capability fetch / install failure | 1 |
-| Unknown command | 1 |
-| `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1 |
-| User cancel at summary, or overwrite declined | 0 |
-| Successful install | 0 |
+| Situation                                                                                               | Exit code |
+| ------------------------------------------------------------------------------------------------------- | --------- |
+| Prerequisite failure (no `.git`)                                                                        | 1         |
+| Capability fetch / install failure                                                                      | 1         |
+| Unknown command                                                                                         | 1         |
+| `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
+| User cancel at summary, or overwrite declined                                                           | 0         |
+| Successful install                                                                                      | 0         |
 
 ## Prerequisites failed
 
@@ -33,17 +33,16 @@ Exits with code **1**.
 
 `pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there for archetype detection, and installs into that directory. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
 
-## Fresh-project warnings
+## Overwrite warnings
 
-Not errors. Confirm to continue or cancel to exit cleanly (code 0).
+Not an error. Just before installing, `pharn init` lists which of its actual write targets already
+exist in your project (capability dirs, product commands/hooks, contracts, floor checkers, the
+constitution, and `pharn.config.json`) and asks you to confirm before overwriting. Confirm to continue
+or cancel to exit cleanly (code 0); the default is **no**.
 
-Checks run in order; only the first matching rule applies:
-
-| Warning | Cause |
-| ------- | ----- |
-| Significant history | 6+ commits on `HEAD` (stops here; no 2+ warning) |
-| Existing commits | 2–5 commits |
-| Customized scaffold | 0–1 commits but > 3 unrecognized files |
+- If **nothing** conflicts, there is no prompt at all.
+- `.claude/settings.json` is never overwritten, so it never triggers the warning.
+- On a re-install the list is long, so it is capped (first 10 shown, then "…and N more").
 
 ## Capabilities could not be fetched
 
@@ -70,7 +69,7 @@ PHARN_DEBUG=1 npx pharn init
 
 ## Overwrite declined
 
-If you decline overwriting `pharn.config.json`, the wizard cancels with exit 0 and nothing is fetched.
+If any install targets already exist and you decline the overwrite prompt, the wizard cancels with exit 0 and nothing is written (the temporary clone is cleaned up).
 
 ## `add` / `update` say to run init first
 
@@ -111,11 +110,11 @@ Run `pharn --help`. Valid commands: `init`, `add`, `remove`, `update`, `list`, `
 
 ## Local development issues
 
-| Problem | Fix |
-| ------- | --- |
+| Problem                             | Fix                                             |
+| ----------------------------------- | ----------------------------------------------- |
 | `pharn` not found after editing CLI | `npm run build:install-local` from `pharn-cli/` |
-| Type errors in tests | `npm run typecheck` |
-| Stale dist | `npm run build` |
+| Type errors in tests                | `npm run typecheck`                             |
+| Stale dist                          | `npm run build`                                 |
 
 See [Contributing](../CONTRIBUTING.md).
 

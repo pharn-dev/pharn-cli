@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -18,9 +18,7 @@ vi.mock('@clack/prompts', () => ({
 vi.mock('../src/lib/banner.js', () => ({ showBanner: vi.fn() }));
 
 const runGitPrereq = vi.fn();
-const runFreshCheck = vi.fn(async () => undefined);
 vi.mock('../src/steps/prereqs.js', () => ({ runGitPrereq }));
-vi.mock('../src/steps/fresh-check.js', () => ({ runFreshCheck }));
 
 const detectArchetypesFromProject = vi.fn(() => ({ archetypes: ['ssr'] }));
 vi.mock('../src/lib/detect-archetype.js', () => ({
@@ -49,12 +47,10 @@ vi.mock('../src/steps/archetype-summary.js', () => ({ runArchetypeSummary }));
 const runInstallArchetype = vi.fn(async () => undefined);
 vi.mock('../src/steps/install-archetype.js', () => ({ runInstallArchetype }));
 
-// No existing config → confirmOverwriteIfExists returns true without prompting.
-vi.mock('../src/lib/pharn-config.js', () => ({
-  configPath: () => '/__no_such_dir__/pharn.config.json',
-  readPharnConfig: vi.fn(),
-  isConfigValidationError: () => false,
-}));
+// The pre-install write-target conflict check (steps/overwrite-check.ts). Default:
+// no conflicts → true → install proceeds; overridden per-test to exercise decline.
+const confirmWriteTargets = vi.fn(async () => true);
+vi.mock('../src/steps/overwrite-check.js', () => ({ confirmWriteTargets }));
 
 const { runInit } = await import('../src/commands/init.js');
 
@@ -64,17 +60,23 @@ describe('runInit (archetype default)', () => {
 
   it('drives the archetype flow and installs — no module/manifest fetch', async () => {
     runArchetypeSummary.mockResolvedValue('install');
+    confirmWriteTargets.mockResolvedValue(true);
 
     await runInit();
 
     expect(runGitPrereq).toHaveBeenCalledTimes(1);
-    expect(runFreshCheck).toHaveBeenCalledTimes(1);
     // The archetype pipeline is taken: detect → fetch → index → resolve → summary.
     expect(detectArchetypesFromProject).toHaveBeenCalledTimes(1);
     expect(fetchRepo).toHaveBeenCalledTimes(1);
     expect(parseCapabilityIndex).toHaveBeenCalledWith('/fake/repo');
     expect(resolveCapabilities).toHaveBeenCalledTimes(1);
     expect(runArchetypeSummary).toHaveBeenCalledTimes(1);
+    // The write-target conflict check gates the install (repo dir, cwd, selection).
+    expect(confirmWriteTargets).toHaveBeenCalledWith(
+      '/fake/repo',
+      expect.any(String),
+      { selected: [], skipped: [] },
+    );
     // Install ran with the pinned SHA; the temp clone was cleaned up.
     expect(runInstallArchetype).toHaveBeenCalledTimes(1);
     expect(runInstallArchetype).toHaveBeenCalledWith(
@@ -97,6 +99,16 @@ describe('runInit (archetype default)', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  it('cancels (no install) when the write-target conflict check is declined', async () => {
+    runArchetypeSummary.mockResolvedValue('install');
+    confirmWriteTargets.mockResolvedValue(false);
+
+    await expect(runInit()).rejects.toMatchObject(new ProcessExit(0));
+
+    expect(runInstallArchetype).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
   it('exits(1) when PHARN cannot be fetched', async () => {
     fetchRepo.mockRejectedValueOnce(new Error('offline'));
 
@@ -115,5 +127,31 @@ describe('runInit (archetype default)', () => {
     );
     expect(src).not.toMatch(/from ['"][^'"]*manifest\.js['"]/);
     expect(src).not.toContain('fetchRemoteManifest');
+  });
+
+  // RCE-surface guard (successor to the deleted fresh-check fsmonitor regression
+  // tests): fresh-check.ts was the ONLY git caller, so deleting it eliminated the
+  // attacker-controlled .git/config (core.fsmonitor / hooks) RCE surface. The
+  // invariant shifted from "every git call is hardened" to "there are NO git calls"
+  // — assert that structurally: no `src/**/*.ts` re-introduces a child_process/git
+  // invocation. Any legitimate future use must update this guard consciously.
+  it('no src file invokes git / child_process (RCE surface eliminated)', () => {
+    const here = fileURLToPath(import.meta.url);
+    const srcDir = join(here, '..', '..', 'src');
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) return walk(p);
+        return e.name.endsWith('.ts') ? [p] : [];
+      });
+    const offenders = walk(srcDir).filter((f) => {
+      const src = readFileSync(f, 'utf8');
+      return (
+        /['"](?:node:)?child_process['"]/.test(src) ||
+        src.includes('execFileSync') ||
+        src.includes('core.fsmonitor')
+      );
+    });
+    expect(offenders).toEqual([]);
   });
 });

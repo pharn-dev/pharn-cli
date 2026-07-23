@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-import { confirm, intro, isCancel, log, note, spinner } from '@clack/prompts';
+import { intro, log, note, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import { REPO_URL } from '../lib/constants.js';
@@ -7,13 +6,8 @@ import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
-import {
-  configPath,
-  isConfigValidationError,
-  readPharnConfig,
-} from '../lib/pharn-config.js';
 import { runGitPrereq } from '../steps/prereqs.js';
-import { runFreshCheck } from '../steps/fresh-check.js';
+import { confirmWriteTargets } from '../steps/overwrite-check.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
 import { runInstallArchetype } from '../steps/install-archetype.js';
 
@@ -22,7 +16,6 @@ export async function runInit(): Promise<void> {
   intro('init wizard');
 
   runGitPrereq();
-  await runFreshCheck();
 
   // Archetype-driven install is the default (and only) init flow: detect the
   // project's archetype(s) and install the applicable capabilities. Framework-
@@ -64,7 +57,10 @@ async function runInitArchetype(): Promise<void> {
     const selection = resolveCapabilities(archetypes, index);
 
     const action = await runArchetypeSummary(archetypes, selection);
-    if (action === 'install' && (await confirmOverwriteIfExists(cwd))) {
+    if (
+      action === 'install' &&
+      (await confirmWriteTargets(repo.dir, cwd, selection))
+    ) {
       // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
       // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
       const commit = repo.sha;
@@ -86,32 +82,4 @@ async function runInitArchetype(): Promise<void> {
     process.exit(1);
   }
   if (outcome === 'cancelled') cancelAndExit();
-}
-
-// Confirm before clobbering an existing pharn.config.json. Returns true to
-// proceed. No process.exit here — the caller handles cancel after cleanup.
-async function confirmOverwriteIfExists(cwd: string): Promise<boolean> {
-  if (!existsSync(configPath(cwd))) return true;
-  try {
-    const existing = readPharnConfig(cwd);
-    if (existing) {
-      log.info(
-        `Existing pharn.config.json found (skillsVersion ${existing.skillsVersion ?? 'unknown'}).`,
-      );
-    }
-  } catch (e) {
-    // A present-but-invalid existing config must NAME the problem, not crash and
-    // not be silently treated as absent (then clobbered). Warn and let the user
-    // decide to overwrite it — init is the repair path.
-    if (isConfigValidationError(e)) {
-      log.warn(`Existing pharn.config.json is invalid: ${e.message}`);
-    } else {
-      throw e;
-    }
-  }
-  const ok = await confirm({
-    message: 'Overwrite existing pharn.config.json?',
-    initialValue: false,
-  });
-  return !isCancel(ok) && ok === true;
 }

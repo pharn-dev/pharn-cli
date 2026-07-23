@@ -64,14 +64,14 @@ Vibe-coding with an AI agent is fast — until the chat history scrolls away and
 
 After a summary of what was selected vs. skipped and your confirmation, the CLI copies the selected capabilities plus the fixed product surfaces into the mirrored layout and writes `pharn.config.json`:
 
-| Artifact | What lands in your project |
-| -------- | -------------------------- |
-| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The selected grillers + lenses (flat layout, or the same under `pharn/`) |
-| `.claude/commands/` | The `pharn-*` product slash commands |
-| `.claude/hooks/` | The deterministic `.cjs` floor hooks |
-| `pharn-contracts/`, `.dev/floor/` | Inter-layer schemas + the floor checkers the commands invoke |
-| `CONSTITUTION.md` | The canonical PHARN constitution, copied verbatim |
-| `pharn.config.json` | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and layout |
+| Artifact                                                  | What lands in your project                                                           |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The selected grillers + lenses (flat layout, or the same under `pharn/`)             |
+| `.claude/commands/`                                       | The `pharn-*` product slash commands                                                 |
+| `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                 |
+| `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                         |
+| `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                    |
+| `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and layout |
 
 An existing `.claude/settings.json` is **never** overwritten. To adjust the selection afterward, use [`pharn add`](docs/commands/add.md) / [`pharn remove`](docs/commands/remove.md).
 
@@ -85,22 +85,22 @@ Once installed, PHARN gives Claude Code a spine of typed stages — each links b
 spec → plan → grill → build → regress → verify → review → ship
 ```
 
-After `pharn init`, open Claude Code and run **`/pharn-plan`** to plan your first feature (or **`/pharn-spec`** first for a fuzzy or larger feature).
+After `pharn init`, open Claude Code and run **`/pharn-spec`** to capture your first feature's intent — it feeds **`/pharn-plan`**. (For a small, well-scoped change you can start at **`/pharn-plan`**.)
 
 ---
 
 ## Commands
 
-| Command | Description |
-| ------- | ----------- |
-| `pharn init` | Detect archetypes and install the applicable capabilities (default) |
-| `pharn add <capability>` | Add one capability, e.g. `a11y` or `lens:n-plus-one` |
-| `pharn remove <capability>` | Remove an installed capability (no arg: pick one interactively) |
-| `pharn update` | Re-fetch installed capabilities at the latest skills version |
-| `pharn list` | List installed archetypes + capabilities (`--json`) |
-| `pharn status` | Show version + local-drift status (read-only; `--strict`, `--no-drift`) |
-| `pharn -h`, `--help` | Show help |
-| `pharn -v`, `--version` | Show version |
+| Command                     | Description                                                             |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `pharn init`                | Detect archetypes and install the applicable capabilities (default)     |
+| `pharn add <capability>`    | Add one capability, e.g. `a11y` or `lens:n-plus-one`                    |
+| `pharn remove <capability>` | Remove an installed capability (no arg: pick one interactively)         |
+| `pharn update`              | Re-fetch installed capabilities at the latest skills version            |
+| `pharn list`                | List installed archetypes + capabilities (`--json`)                     |
+| `pharn status`              | Show version + local-drift status (read-only; `--strict`, `--no-drift`) |
+| `pharn -h`, `--help`        | Show help                                                               |
+| `pharn -v`, `--version`     | Show version                                                            |
 
 ---
 
@@ -108,7 +108,7 @@ After `pharn init`, open Claude Code and run **`/pharn-plan`** to plan your firs
 
 - **Git** initialized in the project — the only requirement, checked up front before detection.
 
-There is no stack-pack selection and no package prerequisite to satisfy. See [Getting started](docs/getting-started.md) for the full flow and fresh-project warnings.
+There is no stack-pack selection and no package prerequisite to satisfy. See [Getting started](docs/getting-started.md) for the full flow, including the pre-install write-target conflict check.
 
 ---
 
