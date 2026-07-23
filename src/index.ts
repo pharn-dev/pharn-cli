@@ -10,7 +10,7 @@ import { runList } from './commands/list.js';
 import { runStatus } from './commands/status.js';
 import { PHARN_VERSION } from './version.js';
 
-const USAGE = `Pharn - Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
+const USAGE = `Pharn - Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
 
 Usage:
   pharn [command] [options]

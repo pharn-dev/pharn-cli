@@ -30,7 +30,7 @@ From the `test-app/` directory (which needs its own `package.json`) after `build
 npx pharn init
 ```
 
-Published package `pharn` exposes a single `pharn` bin (see `package.json`).
+Published package `@pharn-dev/pharn` exposes a single `pharn` bin (see `package.json`).
 
 ## Quality gates
 

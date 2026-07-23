@@ -14,7 +14,7 @@ A clear description of the bug.
 
 - **Command**: <!-- pharn init | pharn add | pharn update -->
 - **Step / area**: <!-- e.g. prereqs check, fresh-check, custom-mode wizard, vendor-consent, install/clone, pharn.config.json output -->
-- **`pharn` version** (`npx pharn --version`, or `pharnVersion` in `pharn.config.json`):
+- **`pharn` version** (`npx @pharn-dev/pharn --version`, or `pharnVersion` in `pharn.config.json`):
 - **Skills version** (`.claude/SKILLS_VERSION`, or `skillsVersion` in `pharn.config.json`):
 
 ## Steps to reproduce
@@ -36,7 +36,7 @@ What actually happened. Paste the relevant CLI output (run with `PHARN_DEBUG=1` 
 - Node.js version (`node --version`):
 - npm version (`npm --version`):
 - OS:
-- Install method: <!-- npx pharn | global install | npm run dev -->
+- Install method: <!-- npx @pharn-dev/pharn | global install | npm run dev -->
 - Target project: <!-- fresh Next.js scaffold? which Next.js version? -->
 
 ## Additional context

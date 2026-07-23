@@ -8,7 +8,7 @@ export function runGitPrereq(): void {
 
   if (!existsSync(resolve(cwd, '.git'))) {
     fail(
-      "✗ git not found.\n  Run: git init && git add -A && git commit -m 'init'\n  Then re-run: npx pharn init",
+      "✗ git not found.\n  Run: git init && git add -A && git commit -m 'init'\n  Then re-run: npx @pharn-dev/pharn init",
     );
   }
 }

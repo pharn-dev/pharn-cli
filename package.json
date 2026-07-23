@@ -1,5 +1,5 @@
 {
-  "name": "pharn",
+  "name": "@pharn-dev/pharn",
   "version": "0.3.0",
   "description": "Audit-grade AI development methodology for Claude Code — spec, plan, grill, build, verify, ship.",
   "keywords": [

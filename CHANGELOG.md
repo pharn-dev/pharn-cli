@@ -48,12 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subsumes the old `pharn.config.json`-only overwrite prompt; `.claude/settings.json` (always preserved)
   is excluded. Deleting the old `steps/fresh-check.ts` — the CLI's only `git` caller — also removes the
   `core.fsmonitor` RCE surface entirely, with a guard test keeping it gone.
-- **Renamed the npm package `pharn-cli` → `pharn`** and made it publish-ready — added `repository`,
+- **Renamed the npm package `pharn-cli` → `@pharn-dev/pharn`** and made it publish-ready — added `repository`,
   `bugs`, `homepage`, `keywords`, and `publishConfig` (public access + provenance); dropped the
   `pharn-cli` bin alias for a single `pharn` bin; and added a `prepack` build so `npm publish` always
   ships a freshly compiled `dist/`. No CLI behavior change and `version` is unchanged; the package now
-  installs via `npx pharn@latest init`.
-- Initially published to npm as `@pharn-dev/pharn` (unpublished on 2026-07-22); the canonical name is `pharn`.
+  installs via `npx @pharn-dev/pharn@latest init`.
+- The unscoped name `pharn` is **not publishable** — npm rejects it with E403 as too similar to
+  existing packages (`yarn`, `charm`, `sharp`) — so the canonical name is the org-scoped
+  **`@pharn-dev/pharn`** (the installed binary stays `pharn`). An earlier `@pharn-dev/pharn@0.2.0`
+  was published then unpublished on 2026-07-22, burning `0.2.0` on that name; releases resume at
+  `0.3.0`.
 - Docs: surfaced the new optional `/pharn-spec` stage (intent capture before `/pharn-plan`) in
   getting-started and the `pharn-pipeline` module description, matching `pharn-oss`. No CLI code
   change — `/pharn-spec` ships transparently via the existing whole-module install from `main`.

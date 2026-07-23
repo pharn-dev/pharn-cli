@@ -20,10 +20,10 @@ prompt at all. Your `.claude/settings.json` is never overwritten, so it is not p
 
 ## Running the CLI
 
-The npm package name is **`pharn`**. It installs a single command, **`pharn`**.
+The npm package name is **`@pharn-dev/pharn`**. It installs a single command, **`pharn`**.
 
 ```bash
-npx pharn init
+npx @pharn-dev/pharn init
 ```
 
 ## Quick start
@@ -33,7 +33,7 @@ npx create-next-app@latest my-app
 cd my-app
 npx shadcn@latest init
 git init && git add -A && git commit -m "init"
-npx pharn init
+npx @pharn-dev/pharn init
 ```
 
 `pharn` with no subcommand runs `init` (same as `pharn init`).
