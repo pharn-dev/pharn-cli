@@ -92,7 +92,7 @@ After you choose **install**, `init` checks which of its **actual write targets*
 
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 
-On success, the CLI reports the capability count and suggests opening Claude Code and running `/pharn-plan`.
+On success, the CLI reports the capability count and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.
 
 ## Legacy configs
 

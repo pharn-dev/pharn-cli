@@ -85,7 +85,7 @@ Once installed, PHARN gives Claude Code a spine of typed stages — each links b
 spec → plan → grill → build → regress → verify → review → ship
 ```
 
-After `pharn init`, open Claude Code and run **`/pharn-plan`** to plan your first feature (or **`/pharn-spec`** first for a fuzzy or larger feature).
+After `pharn init`, open Claude Code and run **`/pharn-spec`** to capture your first feature's intent — it feeds **`/pharn-plan`**. (For a small, well-scoped change you can start at **`/pharn-plan`**.)
 
 ---
 

@@ -89,7 +89,7 @@ export async function runInstallArchetype(
       '',
       pc.bold('Next steps'),
       `  ${pc.cyan('1.')}  ${pc.bold('claude')}            ${pc.dim('open Claude Code')}`,
-      `  ${pc.cyan('2.')}  ${pc.bold(FIRST_FEATURE_COMMAND)}       ${pc.dim('plan your first feature')}`,
+      `  ${pc.cyan('2.')}  ${pc.bold(FIRST_FEATURE_COMMAND)}       ${pc.dim("capture your first feature's intent")}`,
     ].join('\n'),
   );
 }

@@ -6,7 +6,7 @@ export const REPO = 'pharn-dev/pharn-oss';
 export const REPO_BRANCH = 'main';
 export const REPO_URL = 'github.com/pharn-dev/pharn-oss';
 
-export const FIRST_FEATURE_COMMAND = '/pharn-plan';
+export const FIRST_FEATURE_COMMAND = '/pharn-spec';
 
 // ---------------------------------------------------------------------------
 // Archetype (capability) install (pharn init --archetype). Repo-relative source

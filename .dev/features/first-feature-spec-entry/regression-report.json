@@ -1,0 +1,28 @@
+{
+  "base": "HEAD",
+  "inside": [
+    "src/lib/constants.ts",
+    "src/steps/install-archetype.ts",
+    "docs/commands/init.md",
+    "docs/getting-started.md",
+    "README.md",
+    "CHANGELOG.md",
+    "tests/constants.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 1,
+      "head": 1
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests",
+    "validate"
+  ],
+  "verdict": "no-regressions"
+}
