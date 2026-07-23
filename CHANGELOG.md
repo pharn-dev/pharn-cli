@@ -7,8 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Model routing is visible after install** — `pharn init`'s summary and `pharn status` now print a
+  "Models per stage" block (`default` / `plan` / `review`, one line per configured entry) rendered from
+  the `models` block actually written to `pharn.config.json`, plus a pointer to change it
+  (`models.stages`). Documented under
+  [`docs/reference/pharn-config.md`](docs/reference/pharn-config.md#model-routing).
+
 ### Changed
 
+- **Spend-safe `review` default** — a fresh install now routes the `review` stage to `opus-4-8`/`high`
+  instead of `fable-5`/`max`. Review fans out across lenses (a backend install ships ~22), so a premium
+  model at `max` effort multiplied per lens was the worst-case token cost, applied silently. Cross-model
+  review on `fable-5`/`max` has proven catch value and is now a documented opt-in (set
+  `models.stages.review`). Existing configs are not migrated — `models` is user-owned after init.
 - **`SECURITY.md` + `THREAT-MODEL.md`** — rewritten for the archetype/capability install flow
   (no module/manifest/wizard references); remote-input, validation, write-surface, and consent
   points now cite current files/functions; `degit` clone bounds documented as a labeled limit.

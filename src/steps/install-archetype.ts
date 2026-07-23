@@ -2,7 +2,10 @@ import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
-import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
+import {
+  DEFAULT_MODEL_ROUTING,
+  formatModelRoutingLines,
+} from '../lib/model-routing.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import { writePharnConfig } from '../lib/pharn-config.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
@@ -80,12 +83,22 @@ export async function runInstallArchetype(
   const check = pc.green('✔');
   const grillers = capabilities.filter((c) => c.role === 'griller').length;
   const lenses = capabilities.filter((c) => c.role === 'lens').length;
+  // Render the per-stage routing from the config just written (not a second
+  // hardcoded copy), so spend is legible right after install. config.models is
+  // set on every fresh install; the guard narrows its optional type (P7 legacy).
+  const modelLines = config.models
+    ? formatModelRoutingLines(config.models)
+    : [];
   outro(
     [
       `${check} ${capabilities.length} capabilit${capabilities.length === 1 ? 'y' : 'ies'} installed → ${pc.dim(`(${grillers} griller${grillers === 1 ? '' : 's'}, ${lenses} lens${lenses === 1 ? '' : 'es'})`)}`,
       `${check} PHARN commands + hooks + docs written → ${pc.dim('.claude/')}`,
       `${check} pharn.config.json written ${pc.dim(`(skills v${skillsVersion}, archetypes: ${archetypes.join(', ')})`)}`,
       `${pc.dim(`Done in ${elapsed}s`)}`,
+      '',
+      pc.bold('Models per stage'),
+      ...modelLines.map((line) => `  ${line}`),
+      `  ${pc.dim('Change per-stage routing anytime in pharn.config.json → models.stages')}`,
       '',
       pc.bold('Next steps'),
       `  ${pc.cyan('1.')}  ${pc.bold('claude')}            ${pc.dim('open Claude Code')}`,
