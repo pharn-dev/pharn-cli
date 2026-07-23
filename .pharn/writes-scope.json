@@ -1,17 +1,7 @@
 {
   "scope": [
-    "src/lib/capability-picker.ts",
-    "src/commands/add.ts",
-    "src/commands/remove.ts",
-    "src/index.ts",
-    "tests/capability-picker.test.ts",
-    "tests/add.test.ts",
-    "tests/remove.test.ts",
-    "docs/commands/add.md",
-    "docs/commands/remove.md",
-    "README.md",
-    "CHANGELOG.md"
+    ".dev/features/capability-picker/SHIP.md"
   ],
-  "set_by": ".dev/features/capability-picker/PLAN.md",
-  "set_at": "2026-07-23T21:56:59.001Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-07-23T22:29:45.688Z"
 }
