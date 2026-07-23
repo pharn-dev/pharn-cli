@@ -4,9 +4,9 @@ PHARN is an audit-grade methodology — taking security seriously is part of the
 
 ## What `pharn` is, and its security surface
 
-This repository **is `pharn`** — an ESM-only Node CLI (`"type": "module"`, NodeNext, `engines.node >= 20`) that runs a wizard, fetches the selected PHARN modules from `pharn-dev/pharn-oss` via `degit`, copies them into the user's project — the `.claude/` command/hook surfaces, the mirrored capability dirs (`pharn-pipeline/grillers/`, `pharn-review/`), and the trusted docs / `pharn-contracts/` / `.dev/floor/` product surfaces at the project root (or all of it under `pharn/`) — and writes `pharn.config.json`. It has a small, thin dependency set (`@clack/prompts`, `degit`, `minimist`, `picocolors`), no bundled runtime services, and no telemetry. Its security-relevant surface is exactly the two things that cross a trust boundary: **remote input** (the `manifest.json` / `module.json` it reads and the repo content it clones) and **file-system writes** (everything it copies into the project — the `.claude/` surfaces, the mirrored capability dirs, and the root/`pharn/` product surfaces — plus the `pharn.config.json` it writes).
+This repository **is `pharn`** — an ESM-only Node CLI (`"type": "module"`, NodeNext, `engines.node >= 20`) that detects a project's **archetype(s)**, `degit`-clones `pharn-dev/pharn-oss`, derives the capability index from the clone's frontmatter, copies the resolved capabilities plus fixed product surfaces into the user's project — the `.claude/` command/hook surfaces, the mirrored capability dirs (`pharn-pipeline/grillers/`, `pharn-review/`), and the trusted docs / `pharn-contracts/` / `.dev/floor/` product surfaces at the project root (or all of it under `pharn/`) — and writes `pharn.config.json`. There is no module catalog, no `manifest.json` fetch, and no wizard questionnaire. It has a small, thin dependency set (`@clack/prompts`, `degit`, `minimist`, `picocolors`), no bundled runtime services, and no telemetry. Its security-relevant surface is exactly the two things that cross a trust boundary: **remote input** (the `degit` clone of pharn-oss, the lightweight `SKILLS_VERSION` / commit-SHA fetches, and every name read from the untrusted clone) and **file-system writes** (everything it copies into the project — the `.claude/` surfaces, the mirrored capability dirs, and the root/`pharn/` product surfaces — plus the `pharn.config.json` it writes). See `THREAT-MODEL.md` for the trust-boundary map and `CLAUDE.md` for the command architecture.
 
-The CLI's security model is **deterministic, not model-driven**: it never asks an AI to decide what is safe. Every value that arrives from the network is validated against strict regex allowlists, rejected for `..` and control characters, and every copy is confined with a `safeJoin` guard so nothing can escape its intended target — checks that hold regardless of what the fetched content says. Preserve that shape: a security fix that relies on "the content will be well-behaved" is not a fix.
+The CLI's security model is **deterministic, not model-driven**: it never asks an AI to decide what is safe. Every value that arrives from the network or the fetched tree is validated against strict regex/enum allowlists (`src/lib/validate.ts`), rejected for `..` and control characters, and every copy is confined with a `safeJoin` guard plus symlink rejection at the write sites (`src/lib/install-capabilities.ts`) so nothing can escape its intended target — checks that hold regardless of what the fetched content says. Preserve that shape: a security fix that relies on "the content will be well-behaved" is not a fix.
 
 ## Supported versions
 
@@ -53,12 +53,12 @@ Scope follows the surface described above: everything that touches remote input 
 
 ### In scope
 
-- **Remote-input validation** bypasses in `src/lib/validate.ts` or `src/lib/manifest.ts` — the regex allowlists (`MODULE_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`, `WIZARD_VALUE_RE`, `VENDOR_SOURCE_RE`, `PACKAGE_NAME_RE`), the `..` checks, control-character rejection, the `schemaVersion` gate (must be exactly `1` or `2` — anything else hard-fails by design), or the fetch limits (8s timeout, 256 KB body cap).
-- **Path traversal** or unintended file-system writes from `src/lib/install-modules.ts` / `src/steps/install.ts` (copying module `installs` and selectively copied skills into `.claude/`, `pharn.config.json` write) or from any module name / `installs` / skill path that escapes its intended target (the `safeJoin` guard, which confines every module and skill copy).
-- **Server-side request forgery (SSRF)** or redirect abuse in the manifest / commit-metadata fetches (fetches use `redirect: 'error'` with an 8s timeout; report ways around it).
-- **Supply-chain** issues in how modules are cloned via `degit`, or in the resolution of the repo coordinates (`src/lib/constants.ts`).
-- **Untrusted-content injection** — a malicious `manifest.json` or `module.json` that leads the CLI to clone unintended content or write outside the project.
-- Logic in the wizard pipeline (`src/steps/*`, `src/commands/*`) that could be abused to skip a consent prompt or overwrite files without confirmation.
+- **Remote-input validation** bypasses in `src/lib/validate.ts` or `src/lib/capability-index.ts` — the regex/enum allowlists active in the archetype flow (`CAPABILITY_NAME_RE`, `COPY_FILENAME_RE`, `VERSION_RE`, the `role`/`applies` enums via `assertRole`/`assertAppliesToken`), the `..` checks, control-character rejection (`assertSafeString`), or the network guards on the lightweight fetches (`fetchRemoteSkillsVersion` in `src/lib/skills-version.ts`: `redirect: 'error'`, 8s timeout, 256 KB body cap; `fetchCommitSha` in `src/lib/repo.ts`: `redirect: 'error'`, 8s timeout). The `degit` clone itself (`fetchRepo`) has **no** pharn-imposed timeout or body cap — report issues in that boundary too (see `THREAT-MODEL.md §4`).
+- **Path traversal** or unintended file-system writes from `src/lib/install-capabilities.ts` / `src/lib/install-manifest.ts` / `src/lib/diff.ts` / `src/commands/remove.ts` (copying resolved capability dirs and fixed product surfaces, `pharn.config.json` write) or from any capability / product-filename that escapes its intended target (`safeJoin` in `src/lib/validate.ts`, plus symlink rejection in `install-capabilities.ts`).
+- **Server-side request forgery (SSRF)** or redirect abuse in the `SKILLS_VERSION` or commit-metadata fetches (the `fetch()` calls above use `redirect: 'error'`; report ways around it).
+- **Supply-chain** issues in how pharn-oss is cloned via `degit`, or in the resolution of the repo coordinates (`src/lib/constants.ts`).
+- **Untrusted-content injection** — a poisoned pharn-oss tree (malicious capability frontmatter, symlink-planted paths, or unexpected directory entries) that leads the CLI to write outside the project or copy unintended content.
+- Logic in the archetype install pipeline (`src/commands/init.ts`, `src/steps/archetype-summary.ts`, `src/steps/overwrite-check.ts`, `src/steps/install-archetype.ts`, and the other commands) that could be abused to skip a consent prompt or overwrite files without confirmation.
 
 ### Out of scope
 
@@ -74,10 +74,10 @@ Scope follows the surface described above: everything that touches remote input 
 `pharn`'s input validation and consent prompts are defense-in-depth, not a guarantee. When using the CLI:
 
 1. **Run it in an existing, version-controlled project** so you can diff exactly what `init` wrote (the `.claude/` surfaces, the capability dirs and product surfaces, and `pharn.config.json`) before committing.
-2. **Review the vendor skills** the wizard offers before accepting them — vendor selection is opt-in and nothing is selected by default; only accept vendors you recognize.
+2. **Review the archetype summary** before accepting install — capabilities are selected deterministically from your project signals and the fetched index; cancel if the set looks wrong.
 3. **Prefer `npx @pharn-dev/pharn@latest`** so you run the current, supported release rather than a stale pinned copy.
 4. **Inspect the cloned `.claude/` skills** before running them through your AI tool — installation fetches remote content.
-5. **Set `PHARN_DEBUG=1`** if a manifest or clone step fails unexpectedly, and report anything that looks like the CLI fetching or writing somewhere it should not.
+5. **Set `PHARN_DEBUG=1`** if a fetch or install step fails unexpectedly, and report anything that looks like the CLI fetching or writing somewhere it should not.
 
 ## Acknowledgements
 

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`SECURITY.md` + `THREAT-MODEL.md`** — rewritten for the archetype/capability install flow
+  (no module/manifest/wizard references); remote-input, validation, write-surface, and consent
+  points now cite current files/functions; `degit` clone bounds documented as a labeled limit.
+
 ## [0.3.0] — 2026-07-23
 
 ### Added
