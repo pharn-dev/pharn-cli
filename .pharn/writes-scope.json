@@ -1,19 +1,7 @@
 {
   "scope": [
-    "package.json",
-    "README.md",
-    "SECURITY.md",
-    "CLAUDE.md",
-    "CHANGELOG.md",
-    "docs/getting-started.md",
-    "docs/contributing.md",
-    "docs/troubleshooting.md",
-    "docs/RELEASING.md",
-    ".github/ISSUE_TEMPLATE/bug_report.md",
-    "src/index.ts",
-    "src/steps/prereqs.ts",
-    "package-lock.json"
+    ".dev/features/npm-name-scoped/SHIP.md"
   ],
-  "set_by": ".dev/features/npm-name-scoped/PLAN.md",
-  "set_at": "2026-07-23T19:52:32.107Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-07-23T20:28:32.256Z"
 }
