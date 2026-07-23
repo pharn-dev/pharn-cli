@@ -1,14 +1,7 @@
 {
   "scope": [
-    "src/lib/model-routing.ts",
-    "src/steps/install-archetype.ts",
-    "src/commands/status.ts",
-    "docs/reference/pharn-config.md",
-    "tests/model-routing.test.ts",
-    "tests/init-archetype.test.ts",
-    "tests/status.test.ts",
-    "CHANGELOG.md"
+    ".dev/features/spend-safe-model-routing/SHIP.md"
   ],
-  "set_by": ".dev/features/spend-safe-model-routing/PLAN.md",
-  "set_at": "2026-07-23T21:03:22.052Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-07-23T21:25:54.289Z"
 }
