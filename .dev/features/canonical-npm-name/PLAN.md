@@ -54,8 +54,8 @@ permission strings and historical `.dev/features/*/PLAN.md`/`GRILL.md` prose.
 - `docs/getting-started.md` — lines 25, 28, 38: `@pharn-dev/pharn` → `pharn`.
 - `docs/troubleshooting.md` — lines 27, 68: `@pharn-dev/pharn` → `pharn`.
 - `CHANGELOG.md` — **(OQ2 resolved)** reconcile the rename bullet (35: `→ pharn`; 39: `npx pharn@latest init`) **and** add the clarifier "Initially published to npm as `@pharn-dev/pharn` (now deprecated); the canonical name is `pharn`."
-- `src/index.ts` — **(OQ1 resolved: edit)** USAGE (line 13) `npx @pharn-dev/pharn init` → `npx pharn init`. Copy-only (no control-flow); rebuilds `dist/index.js`.
-- `src/steps/prereqs.ts` — **(OQ1 resolved: edit)** git-missing error (line 11) `npx @pharn-dev/pharn init` → `npx pharn init`. Copy-only (no control-flow); rebuilds `dist/index.js`.
+- `src/index.ts` — **(OQ1 resolved: edit)** USAGE (line 13) `npx @pharn-dev/pharn init` → `npx @pharn-dev/pharn init`. Copy-only (no control-flow); rebuilds `dist/index.js`.
+- `src/steps/prereqs.ts` — **(OQ1 resolved: edit)** git-missing error (line 11) `npx @pharn-dev/pharn init` → `npx @pharn-dev/pharn init`. Copy-only (no control-flow); rebuilds `dist/index.js`.
 
 ## Contracts satisfied
 

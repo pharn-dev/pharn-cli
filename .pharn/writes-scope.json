@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/first-feature-spec-entry/SHIP.md"
+    ".dev/features/npm-name-scoped/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-23T09:35:01.993Z"
+  "set_at": "2026-07-23T20:28:32.256Z"
 }

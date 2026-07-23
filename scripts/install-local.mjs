@@ -55,5 +55,5 @@ for (const testAppRoot of testApps) {
 }
 
 console.log(
-  `Done — ${testApps.length} test app(s). Run \`npx pharn init\` from a test app directory.`,
+  `Done — ${testApps.length} test app(s). Run \`npx @pharn-dev/pharn init\` from a test app directory.`,
 );

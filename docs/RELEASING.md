@@ -1,6 +1,6 @@
 # Releasing pharn
 
-Maintainer guide for publishing a new version of the `pharn` npm package.
+Maintainer guide for publishing a new version of the `@pharn-dev/pharn` npm package.
 
 Releases are automated: cut a **GitHub Release** and
 [`.github/workflows/publish.yml`](../.github/workflows/publish.yml) publishes to
@@ -9,12 +9,15 @@ tokens** anywhere in this repository or in its GitHub Actions secrets.
 
 ## The package
 
-The canonical npm package is **`pharn`** (unscoped) —
-<https://www.npmjs.com/package/pharn>. It exposes a single `pharn` bin.
+The canonical npm package is **`@pharn-dev/pharn`** (org-scoped) —
+<https://www.npmjs.com/package/@pharn-dev/pharn>. It exposes a single `pharn` bin.
 
-> The scoped name `@pharn-dev/pharn` was briefly published early on and then
-> **unpublished on 2026-07-22**. It was never deprecated — `pharn` is the only
-> name. Do not republish the scoped name.
+> The unscoped name `pharn` is **not publishable**: npm rejects it with E403 as
+> too similar to existing packages (`yarn`, `charm`, `sharp`), and a scoped name
+> sidesteps that similarity check — so `@pharn-dev/pharn` is canonical. An earlier
+> `@pharn-dev/pharn@0.2.0` was published then unpublished on 2026-07-22, so
+> `0.2.0` is permanently burned on this name; releases resume at `0.3.0`. The
+> installed binary stays `pharn`.
 
 ## How publishing is authenticated
 
@@ -25,7 +28,7 @@ credential is stored or passed.
 - **No secrets, no tokens** — not in the repo, not in Actions secrets, not in
   the workflow. `permissions: id-token: write` is what enables the OIDC exchange
   (and the `--provenance` attestation); it is not a secret.
-- The Trusted Publisher is configured **on npmjs.com** for package `pharn`,
+- The Trusted Publisher is configured **on npmjs.com** for package `@pharn-dev/pharn`,
   pinned to workflow **`publish.yml`** and the GitHub deployment environment
   **`npm-publish`**.
 - **If a publish ever fails asking for a token, the Trusted Publisher config is
@@ -51,10 +54,10 @@ credential is stored or passed.
 ## Verify the release
 
 1. **GitHub Actions** — the `publish` workflow run for the Release is green.
-2. **npmjs.com** — <https://www.npmjs.com/package/pharn> shows the new version,
+2. **npmjs.com** — <https://www.npmjs.com/package/@pharn-dev/pharn> shows the new version,
    and that version shows a **provenance** badge linking back to the GitHub
    Actions run.
-3. **Smoke-test** — `npx pharn@latest --version` prints the new version.
+3. **Smoke-test** — `npx @pharn-dev/pharn@latest --version` prints the new version.
 
 ## First publish of a new package name (one-time exception)
 
@@ -69,4 +72,4 @@ npm publish   # provenance stays off (publishConfig.provenance: false) — no OI
 Then configure the Trusted Publisher on npmjs.com (workflow `publish.yml`,
 environment `npm-publish`), and every subsequent release goes through
 `publish.yml` as described above. This exception applies **only** to introducing
-a new package name — never to a normal version bump of `pharn`.
+a new package name — never to a normal version bump of `@pharn-dev/pharn`.
