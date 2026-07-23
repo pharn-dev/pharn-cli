@@ -1,3 +1,4 @@
+import { ROLE_GROUPS } from './capability-groups.js';
 import type { CapabilityIndex, InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -35,12 +36,9 @@ export interface PickerOption {
 // with nothing to offer renders no header.
 export type PickerGroups = Record<string, PickerOption[]>;
 
-// The role → group-label order. Iterated in this fixed order so the same state
-// always renders the same menu (grillers before lenses), P5.
-const ROLE_GROUPS: { role: InstalledCapability['role']; label: string }[] = [
-  { role: 'griller', label: 'grillers' },
-  { role: 'lens', label: 'lenses' },
-];
+// The role → group-label order is shared with `pharn list`'s human output via
+// lib/capability-groups.ts (ROLE_GROUPS) so the picker menu and the list render
+// the same fixed order (grillers before lenses) from one source of truth, P5.
 
 // Group capabilities by role into the PickerGroups shape. Deterministic: role
 // order is fixed (ROLE_GROUPS), option order is the caller's input order (the

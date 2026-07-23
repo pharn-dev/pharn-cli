@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/capability-picker/SHIP.md"
+    ".dev/features/list-readable-capabilities/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-07-23T22:29:45.688Z"
+  "set_at": "2026-07-23T22:52:07.331Z"
 }

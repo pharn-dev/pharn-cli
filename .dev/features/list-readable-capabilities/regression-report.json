@@ -1,0 +1,27 @@
+{
+  "base": "HEAD",
+  "inside": [
+    "src/lib/capability-groups.ts",
+    "src/lib/capability-picker.ts",
+    "src/commands/list.ts",
+    "tests/capability-groups.test.ts",
+    "tests/list.test.ts",
+    "docs/commands/list.md",
+    "CHANGELOG.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}
