@@ -1,12 +1,17 @@
 import { existsSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { REPO, REPO_BRANCH } from '../src/lib/constants.js';
+import { ManifestValidationError } from '../src/lib/validate.js';
 
 const clone = vi.fn();
 const degit = vi.fn(() => ({ clone }));
 vi.mock('degit', () => ({ default: degit }));
 
 const { fetchRepo, fetchCommitSha } = await import('../src/lib/repo.js');
+
+// A real 40-char lowercase-hex commit SHA (the SHA-1 of the empty blob) — the
+// form fetchRepo now validates against COMMIT_RE before it clones / records it.
+const VALID_SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
 
 describe('fetchRepo', () => {
   afterEach(() => {
@@ -27,16 +32,16 @@ describe('fetchRepo', () => {
   }
 
   it('pins degit to the resolved commit SHA and records it (recorded == fetched)', async () => {
-    stubSha('deadbeefcafe');
+    stubSha(VALID_SHA);
     clone.mockResolvedValueOnce(undefined);
     const repo = await fetchRepo();
 
     // Pinned to the SHA, not the floating branch — and the SAME value recorded.
-    expect(degit).toHaveBeenCalledWith(`${REPO}#deadbeefcafe`, {
+    expect(degit).toHaveBeenCalledWith(`${REPO}#${VALID_SHA}`, {
       force: true,
       cache: false,
     });
-    expect(repo.sha).toBe('deadbeefcafe');
+    expect(repo.sha).toBe(VALID_SHA);
     expect(clone).toHaveBeenCalledWith(repo.dir);
     expect(existsSync(repo.dir)).toBe(true);
 
@@ -59,9 +64,17 @@ describe('fetchRepo', () => {
   });
 
   it('removes the temp dir and rethrows when clone fails', async () => {
-    stubSha('deadbeefcafe');
+    stubSha(VALID_SHA);
     clone.mockRejectedValueOnce(new Error('boom'));
     await expect(fetchRepo()).rejects.toThrow('boom');
+  });
+
+  it('rejects a malformed (non-40-hex) sha before cloning or creating a temp dir (P2)', async () => {
+    stubSha('deadbeefcafe'); // 12 hex chars — not a full 40-hex commit SHA
+    await expect(fetchRepo()).rejects.toThrow(ManifestValidationError);
+    // Boundary reject: the guard runs before degit is constructed / clone is called.
+    expect(degit).not.toHaveBeenCalled();
+    expect(clone).not.toHaveBeenCalled();
   });
 });
 

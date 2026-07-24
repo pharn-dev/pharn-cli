@@ -28,6 +28,11 @@ export const CAPABILITY_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // A product command / hook filename copied from the fetched tree (validated
 // before path-join). `pharn-plan.md`, `set-writes-scope.cjs`, etc.
 export const COPY_FILENAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*\.(md|cjs|mjs|json)$/;
+// A full commit SHA — 40 lowercase hex chars (the degit/GitHub form). The
+// network-derived sha (src/lib/repo.ts, fetchCommitSha) is validated against this
+// before it is used as a degit ref or recorded as pharn.config.json `commit` (P2);
+// `null` (degraded mode, LIMITS.md §3b) is handled by the caller's null-guard.
+export const COMMIT_RE = /^[0-9a-f]{40}$/;
 // Capability `role` frontmatter enum — the two installable kinds shipped today
 // (ARCHITECTURE.md §3.1 role enum, narrowed consumer-side).
 export const ROLE_VALUES = ['griller', 'lens'] as const;

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import degit from 'degit';
 import { REPO, REPO_BRANCH } from './constants.js';
+import { assertSafeString, COMMIT_RE } from './validate.js';
 
 const API = 'https://api.github.com';
 const FETCH_TIMEOUT_MS = 8000;
@@ -12,9 +13,11 @@ export interface FetchedRepo {
   // The commit the tree was pinned to — recorded verbatim as pharn.config.json
   // `commit`. It is EITHER the resolved SHA (degit was pinned to exactly it) OR
   // `null` (the SHA could not be resolved — offline / GitHub rate-limit — so the
-  // fetch floated REPO_BRANCH, the documented degraded mode, LIMITS.md §3b). It
-  // is NEVER a non-null SHA that differs from what was fetched: the same value
-  // drives the degit ref and this field, so the record cannot silently lie.
+  // fetch floated REPO_BRANCH, the documented degraded mode, LIMITS.md §3b). A
+  // non-null value is validated against COMMIT_RE at the boundary (fetchRepo) — a
+  // full 40-hex sha — so a malformed / hostile API response is rejected, never
+  // recorded. It is NEVER a non-null SHA that differs from what was fetched: the
+  // same value drives the degit ref and this field, so the record cannot silently lie.
   sha: string | null;
   cleanup: () => void;
 }
@@ -38,7 +41,16 @@ export interface FetchedRepo {
  * the path/network floor, never signature verification.
  */
 export async function fetchRepo(): Promise<FetchedRepo> {
-  const sha = await fetchCommitSha();
+  // The sha is network-derived (fetchCommitSha reads it from the GitHub commits
+  // API) and untrusted (P2): a non-null value MUST be a full 40-hex commit SHA
+  // before it becomes the degit ref OR is recorded as pharn.config.json `commit`.
+  // Reject a malformed one loudly (same failure style as skills-version.ts) rather
+  // than feed garbage to degit or record it as provenance; `null` is the documented
+  // degraded mode (LIMITS.md §3b) and passes through. One boundary guard covers
+  // every downstream sink (the ref below + the three config-assembly writers).
+  const rawSha = await fetchCommitSha();
+  const sha =
+    rawSha === null ? null : assertSafeString(rawSha, 'commit SHA', COMMIT_RE);
   // Pin to the resolved SHA; else float the branch (LIMITS.md §3b degraded mode).
   const ref = sha ?? REPO_BRANCH;
   const dir = mkdtempSync(join(tmpdir(), 'pharn-'));
@@ -63,7 +75,9 @@ export async function fetchRepo(): Promise<FetchedRepo> {
  * Best-effort: resolve the current commit SHA of the default branch so the fetch
  * can be pinned to it and it can be recorded in pharn.config.json. Returns null
  * on any failure (rate limit, offline, etc.) — the SHA is advisory provenance
- * (LIMITS.md §1b/§3b), never a cryptographic gate.
+ * (LIMITS.md §1b/§3b), never a cryptographic gate. The returned string is NOT
+ * format-checked here; fetchRepo validates it against COMMIT_RE at the boundary
+ * (a throw here would be swallowed to null by the catch — the wrong failure mode).
  */
 export async function fetchCommitSha(): Promise<string | null> {
   const url = `${API}/repos/${REPO}/commits/${REPO_BRANCH}`;
