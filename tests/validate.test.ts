@@ -151,9 +151,9 @@ describe('COMMIT_RE', () => {
         COMMIT_RE,
       ),
     ).toBe('da39a3ee5e6b4b0d3255bfef95601890afd80709');
-    expect(() => assertSafeString('deadbeefcafe', 'commit SHA', COMMIT_RE)).toThrow(
-      /invalid format/,
-    );
+    expect(() =>
+      assertSafeString('deadbeefcafe', 'commit SHA', COMMIT_RE),
+    ).toThrow(/invalid format/);
   });
 });
 
