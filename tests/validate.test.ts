@@ -6,6 +6,7 @@ import {
   INSTALL_PATH_RE,
   CAPABILITY_NAME_RE,
   COPY_FILENAME_RE,
+  COMMIT_RE,
   assertSafeString,
   assertNoDotDot,
   assertRole,
@@ -111,6 +112,48 @@ describe('COPY_FILENAME_RE', () => {
     for (const n of ['../evil.md', 'x.sh', 'a..b.md', '.env']) {
       expect(COPY_FILENAME_RE.test(n)).toBe(false);
     }
+  });
+});
+
+// COMMIT_RE gates the network-derived provenance sha (src/lib/repo.ts, fetchRepo)
+// before it is used as a degit ref or written to pharn.config.json `commit` (P2).
+// The full 40-hex form is the only accepted shape; null (degraded mode) is handled
+// by the caller's null-guard, not here.
+describe('COMMIT_RE', () => {
+  it('accepts a full 40-char lowercase hex sha', () => {
+    for (const s of [
+      'da39a3ee5e6b4b0d3255bfef95601890afd80709',
+      '0123456789abcdef0123456789abcdef01234567',
+      'a'.repeat(40),
+    ]) {
+      expect(COMMIT_RE.test(s)).toBe(true);
+    }
+  });
+
+  it('rejects short, over-length, uppercase, non-hex, and empty shas', () => {
+    for (const s of [
+      'deadbeefcafe', // too short (12)
+      'a'.repeat(39), // 39 chars
+      'a'.repeat(41), // 41 chars
+      'A'.repeat(40), // uppercase
+      'g'.repeat(40), // non-hex letter
+      '', // empty
+    ]) {
+      expect(COMMIT_RE.test(s)).toBe(false);
+    }
+  });
+
+  it('is enforced by assertSafeString (same failure style as the other validators)', () => {
+    expect(
+      assertSafeString(
+        'da39a3ee5e6b4b0d3255bfef95601890afd80709',
+        'commit SHA',
+        COMMIT_RE,
+      ),
+    ).toBe('da39a3ee5e6b4b0d3255bfef95601890afd80709');
+    expect(() => assertSafeString('deadbeefcafe', 'commit SHA', COMMIT_RE)).toThrow(
+      /invalid format/,
+    );
   });
 });
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The fetched commit SHA is validated before it is used or recorded.** `pharn init` / `add` /
+  `update` record a `commit` provenance SHA resolved from the GitHub commits API. It is now checked
+  against a strict full-40-hex-lowercase pattern (`COMMIT_RE`) at the fetch boundary
+  (`src/lib/repo.ts`, `fetchRepo`) before it becomes the `degit` clone ref or is written to
+  `pharn.config.json`, so a malformed or hostile value is rejected loudly instead of recorded as
+  provenance. Degraded-mode `commit: null` (offline / rate-limited, `LIMITS.md §3b`) is unchanged.
+  Closes the CodeQL `js/http-to-file-access` finding on `writePharnConfig`; the config-write sink and
+  its per-field validators (`VERSION_RE` / `CAPABILITY_NAME_RE` / `COMMIT_RE`) are now named in
+  `THREAT-MODEL.md §3.1`.
+
 ## [0.3.1] — 2026-07-24
 
 First automated release via npm Trusted Publishing (OIDC); no functional

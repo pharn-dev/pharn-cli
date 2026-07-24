@@ -78,6 +78,26 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 | copied methodology (Surface A) | validated for placement only; content trust is provenance + user review (`LIMITS.md §1`) | (labeled limit) |
 | stale / renamed upstream | drift derived live; a missing expected path is **reported**, never guessed | `diffInstalledCapabilities` (`src/lib/diff.ts`) |
 
+### 3.1 The config write (`pharn.config.json`) as a sink
+
+Beyond the copied methodology (Surface A), pharn writes one structured file of its
+own. `writePharnConfig` (`src/lib/pharn-config.ts`) serializes the config with
+`JSON.stringify` to a **fixed, non-attacker-influenced path** — `configPath(cwd)` =
+`resolve(cwd, 'pharn.config.json')` — so the sink location is never derived from
+remote input. The record mixes local-origin fields (`pharnVersion`, `repo`,
+`installedAt`, `modules`, the `models`/`seam` defaults) with three network-derived
+ones, and **each network-derived field is validated at its ingest boundary before
+it can reach this write** (P0/P2): `skillsVersion` against `VERSION_RE`
+(`readSkillsVersion`, `src/lib/skills-version.ts`); every `capabilities[]` name
+against `CAPABILITY_NAME_RE` (`parseCapabilityIndex` / `installCapabilityDirs`,
+`src/lib/capability-index.ts` + `src/lib/install-capabilities.ts`); and the `commit`
+SHA against `COMMIT_RE` — a full 40-hex sha — at the fetch boundary in `fetchRepo`
+(`src/lib/repo.ts`), with `null` the documented degraded mode (§4, `LIMITS.md §3b`).
+`JSON.stringify` neutralizes structural injection into the file, and the three
+boundary validators keep unvalidated remote bytes from being recorded as
+provenance — closing the CodeQL `js/http-to-file-access` flow (network → file) with
+a named per-field sanitizer, not a "the source repo is ours" assumption (P0).
+
 ---
 
 ## 4. Residuals the design accepts (labeled, not hidden — `LIMITS.md`)
