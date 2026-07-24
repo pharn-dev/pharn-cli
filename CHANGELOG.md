@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-07-24
+
+First automated release via npm Trusted Publishing (OIDC); no functional
+changes.
+
 ## [0.3.0] — 2026-07-24
 
 ### Added
@@ -177,7 +182,8 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.1.0
