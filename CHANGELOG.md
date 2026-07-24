@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-24
+
 ### Added
 
 - **Model routing is visible after install** — `pharn init`'s summary and `pharn status` now print a
@@ -21,31 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed and, after one confirmation, deletes each pick. Named-argument invocations are unchanged.
   Documented under [`docs/commands/add.md`](docs/commands/add.md) /
   [`docs/commands/remove.md`](docs/commands/remove.md).
-
-### Changed
-
-- **`pharn list` capabilities are readable at scale** — the human output now groups installed
-  capabilities by role with a per-role count and prints **one capability per line** (dash-bulleted),
-  instead of a single comma-joined string that re-wrapped mid-item inside the box at large capability
-  counts. `pharn list --json` is unchanged (byte-identical). Documented under
-  [`docs/commands/list.md`](docs/commands/list.md).
-- **No-argument `add` / `remove` never prompt in a non-interactive context** — in CI or a pipe (stdin
-  or stdout not a TTY), bare `pharn add` / `pharn remove` exit with a usage error instead of opening a
-  prompt. `pharn remove` with no argument previously opened a single-select picker with no such guard;
-  it now opens a multi-select with one confirmation and the non-TTY guard.
-- **Spend-safe `review` default** — a fresh install now routes the `review` stage to `opus-4-8`/`high`
-  instead of `fable-5`/`max`. Review fans out across lenses (a backend install ships ~22), so a premium
-  model at `max` effort multiplied per lens was the worst-case token cost, applied silently. Cross-model
-  review on `fable-5`/`max` has proven catch value and is now a documented opt-in (set
-  `models.stages.review`). Existing configs are not migrated — `models` is user-owned after init.
-- **`SECURITY.md` + `THREAT-MODEL.md`** — rewritten for the archetype/capability install flow
-  (no module/manifest/wizard references); remote-input, validation, write-surface, and consent
-  points now cite current files/functions; `degit` clone bounds documented as a labeled limit.
-
-## [0.3.0] — 2026-07-23
-
-### Added
-
 - **`pharn remove <module | category:skill>`** — the inverse of `pharn add`. Removing a
   skill is a precise single-directory delete with no clone or network; removing a module
   clones once, computes the exact files that module contributed (so shared directories like
@@ -69,6 +46,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`pharn list` capabilities are readable at scale** — the human output now groups installed
+  capabilities by role with a per-role count and prints **one capability per line** (dash-bulleted),
+  instead of a single comma-joined string that re-wrapped mid-item inside the box at large capability
+  counts. `pharn list --json` is unchanged (byte-identical). Documented under
+  [`docs/commands/list.md`](docs/commands/list.md).
+- **No-argument `add` / `remove` never prompt in a non-interactive context** — in CI or a pipe (stdin
+  or stdout not a TTY), bare `pharn add` / `pharn remove` exit with a usage error instead of opening a
+  prompt. `pharn remove` with no argument previously opened a single-select picker with no such guard;
+  it now opens a multi-select with one confirmation and the non-TTY guard.
+- **Spend-safe `review` default** — a fresh install now routes the `review` stage to `opus-4-8`/`high`
+  instead of `fable-5`/`max`. Review fans out across lenses (a backend install ships ~22), so a premium
+  model at `max` effort multiplied per lens was the worst-case token cost, applied silently. Cross-model
+  review on `fable-5`/`max` has proven catch value and is now a documented opt-in (set
+  `models.stages.review`). Existing configs are not migrated — `models` is user-owned after init.
+- **`SECURITY.md` + `THREAT-MODEL.md`** — rewritten for the archetype/capability install flow
+  (no module/manifest/wizard references); remote-input, validation, write-surface, and consent
+  points now cite current files/functions; `degit` clone bounds documented as a labeled limit.
 - **`pharn init` first-run hint now enters at `/pharn-spec`** — the post-install "Next steps" hint
   (`FIRST_FEATURE_COMMAND`) and the getting-started / `README` / `init` docs that state the entry point
   now lead with **`/pharn-spec`** (intent capture) instead of `/pharn-plan`, so the first-run norm no
