@@ -176,9 +176,7 @@ function printDriftSection(result: {
       pc.dim(
         '  To add a capability not yet in pharn.config.json, use `pharn add`',
       ),
-      pc.dim(
-        '  (additive-only — already-listed capabilities are a no-op).',
-      ),
+      pc.dim('  (additive-only — already-listed capabilities are a no-op).'),
     );
   }
   lines.push('', pc.dim(`  ${result.okCount} file(s) match ${REF}.`));
