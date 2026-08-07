@@ -36,7 +36,8 @@ which, and `status` cannot.
      `pharn update` keeps files you've edited and cleanly upgrades the rest; `--force` overwrites edits
      too (backed up to `.pharn-backup/` first).
    - **Missing (expected but absent)** — expected files that aren't on disk. Restored by `pharn update`
-     on the next version bump; capabilities can also be re-added with `pharn add`.
+     on the next version bump; capabilities can also be re-added with `pharn add`, but only while your
+     install is at the current skills version — otherwise `add` refuses and points you at `update`.
    - If neither, reports **No drift**.
 
 The heading says "differs from", not "locally modified", on purpose: the comparison is against

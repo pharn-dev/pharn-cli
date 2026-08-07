@@ -237,6 +237,129 @@ describe('runAdd (archetype)', () => {
     expect(installCapabilityDirs).not.toHaveBeenCalled();
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
+
+  // --- the version gate ------------------------------------------------------
+  // `add` clones @main, so the clone can be AHEAD of what this project installed.
+  // Stamping the clone's SKILLS_VERSION into the config over unchanged old bytes
+  // is what made `pharn update`'s same-version early-return print "Already up to
+  // date" over a stale install. These pin the refusal on BOTH paths.
+
+  // The refusal reaches the user through the same log.error the other add errors
+  // use; read the last one rather than asserting an exact string, so the message
+  // can be reworded without the invariants (both versions + the resolution) going
+  // untested.
+  const lastError = (): string =>
+    vi.mocked(prompts.log.error).mock.calls.at(-1)![0] as string;
+
+  it('refuses a named add when the clone is at a different skills version', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig()); // records v1.0.0
+    const cleanup = mockClone();
+    readSkillsVersion.mockReturnValue('2.0.0'); // upstream released
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    // Names BOTH versions and the one command that resolves it.
+    expect(lastError()).toContain('v1.0.0');
+    expect(lastError()).toContain('v2.0.0');
+    expect(lastError()).toContain('pharn update');
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('writes NOTHING when the gate refuses — this is what keeps update honest', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    readSkillsVersion.mockReturnValue('2.0.0');
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('refuses symmetrically when the clone is OLDER than the config', async () => {
+    // A rollback or a hand edit. The gate fires on `!==`, never `<`, so this must
+    // read the same as the ahead case — never a guessed direction.
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    readSkillsVersion.mockReturnValue('0.9.0');
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(lastError()).toContain('v1.0.0');
+    expect(lastError()).toContain('v0.9.0');
+    expect(lastError()).toContain('pharn update');
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+  });
+
+  it('gates BEFORE the already-installed no-op (named path ordering)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    mockClone();
+    readSkillsVersion.mockReturnValue('2.0.0');
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(prompts.outro).not.toHaveBeenCalledWith(
+      'a11y is already installed.',
+    );
+  });
+
+  it('refuses the picker BEFORE the multi-select ever renders', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    const cleanup = mockClone();
+    readSkillsVersion.mockReturnValue('2.0.0');
+    setTTY(true, true);
+
+    await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(prompts.groupMultiselect).not.toHaveBeenCalled();
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+    // Both paths share ONE versionGate, so the message is structurally identical
+    // — assert it here anyway, or the "names both versions + the resolution"
+    // invariant is only ever proven on the named path.
+    expect(lastError()).toContain('v1.0.0');
+    expect(lastError()).toContain('v2.0.0');
+    expect(lastError()).toContain('pharn update');
+  });
+
+  it('gates BEFORE the all-installed outcome (picker path ordering)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([
+        { name: 'a11y', role: 'griller' },
+        { name: 'security', role: 'griller' },
+        { name: 'n-plus-one', role: 'lens' },
+      ]),
+    );
+    mockClone();
+    readSkillsVersion.mockReturnValue('2.0.0');
+    setTTY(true, true);
+
+    await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(prompts.groupMultiselect).not.toHaveBeenCalled();
+    expect(prompts.outro).not.toHaveBeenCalledWith(
+      'All available capabilities are already installed.',
+    );
+  });
+
+  it('exits(1) and still cleans up when SKILLS_VERSION cannot be read', async () => {
+    // readSkillsVersion throws on a missing/invalid file, which is why the gate
+    // runs INSIDE the try — outside it the throw would skip the finally.
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    const cleanup = mockClone();
+    readSkillsVersion.mockImplementation(() => {
+      throw new Error('SKILLS_VERSION is missing in the fetched repo.');
+    });
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -309,7 +432,11 @@ describe('runAdd — pharn.records.json', () => {
         { name: 'security', role: 'griller', applies: 'universal' },
       ],
     });
-    readSkillsVersion.mockReturnValue('1.1.0');
+    // MATCHES config().skillsVersion — it must, or the version gate refuses and
+    // none of these merge assertions would be reached. `add` can only ever run at
+    // the version the project is already on, so that is the state to test the
+    // record merging in. (`commit` still moves: null → the clone's sha.)
+    readSkillsVersion.mockReturnValue('1.0.0');
     installWrites();
   });
   afterEach(() => vi.clearAllMocks());
@@ -333,10 +460,28 @@ describe('runAdd — pharn.records.json', () => {
   it('re-stamps the store to match the config written beside it', async () => {
     await seedStore();
     await runAdd('a11y');
-    // add advances skillsVersion/commit in the config, so the store must follow
-    // or the very next update would reject it as written for another state.
-    expect(store()!.skillsVersion).toBe('1.1.0');
+    // The legal same-version-different-commit case: upstream pushed commits
+    // without bumping SKILLS_VERSION, so the gate passes and `add` proceeds.
+    // skillsVersion must stay put (add no longer advances it — advancing it over
+    // unchanged bytes is exactly what made update's early-return lie), while
+    // `commit` refreshes. The store must follow the config it sits beside, or the
+    // very next update rejects it as written for another state.
+    expect(store()!.skillsVersion).toBe('1.0.0');
     expect(store()!.commit).toBe('a'.repeat(40));
+    const [, written] = writePharnConfig.mock.calls.at(-1)!;
+    expect((written as PharnConfig).skillsVersion).toBe('1.0.0');
+    expect((written as PharnConfig).commit).toBe('a'.repeat(40));
+  });
+
+  it('leaves the store byte-identical when the version gate refuses', async () => {
+    await seedStore();
+    const before = readFileSync(join(proj, RECORDS_FILE), 'utf8');
+    readSkillsVersion.mockReturnValue('2.0.0'); // upstream released
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(before);
+    expect(writePharnConfig).not.toHaveBeenCalled();
   });
 
   it('the picker accumulates every pick — no clobber down to the last one', async () => {

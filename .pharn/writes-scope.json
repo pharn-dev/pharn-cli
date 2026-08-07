@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/update-drift-safe/SHIP.md"
+    ".dev/features/add-version-gate/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-07T10:19:05.940Z"
+  "set_at": "2026-08-07T14:28:45.642Z"
 }

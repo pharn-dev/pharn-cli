@@ -48,6 +48,35 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
   await runArchetypeAdd(config, cwd, capabilityArg);
 }
 
+// THE VERSION GATE. `add` fetches @main, so the clone can be AHEAD of what this
+// project installed. Stamping that clone's SKILLS_VERSION into pharn.config.json
+// while every previously-installed file still holds the OLD version's bytes is
+// what made `pharn update`'s `config.skillsVersion === latest` early-return lie —
+// it printed "Already up to date" over a stale (or nearly empty) install, and the
+// skew only self-healed on the next upstream release. So `add` refuses unless the
+// two agree, and names the one command that resolves it.
+//
+// Direction-agnostic by construction: it fires on `!==`, never `<`. A clone OLDER
+// than the config (a rollback, a hand edit) is the same mismatch and gets the same
+// symmetric wording — never a guessed direction.
+//
+// Determinism (P5): exact string equality, no heuristic and no third outcome. The
+// clone value is VERSION_RE-validated by readSkillsVersion; the config value is
+// only TYPE-checked at ingest (lib/pharn-config.ts, deliberately — the same
+// reasoning lib/install-records.ts records for its stamp). That asymmetry is safe
+// here precisely because an unparseable hand-edited value compares UNEQUAL and so
+// refuses: the fail-closed direction.
+//
+// Returns the refusal message, or null to proceed. Called ONCE per command from
+// INSIDE each path's existing try — not after fetchRepo — because readSkillsVersion
+// throws on a missing/invalid SKILLS_VERSION, and only inside the try does that
+// throw still reach the finally that cleans the clone up (P0: cleanup before exit).
+function versionGate(repoDir: string, config: PharnConfig): string | null {
+  const fetched = readSkillsVersion(repoDir);
+  if (fetched === config.skillsVersion) return null;
+  return `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on — run \`pharn update\` first, then re-run \`pharn add\`.`;
+}
+
 // Install one capability into an archetype project (a manual override of
 // archetype auto-selection). Appends to `capabilities`, never touches
 // `archetypes`. The clone lives across no interactive prompt (named path), but
@@ -86,14 +115,10 @@ async function runArchetypeAdd(
   // and the exit/outro happens after it (Node skips finally on process.exit).
   let result: AddResult;
   try {
-    result = await resolveArchetypeAdd(
-      repo.dir,
-      repo.sha,
-      config,
-      cwd,
-      parsed,
-      arg,
-    );
+    const refusal = versionGate(repo.dir, config);
+    result = refusal
+      ? { kind: 'error', message: refusal }
+      : await resolveArchetypeAdd(repo.dir, repo.sha, config, cwd, parsed, arg);
   } catch (err) {
     if (process.env.PHARN_DEBUG) console.error(err);
     result = {
@@ -155,7 +180,10 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
   // finally can run cleanup with every exit after it (mirrors resolveArchetypeAdd).
   let outcome: PickerAddOutcome;
   try {
-    outcome = await resolveAddPicker(repo.dir, repo.sha, config, cwd);
+    const refusal = versionGate(repo.dir, config);
+    outcome = refusal
+      ? { kind: 'error', message: refusal }
+      : await resolveAddPicker(repo.dir, repo.sha, config, cwd);
   } catch (err) {
     if (process.env.PHARN_DEBUG) console.error(err);
     outcome = {
