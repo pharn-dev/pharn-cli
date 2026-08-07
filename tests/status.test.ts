@@ -188,8 +188,8 @@ describe('runStatus (archetype)', () => {
   });
 
   it('qualifies the MISSING hint with when update actually restores', async () => {
-    // update early-returns at the current version, so an unqualified "re-run
-    // pharn update to restore them" would be false for an up-to-date install.
+    // update early-returns at the current version, so the hint must name
+    // `--force`; add is only for capabilities not yet in config.
     fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
     readSkillsVersion.mockReturnValue('1.0.0');
     diffInstalledCapabilities.mockReturnValue({
@@ -201,8 +201,11 @@ describe('runStatus (archetype)', () => {
     await runStatus({});
 
     const drift = noteBody('DRIFT');
-    expect(drift).toContain('on the next version bump');
-    expect(drift).toContain('pharn add');
+    expect(drift).toContain('pharn update --force');
+    expect(drift).toContain('exits early when already up to date');
+    expect(drift).toContain('not yet in pharn.config.json');
+    expect(drift).toContain('additive-only');
+    expect(drift).not.toContain('re-added');
   });
 
   it('a default (non-strict) run with drift resolves without exiting', async () => {

@@ -166,8 +166,19 @@ function printDriftSection(result: {
     lines.push('  MISSING (expected but absent)');
     for (const p of result.missing) lines.push(`  ${p}`);
     lines.push(
-      pc.dim('  Restored by `pharn update` on the next version bump;'),
-      pc.dim('  capabilities can also be re-added with `pharn add`.'),
+      pc.dim(
+        '  For recorded capabilities: `pharn update` when a newer skills version is',
+      ),
+      pc.dim(
+        '  available, or `pharn update --force` at the current version (a plain',
+      ),
+      pc.dim('  `pharn update` exits early when already up to date).'),
+      pc.dim(
+        '  To add a capability not yet in pharn.config.json, use `pharn add`',
+      ),
+      pc.dim(
+        '  (additive-only — already-listed capabilities are a no-op).',
+      ),
     );
   }
   lines.push('', pc.dim(`  ${result.okCount} file(s) match ${REF}.`));
