@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pharn add` no longer makes `pharn update` report "Already up to date" over a stale install.**
+  `add` clones the tip of `pharn-dev/pharn-oss`, and it used to write that clone's `SKILLS_VERSION`
+  into your `pharn.config.json` — even though every file it did not just copy still held the old
+  version's bytes. Because `update` skips when your recorded `skillsVersion` already equals the
+  latest, any `add` run after an upstream release silently closed that gate, and the skew only
+  healed on the next release or via `update --force`. `add` now **refuses** when the fetched version
+  does not match the one your project records, naming both versions and pointing at `pharn update`:
+
+  ```text
+  ⚠ Skills version mismatch: pharn.config.json records v1.0.0, but the fetched
+    github.com/pharn-dev/pharn-oss is at v2.3.0. `pharn add` installs only at the version your
+    project is already on — run `pharn update` first, then re-run `pharn add`.
+  ```
+
+  The refusal fires before anything is written and before the interactive picker renders — no
+  capability directory is copied and neither `pharn.config.json` nor `pharn.records.json` is
+  touched — and it exits non-zero. It fires on **any** difference, so a clone older than your config
+  (a rollback, a hand-edited value) refuses the same way rather than guessing a direction. When the
+  versions do match, `add` behaves exactly as before, still refreshing `commit` so a same-version
+  upstream push is recorded. **Limit:** there is no way to add a capability to a deliberately-pinned
+  older install — `add` has no `--force`, and `pharn update` is the only resolution.
+
 ## [0.4.0] — 2026-08-07
 
 ### Changed

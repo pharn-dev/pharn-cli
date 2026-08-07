@@ -15,12 +15,43 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
 1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
    a hint to run `pharn init` first.
 2. Clones `pharn-dev/pharn-oss` (SHA-pinned) and reads the capability index from the clone.
-3. Resolves your argument against that index. If it uniquely names a capability you don't already have,
+3. **Checks the version.** If the clone's `SKILLS_VERSION` does not match the `skillsVersion` recorded
+   in your `pharn.config.json`, `add` **refuses** — see [Version mismatch](#version-mismatch) below.
+4. Resolves your argument against that index. If it uniquely names a capability you don't already have,
    it copies that capability's directory into the mirrored layout and **appends** it to `capabilities`
-   in `pharn.config.json` (also refreshing `skillsVersion` and `commit`).
+   in `pharn.config.json`. Your `skillsVersion` is left as it was — step 3 has already established that
+   the two agree — and `commit` is refreshed to the SHA the clone was pinned to.
 
 `CONSTITUTION.md` is **not** touched — `add` never changes your constitution. Your detected `archetypes`
 are left unchanged; `add` only appends to `capabilities`.
+
+## Version mismatch
+
+`add` always clones the tip of `pharn-dev/pharn-oss@main`, so the clone can be **newer** than what you
+installed. Copying one capability from that clone and recording the clone's version would claim your
+whole install had moved to it, when every other file still holds the old version's bytes — and
+[`pharn update`](update.md) would then see a matching version and report "Already up to date" over a
+stale install.
+
+So `add` refuses when the two disagree, in **either** direction (a clone older than your config — a
+rollback or a hand-edited value — refuses the same way):
+
+```text
+⚠ Skills version mismatch: pharn.config.json records v1.0.0, but the fetched
+  github.com/pharn-dev/pharn-oss is at v2.3.0. `pharn add` installs only at the version your
+  project is already on — run `pharn update` first, then re-run `pharn add`.
+```
+
+The refusal happens **before anything in your project is written** and before the interactive picker
+renders: no capability directory is copied, and neither `pharn.config.json` nor
+[`pharn.records.json`](../reference/pharn-records.md) is touched. It exits non-zero. (The clone
+itself has already been fetched by then — that is where the version being compared is read from.)
+
+Run [`pharn update`](update.md) to bring your install to the current version, then re-run `pharn add`.
+
+**Known limit.** There is no way to add a capability to a deliberately-pinned older install — `add`
+has no `--force`, and `pharn update` is the only resolution. Matching versions is the condition under
+which `add` can promise anything about the tree it is adding to.
 
 ## The capability argument
 

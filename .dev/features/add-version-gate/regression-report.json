@@ -1,0 +1,24 @@
+{
+  "base": "135406a0204f4ad6af99e49e1e847dcf0d11c862",
+  "inside": [
+    "src/commands/add.ts",
+    "tests/add.test.ts",
+    "docs/commands/add.md",
+    "docs/commands/status.md",
+    "CLAUDE.md",
+    "CHANGELOG.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
