@@ -15,19 +15,23 @@
 
 ## `pharn update` skipped my files
 
-`update` never overwrites a PHARN-owned file it cannot prove is untouched. It prints each skipped file
-under one of three labels:
+By default, `update` skips **present** PHARN-owned files it cannot prove are untouched (missing
+expected files are still restored). It prints each skipped file under one of three labels:
 
 - **`modified`** — you edited it after `pharn` wrote it.
 - **`unrecorded`** — `pharn` has no record of writing that path.
-- **`unverifiable`** — there is no usable `pharn.records.json`, so nothing can be proven. Every install
-  created before `pharn` 0.4.0 hits this once.
+- **`unverifiable`** — there is no usable `pharn.records.json` (absent, malformed, stamp-mismatched,
+  or from a newer schema), so present differences cannot be proven. Every install created before
+  `pharn` 0.4.0 hits this once for differing files; **missing** files are still restored.
 
 Exit code is **0** — this is the designed outcome, not a failure. To overwrite them anyway:
 
 ```bash
-pharn update --force   # copies each file to .pharn-backup/<timestamp>/ first
+pharn update --force   # backs up each skipped file to .pharn-backup/<timestamp>/, then overwrites
 ```
+
+Files already byte-identical to upstream are left alone (`ok`) — `--force` only overwrites the skip
+buckets.
 
 A run with skips deliberately leaves `skillsVersion` at the previous value, so `pharn status` keeps
 showing an update as available and the next `pharn update` still has work to do. See
@@ -36,8 +40,16 @@ showing an update as available and the next `pharn update` still has work to do.
 ### `--force` aborted with a backup error
 
 The backup runs to completion before any original is touched, so an abort means **nothing was
-overwritten**. The usual cause is a file (rather than a directory) at `.pharn-backup`, or a symlink
-there — `pharn` refuses to write backups through a symlink. Remove it and re-run.
+overwritten**. Inspect `.pharn-backup` at your project root:
+
+- **A regular file** named `.pharn-backup` (not a directory) blocks the backup directory from being
+  created — **move or rename** it, then re-run. Do not delete it until you have confirmed it is not
+  something you need.
+- **A symlink** at `.pharn-backup` — `pharn` refuses to write backups through it. Confirm that path
+  is the one named in the error, then remove or replace the symlink and re-run.
+
+A symlink in a source file's path (or one of its parent directories) is also rejected; the error names
+the component.
 
 ## Prerequisites failed
 

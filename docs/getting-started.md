@@ -69,7 +69,7 @@ surfaces:
 | `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                             |
 | `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                        |
 | `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout |
-| `pharn.records.json`                                      | A sha256 per installed file, so `pharn update` never overwrites an edit of yours         |
+| `pharn.records.json`                                      | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites   |
 
 See [pharn.config.json](reference/pharn-config.md) and
 [pharn.records.json](reference/pharn-records.md) for the exact schemas. **Commit both** — they are

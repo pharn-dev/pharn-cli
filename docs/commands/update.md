@@ -124,13 +124,14 @@ upstream has since moved to `pharn/`, the update installs the `pharn/` tree — 
 never deletes, the old top-level copies remain. They are no longer managed by `pharn` (no command
 addresses them any more), so delete them by hand; the update prints a warning when this happens.
 
-## What is not overwritten, ever
+## What is protected by default
 
 - `.claude/settings.json` — your Claude Code configuration. `init` writes it only when absent; `update`
-  never touches it at all.
-- `CONSTITUTION.md` — only in the sense every other file is protected: if you have edited it, it is a
-  `modified` skip. (Before 0.4.0 `update` silently overwrote a hand-edited constitution despite this
-  page claiming otherwise — that is fixed, and `--force` still overwrites it, with a backup.)
+  **never** touches it at all (not even with `--force` — it is not in the install manifest).
+- `CONSTITUTION.md` — protected like every other manifest path: if you have edited it, it is a `modified`
+  skip by default. `--force` overwrites it too, after copying the current bytes to `.pharn-backup/`.
+  (Before 0.4.0 `update` silently overwrote a hand-edited constitution despite docs claiming otherwise —
+  that is fixed.)
 
 ## Related
 

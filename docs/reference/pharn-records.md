@@ -1,14 +1,17 @@
 # pharn.records.json
 
-A CLI-owned sidecar written next to [`pharn.config.json`](pharn-config.md) at your project root. It
-records the sha256 of **every PHARN-owned file `pharn` wrote**, so [`pharn update`](../commands/update.md)
-can tell "these are the bytes pharn installed" from "you edited this" — and refuse to destroy the
-latter.
+A CLI-owned sidecar written next to [`pharn.config.json`](pharn-config.md) at your project root. Its
+`files` map holds a sha256 per **install-manifest path** — the PHARN-owned surfaces and selected
+capabilities collected by `runInstallArchetype` (`collectExpectedInstallPaths`), not every file `pharn`
+writes. [`pharn update`](../commands/update.md) compares against it to tell pharn's bytes from your
+edits and refuse to destroy the latter. `pharn.config.json`, this file, and `.claude/settings.json`
+are excluded from the map.
 
 Source: [`install-records.ts`](../../src/lib/install-records.ts).
 
-**Commit it.** It is part of your project's PHARN state, like `pharn.config.json`. Without it, `update`
-cannot verify anything and skips every file that differs.
+**Commit it.** It is part of your project's PHARN state, like `pharn.config.json`. Without a usable
+store, `update` skips every **present** file that differs (`unverifiable`) but still **restores**
+missing ones; byte-identical files are no-ops and have their records refreshed.
 
 ## Shape
 
@@ -49,8 +52,8 @@ absent.
 
 ## When the store is ignored (fail-closed)
 
-`update` treats the store as **unavailable** — and therefore skips every file that differs, labelling
-them `unverifiable` — whenever it is:
+`update` treats the store as **unavailable** — and therefore skips every **present** file that
+differs from upstream, labelling them `unverifiable` — whenever it is:
 
 - **absent** (an install created before `pharn` 0.4.0);
 - **unreadable or malformed** — invalid JSON, not an object, a missing `files` object, a non-sha256
@@ -63,8 +66,10 @@ them `unverifiable` — whenever it is:
   one without the other (typically an older CLI that rewrote the tree while ignoring this file).
   Trusting it would label upstream's bytes as your edits and freeze the install.
 
-In every case the consequence is the same and it is the safe one: `pharn` skips rather than
-overwrites, and tells you why.
+In every case the consequence for **present** files that differ is the same and it is the safe
+one: `pharn` skips rather than overwrites, and tells you why. **Missing** expected files are still
+restored; files already byte-identical to upstream are no-ops. `pharn update --force` backs up and
+overwrites the skipped files instead.
 
 ## Pruning
 

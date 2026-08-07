@@ -27,8 +27,10 @@ archetypes/capabilities and the pinned commit).
 
 A sibling file, [`pharn.records.json`](pharn-records.md), holds a sha256 per installed file. It is
 written by the same operations that write this config and is **stamped** with this file's
-`skillsVersion` + `commit`; if the two disagree, `pharn update` ignores the records and skips rather
-than overwrites. The hash map lives there rather than here so this file stays small and hand-editable.
+`skillsVersion` + `commit`; if the two disagree, `pharn update` treats the store as unavailable —
+present files that differ are skipped (`unverifiable`), but **missing** files are still restored.
+Re-run `pharn update` once both files agree, or pass `--force` to back up and overwrite differences.
+The hash map lives there rather than here so this file stays small and hand-editable.
 
 Note that `skillsVersion` / `commit` describe the last **complete** install: a `pharn update` that
 skipped any file deliberately leaves them at their previous values (see [update](../commands/update.md)).

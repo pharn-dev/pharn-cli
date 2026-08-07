@@ -9,8 +9,10 @@ pharn status --no-drift   # version check only (skips the clone)
 pharn status --strict     # exit 1 if outdated, modified, or missing (for CI)
 ```
 
-`status` is the read side of [`update`](update.md): it surfaces the same set of files `update` acts on,
-but **never writes, deletes, or overwrites anything**. It is a report, not a guard.
+`status` is the read side of [`update`](update.md): it reports PHARN-owned files at your **recorded**
+layout (from `pharn.config.json`), while `update` derives its file set from the fetched clone's layout
+and may relocate files during a layout migration — so the two can disagree mid-migration.
+**`status` never writes, deletes, or overwrites anything.** It is a report, not a guard.
 
 It is a **report, not a preview**: `status` compares bytes against upstream, while `update`
 additionally reads [`pharn.records.json`](../reference/pharn-records.md) to tell your edits from

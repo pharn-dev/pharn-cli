@@ -44,8 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **`pharn update` no longer silently overwrites a hand-edited `CONSTITUTION.md`.** It always had,
-  despite `docs/commands/update.md` and the command's own summary claiming the constitution was left
-  untouched; an edited constitution is now a `modified` skip like any other file.
+  despite docs claiming the constitution was left untouched. `CONSTITUTION.md` is in the install
+  manifest's trusted-doc set (`paths.docs` in `lib/install-manifest.ts`): `update` restores it when
+  missing and upgrades it when still at the recorded hash, skipping it when locally modified
+  (`modified`, same as any other manifest path); `add`/`remove` still never touch it.
 - **The interactive `pharn add` picker now carries the full config forward between picks**, not just
   `capabilities` — previously `skillsVersion` / `commit` in its in-memory config drifted from what had
   just been written to disk.
