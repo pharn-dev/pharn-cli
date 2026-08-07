@@ -2,6 +2,8 @@ import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
+import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
+import { buildRecords, writeRecords } from '../lib/install-records.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { formatModelRoutingLines } from '../lib/model-routing-format.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
@@ -75,6 +77,19 @@ export async function runInstallArchetype(
     // read this back to address the project the same way (lib/layout.ts).
     layout,
   };
+  // Record sha256 of every file this install just wrote (hashed at the DEST, so
+  // the record cannot disagree with what landed) BEFORE the config, and stamped
+  // with the config values written beside it. This is the baseline `pharn update`
+  // compares against so it can tell pharn's bytes from the user's edits
+  // (lib/install-records.ts). Without it every later update is degraded.
+  await writeRecords(cwd, {
+    skillsVersion,
+    commit,
+    files: buildRecords(
+      cwd,
+      collectExpectedInstallPaths({ repoDir, capabilities, layout }).keys(),
+    ),
+  });
   await writePharnConfig(cwd, config);
 
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);

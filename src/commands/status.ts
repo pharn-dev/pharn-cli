@@ -149,16 +149,25 @@ function printDriftSection(result: {
 
   const lines: string[] = [];
   if (result.modified.length) {
-    lines.push('  LOCALLY MODIFIED (PHARN-owned)');
+    // "DIFFERS FROM …@main", not "locally modified": this comparison is against
+    // upstream HEAD, so a file can differ because UPSTREAM moved, not only
+    // because the user edited it. `update` is the command that can tell those
+    // apart (it has the per-file install records); this report cannot.
+    lines.push(`  DIFFERS FROM ${REF} (PHARN-owned)`);
     for (const p of result.modified) lines.push(`  ${p}`);
-    lines.push(pc.dim('  `pharn update` will overwrite these.'));
+    lines.push(
+      pc.dim("  `pharn update` keeps files you've edited and cleanly"),
+      pc.dim('  upgrades the rest; `--force` overwrites edits too'),
+      pc.dim('  (backed up to .pharn-backup/ first).'),
+    );
   }
   if (result.missing.length) {
     if (lines.length) lines.push('');
     lines.push('  MISSING (expected but absent)');
     for (const p of result.missing) lines.push(`  ${p}`);
     lines.push(
-      pc.dim('  Re-run `pharn update` (or `pharn add`) to restore them.'),
+      pc.dim('  Restored by `pharn update` on the next version bump;'),
+      pc.dim('  capabilities can also be re-added with `pharn add`.'),
     );
   }
   lines.push('', pc.dim(`  ${result.okCount} file(s) match ${REF}.`));

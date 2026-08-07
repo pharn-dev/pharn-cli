@@ -20,6 +20,10 @@ const { runInstallArchetype } =
   await import('../src/steps/install-archetype.js');
 const { readPharnConfig } = await import('../src/lib/pharn-config.js');
 const { DEFAULT_MODEL_ROUTING } = await import('../src/lib/model-routing.js');
+const { readRecords } = await import('../src/lib/install-records.js');
+const { collectExpectedInstallPaths } =
+  await import('../src/lib/install-manifest.js');
+const { sha256File } = await import('../src/lib/hash.js');
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -127,5 +131,76 @@ describe('archetype install (fixture e2e)', () => {
       { name: 'security', role: 'griller' },
       { name: 'n-plus-one', role: 'lens' },
     ]);
+  });
+
+  // A fresh install MUST leave a record for every file it wrote. Without it the
+  // very first `pharn update` finds no baseline, labels everything
+  // `unverifiable`, and stops updating anything — the feature's headline
+  // guarantee turned inside out.
+  it('records a hash for EVERY file the install wrote, stamped to match the config', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const selection = resolveCapabilities(
+      archetypes,
+      parseCapabilityIndex(repo),
+    );
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    const read = readRecords(proj);
+    expect(read.kind).toBe('ok');
+    if (read.kind !== 'ok') return;
+
+    // Exactly the install manifest — nothing missing, nothing invented.
+    const expected = collectExpectedInstallPaths({
+      repoDir: repo,
+      capabilities: selection.selected.map((c) => ({
+        name: c.name,
+        role: c.role,
+      })),
+      layout: 'flat',
+    });
+    expect(Object.keys(read.store.files).sort()).toEqual(
+      [...expected.keys()].sort(),
+    );
+
+    // Each hash describes the bytes that actually LANDED (the dest), which is
+    // what makes the record un-fakeable by a bad source read.
+    for (const rel of expected.keys()) {
+      expect(read.store.files[rel]).toBe(sha256File(join(proj, rel)));
+    }
+
+    // The stamp matches the config written beside it — that pairing is what
+    // detects a store some other tool left behind.
+    const config = readPharnConfig(proj)!;
+    expect(read.store.skillsVersion).toBe(config.skillsVersion);
+    expect(read.store.commit).toBe(config.commit);
+  });
+
+  it('does not record the user-owned .claude/settings.json', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(proj, 'package.json'), '{}');
+
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const selection = resolveCapabilities(
+      archetypes,
+      parseCapabilityIndex(repo),
+    );
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    const read = readRecords(proj);
+    expect(read.kind).toBe('ok');
+    if (read.kind !== 'ok') return;
+    expect(read.store.files['.claude/settings.json']).toBeUndefined();
+    // ...even though the install DID write it.
+    expect(existsSync(join(proj, '.claude/settings.json'))).toBe(true);
   });
 });

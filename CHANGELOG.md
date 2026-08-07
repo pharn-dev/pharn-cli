@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-07
+
+### Changed
+
+- **`pharn update` is drift-safe by default — it no longer overwrites files you have edited.** Every
+  install now records a sha256 per written file in a new sidecar,
+  [`pharn.records.json`](docs/reference/pharn-records.md), and `update` compares each expected file
+  against it: a file that is exactly what `pharn` wrote is upgraded, a file that is already identical
+  to upstream is left alone, and anything it cannot prove is untouched is **skipped and listed** under
+  one of three labels — `modified` (you changed it), `unrecorded` (no record for that path), or
+  `unverifiable` (no usable record store, which is every install predating this release). Skips exit
+  `0`; `update` still never deletes. Full decision table in
+  [`docs/commands/update.md`](docs/commands/update.md).
+- **A run that skipped anything no longer advances `skillsVersion` / `commit`.** Those fields describe
+  the last _complete_ install, so `pharn status` keeps reporting the available update and the next
+  `pharn update` still has work to do, instead of the same-version early-return stranding the skipped
+  files permanently.
+- **`pharn update` now records the layout of the clone it copied from.** It previously wrote files at
+  the clone's layout while re-recording the stale `layout` from your config, so `status`, `remove`, and
+  `list` could address a tree the files were no longer in. A `flat → pharn/` migration leaves the old
+  top-level copies behind (update never deletes) and now warns about them.
+- **`pharn status`'s drift section renames "LOCALLY MODIFIED" to "DIFFERS FROM …@main"** and describes
+  the new behavior. The comparison is against upstream `HEAD`, so a file can differ because upstream
+  moved — only `update` (which reads the records) can tell that from an edit of yours.
+
+### Added
+
+- **`pharn update --force`** — overwrite the skipped files anyway. Each is copied, with its relative
+  path preserved, to `.pharn-backup/<YYYYMMDD-HHMMSS>/` **before** anything is overwritten; if any
+  backup write fails the run aborts with every original still intact, and a colliding timestamp
+  directory is uniquified rather than reused. The directory is never gitignored or pruned for you.
+  `--force` also bypasses the same-version early-return, so it works on an up-to-date install — which
+  is exactly what `pharn status` now tells you to do about locally-changed files.
+
+### Fixed
+
+- **`pharn update` no longer silently overwrites a hand-edited `CONSTITUTION.md`.** It always had,
+  despite docs claiming the constitution was left untouched. `CONSTITUTION.md` is in the install
+  manifest's trusted-doc set (`paths.docs` in `lib/install-manifest.ts`): `update` restores it when
+  missing and upgrades it when still at the recorded hash, skipping it when locally modified
+  (`modified`, same as any other manifest path); `add`/`remove` still never touch it.
+- **The interactive `pharn add` picker now carries the full config forward between picks**, not just
+  `capabilities` — previously `skillsVersion` / `commit` in its in-memory config drifted from what had
+  just been written to disk.
+- **Path-traversal hardening at both ends of the new write path (P2).** The install manifest now
+  rejects a **symlinked source root** in the fetched clone (it previously resolved through one, and it
+  now drives writes, not just comparisons), and every per-file write and backup refuses a
+  **symlinked destination** or parent directory — `safeJoin` is lexical and `copyFileSync` follows
+  symlinks, so a dangling destination symlink could otherwise be written through.
+
 ## [0.3.2] — 2026-07-24
 
 ### Security

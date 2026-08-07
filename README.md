@@ -4,7 +4,7 @@
 
 **Install PHARN into your project in one command.**
 
-The installer for [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code that keeps comprehension debt legible instead of silent.
+The installer for [PHARN](https://github.com/pharn-dev/pharn-oss) — an open, audit-grade system of record for AI-written code: the intent, the constraints, and the checks behind a change, kept as plain markdown in your own repo. Runs on Claude Code today.
 
 [![npm](https://img.shields.io/npm/v/@pharn-dev/pharn)](https://www.npmjs.com/package/@pharn-dev/pharn)
 [![CI](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml)
@@ -96,7 +96,7 @@ After `pharn init`, open Claude Code and run **`/pharn-spec`** to capture your f
 | `pharn init`                | Detect archetypes and install the applicable capabilities (default)             |
 | `pharn add [capability]`    | Add a capability, e.g. `a11y` or `lens:n-plus-one` (no arg: pick interactively) |
 | `pharn remove <capability>` | Remove an installed capability (no arg: pick one interactively)                 |
-| `pharn update`              | Re-fetch installed capabilities at the latest skills version                    |
+| `pharn update`              | Re-fetch installed capabilities at the latest skills version (`--force`)        |
 | `pharn list`                | List installed archetypes + capabilities (`--json`)                             |
 | `pharn status`              | Show version + local-drift status (read-only; `--strict`, `--no-drift`)         |
 | `pharn -h`, `--help`        | Show help                                                                       |
@@ -118,7 +118,7 @@ Full reference: **[docs/](docs/README.md)**
 
 - [Getting started](docs/getting-started.md)
 - [Commands](docs/commands/init.md) — `init`, `add`, `remove`, `update`, `list`, `status`
-- [pharn.config.json](docs/reference/pharn-config.md)
+- [pharn.config.json](docs/reference/pharn-config.md), [pharn.records.json](docs/reference/pharn-records.md)
 - [Roadmap](docs/roadmap.md)
 - [Troubleshooting](docs/troubleshooting.md)
 

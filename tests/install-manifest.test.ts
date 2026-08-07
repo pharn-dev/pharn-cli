@@ -1,4 +1,10 @@
-import { mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -8,6 +14,9 @@ import {
   PHARN_CONFIG_FILE,
 } from '../src/lib/install-manifest.js';
 import { installCapabilities } from '../src/lib/install-capabilities.js';
+import { applyWrites } from '../src/lib/apply-update.js';
+import { BACKUP_DIR } from '../src/lib/backup.js';
+import { RECORDS_FILE } from '../src/lib/install-records.js';
 import type { Selection } from '../src/types.js';
 
 function write(path: string, content = 'x'): void {
@@ -297,5 +306,140 @@ describe('collectExpectedInstallPaths ⟷ installCapabilities (mirror)', () => {
 
   it('pharn layout: manifest keys ∪ settings.json == files actually written', () => {
     assertMirror('pharn', scaffoldRepoPharn);
+  });
+});
+
+// The manifest now drives a SECOND writer: `pharn update` applies it file by
+// file. The mirror must therefore be pinned against that writer too, or the two
+// write paths can silently diverge (the exact drift this block exists to stop).
+describe('collectExpectedInstallPaths ⟷ the update writer (mirror)', () => {
+  const tmp = useTmpDir();
+
+  it('applying every manifest entry writes exactly the manifest keys', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+
+    const expected = collectExpectedInstallPaths({
+      repoDir: repo,
+      capabilities: selection().selected,
+      layout: 'flat',
+    });
+    // A fresh project: every expected file is absent → row 1 → all written.
+    applyWrites({
+      projectRoot: proj,
+      expected,
+      writes: [...expected.keys()],
+    });
+
+    expect(walkRel(proj).sort()).toEqual([...expected.keys()].sort());
+  });
+});
+
+// The manifest is the SOURCE side of every update write, so a symlinked source
+// root would let a hostile clone source files from anywhere on disk into the
+// user's repo. installCapabilities never copies through such a root; the mirror
+// must not enumerate one either.
+describe('collectExpectedInstallPaths — symlinked SOURCE roots (P2)', () => {
+  const tmp = useTmpDir();
+
+  function keysWith(plant: (repo: string, outside: string) => void): string[] {
+    const repo = join(tmp.path(), 'repo');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    write(join(outside, 'secret.md'), 'not from the clone');
+    plant(repo, outside);
+    return [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }).keys(),
+    ];
+  }
+
+  it('a symlinked capability dir contributes NOTHING (never files from outside the clone)', () => {
+    const keys = keysWith((repo, outside) => {
+      rmSync(join(repo, 'pharn-review/n-plus-one'), {
+        recursive: true,
+        force: true,
+      });
+      symlinkSync(outside, join(repo, 'pharn-review/n-plus-one'));
+    });
+    expect(keys).not.toContain('pharn-review/n-plus-one/secret.md');
+    expect(keys.some((k) => k.includes('secret'))).toBe(false);
+    // The real sibling capability is unaffected.
+    expect(keys).toContain('pharn-pipeline/grillers/a11y/a11y.md');
+  });
+
+  it('a symlinked contracts/floor dir contributes nothing', () => {
+    const keys = keysWith((repo, outside) => {
+      rmSync(join(repo, 'pharn-contracts'), { recursive: true, force: true });
+      symlinkSync(outside, join(repo, 'pharn-contracts'));
+    });
+    expect(keys.some((k) => k.startsWith('pharn-contracts/'))).toBe(false);
+  });
+
+  it('a symlinked trusted doc is not expected', () => {
+    const keys = keysWith((repo, outside) => {
+      rmSync(join(repo, 'CONSTITUTION.md'), { force: true });
+      symlinkSync(join(outside, 'secret.md'), join(repo, 'CONSTITUTION.md'));
+    });
+    expect(keys).not.toContain('CONSTITUTION.md');
+  });
+
+  // lstat refuses to dereference only the FINAL component, so checking the leaf
+  // alone still enumerates a clone whose ANCESTOR directory is a symlink.
+  it('a symlinked ANCESTOR of a capability dir contributes nothing', () => {
+    const keys = keysWith((repo, outside) => {
+      write(join(outside, 'n-plus-one/n-plus-one.md'), 'planted');
+      rmSync(join(repo, 'pharn-review'), { recursive: true, force: true });
+      symlinkSync(outside, join(repo, 'pharn-review'));
+    });
+    expect(keys.some((k) => k.startsWith('pharn-review/'))).toBe(false);
+    expect(keys).toContain('pharn-pipeline/grillers/a11y/a11y.md');
+  });
+
+  it('a symlinked ANCESTOR of the floor dir contributes nothing', () => {
+    const keys = keysWith((repo, outside) => {
+      write(join(outside, 'floor/evil.mjs'), 'planted');
+      rmSync(join(repo, '.dev'), { recursive: true, force: true });
+      symlinkSync(outside, join(repo, '.dev'));
+    });
+    expect(keys.some((k) => k.startsWith('.dev/'))).toBe(false);
+  });
+});
+
+// The CLI's own metadata is not part of the install: it is never copied from the
+// clone and must never be reported as drift or as an overwrite conflict.
+describe('CLI-owned metadata is outside the install set', () => {
+  const tmp = useTmpDir();
+
+  it('pharn.records.json and .pharn-backup/ are in neither the manifest nor the conflict set', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    mkdirSync(proj, { recursive: true });
+    write(join(proj, RECORDS_FILE), '{}');
+    write(join(proj, `${BACKUP_DIR}/20260807-091500/CONSTITUTION.md`), 'old');
+
+    const keys = [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }).keys(),
+    ];
+    expect(keys).not.toContain(RECORDS_FILE);
+    expect(keys.some((k) => k.startsWith(`${BACKUP_DIR}/`))).toBe(false);
+
+    const conflicts = conflictingWriteTargets({
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: selection().selected,
+      layout: 'flat',
+    });
+    expect(conflicts).toEqual([]);
   });
 });

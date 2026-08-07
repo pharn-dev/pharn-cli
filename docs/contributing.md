@@ -62,7 +62,7 @@ pharn-cli/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status
     steps/                init stages (prereqs, overwrite-check, archetype-summary, install-archetype)
-    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, layout, repo, diff, skills-version, pharn-config, validate, constants, banner, confirm, format
+    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, layout, repo, diff, skills-version, pharn-config, install-records, update-decision, apply-update, backup, hash, validate, constants, banner, confirm, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
@@ -88,7 +88,9 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 | `resolve-capabilities.test.ts`                                           | Select capabilities by `applies` against detected archetypes                                                  |
 | `install-capabilities.test.ts`                                           | Copy capability dirs + fixed product surfaces; symlink + path-escape guards                                   |
 | `init.test.ts` / `init-archetype.test.ts`                                | The archetype init flow end to end                                                                            |
-| `add.test.ts` / `update.test.ts`                                         | `runAdd` (capability add) and `runUpdate` (archetype re-resolve)                                              |
+| `add.test.ts` / `update.test.ts`                                         | `runAdd` (capability add + record merge) and `runUpdate` (drift-safe re-resolve, real-fs fixture)             |
+| `update-decision.test.ts` / `install-records.test.ts`                    | The pure update decision table + planner; the `pharn.records.json` store and its fail-closed validation       |
+| `backup.test.ts` / `apply-update.test.ts`                                | `.pharn-backup/` creation + abort-before-touch; the per-file writer and its symlink refusals                  |
 | `remove.test.ts`                                                         | `runRemove` capability deletion (flat + `pharn/` layouts)                                                     |
 | `list.test.ts` / `status.test.ts`                                        | Read-only inventory + version/drift audit                                                                     |
 | `diff.test.ts`                                                           | `diffInstalledCapabilities` expected-set derivation + byte compare                                            |

@@ -25,6 +25,16 @@ archetypes/capabilities and the pinned commit).
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 
+A sibling file, [`pharn.records.json`](pharn-records.md), holds a sha256 per installed file. It is
+written by the same operations that write this config and is **stamped** with this file's
+`skillsVersion` + `commit`; if the two disagree, `pharn update` treats the store as unavailable —
+present files that differ are skipped (`unverifiable`), but **missing** files are still restored.
+Re-run `pharn update` once both files agree, or pass `--force` to back up and overwrite differences.
+The hash map lives there rather than here so this file stays small and hand-editable.
+
+Note that `skillsVersion` / `commit` describe the last **complete** install: a `pharn update` that
+skipped any file deliberately leaves them at their previous values (see [update](../commands/update.md)).
+
 ## Example
 
 ```json
@@ -107,6 +117,9 @@ The module/manifest install path itself has been **removed**, so `add` / `update
 | `init`           | present                      | "Overwrite existing pharn.config.json?" (default no) | Cancel install (exit 0) |
 | `add` / `update` | required (archetype)         | none — updated in place                              | n/a                     |
 
+For the files PHARN installs (as opposed to this config), `update` never overwrites one you have
+edited unless you pass `--force` — see the [update decision table](../commands/update.md#the-decision-table).
+
 `init` shows the previous `skillsVersion` before asking.
 
 ## Related
@@ -114,3 +127,4 @@ The module/manifest install path itself has been **removed**, so `add` / `update
 - [init command](../commands/init.md)
 - [add command](../commands/add.md)
 - [update command](../commands/update.md)
+- [pharn.records.json](pharn-records.md)

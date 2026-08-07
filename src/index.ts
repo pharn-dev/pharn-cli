@@ -25,6 +25,7 @@ Commands:
 
 Options:
       --archetype    init: deprecated no-op — archetype detection is now the default
+      --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
       --strict       Make status exit 1 on any outdated/modified/missing file
       --no-drift     Skip the status byte-level drift check
       --json         Emit list output as JSON
@@ -33,7 +34,16 @@ Options:
 
 export async function main(): Promise<void> {
   const argv = minimist(process.argv.slice(2), {
-    boolean: ['help', 'version', 'json', 'yes', 'strict', 'drift', 'archetype'],
+    boolean: [
+      'help',
+      'version',
+      'json',
+      'yes',
+      'strict',
+      'drift',
+      'archetype',
+      'force',
+    ],
     // `archetype` is retained as a no-op alias for one release: archetype
     // detection is now init's default, so the flag still parses but is not read.
     // `status` drifts by default; `--no-drift` flips it off. minimist defaults
@@ -66,7 +76,7 @@ export async function main(): Promise<void> {
       await runRemove(argv._[1], { yes: Boolean(argv.yes) });
       return;
     case 'update':
-      await runUpdate();
+      await runUpdate({ force: Boolean(argv.force) });
       return;
     case 'list':
       await runList({ json: Boolean(argv.json) });

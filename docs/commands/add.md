@@ -44,8 +44,13 @@ The picker only opens when both stdin and stdout are a TTY. In a non-interactive
 `pharn add` with no argument does **not** prompt — it exits with a usage error pointing you at
 `pharn add <name>` or an interactive terminal.
 
+`add` also merges the capability's files into [`pharn.records.json`](../reference/pharn-records.md) so a
+later `pharn update` can upgrade them cleanly. It only extends a store that already exists and is
+readable — it never creates one (that is `pharn init`'s job).
+
 ## Related
 
 - [init](init.md)
 - [update](update.md)
 - [pharn.config.json](../reference/pharn-config.md)
+- [pharn.records.json](../reference/pharn-records.md)

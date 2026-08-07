@@ -1,5 +1,7 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CANCEL, ProcessExit, stubProcessExit } from './helpers.js';
+import { CANCEL, ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -37,6 +39,9 @@ vi.mock('../src/lib/pharn-config.js', () => ({
 // buildAddSelection / interactiveAllowed (available = index − installed).
 const { runAdd } = await import('../src/commands/add.js');
 const prompts = await import('@clack/prompts');
+const { readRecords, writeRecords, RECORDS_FILE } =
+  await import('../src/lib/install-records.js');
+const { sha256File } = await import('../src/lib/hash.js');
 
 // process.std*.isTTY drives the bare-invocation guard; set it per test, restore
 // after (Node reports undefined off a TTY, which reads as non-interactive).
@@ -231,5 +236,141 @@ describe('runAdd (archetype)', () => {
 
     expect(installCapabilityDirs).not.toHaveBeenCalled();
     expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Record-store wiring (real filesystem). `add` must extend pharn.records.json
+// with the files it just wrote — otherwise the next `pharn update` sees no
+// record for them and skips them as `unrecorded` forever. The picker installs
+// several capabilities in one run, so the merge must ACCUMULATE: add.ts already
+// carries a "thread the config forward or the writes clobber down to the last
+// one" bug comment, and a store merged the same way would inherit it.
+// ---------------------------------------------------------------------------
+describe('runAdd — pharn.records.json', () => {
+  stubProcessExit();
+  const tmp = useTmpDir();
+  let proj = '';
+
+  const CAP_FILE = 'pharn-pipeline/grillers/a11y/a11y.md';
+  const LENS_FILE = 'pharn-review/n-plus-one/n-plus-one.md';
+  const EXISTING = 'pharn-pipeline/grillers/security/security.md';
+
+  // The mocked installer writes real files, so the recorded paths are the ones
+  // that actually landed rather than a list the test invented.
+  function installWrites(): void {
+    installCapabilityDirs.mockImplementation(
+      (_repo: string, root: string, caps: { name: string }[]) => {
+        for (const c of caps) {
+          const rel = c.name === 'n-plus-one' ? LENS_FILE : CAP_FILE;
+          mkdirSync(join(root, rel, '..'), { recursive: true });
+          writeFileSync(join(root, rel), `${c.name} bytes`);
+        }
+        return caps;
+      },
+    );
+  }
+
+  async function seedStore(): Promise<void> {
+    mkdirSync(join(proj, EXISTING, '..'), { recursive: true });
+    writeFileSync(join(proj, EXISTING), 'security bytes');
+    await writeRecords(proj, {
+      skillsVersion: '1.0.0',
+      commit: null,
+      files: { [EXISTING]: sha256File(join(proj, EXISTING)) },
+    });
+  }
+
+  const config = (): PharnConfig => ({
+    pharnVersion: '0.4.0',
+    skillsVersion: '1.0.0',
+    repo: 'pharn-dev/pharn-oss',
+    commit: null,
+    modules: [],
+    installedAt: '2026-07-07T00:00:00.000Z',
+    archetypes: ['ssr'],
+    capabilities: [{ name: 'security', role: 'griller' }],
+    layout: 'flat',
+  });
+
+  beforeEach(() => {
+    proj = tmp.path();
+    vi.spyOn(process, 'cwd').mockReturnValue(proj);
+    loadArchetypeConfigOrExit.mockReturnValue(config());
+    fetchRepo.mockResolvedValue({
+      dir: '/repo',
+      sha: 'a'.repeat(40),
+      cleanup: vi.fn(),
+    });
+    parseCapabilityIndex.mockReturnValue({
+      capabilities: [
+        { name: 'a11y', role: 'griller', applies: ['ssr'] },
+        { name: 'n-plus-one', role: 'lens', applies: ['ssr'] },
+        { name: 'security', role: 'griller', applies: 'universal' },
+      ],
+    });
+    readSkillsVersion.mockReturnValue('1.1.0');
+    installWrites();
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  const store = () => {
+    const read = readRecords(proj);
+    return read.kind === 'ok' ? read.store : null;
+  };
+
+  it('appends the added capability without dropping pre-existing entries', async () => {
+    await seedStore();
+
+    await runAdd('a11y');
+
+    expect(store()!.files).toEqual({
+      [EXISTING]: sha256File(join(proj, EXISTING)),
+      [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
+    });
+  });
+
+  it('re-stamps the store to match the config written beside it', async () => {
+    await seedStore();
+    await runAdd('a11y');
+    // add advances skillsVersion/commit in the config, so the store must follow
+    // or the very next update would reject it as written for another state.
+    expect(store()!.skillsVersion).toBe('1.1.0');
+    expect(store()!.commit).toBe('a'.repeat(40));
+  });
+
+  it('the picker accumulates every pick — no clobber down to the last one', async () => {
+    await seedStore();
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+
+    await runAdd(undefined);
+
+    expect(Object.keys(store()!.files).sort()).toEqual(
+      [EXISTING, CAP_FILE, LENS_FILE].sort(),
+    );
+  });
+
+  it('does NOT mint a store when none exists — absent stays absent (fail closed)', async () => {
+    // Minting a partial store would silently relabel the whole install from
+    // "unverifiable" to "unrecorded" while proving nothing about the other files.
+    await runAdd('a11y');
+    expect(readRecords(proj)).toEqual({ kind: 'absent' });
+  });
+
+  it('does NOT rewrite a corrupt store', async () => {
+    writeFileSync(join(proj, RECORDS_FILE), 'not json{');
+    await runAdd('a11y');
+    expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe('not json{');
+  });
+
+  it('leaves the store untouched on the already-installed no-op path', async () => {
+    await seedStore();
+    const before = readFileSync(join(proj, RECORDS_FILE), 'utf8');
+    await runAdd('security');
+    expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(before);
   });
 });
