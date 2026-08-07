@@ -1,13 +1,7 @@
 {
   "scope": [
-    "CHANGELOG.md",
-    "THREAT-MODEL.md",
-    "src/lib/validate.ts",
-    "src/lib/repo.ts",
-    "tests/validate.test.ts",
-    "tests/repo.test.ts",
-    ".pharn/writes-scope.json"
+    ".dev/features/update-drift-safe/SHIP.md"
   ],
-  "set_by": "manual \u2014 restore CHANGELOG after NEW_ snippet overwrite",
-  "set_at": "2026-07-24T10:55:20.842Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-08-07T10:19:05.940Z"
 }

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import {
   CLAUDE_COMMANDS_DIR,
@@ -59,6 +59,32 @@ function toPosix(rel: string): string {
 }
 
 /**
+ * Is ANY component of `rel` (below `base`) a symlink? `lstat` only refuses to
+ * dereference the FINAL component — it happily resolves every ancestor — so
+ * checking the leaf alone would still enumerate a clone whose `pharn-review/`,
+ * `.dev/`, or `pharn/` directory is a symlink pointing outside the clone. Since
+ * this manifest now drives `pharn update`'s writes, such an entry would copy
+ * out-of-clone bytes into the user's project (P2). Components are checked below
+ * `base` only: the clone's own temp root may legitimately sit under a symlinked
+ * ancestor (e.g. macOS `/tmp`).
+ */
+function hasSymlinkComponent(base: string, rel: string): boolean {
+  let current = '';
+  for (const segment of toPosix(rel).split('/')) {
+    if (!segment) continue;
+    current = current ? `${current}/${segment}` : segment;
+    if (
+      lstatSync(safeJoin(base, current), {
+        throwIfNoEntry: false,
+      })?.isSymbolicLink()
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The exact project-root-relative paths an archetype install writes, mapped to
  * their source path in `repoDir` — the selected capability dirs + the fixed
  * product surfaces (product `pharn-*` commands, `.cjs` hooks, trusted docs,
@@ -78,10 +104,17 @@ export function collectExpectedInstallPaths(params: {
     expected.set(toPosix(rel), repoPath);
   };
   // Enumerate one source dir's files (optionally filtered by relative name) into
-  // the expected map at the mirrored path.
+  // the expected map at the mirrored path. The root is lstat-checked, NOT
+  // stat-checked: a symlinked source root would otherwise resolve outside the
+  // clone and contribute paths sourced from anywhere on disk. installCapabilities
+  // never copies through such a root (isSymlink guards / noSymlinks filters), so
+  // the mirror must not enumerate one either — and since this manifest now drives
+  // `pharn update`'s WRITES (not just status's comparison), that is the
+  // difference between reporting a phantom file and copying one in (P2).
   const addDir = (relDir: string, keep?: (rel: string) => boolean): void => {
     const from = safeJoin(repoDir, relDir);
-    if (!existsSync(from) || !statSync(from).isDirectory()) return;
+    if (hasSymlinkComponent(repoDir, relDir)) return;
+    if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return;
     for (const rel of walkFiles(from)) {
       if (keep && !keep(rel)) continue;
       add(join(relDir, rel), resolve(from, rel));
@@ -109,9 +142,12 @@ export function collectExpectedInstallPaths(params: {
       !rel.includes('/') && rel.endsWith('.cjs') && !rel.endsWith('.test.cjs'),
   );
   // Trusted docs (flat: root files; pharn: CONSTITUTION + ARCHITECTURE under pharn/).
+  // lstat, not exists: a symlinked doc is never copied by the installer, so it is
+  // never expected here either (see addDir's note).
   for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
-    if (existsSync(from)) add(doc, from);
+    if (hasSymlinkComponent(repoDir, doc)) continue;
+    if (lstatSync(from, { throwIfNoEntry: false })?.isFile()) add(doc, from);
   }
   // Contracts (whole dir) + floor checkers (test files excluded), at layout paths.
   addDir(paths.contracts);

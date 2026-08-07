@@ -82,10 +82,28 @@ describe('main (argv dispatch)', () => {
     expect(runRemove).toHaveBeenCalledWith('lens:n-plus-one', { yes: false });
   });
 
-  it('routes `update` to runUpdate', async () => {
+  it('routes `update` to runUpdate with force:false by default', async () => {
     setArgv('update');
     await main();
-    expect(runUpdate).toHaveBeenCalledTimes(1);
+    expect(runUpdate).toHaveBeenCalledWith({ force: false });
+  });
+
+  it('passes force:true through for `update --force`', async () => {
+    setArgv('update', '--force');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({ force: true });
+  });
+
+  it('documents --force as an update flag in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    const printed = logSpy.mock.calls
+      .map((c: unknown[]) => String(c[0] ?? ''))
+      .join('\n');
+    // Scoped to its command: minimist parses flags globally, so unscoped help
+    // text would advertise a flag that does nothing on the other commands.
+    expect(printed).toMatch(/--force\s+update:/);
+    expect(printed).toContain('.pharn-backup/');
   });
 
   it('routes `list` to runList with json:false by default', async () => {

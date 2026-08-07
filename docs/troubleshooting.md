@@ -8,8 +8,36 @@
 | Capability fetch / install failure                                                                      | 1         |
 | Unknown command                                                                                         | 1         |
 | `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
+| `update` completed but skipped files it could not verify                                                | 0         |
+| `update --force` aborted because a backup could not be written                                          | 1         |
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
+
+## `pharn update` skipped my files
+
+`update` never overwrites a PHARN-owned file it cannot prove is untouched. It prints each skipped file
+under one of three labels:
+
+- **`modified`** — you edited it after `pharn` wrote it.
+- **`unrecorded`** — `pharn` has no record of writing that path.
+- **`unverifiable`** — there is no usable `pharn.records.json`, so nothing can be proven. Every install
+  created before `pharn` 0.4.0 hits this once.
+
+Exit code is **0** — this is the designed outcome, not a failure. To overwrite them anyway:
+
+```bash
+pharn update --force   # copies each file to .pharn-backup/<timestamp>/ first
+```
+
+A run with skips deliberately leaves `skillsVersion` at the previous value, so `pharn status` keeps
+showing an update as available and the next `pharn update` still has work to do. See
+[update](commands/update.md) for the full decision table.
+
+### `--force` aborted with a backup error
+
+The backup runs to completion before any original is touched, so an abort means **nothing was
+overwritten**. The usual cause is a file (rather than a directory) at `.pharn-backup`, or a symlink
+there — `pharn` refuses to write backups through a symlink. Remove it and re-run.
 
 ## Prerequisites failed
 

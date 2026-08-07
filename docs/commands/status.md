@@ -9,8 +9,13 @@ pharn status --no-drift   # version check only (skips the clone)
 pharn status --strict     # exit 1 if outdated, modified, or missing (for CI)
 ```
 
-`status` is the read side of [`update`](update.md): it surfaces the same state `update` would overwrite,
+`status` is the read side of [`update`](update.md): it surfaces the same set of files `update` acts on,
 but **never writes, deletes, or overwrites anything**. It is a report, not a guard.
+
+It is a **report, not a preview**: `status` compares bytes against upstream, while `update`
+additionally reads [`pharn.records.json`](../reference/pharn-records.md) to tell your edits from
+upstream's changes. So a file listed below may be either cleanly upgraded or skipped — `update` says
+which, and `status` cannot.
 
 ## Behavior
 
@@ -25,14 +30,21 @@ but **never writes, deletes, or overwrites anything**. It is a report, not a gua
 4. **Drift** — derives the set of files your installed capabilities and the fixed product surfaces are
    expected to contribute (mirroring how `init` / `add` / `update` install them, at your recorded
    layout), then byte-compares each against your project:
-   - **Locally modified (PHARN-owned)** — files present but whose contents differ. `pharn update` will
-     overwrite these.
-   - **Missing (expected but absent)** — expected files that aren't on disk. Re-run `pharn update` (or
-     `pharn add`) to restore them.
+   - **Differs from `pharn-dev/pharn-oss@main` (PHARN-owned)** — files present whose contents differ.
+     `pharn update` keeps files you've edited and cleanly upgrades the rest; `--force` overwrites edits
+     too (backed up to `.pharn-backup/` first).
+   - **Missing (expected but absent)** — expected files that aren't on disk. Restored by `pharn update`
+     on the next version bump; capabilities can also be re-added with `pharn add`.
    - If neither, reports **No drift**.
 
+The heading says "differs from", not "locally modified", on purpose: the comparison is against
+upstream `@main`, so a file can differ because **upstream moved**, not only because you edited it.
+Distinguishing those two needs the install records, which only `update` reads.
+
 The comparison is always against `pharn-dev/pharn-oss@main` (the same ref the CLI installs from), not the
-`commit` pinned in your config.
+`commit` pinned in your config. Note that `update` derives its file set from the layout of the clone it
+fetches, so a project mid-way through a layout migration can show little drift here while `update` has
+a whole tree to relocate.
 
 ## What is intentionally excluded
 
@@ -47,7 +59,8 @@ to exit `1` whenever anything is outdated, modified, or missing — useful as a 
 
 ## Related
 
-- [update](update.md) — apply the fixes `status` reports (overwrite drift, restore missing)
+- [update](update.md) — act on what `status` reports (upgrade cleanly, keep your edits, restore missing)
+- [pharn.records.json](../reference/pharn-records.md) — the per-file baseline `update` uses and `status` does not
 - [list](list.md) — read-only inventory of installed archetypes + capabilities
 - [add](add.md) — install a capability
 - [pharn.config.json](../reference/pharn-config.md) — `skillsVersion`, `archetypes`, `capabilities`

@@ -18,6 +18,7 @@
 ## Reference
 
 - [pharn.config.json](reference/pharn-config.md) — config file schema and overwrite behavior
+- [pharn.records.json](reference/pharn-records.md) — the per-file install hashes `pharn update` compares against
 
 ## Other
 

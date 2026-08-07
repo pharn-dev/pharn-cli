@@ -16,6 +16,15 @@ import {
   interactiveAllowed,
 } from '../lib/capability-picker.js';
 import { installCapabilityDirs } from '../lib/install-capabilities.js';
+import {
+  buildRecords,
+  capabilityRecordPaths,
+  mergeRecords,
+  readRecords,
+  recordsBaseline,
+  writeRecords,
+} from '../lib/install-records.js';
+import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import {
@@ -233,8 +242,15 @@ async function resolveAddPicker(
       log.info(`${pc.green('✔')} Added ${result.name}`);
       added.push(result.name);
       // parsed.role is always defined — our option `value`s are `role:name`.
+      // Carry EVERY field resolveArchetypeAdd persisted, not just capabilities:
+      // `cfg` must mirror the config just written, or the next pick reads a
+      // config that disagrees with disk. (Concretely: the records store is
+      // stamped with the persisted skillsVersion/commit, so a stale `cfg` makes
+      // the next pick's stamp check fail and silently drop its records.)
       cfg = {
         ...cfg,
+        skillsVersion: result.version,
+        commit: sha,
         capabilities: [
           ...(cfg.capabilities ?? []),
           { name: parsed.name, role: parsed.role! },
@@ -304,6 +320,14 @@ async function resolveArchetypeAdd(
     ...existing,
     { name: cap.name, role: cap.role },
   ];
+  // Record the files this add just wrote, merged into the existing store, so the
+  // capability is not later mistaken for a file pharn never wrote (`unrecorded`)
+  // by `pharn update`. Only an already-READABLE store is extended: minting a
+  // partial one over an absent/corrupt store would silently relabel the whole
+  // install, so absent stays absent (fail closed, lib/install-records.ts). The
+  // paths are read back from the project — never guessed — at the layout the copy
+  // above actually mirrored.
+  await mergeCapabilityRecords(cwd, repoDir, config, cap, version, commit);
   await writePharnConfig(cwd, {
     ...config,
     skillsVersion: version,
@@ -312,4 +336,30 @@ async function resolveArchetypeAdd(
     installedAt: new Date().toISOString(),
   });
   return { kind: 'added', name: cap.name, version };
+}
+
+// Extend `pharn.records.json` with one just-installed capability's files. The
+// store is re-stamped with the same (skillsVersion, commit) written to the config
+// beside it, so the two stay consistent — a stamp that disagrees with the config
+// is how a store written by another tool is detected and ignored.
+async function mergeCapabilityRecords(
+  cwd: string,
+  repoDir: string,
+  config: PharnConfig,
+  cap: InstalledCapability,
+  skillsVersion: string,
+  commit: string | null,
+): Promise<void> {
+  const { records } = recordsBaseline(readRecords(cwd), {
+    skillsVersion: config.skillsVersion,
+    commit: config.commit,
+  });
+  if (records === null) return; // absent/corrupt/stale → leave it alone
+  const paths = layoutPaths(detectLayout(repoDir));
+  const added = buildRecords(cwd, capabilityRecordPaths(cwd, paths, cap));
+  await writeRecords(cwd, {
+    skillsVersion,
+    commit,
+    files: mergeRecords(records, added),
+  });
 }

@@ -147,6 +147,64 @@ describe('runStatus (archetype)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  // The DRIFT copy is the user's only pointer from "status found something" to
+  // "here is what update will do about it" — it must not promise the old
+  // overwrite-by-default behavior.
+  it('describes the drift section as DIFFERS FROM @main, not "locally modified"', async () => {
+    // The comparison is against upstream HEAD, so a file can differ because
+    // UPSTREAM moved — status cannot tell that from a user edit.
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue({
+      modified: ['CONSTITUTION.md'],
+      missing: [],
+      okCount: 3,
+    });
+
+    await runStatus({});
+
+    const drift = noteBody('DRIFT');
+    expect(drift).toContain('DIFFERS FROM pharn-dev/pharn-oss@main');
+    expect(drift).not.toContain('LOCALLY MODIFIED');
+  });
+
+  it('tells the user their edits are KEPT, and names --force + the backup dir', async () => {
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue({
+      modified: ['CONSTITUTION.md'],
+      missing: [],
+      okCount: 3,
+    });
+
+    await runStatus({});
+
+    const drift = noteBody('DRIFT');
+    expect(drift).toContain("keeps files you've edited");
+    expect(drift).toContain('--force');
+    expect(drift).toContain('.pharn-backup/');
+    // The claim it replaced is gone.
+    expect(drift).not.toContain('will overwrite these');
+  });
+
+  it('qualifies the MISSING hint with when update actually restores', async () => {
+    // update early-returns at the current version, so an unqualified "re-run
+    // pharn update to restore them" would be false for an up-to-date install.
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue({
+      modified: [],
+      missing: ['.claude/hooks/set-writes-scope.cjs'],
+      okCount: 3,
+    });
+
+    await runStatus({});
+
+    const drift = noteBody('DRIFT');
+    expect(drift).toContain('on the next version bump');
+    expect(drift).toContain('pharn add');
+  });
+
   it('a default (non-strict) run with drift resolves without exiting', async () => {
     const cleanup = vi.fn();
     fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });

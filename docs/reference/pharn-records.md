@@ -1,0 +1,88 @@
+# pharn.records.json
+
+A CLI-owned sidecar written next to [`pharn.config.json`](pharn-config.md) at your project root. It
+records the sha256 of **every PHARN-owned file `pharn` wrote**, so [`pharn update`](../commands/update.md)
+can tell "these are the bytes pharn installed" from "you edited this" — and refuse to destroy the
+latter.
+
+Source: [`install-records.ts`](../../src/lib/install-records.ts).
+
+**Commit it.** It is part of your project's PHARN state, like `pharn.config.json`. Without it, `update`
+cannot verify anything and skips every file that differs.
+
+## Shape
+
+```json
+{
+  "schemaVersion": 1,
+  "skillsVersion": "1.2.0",
+  "commit": "daa06788…",
+  "files": {
+    "CONSTITUTION.md": "e3b0c44298fc1c149afbf4c8996fb924…",
+    ".claude/hooks/set-writes-scope.cjs": "9f86d081884c7d659a2feaa0c55ad015…",
+    "pharn-review/n-plus-one/n-plus-one.md": "2c26b46b68ffc68ff99b453c1d304134…"
+  }
+}
+```
+
+| Field           | Type           | Description                                                                  |
+| --------------- | -------------- | ---------------------------------------------------------------------------- |
+| `schemaVersion` | number         | Matched **exactly**. An unknown value is not guessed at — see below          |
+| `skillsVersion` | string         | The `skillsVersion` in `pharn.config.json` when this store was written       |
+| `commit`        | string \| null | The `commit` in `pharn.config.json` when this store was written              |
+| `files`         | object         | Project-root-relative path → sha256 (lowercase hex) of the bytes that landed |
+
+Hashes are taken from the **written file**, never from the upstream source, so a record cannot
+disagree with what is actually on disk. Keys are sorted, so the committed file has a reviewable diff.
+
+## Who writes it
+
+| Command  | Effect                                                                                                 |
+| -------- | ------------------------------------------------------------------------------------------------------ |
+| `init`   | Writes the full store — every file the install wrote                                                   |
+| `add`    | Merges the added capability's files in. Only extends an **already readable** store; it never mints one |
+| `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning))                           |
+| `remove` | Does not touch it — the removed capability's entries are pruned by the next `update`                   |
+
+`.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
+absent.
+
+## When the store is ignored (fail-closed)
+
+`update` treats the store as **unavailable** — and therefore skips every file that differs, labelling
+them `unverifiable` — whenever it is:
+
+- **absent** (an install created before `pharn` 0.4.0);
+- **unreadable or malformed** — invalid JSON, not an object, a missing `files` object, a non-sha256
+  hash, or a path key that is absolute or contains `..`. Any one of these invalidates the **whole**
+  store rather than a single entry, and the reason is reported by name so a fixable JSON error is not
+  mistaken for a legacy install;
+- **an unknown `schemaVersion`** — a store written by a newer `pharn` is never partially interpreted;
+- **stamped for a different state** — `skillsVersion`/`commit` here disagree with `pharn.config.json`.
+  Every `pharn` operation writes both files together, so a disagreement means something else changed
+  one without the other (typically an older CLI that rewrote the tree while ignoring this file).
+  Trusting it would label upstream's bytes as your edits and freeze the install.
+
+In every case the consequence is the same and it is the safe one: `pharn` skips rather than
+overwrites, and tells you why.
+
+## Pruning
+
+`update` writes the store as a fresh map keyed by the manifest it just applied. Entries for paths that
+are no longer part of your install — a removed capability, or a file dropped upstream — are dropped
+rather than accumulating. Skipped files keep their previous entry, since it still describes what
+`pharn` wrote there.
+
+## Trust
+
+The file is local but hand-editable, so it is treated as untrusted input: it is parsed defensively,
+and a record **key is never used to build a filesystem path**. `update` iterates its own install
+manifest and looks each path up here, so an invented key cannot cause a read or a write. Editing a
+hash to match your own bytes will make `update` treat that file as pharn's and overwrite it — that is
+your call to make, and it is the only thing such an edit can do.
+
+## Related
+
+- [update](../commands/update.md) — the decision table these hashes drive
+- [pharn.config.json](pharn-config.md) — the config this store is stamped against
+- [status](../commands/status.md) — the read-only drift report
