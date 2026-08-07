@@ -49,11 +49,12 @@ export interface CapabilityListView {
  *       — architecture
  *       — comprehension
  *     lenses (1)
- *       — copy-paste-drift
+ *       — copy-paste-drift  (manual)
  *
  * One capability PER LINE (never comma-joined), grouped by role in the fixed
- * ROLE_GROUPS order, each group headed `<label> (<count>)`. An empty role
- * renders no header; zero capabilities renders `(none)`. Deterministic (P5) and
+ * ROLE_GROUPS order, each group headed `<label> (<count>)`. A `source: 'manual'`
+ * entry is suffixed `(manual)`; `auto` and a legacy absent `source` render bare.
+ * An empty role renders no header; zero capabilities renders `(none)`. Deterministic (P5) and
  * pure — the readability win (no mid-item wrap on a narrow terminal) is advisory,
  * but the guaranteed, tested property is that items are never joined.
  */
@@ -72,7 +73,14 @@ export function renderCapabilityLines(view: CapabilityListView): string[] {
     const inRole = view.capabilities.filter((c) => c.role === role);
     if (inRole.length === 0) continue;
     lines.push(`    ${label} (${inRole.length})`);
-    for (const cap of inRole) lines.push(`      ${BULLET} ${cap.name}`);
+    // Only `manual` is annotated. `auto` and a legacy absent `source` render
+    // exactly as before, so the common case stays uncluttered and the annotation
+    // marks the one thing worth knowing: this entry is YOURS, and `pharn update`
+    // preserves it rather than re-deriving it from your archetypes.
+    for (const cap of inRole) {
+      const tag = cap.source === 'manual' ? '  (manual)' : '';
+      lines.push(`      ${BULLET} ${cap.name}${tag}`);
+    }
   }
   return lines;
 }

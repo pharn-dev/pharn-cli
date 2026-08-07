@@ -76,3 +76,29 @@ test("★ .dev/ excluded WHOLESALE: role-bearing files under .dev/ are NOT count
     }
   );
 });
+
+// The `pharn/` layout analog of the ★ test above, and the reason it exists: `pharn/floor/` is the
+// relocated home of `.dev/floor/` in an installed project, so it holds the SAME tooling — including
+// `test-fixtures/red/skill.md`, the deliberately-invalid fixture. Without this exclusion any tree
+// containing a pharn-layout install (e.g. a dogfood target) turns the floor RED on tooling that was
+// never a product capability. Asserted by the COUNT, not just the exit code: were pharn/floor/ files
+// counted, the deliberately-RED fixture alone would make this "RED — … 2 capabilities checked".
+test("★ pharn/floor/ excluded WHOLESALE: an installed project's tooling is NOT counted; the product capability IS (count stays 1)", () => {
+  withRepo(
+    {
+      "pharn/pharn-review/sample/sample.md": VALID_CAP,
+      "pharn/pharn-review/sample/evals/cases/case-1.md": "# a case\n",
+      "pharn/pharn-review/sample/evals/expected/expected-1.md": "# expected\n",
+      "pharn/floor/fake-capability.md": VALID_CAP,
+      // The real shape that caused this: the floor's own RED fixture, shipped
+      // into every install by the `paths.floor` copy. It has no evals, so if it
+      // were counted the run would be RED, not merely a higher count.
+      "pharn/floor/test-fixtures/red/skill.md": VALID_CAP,
+    },
+    (root) => {
+      const r = run(root);
+      assert.equal(r.status, 0);
+      assert.match(r.stdout, /FLOOR: GREEN — 1 capabilities checked/);
+    }
+  );
+});

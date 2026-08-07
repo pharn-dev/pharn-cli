@@ -40,6 +40,26 @@ under `pharn/`. Removal is therefore precise; siblings are never touched.
 
 `--yes` / `-y` is accepted but has no effect — capability removal has no confirmation prompt to skip.
 
+## Removing an auto-selected capability
+
+If the entry's recorded `source` is `auto` — it was selected for your archetypes by
+[`init`](init.md) — `remove` prints a warning that the next [`pharn update`](update.md) will reinstall
+it, because update re-resolves your archetypes every run. Removing a `manual` entry (one you added with
+[`add`](add.md)) warns nothing.
+
+**Silence is not a promise that the removal is permanent.** `update` writes
+`resolve(archetypes) ∪ manual`; dropping the entry removes it from the _manual_ half, but the
+_resolved_ half is unaffected. If your archetypes still select that capability — and most capabilities
+are `universal`, so they usually do — the next `update` re-adds it as `auto` and names it under
+`ADDED`. `remove` cannot warn about this: it has no capability index and never fetches one, so it
+cannot know whether your archetypes select the thing you are removing. To keep a capability out for
+good, remove the archetype that selects it.
+
+The warning is derived from the stored field alone, so `remove` stays offline. An entry whose `source`
+is **absent** (a config predating the field) warns nothing — its provenance is genuinely unknown until
+the next `update` infers it, and a wrong warning would be worse than none. See
+[`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
+
 ## Related
 
 - [add](add.md)

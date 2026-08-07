@@ -9,6 +9,50 @@ import type { InstalledModule, PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
 
+// The `source` allowlist (src/types.ts, CapabilitySource). The runtime half of
+// the type — enum membership, checked at ingest (P0/P5).
+const CAPABILITY_SOURCES = ['auto', 'manual'];
+
+/**
+ * A `capabilities[].source` that is present but not in the allowlist — the FIRST
+ * capabilities-entry check this config has ever had. Named + loud, following the
+ * `ModelRoutingError`/`SeamConfigError` pattern, so a hand-edit is reported as
+ * the hand-edit it is and never collapsed into the "run `pharn init`" lie.
+ *
+ * Deliberately narrow (P7): it validates `source` ONLY. `name` and `role` are
+ * still passed through unvalidated — hardening those is a separate axis, and
+ * widening it here would change what a legacy config is allowed to hold.
+ */
+export class CapabilitySourceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CapabilitySourceError';
+  }
+}
+
+/**
+ * Reject a present-but-invalid `capabilities[].source`. ABSENT is legal (P7 —
+ * additive: every config written before the field existed omits it), and so is a
+ * non-array / non-object shape here, which the existing light shape guard and the
+ * consumers already tolerate. Only a present `source` outside the enum throws.
+ */
+function validateCapabilitySources(raw: unknown): void {
+  if (!Array.isArray(raw)) return;
+  raw.forEach((entry, i) => {
+    if (!isPlainObject(entry)) return;
+    if (!('source' in entry)) return;
+    const source = entry.source;
+    if (typeof source !== 'string' || !CAPABILITY_SOURCES.includes(source)) {
+      throw new CapabilitySourceError(
+        `${CONFIG_FILENAME}: capabilities[${i}].source must be ${CAPABILITY_SOURCES.map(
+          (s) => `"${s}"`,
+        ).join(' or ')} (found ${JSON.stringify(source)}). ` +
+          'Fix it by hand, or delete the field — an absent `source` is valid and the next `pharn update` will set it.',
+      );
+    }
+  });
+}
+
 export function configPath(cwd: string): string {
   return resolve(cwd, CONFIG_FILENAME);
 }
@@ -50,6 +94,11 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     raw.models !== undefined ? validateModelRouting(raw.models) : undefined;
   const seam =
     raw.seam !== undefined ? validateSeamConfig(raw.seam) : undefined;
+  // Same discipline for `capabilities[].source`: a present-but-invalid value
+  // throws NAMED here rather than flowing into the merge. Entries are otherwise
+  // passed through the spread unreconstructed, so `source` round-trips with no
+  // load-mechanics change at all.
+  validateCapabilitySources(raw.capabilities);
   const config: PharnConfig = {
     ...(raw as unknown as PharnConfig),
     ...(models !== undefined ? { models } : {}),
@@ -94,14 +143,19 @@ export function loadConfigOrExit(cwd: string): PharnConfig {
 
 /**
  * Is `err` a present-but-invalid-config error (a hand-edited `models`/`seam`
- * block the validators rejected), as opposed to a programming bug? The single
- * definition of "config error" — used by `loadConfigOrExit` and by `list`'s own
- * `--json`-aware error path, so neither re-encodes the class membership (P3).
+ * block, or a `capabilities[].source` outside its enum, that the validators
+ * rejected), as opposed to a programming bug? The single definition of "config
+ * error" — used by `loadConfigOrExit` and by `list`'s own `--json`-aware error
+ * path, so neither re-encodes the class membership (P3).
  */
 export function isConfigValidationError(
   err: unknown,
-): err is ModelRoutingError | SeamConfigError {
-  return err instanceof ModelRoutingError || err instanceof SeamConfigError;
+): err is ModelRoutingError | SeamConfigError | CapabilitySourceError {
+  return (
+    err instanceof ModelRoutingError ||
+    err instanceof SeamConfigError ||
+    err instanceof CapabilitySourceError
+  );
 }
 
 export async function writePharnConfig(

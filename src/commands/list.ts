@@ -7,7 +7,7 @@ import {
   LEGACY_CONFIG_MESSAGE,
   readPharnConfig,
 } from '../lib/pharn-config.js';
-import type { Archetype, PharnConfig } from '../types.js';
+import type { Archetype, CapabilitySource, PharnConfig } from '../types.js';
 
 // Archetype (capability) install inventory — the offline view derived entirely
 // from pharn.config.json (no manifest, no clone). `mode` tags the `--json` shape.
@@ -15,7 +15,15 @@ interface ArchetypeInventory {
   mode: 'archetype';
   skillsVersion: string;
   archetypes: Archetype[];
-  capabilities: { name: string; role: 'griller' | 'lens' }[];
+  // `source` is ADDITIVE in the --json shape: present only when the config
+  // records it, omitted for a legacy entry that predates the field (never
+  // defaulted — absence means "provenance unknown until the next `pharn update`",
+  // and inventing a value here would publish a guess).
+  capabilities: {
+    name: string;
+    role: 'griller' | 'lens';
+    source?: CapabilitySource;
+  }[];
 }
 
 // Read-only: shows the installed archetypes + capabilities from the config.
@@ -68,6 +76,9 @@ function buildArchetypeInventory(config: PharnConfig): ArchetypeInventory {
     capabilities: (config.capabilities ?? []).map((c) => ({
       name: c.name,
       role: c.role,
+      // Spread-in rather than assigned, so an absent `source` stays ABSENT in the
+      // JSON instead of surfacing as `"source": null`.
+      ...(c.source !== undefined ? { source: c.source } : {}),
     })),
   };
 }

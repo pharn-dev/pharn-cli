@@ -12,6 +12,7 @@ import {
   toInstalledModules,
   isArchetypeConfig,
   LEGACY_CONFIG_MESSAGE,
+  CapabilitySourceError,
 } from '../src/lib/pharn-config.js';
 import type { PharnConfig } from '../src/types.js';
 import {
@@ -184,6 +185,80 @@ describe('pharn-config', () => {
     expect(read?.constitution).toBe('standard');
     expect(read?.archetypes).toBeUndefined();
     expect(read?.capabilities).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // capabilities[].source — the FIRST capabilities-entry check this config has.
+  // Validates `source` ONLY; name/role stay unvalidated (a separate axis, P7).
+  // -------------------------------------------------------------------------
+  describe('capabilities[].source ingest', () => {
+    stubProcessExit();
+    const withCaps = (caps: unknown[]) => ({
+      pharnVersion: '0.4.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: null,
+      modules: [],
+      installedAt: '2026-08-07T00:00:00.000Z',
+      archetypes: ['ssr'],
+      capabilities: caps,
+    });
+
+    const writeRaw = (value: unknown): void => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify(value, null, 2),
+      );
+    };
+
+    it('round-trips a valid source through load/save unreconstructed', async () => {
+      writeRaw(
+        withCaps([
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'n-plus-one', role: 'lens', source: 'manual' },
+        ]),
+      );
+      expect(readPharnConfig(tmp.path())?.capabilities).toEqual([
+        { name: 'a11y', role: 'griller', source: 'auto' },
+        { name: 'n-plus-one', role: 'lens', source: 'manual' },
+      ]);
+    });
+
+    it('accepts an ABSENT source (legacy config, P7 additive)', () => {
+      writeRaw(withCaps([{ name: 'a11y', role: 'griller' }]));
+      expect(readPharnConfig(tmp.path())?.capabilities).toEqual([
+        { name: 'a11y', role: 'griller' },
+      ]);
+    });
+
+    it('THROWS a named error for a source outside the enum, naming the offender', () => {
+      writeRaw(
+        withCaps([
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'x', role: 'lens', source: 'automatic' },
+        ]),
+      );
+      expect(() => readPharnConfig(tmp.path())).toThrow(CapabilitySourceError);
+      expect(() => readPharnConfig(tmp.path())).toThrow(
+        /capabilities\[1\]\.source/,
+      );
+    });
+
+    it('THROWS for a wrong-typed source', () => {
+      writeRaw(withCaps([{ name: 'a11y', role: 'griller', source: 7 }]));
+      expect(() => readPharnConfig(tmp.path())).toThrow(CapabilitySourceError);
+    });
+
+    it('joins isConfigValidationError, so it reports loudly instead of the "run init" lie', () => {
+      expect(isConfigValidationError(new CapabilitySourceError('x'))).toBe(
+        true,
+      );
+      writeRaw(withCaps([{ name: 'a11y', role: 'griller', source: 'nope' }]));
+      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
+        'capabilities[0].source',
+      );
+    });
   });
 
   it('still loads a config carrying a removed vendorSkills key (P7 additive)', async () => {

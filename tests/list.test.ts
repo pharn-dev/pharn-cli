@@ -91,6 +91,33 @@ describe('runList', () => {
     expect(prompts.note).not.toHaveBeenCalled();
   });
 
+  it('emits `source` in --json when recorded, and OMITS it when absent', async () => {
+    readPharnConfig.mockReturnValue(
+      archetypeConfig({
+        capabilities: [
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'n-plus-one', role: 'lens', source: 'manual' },
+          { name: 'legacy', role: 'lens' },
+        ],
+      }),
+    );
+    const out: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((v) => {
+      out.push(String(v));
+    });
+
+    await expect(runList({ json: true })).resolves.toBeUndefined();
+    spy.mockRestore();
+
+    // Additive: present when recorded, ABSENT (not null) when the config has no
+    // `source` — publishing a default here would publish a guess.
+    expect(JSON.parse(out.join('')).capabilities).toEqual([
+      { name: 'a11y', role: 'griller', source: 'auto' },
+      { name: 'n-plus-one', role: 'lens', source: 'manual' },
+      { name: 'legacy', role: 'lens' },
+    ]);
+  });
+
   it('renders an archetype install offline from the config', async () => {
     readPharnConfig.mockReturnValue(
       archetypeConfig({

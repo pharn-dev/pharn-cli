@@ -112,6 +112,47 @@ describe('renderCapabilityLines', () => {
     expect(lines.some((l) => /Archetypes\s+\(none\)/.test(l))).toBe(true);
   });
 
+  // -------------------------------------------------------------------------
+  // Provenance annotation. Only `manual` is marked: it is the one thing worth
+  // knowing (this entry is YOURS, and update preserves it). `auto` and a legacy
+  // absent `source` render exactly as before, so the common case stays quiet.
+  // -------------------------------------------------------------------------
+  it('suffixes (manual) on a manually-added capability', () => {
+    const lines = renderCapabilityLines(
+      view([{ name: 'n-plus-one', role: 'lens', source: 'manual' }]),
+    );
+    expect(bulletLines(lines)).toEqual(['      — n-plus-one  (manual)']);
+  });
+
+  it('renders an auto capability bare, exactly as before the field existed', () => {
+    const lines = renderCapabilityLines(
+      view([{ name: 'a11y', role: 'griller', source: 'auto' }]),
+    );
+    expect(bulletLines(lines)).toEqual(['      — a11y']);
+  });
+
+  it('renders a legacy (source-absent) capability bare — absence is never read as a value', () => {
+    const lines = renderCapabilityLines(
+      view([{ name: 'a11y', role: 'griller' }]),
+    );
+    expect(bulletLines(lines)).toEqual(['      — a11y']);
+  });
+
+  it('annotates only the manual entries in a mixed list', () => {
+    const lines = renderCapabilityLines(
+      view([
+        { name: 'a11y', role: 'griller', source: 'auto' },
+        { name: 'n-plus-one', role: 'lens', source: 'manual' },
+        { name: 'legacy', role: 'lens' },
+      ]),
+    );
+    expect(bulletLines(lines)).toEqual([
+      '      — a11y',
+      '      — n-plus-one  (manual)',
+      '      — legacy',
+    ]);
+  });
+
   it('exposes the shared role order as grillers-before-lenses', () => {
     expect(ROLE_GROUPS.map((g) => g.role)).toEqual(['griller', 'lens']);
     expect(ROLE_GROUPS.map((g) => g.label)).toEqual(['grillers', 'lenses']);

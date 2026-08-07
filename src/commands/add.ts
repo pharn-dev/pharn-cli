@@ -279,9 +279,14 @@ async function resolveAddPicker(
         ...cfg,
         skillsVersion: result.version,
         commit: sha,
+        // Mirrors the entry resolveArchetypeAdd just persisted — INCLUDING its
+        // `source: 'manual'`. This is the second entry-construction site, and it
+        // must not diverge: the next pick spreads THIS array into its own config
+        // write, so an untagged mirror would persist every earlier pick without
+        // its provenance and `pharn update` would delete them.
         capabilities: [
           ...(cfg.capabilities ?? []),
-          { name: parsed.name, role: parsed.role! },
+          { name: parsed.name, role: parsed.role!, source: 'manual' },
         ],
       };
     } else if (result.kind === 'noop') {
@@ -344,9 +349,14 @@ async function resolveArchetypeAdd(
   // The SHA the tree was pinned to (recorded == fetched, or null when the branch
   // was floated — LIMITS.md §3b); threaded from fetchRepo, no separate fetch.
   const commit = sha;
+  // `source: 'manual'` — the user asked for this capability BY NAME, so it is
+  // theirs, not archetype resolution's. `pharn update` reads that tag and
+  // PRESERVES the entry instead of replacing it with the re-resolved auto set
+  // (lib/merge-capabilities.ts, rows 3/6). Without the tag, the next update would
+  // silently delete this add and orphan its files.
   const capabilities: InstalledCapability[] = [
     ...existing,
-    { name: cap.name, role: cap.role },
+    { name: cap.name, role: cap.role, source: 'manual' },
   ];
   // Record the files this add just wrote, merged into the existing store, so the
   // capability is not later mistaken for a file pharn never wrote (`unrecorded`)

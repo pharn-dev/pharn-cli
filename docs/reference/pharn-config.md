@@ -9,21 +9,51 @@ archetypes/capabilities and the pinned commit).
 
 ## Top-level fields (archetype install)
 
-| Field           | Type           | Description                                                                    |
-| --------------- | -------------- | ------------------------------------------------------------------------------ |
-| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                  |
-| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                            |
-| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                            |
-| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable            |
-| `installedAt`   | string         | ISO timestamp of the install / last update                                     |
-| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                |
-| `capabilities`  | array          | Installed capabilities, each `{ name, role }` (`role` is `griller` or `lens`)  |
-| `layout`        | string         | Install layout mirrored from the clone: `flat` or `pharn` (absent → `flat`)    |
-| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)        |
-| `models`        | object         | Per-stage model routing ([`model-routing.ts`](../../src/lib/model-routing.ts)) |
-| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |
+| Field           | Type     | Description                                                                    |                                                                     |
+| --------------- | -------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `pharnVersion`  | string   | Version of the PHARN CLI that ran the install                                  |                                                                     |
+| `skillsVersion` | string   | The repo's `SKILLS_VERSION` at the installed commit                            |                                                                     |
+| `repo`          | string   | Source repo (`pharn-dev/pharn-oss`)                                            |                                                                     |
+| `commit`        | string \ | null                                                                           | Pinned commit SHA of the install; `null` if the SHA was unavailable |
+| `installedAt`   | string   | ISO timestamp of the install / last update                                     |                                                                     |
+| `archetypes`    | array    | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                |                                                                     |
+| `capabilities`  | array    | Installed capabilities, each `{ name, role, source? }` — see below             |                                                                     |
+| `layout`        | string   | Install layout mirrored from the clone: `flat` or `pharn` (absent → `flat`)    |                                                                     |
+| `modules`       | array    | Always `[]` for an archetype install (the install unit is capabilities)        |                                                                     |
+| `models`        | object   | Per-stage model routing ([`model-routing.ts`](../../src/lib/model-routing.ts)) |                                                                     |
+| `seam`          | object   | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |                                                                     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
+
+### `capabilities[].source` — selection provenance
+
+Each entry records **how it got there**, which decides who owns it on the next `pharn update`:
+
+| `source`   | Written by                  | What `pharn update` does with it                        |
+| ---------- | --------------------------- | ------------------------------------------------------- |
+| `auto`     | `pharn init`                | Owns it — drops it if your archetypes stop selecting it |
+| `manual`   | `pharn add`                 | **Preserves it**, selected or not                       |
+| _(absent)_ | a CLI older than this field | Inferred once, on the next `pharn update` (see below)   |
+
+`source` is **optional** — a config written before the field existed simply omits it and still loads.
+Absence is never read as a default: it means _provenance unknown_, and only `pharn update` may resolve
+it, because that is the one command holding a fresh capability index. On the first update after
+upgrading, a source-less entry is inferred **once** — in the resolved set → `auto`, outside it →
+`manual` — and written back explicitly. That second half is a **reconstruction, not a recovered fact**:
+such an entry was either added by hand, or auto-selected by an older index and since de-selected
+upstream, and nothing offline distinguishes the two. Tagging it `manual` is the fail-safe direction —
+it is then kept if the capability still exists upstream, and dropped (with a named report line) if it
+does not. `pharn remove` warns about re-adds for a literal `auto` only, and stays silent on an absent
+value rather than guess.
+
+A `source` present but outside `{auto, manual}` is a hand-edit error: `pharn` reports it by name
+(`capabilities[2].source`) and exits, rather than falling back to "run `pharn init`". Deleting the
+field is a valid fix — the next update sets it.
+
+> Re-running `pharn init` on an existing project is an explicit **start-over**: it rewrites
+> `capabilities` from scratch, so every entry becomes `auto` and previous `manual` tags are lost.
+> `init` warns before overwriting `pharn.config.json` and defaults to **No**. Use `pharn update` to
+> refresh an existing install; `init` is for installing one.
 
 A sibling file, [`pharn.records.json`](pharn-records.md), holds a sha256 per installed file. It is
 written by the same operations that write this config and is **stamped** with this file's
@@ -46,9 +76,9 @@ skipped any file deliberately leaves them at their previous values (see [update]
   "installedAt": "2026-06-11T00:00:00.000Z",
   "archetypes": ["ssr", "backend"],
   "capabilities": [
-    { "name": "a11y", "role": "griller" },
-    { "name": "security", "role": "griller" },
-    { "name": "n-plus-one", "role": "lens" }
+    { "name": "a11y", "role": "griller", "source": "auto" },
+    { "name": "security", "role": "griller", "source": "auto" },
+    { "name": "n-plus-one", "role": "lens", "source": "manual" }
   ],
   "layout": "flat",
   "modules": []

@@ -202,11 +202,267 @@ describe('runUpdate (drift-safe)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
-  it('re-resolves the RECORDED archetypes against the fresh index', async () => {
-    await installed();
+  it('re-resolves the RECORDED archetypes against the fresh index, and UNIONS the result with the manual entries', async () => {
+    // This test used to pin only the re-resolve call — which was true of the
+    // wholesale-replace bug too. The re-resolve still happens; what it now also
+    // pins is that the resolved set does NOT become the config verbatim.
+    await installed({
+      capabilities: [
+        CAP,
+        { name: 'n-plus-one', role: 'lens', source: 'manual' },
+      ],
+    });
+    resolveCapabilities.mockReturnValue({
+      selected: [{ ...CAP, matched: ['ssr'] }],
+      skipped: [{ name: 'n-plus-one', role: 'lens', reason: 'not for ssr' }],
+    });
+
     await runUpdate();
+
     expect(resolveCapabilities).toHaveBeenCalledWith(['ssr'], {
       capabilities: [],
+    });
+    expect(readPharnConfig(proj)!.capabilities).toEqual([
+      { ...CAP, source: 'auto' },
+      { name: 'n-plus-one', role: 'lens', source: 'manual' },
+    ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Capability membership: the union, the report, and the acceptance scenario.
+  // Before this, `update` replaced `capabilities` wholesale — deleting manual
+  // adds and resurrecting removals, both in total silence.
+  // -------------------------------------------------------------------------
+  describe('capability membership', () => {
+    const MANUAL_FILE = 'pharn-review/n-plus-one/n-plus-one.md';
+
+    // Add a lens to the CLONE (so it is in the install manifest) and, when
+    // `inProject`, to the project + its records — i.e. what `pharn add` leaves.
+    async function withManualLens(inProject: boolean): Promise<void> {
+      write(join(repo, MANUAL_FILE), 'n-plus-one v2');
+      if (!inProject) return;
+      write(join(proj, MANUAL_FILE), 'n-plus-one v1');
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: null,
+        files: {
+          ...read.store.files,
+          [MANUAL_FILE]: sha256File(join(proj, MANUAL_FILE)),
+        },
+      });
+    }
+
+    // The resolver selects a11y only; n-plus-one exists upstream but is not
+    // selected for these archetypes (exactly the live `lens:n-plus-one` case).
+    function selectsA11yOnly(): void {
+      resolveCapabilities.mockReturnValue({
+        selected: [{ ...CAP, matched: ['ssr'] }],
+        skipped: [
+          { name: 'n-plus-one', role: 'lens', reason: 'applies to [backend]' },
+        ],
+      });
+    }
+
+    const capNote = () =>
+      vi
+        .mocked(prompts.note)
+        .mock.calls.find((c) => c[1] === 'CAPABILITIES')?.[0];
+
+    // ACCEPTANCE (the reported e2e, inverted): a LEGACY manual entry — no
+    // `source`, because it predates the field — must survive the first
+    // post-upgrade update, with its files upgraded and its records intact.
+    it('preserves a LEGACY (source-less) manual entry, upgrades its files, and keeps its records', async () => {
+      await installed({
+        archetypes: ['lib'],
+        capabilities: [CAP, { name: 'n-plus-one', role: 'lens' }],
+      });
+      await withManualLens(true);
+      selectsA11yOnly();
+
+      await runUpdate();
+
+      // Still in the config — now explicitly tagged as the user's.
+      expect(readPharnConfig(proj)!.capabilities).toEqual([
+        { ...CAP, source: 'auto' },
+        { name: 'n-plus-one', role: 'lens', source: 'manual' },
+      ]);
+      // First-class in the manifest: its bytes upgraded like any other file...
+      expect(body(MANUAL_FILE)).toBe('n-plus-one v2');
+      // ...and its record survived rather than being pruned.
+      expect(records()?.[MANUAL_FILE]).toBe(
+        sha256File(join(repo, MANUAL_FILE)),
+      );
+      // And the preservation was NAMED, not silent.
+      expect(capNote()).toContain('lens:n-plus-one');
+      expect(capNote()).toContain('KEPT');
+    });
+
+    it('is IDEMPOTENT — a second run leaves capabilities byte-stable and reports no membership change', async () => {
+      await installed({
+        archetypes: ['lib'],
+        capabilities: [CAP, { name: 'n-plus-one', role: 'lens' }],
+      });
+      await withManualLens(true);
+      selectsA11yOnly();
+      await runUpdate();
+      const afterFirst = readPharnConfig(proj)!.capabilities;
+
+      // A plain second run would early-return on the version gate, so bypass it
+      // the way the rest of this suite does.
+      vi.clearAllMocks();
+      selectsA11yOnly();
+      fetchRepo.mockResolvedValue({ dir: repo, sha: 'a'.repeat(40), cleanup });
+      fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
+      parseCapabilityIndex.mockReturnValue({ capabilities: [] });
+      vi.mocked(prompts.confirm).mockResolvedValue(true);
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
+
+      await runUpdate({ force: true });
+
+      expect(readPharnConfig(proj)!.capabilities).toEqual(afterFirst);
+      expect(capNote()).toBeUndefined();
+    });
+
+    it('prints NOTHING about capabilities when membership is unchanged', async () => {
+      await installed();
+      await runUpdate();
+      expect(capNote()).toBeUndefined();
+    });
+
+    it('NAMES a newly-selected capability — which is how a resurrected removal becomes visible', async () => {
+      // The user removed a universal capability; the resolver selects it again.
+      // Tombstones are out of scope, so this is REPORTED, not prevented.
+      await installed({ capabilities: [] });
+      await runUpdate();
+
+      expect(capNote()).toContain('ADDED');
+      expect(capNote()).toContain('griller:a11y');
+    });
+
+    // The dropped capability MUST exist in the CLONE, and its file MUST be
+    // recorded, or this test proves nothing: with no source dir, addDir bails
+    // (install-manifest.ts:117) and the file sits outside the manifest whether
+    // the merge drops the entry or keeps it — so the byte/record assertions
+    // would pass even with row 5 inverted. Seeding the clone makes them causal:
+    // KEEP puts the file in the manifest, upgrades it to 'stale v2' and
+    // refreshes its record; DROP leaves it at v1 with its record pruned.
+    const STALE_FILE = 'pharn-review/stale/stale.md';
+
+    it('DROPS an auto capability the archetypes no longer select: named, files left at their old bytes, record PRUNED', async () => {
+      await installed({
+        capabilities: [CAP, { name: 'stale', role: 'lens', source: 'auto' }],
+      });
+      write(join(repo, STALE_FILE), 'stale v2'); // upstream still ships it
+      write(join(proj, STALE_FILE), 'stale v1'); // and it is installed here
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: null,
+        files: {
+          ...read.store.files,
+          [STALE_FILE]: sha256File(join(proj, STALE_FILE)),
+        },
+      });
+      selectsA11yOnly();
+
+      await runUpdate();
+
+      expect(readPharnConfig(proj)!.capabilities).toEqual([
+        { ...CAP, source: 'auto' },
+      ]);
+      expect(capNote()).toContain('lens:stale');
+      // It left the manifest: NOT upgraded to the clone's bytes, never deleted.
+      expect(body(STALE_FILE)).toBe('stale v1');
+      // nextRecords is keyed by the manifest just applied, so a path no longer
+      // installed is pruned rather than accumulating forever
+      // (lib/update-decision.ts). Files outliving their record is exactly why a
+      // returning capability later reads as `unrecorded`.
+      expect(records()?.[STALE_FILE]).toBeUndefined();
+    });
+
+    // Membership answers "which capabilities does this project have" (the
+    // archetypes decide); the version answers "are its BYTES complete". They are
+    // deliberately decoupled — withholding membership too would strand a phantom
+    // entry forever for anyone whose tree carries a single local edit.
+    it('still writes the merged membership when a skip WITHHOLDS the version bump', async () => {
+      await installed({ capabilities: [] });
+      write(join(proj, DOC), 'MY LOCAL EDIT'); // forces a `modified` skip
+
+      await runUpdate();
+
+      const config = readPharnConfig(proj)!;
+      // The version is held back...
+      expect(config.skillsVersion).toBe('1.0.0');
+      expect(config.commit).toBeNull();
+      // ...but the membership change still landed, and was reported.
+      expect(config.capabilities).toEqual([{ ...CAP, source: 'auto' }]);
+      expect(capNote()).toContain('griller:a11y');
+    });
+
+    // The trap: the install manifest SILENTLY contributes zero paths for a
+    // missing capability dir, so without the index-membership filter this entry
+    // would live in the config forever as a phantom and nothing would ever say so.
+    it('DROPS a manual entry whose capability is gone upstream — named, contributing zero manifest paths, files left alone', async () => {
+      await installed({
+        capabilities: [CAP, { name: 'gone', role: 'lens', source: 'manual' }],
+      });
+      write(join(proj, 'pharn-review/gone/gone.md'), 'my bytes');
+      // Selection knows nothing of `gone` — it is in neither selected nor skipped.
+      resolveCapabilities.mockReturnValue({
+        selected: [{ ...CAP, matched: ['ssr'] }],
+        skipped: [],
+      });
+
+      await expect(runUpdate()).resolves.toBeUndefined();
+
+      expect(readPharnConfig(proj)!.capabilities).toEqual([
+        { ...CAP, source: 'auto' },
+      ]);
+      expect(capNote()).toContain('lens:gone');
+      expect(capNote()).toContain('no longer exists upstream');
+      // Zero manifest paths ⇒ its file was never a write target, and never deleted.
+      expect(body('pharn-review/gone/gone.md')).toBe('my bytes');
+    });
+
+    it('SKIPS a manual capability file the user edited, with the standard report', async () => {
+      await installed({
+        archetypes: ['lib'],
+        capabilities: [
+          CAP,
+          { name: 'n-plus-one', role: 'lens', source: 'manual' },
+        ],
+      });
+      await withManualLens(true);
+      write(join(proj, MANUAL_FILE), 'MY LOCAL EDIT');
+      selectsA11yOnly();
+
+      await runUpdate();
+
+      expect(body(MANUAL_FILE)).toBe('MY LOCAL EDIT');
+      const skipNote = vi
+        .mocked(prompts.note)
+        .mock.calls.find((c) => c[1] === 'SKIPPED')?.[0];
+      expect(skipNote).toContain('MODIFIED');
+      expect(skipNote).toContain(MANUAL_FILE);
+    });
+
+    it('RESTORES a manual capability file the user deleted', async () => {
+      await installed({
+        archetypes: ['lib'],
+        capabilities: [
+          CAP,
+          { name: 'n-plus-one', role: 'lens', source: 'manual' },
+        ],
+      });
+      await withManualLens(false);
+      selectsA11yOnly();
+
+      await runUpdate();
+
+      expect(body(MANUAL_FILE)).toBe('n-plus-one v2');
     });
   });
 

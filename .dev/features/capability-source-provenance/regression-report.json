@@ -1,0 +1,42 @@
+{
+  "base": "9919277",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/add.md",
+    "docs/commands/list.md",
+    "docs/commands/remove.md",
+    "docs/commands/update.md",
+    "docs/reference/pharn-config.md",
+    "src/commands/add.ts",
+    "src/commands/list.ts",
+    "src/commands/remove.ts",
+    "src/commands/update.ts",
+    "src/lib/capability-groups.ts",
+    "src/lib/merge-capabilities.ts",
+    "src/lib/pharn-config.ts",
+    "src/steps/install-archetype.ts",
+    "src/types.ts",
+    "tests/add.test.ts",
+    "tests/capability-groups.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/list.test.ts",
+    "tests/merge-capabilities.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/remove.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

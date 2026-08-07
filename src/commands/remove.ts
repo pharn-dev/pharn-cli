@@ -75,6 +75,25 @@ function deleteCapabilityDir(
   return existed;
 }
 
+// Warn when a capability being removed will simply come back. Derived from the
+// STORED `source` alone — `remove` is zero-network and has no capability index,
+// so there is nothing else it could honestly read.
+//
+// It fires on the LITERAL 'auto' and nothing else. An ABSENT `source` (a config
+// written before the field existed) stays SILENT on purpose: absence means the
+// provenance is genuinely unknown until `pharn update` infers it against a fresh
+// index, and a legacy MANUAL add given an "absent means auto" default would be
+// told the exact opposite of the truth. A false warning here is worse than none
+// (P5 — the terminal for unknown is to say nothing, never to guess).
+function warnIfAutoSelected(targets: InstalledCapability[]): void {
+  const auto = targets.filter((c) => c.source === 'auto');
+  if (auto.length === 0) return;
+  const names = auto.map((c) => `${c.name} (${c.role})`).join(', ');
+  log.warn(
+    `${names} ${auto.length === 1 ? 'is' : 'are'} selected automatically for your archetypes, so the next \`pharn update\` will reinstall ${auto.length === 1 ? 'it' : 'them'} (and will name ${auto.length === 1 ? 'it' : 'them'} in its report).`,
+  );
+}
+
 // `pharn remove <name>` / `<role>:<name>` — resolve to ONE installed capability
 // and delete it. Byte-identical to the pre-picker behavior (now routed through
 // the shared deleteCapabilityDir helper).
@@ -118,6 +137,8 @@ async function removeNamed(
   const existed = deleteCapabilityDir(cwd, paths, target);
   const note = existed ? '' : pc.dim(' (its files were already gone)');
 
+  // The surviving entries are the ORIGINAL objects, so every other capability's
+  // `source` is carried through untouched.
   await writePharnConfig(cwd, {
     ...config,
     capabilities: installed.filter(
@@ -125,6 +146,8 @@ async function removeNamed(
     ),
     installedAt: new Date().toISOString(),
   });
+
+  warnIfAutoSelected([target]);
 
   outro(`${pc.green('✔')} Removed ${target.name} (${target.role})${note}`);
 }
@@ -195,12 +218,16 @@ async function runRemovePicker(
   const paths = layoutPaths(configLayout(config));
   for (const target of targets) deleteCapabilityDir(cwd, paths, target);
 
+  // As in removeNamed: survivors are the original objects, so their `source` is
+  // preserved verbatim.
   const removed = new Set(targets.map((t) => `${t.role}:${t.name}`));
   await writePharnConfig(cwd, {
     ...config,
     capabilities: installed.filter((c) => !removed.has(`${c.role}:${c.name}`)),
     installedAt: new Date().toISOString(),
   });
+
+  warnIfAutoSelected(targets);
 
   outro(
     `${pc.green('✔')} Removed ${targets.length} ${plural(targets.length)}.`,
