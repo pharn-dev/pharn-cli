@@ -403,11 +403,17 @@ function reportCapabilityChanges(changes: CapabilityChange[]): void {
     for (const { cap } of inGroup) lines.push(`  ${cap.role}:${cap.name}`);
     lines.push('');
   }
-  lines.push(
-    pc.dim(
-      '  Removed capabilities’ files are left on disk — pharn update never deletes.',
-    ),
-  );
+  if (
+    changes.some(
+      (c) => c.reason === 'dropped-unselected' || c.reason === 'dropped-gone',
+    )
+  ) {
+    lines.push(
+      pc.dim(
+        '  Removed capabilities’ files are left on disk — pharn update never deletes.',
+      ),
+    );
+  }
   note(lines.join('\n'), 'CAPABILITIES');
 }
 

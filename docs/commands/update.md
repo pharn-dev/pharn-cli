@@ -37,13 +37,17 @@ one of your archetypes since your last install is picked up, and one it removed 
 
 ```text
 next capabilities = resolve(your archetypes, latest index)   ← the `source: "auto"` set
-                  ∪ every `source: "manual"` entry            ← what you added by hand
+                  ∪ every `source: "manual"` entry still in the latest index
 ```
 
 So a capability you installed with [`pharn add`](add.md) **survives an update that does not select it**,
-and its files are upgraded, restored, or skipped-on-edit by the same table below as everything else.
-An entry that is both manual and re-selected stays `manual`, so a later archetype change cannot quietly
-drop it. See [`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
+as long as it still exists upstream — a manual entry whose capability has been removed from the index is
+dropped instead (named under `REMOVED — no longer exists upstream`). Its files are upgraded, restored, or
+skipped-on-edit by the same table below as everything else when it is kept. An entry that is both manual
+and re-selected stays `manual`, so a later archetype change cannot quietly drop it. A capability you
+removed with [`pharn remove`](remove.md) returns only when the latest resolution still selects it for your
+archetypes — then it re-enters as `auto` and is named under `ADDED`. See
+[`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
 
 **Every membership change is named.** When the list changes, `update` prints a `CAPABILITIES` section:
 

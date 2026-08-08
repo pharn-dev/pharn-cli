@@ -56,8 +56,9 @@ which `add` can promise anything about the tree it is adding to.
 Each capability `add` installs is recorded with `"source": "manual"`, which is what makes the override
 stick: [`pharn update`](update.md) preserves manual entries instead of replacing your capability list
 with the freshly-resolved archetype set. Before this field existed, an `add` was silently deleted by the
-next `update` — a source-less entry is now inferred as manual on that first update and preserved. See
-[`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
+next `update` — a source-less entry is now inferred as manual on that first update, and kept only while
+the capability still exists in the latest index (dropped with a named report line if upstream removed it).
+See [`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
 
 ## The capability argument
 

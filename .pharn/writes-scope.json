@@ -1,0 +1,30 @@
+{
+  "scope": [
+    "src/types.ts",
+    "src/lib/merge-capabilities.ts",
+    "src/lib/pharn-config.ts",
+    "src/commands/update.ts",
+    "src/commands/add.ts",
+    "src/commands/remove.ts",
+    "src/steps/install-archetype.ts",
+    "src/commands/list.ts",
+    "src/lib/capability-groups.ts",
+    "tests/merge-capabilities.test.ts",
+    "tests/update.test.ts",
+    "tests/add.test.ts",
+    "tests/remove.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/list.test.ts",
+    "tests/capability-groups.test.ts",
+    "docs/reference/pharn-config.md",
+    "docs/commands/update.md",
+    "docs/commands/add.md",
+    "docs/commands/remove.md",
+    "docs/commands/list.md",
+    "CLAUDE.md",
+    "CHANGELOG.md"
+  ],
+  "set_by": ".dev/features/capability-source-provenance/PLAN.md",
+  "set_at": "2026-08-08T09:58:20.839Z"
+}

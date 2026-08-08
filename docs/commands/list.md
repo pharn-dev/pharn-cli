@@ -33,8 +33,10 @@ Capabilities are grouped by role with a per-role count, one capability per line:
 ```
 
 A capability you installed by hand with [`pharn add`](add.md) is marked `(manual)` — it is preserved
-across [`pharn update`](update.md) rather than re-derived from your archetypes. Automatically-selected
-capabilities, and entries written before the field existed, render unmarked. See
+across [`pharn update`](update.md) rather than re-derived from your archetypes, unless upstream has
+removed the capability from the index (then `update` drops the entry and reports it). Automatically-selected
+capabilities, and entries written before the field existed, render unmarked; those legacy entries are
+inferred as manual on the next `update` and follow the same preserve-or-drop rule. See
 [`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
 
 Nothing is ever written, fetched, or cloned. To see what more you could add, use `pharn add

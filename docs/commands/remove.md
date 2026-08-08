@@ -43,14 +43,15 @@ under `pharn/`. Removal is therefore precise; siblings are never touched.
 ## Removing an auto-selected capability
 
 If the entry's recorded `source` is `auto` — it was selected for your archetypes by
-[`init`](init.md) — `remove` prints a warning that the next [`pharn update`](update.md) will reinstall
-it, because update re-resolves your archetypes every run. Removing a `manual` entry (one you added with
-[`add`](add.md)) warns nothing.
+[`init`](init.md) or a prior [`update`](update.md) — `remove` prints a warning that the next
+[`pharn update`](update.md) may re-add it if the latest resolution still selects it for your
+archetypes, because update re-resolves your archetypes every run. Removing a `manual` entry (one you
+added with [`add`](add.md)) warns nothing.
 
 **Silence is not a promise that the removal is permanent.** `update` writes
 `resolve(archetypes) ∪ manual`; dropping the entry removes it from the _manual_ half, but the
 _resolved_ half is unaffected. If your archetypes still select that capability — and most capabilities
-are `universal`, so they usually do — the next `update` re-adds it as `auto` and names it under
+are `universal`, so they usually do — the next `update` may re-add it as `auto` and name it under
 `ADDED`. `remove` cannot warn about this: it has no capability index and never fetches one, so it
 cannot know whether your archetypes select the thing you are removing. To keep a capability out for
 good, remove the archetype that selects it.

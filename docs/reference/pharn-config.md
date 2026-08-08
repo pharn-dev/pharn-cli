@@ -9,19 +9,19 @@ archetypes/capabilities and the pinned commit).
 
 ## Top-level fields (archetype install)
 
-| Field           | Type     | Description                                                                    |                                                                     |
-| --------------- | -------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `pharnVersion`  | string   | Version of the PHARN CLI that ran the install                                  |                                                                     |
-| `skillsVersion` | string   | The repo's `SKILLS_VERSION` at the installed commit                            |                                                                     |
-| `repo`          | string   | Source repo (`pharn-dev/pharn-oss`)                                            |                                                                     |
-| `commit`        | string \ | null                                                                           | Pinned commit SHA of the install; `null` if the SHA was unavailable |
-| `installedAt`   | string   | ISO timestamp of the install / last update                                     |                                                                     |
-| `archetypes`    | array    | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                |                                                                     |
-| `capabilities`  | array    | Installed capabilities, each `{ name, role, source? }` — see below             |                                                                     |
-| `layout`        | string   | Install layout mirrored from the clone: `flat` or `pharn` (absent → `flat`)    |                                                                     |
-| `modules`       | array    | Always `[]` for an archetype install (the install unit is capabilities)        |                                                                     |
-| `models`        | object   | Per-stage model routing ([`model-routing.ts`](../../src/lib/model-routing.ts)) |                                                                     |
-| `seam`          | object   | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |                                                                     |
+| Field           | Type           | Description                                                                    |                                                                     |
+| --------------- | -------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                  |                                                                     |
+| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                            |                                                                     |
+| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                            |                                                                     |
+| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable            |                                                                     |
+| `installedAt`   | string         | ISO timestamp of the install / last update                                     |                                                                     |
+| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                |                                                                     |
+| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below             |                                                                     |
+| `layout`        | string         | Install layout mirrored from the clone: `flat` or `pharn` (absent → `flat`)    |                                                                     |
+| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)        |                                                                     |
+| `models`        | object         | Per-stage model routing ([`model-routing.ts`](../../src/lib/model-routing.ts)) |                                                                     |
+| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |                                                                     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 
@@ -29,11 +29,11 @@ archetypes/capabilities and the pinned commit).
 
 Each entry records **how it got there**, which decides who owns it on the next `pharn update`:
 
-| `source`   | Written by                  | What `pharn update` does with it                        |
-| ---------- | --------------------------- | ------------------------------------------------------- |
-| `auto`     | `pharn init`                | Owns it — drops it if your archetypes stop selecting it |
-| `manual`   | `pharn add`                 | **Preserves it**, selected or not                       |
-| _(absent)_ | a CLI older than this field | Inferred once, on the next `pharn update` (see below)   |
+| `source`   | Set by                                                            | What `pharn update` does with it                        |
+| ---------- | ----------------------------------------------------------------- | ------------------------------------------------------- |
+| `auto`     | `pharn init`, or `pharn update` when selected for your archetypes | Owns it — drops it if your archetypes stop selecting it |
+| `manual`   | `pharn add`, or `pharn update` when inferring legacy provenance   | **Preserves it**, selected or not                       |
+| _(absent)_ | a CLI older than this field                                       | Inferred once, on the next `pharn update` (see below)   |
 
 `source` is **optional** — a config written before the field existed simply omits it and still loads.
 Absence is never read as a default: it means _provenance unknown_, and only `pharn update` may resolve
