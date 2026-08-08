@@ -33,7 +33,16 @@ import { join, relative, sep } from "node:path";
 const TARGET = process.argv[2] || ".";
 // Same exclusions as .dev/floor/count-verifiers.mjs / validate.mjs: tooling (.claude/commands, .dev/) and
 // noise are NOT the capability surface, so a `role: griller` frontmatter there is not a built-PHARN griller.
-const EXCLUDE_SEGMENTS = [`${sep}.claude${sep}commands${sep}`, `${sep}.dev${sep}`, `${sep}node_modules${sep}`, `${sep}.git${sep}`];
+// `pharn/floor` is tooling (the deterministic checkers + their test-fixtures), never product
+// capabilities — excluded exactly as `.dev/` is, so a pharn-layout install in the tree is not counted.
+// Mirrors validate.mjs's list, which this file must stay identical to (it counts the same surface).
+const EXCLUDE_SEGMENTS = [
+  `${sep}.claude${sep}commands${sep}`,
+  `${sep}.dev${sep}`,
+  `${sep}pharn${sep}floor${sep}`,
+  `${sep}node_modules${sep}`,
+  `${sep}.git${sep}`,
+];
 
 function fail(msg) {
   process.stderr.write("count-grillers: " + msg + "\n");

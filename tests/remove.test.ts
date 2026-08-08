@@ -47,7 +47,11 @@ function setTTY(stdin?: boolean, stdout?: boolean): void {
 }
 
 function archConfig(
-  caps: { name: string; role: 'griller' | 'lens' }[],
+  caps: {
+    name: string;
+    role: 'griller' | 'lens';
+    source?: 'auto' | 'manual';
+  }[],
   extra: Partial<PharnConfig> = {},
 ): PharnConfig {
   return {
@@ -275,5 +279,93 @@ describe('runRemove (archetype)', () => {
     // Declined → the dir is left in place and no config write happens.
     expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(true);
     expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+  // -------------------------------------------------------------------------
+  // The re-add warning. Derived from the STORED `source` alone — `remove` has no
+  // capability index and never fetches one, so this is all it could honestly say.
+  // -------------------------------------------------------------------------
+  describe('the auto re-add warning (offline)', () => {
+    const warnings = () =>
+      vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+
+    it('WARNS when the removed entry is literally source: auto', () => {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([{ name: 'a11y', role: 'griller', source: 'auto' }]),
+      );
+      write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+
+      return runRemove('a11y').then(() => {
+        expect(warnings()).toContain('pharn update');
+        expect(warnings()).toContain('a11y');
+      });
+    });
+
+    it('stays SILENT for a manual entry — the union can never re-add it', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([{ name: 'a11y', role: 'griller', source: 'manual' }]),
+      );
+      write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+
+      await runRemove('a11y');
+
+      expect(warnings()).not.toContain('pharn update');
+    });
+
+    // The hard rule: absent means UNKNOWN, never "auto". A legacy manual add
+    // given an absent-means-auto default would be told the exact opposite of the
+    // truth, and a false warning is worse than silence.
+    it('stays SILENT when `source` is ABSENT (legacy) — it never defaults to auto', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([{ name: 'a11y', role: 'griller' }]),
+      );
+      write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+
+      await runRemove('a11y');
+
+      expect(warnings()).not.toContain('pharn update');
+    });
+
+    it("leaves every surviving entry's `source` untouched", async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'n-plus-one', role: 'lens', source: 'manual' },
+          { name: 'legacy', role: 'lens' },
+        ]),
+      );
+      write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+
+      await runRemove('a11y');
+
+      expect(lastWritten().capabilities).toEqual([
+        { name: 'n-plus-one', role: 'lens', source: 'manual' },
+        { name: 'legacy', role: 'lens' },
+      ]);
+    });
+
+    it('warns once, listing every auto pick, from the picker path too', async () => {
+      setTTY(true, true);
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'n-plus-one', role: 'lens', source: 'manual' },
+        ]),
+      );
+      write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+      write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+      vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+        'griller:a11y',
+        'lens:n-plus-one',
+      ]);
+      vi.mocked(prompts.confirm).mockResolvedValue(true);
+
+      await runRemove(undefined);
+
+      expect(warnings()).toContain('a11y');
+      expect(warnings()).not.toContain('n-plus-one');
+    });
   });
 });

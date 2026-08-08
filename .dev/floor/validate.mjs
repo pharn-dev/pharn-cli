@@ -27,7 +27,17 @@ const TARGET = process.argv[2] || ".";
 const COUPLING_ENUM = ["agnostic", "framework-seam", "framework-specific"];
 const ROLE_ENUM = ["skill", "lens", "validator", "verifier", "griller", "auditor"];
 const KIND_ENUM = ["pharn-owned", "vendor-official", "community"];
-const EXCLUDE_SEGMENTS = [`${sep}.claude${sep}commands${sep}`, `${sep}.dev${sep}`, `${sep}node_modules${sep}`, `${sep}.git${sep}`];
+// `pharn/floor` holds the deterministic checkers + their test-fixtures (incl. the deliberately-RED
+// fixture) — tooling, never product capabilities — so it is excluded from the capability scan exactly
+// as `.dev/` (its pre-relocation home) always was. The product surface remains pharn/pharn-*/**.
+// Mirrors pharn-oss's pharn/floor/validate.mjs, which this file is a vendored copy of.
+const EXCLUDE_SEGMENTS = [
+  `${sep}.claude${sep}commands${sep}`,
+  `${sep}.dev${sep}`,
+  `${sep}pharn${sep}floor${sep}`,
+  `${sep}node_modules${sep}`,
+  `${sep}.git${sep}`,
+];
 
 const findings = [];
 function finding(severity, rule_id, file, problem) {

@@ -21,12 +21,28 @@ export interface InstalledSkill {
   from: string;
 }
 
+// How a capability entered `capabilities` — its selection PROVENANCE. 'auto' =
+// chosen by archetype resolution, so `pharn update` owns it and drops it when the
+// archetypes stop selecting it. 'manual' = the user named it (`pharn add`), so it
+// is preserved across updates even when the archetypes do not select it. Runtime
+// allowlist: CAPABILITY_SOURCES in src/lib/pharn-config.ts.
+export type CapabilitySource = 'auto' | 'manual';
+
 // Archetype install (pharn init --archetype): one selected capability copied into
 // the project. `name` is the capability's directory basename (the copy target
 // under pharn-pipeline/grillers/ or pharn-review/); `role` selects that subtree.
 export interface InstalledCapability {
   name: string;
   role: 'griller' | 'lens';
+  // Selection provenance. Additive (P7): absent on every config written before
+  // this field existed, and absent is LEGAL everywhere. Deliberately NOT given a
+  // global "absent means auto" default — provenance is genuinely unknown until
+  // `pharn update` infers it against a fresh index (src/lib/merge-capabilities.ts,
+  // the ONLY place that may resolve absence). Offline consumers — `remove` above
+  // all — branch on the literal 'auto' and stay silent on absent, because a
+  // legacy MANUAL add wrongly defaulted to 'auto' would be told the opposite of
+  // the truth.
+  source?: CapabilitySource;
 }
 
 // ---------------------------------------------------------------------------

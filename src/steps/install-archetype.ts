@@ -72,7 +72,12 @@ export async function runInstallArchetype(
     // Seam-resolution policy, written on every fresh install (P7 — additive).
     seam: DEFAULT_SEAM_CONFIG,
     archetypes,
-    capabilities,
+    // Every entry a fresh install writes came from archetype resolution, so it is
+    // `auto` — `pharn update` owns it and may drop it when the archetypes stop
+    // selecting it. `pharn add` is the only thing that writes `manual`. Tagged at
+    // the WRITE site so lib/install-capabilities.ts (the copy routine) stays
+    // unaware of provenance, which is not its axis (P3).
+    capabilities: capabilities.map((c) => ({ ...c, source: 'auto' as const })),
     // The layout mirrored from the fetched clone (flat OR pharn/) — status/remove
     // read this back to address the project the same way (lib/layout.ts).
     layout,

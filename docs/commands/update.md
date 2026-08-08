@@ -22,7 +22,7 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    re-applies upstream at the current version.
 4. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation.
 5. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
-   latest capability index.
+   latest capability index, then **unions** that result with the capabilities you added by hand.
 6. Decides each expected file with the table below, backs up anything `--force` is about to
    overwrite, copies the files it may write, then updates `pharn.records.json` and
    `pharn.config.json`.
@@ -30,6 +30,41 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 Because `update` re-resolves your archetypes against the latest index, a capability upstream added for
 one of your archetypes since your last install is picked up, and one it removed is dropped — your
 `archetypes` list itself is never changed.
+
+## What happens to your capability list
+
+`update` does **not** replace `capabilities` with the resolved set. It writes the union:
+
+```text
+next capabilities = resolve(your archetypes, latest index)   ← the `source: "auto"` set
+                  ∪ every `source: "manual"` entry still in the latest index
+```
+
+So a capability you installed with [`pharn add`](add.md) **survives an update that does not select it**,
+as long as it still exists upstream — a manual entry whose capability has been removed from the index is
+dropped instead (named under `REMOVED — no longer exists upstream`). Its files are upgraded, restored, or
+skipped-on-edit by the same table below as everything else when it is kept. An entry that is both manual
+and re-selected stays `manual`, so a later archetype change cannot quietly drop it. A capability you
+removed with [`pharn remove`](remove.md) returns only when the latest resolution still selects it for your
+archetypes — then it re-enters as `auto` and is named under `ADDED`. See
+[`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
+
+**Every membership change is named.** When the list changes, `update` prints a `CAPABILITIES` section:
+
+| Reported as                                               | Meaning                                                         |
+| --------------------------------------------------------- | --------------------------------------------------------------- |
+| `ADDED — newly selected for your archetypes`              | New upstream for your archetypes, or re-selected after a remove |
+| `REMOVED — no longer selected for your archetypes`        | An `auto` entry your archetypes no longer select                |
+| `REMOVED — no longer exists upstream (was a manual add)`  | A `manual` entry whose capability is gone from the index        |
+| `KEPT — your manual add, not selected by your archetypes` | A pre-`source` entry preserved as manual (printed once)         |
+
+If nothing changed, nothing is printed. Removed entries' **files are left on disk** — `update` never
+deletes.
+
+> **Named limit — removals are not permanent.** `pharn remove` drops the entry from `capabilities`;
+> it does not record a tombstone. If your archetypes still select that capability, the next `update`
+> re-adds it — but it will now **say so** under `ADDED`, instead of resurrecting it in silence.
+> `pharn remove` warns you about this at removal time for an `auto` capability.
 
 ## The decision table
 

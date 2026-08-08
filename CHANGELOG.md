@@ -7,7 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`capabilities[].source` — selection provenance, so `pharn update` stops deleting what you added.**
+  Each entry in `pharn.config.json` now records how it got there: `auto` (selected for your archetypes
+  by `pharn init`) or `manual` (you asked for it by name with `pharn add`). The field is **optional** —
+  a config written by an older CLI omits it and still loads.
+
+- **`pharn list` shows provenance.** The human listing marks a hand-added capability `(manual)`;
+  `--json` gains a `source` field on each capability, **omitted** (never defaulted) when the config
+  does not record one. This is an additive JSON change — existing consumers are unaffected.
+
 ### Fixed
+
+- **`pharn update` no longer silently deletes capabilities you added by hand, or silently resurrects
+  ones you removed.** `update` re-resolves your `archetypes` against the latest index, and it used to
+  overwrite `capabilities` with that result **wholesale**. Two things went wrong, both without a word:
+
+  - a capability installed with `pharn add` that your archetypes do not select was **dropped** from the
+    config on the next update — its files orphaned on disk, invisible to `list`, `remove` and `status`;
+  - because most capabilities are `universal`, a `pharn remove` was **undone** by the next update.
+
+  `update` now writes the **union** — `resolve(archetypes, latest index) ∪ your manual entries` — so a
+  manual add survives, and its files upgrade, restore, or skip-on-edit through the same per-file
+  decision table as everything else. An entry that is both manual and re-selected stays manual, so a
+  later archetype change cannot quietly drop it. A manual entry whose capability no longer exists
+  upstream is dropped from the config (its files left alone) rather than kept as a phantom pointing at
+  nothing.
+
+- **Every capability membership change is now named.** When the list changes, `update` prints a
+  `CAPABILITIES` section saying exactly what moved and why — `ADDED — newly selected for your
+  archetypes`, `REMOVED — no longer selected for your archetypes`, `REMOVED — no longer exists upstream
+  (was a manual add)`, or `KEPT — your manual add, not selected by your archetypes`. When nothing
+  changed, nothing is printed.
+
+  > **Named limit:** a removal is not a tombstone. If your archetypes still select a capability you
+  > removed, the next `update` re-adds it — but it now **says so** under `ADDED` instead of restoring it
+  > in silence. Preventing that (rather than reporting it) needs a `removed:` list, which is deliberately
+  > not in this release.
+
+- **`pharn remove` warns when a removal will not stick.** Removing an entry recorded as `auto` now warns
+  that the next `pharn update` will reinstall it. The warning reads the stored field only, so `remove`
+  still needs no network — which also bounds what it can tell you: removing a `manual` entry warns
+  nothing, but that is **not** a promise the removal is permanent. The union's _manual_ half can no
+  longer re-add it, yet the _resolved_ half still can — if your archetypes select that capability, the
+  next `update` re-adds it as `auto`. It will be named under `ADDED` when that happens.
+
+- **Existing installs migrate themselves, without losing anything.** An entry with no `source` (written
+  before this release) is inferred exactly **once**, on your next `pharn update`: in the resolved set it
+  becomes `auto`, outside it becomes `manual`. That second half is a **reconstruction, not a recovered
+  fact** — an entry outside the resolved set was either added by hand, or auto-selected by an older
+  index and since de-selected upstream, and nothing offline can tell those apart. It is tagged `manual`
+  either way, which is the fail-safe direction: a still-existing capability is then kept, and one that
+  has disappeared upstream is dropped **and named**. So no pre-existing `pharn add` is lost by the
+  upgrade, and the preserved entries are named in that run's report. Absence is never treated as a
+  default anywhere else: `pharn remove` stays silent on an absent `source` rather than give a legacy
+  manual add a wrong "update will reinstall it" warning.
+
+  A `source` present but outside `{auto, manual}` is reported by name (`capabilities[2].source`) and
+  exits, instead of falling back to "run `pharn init`". Deleting the field is a valid fix.
+
 
 - **`pharn add` no longer makes `pharn update` report "Already up to date" over a stale install.**
   `add` clones the tip of `pharn-dev/pharn-oss`, and it used to write that clone's `SKILLS_VERSION`

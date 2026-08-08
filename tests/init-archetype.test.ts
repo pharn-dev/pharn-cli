@@ -126,10 +126,12 @@ describe('archetype install (fixture e2e)', () => {
       model: 'opus-4-8',
       effort: 'high',
     });
+    // Everything a fresh install writes came from archetype resolution, so it is
+    // `auto` — update owns it. Only `pharn add` writes `manual`.
     expect(config!.capabilities).toEqual([
-      { name: 'a11y', role: 'griller' },
-      { name: 'security', role: 'griller' },
-      { name: 'n-plus-one', role: 'lens' },
+      { name: 'a11y', role: 'griller', source: 'auto' },
+      { name: 'security', role: 'griller', source: 'auto' },
+      { name: 'n-plus-one', role: 'lens', source: 'auto' },
     ]);
   });
 

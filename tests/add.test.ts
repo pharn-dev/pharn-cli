@@ -121,7 +121,9 @@ describe('runAdd (archetype)', () => {
     const [, written] = writePharnConfig.mock.calls[0]!;
     expect((written as PharnConfig).capabilities).toEqual([
       { name: 'security', role: 'griller' },
-      { name: 'a11y', role: 'griller' },
+      // `add` is the ONLY writer of `manual`: the user named this capability, so
+      // `pharn update` must preserve it rather than re-derive it (P7).
+      { name: 'a11y', role: 'griller', source: 'manual' },
     ]);
     expect((written as PharnConfig).archetypes).toEqual(['ssr']);
     expect(cleanup).toHaveBeenCalled();
@@ -198,10 +200,13 @@ describe('runAdd (archetype)', () => {
     ]);
     // grill F1: the FINAL persisted config holds ALL picks, not just the last.
     const written = writePharnConfig.mock.calls.at(-1)![1] as PharnConfig;
+    // Both entry-construction sites tag `manual` — the per-name path AND the
+    // picker's threaded mirror. If only the first did, every pick but the last
+    // would persist untagged and the next update would delete it.
     expect(written.capabilities).toEqual([
       { name: 'security', role: 'griller' },
-      { name: 'a11y', role: 'griller' },
-      { name: 'n-plus-one', role: 'lens' },
+      { name: 'a11y', role: 'griller', source: 'manual' },
+      { name: 'n-plus-one', role: 'lens', source: 'manual' },
     ]);
   });
 

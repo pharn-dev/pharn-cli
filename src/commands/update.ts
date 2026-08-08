@@ -12,6 +12,10 @@ import { cancelAndExit } from '../lib/confirm.js';
 import { REPO_URL } from '../lib/constants.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
+import {
+  mergeCapabilities,
+  type CapabilityChange,
+} from '../lib/merge-capabilities.js';
 import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { applyWrites, ApplyError, readDiskState } from '../lib/apply-update.js';
 import { createBackup, BACKUP_DIR } from '../lib/backup.js';
@@ -63,6 +67,9 @@ interface UpdateOutcome {
   // installedVersion for a complete run, the previous one when skips withheld it.
   recordedVersion: string;
   capCount: number;
+  // Every difference between the previous and next `capabilities` membership.
+  // Empty ⇒ nothing changed ⇒ nothing is printed about capabilities at all.
+  capabilityChanges: CapabilityChange[];
   plan: UpdatePlan;
   backupDir: string | null;
   recordsNote: string | null;
@@ -176,10 +183,22 @@ async function applyUpdate(
 ): Promise<UpdateOutcome> {
   const index = parseCapabilityIndex(repoDir);
   const selection = resolveCapabilities(config.archetypes ?? [], index);
-  const capabilities: InstalledCapability[] = selection.selected.map((c) => ({
-    name: c.name,
-    role: c.role,
-  }));
+  // The UNION, not a wholesale replace: the freshly-resolved auto set PLUS every
+  // manual entry the user added by name (lib/merge-capabilities.ts owns the
+  // table). Replacing wholesale is what used to delete manual adds and resurrect
+  // removals in silence. `capabilities` feeds the install manifest below, so a
+  // preserved manual entry is first-class — its files run through the same
+  // per-file decision rows as everything else.
+  //
+  // Membership is written even when `versionWithheld` holds the version back
+  // (below), and that is deliberate: membership answers "which capabilities does
+  // this project have", which the archetypes decide, while the version answers
+  // "are its BYTES complete". A newly-selected capability's files are absent, so
+  // they always take the `restored` row and are written regardless; withholding
+  // membership instead would strand a phantom entry forever for any user whose
+  // tree has a single local edit.
+  const merged = mergeCapabilities(selection, config.capabilities ?? []);
+  const capabilities: InstalledCapability[] = merged.capabilities;
   const installedVersion = readSkillsVersion(repoDir);
 
   // The layout the copy actually mirrors is the CLONE's (this is what
@@ -279,6 +298,7 @@ async function applyUpdate(
     installedVersion,
     recordedVersion: nextSkillsVersion,
     capCount: capabilities.length,
+    capabilityChanges: merged.changes,
     plan,
     backupDir,
     recordsNote,
@@ -296,6 +316,8 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   const { counts } = plan;
 
   if (recordsNote) log.warn(`⚠ ${recordsNote}`);
+
+  reportCapabilityChanges(outcome.capabilityChanges);
 
   if (plan.skipped.length > 0) {
     const lines: string[] = [];
@@ -342,6 +364,57 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   outro(
     `${pc.green('✔')} ${summary} ${pc.dim(`(${outcome.capCount} capabilit${outcome.capCount === 1 ? 'y' : 'ies'}, skills v${outcome.recordedVersion})`)}`,
   );
+}
+
+// The order change groups are reported in — additions first, then departures,
+// then the one-time legacy tagging (P5: deterministic output, never dependent on
+// the merge's internal iteration order).
+const CHANGE_ORDER: { reason: CapabilityChange['reason']; heading: string }[] =
+  [
+    {
+      reason: 'added',
+      heading: 'ADDED — newly selected for your archetypes',
+    },
+    {
+      reason: 'dropped-unselected',
+      heading: 'REMOVED — no longer selected for your archetypes',
+    },
+    {
+      reason: 'dropped-gone',
+      heading: 'REMOVED — no longer exists upstream (was a manual add)',
+    },
+    {
+      reason: 'kept-manual',
+      heading: 'KEPT — your manual add, not selected by your archetypes',
+    },
+  ];
+
+// Name EVERY membership change. This is the whole point of the merge: before it,
+// a manual add could vanish and a removal could resurrect without a word. Zero
+// changes prints NOTHING — a steady-state update stays as quiet as it was.
+function reportCapabilityChanges(changes: CapabilityChange[]): void {
+  if (changes.length === 0) return;
+
+  const lines: string[] = [];
+  for (const { reason, heading } of CHANGE_ORDER) {
+    const inGroup = changes.filter((c) => c.reason === reason);
+    if (inGroup.length === 0) continue;
+    lines.push(`  ${heading}`);
+    for (const { cap } of inGroup) lines.push(`  ${cap.role}:${cap.name}`);
+    lines.push('');
+  }
+  if (
+    changes.some(
+      (c) => c.reason === 'dropped-unselected' || c.reason === 'dropped-gone',
+    )
+  ) {
+    lines.push(
+      pc.dim(
+        '  Removed capabilities’ files are left on disk — pharn update never deletes.',
+      ),
+    );
+  }
+  note(lines.join('\n'), 'CAPABILITIES');
 }
 
 function skipHeading(label: string): string {
