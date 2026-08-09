@@ -18,12 +18,17 @@ archetypes/capabilities and the pinned commit).
 | `installedAt`   | string         | ISO timestamp of the install / last update                                     |                                                                     |
 | `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                |                                                                     |
 | `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below             |                                                                     |
-| `layout`        | string         | Install layout mirrored from the clone: `flat` or `pharn` (absent → `flat`)    |                                                                     |
+| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)          |                                                                     |
 | `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)        |                                                                     |
 | `models`        | object         | Per-stage model routing ([`model-routing.ts`](../../src/lib/model-routing.ts)) |                                                                     |
 | `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |                                                                     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
+
+`layout` is written only by `pharn init` and `pharn update`, each recording the layout of the clone it
+actually copied from. `pharn add` never writes the field — it
+[refuses](../commands/add.md#layout-mismatch) a clone whose layout disagrees with the recorded one,
+because it installs a single capability and cannot migrate the rest of your tree.
 
 ### `capabilities[].source` — selection provenance
 

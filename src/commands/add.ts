@@ -24,7 +24,7 @@ import {
   recordsBaseline,
   writeRecords,
 } from '../lib/install-records.js';
-import { detectLayout, layoutPaths } from '../lib/layout.js';
+import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import {
@@ -77,6 +77,39 @@ function versionGate(repoDir: string, config: PharnConfig): string | null {
   return `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on — run \`pharn update\` first, then re-run \`pharn add\`.`;
 }
 
+// THE LAYOUT GATE — the sibling of versionGate, and the same shape for the same
+// reason. `add` copies at the CLONE's layout (installCapabilityDirs' default) and
+// records at the clone's layout (mergeCapabilityRecords below), but EVERY reader
+// of the install addresses the project through configLayout: remove (both paths),
+// status/diff.ts, update's migration warning. When those two disagree, `add`
+// writes where nothing will ever look: the capability lands under pharn/, and the
+// next `pharn remove` reports "its files were already gone" while deleting only
+// the config entry — orphaning the directory permanently.
+//
+// So the gate refuses rather than migrating. Recording the clone's layout here
+// (what `update` does) would be strictly worse: `update` may record it only
+// because it rewrites the ENTIRE tree at that layout, while `add` rewrites ONE
+// capability — flipping config.layout would re-address every other capability,
+// doc, contract, and floor file that is still at the old paths, turning one
+// orphan into an install-wide one. Only `update` can migrate a tree, so the
+// refusal names it.
+//
+// Compares configLayout(config), never the raw config.layout field: configLayout
+// IS the definition of "where this project is addressed", and agreeing with the
+// readers is the whole invariant. Both sides are the two-value Layout enum, so a
+// hand-edited garbage value resolves to `flat`, mismatches a `pharn` clone, and
+// refuses — fail-closed — and neither interpolated value is an unvalidated config
+// string reaching the terminal.
+//
+// Returns the refusal message, or null to proceed. Called from INSIDE each path's
+// existing try, immediately after versionGate (P0: cleanup before exit).
+function layoutGate(repoDir: string, config: PharnConfig): string | null {
+  const clone = detectLayout(repoDir);
+  const recorded = configLayout(config);
+  if (clone === recorded) return null;
+  return `Install layout mismatch: pharn.config.json records the \`${recorded}\` layout, but the fetched ${REPO_URL} uses the \`${clone}\` layout. \`pharn add\` installs only at the layout your project is already recorded at — adding here would put files where \`pharn remove\` and \`pharn status\` will never look for them. Run \`pharn update --force\` first, then re-run \`pharn add\`.`;
+}
+
 // Install one capability into an archetype project (a manual override of
 // archetype auto-selection). Appends to `capabilities`, never touches
 // `archetypes`. The clone lives across no interactive prompt (named path), but
@@ -115,7 +148,13 @@ async function runArchetypeAdd(
   // and the exit/outro happens after it (Node skips finally on process.exit).
   let result: AddResult;
   try {
-    const refusal = versionGate(repo.dir, config);
+    // `??` and not two ifs: short-circuit evaluation is what makes "version wins
+    // when BOTH mismatch" structural rather than a property of statement order a
+    // later edit could silently invert. The realistic both-mismatch case is an old
+    // flat project meeting a new clone, where `pharn update` fixes version AND
+    // layout in one pass — so the version message is the one worth printing.
+    const refusal =
+      versionGate(repo.dir, config) ?? layoutGate(repo.dir, config);
     result = refusal
       ? { kind: 'error', message: refusal }
       : await resolveArchetypeAdd(repo.dir, repo.sha, config, cwd, parsed, arg);
@@ -180,7 +219,11 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
   // finally can run cleanup with every exit after it (mirrors resolveArchetypeAdd).
   let outcome: PickerAddOutcome;
   try {
-    const refusal = versionGate(repo.dir, config);
+    // Same ordered pair as the named path (see there), and for the same reason it
+    // sits before resolveAddPicker: both gates must fire before groupMultiselect
+    // renders, or the user picks capabilities only to be refused afterwards.
+    const refusal =
+      versionGate(repo.dir, config) ?? layoutGate(repo.dir, config);
     outcome = refusal
       ? { kind: 'error', message: refusal }
       : await resolveAddPicker(repo.dir, repo.sha, config, cwd);

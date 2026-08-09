@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pharn add` no longer installs at a layout your config does not record.** PHARN ships in two
+  install layouts (the legacy flat one, and everything under `pharn/`). `add` copied at the *clone's*
+  layout while `pharn remove`, `pharn list`, and `pharn status` all look at the layout recorded in
+  `pharn.config.json` — so when the two disagreed, the capability landed where nothing would ever find
+  it: invisible to `list`/`status`, and a later `remove` reported *"its files were already gone"* while
+  dropping only the config entry, orphaning the directory on disk. `add` now **refuses** when the
+  clone's layout differs from your recorded one, naming both layouts and pointing at `pharn update --force`,
+  and writes nothing — no capability directory, no `pharn.config.json`, no `pharn.records.json`.
+  `add` deliberately does **not** record the clone's layout the way `update` does: `update` may only
+  because it rewrites your whole install at that layout, while `add` writes a single capability.
+  *Scope, honestly:* the common flat→`pharn` migration window was already closed by the version gate
+  in the previous release, since a pre-migration install also has a pre-migration `skillsVersion`.
+  What this closes is the residual case — a config that reached the current version with a stale,
+  absent, or hand-edited `layout`. Note that resolving such a same-version drift needs
+  `pharn update --force`, as a plain `pharn update` returns early at a matching version.
+
 ### Added
 
 - **`capabilities[].source` — selection provenance, so `pharn update` stops deleting what you added.**

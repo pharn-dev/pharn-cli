@@ -1,0 +1,24 @@
+{
+  "base": "a8e9aca",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/add.md",
+    "docs/reference/pharn-config.md",
+    "src/commands/add.ts",
+    "tests/add.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
