@@ -1,8 +1,8 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ProcessExit, stubProcessExit } from './helpers.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ProcessExit, restoreTTY, setTTY, stubProcessExit } from './helpers.js';
 
 // Archetype is now the DEFAULT (and only) init flow. runInit() drives it with no
 // module catalog / manifest fetch. These are command-level control-flow tests
@@ -53,10 +53,18 @@ const confirmWriteTargets = vi.fn(async () => true);
 vi.mock('../src/steps/overwrite-check.js', () => ({ confirmWriteTargets }));
 
 const { runInit } = await import('../src/commands/init.js');
+const { log } = await import('@clack/prompts');
 
 describe('runInit (archetype default)', () => {
   stubProcessExit();
-  afterEach(() => vi.clearAllMocks());
+  // init now refuses to prompt into a dead stream, and the vitest runner reports
+  // isTTY as undefined — so the flow tests must open the gate. The non-TTY
+  // refusals below close it explicitly.
+  beforeEach(() => setTTY(true, true));
+  afterEach(() => {
+    vi.clearAllMocks();
+    restoreTTY();
+  });
 
   it('drives the archetype flow and installs — no module/manifest fetch', async () => {
     runArchetypeSummary.mockResolvedValue('install');
@@ -115,6 +123,101 @@ describe('runInit (archetype default)', () => {
     await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
 
     expect(runInstallArchetype).not.toHaveBeenCalled();
+  });
+
+  // --- non-interactive honesty: the TTY gate ---------------------------------
+  //
+  // The bug this closes: off a TTY the archetype summary's select rendered into a
+  // dead stream and cancelled through cancelAndExit's exit(0) — `echo "" | pharn
+  // init` reported success having installed nothing, AFTER paying for a full
+  // clone, because the fetch precedes the first prompt.
+  describe('non-interactive (TTY gate)', () => {
+    // This covers the bare `pharn` invocation too: index.test.ts pins that an
+    // empty argv dispatches to runInit, and this pins what runInit then does.
+    it('refuses in a NON-TTY, wasting no clone, and installs nothing', async () => {
+      setTTY(false, false);
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      // The whole point: the refusal precedes the fetch, so no network call and
+      // no ~/.degit tarball is paid for on the way to doing nothing.
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(runArchetypeSummary).not.toHaveBeenCalled();
+      expect(confirmWriteTargets).not.toHaveBeenCalled();
+      expect(runInstallArchetype).not.toHaveBeenCalled();
+    });
+
+    it('says init is interactive and names no --yes escape hatch', async () => {
+      setTTY(false, false);
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      const [msg] = vi.mocked(log.error).mock.calls.at(-1)!;
+      expect(msg).toContain('interactive terminal');
+      // init deliberately has NO --yes: its second prompt is the destructive
+      // overwrite confirmation, and auto-confirming that in CI is the hazard the
+      // prompt exists to prevent. The message must not offer one.
+      expect(msg).toMatch(/no --yes/);
+    });
+
+    it('refuses when only ONE stream is a TTY (both must be)', async () => {
+      setTTY(false, true);
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    // The precedence pair. A directory with no `.git` already had a good,
+    // actionable error; the gate must not have stolen it. `runGitPrereq` runs
+    // first, so its exit survives byte-for-byte and the TTY message never fires.
+    it('lets the git prereq error win over the TTY message', async () => {
+      setTTY(false, false);
+      runGitPrereq.mockImplementationOnce(() => {
+        throw new ProcessExit(1);
+      });
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(log.error).not.toHaveBeenCalled();
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+  });
+
+  // inv-6: this repo reads isTTY through exactly ONE predicate. The gates above
+  // and the add/remove pickers all delegate to `interactiveAllowed`, so a fifth
+  // caller cannot quietly invent its own (subtly different) notion of
+  // "interactive" — e.g. checking only stdout, which is how a pipe sneaks past.
+  it('reads isTTY through exactly one predicate (interactiveAllowed)', () => {
+    const here = fileURLToPath(import.meta.url);
+    const srcDir = join(here, '..', '..', 'src');
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) return walk(p);
+        return e.name.endsWith('.ts') ? [p] : [];
+      });
+    // Every isTTY mention must sit inside an `interactiveAllowed({ … })`
+    // argument. capability-picker.ts is excluded because it is the predicate's
+    // own home — it names the streams in its doc comment; that it never READS
+    // one is asserted separately below.
+    const picker = join(srcDir, 'lib', 'capability-picker.ts');
+    const offenders = walk(srcDir).filter((f) => {
+      if (f === picker) return false;
+      const src = readFileSync(f, 'utf8');
+      if (!src.includes('isTTY')) return false;
+      const inCall = [
+        ...src.matchAll(/interactiveAllowed\(\{[^}]*\}\)/g),
+      ].reduce((n, m) => n + (m[0].match(/isTTY/g)?.length ?? 0), 0);
+      return (src.match(/isTTY/g) ?? []).length !== inCall;
+    });
+    expect(offenders).toEqual([]);
+
+    // The predicate stays pure: it takes the flags as arguments and never reads
+    // process itself, which is what keeps the non-TTY behavior unit-testable.
+    // Comments are stripped first — its doc comment legitimately NAMES the two
+    // streams to document what callers must pass.
+    const pickerCode = readFileSync(picker, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(pickerCode).not.toMatch(/process\.std(in|out)\.isTTY/);
   });
 
   // no-404 regression guard (grill #2, sharpened): a static assertion that init

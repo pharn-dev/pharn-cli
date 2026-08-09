@@ -26,6 +26,7 @@ Commands:
 Options:
       --archetype    init: deprecated no-op — archetype detection is now the default
       --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
+  -y, --yes          update: skip the confirmation prompt (for CI and scripts)
       --strict       Make status exit 1 on any outdated/modified/missing file
       --no-drift     Skip the status byte-level drift check
       --json         Emit list output as JSON
@@ -76,7 +77,7 @@ export async function main(): Promise<void> {
       await runRemove(argv._[1], { yes: Boolean(argv.yes) });
       return;
     case 'update':
-      await runUpdate({ force: Boolean(argv.force) });
+      await runUpdate({ force: Boolean(argv.force), yes: Boolean(argv.yes) });
       return;
     case 'list':
       await runList({ json: Boolean(argv.json) });

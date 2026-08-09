@@ -82,16 +82,47 @@ describe('main (argv dispatch)', () => {
     expect(runRemove).toHaveBeenCalledWith('lens:n-plus-one', { yes: false });
   });
 
-  it('routes `update` to runUpdate with force:false by default', async () => {
+  it('routes `update` to runUpdate with force:false, yes:false by default', async () => {
     setArgv('update');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: false });
+    expect(runUpdate).toHaveBeenCalledWith({ force: false, yes: false });
   });
 
   it('passes force:true through for `update --force`', async () => {
     setArgv('update', '--force');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: true });
+    expect(runUpdate).toHaveBeenCalledWith({ force: true, yes: false });
+  });
+
+  // `--yes` was parsed but dead before this: minimist listed it and only
+  // runRemove read it, where it is documented as a deliberate no-op. It is now
+  // a real flag on exactly one command.
+  it('passes yes:true through for `update --yes`', async () => {
+    setArgv('update', '--yes');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({ force: false, yes: true });
+  });
+
+  it('accepts the -y alias for `update`', async () => {
+    setArgv('update', '-y');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({ force: false, yes: true });
+  });
+
+  it('composes `update --yes --force` (the full CI re-apply)', async () => {
+    setArgv('update', '--yes', '--force');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({ force: true, yes: true });
+  });
+
+  it('documents --yes as an update flag in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    const printed = logSpy.mock.calls
+      .map((c: unknown[]) => String(c[0] ?? ''))
+      .join('\n');
+    // Scoped to its command, like --force: `init` deliberately has no --yes.
+    expect(printed).toMatch(/-y, --yes\s+update:/);
   });
 
   it('documents --force as an update flag in the usage text', async () => {
