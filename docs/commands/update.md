@@ -6,6 +6,7 @@ destroying anything you have edited**.
 ```bash
 pharn update
 pharn update --force   # overwrite your edits too (each file is backed up first)
+pharn update --yes     # skip the confirmation prompt (for CI and scripts)
 ```
 
 `update` compares every PHARN-owned file against the per-file hashes recorded when it was installed
@@ -20,7 +21,8 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    and compares it to your recorded `skillsVersion`.
 3. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
    re-applies upstream at the current version.
-4. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation.
+4. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
+   unless you passed `--yes`, which skips that one prompt and nothing else.
 5. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
    latest capability index, then **unions** that result with the capabilities you added by hand.
 6. Decides each expected file with the table below, backs up anything `--force` is about to
@@ -124,6 +126,43 @@ cp .pharn-backup/20260807-091500/CONSTITUTION.md CONSTITUTION.md
 **Retention is yours.** `pharn` never prunes `.pharn-backup/` and never edits your `.gitignore` — so
 backups accumulate and are committable by accident. Delete them once you are happy, or add
 `.pharn-backup/` to your `.gitignore`.
+
+## Non-interactive use (CI, scripts, pipes)
+
+`update` confirms before it writes, so it needs either a terminal or your explicit consent. Off a TTY —
+in CI, a pipe, or any script — it **exits 1** with a usage error rather than rendering a prompt nobody
+can answer:
+
+```console
+$ echo "" | pharn update
+▲ pharn update needs to confirm before it writes. Run it in an interactive terminal,
+  or pass --yes to confirm automatically (e.g. `pharn update --yes`).
+$ echo $?
+1
+```
+
+The refusal happens **before any network call** — no version check, no clone — and writes nothing.
+
+Pass `--yes` (`-y`) to give that consent up front:
+
+```bash
+pharn update --yes            # the usual CI line
+pharn update --yes --force    # the full re-apply: overwrite local edits too
+```
+
+`--yes` skips **the confirmation prompt and nothing else**. Everything else is byte-identical to an
+interactive run: the version note still prints, the same per-file decision table applies, files you
+edited are still skipped (not overwritten), the recorded version is still withheld when anything was
+skipped, and the exit codes are unchanged. It means "do not ask" — not "non-interactive mode" — so it
+works in a terminal too.
+
+Because `--yes` is only consent, it is **not** a drift check: a run that skips your edited files still
+exits 0. Use [`pharn status --strict`](status.md) when you want CI to fail on drift.
+
+`--force` does **not** imply `--yes`. Overwriting your edits is the most destructive thing `update`
+does, so it still asks — `pharn update --force` in a pipe is refused exactly like a bare one.
+
+> [`pharn init`](init.md) has no `--yes` and is interactive-only — see its note for why.
 
 ## The recorded version stays true
 

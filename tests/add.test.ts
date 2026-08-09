@@ -1,7 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CANCEL, ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import {
+  CANCEL,
+  ProcessExit,
+  restoreTTY,
+  setTTY,
+  stubProcessExit,
+  useTmpDir,
+} from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -43,27 +50,12 @@ const { readRecords, writeRecords, RECORDS_FILE } =
   await import('../src/lib/install-records.js');
 const { sha256File } = await import('../src/lib/hash.js');
 
-// process.std*.isTTY drives the bare-invocation guard; set it per test, restore
-// after (Node reports undefined off a TTY, which reads as non-interactive).
-const origStdin = process.stdin.isTTY;
-const origStdout = process.stdout.isTTY;
-function setTTY(stdin?: boolean, stdout?: boolean): void {
-  Object.defineProperty(process.stdin, 'isTTY', {
-    value: stdin,
-    configurable: true,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    value: stdout,
-    configurable: true,
-  });
-}
-
 describe('runAdd (archetype)', () => {
   stubProcessExit();
   beforeEach(() => vi.spyOn(process, 'cwd').mockReturnValue('/proj'));
   afterEach(() => {
     vi.clearAllMocks();
-    setTTY(origStdin, origStdout);
+    restoreTTY();
   });
 
   const archConfig = (
@@ -600,7 +592,7 @@ describe('runAdd — the layout gate', () => {
   });
   afterEach(() => {
     vi.clearAllMocks();
-    setTTY(origStdin, origStdout);
+    restoreTTY();
   });
 
   it('refuses a named add when the clone layout differs from the recorded one', async () => {

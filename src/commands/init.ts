@@ -3,6 +3,7 @@ import { showBanner } from '../lib/banner.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import { REPO_URL } from '../lib/constants.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
+import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
@@ -16,6 +17,33 @@ export async function runInit(): Promise<void> {
   intro('init wizard');
 
   runGitPrereq();
+
+  // Non-TTY (CI, a pipe) → NEVER prompt into the void: a usage error + exit(1),
+  // BEFORE `fetchRepo` (P5 — the terminal fallback is a hard-fail, not a guess).
+  // Without this, init's first prompt (the archetype summary's select) renders
+  // into a dead stream and cancels through cancelAndExit's exit(0) — a silent
+  // no-op that has ALREADY paid for a full clone, since the fetch precedes it.
+  // Refusing here wastes neither the network nor the ~/.degit tarball.
+  //
+  // The prereq runs FIRST and deliberately so: a directory with no `.git` gets
+  // the more useful "run git init" error, exactly as `update` lets its config
+  // error win over this message.
+  //
+  // There is deliberately NO `--yes` for init (unlike `update`): init prompts
+  // twice, and the second is the destructive overwrite confirmation. Auto-
+  // confirming file overwrites in a pipeline is precisely the hazard that
+  // prompt exists to prevent, so init has one honest answer here — refuse.
+  if (
+    !interactiveAllowed({
+      stdinIsTTY: process.stdin.isTTY,
+      stdoutIsTTY: process.stdout.isTTY,
+    })
+  ) {
+    log.error(
+      'pharn init is interactive — run it in an interactive terminal. There is deliberately no --yes for init: it confirms before overwriting existing files, and auto-confirming that in a pipeline is what the prompt exists to prevent.',
+    );
+    process.exit(1);
+  }
 
   // Archetype-driven install is the default (and only) init flow: detect the
   // project's archetype(s) and install the applicable capabilities. Framework-

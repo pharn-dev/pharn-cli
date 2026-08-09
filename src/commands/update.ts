@@ -10,6 +10,7 @@ import {
 import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
 import { REPO_URL } from '../lib/constants.js';
+import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import {
@@ -49,12 +50,40 @@ import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 // anything it cannot prove pristine is SKIPPED and reported, never overwritten.
 // `--force` overwrites the skip buckets after copying each file to
 // `.pharn-backup/<timestamp>/`.
-export async function runUpdate(opts: { force?: boolean } = {}): Promise<void> {
+export async function runUpdate(
+  opts: { force?: boolean; yes?: boolean } = {},
+): Promise<void> {
   intro('pharn update');
 
   const cwd = process.cwd();
   const config = loadArchetypeConfigOrExit(cwd);
-  await runArchetypeUpdate(config, cwd, opts.force ?? false);
+
+  // Non-TTY (CI, a pipe) → NEVER prompt into the void: a usage error + exit(1),
+  // BEFORE any network call (P5 — the terminal fallback is a hard-fail, not a
+  // guess). Without this the confirm below cancels on stream end and routes
+  // through cancelAndExit's exit(0): a pipeline that "passes" having updated
+  // nothing, which is the worst failure shape for automation. Same predicate and
+  // same shape as the add/remove pickers — `interactiveAllowed` is imported, so
+  // this repo keeps exactly ONE TTY test.
+  //
+  // The config load runs FIRST and deliberately so: an uninitialized directory
+  // deserves its actionable "run pharn init" error, not a TTY message about a
+  // prompt it would never have reached.
+  const yes = opts.yes ?? false;
+  if (
+    !yes &&
+    !interactiveAllowed({
+      stdinIsTTY: process.stdin.isTTY,
+      stdoutIsTTY: process.stdout.isTTY,
+    })
+  ) {
+    log.error(
+      'pharn update needs to confirm before it writes. Run it in an interactive terminal, or pass --yes to confirm automatically (e.g. `pharn update --yes`).',
+    );
+    process.exit(1);
+  }
+
+  await runArchetypeUpdate(config, cwd, opts.force ?? false, yes);
 }
 
 // The outcome of the fetch+apply phase, assembled inside the try so cleanup can
@@ -81,6 +110,7 @@ async function runArchetypeUpdate(
   config: PharnConfig,
   cwd: string,
   force: boolean,
+  yes: boolean,
 ): Promise<void> {
   const s = spinner();
   s.start('Checking for updates');
@@ -126,13 +156,22 @@ async function runArchetypeUpdate(
       pc.dim('  https://github.com/pharn-dev/pharn-oss/blob/main/CHANGELOG.md'),
     ].join('\n'),
   );
-  const ok = await confirm({
-    message: force
-      ? 'Re-fetch capabilities and overwrite your changes?'
-      : 'Re-fetch capabilities at the latest version?',
-    initialValue: true,
-  });
-  if (isCancel(ok) || ok !== true) cancelAndExit();
+  // `--yes` skips THE CONFIRM AND NOTHING ELSE. The note above has already
+  // printed (a non-interactive log deserves the same context a terminal gets),
+  // and every decision below — the plan, the drift-safe skips, the backups, the
+  // withheld version bump, the exit codes — is byte-identical either way. It
+  // means "don't ask", not "non-interactive mode": it works in a terminal too.
+  // Skipping the call entirely (rather than short-circuiting its result) is what
+  // makes "the prompt is never rendered" true by construction.
+  if (!yes) {
+    const ok = await confirm({
+      message: force
+        ? 'Re-fetch capabilities and overwrite your changes?'
+        : 'Re-fetch capabilities at the latest version?',
+      initialValue: true,
+    });
+    if (isCancel(ok) || ok !== true) cancelAndExit();
+  }
 
   const s2 = spinner();
   s2.start(`Updating from ${REPO_URL}`);

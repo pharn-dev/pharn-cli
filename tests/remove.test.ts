@@ -1,7 +1,14 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CANCEL, ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import {
+  CANCEL,
+  ProcessExit,
+  restoreTTY,
+  setTTY,
+  stubProcessExit,
+  useTmpDir,
+} from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -30,20 +37,6 @@ const prompts = await import('@clack/prompts');
 function write(path: string, content = 'x'): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, content);
-}
-
-// process.std*.isTTY drives the bare-invocation guard; set per test, restore after.
-const origStdin = process.stdin.isTTY;
-const origStdout = process.stdout.isTTY;
-function setTTY(stdin?: boolean, stdout?: boolean): void {
-  Object.defineProperty(process.stdin, 'isTTY', {
-    value: stdin,
-    configurable: true,
-  });
-  Object.defineProperty(process.stdout, 'isTTY', {
-    value: stdout,
-    configurable: true,
-  });
 }
 
 function archConfig(
@@ -82,7 +75,7 @@ describe('runRemove (archetype)', () => {
   });
   afterEach(() => {
     vi.clearAllMocks();
-    setTTY(origStdin, origStdout);
+    restoreTTY();
   });
 
   it('exits(1) when the config load rejects (e.g. a legacy config)', async () => {

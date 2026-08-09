@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/add-layout-gate/SHIP.md"
+    ".dev/features/nontty-gate/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-08T23:55:15.920Z"
+  "set_at": "2026-08-09T19:36:46.472Z"
 }

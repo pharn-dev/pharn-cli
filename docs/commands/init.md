@@ -12,6 +12,31 @@ pharn
 
 > The `--archetype` flag is a **deprecated no-op** kept for one release: archetype detection is now the default, so `pharn init --archetype` behaves identically to `pharn init`.
 
+## `init` is interactive-only
+
+`init` always asks which capabilities to install, and — only when any of its write targets already
+exist — whether to overwrite them, so it needs a terminal. Off a TTY (CI, a pipe, a script) it **exits 1**
+with a usage error instead of prompting into a stream nobody is reading:
+
+```console
+$ echo "" | pharn init
+▲ pharn init is interactive — run it in an interactive terminal. There is deliberately no --yes
+  for init: it confirms before overwriting existing files, and auto-confirming that in a pipeline
+  is what the prompt exists to prevent.
+$ echo $?
+1
+```
+
+The refusal happens **before the clone**, so a non-interactive `init` costs no network round-trip and
+leaves your project untouched.
+
+There is deliberately **no `--yes` for `init`** — unlike [`pharn update`](update.md), which has one. The
+second of init's prompts is the destructive overwrite confirmation, and auto-confirming file overwrites
+in a pipeline is precisely the hazard that prompt exists to prevent.
+
+A directory with no `.git` still gets its own, more useful error first (see **Prerequisites** below) —
+the interactivity check never masks it.
+
 ## Flow
 
 ```mermaid

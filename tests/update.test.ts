@@ -8,8 +8,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CANCEL, ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import {
+  CANCEL,
+  ProcessExit,
+  restoreTTY,
+  setTTY,
+  stubProcessExit,
+  useTmpDir,
+} from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -148,8 +156,15 @@ describe('runUpdate (drift-safe)', () => {
     });
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     loadArchetypeConfigOrExit.mockReturnValue(baseConfig());
+    // `update` now refuses to prompt into a dead stream, and the vitest runner
+    // reports isTTY as undefined — so every test that expects to REACH the
+    // confirm must open the gate. The non-TTY refusals below close it explicitly.
+    setTTY(true, true);
   });
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    restoreTTY();
+  });
 
   const records = () => {
     const read = readRecords(proj);
@@ -185,6 +200,181 @@ describe('runUpdate (drift-safe)', () => {
     await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(0));
     expect(fetchRepo).not.toHaveBeenCalled();
     expect(body(DOC)).toBe('constitution v1');
+  });
+
+  // --- non-interactive honesty: the TTY gate + the real --yes ----------------
+  //
+  // The bug this closes: off a TTY the confirm above cancelled on stream end and
+  // routed through cancelAndExit's exit(0) — `echo "" | pharn update` reported
+  // success having updated nothing. A pipeline that "passes" having done nothing
+  // is the worst failure shape for automation, so the refusal is exit 1.
+  describe('non-interactive (TTY gate + --yes)', () => {
+    it('refuses in a NON-TTY, before any network call, and writes nothing', async () => {
+      await installed();
+      setTTY(false, false);
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      // Zero network: the refusal precedes even the lightweight version check.
+      expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      expect(body(DOC)).toBe('constitution v1');
+      // A completed update writes pharn.config.json into the project; its
+      // absence is the proof that this run wrote nothing at all.
+      expect(readPharnConfig(proj)).toBeNull();
+    });
+
+    it('names BOTH ways out — an interactive terminal and --yes', async () => {
+      await installed();
+      setTTY(false, false);
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      const [msg] = vi.mocked(prompts.log.error).mock.calls.at(-1)!;
+      expect(msg).toContain('--yes');
+      expect(msg).toContain('interactive terminal');
+    });
+
+    it('refuses when only ONE stream is a TTY (both must be)', async () => {
+      await installed();
+      setTTY(true, false);
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+      expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+    });
+
+    // inv-9: the config error is the ACTIONABLE one, so it must win. A user in an
+    // uninitialized directory needs "run pharn init", not a TTY lecture about a
+    // prompt they would never have reached.
+    it('lets the config error win over the TTY message in an uninitialized dir', async () => {
+      setTTY(false, false);
+      loadArchetypeConfigOrExit.mockImplementationOnce(() => {
+        throw new ProcessExit(1);
+      });
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(prompts.log.error).not.toHaveBeenCalled();
+      expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+    });
+
+    it('--yes runs the FULL update in a non-TTY without ever calling confirm', async () => {
+      await installed();
+      setTTY(false, false);
+
+      await expect(runUpdate({ yes: true })).resolves.toBeUndefined();
+
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      // Byte-equivalent to the interactive happy path: the note still printed,
+      // the files landed, the version advanced, the summary rendered.
+      expect(prompts.note).toHaveBeenCalled();
+      expect(body(CAP_FILE)).toBe('a11y v2');
+      expect(body(DOC)).toBe('constitution v2');
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+      expect(prompts.outro).toHaveBeenCalled();
+    });
+
+    it('--yes behaves identically WITH a TTY — it means "do not ask", not "non-interactive"', async () => {
+      await installed();
+      setTTY(true, true);
+
+      await runUpdate({ yes: true });
+
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      expect(body(DOC)).toBe('constitution v2');
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+    });
+
+    // inv-4c: `--force` is an overwrite POLICY, not a confirmation bypass. The
+    // shortcut "force implies yes" is the tempting mis-implementation, and it
+    // would silently auto-confirm the most destructive run pharn offers.
+    it('--force WITHOUT --yes still refuses in a non-TTY', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+      setTTY(false, false);
+
+      await expect(runUpdate({ force: true })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+      expect(body(DOC)).toBe('MY LOCAL EDIT');
+      expect(backupDirs()).toEqual([]);
+    });
+
+    it('--yes --force composes: the forced path runs unprompted and backs up', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+      setTTY(false, false);
+
+      await runUpdate({ force: true, yes: true });
+
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      const dirs = backupDirs();
+      expect(dirs).toHaveLength(1);
+      expect(readFileSync(join(proj, BACKUP_DIR, dirs[0]!, DOC), 'utf8')).toBe(
+        'MY LOCAL EDIT',
+      );
+      expect(body(DOC)).toBe('constitution v2');
+    });
+
+    it('--yes at the current version early-returns "Already up to date", exit 0', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      setTTY(false, false);
+
+      await expect(runUpdate({ yes: true })).resolves.toBeUndefined();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    // inv-4d: --yes must not touch the drift-safe skip semantics. A skip is a
+    // decision the user asked for, so it stays exit 0 and still withholds the
+    // version bump — `pharn status --strict` remains the CI drift gate.
+    it('--yes leaves the skip semantics alone: exit 0, version still withheld', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+      setTTY(false, false);
+
+      await expect(runUpdate({ yes: true })).resolves.toBeUndefined();
+
+      expect(body(DOC)).toBe('MY LOCAL EDIT');
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.0.0');
+      expect(body(CAP_FILE)).toBe('a11y v2');
+    });
+
+    // inv-6b: the premise --yes rests on. `--yes` is sold as a COMPLETE bypass of
+    // update's interactivity, which is only true while the confirm is update's
+    // ONLY prompt. A future prompt added below the gate would silently re-open
+    // the very bug this increment closes, and nothing else would catch it.
+    it('the confirm is update.ts ONLY prompt (the premise --yes rests on)', () => {
+      const here = fileURLToPath(import.meta.url);
+      const src = readFileSync(
+        join(here, '..', '..', 'src', 'commands', 'update.ts'),
+        'utf8',
+      );
+      const clackPromptApis = [
+        'autocomplete',
+        'autocompleteMultiselect',
+        'confirm',
+        'date',
+        'groupMultiselect',
+        'multiline',
+        'multiselect',
+        'password',
+        'path',
+        'select',
+        'selectKey',
+        'text',
+      ] as const;
+      const prompted = [
+        ...src.matchAll(
+          new RegExp(`\\bawait (${clackPromptApis.join('|')})\\(`, 'g'),
+        ),
+      ].map((m) => m[1]);
+      expect(prompted).toEqual(['confirm']);
+    });
   });
 
   it('upgrades every pristine file and refreshes its record', async () => {

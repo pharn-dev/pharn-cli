@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn init` and `pharn update` no longer report success having done nothing off a TTY.** Both
+  commands confirm before they write, and when stdin was not a terminal that confirmation cancelled on
+  stream end and routed through the graceful-cancel path — `process.exit(0)`. So `echo "" | pharn update`
+  and `pharn update < /dev/null` **exited 0 having updated nothing**, and piped `pharn init` **exited 0
+  having installed nothing** — after paying for a full clone, because the fetch precedes init's first
+  prompt. A pipeline that "passes" having done nothing is the worst failure shape for automation.
+  Both commands now **exit 1** with a usage error naming the way out, using the same TTY predicate the
+  `pharn add` / `pharn remove` pickers have always used (`interactiveAllowed` — imported, not
+  re-implemented; a static test pins that this repo has exactly one such predicate). Each gate sits
+  **after** that command's promptless local step — `update`'s config load, `init`'s git prerequisite —
+  so an uninitialized directory still gets *"run `pharn init`"* and a directory with no `.git` still
+  gets *"run `git init`"*, never a misleading message about a prompt they would not have reached. Each
+  gate also sits **before any network call**, so a refused run costs zero round-trips and wastes no
+  clone. **TTY behavior is deliberately unchanged:** a human choosing Cancel is still a user-initiated,
+  graceful exit 0 — only EOF masquerading as that choice is now unreachable.
+
 - **`pharn add` no longer installs at a layout your config does not record.** PHARN ships in two
   install layouts (the legacy flat one, and everything under `pharn/`). `add` copied at the *clone's*
   layout while `pharn remove`, `pharn list`, and `pharn status` all look at the layout recorded in
@@ -26,6 +42,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pharn update --force`, as a plain `pharn update` returns early at a matching version.
 
 ### Added
+
+- **`pharn update --yes` (`-y`) — a real flag, for CI and scripts.** It skips **the confirmation prompt
+  and nothing else**: the version note still prints, the same per-file decision table applies, files you
+  edited are still skipped rather than overwritten, the recorded version is still withheld when anything
+  was skipped, and every exit code is unchanged. It means *"do not ask"*, not *"non-interactive mode"* —
+  so it works in a terminal too — and it composes with `--force` (`pharn update --yes --force` is the
+  full CI re-apply). `--force` does **not** imply `--yes`: overwriting your edits is the most destructive
+  thing `update` does, so it still asks. Because `--yes` is only consent, it is not a drift check — a run
+  that skips your edited files still exits 0; use `pharn status --strict` when CI should fail on drift.
+  The flag was previously parsed but consumed by nothing.
+
+  There is deliberately **no `--yes` for `pharn init`**: init's second prompt is the destructive overwrite
+  confirmation, and auto-confirming file overwrites in a pipeline is precisely the hazard that prompt
+  exists to prevent — so non-interactive `init` refuses rather than offering a bypass.
 
 - **`capabilities[].source` — selection provenance, so `pharn update` stops deleting what you added.**
   Each entry in `pharn.config.json` now records how it got there: `auto` (selected for your archetypes
