@@ -107,7 +107,7 @@ function layoutGate(repoDir: string, config: PharnConfig): string | null {
   const clone = detectLayout(repoDir);
   const recorded = configLayout(config);
   if (clone === recorded) return null;
-  return `Install layout mismatch: pharn.config.json records the \`${recorded}\` layout, but the fetched ${REPO_URL} uses the \`${clone}\` layout. \`pharn add\` installs only at the layout your project is already recorded at — adding here would put files where \`pharn remove\` and \`pharn status\` will never look for them. Run \`pharn update\` first, then re-run \`pharn add\`.`;
+  return `Install layout mismatch: pharn.config.json records the \`${recorded}\` layout, but the fetched ${REPO_URL} uses the \`${clone}\` layout. \`pharn add\` installs only at the layout your project is already recorded at — adding here would put files where \`pharn remove\` and \`pharn status\` will never look for them. Run \`pharn update --force\` first, then re-run \`pharn add\`.`;
 }
 
 // Install one capability into an archetype project (a manual override of

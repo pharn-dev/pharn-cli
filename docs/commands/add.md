@@ -69,7 +69,7 @@ find your files.
 ⚠ Install layout mismatch: pharn.config.json records the `flat` layout, but the fetched
   github.com/pharn-dev/pharn-oss uses the `pharn` layout. `pharn add` installs only at the layout
   your project is already recorded at — adding here would put files where `pharn remove` and
-  `pharn status` will never look for them. Run `pharn update` first, then re-run `pharn add`.
+  `pharn status` will never look for them. Run `pharn update --force` first, then re-run `pharn add`.
 ```
 
 Without this check, `add` would copy the capability at the **clone's** layout while your config still

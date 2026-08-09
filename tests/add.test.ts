@@ -613,7 +613,7 @@ describe('runAdd — the layout gate', () => {
     // Names BOTH resolved layouts and the one command that resolves it.
     expect(lastError()).toContain('flat');
     expect(lastError()).toContain('pharn');
-    expect(lastError()).toContain('pharn update');
+    expect(lastError()).toContain('pharn update --force');
     expect(cleanup).toHaveBeenCalled();
   });
 
@@ -629,7 +629,7 @@ describe('runAdd — the layout gate', () => {
 
     expect(lastError()).toContain('flat');
     expect(lastError()).toContain('pharn');
-    expect(lastError()).toContain('pharn update');
+    expect(lastError()).toContain('pharn update --force');
   });
 
   it('writes NOTHING when the layout gate refuses', async () => {
@@ -676,7 +676,7 @@ describe('runAdd — the layout gate', () => {
     // proven on the named path.
     expect(lastError()).toContain('flat');
     expect(lastError()).toContain('pharn');
-    expect(lastError()).toContain('pharn update');
+    expect(lastError()).toContain('pharn update --force');
   });
 
   it('produces the VERSION refusal when BOTH version and layout mismatch', async () => {

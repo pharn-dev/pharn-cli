@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pharn.config.json` — so when the two disagreed, the capability landed where nothing would ever find
   it: invisible to `list`/`status`, and a later `remove` reported *"its files were already gone"* while
   dropping only the config entry, orphaning the directory on disk. `add` now **refuses** when the
-  clone's layout differs from your recorded one, naming both layouts and pointing at `pharn update`,
+  clone's layout differs from your recorded one, naming both layouts and pointing at `pharn update --force`,
   and writes nothing — no capability directory, no `pharn.config.json`, no `pharn.records.json`.
   `add` deliberately does **not** record the clone's layout the way `update` does: `update` may only
   because it rewrites your whole install at that layout, while `add` writes a single capability.
