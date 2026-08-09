@@ -14,9 +14,9 @@ pharn
 
 ## `init` is interactive-only
 
-`init` asks you two questions — which capabilities to install, and whether to overwrite anything already
-in the way — so it needs a terminal. Off a TTY (CI, a pipe, a script) it **exits 1** with a usage error
-instead of prompting into a stream nobody is reading:
+`init` always asks which capabilities to install, and — only when any of its write targets already
+exist — whether to overwrite them, so it needs a terminal. Off a TTY (CI, a pipe, a script) it **exits 1**
+with a usage error instead of prompting into a stream nobody is reading:
 
 ```console
 $ echo "" | pharn init

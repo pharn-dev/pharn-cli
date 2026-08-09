@@ -354,8 +354,24 @@ describe('runUpdate (drift-safe)', () => {
         join(here, '..', '..', 'src', 'commands', 'update.ts'),
         'utf8',
       );
+      const clackPromptApis = [
+        'autocomplete',
+        'autocompleteMultiselect',
+        'confirm',
+        'date',
+        'groupMultiselect',
+        'multiline',
+        'multiselect',
+        'password',
+        'path',
+        'select',
+        'selectKey',
+        'text',
+      ] as const;
       const prompted = [
-        ...src.matchAll(/\bawait (confirm|select|text|groupMultiselect)\(/g),
+        ...src.matchAll(
+          new RegExp(`\\bawait (${clackPromptApis.join('|')})\\(`, 'g'),
+        ),
       ].map((m) => m[1]);
       expect(prompted).toEqual(['confirm']);
     });
