@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/harden-action-pin-coverage/REVIEW.md"
+    ".dev/features/publish-npm-floor-assert/SHIP.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-review.md",
-  "set_at": "2026-08-10T09:51:03.659Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-08-10T19:43:58.416Z"
 }

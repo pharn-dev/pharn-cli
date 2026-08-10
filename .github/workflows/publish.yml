@@ -29,8 +29,41 @@ jobs:
           node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
-      - name: Update npm # Trusted Publishing requires npm >= 11.5.1
-        run: npm install -g npm@latest
+      # Trusted Publishing requires npm >= 11.5.1 (npm's own docs; it also requires
+      # node >= 22.14.0). node 24 already BUNDLES a satisfying npm — 11.17.0 at the
+      # released v24.19.0, checked 2026-08-10 — so the floor needs no install, only
+      # enforcement. This step therefore ASSERTS the floor instead of globally
+      # installing the floating `latest` npm at publish time: the release job, which
+      # holds `id-token: write` and the `npm-publish` environment, now downloads no
+      # third-party tool at all. (The deleted step had silently crossed a major — the
+      # registry `latest` dist-tag was npm 12.0.2 on 2026-08-10.) Pure node stdlib,
+      # no network.
+      #
+      # The floor gate .dev/floor/check-run-pins.mjs keeps the PACKAGE-MANAGER half of
+      # that true — no workflow run: line may install or exec an unpinned package. It
+      # does NOT cover curl-and-execute or any non-package-manager pull (its R1
+      # residual), so "downloads nothing" is enforced for one class, not universally.
+      #
+      # Fail-closed rests on the PARSE, not on the shell: a command substitution used
+      # as an argument does NOT trip `set -e`, so an `npm --version` that fails or
+      # prints nothing arrives here as "" and exits 1 as an unparseable version.
+      - name: Assert npm floor
+        run: |
+          set -euo pipefail
+          node -e '
+            const parse = (v) => {
+              const m = /^(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? "").trim());
+              if (!m) { console.error(`npm floor: unparseable version ${JSON.stringify(v)}`); process.exit(1); }
+              return m.slice(1, 4).map(Number);
+            };
+            const [found, floor] = process.argv.slice(1);
+            const f = parse(found), n = parse(floor);
+            if ((f[0] - n[0] || f[1] - n[1] || f[2] - n[2]) < 0) {
+              console.error(`npm floor NOT met: found ${found.trim()}, need >= ${floor} (npm Trusted Publishing minimum)`);
+              process.exit(1);
+            }
+            console.log(`npm floor OK: npm ${found.trim()} >= ${floor}`);
+          ' "$(npm --version)" 11.5.1
       - name: Install
         run: npm ci
       - name: Verify tag matches package.json version
