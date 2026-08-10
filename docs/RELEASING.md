@@ -44,12 +44,14 @@ credential is stored or passed.
 4. **Cut a GitHub Release.** Tag it **`vX.Y.Z`**, where `X.Y.Z` **exactly
    matches** `package.json` `version`. A guard step in `publish.yml` fails the
    run if the tag (minus its leading `v`) does not equal the package version.
-5. **Publishing the Release triggers `publish.yml`.** It runs on node 24 with
-   `npm@latest` (Trusted Publishing needs npm >= 11.5.1), re-runs the full check
-   suite and build (via the `prepublishOnly` + `prepack` hooks), verifies the
-   tag, then runs `npm publish --provenance --access public`. The `--provenance`
-   flag overrides `publishConfig.provenance: false`, so the release carries a
-   signed provenance attestation.
+5. **Publishing the Release triggers `publish.yml`.** It runs on node 24, whose
+   bundled npm already satisfies the npm >= 11.5.1 that Trusted Publishing
+   needs — an **Assert npm floor** step enforces that and fails the run if it
+   ever stops being true, so nothing is installed at publish time. The run then
+   re-runs the full check suite and build (via the `prepublishOnly` + `prepack`
+   hooks), verifies the tag, and runs `npm publish --provenance --access
+   public`. The `--provenance` flag overrides `publishConfig.provenance: false`,
+   so the release carries a signed provenance attestation.
 
 ## Verify the release
 
