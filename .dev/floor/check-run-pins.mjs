@@ -39,6 +39,10 @@
 //     by check-run-pins.test.mjs (the step and its 11.5.1 floor value must be present), which the
 //     same floor.yml `node --test` run collects — so the guarantee is whole, but it is NOT this
 //     program's doing. Named so the split is visible.
+//   • R7 — CONTINUATION IS BACKSLASH-ONLY. Trailing `\\` joins the next physical line before
+//     parsing (first line number kept for findings). A `run: |` block without `\\` is still one
+//     shell line per YAML line — correct. Heredocs, quotes spanning lines, and other multi-line
+//     shell forms are not reconstructed.
 //   • R6 — SYMLINK ASYMMETRY, INHERITED. A symlink under .github/workflows/ is reported as
 //     `unreadable-file`, but a symlinked .github/actions/**/action.yml is skipped SILENTLY by the
 //     walk. check-action-pins.mjs behaves identically (verified against the same fixture), so this
@@ -341,6 +345,25 @@ function parseLine(raw) {
   return { out, exempt };
 }
 
+
+// Join shell continuation lines (trailing `\\`) into logical lines. The first physical line number
+// is preserved for findings — a continued `npm install \\` / `pkg@latest` pair reports line 1.
+function joinContinuations(lines) {
+  const logical = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = i + 1;
+    let text = lines[i];
+    i += 1;
+    while (text.trimEnd().endsWith("\\") && i < lines.length) {
+      text = `${text.trimEnd().slice(0, -1)} ${lines[i].trimStart()}`;
+      i += 1;
+    }
+    logical.push({ text, line });
+  }
+  return logical;
+}
+
 function main() {
   const target = process.argv[2] || process.cwd();
   const { found, unreadable } = collectFiles(target);
@@ -365,14 +388,14 @@ function main() {
       continue;
     }
 
-    lines.forEach((raw, i) => {
-      const { out, exempt } = parseLine(raw);
+    for (const { text, line } of joinContinuations(lines)) {
+      const { out, exempt } = parseLine(text);
       skipped += exempt;
       for (const { reason, ref } of out) {
         checked += 1;
-        if (reason !== null) violations.push({ file: rel, line: i + 1, ref, reason });
+        if (reason !== null) violations.push({ file: rel, line, ref, reason });
       }
-    });
+    }
   }
 
   emit(

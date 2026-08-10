@@ -243,6 +243,25 @@ test("a run: | block scalar body is scanned with no scope tracking (every line i
   assert.deepEqual(refs(r), ["deep@latest"]);
 });
 
+test("shell continuation lines (trailing \\) are joined — package args on the next line classify", () => {
+  const r = run(repoWith("      - run: npm install \\\n          pkg@latest"));
+  assert.equal(r.status, 1);
+  assert.deepEqual(refs(r), ["pkg@latest"]);
+  assert.equal(json(r).violations[0].line, 5); // first physical line of the continued command
+});
+
+test("a continued exact pin conforms", () => {
+  const r = run(repoWith("      - run: npm install -g \\\n          npm@11.5.1"));
+  assert.equal(r.status, 0);
+  assert.equal(json(r).checked, 1);
+});
+
+test("continuation inside a run: | block is joined before parsing", () => {
+  const r = run(repoWith("      - run: |\n          npm i -g \\\n              deep@latest"));
+  assert.equal(r.status, 1);
+  assert.deepEqual(refs(r), ["deep@latest"]);
+});
+
 // ---------------------------------------------------------------------------
 // Deterministic exclusions — and the fail-OPEN holes they must NOT create
 
@@ -323,7 +342,7 @@ test("a symlinked action.yml is currently skipped silently — asymmetry pinned,
   const sibling = run(root, SIBLING);
   assert.equal(mine.status, 0);
   assert.deepEqual(json(mine), { checked: 0, skipped: 0, files: [], violations: [] });
-  assert.equal(sibling.status, json(sibling).violations.length > 0 ? 1 : 0);
+  assert.equal(sibling.status, 0);
   assert.deepEqual(json(mine).violations, json(sibling).violations, "the two gates must agree on symlink handling");
 });
 
