@@ -1,9 +1,8 @@
 {
   "base": "112e22616993bf219fc251a4f0c5d008ea017cb2",
   "inside": [
-    ".github/workflows/ci.yml",
-    ".github/workflows/floor.yml",
-    ".github/workflows/publish.yml"
+    ".dev/floor/check-action-pins.mjs",
+    ".dev/floor/check-action-pins.test.mjs"
   ],
   "outside_gates": {
     "tests": {
