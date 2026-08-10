@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/floor-gate-action-pins/SHIP.md"
+    ".dev/features/harden-action-pin-coverage/REVIEW.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-10T09:03:04.268Z"
+  "set_by": ".claude/commands/pharn-dev-review.md",
+  "set_at": "2026-08-10T09:51:03.659Z"
 }

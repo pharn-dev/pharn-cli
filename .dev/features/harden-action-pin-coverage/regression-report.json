@@ -1,0 +1,20 @@
+{
+  "base": "25f8f4bd07f0d5d44e7c00280c1a7eb4d20bd690",
+  "inside": [
+    ".dev/floor/check-action-pins.mjs",
+    ".dev/floor/check-action-pins.test.mjs"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
