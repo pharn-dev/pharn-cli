@@ -1,5 +1,5 @@
 {
-  "feature": "pin-floor-actions",
+  "feature": "floor-gate-action-pins",
   "gates": {
     "format:check": 0,
     "lint": 0,
@@ -8,5 +8,6 @@
     "validate": 0
   },
   "verdict": "PASS",
-  "failing_gates": []
+  "failing_gates": [],
+  "verifiers": { "registered": 0, "findings": [] }
 }
