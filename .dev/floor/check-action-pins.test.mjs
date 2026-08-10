@@ -22,6 +22,15 @@
 //   ✱ a dangling symlink                            → crashed with uncaught ENOENT, emitting NO JSON
 //   ✱ 4000 violations through a pipe                → truncated at exactly 65536 bytes
 //
+// The ✱✱ tests are a SECOND round, found by re-running the sweep against the ✱-hardened gate. Both
+// had structural root causes rather than missing cases, which is why the first round missed them:
+//   ✱✱ CRLF / lone-CR line endings   → the file was split on "\n" only, so a trailing "\r" defeated
+//      every line-anchored match. WHOLE FILE invisible — and reachable BY ACCIDENT via core.autocrlf.
+//   ✱✱ `steps: [{uses: …}]`, `- {with: …, uses: …}`, `[{uses: …}]`  → the key was anchored to line
+//      start, so any flow position hid it. Two refs on one line hid the second.
+// The fixes were to the roots — split on all three line endings, and match the key anywhere — not
+// to the individual cases.
+//
 // The live repo asserts `violations: []` AND `skipped` EXACTLY AND `checked >= 10` AND a
 // case-insensitive independent recount of the workflow files — never bare exit 0, because exit 0 is
 // ALSO what a checker returns when it finds nothing to inspect.
@@ -145,6 +154,96 @@ test("39-hex, 41-hex and UPPERCASE refs are all floating-ref (boundary)", () => 
     assert.equal(r.status, 1, `expected violation for ${bad}`);
     assert.deepEqual(reasons(r), ["floating-ref"]);
   }
+});
+
+// --- ✱✱ REGRESSIONS: line-ending and flow-position holes -------------------------------------
+// These survived the FIRST round of hardening and were found by a second adversarial sweep. Both
+// root causes were structural: splitting only on "\n", and anchoring the key to line start.
+
+// Build a scratch repo with an explicit line ending, so CRLF/CR are exercised literally.
+function repoWithEol(refLine, eol) {
+  const root = scratch();
+  const dir = join(root, ".github", "workflows");
+  mkdirSync(dir, { recursive: true });
+  const doc = ["name: t", "on: [push]", "jobs:", "  j:", "    steps:", refLine, ""].join(eol);
+  writeFileSync(join(dir, "w.yml"), doc);
+  return root;
+}
+
+test("✱✱ CRLF line endings do not hide a ref (whole file was invisible: checked:0, exit 0)", () => {
+  const root = repoWithEol("      - uses: evil/action@v1", "\r\n");
+  const r = run(root);
+  assert.equal(r.status, 1, "a CRLF workflow must be scanned exactly like an LF one");
+  assert.equal(json(r).checked, 1);
+  assert.deepEqual(reasons(r), ["floating-ref"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("✱✱ CRLF does not hide a CONFORMING ref either (no false positive from the \\r)", () => {
+  const root = repoWithEol(`      - uses: actions/checkout@${DIGEST} # v7.0.1`, "\r\n");
+  const r = run(root);
+  assert.equal(r.status, 0, `trailing \\r must not corrupt the comment: ${r.stdout}`);
+  assert.equal(json(r).checked, 1);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("✱✱ lone-CR (classic Mac) line endings do not collapse the file into one invisible line", () => {
+  const root = repoWithEol("      - uses: evil/action@v1", "\r");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.deepEqual(reasons(r), ["floating-ref"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("✱✱ a flow SEQUENCE on the steps line — `steps: [{uses: x@v1}]` — is classified", () => {
+  const root = scratch();
+  const dir = join(root, ".github", "workflows");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "w.yml"),
+    "name: t\non: [push]\njobs:\n  j:\n    steps: [{uses: evil/action@v1}]\n",
+  );
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.equal(json(r).checked, 1);
+  assert.deepEqual(reasons(r), ["floating-ref"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("✱✱ `uses` NOT first in a flow mapping — `- {with: {x: 1}, uses: x@v1}` — is classified", () => {
+  const r = run(repoWith("      - {with: {x: 1}, uses: evil/action@v1}"));
+  assert.equal(r.status, 1);
+  assert.equal(json(r).checked, 1);
+  assert.deepEqual(reasons(r), ["floating-ref"]);
+});
+
+test("✱✱ a flow sequence on its own line — `[{uses: x@v1}]` — is classified", () => {
+  const r = run(repoWith("      [{uses: evil/action@v1}]"));
+  assert.equal(r.status, 1);
+  assert.deepEqual(reasons(r), ["floating-ref"]);
+});
+
+test("✱✱ TWO refs on one line are both counted (returning only the first left the rest invisible)", () => {
+  const root = scratch();
+  const dir = join(root, ".github", "workflows");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "w.yml"),
+    "name: t\non: [push]\njobs:\n  j:\n    steps: [{uses: a/b@v1}, {uses: c/d@v2}]\n",
+  );
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.equal(json(r).checked, 2, "both refs must be counted");
+  assert.deepEqual(reasons(r), ["floating-ref", "floating-ref"]);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("a word merely ENDING in `uses:` (causes:, reuses:) is not a ref — the un-anchored match is bounded", () => {
+  const root = repoWith("      - run: echo causes: nothing");
+  const r = run(root);
+  assert.equal(r.status, 0);
+  assert.equal(json(r).checked, 0);
+  rmSync(root, { recursive: true, force: true });
 });
 
 // --- ✱ REGRESSIONS: refs the shipped gate never classified ---------------------------------------

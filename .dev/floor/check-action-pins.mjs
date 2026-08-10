@@ -54,15 +54,29 @@ const OCI_DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 // A conforming comment: FULL semver. The major-only form (`# v6`) is the ff48077 defect.
 const SEMVER_COMMENT_RE = /^v\d+\.\d+\.\d+$/;
 
-// The three `uses:` spellings GitHub accepts, all reduced to "the text after the key".
-//   bare key      :  - uses: x        /  uses: x
-//   quoted key    :  - "uses": x      /  'uses': x
-//   flow mapping  :  - {uses: x, with: {...}}
-// Capturing the remainder wholesale (rather than a `(\S+)` ref group) is load-bearing: a `${{ … }}`
-// expression ref contains SPACES, and a `\S+` group silently fails to match the line at all — the
-// ref is then never examined, which is a fail-OPEN.
-const USES_LINE_RE = /^\s*(?:-\s*)?["']?uses["']?\s*:\s*(.*)$/;
-const USES_FLOW_RE = /^\s*(?:-\s*)?\{\s*["']?uses["']?\s*:\s*([^,}]*)/;
+// Split on ALL THREE line-ending conventions, not just "\n". Splitting on "\n" alone leaves a
+// trailing "\r" on every line of a CRLF file, and a line-anchored regex ending in `$` cannot match
+// it (`.` does not match a carriage return), so EVERY `uses:` in that file became invisible —
+// exit 0, checked:0, byte-identical to a clean repo. That is reachable BY ACCIDENT: `core.autocrlf`
+// on Windows produces CRLF on checkout, this repo has no `.gitattributes`, and prettier's globs
+// exclude `.github/**`, so nothing else would normalise or reject it. Lone-CR collapses the whole
+// file into one line, with the same result.
+const LINE_SPLIT_RE = /\r\n|\r|\n/;
+
+// A `uses:` key ANYWHERE in the line — deliberately NOT anchored to the start.
+//
+// Anchoring was the second root cause: `steps: [{uses: x@main}]`, `- {with: {…}, uses: x@main}`,
+// and a flow sequence on its own line are all valid YAML that GitHub executes, and all three put
+// the key somewhere other than line-start-after-an-optional-dash. Each was invisible.
+//
+// The leading `(?:^|[\s,{[])` is what stops `causes:` / `reuses:` from matching, and capturing to
+// the next `,` `}` `]` (rather than a `(\S+)` ref group) is load-bearing: a `${{ … }}` expression
+// ref contains SPACES, and a `\S+` group fails to match the line at all — a fail-OPEN.
+//
+// Deliberate imprecision, in the fail-CLOSED direction: a `run:` line that happens to contain the
+// text `uses:` is treated as a ref and reported. That is noise a human can resolve; a missed ref
+// is not.
+const USES_KEY_RE = /(?:^|[\s,{[])["']?uses["']?\s*:\s*([^,}\]]*)/g;
 
 // Reasons are an ENUM, never prose (P5 — membership, not classification).
 const REASON = {
@@ -192,26 +206,28 @@ function collectFiles(target) {
   return { found, unreadable };
 }
 
-// Pull the ref + trailing comment out of one line, or null if the line is not a `uses:`.
+// Pull EVERY `uses:` ref (with its trailing comment) out of one line. Returns [] when the line
+// declares none. A line can legitimately carry more than one in flow style — `[{uses: a}, {uses: b}]`
+// — and returning only the first would leave the rest invisible, which is the bug class this
+// function exists to close.
 function parseUses(raw) {
-  if (raw.trimStart().startsWith("#")) return null; // a commented-out example is not a ref
+  if (raw.trimStart().startsWith("#")) return []; // a commented-out example is not a ref
 
-  const flow = USES_FLOW_RE.exec(raw);
-  const m = flow || USES_LINE_RE.exec(raw);
-  if (m === null) return null;
-
-  const rest = m[1];
-  // An action ref never contains `#`, so the first `#` begins the comment.
-  const hash = rest.indexOf("#");
-  const comment = hash === -1 ? undefined : rest.slice(hash + 1).trim();
-  const ref = rest
-    .slice(0, hash === -1 ? rest.length : hash)
-    .trim()
-    .replace(/[,}].*$/, "") // flow mapping: stop at the entry boundary
-    .trim()
-    .replace(/^["']|["']$/g, ""); // quotes must not smuggle a floating tag past the digest test
-
-  return { ref, comment };
+  const out = [];
+  USES_KEY_RE.lastIndex = 0; // the regex is /g and shared: reset before each line
+  let m;
+  while ((m = USES_KEY_RE.exec(raw)) !== null) {
+    const rest = m[1];
+    // An action ref never contains `#`, so the first `#` begins the comment.
+    const hash = rest.indexOf("#");
+    const comment = hash === -1 ? undefined : rest.slice(hash + 1).trim();
+    const ref = rest
+      .slice(0, hash === -1 ? rest.length : hash)
+      .trim()
+      .replace(/^["']|["']$/g, ""); // quotes must not smuggle a floating tag past the digest test
+    out.push({ ref, comment });
+  }
+  return out;
 }
 
 function main() {
@@ -232,34 +248,32 @@ function main() {
     const rel = f.rel.split(sep).join("/");
     let lines;
     try {
-      lines = readFileSync(f.abs, "utf8").split("\n");
+      lines = readFileSync(f.abs, "utf8").split(LINE_SPLIT_RE);
     } catch {
       violations.push({ file: rel, line: 0, ref: "", reason: REASON.UNREADABLE });
       continue;
     }
 
     lines.forEach((raw, i) => {
-      const parsed = parseUses(raw);
-      if (parsed === null) return;
-      const { ref, comment } = parsed;
+      for (const { ref, comment } of parseUses(raw)) {
+        // `uses:` with nothing after it is malformed, not absent — fail closed.
+        if (ref === "") {
+          checked += 1;
+          violations.push({ file: rel, line: i + 1, ref, reason: REASON.FLOATING });
+          continue;
+        }
 
-      // `uses:` with nothing after it is malformed, not absent — fail closed.
-      if (ref === "") {
-        checked += 1;
-        violations.push({ file: rel, line: i + 1, ref, reason: REASON.FLOATING });
-        return;
+        const reason = classify(ref, comment);
+        if (reason !== null) {
+          checked += 1;
+          violations.push({ file: rel, line: i + 1, ref, reason });
+          continue;
+        }
+
+        // Conforming. Exempt refs are counted separately so an audit can see the exemption was used.
+        if (isExempt(ref)) skipped += 1;
+        else checked += 1;
       }
-
-      const reason = classify(ref, comment);
-      if (reason !== null) {
-        checked += 1;
-        violations.push({ file: rel, line: i + 1, ref, reason });
-        return;
-      }
-
-      // Conforming. Exempt refs are counted separately so an audit can see the exemption was used.
-      if (isExempt(ref)) skipped += 1;
-      else checked += 1;
     });
   }
 

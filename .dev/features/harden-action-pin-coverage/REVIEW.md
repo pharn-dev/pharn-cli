@@ -4,7 +4,7 @@
 
 Increment under review (`trust: untrusted`): `.dev/floor/check-action-pins.mjs` + its test.
 
-Standing floor verdicts: `validate` exit 0 · `regression-report.json` `"no-regressions"` · `verify-report.json` `"PASS"` · full `floor.yml` command **696 tests, 0 fail** (684 → +12).
+Standing floor verdicts: `validate` exit 0 · `regression-report.json` `"no-regressions"` · `verify-report.json` `"PASS"` · full `floor.yml` command **704 tests, 0 fail** (684 → +20 across both rounds; see "Second round" below).
 
 ---
 
@@ -76,6 +76,43 @@ This is a genuine methodology error and it is recorded rather than hidden. 5 con
 **GREEN — 0 floor-gate findings; 3 advisory (0 blocking, 2 important, 1 minor).**
 
 ---
+
+---
+
+## Second round (appended after the sweep completed)
+
+The adversarial sweep finished **after** the first fix was pushed, and it confirmed **five more bypasses that survived it** — reproduced against the pushed code, not inferred:
+
+| input | pushed behaviour |
+| --- | --- |
+| CRLF line endings anywhere in a workflow | `checked:0`, exit 0 — **whole file invisible** |
+| lone-CR (classic Mac) endings | `checked:0`, exit 0 — file collapses to one line |
+| `steps: [{uses: evil@v1}]` | `checked:0`, exit 0 |
+| `- {with: {x: 1}, uses: evil@v1}` | `checked:0`, exit 0 |
+| `[{uses: evil@v1}]` on its own line | `checked:0`, exit 0 |
+
+**CRLF is the serious one.** It is reachable *by accident*: `core.autocrlf=true` on a Windows checkout produces it, this repo has no `.gitattributes`, and prettier's globs exclude `.github/**` — so nothing normalises or rejects it. A verifier reproduced it against a copy of this repo's real `.github/`: injecting `- uses: evil/exfiltrate@main\r\n` into `ci.yml` left the output **byte-identical to the clean baseline** (`checked:10, skipped:0, violations:[]`, exit 0).
+
+**Both had structural root causes, not missing cases** — which is exactly why round one missed them:
+
+1. the file was split on `"\n"` only, so a trailing `\r` defeated every line-anchored match;
+2. the `uses:` key was anchored to line start, so any flow position hid it.
+
+Fixed at the roots: split on `/\r\n|\r|\n/`, and match the key **anywhere** in the line (bounded by `(?:^|[\s,{[])` so `causes:` does not match, and capturing to the next `,`/`}`/`]` so a multi-ref line yields every ref). All five closed, plus a sixth found while fixing: two refs on one line previously yielded only the first.
+
+```yaml
+- type: FINDING
+  rule_id: "P0"
+  severity: important
+  file: ".dev/floor/check-action-pins.mjs:57"
+  problem: "Round one closed eight enumerated cases while leaving two structural assumptions untouched, so the gate was re-shipped with a whole-file fail-open reachable by an ordinary Windows checkout."
+  evidence: "'const USES_LINE_RE = /^\\s*(?:-\\s*)?[\"\']?uses[\"\']?\\s*:\\s*(.*)$/;'"
+  gate: advisory-gate
+```
+
+**The lesson this makes concrete, and it upgrades the epistemics of the whole increment.** Round one fixed the cases the sweep listed; the sweep's own list was not exhaustive, and re-running it against the hardened artifact found more. The honest reading is that *enumerating bad inputs does not bound a line scanner's failure set* — only changing the parsing model does. That is now reflected in the code (root-cause fixes) and in the header's disclosure, but it remains true that a **third** round could find a third class. The `## Verdict` above stands, with this qualification attached.
+
+**Process note, again:** the first push happened while verification was still running. That is the same error already logged as lesson candidate 1, and this is its concrete cost — a PR whose description overstated its coverage for roughly twenty minutes.
 
 ## Proposed lesson candidates (NOT written to canon — P2/P7)
 

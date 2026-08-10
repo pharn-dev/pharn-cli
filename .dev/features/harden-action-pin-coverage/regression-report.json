@@ -1,5 +1,5 @@
 {
-  "base": "519e365616a99e61e8877c03d8b534426da0a3c0",
+  "base": "25f8f4bd07f0d5d44e7c00280c1a7eb4d20bd690",
   "inside": [
     ".dev/floor/check-action-pins.mjs",
     ".dev/floor/check-action-pins.test.mjs"
