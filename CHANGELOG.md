@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn status` no longer crashes on a path it cannot read, and no longer misreports what sits
+  there.** The drift check read your project with its own bare `existsSync` / `readFileSync`, which
+  went wrong four ways. A **directory** where a file belongs threw `EISDIR` out of the middle of the
+  comparison, so status printed a raw errno naming no file and **the drift report for every other file
+  was lost** — one bad path took down the whole run. A **symlink** was read *through*: pointing it at a
+  file with other bytes listed the path under "differs", erasing the fact that a link — not an edit —
+  was the cause, and pointing it at a **byte-identical** file made status count it as matching and say
+  **nothing at all**, silently blessing a path that leads outside your install and can change under it
+  tomorrow. A **dangling** symlink was reported as "missing", when the truth is a link squats on the
+  path. And a path whose **parent is a regular file** was likewise reported "missing", when in fact it
+  cannot exist. All four are now a fourth drift category, **Unreadable**, listed by name with the
+  reason, while every other file still compares normally. `--strict` exits 1 on them like any other
+  drift; a plain `pharn status` still exits 0, because it is a report. This is the same classification
+  `pharn update` has always used to decide what it refuses to write over — so the read side and the
+  write side can no longer disagree about what a symlink at a pharn-owned path means.
+- **One canonical sha256.** `lib/hash.ts` has always claimed a single implementation "so the drift
+  check (status), the install record store, and the update decision can never disagree" — while the
+  drift check quietly kept a private copy. It now uses the shared one, and a test holds the claim.
+
 - **`pharn init` and `pharn update` no longer report success having done nothing off a TTY.** Both
   commands confirm before they write, and when stdin was not a terminal that confirmation cancelled on
   stream end and routed through the graceful-cancel path — `process.exit(0)`. So `echo "" | pharn update`
