@@ -41,6 +41,7 @@
 - `.dev/floor/check-soft-tier.mjs` — **new**, deterministic scanner: no `continue-on-error` key anywhere in `.github/workflows/*.{yml,yaml}` or `.github/actions/**/action.{yml,yaml}` — layer: floor (primitive #3)
 - `.dev/floor/check-soft-tier.test.mjs` — **new**, hermetic fixtures + a `★ LIVE REPO-CONSISTENCY` block against the real tree (P1) — layer: floor test
 - `CHANGELOG.md` — one entry under `## [Unreleased] → ### Added`, following the `:279` "Repo-health tooling" precedent — layer: docs
+- `src/lib/apply-update.ts` — **HALT-1 line-item R1, approved 2026-08-11.** Make `readDiskState`'s absent-vs-unreadable split errno-free, fixing the Windows red cell — layer: `lib/`
 
 ### The proposed `ci.yml` shape
 
@@ -126,8 +127,30 @@ The **triage** step at HALT 1 is where P5 bites hardest, and the brief already f
 - **Phase B** — apply only HALT-1-approved handling, each its own declared whitelist item. → **HALT 2:** final diff + all-green runs + the required-checks note verbatim.
 - **Phase C** — paste the checks summary; paste the empty `git add --renormalize` proof; `npm run check` green locally; commit `chore(ci): test on windows/macos and node 22/24; pin source bytes to LF`.
 
+## HALT 1 — the probe's measurement (2026-08-11, PR #91, run 31520548206)
+
+| os / node | result | wall |
+| --- | --- | --- |
+| `ubuntu-latest` / 20 | pass | 39s |
+| `ubuntu-latest` / 22 | pass | 28s |
+| `ubuntu-latest` / 24 | pass | 29s |
+| `macos-latest` / 24 | pass | 40s |
+| `windows-latest` / 24 | **fail** | 62s |
+
+On Windows **5 of 6 gates passed** — `Format check`, `Lint`, `Markdown lint`, `Typecheck`, `Build`. Only `Test` failed, so the six-gate pattern isolated the failure without any log archaeology.
+
+**Predictions that did NOT materialize** (recorded because negative results are results): the **CRLF class was dead on arrival** — `.gitattributes` shipped in the probe and both text-reading gates passed on Windows; the grill's **coverage-threshold** concern did not fire (zero threshold errors); and the `@esbuild`/`@rolldown` lockfile class held on all three platforms.
+
+**The red cell — 3 failures, ONE root cause. New class: `errno-shape divergence` (accepted by the human at HALT 1).**
+
+`src/lib/apply-update.ts:52` uses `lstatSync(dest, { throwIfNoEntry: false })`, whose suppression covers **ENOENT only** — a POSIX-only truth stated in that line's own comment. POSIX raises `ENOTDIR` for a path whose parent is a regular file, so it escapes the suppression and is correctly classified `unreadable`; **Windows raises `ENOENT`**, so it is suppressed and the path is classified `absent`. (The errno was deduced, not assumed: `absent` is reachable only via that suppression.)
+
+Shipped, user-visible consequence: on Windows `pharn status` reports such a path as **Missing** — implying it can be restored, when a regular file squats on its parent and it cannot exist — and `pharn update` then plans a restore and **exits 1** instead of emitting the named skip. The "Unreadable" fourth drift category, the headline entry in this CHANGELOG's Unreleased section, has been POSIX-only correct since it shipped.
+
+The class is distinct from §3's `path-shape residue`: no path string is compared and `toPosix`/`safeJoin` are irrelevant. Signature: assertions about error **classification** failing only on Windows.
+
+**Approved handling — line-item R1:** fix product-side in `src/lib/apply-update.ts` **only**; classify the not-found branch by walking the parent chain (any intermediate component that exists and is not a directory → `unreadable`, else `absent`) rather than by errno. **No test file is edited** — the three failing tests assert the correct behavior, which is the strongest evidence this is a product fix and not a test accommodation.
+
 ## Open questions (HALT)
 
-All four pre-build questions were put to the human and resolved at GATE 1 — see "GATE 1 decisions". None remain open.
-
-The one question that **cannot** be resolved before Phase A is empirical by design and is not a gap: **which cells go red, and why.** That is the probe's entire purpose, and its answer is HALT 1's deliverable.
+All four pre-build questions were resolved at GATE 1; both HALT 1 questions were resolved by the human on 2026-08-11. None remain open.

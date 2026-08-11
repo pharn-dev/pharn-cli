@@ -37,23 +37,76 @@ export class ApplyError extends Error {
 }
 
 /**
+ * Does a component of `rel` exist but not as a directory, so that `rel` CANNOT
+ * exist? Only components BELOW `projectRoot` are examined — what sits above the
+ * root is not pharn's business and may legitimately be unreadable.
+ *
+ * Errno-free on purpose: it observes what the components ARE rather than what
+ * failing to stat one reported, so it answers identically on every platform.
+ * A component that cannot be inspected at all counts as blocking — "I could not
+ * look" must never render as "there was nothing there".
+ */
+function parentBlocks(projectRoot: string, rel: string): boolean {
+  // Walk segments outward-in from the root, the same way `assertNoSymlinkPath`
+  // below does — an outer component being a file is the REASON an inner one
+  // cannot be inspected, so the outermost answer is the true one. Segment-walking
+  // also keeps containment structural (`safeJoin` per step) rather than resting on
+  // a lexical prefix compare, which would confuse `/a/b` with `/a/bc`.
+  const segments = rel.split('/').filter((s) => s.length > 0);
+  let current = '';
+  for (const segment of segments.slice(0, -1)) {
+    current = current ? `${current}/${segment}` : segment;
+    let st;
+    try {
+      st = lstatSync(safeJoin(projectRoot, current), { throwIfNoEntry: false });
+    } catch {
+      return true;
+    }
+    if (!st) return false; // a genuinely missing directory — the path is absent, not blocked
+    // A SYMLINKED parent is deliberately not blocking. It does not mean the path
+    // cannot exist — refusing to write THROUGH a symlink is `applyWrites`' job
+    // (see the trust note at the top of this file), and deciding it here would
+    // turn a planned write into a silent skip and dissolve the ApplyError
+    // contract. When the link points at a file, the lstat above already raises
+    // ENOTDIR on POSIX and this function is never consulted.
+    if (st.isSymbolicLink()) continue;
+    if (!st.isDirectory()) return true;
+  }
+  return false;
+}
+
+/**
  * Classify what the project holds at `rel` — the disk side of the decision
  * table. Never throws: an unhashable path becomes the `unreadable` terminal so
  * the run reports it instead of crashing (P5).
  */
 export function readDiskState(projectRoot: string, rel: string): DiskState {
   const dest = safeJoin(projectRoot, rel);
-  // `throwIfNoEntry: false` suppresses ENOENT ONLY — a path whose PARENT is a
-  // regular file raises ENOTDIR, which would crash the whole run instead of
-  // producing the named skip this function promises. Catching keeps the terminal
-  // deterministic (P5): unreadable, reported, never silently overwritten.
+  // Catching keeps the terminal deterministic (P5): unreadable, reported, never
+  // silently overwritten. The `absent` split below is deliberately NOT decided by
+  // errno — see `parentBlocks`.
   let stat;
   try {
     stat = lstatSync(dest, { throwIfNoEntry: false });
   } catch {
     return { kind: 'unreadable', reason: 'the path could not be inspected' };
   }
-  if (!stat) return { kind: 'absent' };
+  // Not found. "Not found" and "cannot exist" are different terminals, and which
+  // errno distinguishes them is PLATFORM-SPECIFIC: POSIX raises ENOTDIR when a
+  // parent component is a regular file, Windows raises ENOENT for that same
+  // situation. Reading the errno therefore classified a blocked path as `absent`
+  // on Windows — so `status` called it Missing (implying it can be restored) and
+  // `update` planned a restore that then crashed. Ask the filesystem what is
+  // actually there instead (P5: a membership test over real components, not an
+  // errno guess). Costs extra lstats only on this already-not-found branch.
+  if (!stat) {
+    return parentBlocks(projectRoot, rel)
+      ? {
+          kind: 'unreadable',
+          reason: 'a parent of the path is not a directory',
+        }
+      : { kind: 'absent' };
+  }
   if (stat.isSymbolicLink()) {
     return { kind: 'unreadable', reason: 'the path is a symlink' };
   }

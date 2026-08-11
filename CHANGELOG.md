@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **On Windows, `pharn status` called a path Missing that cannot exist, and `pharn update` crashed
+  trying to restore it.** When a regular file squats where a directory belongs, POSIX reports
+  `ENOTDIR` for anything underneath it while **Windows reports `ENOENT`** — the same code the
+  filesystem uses for "simply not there". `readDiskState` suppressed `ENOENT` (via
+  `lstatSync`'s `throwIfNoEntry: false`) and so classified a blocked path as `absent`: `status`
+  listed it under **Missing**, implying it could be restored, and `update` then planned that restore
+  and **exited 1** instead of emitting the named skip. The whole "Unreadable" drift category below
+  was POSIX-only correct from the day it shipped. The absent-vs-unreadable split no longer reads the
+  errno at all — it asks the filesystem what the parent components actually **are**, which answers
+  identically on every platform. A symlinked parent is deliberately still **not** blocking: refusing
+  to write through a symlink stays `applyWrites`' job, so the partial-failure record contract is
+  unchanged. Found by the new Windows CI cell on its first run.
+
 - **`pharn status` no longer crashes on a path it cannot read, and no longer misreports what sits
   there.** The drift check read your project with its own bare `existsSync` / `readFileSync`, which
   went wrong four ways. A **directory** where a file belongs threw `EISDIR` out of the middle of the
