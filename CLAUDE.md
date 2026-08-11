@@ -15,7 +15,7 @@ npx tsx src/index.ts init    # run the CLI from source via tsx (there is no `dev
 npm run build                # rm dist → tsc --noEmit (typecheck) → esbuild bundle+minify → dist/index.js
 npm run build:install-local  # build + install dist/bin into every local test-*/ app's node_modules
 npm run typecheck            # tsc --noEmit for src AND tests (two configs)
-npm run lint                 # eslint src
+npm run lint                 # eslint src tests scripts --max-warnings 0 (any warning fails)
 npm run lint:md              # markdownlint-cli2 over docs/**/*.md + *.md
 npm run format:check         # prettier check (use `format` to write)
 npm test                     # vitest run (single pass)

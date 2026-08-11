@@ -85,6 +85,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--json` gains a `source` field on each capability, **omitted** (never defaulted) when the config
   does not record one. This is an additive JSON change — existing consumers are unaffected.
 
+### Changed
+
+- **The lint gate lost its soft tier and now covers the checked-in source surface.** `npm run lint`
+  runs ESLint over `src/`, `tests/`, and `scripts/` with `--max-warnings 0`, so **any** warning from
+  **any** rule now fails the gate, locally and in CI. Before this it linted `src/` only, and its one
+  custom rule sat at `warn` — a severity nothing could ever fail on — while `tests/` and `scripts/`
+  were typechecked but never linted. Closing it needed no code change: the tier was measurably empty.
+  The flat config also now declares the platform it actually runs on — `globals.nodeBuiltin`, Node
+  minus the CommonJS-only names, because this package is ESM — which is what let `scripts/` join the
+  gate without editing a single script: their `console`/`process` were never wrong, the config simply
+  declared no globals at all. Choosing `nodeBuiltin` over plain `node` keeps `__dirname`/`require` in
+  an `.mjs` a lint error, since those do not exist in ESM and would otherwise crash at runtime.
+  *Scope, honestly:* the root config files (`eslint.config.mjs`, `vitest.config.ts`), `.dev/floor/`,
+  and `.claude/hooks/` are **not** linted. And `--max-warnings 0` counts warnings that are actually
+  **emitted** — it is not a defence against a rule set to `off`, a new `ignores` entry, or an inline
+  `eslint-disable` comment.
+
 ### Fixed
 
 - **`pharn update` no longer silently deletes capabilities you added by hand, or silently resurrects
