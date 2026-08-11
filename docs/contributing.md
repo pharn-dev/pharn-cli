@@ -20,7 +20,7 @@ npm install
 | `npm run test:watch`          | Vitest watch mode                                                                                 |
 | `npm run test:coverage`       | Coverage report                                                                                   |
 | `npm run typecheck`           | `tsc` for src and tests                                                                           |
-| `npm run lint`                | ESLint on `src/`                                                                                  |
+| `npm run lint`                | ESLint on `src/`, `tests/`, `scripts/` — fails on any warning                                     |
 | `npm run format`              | Prettier write                                                                                    |
 | `npm run format:check`        | Prettier check (CI-friendly)                                                                      |
 
