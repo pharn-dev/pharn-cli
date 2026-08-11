@@ -62,6 +62,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI now runs the suite on Windows, macOS, and Node 20/22/24 — and the source bytes are pinned to
+  LF.** Every gate used to execute on exactly one cell, `ubuntu-latest` × Node 20, while `publish.yml`
+  built the shipped artifact on Node 24 — so the release ran a Node no test had ever seen, and the
+  riskiest surface in the repo (`safeJoin`/`toPosix` path handling, the symlink fixtures across
+  `apply-update`/`backup`/`install-capabilities`, records byte-equality, the spawn-based self-tests)
+  had never touched a non-Linux filesystem. `ci.yml` is now a five-cell matrix — `ubuntu-latest` ×
+  {20, 22, 24} plus `windows-latest` and `macos-latest` on 24, the Node the release ships — with
+  `fail-fast: false`, so a red cell produces a full failure table instead of aborting its siblings.
+  Each cell runs the same six independent gates as before. A new `.gitattributes` (`* text=auto
+  eol=lf`) makes checked-out bytes deterministic on every OS, which matters because the suite now
+  contains tests that read the repo's own tracked files; it is a **no-op renormalization** today
+  (zero CRLF in tracked files), and it removes at the source the class that `check-action-pins.mjs`
+  had already been forced to defend against per-scanner. Repo tooling only — no product behavior
+  changes.
+- **A floor gate for "no soft tier".** `.dev/floor/check-soft-tier.mjs` refuses any
+  `continue-on-error` key in `.github/workflows/*.{yml,yaml}` or `.github/actions/**/action.{yml,yaml}`
+  — the value is never read, so `false` and `${{ matrix.experimental }}` are refused alongside `true`
+  and the verdict stays an integer count rather than a judgment about untrusted file content. The
+  rule existed before as a convention; a five-cell matrix makes "just mark the red one experimental"
+  a standing temptation, and a check that renders as present while gating nothing is worse than no
+  check at all. Named residuals, not claimed closed: it cannot see branch protection (a job left out
+  of the required-checks list is soft in the only way that finally matters), and it does not read
+  shell-level swallowing such as `|| true`.
 - **`pharn update --yes` (`-y`) — a real flag, for CI and scripts.** It skips **the confirmation prompt
   and nothing else**: the version note still prints, the same per-file decision table applies, files you
   edited are still skipped rather than overwritten, the recorded version is still withheld when anything
