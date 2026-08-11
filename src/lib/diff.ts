@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { readDiskState } from './apply-update.js';
+import { sha256File } from './hash.js';
 import { collectExpectedInstallPaths } from './install-manifest.js';
-import { safeJoin } from './validate.js';
 import type { InstalledCapability, Layout } from '../types.js';
 
 export interface InstallDiff {
@@ -9,6 +8,14 @@ export interface InstallDiff {
   modified: string[];
   // Expected by an installed module/skill but absent on disk.
   missing: string[];
+  // Expected paths that EXIST but cannot be compared: a symlink (live OR
+  // dangling), a directory, another non-regular file, an unreadable file, or a
+  // path whose parent is a regular file. Reported by name with the reason,
+  // never folded into ok/modified/missing — a symlink read THROUGH would
+  // masquerade as `modified` (different bytes) or, worse, as `ok` (identical
+  // bytes), silently blessing a path that points outside the install. Sorted by
+  // `rel`.
+  unreadable: { rel: string; reason: string }[];
   // Files present on disk and byte-identical to upstream.
   okCount: number;
 }
@@ -20,8 +27,11 @@ export interface InstallDiff {
  * dirs + the fixed product surfaces at the recorded layout); this byte-compares
  * each entry against `projectRoot`. `.claude/settings.json` is user-owned
  * (preserved at install) and is excluded by the manifest; the copied-verbatim
- * trusted docs, hooks, contracts, and floor checkers ARE compared. Every read is
- * safeJoin-guarded.
+ * trusted docs, hooks, contracts, and floor checkers ARE compared.
+ *
+ * Every read stays safeJoin-contained, though this module no longer calls
+ * safeJoin itself: the project side is contained by `readDiskState`
+ * (lib/apply-update.ts) and the clone side by `collectExpectedInstallPaths`.
  */
 export function diffInstalledCapabilities(params: {
   repoDir: string;
@@ -42,20 +52,36 @@ export function diffInstalledCapabilities(params: {
   return compareExpected(expected, projectRoot);
 }
 
-// Byte-compare each expected file against `baseDir`, partitioning into
-// modified / missing / ok. safeJoin-guarded.
+// Compare each expected file against `baseDir`, partitioning into
+// modified / missing / unreadable / ok.
+//
+// The PROJECT side goes through `readDiskState` — the same total classifier
+// `pharn update` writes against, so the read and the write can never disagree
+// about what a symlink (or a directory, or an ENOTDIR parent) at an owned path
+// means. It never throws, so one unreadable path can no longer collapse the
+// whole report.
+//
+// The CLONE side is deliberately NOT symmetric: a plain `sha256File`. The
+// manifest only ever emits paths it existsSync-verified in a fresh private temp
+// clone THIS run, and its walkers exclude symlinks — so a clone-side read
+// failure means the clone corrupted mid-run, which is genuinely exceptional and
+// keeps its existing behavior of surfacing through runStatus's catch. There is
+// no fifth state.
 function compareExpected(
   expected: Map<string, string>,
   baseDir: string,
 ): InstallDiff {
   const modified: string[] = [];
   const missing: string[] = [];
+  const unreadable: { rel: string; reason: string }[] = [];
   let okCount = 0;
   for (const [rel, repoPath] of expected) {
-    const diskPath = safeJoin(baseDir, rel);
-    if (!existsSync(diskPath)) {
+    const state = readDiskState(baseDir, rel);
+    if (state.kind === 'absent') {
       missing.push(rel);
-    } else if (hash(repoPath) === hash(diskPath)) {
+    } else if (state.kind === 'unreadable') {
+      unreadable.push({ rel, reason: state.reason });
+    } else if (state.hash === sha256File(repoPath)) {
       okCount += 1;
     } else {
       modified.push(rel);
@@ -63,9 +89,11 @@ function compareExpected(
   }
   modified.sort();
   missing.sort();
-  return { modified, missing, okCount };
-}
-
-function hash(path: string): string {
-  return createHash('sha256').update(readFileSync(path)).digest('hex');
+  // Code-unit comparison, matching the `.sort()` default above. NOT
+  // localeCompare, which is locale-dependent and would order the report
+  // differently across machines (P5). Written branch-free rather than as a
+  // ternary chain so there is no equality arm that map-key uniqueness makes
+  // unreachable — this yields -1 / 0 / 1 arithmetically.
+  unreadable.sort((a, b) => Number(a.rel > b.rel) - Number(a.rel < b.rel));
+  return { modified, missing, unreadable, okCount };
 }

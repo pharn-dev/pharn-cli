@@ -49,7 +49,12 @@ function noteBody(title: string): string {
   return (call?.[0] as string | undefined) ?? '';
 }
 
-const CLEAN = { modified: [] as string[], missing: [] as string[], okCount: 5 };
+const CLEAN = {
+  modified: [] as string[],
+  missing: [] as string[],
+  unreadable: [] as { rel: string; reason: string }[],
+  okCount: 5,
+};
 
 describe('runStatus (archetype)', () => {
   stubProcessExit();
@@ -138,6 +143,7 @@ describe('runStatus (archetype)', () => {
     diffInstalledCapabilities.mockReturnValue({
       modified: ['pharn-pipeline/grillers/a11y/a11y.md'],
       missing: [],
+      unreadable: [],
       okCount: 3,
     });
 
@@ -158,6 +164,7 @@ describe('runStatus (archetype)', () => {
     diffInstalledCapabilities.mockReturnValue({
       modified: ['CONSTITUTION.md'],
       missing: [],
+      unreadable: [],
       okCount: 3,
     });
 
@@ -174,6 +181,7 @@ describe('runStatus (archetype)', () => {
     diffInstalledCapabilities.mockReturnValue({
       modified: ['CONSTITUTION.md'],
       missing: [],
+      unreadable: [],
       okCount: 3,
     });
 
@@ -195,6 +203,7 @@ describe('runStatus (archetype)', () => {
     diffInstalledCapabilities.mockReturnValue({
       modified: [],
       missing: ['.claude/hooks/set-writes-scope.cjs'],
+      unreadable: [],
       okCount: 3,
     });
 
@@ -215,11 +224,93 @@ describe('runStatus (archetype)', () => {
     diffInstalledCapabilities.mockReturnValue({
       modified: ['pharn-pipeline/grillers/a11y/a11y.md'],
       missing: [],
+      unreadable: [],
       okCount: 3,
     });
 
     await expect(runStatus({})).resolves.toBeUndefined();
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  // The fourth partition: expected paths that EXIST but cannot be compared (a
+  // symlink, a directory, an ENOTDIR parent). status used to either crash on
+  // these or file them under Modified/Missing; now it names them, and --strict
+  // counts them like any other drift.
+  const UNREADABLE = {
+    modified: [] as string[],
+    missing: [] as string[],
+    unreadable: [{ rel: 'CONSTITUTION.md', reason: 'the path is a symlink' }],
+    okCount: 3,
+  };
+
+  it('--strict exits 1 when the ONLY drift is unreadable, cleaning up first', async () => {
+    const cleanup = vi.fn();
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(UNREADABLE);
+
+    await expect(runStatus({ strict: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('plain status REPORTS unreadable paths with their reason and exits 0', async () => {
+    // Report-only, exactly like modified/missing: status is a report, not a
+    // guard. The reason is rendered because "a link sits there" is the whole
+    // point — without it this is indistinguishable from an edit.
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(UNREADABLE);
+
+    await expect(runStatus({})).resolves.toBeUndefined();
+
+    const drift = noteBody('DRIFT');
+    expect(drift).toContain('UNREADABLE');
+    expect(drift).toContain('CONSTITUTION.md — the path is a symlink');
+    // Not a clean bill: an unreadable path is drift.
+    expect(drift).not.toContain('No drift');
+  });
+
+  it('orders the drift subsections DIFFERS → MISSING → UNREADABLE', async () => {
+    // Deterministic report order, the read-side twin of update's SKIP_ORDER —
+    // unreadable last, because nothing pharn can run resolves it.
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue({
+      modified: ['CONSTITUTION.md'],
+      missing: ['.claude/hooks/set-writes-scope.cjs'],
+      unreadable: [
+        {
+          rel: 'pharn-contracts/finding-shape.md',
+          reason: 'the path is a symlink',
+        },
+      ],
+      okCount: 3,
+    });
+
+    await runStatus({});
+
+    const drift = noteBody('DRIFT');
+    expect(drift.indexOf('DIFFERS FROM')).toBeLessThan(
+      drift.indexOf('MISSING'),
+    );
+    expect(drift.indexOf('MISSING')).toBeLessThan(drift.indexOf('UNREADABLE'));
+  });
+
+  it('omits the UNREADABLE subsection entirely when nothing is unreadable', async () => {
+    fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue({
+      modified: ['CONSTITUTION.md'],
+      missing: [],
+      unreadable: [],
+      okCount: 3,
+    });
+
+    await runStatus({});
+
+    expect(noteBody('DRIFT')).not.toContain('UNREADABLE');
   });
 
   it('MODELS note renders the per-stage routing from config.models', async () => {

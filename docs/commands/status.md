@@ -6,7 +6,7 @@ from upstream?
 ```bash
 pharn status
 pharn status --no-drift   # version check only (skips the clone)
-pharn status --strict     # exit 1 if outdated, modified, or missing (for CI)
+pharn status --strict     # exit 1 if outdated, differing, missing, or unreadable (for CI)
 ```
 
 `status` is the read side of [`update`](update.md): it reports PHARN-owned files at your **recorded**
@@ -41,7 +41,13 @@ which, and `status` cannot.
      exits early when already up to date. To install a capability **not yet** in `pharn.config.json`,
      use `pharn add` (additive-only — already-listed capabilities are a no-op, even if their files are
      missing); `add` also requires your install to match the current skills version.
-   - If neither, reports **No drift**.
+   - **Unreadable (not a regular readable file)** — expected paths that **exist** but cannot be
+     compared: a symlink (live *or* dangling), a directory, another non-regular file, an unreadable
+     file, or a path whose parent is a regular file. Each is listed with the reason. `status` cannot
+     compare these and `pharn update` skips them too — only you can resolve them, by inspecting the
+     path. A symlink is **never followed**: reading through one would report it as merely "differs"
+     when its target has other bytes, or say nothing at all when its target happens to match.
+   - If none of the three, reports **No drift**.
 
 The heading says "differs from", not "locally modified", on purpose: the comparison is against
 upstream `@main`, so a file can differ because **upstream moved**, not only because you edited it.
@@ -60,8 +66,9 @@ preserves (never overwrites). The copied-verbatim trusted docs, `.cjs` hooks, `p
 
 ## Exit code
 
-Exits `0` by default, even when drift or an available update is found (it is a report). Pass `--strict`
-to exit `1` whenever anything is outdated, modified, or missing — useful as a CI gate.
+Exits `0` by default, even when drift or an available update is found (it is a report) — including when
+a path is unreadable. Pass `--strict` to exit `1` whenever anything is outdated, differing, missing, or
+unreadable — useful as a CI gate.
 
 ## Related
 
