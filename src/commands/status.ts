@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { REPO, REPO_BRANCH } from '../lib/constants.js';
 import { fetchRepo } from '../lib/repo.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
+import type { InstallDiff } from '../lib/diff.js';
 import { configLayout } from '../lib/layout.js';
 import { row } from '../lib/format.js';
 import { formatModelRoutingLines } from '../lib/model-routing-format.js';
@@ -93,7 +94,10 @@ async function runArchetypeStatus(
     printDriftSection(result);
     if (
       strict &&
-      (outdated || result.modified.length || result.missing.length)
+      (outdated ||
+        result.modified.length ||
+        result.missing.length ||
+        result.unreadable.length)
     ) {
       exitCode = 1;
     }
@@ -136,13 +140,15 @@ function printModelRouting(config: PharnConfig): void {
   note(formatModelRoutingLines(config.models).join('\n'), 'MODELS');
 }
 
-// DRIFT note: locally-modified and missing PHARN-owned files, or a clean bill.
-function printDriftSection(result: {
-  modified: string[];
-  missing: string[];
-  okCount: number;
-}): void {
-  if (result.modified.length === 0 && result.missing.length === 0) {
+// DRIFT note: differing, missing and unreadable PHARN-owned files, or a clean
+// bill. Takes the InstallDiff type rather than an inline structural literal, so
+// a partition added to the diff cannot be silently left unrendered here.
+function printDriftSection(result: InstallDiff): void {
+  if (
+    result.modified.length === 0 &&
+    result.missing.length === 0 &&
+    result.unreadable.length === 0
+  ) {
     note(`No drift — ${result.okCount} file(s) match ${REF}.`, 'DRIFT');
     return;
   }
@@ -177,6 +183,24 @@ function printDriftSection(result: {
         '  To add a capability not yet in pharn.config.json, use `pharn add`',
       ),
       pc.dim('  (additive-only — already-listed capabilities are a no-op).'),
+    );
+  }
+  if (result.unreadable.length) {
+    // Last, mirroring update's SKIP_ORDER: these are neither an edit nor an
+    // absence, and nothing pharn can run resolves them — only the user can.
+    // The heading is update's skip heading verbatim, because the write side
+    // refuses these exact paths for the exact same reason.
+    if (lines.length) lines.push('');
+    lines.push('  UNREADABLE — not a regular readable file');
+    for (const { rel, reason } of result.unreadable) {
+      lines.push(`  ${rel} — ${reason}`);
+    }
+    lines.push(
+      pc.dim(
+        '  pharn cannot compare these, and `pharn update` skips them too.',
+      ),
+      pc.dim('  Inspect each path by hand — a directory, a symlink, or an'),
+      pc.dim('  unreadable file sits where pharn expects a regular file.'),
     );
   }
   lines.push('', pc.dim(`  ${result.okCount} file(s) match ${REF}.`));
