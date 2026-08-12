@@ -1,0 +1,24 @@
+{
+  "base": "3645fdf41f0f98b75615da4735125005a878545d",
+  "inside": [
+    "CHANGELOG.md",
+    "LIMITS.md",
+    "THREAT-MODEL.md",
+    "docs/reference/pharn-records.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}
