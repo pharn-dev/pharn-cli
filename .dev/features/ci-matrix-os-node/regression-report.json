@@ -1,0 +1,36 @@
+{
+  "base": "21db522c0fe23c30c53510b954cccd4e34662e83",
+  "inside": [
+    ".dev/floor/check-soft-tier.mjs",
+    ".dev/floor/check-soft-tier.test.mjs",
+    ".gitattributes",
+    ".github/workflows/ci.yml",
+    "CHANGELOG.md",
+    "src/lib/apply-update.ts"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
