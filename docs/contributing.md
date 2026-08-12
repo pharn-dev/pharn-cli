@@ -37,16 +37,21 @@ Published package `@pharn-dev/pharn` exposes a single `pharn` bin (see `package.
 CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs these gates on every push and PR — all must pass:
 
 ```bash
-npm run format:check
-npm run lint
-npm run lint:md      # markdownlint-cli2 over docs/ and root *.md
-npm run typecheck
-npm run test:coverage  # vitest with enforced coverage thresholds
+npm run format:check   # job "Format check"
+npm run lint           # job "Lint"
+npm run lint:md        # job "Markdown lint" — markdownlint-cli2 over docs/ and root *.md
+npm run typecheck      # job "Typecheck"
+npm run test:coverage  # job "Test" — vitest with enforced coverage thresholds
+npm run build          # job "Build" — typecheck + esbuild bundle
 ```
+
+Each gate is a **separate job**, so it reports its own status check and a failure in one never hides a failure in another. The job names above are the exact contexts the `main` branch ruleset requires, so renaming a job also means updating the ruleset — [`tests/ci-workflow.test.ts`](../tests/ci-workflow.test.ts) fails if the workflow side drifts.
+
+Gates run on **ubuntu-latest with Node 24**. `package.json` declares `engines.node: ">=20"`; CI does not exercise Node 20 or 22, so verify locally if your change touches runtime-version-sensitive APIs.
 
 `npm run check` runs `format:check` + `lint` + `typecheck` + `test` as a single local pre-push command.
 
-A separate CodeQL workflow analyzes the JavaScript/TypeScript surface on PRs, pushes to `main`, and weekly.
+Three more workflows report required checks: `floor` (the deterministic PHARN floor), `gitleaks` (secret scanning), and `Analyze (javascript-typescript)` (CodeQL, also on pushes to `main` and weekly).
 
 ## Branch & commit style
 

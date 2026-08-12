@@ -1,5 +1,24 @@
 name: ci
 
+# One job per gate, one status check per job.
+#
+# GitHub reports an Actions job under its `name:`, and that string is what the
+# `main` branch ruleset lists in `required_status_checks` (the same convention
+# `codeql.yml` relies on for `Analyze (javascript-typescript)`). So the six
+# `name:` values below are a CONTRACT with the ruleset, not decoration —
+# renaming one makes a required check unreportable and blocks every PR until the
+# ruleset is edited to match. `tests/ci-workflow.test.ts` pins them.
+#
+# Why six jobs rather than six steps in one job: each gate then passes or fails
+# on its own status check, so one red gate can neither mask nor be masked by
+# another. That is what the previous single `check` job used `if: always()` step
+# guards to approximate.
+#
+# Coverage is deliberately one platform, one Node version (see
+# `.dev/features/ci-matrix-required-checks/PLAN.md`). Note that `package.json`
+# declares `engines.node: ">=20"` while these gates run node 24 — the lower end
+# of that published range is NOT exercised here.
+
 on:
   pull_request:
   push:
@@ -9,7 +28,8 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  format-check:
+    name: Format check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -17,28 +37,89 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - name: Install
-        id: install
         run: npm ci
-      # Run each gate independently so one failure can't mask the others, but skip
-      # them cleanly if install failed — no cascade of misleading "deps missing" errors.
       - name: Format check
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run format:check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Lint
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run lint
+
+  markdown-lint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Markdown lint
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run lint:md
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Typecheck
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Test
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run test:coverage
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Build
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run build

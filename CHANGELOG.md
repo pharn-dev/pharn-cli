@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn remove` now prunes the removed capability's entries from `pharn.records.json`.** It deleted
+  the capability's files and dropped its config entry but left the record store alone, so until the
+  next `pharn update` rewrote the store it was the one command that left records describing bytes that
+  no longer existed. Those entries are now dropped as part of the removal. They are matched as a string
+  prefix on the record key rather than by walking your filesystem, which is why this also works on the
+  path where the capability's directory was already gone — there, the stale records were the only thing
+  left to clean up. Nothing else in the store changes: sibling capabilities' entries are untouched, and
+  the `skillsVersion`/`commit` stamp does not move, because `remove` changes neither. A store that is
+  absent, unreadable, or stamped for a different install state is left exactly as found — `remove`
+  never mints a store and never rewrites one it could not verify, the same rule `pharn add` follows —
+  and the removal itself completes regardless.
+
 - **`pharn status` no longer crashes on a path it cannot read, and no longer misreports what sits
   there.** The drift check read your project with its own bare `existsSync` / `readFileSync`, which
   went wrong four ways. A **directory** where a file belongs threw `EISDIR` out of the middle of the

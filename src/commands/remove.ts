@@ -20,6 +20,12 @@ import {
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
+import {
+  readRecords,
+  recordsBaseline,
+  writeRecords,
+  type FileRecords,
+} from '../lib/install-records.js';
 import type { InstalledCapability, PharnConfig } from '../types.js';
 
 // The inverse of `pharn add`: removes installed capabilities from an archetype
@@ -68,11 +74,81 @@ function deleteCapabilityDir(
   paths: LayoutPaths,
   target: InstalledCapability,
 ): boolean {
-  const subtree = target.role === 'griller' ? paths.grillers : paths.lenses;
-  const dir = safeJoin(cwd, `${subtree}/${target.name}`);
+  const dir = safeJoin(cwd, capabilityRelDir(paths, target));
   const existed = existsSync(dir);
   if (existed) rmSync(dir, { recursive: true, force: true });
   return existed;
+}
+
+// One source for the role→dir mapping. The delete addresses the filesystem and
+// the prune addresses the record store; they MUST name the same directory, and
+// sharing the ternary makes that true by construction rather than by two copies
+// staying in sync.
+function capabilityRelDir(
+  paths: LayoutPaths,
+  capability: InstalledCapability,
+): string {
+  const subtree = capability.role === 'griller' ? paths.grillers : paths.lenses;
+  return `${subtree}/${capability.name}`;
+}
+
+// Drop the removed capabilities' entries from `pharn.records.json`, so `remove`
+// honors the same sentence `update` does: the store describes only files pharn
+// still manages. Without this, `remove` is the one write path that leaves records
+// describing bytes that are gone, and they linger until the next `update` prunes
+// them via its manifest.
+//
+// A key-prefix filter over the STORE, never a filesystem walk:
+// `capabilityRecordPaths` enumerates the DEST directory and returns [] once it is
+// gone — which is the case both AFTER the delete and, on the "its files were
+// already gone" path, before it too. So there is no moment at which a walk could
+// see what to prune.
+//
+// Only an already-READABLE store is edited: `recordsBaseline` returns null for
+// absent, corrupt, AND stamped-for-another-state, and each of those means the
+// same thing here — this is not our store to rewrite (the `add` precedent,
+// commands/add.ts). Minting one would claim knowledge of files we never hashed.
+//
+// The baseline `note` is deliberately NOT surfaced, matching `add`: `remove` is a
+// local, zero-network operation whose outro already reports exactly what it did,
+// and `update` — which is where an unusable store actually changes an outcome —
+// is the command that names the reason. Silence here is a choice, not an
+// oversight.
+async function pruneCapabilityRecords(
+  cwd: string,
+  config: PharnConfig,
+  paths: LayoutPaths,
+  targets: InstalledCapability[],
+): Promise<void> {
+  const { records } = recordsBaseline(readRecords(cwd), {
+    skillsVersion: config.skillsVersion,
+    commit: config.commit,
+  });
+  if (records === null) return; // absent/corrupt/stale → leave it alone
+
+  // The trailing slash is load-bearing: without it `lenses/a11y` would also eat
+  // every key belonging to `lenses/a11y-extended`.
+  const prefixes = targets.map((t) => `${capabilityRelDir(paths, t)}/`);
+  const kept: FileRecords = {};
+  let dropped = 0;
+  for (const [key, hash] of Object.entries(records)) {
+    // Keys are COMPARED as strings and never joined into a path — the invariant
+    // that makes a hand-edited store unable to drive a filesystem access.
+    if (prefixes.some((prefix) => key.startsWith(prefix))) dropped++;
+    else kept[key] = hash;
+  }
+  if (dropped === 0) return; // nothing matched → the store stays byte-identical
+
+  // The stamp does not move: `remove` changes neither `skillsVersion` nor
+  // `commit`, so the store is re-written against the same pair the config holds
+  // (and still holds after the config write, which touches only `capabilities`
+  // and `installedAt`). A moved stamp would make the very next `update` read this
+  // store as written for another state and ignore it wholesale.
+  await writeRecords(cwd, {
+    skillsVersion: config.skillsVersion,
+    commit: config.commit,
+    files: kept,
+  });
 }
 
 // Warn when a capability being removed will simply come back. Derived from the
@@ -136,6 +212,19 @@ async function removeNamed(
   const paths = layoutPaths(configLayout(config));
   const existed = deleteCapabilityDir(cwd, paths, target);
   const note = existed ? '' : pc.dim(' (its files were already gone)');
+
+  // Order: delete → prune records → write config (mirroring `add`'s
+  // records-before-config). `writeRecords` is a plain `writeFile`, so this is a
+  // benign-failure argument, NOT an atomicity claim (advisory, P0): a prune that
+  // fails after the delete leaves exactly today's status quo — stale entries the
+  // next `update` prunes — and a config write that fails after the prune leaves
+  // the entry listed with its files absent, which the next `update` restores and
+  // re-records. Neither direction corrupts, and since the stamp never moves the
+  // two files cannot skew relative to each other.
+  //
+  // `existed` deliberately does NOT gate this: on the "already gone" path the
+  // records are exactly what is left to clean up.
+  await pruneCapabilityRecords(cwd, config, paths, [target]);
 
   // The surviving entries are the ORIGINAL objects, so every other capability's
   // `source` is carried through untouched.
@@ -217,6 +306,10 @@ async function runRemovePicker(
 
   const paths = layoutPaths(configLayout(config));
   for (const target of targets) deleteCapabilityDir(cwd, paths, target);
+
+  // One prune for the whole selection — the same delete → prune → config order
+  // as removeNamed, and one store write to match the one config write below.
+  await pruneCapabilityRecords(cwd, config, paths, targets);
 
   // As in removeNamed: survivors are the original objects, so their `source` is
   // preserved verbatim.

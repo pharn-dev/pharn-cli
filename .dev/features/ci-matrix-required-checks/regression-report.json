@@ -1,0 +1,23 @@
+{
+  "base": "4b8a0be0c4cbb1e84c93cf0ae47ffd3324c205b9",
+  "inside": [
+    ".github/workflows/ci.yml",
+    "CLAUDE.md",
+    "docs/contributing.md",
+    "tests/ci-workflow.test.ts",
+    ".dev/floor/check-run-pins.test.mjs"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

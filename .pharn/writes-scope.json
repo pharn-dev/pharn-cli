@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/lint-gate-no-soft-tier/SHIP.md"
+    ".dev/features/ci-matrix-required-checks/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-11T14:10:24.724Z"
+  "set_at": "2026-08-12T13:04:18.311Z"
 }
