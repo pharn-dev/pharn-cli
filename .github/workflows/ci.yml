@@ -8,27 +8,24 @@ on:
 permissions:
   contents: read
 
+# Shared 5-cell matrix — pinned once so every gate job fans out identically.
+x-ci-matrix: &ci-matrix
+  fail-fast: false
+  matrix:
+    include:
+      - { os: ubuntu-latest, node: 20 }
+      - { os: ubuntu-latest, node: 22 }
+      - { os: ubuntu-latest, node: 24 }
+      - { os: windows-latest, node: 24 }
+      - { os: macos-latest, node: 24 }
+
 jobs:
-  check:
-    # The explicit name is load-bearing, not decoration. Without it GitHub derives each check's
-    # name from EVERY matrix key, so adding a key later would silently rename all five required
-    # checks and break branch protection. This pins check identity to os + node.
-    name: ${{ matrix.os }} / node ${{ matrix.node }}
+  format-check:
+    # Explicit name pins check identity to gate + cell so branch protection can
+    # require each gate independently (not one combined check job per cell).
+    name: Format check (${{ matrix.os }} / node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    strategy:
-      # Never abort siblings on a red cell: five cheap independent cells produce a full failure
-      # table on every red, which is the cross-platform archaeology this matrix exists to do.
-      fail-fast: false
-      matrix:
-        # The OS-axis risk (fs, symlinks, paths, spawn) is node-version-independent and the
-        # node-axis risk (API drift) is OS-independent, so the cross-terms are not worth 9 cells.
-        # Node 24 carries the OS legs because 24 is what publish.yml ships.
-        include:
-          - { os: ubuntu-latest, node: 20 }
-          - { os: ubuntu-latest, node: 22 }
-          - { os: ubuntu-latest, node: 24 }
-          - { os: windows-latest, node: 24 }
-          - { os: macos-latest, node: 24 }
+    strategy: *ci-matrix
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,25 +35,91 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - name: Install
-        id: install
         run: npm ci
-      # Run each gate independently so one failure can't mask the others, but skip
-      # them cleanly if install failed — no cascade of misleading "deps missing" errors.
       - name: Format check
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run format:check
+
+  lint:
+    name: Lint (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy: *ci-matrix
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Lint
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run lint
+
+  markdown-lint:
+    name: Markdown lint (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy: *ci-matrix
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Markdown lint
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run lint:md
+
+  typecheck:
+    name: Typecheck (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy: *ci-matrix
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Typecheck
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run typecheck
+
+  test:
+    name: Test (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy: *ci-matrix
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Test
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run test:coverage
+
+  build:
+    name: Build (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy: *ci-matrix
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        run: npm ci
       - name: Build
-        if: ${{ always() && steps.install.outcome == 'success' }}
         run: npm run build
