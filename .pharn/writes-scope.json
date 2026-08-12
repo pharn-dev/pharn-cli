@@ -1,10 +1,7 @@
 {
   "scope": [
-    "src/lib/detect-archetype.ts",
-    "tests/detect-archetype.test.ts",
-    "docs/commands/init.md",
-    "CHANGELOG.md"
+    ".dev/features/detect-skip-framework-caches/VERIFY.md"
   ],
-  "set_by": ".dev/features/detect-skip-framework-caches/PLAN.md",
-  "set_at": "2026-08-12T14:27:28.553Z"
+  "set_by": ".claude/commands/pharn-dev-verify.md",
+  "set_at": "2026-08-12T17:37:07.602Z"
 }

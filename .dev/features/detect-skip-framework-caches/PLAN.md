@@ -9,6 +9,7 @@
 > chosen over the plan's own recommendation to decline. `SKIP_DIRS` therefore ships **15** members:
 > the original 4, the 5 measured-or-canonical, and the 6 zoo names. Every claim below that counted
 > "five" / "nine" is restated at the real counts. Base drift resolved: **proceed on live `main`**.
+
 - layer(s): the installer's own `src/lib` — the archetype detection I/O boundary (`ARCHITECTURE.md §5`,
   "detected deterministically … bounded + symlink-safe"). No PHARN layer (`§4`) changes.
 - constitution_refs: [P1, P3, P4, P5, P6, P7]
