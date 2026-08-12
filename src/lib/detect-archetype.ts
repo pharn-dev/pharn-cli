@@ -47,8 +47,43 @@ export interface ArchetypeDetection {
 }
 
 // Directories never recursed into and never classified — heavy or irrelevant
-// trees (build output, VCS, deps). Compared case-insensitively (below).
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build']);
+// trees (build output, VCS, deps, framework build/deploy caches). Compared
+// case-insensitively (below).
+//
+// A skipped dir `continue`s BEFORE the `budget -= 1` decrement, so a skip-listed
+// subtree costs ZERO entries. That is what keeps a fat framework cache from
+// exhausting MAX_ENTRIES and silently truncating the walk before it reaches the
+// project's real source — the failure this list's framework-cache members exist
+// to prevent (a `.next/` of 55k files made a `src/App.tsx` project detect as
+// frameworkless `lib` instead of `spa`, identically on every machine, because the
+// walk is sorted and `.next` sorts before `src`).
+//
+// The failure DIRECTION of this list is a LOST signal, never a false one: a
+// hand-authored dir that happens to be named here (e.g. `out/` holding real
+// source) goes dark, and package.json dependency names are what normally backstop
+// it. That tradeoff is accepted deliberately — recorded here so it is not
+// rediscovered as a bug.
+//
+// Exported read-only so tests can pin every member's skip behavior and its
+// classification neutrality against the shipped set, without being able to mutate
+// it.
+export const SKIP_DIRS: ReadonlySet<string> = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next', // Next.js build cache
+  'out', // Next.js static-export default output
+  'coverage', // test-coverage output
+  '.turbo', // Turborepo cache
+  '.vercel', // deploy artifacts
+  '.nuxt', // Nuxt build cache
+  '.svelte-kit', // SvelteKit build cache
+  '.astro', // Astro build cache
+  '.cache', // generic tool cache (Parcel, Gatsby, …)
+  '.parcel-cache', // Parcel cache
+  'storybook-static', // Storybook static build
+]);
 
 // Bounded walk. These caps are a DEFENSIVE bound on a pathological tree, NOT a
 // perf-only knob: a signal that lies past a cap is silently UNDETECTED (a

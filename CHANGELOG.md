@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn init` no longer misdetects a project whose framework build cache is large.** Archetype
+  detection walks your file tree under a bounded entry budget, and that budget was being spent on
+  generated output: a `.next/` directory of 55 000 files consumed the whole allowance before the walk
+  reached `src/`, so a React project with no `package.json` framework dependency was detected as a
+  frameworkless `lib` instead of `spa` — the same wrong answer on every machine, because the walk is
+  sorted and `.next` sorts before `src`. Build and deploy caches are now skipped, which costs the
+  walk nothing: `out`, `coverage`, `storybook-static`, `.next`, `.nuxt`, `.svelte-kit`, `.astro`,
+  `.turbo`, `.vercel`, `.cache`, and `.parcel-cache` join the `node_modules`, `.git`, `dist`, and
+  `build` that were already skipped. The tradeoff is a lost signal, never a false one: a source file
+  you hand-authored inside one of those directories is no longer seen, and your `package.json`
+  dependencies are what normally cover that case.
+
 - **`pharn remove` now prunes the removed capability's entries from `pharn.records.json`.** It deleted
   the capability's files and dropped its config entry but left the record store alone, so until the
   next `pharn update` rewrote the store it was the one command that left records describing bytes that

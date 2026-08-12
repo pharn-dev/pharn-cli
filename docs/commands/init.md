@@ -83,7 +83,7 @@ Shows the PHARN logo and CLI version.
 
 ### 3. Detect archetypes
 
-Reads `package.json` dependency names and walks the project tree (bounded, symlink-safe, `node_modules`/`.git`/`dist`/`build` skipped) for structural signals, then reduces both to an `Archetype[]`. The detected set is shown in a "Detected archetypes" note. Only names are tested against fixed in-code allowlists — no discovered file body is read (other than `package.json`) and no untrusted value is executed, interpolated, or logged.
+Reads `package.json` dependency names and walks the project tree (bounded and symlink-safe, skipping dependencies, VCS metadata, and build/deploy caches — `node_modules`, `.git`, `dist`, `build`, `out`, `coverage`, `storybook-static`, `.next`, `.nuxt`, `.svelte-kit`, `.astro`, `.turbo`, `.vercel`, `.cache`, `.parcel-cache`) for structural signals, then reduces both to an `Archetype[]`. Skipping those trees costs the walk nothing, so a large framework cache cannot exhaust its bound and hide your real source; the tradeoff is that a signal file you hand-authored inside one of those directories is not seen. The detected set is shown in a "Detected archetypes" note. Only names are tested against fixed in-code allowlists — no discovered file body is read (other than `package.json`) and no untrusted value is executed, interpolated, or logged.
 
 ### 4. Fetch PHARN
 

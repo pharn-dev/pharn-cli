@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/trust-map-records-era/SHIP.md"
+    ".dev/features/detect-skip-framework-caches/VERIFY.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-12T13:57:28.337Z"
+  "set_by": ".claude/commands/pharn-dev-verify.md",
+  "set_at": "2026-08-12T17:37:07.602Z"
 }
