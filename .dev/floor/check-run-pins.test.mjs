@@ -370,7 +370,11 @@ test("★ the live repo has NO floating install in any workflow run: line", () =
 
   // `npm ci` in ci.yml and publish.yml — asserted EXACTLY, so an exemption can never become a
   // silent hole. If this number changes, a lockfile install was added or removed on purpose.
-  assert.equal(d.skipped, 2);
+  //
+  // 7 = six in ci.yml (one per gate job — each required status check installs for itself) plus one
+  // in publish.yml. It was 2 while ci.yml ran a single `check` job; splitting that job into six is
+  // the deliberate change this count now records.
+  assert.equal(d.skipped, 7);
 
   // Independent recount of the enumerated workflow files, case-insensitively — exit 0 is also what
   // a checker returns when it opened nothing.

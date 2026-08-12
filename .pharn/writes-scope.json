@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/remove-prunes-records/SHIP.md"
+    ".dev/features/ci-matrix-required-checks/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-12T10:42:58.999Z"
+  "set_at": "2026-08-12T13:04:18.311Z"
 }
