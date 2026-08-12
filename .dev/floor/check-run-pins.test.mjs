@@ -368,9 +368,9 @@ test("★ the live repo has NO floating install in any workflow run: line", () =
   assert.deepEqual(d.violations, [], `unexpected violations: ${JSON.stringify(d.violations)}`);
   assert.equal(r.status, 0);
 
-  // `npm ci` in ci.yml and publish.yml — asserted EXACTLY, so an exemption can never become a
-  // silent hole. If this number changes, a lockfile install was added or removed on purpose.
-  assert.equal(d.skipped, 2);
+  // `npm ci` in ci.yml (one per gate job) and publish.yml — asserted EXACTLY, so an exemption can
+  // never become a silent hole. If this number changes, a lockfile install was added or removed on purpose.
+  assert.equal(d.skipped, 7);
 
   // Independent recount of the enumerated workflow files, case-insensitively — exit 0 is also what
   // a checker returns when it opened nothing.
