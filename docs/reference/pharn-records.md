@@ -45,7 +45,7 @@ disagree with what is actually on disk. Keys are sorted, so the committed file h
 | `init`   | Writes the full store — every file the install wrote                                                   |
 | `add`    | Merges the added capability's files in. Only extends an **already readable** store; it never mints one |
 | `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning))                           |
-| `remove` | Does not touch it — the removed capability's entries are pruned by the next `update`                   |
+| `remove` | Prunes the removed capability's entries. Only edits an **already readable** store; it never mints one  |
 
 `.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
 absent.
@@ -73,10 +73,21 @@ overwrites the skipped files instead.
 
 ## Pruning
 
+Two commands drop entries, and between them the store never describes bytes that are gone.
+
 `update` writes the store as a fresh map keyed by the manifest it just applied. Entries for paths that
-are no longer part of your install — a removed capability, or a file dropped upstream — are dropped
-rather than accumulating. Skipped files keep their previous entry, since it still describes what
-`pharn` wrote there.
+are no longer part of your install — typically a file dropped upstream — are dropped rather than
+accumulating. Skipped files keep their previous entry, since it still describes what `pharn` wrote
+there.
+
+[`remove`](../commands/remove.md) prunes the entries of the capability it removed, at the moment it
+removes it, rather than leaving them for the next `update`. It drops every key under that capability's
+directory — matched as a **string prefix on the key**, never by walking your filesystem, which is what
+lets it clean up correctly even when the directory was already gone. Nothing else in the store is
+touched, and the `skillsVersion`/`commit` stamp does not move: `remove` changes neither, so the store
+stays stamped for the state it is still in. If the store is absent, unreadable, or stamped for another
+state, `remove` leaves the file exactly as it found it — it never mints a store and never rewrites one
+it could not verify, the same rule [`add`](../commands/add.md) follows.
 
 ## Trust
 

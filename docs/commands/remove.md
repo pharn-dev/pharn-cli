@@ -22,6 +22,8 @@ pharn remove                 # no arg, in a terminal: interactive multi-select p
    no-argument `pharn remove` does **not** prompt — it exits with a usage error (unless nothing is
    installed, which is reported plainly).
 3. Deletes each selected capability's isolated directory and drops its entry from `capabilities`.
+4. Prunes that capability's entries from [`pharn.records.json`](../reference/pharn-records.md), so the
+   store never describes files that are gone.
 
 Removal needs **no network and no clone** — everything is derivable from `capabilities` plus your
 filesystem. `CONSTITUTION.md`, `memory-bank/`, and your detected `archetypes` are **never** touched.
@@ -39,6 +41,15 @@ under `pharn/`. Removal is therefore precise; siblings are never touched.
 - Already-deleted directory → treated as done (idempotent).
 
 `--yes` / `-y` is accepted but has no effect — capability removal has no confirmation prompt to skip.
+
+## The record store
+
+Removing a capability also drops its entries from [`pharn.records.json`](../reference/pharn-records.md)
+— the sidecar recording a hash per file `pharn` wrote — so nothing in it describes bytes that no longer
+exist. Every other entry, and the store's `skillsVersion`/`commit` stamp, is left exactly as it was:
+`remove` changes neither version nor commit. If the store is absent, unreadable, or stamped for a
+different install state, `remove` leaves the file untouched rather than minting or rewriting one it
+cannot verify — the same rule [`add`](add.md) follows. The removal itself proceeds either way.
 
 ## Removing an auto-selected capability
 

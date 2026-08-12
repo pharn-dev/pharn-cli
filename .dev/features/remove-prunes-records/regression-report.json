@@ -1,0 +1,24 @@
+{
+  "base": "21db522c0fe23c30c53510b954cccd4e34662e83",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/remove.md",
+    "docs/reference/pharn-records.md",
+    "src/commands/remove.ts",
+    "tests/remove.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
