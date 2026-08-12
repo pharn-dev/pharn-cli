@@ -102,3 +102,6 @@ your call to make, and it is the only thing such an edit can do.
 - [update](../commands/update.md) — the decision table these hashes drive
 - [pharn.config.json](pharn-config.md) — the config this store is stamped against
 - [status](../commands/status.md) — the read-only drift report
+- [`THREAT-MODEL.md` §4c](../../THREAT-MODEL.md) and [`LIMITS.md` §1b](../../LIMITS.md) — why these
+  hashes are **drift baselines, not provenance**: they are taken from the written file, so they detect
+  local edits but authenticate nothing about upstream

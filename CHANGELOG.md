@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- **The trust map now matches the records era.** `LIMITS.md` and `THREAT-MODEL.md` still described the
+  deleted module/manifest subsystem and a world with no stored file hashes, both of which stopped being
+  true when `pharn.records.json` shipped. Three claims were corrected in place. `LIMITS.md §1d` said
+  `update`, `remove`, and `status` all reconstruct by reading a manifest from `@main` — there is no
+  manifest, and `remove` is fully offline, addressed from `pharn.config.json` alone; the section now
+  splits those two cases and names what each leaves behind. `THREAT-MODEL.md §4c` said pharn stores no
+  per-file content-hash; it does, and the honest residual is that the baseline covers only pharn-written
+  files at a matching stamp — so an absent or skewed store makes `update` **skip** present files while
+  still **restoring** absent ones. `LIMITS.md §1b` said the same thing one section earlier and now draws
+  the real distinction: the hashes pharn stores are drift baselines taken from the written file, which
+  authenticate nothing about upstream. No section numbers changed.
+
 ### Fixed
 
 - **`pharn remove` now prunes the removed capability's entries from `pharn.records.json`.** It deleted

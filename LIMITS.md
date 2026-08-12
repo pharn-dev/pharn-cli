@@ -33,8 +33,11 @@ with perfectly safe paths can still install methodology whose body is whatever t
 ### 1b. Trust in the remote is provenance, not cryptographic
 
 pharn records a `commit` SHA (best-effort via the GitHub API) but fetches from a mutable remote
-via `degit`; it stores **no signature and no per-file content-hash**. A compromised or MITM'd
-upstream serving valid-shaped content passes the structural floor.
+via `degit`; it stores **no signature and no upstream-authenticating hash**. The per-file sha256s it
+does store ([`pharn.records.json`](docs/reference/pharn-records.md)) are taken from the **written
+file, never from the upstream source** — dest-side drift baselines, provenance-neutral by
+construction. A compromised or MITM'd upstream serving valid-shaped content passes the structural
+floor.
 
 - **Struck claim:** "the pinned commit proves the installed bytes are authentic."
 - **True statement:** the `commit` records **which ref** was installed; it does not cryptographically
@@ -56,16 +59,26 @@ filesystem except when `status` runs.
   "these exact bytes present" until `status` is run.
 - **Backstop:** `pharn status` re-derives drift live — that is the guarantee, not the config field.
 
-### 1d. `update` / `remove` resolve against `@main`, not the pinned commit
+### 1d. `update` / `status` resolve against `@main`; `remove` resolves offline
 
-To reconstruct what a module contributed, `update`/`remove`/`status` read the manifest from `@main`
-HEAD (not the pinned `commit`). An upstream **rename** can orphan a file (`remove`) or re-target it
-(`update`) — documented, reported, never silently guessed.
+There is no manifest. `update`/`status` re-derive the expected set from a fresh `@main` clone (not the
+pinned `commit`), while `remove` resolves against **nothing remote** — it is addressed entirely from
+`pharn.config.json` via `configLayout` (`src/commands/remove.ts:12`, `:212`, `:307`). An upstream
+**rename** lands at two levels: a renamed **capability** surfaces in `update`'s membership report as
+`dropped-gone` / `added` (`src/lib/merge-capabilities.ts:79`, `:201`), while a renamed **file inside** a
+capability is restored at its new path and the old copy is left on disk — `update` never deletes
+(`src/commands/update.ts:452`).
 
 - **Struck claim:** "`remove`/`update` always know exactly what the pinned version installed."
-- **True statement:** they reconstruct from the **current** upstream; a path renamed since the pin is
-  **reported as an orphan**, not guessed at.
-- **Backstop:** a missing `from` is reported, never silently deleted or created (P5/P6).
+- **True statement:** `update`/`status` reconstruct from the **current** upstream, so a capability
+  renamed since the pin is **reported**, never guessed; `remove` reconstructs from the **recorded
+  config**, deleting the directory the recorded `layout` addresses for that capability
+  (`src/commands/remove.ts:72`) and pruning that capability's entries from `pharn.records.json`
+  (`:117`).
+- **Backstop:** every one of those paths is `safeJoin`-contained. Two residuals remain named: a file
+  **orphaned by an upstream rename** — `update` restores the new path, leaves the old one, and reports
+  nothing, bounded to the install subtree and visible to `pharn status`; and `remove`'s delete takes the
+  **whole directory** at that address, including files you added inside it.
 
 ---
 

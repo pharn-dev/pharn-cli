@@ -112,9 +112,19 @@ a named per-field sanitizer, not a "the source repo is ours" assumption (P0).
   to `degit` with no timeout or body cap in pharn code. A pathological upstream tarball can still DoS
   an install. _Backstop:_ the clone lands in a temp dir and only **structurally filtered** subsets are
   copied (`installCapabilities` / `install-manifest.ts`); report bypasses of that filter, not mere size.
-- **4c. No stored content-hash of installed files.** `status`/`diff` re-derive the expected byte set
-  **live** against `@main`, not against a per-file hash pinned in `pharn.config.json`. _Backstop:_
-  drift **is** detected (`pharn status`) — just live, not against a stored baseline.
+- **4c. The stored content-hashes cover only what pharn wrote, at the matching stamp.** pharn does keep
+  a per-file sha256 baseline — [`pharn.records.json`](docs/reference/pharn-records.md), stamped with the
+  config's `skillsVersion`/`commit` — and `update` gates every file on it. The residual is its
+  **coverage**, not its absence. Where the store is absent or its stamp disagrees, the two directions
+  differ: a file **present** on disk becomes `unrecorded`/`unverifiable` and `update` **skips** it rather
+  than overwrite (`src/lib/update-decision.ts:64-65`), while a file **absent** from disk is **restored**
+  regardless of the store (row 1, `:60`). A file already byte-identical to upstream is never skipped even
+  with no records, and its record is refreshed — so a degraded install partially heals, but never for the
+  differing files an upgrade needs to touch (`:67-71`). `status` is not record-based at all: its drift is
+  a **live `@main` comparison** via `readDiskState` (`src/lib/diff.ts:79`, `src/lib/apply-update.ts:44`),
+  which classifies a symlink or non-regular path as `unreadable` rather than hashing it
+  (`apply-update.ts:57-61`). _Backstop:_ drift **is** detected (`pharn status`, live), and bytes pharn
+  cannot explain are **skipped, never overwritten** without `--force`.
 
 ---
 

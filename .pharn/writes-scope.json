@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/ci-matrix-required-checks/SHIP.md"
+    ".dev/features/trust-map-records-era/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-12T13:04:18.311Z"
+  "set_at": "2026-08-12T13:57:28.337Z"
 }
