@@ -112,7 +112,7 @@ function collectFiles(target) {
     try {
       names = readdirSync(wfDir).sort();
     } catch {
-      /* unreadable dir: nothing to enumerate */
+      unreadable.push({ rel: wfRel, abs: wfDir });
     }
     for (const name of names) {
       if (!isYaml(name)) continue;
@@ -133,6 +133,7 @@ function collectFiles(target) {
     try {
       names = readdirSync(absDir).sort();
     } catch {
+      unreadable.push({ rel: relDir, abs: absDir });
       return;
     }
     for (const name of names) {

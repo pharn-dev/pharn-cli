@@ -65,14 +65,15 @@ The six steps stay **byte-identical in body** to today's — `npm ci`, then `for
 
 **The explicit `name:` is load-bearing, not decoration.** Without it GitHub derives each check's name from *every* matrix key — so any future key added to `include` would silently rename all five required checks and re-break branch protection. Pinning `name:` to `os` + `node` fixes the check identity against that.
 
-### The soft-tier gate — shape and honest residuals
+### The soft-tier gate — shape, enforcement, and honest residuals
 
 `check-soft-tier.mjs` follows the house style of its two neighbours exactly: Node stdlib only, no network, no `child_process`, no dynamic import; a **line scanner**, not a YAML parser; unrecognised shapes fail **toward flagging**.
 
 - **Enumerates** the same two sets `check-action-pins.mjs` does, for the same reason: `.github/workflows/*.{yml,yaml}` (non-recursive, mirroring GitHub) **and** `.github/actions/**/action.{yml,yaml}` (recursive) — a composite action is a laundering path if only call sites are scanned.
 - **Violation = the presence of a `continue-on-error:` key, value-blind.** `false` is rejected along with `true`. This is deliberate: reading the value would make the verdict depend on untrusted file content, whereas `violations.length > 0` is an integer test (the same P2/fix-#1 discipline `check-action-pins.mjs` states for its `ref` field). It also catches the experimental-cell laundering shape `continue-on-error: ${{ matrix.experimental }}` without needing to know what `matrix.experimental` is.
+- **Enforcement (outside the scanned workflow surface):** `floor.yml` runs `node .dev/floor/check-soft-tier.mjs .` directly (not only via its test file), and the `main protection` ruleset requires the `floor` status check. The `★ LIVE REPO-CONSISTENCY` block in `check-soft-tier.test.mjs` is retained as a third anti-vacuity residual on top of both wires.
 - **Named residuals** (stated, never claimed closed):
-  - **R1 — "gates the merge" is a REPO-SETTINGS property, not a file property.** This gate guarantees no workflow *asks* to be soft. It cannot see branch protection, so a cell excluded from the required list is invisible to it. This is the same wall the operational note hits, and it is why that note goes to the human by hand.
+  - **R1 — other required checks are still a REPO-SETTINGS property.** This gate guarantees no workflow *asks* to be soft, and `floor` itself is now required on `main`; a *different* job left out of the required list (e.g. a matrix cell) remains invisible to this scanner. The operational note for those names still goes to the human by hand.
   - **R2 — SHELL-LEVEL SWALLOWING.** `run: npm test || true`, `set +e`, a trailing `|| exit 0` — a soft tier written in bash rather than YAML. Detecting it is classification, which P5 forbids. Out of contract by construction.
   - **R3 — ENUMERATOR DUPLICATION.** `collectFiles`/`isYaml`/`safeLstat` are duplicated from `check-action-pins.mjs`, because **no floor script imports another** and that isolation is a safety property (one module's bug cannot take down two gates) — the identical trade `check-run-pins.mjs` documents as its R2. Mitigated the same way: the test cross-checks that this scanner's `files[]` equals `check-action-pins.mjs`'s for this repo, so the two walkers cannot drift silently.
 

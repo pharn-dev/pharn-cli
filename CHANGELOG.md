@@ -95,9 +95,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the verdict stays an integer count rather than a judgment about untrusted file content. The
   rule existed before as a convention; a five-cell matrix makes "just mark the red one experimental"
   a standing temptation, and a check that renders as present while gating nothing is worse than no
-  check at all. Named residuals, not claimed closed: it cannot see branch protection (a job left out
-  of the required-checks list is soft in the only way that finally matters), and it does not read
-  shell-level swallowing such as `|| true`.
+  check at all. Enforcement is wired outside the scanned workflow tree: `floor.yml` runs the scanner
+  directly, the `floor` job is a required status check on `main`, and the `★` live-repo block in
+  `check-soft-tier.test.mjs` is retained as an anti-vacuity residual on top. Named residuals, not
+  claimed closed: other jobs left out of the required-checks list are still soft in the only way that
+  finally matters, and the scanner does not read shell-level swallowing such as `|| true`.
 - **`pharn update --yes` (`-y`) — a real flag, for CI and scripts.** It skips **the confirmation prompt
   and nothing else**: the version note still prints, the same per-file decision table applies, files you
   edited are still skipped rather than overwritten, the recorded version is still withheld when anything

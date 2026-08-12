@@ -3,17 +3,19 @@
 // Two kinds of test live here, and the split is deliberate:
 //   1. HERMETIC — scratch repos on disk, exercising the contract without touching this repo.
 //   2. LIVE REPO-CONSISTENCY (the ★ at the bottom) — validates the COMMITTED tree against REALITY.
-//      This is the half that makes the gate LOAD-BEARING rather than decorative: nothing in
-//      ci.yml or validate.mjs invokes check-soft-tier.mjs, so the gate's only execution against
-//      the real repo is HERE, collected by floor.yml's `node --test` run. Delete the ★ block and
-//      the scanner still passes its own fixtures while enforcing nothing. Do not delete it.
+//      Retained as an anti-vacuity residual on top of two outer wires (both must stay):
+//        (a) floor.yml shells `node .dev/floor/check-soft-tier.mjs .` directly — enforcement lives
+//            outside the scanned `.github/workflows` / `.github/actions` surface, not in ci.yml;
+//        (b) the `main protection` ruleset requires the `floor` status check on merge.
+//      Delete the ★ block and a PR could still remove both outer wires while hermetic fixtures pass.
+//      Do not delete it.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url)); // .dev/floor
@@ -187,6 +189,41 @@ test("an uppercase .YML extension is scanned", () => {
   const root = repoWith(`      - continue-on-error: true\n`, { name: "CI.YML" });
   assert.equal(run(root).status, 1);
   rmSync(root, { recursive: true, force: true });
+});
+
+
+// --- unreadable scan roots ---------------------------------------------------------------------
+
+test("an unreadable workflows directory is a violation, not a silent skip", () => {
+  const root = scratch();
+  const dir = join(root, ".github", "workflows");
+  mkdirSync(dir, { recursive: true });
+  chmodSync(dir, 0o000);
+  try {
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.deepEqual(reasons(r), ["unreadable-file"]);
+    assert.equal(json(r).violations[0].file, ".github/workflows");
+  } finally {
+    chmodSync(dir, 0o700);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable actions directory is a violation, not a silent skip", () => {
+  const root = scratch();
+  const dir = join(root, ".github", "actions");
+  mkdirSync(dir, { recursive: true });
+  chmodSync(dir, 0o000);
+  try {
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.deepEqual(reasons(r), ["unreadable-file"]);
+    assert.equal(json(r).violations[0].file, ".github/actions");
+  } finally {
+    chmodSync(dir, 0o700);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // --- ★ LIVE REPO-CONSISTENCY — the committed tree, not a fixture -------------------------------
