@@ -2,10 +2,12 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  SKIP_DIRS,
   detectArchetypesFromProject,
   scanFileTreeSignals,
 } from '../src/lib/detect-archetype.js';
 import type { ArchetypeDetection } from '../src/lib/detect-archetype.js';
+import { classifyEntry } from '../src/lib/archetype.js';
 import { useTmpDir } from './helpers.js';
 
 // Write a package.json (the given value, serialized) into `dir`.
@@ -516,6 +518,78 @@ describe('scanFileTreeSignals', () => {
       ssr: false,
       backend: true,
       clientUi: true,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SKIP_DIRS — pinned UNIFORMLY over the shipped set, old members and new. These
+// iterate the exported production constant rather than a copy, so a member added
+// to (or removed from) SKIP_DIRS is covered here the moment it lands and the pins
+// cannot drift from the list the walk actually uses.
+// ---------------------------------------------------------------------------
+
+const NO_SIGNAL = { ssr: false, backend: false, clientUi: false };
+
+// STRUCTURAL INVARIANT — classification neutrality. `classifyEntry` recognizes
+// DIRECTORY names as signals (`api/`, `migrations/` → backend), and the walk
+// `continue`s a skipped dir BEFORE classifying it — so adding a signal-bearing
+// name to SKIP_DIRS would silently silence a detector. No current member
+// collides; this pin is deliberately GENERIC so it fails the day one does.
+//
+// The three ancestor contexts are the ones that can turn a directory name into a
+// signal: the top level and a `pages`/`app` parent (both `api` triggers), and a
+// SQL-host ancestor. `['db']` is a member of the module-private SQL_HOST_DIRS in
+// archetype.ts ({migrations, db, database, prisma, drizzle, sql}) — the context
+// in which `migrations` fires.
+describe('SKIP_DIRS — classification neutrality (classifyEntry)', () => {
+  const CONTEXTS: ReadonlyArray<[string, readonly string[]]> = [
+    ['at the top level', []],
+    ['under app/ (an api parent trigger)', ['app']],
+    ['under pages/ (the other api parent trigger)', ['pages']],
+    ['under db/ (a SQL_HOST_DIRS ancestor — the migrations trigger)', ['db']],
+  ];
+
+  describe.each([...SKIP_DIRS])('%s', (dir) => {
+    it.each(CONTEXTS)('produces no signal %s', (_label, segments) => {
+      expect(classifyEntry(dir, true, segments)).toEqual(NO_SIGNAL);
+    });
+  });
+});
+
+// BEHAVIORAL PIN, per member: a real signal file buried inside the skipped dir
+// contributes nothing, while the SAME file outside it does — the paired control
+// is what proves the null result is the skip and not an inert fixture.
+describe('SKIP_DIRS — a signal inside a skipped dir never counts', () => {
+  const tmp = useTmpDir();
+
+  it.each([...SKIP_DIRS])('%s/ is skipped', (dir) => {
+    touch(tmp.path(), join(dir, 'Widget.tsx'));
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['lib'],
+      packageJsonFound: false,
+    });
+    // Paired control: the same basename outside the skipped dir DOES signal.
+    touch(tmp.path(), 'src/Widget.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: false,
+    });
+  });
+
+  // The membership test is `SKIP_DIRS.has(name.toLowerCase())`, so the skip must
+  // hold for a differently-cased directory too (the file-name analog is pinned by
+  // 'matches names case-insensitively (Widget.TSX → spa)' above).
+  it.each([...SKIP_DIRS])('%s/ is skipped case-insensitively', (dir) => {
+    touch(tmp.path(), join(dir.toUpperCase(), 'Widget.tsx'));
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['lib'],
+      packageJsonFound: false,
+    });
+    touch(tmp.path(), 'src/Widget.tsx');
+    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: false,
     });
   });
 });

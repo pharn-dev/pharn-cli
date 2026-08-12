@@ -1,7 +1,10 @@
 {
   "scope": [
-    ".dev/features/trust-map-records-era/SHIP.md"
+    "src/lib/detect-archetype.ts",
+    "tests/detect-archetype.test.ts",
+    "docs/commands/init.md",
+    "CHANGELOG.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-12T13:57:28.337Z"
+  "set_by": ".dev/features/detect-skip-framework-caches/PLAN.md",
+  "set_at": "2026-08-12T14:27:28.553Z"
 }
