@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Docs
 
+- **The fetch boundary now tells the truth about `degit`.** `THREAT-MODEL.md` described the clone as an
+  opaque delegation, and `src/lib/repo.ts` claimed degit "resolves the ref via `git ls-remote`". Measured
+  against the installed `degit@3.6.6`: ref resolution is three tiers (pure-JS `listServerRefs`, then
+  `getRemoteInfo2`, then a spawned `git ls-remote`), the first two falling through on empty `catch {}`
+  while the third throws — so the git binary is a last resort rather than the mechanism, and its absence
+  is harmless only while the pure-JS tiers succeed. More consequentially, `cache: false` selects the hash
+  source and suppresses neither writing nor reuse — every fetch persists a SHA-named tarball into a
+  shared, cross-project cache directory and a later fetch reuses whatever file sits at that path, keyed by
+  **filename, not a verified digest**; a failed ref resolve then falls back to the commit hash stored in
+  that same cache, so a poisoned cache can decide which commit pharn believes it fetched. degit also reads
+  `process.env.https_proxy` on its own (lowercase only, so `HTTPS_PROXY` is ignored on POSIX but honored
+  on Windows), and warns on fallbacks that `fetchRepo` drops by registering no listener. §2 gains the
+  measured mechanics and §4b restates the residuals over them — including one claim made **upward** and
+  then bounded: the bundled node-tar genuinely contains traversal entries (an escaping path is skipped
+  with `TAR_ENTRY_ERROR`, absolute paths are stripped), but it does **not** reject malformed entries —
+  degit passes neither `strict` nor `onwarn`, so `TAR_ENTRY_INVALID` is recoverable and the entry is
+  silently dropped — and tripping the ratio cap degrades to `git clone` rather than halting the install.
+  `LIMITS.md §3a` and `docs/troubleshooting.md` are corrected to match.
 - **The trust map now matches the records era.** `LIMITS.md` and `THREAT-MODEL.md` still described the
   deleted module/manifest subsystem and a world with no stored file hashes, both of which stopped being
   true when `pharn.records.json` shipped. Three claims were corrected in place. `LIMITS.md §1d` said

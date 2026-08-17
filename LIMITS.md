@@ -99,8 +99,12 @@ State these honestly; do not pretend they are free.
 
 ### 3a. Network + git dependency
 
-`init` / `add` / `update` require a network and a working `degit`/`git`. There is no offline or
-air-gapped install path today.
+`init` / `add` / `update` require a network. They do **not** unconditionally require a `git` binary:
+`degit@3.6.6` resolves refs in three tiers — pure-JS `listServerRefs`, then `getRemoteInfo2`, then a
+spawned `git ls-remote` — so while the first two succeed, `git` is never invoked. It becomes
+load-bearing only when both pure-JS tiers fail (tier 3 throws `GIT_LS_REMOTE_FAILED`) or when a tar
+failure triggers the `git clone` fallback (`THREAT-MODEL.md §2`). There is no offline or air-gapped
+install path today.
 
 ### 3b. GitHub API rate limits
 
