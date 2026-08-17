@@ -7,23 +7,11 @@ export class ManifestValidationError extends Error {
   }
 }
 
-// pharn-core, pharn-stack-nextjs, … (matches scripts/schemas/*.schema.json).
-export const MODULE_NAME_RE = /^pharn-[a-z0-9-]+$/;
 export const VERSION_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-// installs source/destination paths: relative, no leading slash, no empty
-// segments (rejects "/etc/x", "a//b", "/"). Optional single trailing slash.
-export const INSTALL_PATH_RE = /^[a-z0-9_-]+(\/[a-z0-9_-]+)*\/?$/;
-// Wizard answer values + ids (e.g. "supabase", "better-auth", "skip").
-export const WIZARD_VALUE_RE = /^[a-z0-9-]+$/;
-// npm package names: optional @scope/, then lowercase letters, digits, '-',
-// '_', '.'. Compared against package.json keys (never path-joined), but kept
-// strict + checked for '..' for defense in depth.
-export const PACKAGE_NAME_RE =
-  /^(@[a-z0-9][a-z0-9-._]*\/)?[a-z0-9][a-z0-9-._]*$/;
 // Capability directory basename (archetype install): lowercase alnum words joined
 // by single hyphens, no leading/trailing/double hyphen (e.g. `a11y`, `n-plus-one`,
-// `copy-paste-drift`). Tighter than WIZARD_VALUE_RE. Every capability name read
-// from the fetched tree is validated with this before it is path-joined (P2).
+// `copy-paste-drift`). Every capability name read from the fetched tree is
+// validated with this before it is path-joined (P2).
 export const CAPABILITY_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // A product command / hook filename copied from the fetched tree (validated
 // before path-join). `pharn-plan.md`, `set-writes-scope.cjs`, etc.
@@ -116,8 +104,8 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 // Defense-in-depth against path traversal in fetched/copied paths (already
-// validated by INSTALL_PATH_RE / CAPABILITY_NAME_RE upstream, but never let a
-// copy or read escape its base directory). This is the LEXICAL gate (resolve +
+// validated by CAPABILITY_NAME_RE upstream, but never let a copy or read escape
+// its base directory). This is the LEXICAL gate (resolve +
 // startsWith); it does NOT resolve symlinks — the symlink-aware backstop lives
 // at the copy write sites in install-capabilities.ts (P2). Co-located with the
 // other structural-validation primitives (one security-validation axis, P3);
