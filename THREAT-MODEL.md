@@ -53,12 +53,53 @@ surface:
    lightweight `SKILLS_VERSION` fetch and the commit-SHA resolve have pharn-imposed bounds; the
    `degit` clone does **not** (see §4).
 4. **Redirect to an attacker host** — a 3xx from a `fetch()` endpoint (`SKILLS_VERSION`,
-   commit metadata) to an off-repo sink. The `degit` path is separate (GitHub tarball delivery
-   via the `degit` dependency).
+   commit metadata) to an off-repo sink. The `degit` path is separate — GitHub tarball delivery
+   through the `degit` dependency, whose measured mechanics are described immediately below.
 5. **The copied methodology itself (Surface A)** — validated for **placement**, not for semantic
    content.
 6. **Stale / renamed upstream paths** — `status`/`update`/`diff` resolve against `@main` HEAD (not
    the pinned `commit`), so an upstream rename can orphan or re-target a path.
+7. **The shared `degit` tarball cache** — a cross-project, on-disk directory pharn writes to on
+   every fetch and reads from without a digest check (see the cache paragraph below, and §4b).
+
+**The `degit` boundary, measured.** The description above says "pharn `degit`-clones"; what that
+delegates is worth naming precisely, because three properties of it are counter-intuitive. Measured
+against the installed dependency at **`degit@3.6.6`** (the version `package-lock.json` pins;
+`package.json` declares the range `^3.6.1`):
+
+- **Identity.** `degit` is published from `github.com/Rich-Harris/degit`, maintained by
+  `rich_harris` and `yoglib`, and released through npm **trusted publishing (GitHub Actions OIDC)**
+  with `yoglib` as the approving maintainer. It declares **no runtime `dependencies`** — its git
+  client and tar implementation are **bundled into the published tarball** (`dist/*.js`), so a
+  dependency-tree audit of pharn will not show them and `npm ls` cannot reach them.
+- **Ref resolution is three-tier, and the git binary is a last resort.** degit tries pure-JS
+  `listServerRefs`, then `getRemoteInfo2`, and only then spawns `git ls-remote --symref`
+  (`dist/client-*.js`). Each tier falls through on an **empty `catch {}`**, so the fallback is
+  silent and pharn cannot distinguish "resolved over HTTP" from "shelled out to git." A missing
+  `git` binary is therefore not by itself an install failure.
+- **`cache: false` is not no-cache.** pharn passes `cache: false` (`src/lib/repo.ts`), but degit's
+  entire download step runs **inside** `if (!options.cache)`: it **reuses** an existing tarball at
+  the cache path when one is present, and otherwise creates that path and downloads **into** it.
+  Every fetch therefore leaves a SHA-named `.tar.gz` plus `map.json` and `access.json` in a shared,
+  cross-project cache directory — `~/Library/Caches/degit` on darwin, `$XDG_CACHE_HOME ?? ~/.cache`
+  then `/degit` on linux, `%LOCALAPPDATA%/degit` on win32. Note `XDG_CACHE_HOME` is **not** consulted
+  on darwin. Extraction also stages into a temp dir **inside** that cache directory.
+- **Tar handling is bundled node-tar, and it carries real guards.** Extraction enforces a
+  `maxDecompressionRatio` (aborting with `max decompression ratio exceeded`), strips absolute paths
+  unless `preservePaths` is set — degit does not set it — and rejects malformed entries
+  (`TAR_ENTRY_INVALID` on checksum/path/linkpath, `TAR_BAD_ARCHIVE` on unrecognized or truncated
+  input). These are the extractor's own guards, not pharn's, and pharn's `safeJoin` + symlink
+  rejection still gate everything copied **out** of the clone.
+- **degit reads `process.env.https_proxy` itself.** Its constructor assigns
+  `this.proxy = process.env.https_proxy` unconditionally and routes downloads through a bundled
+  `https-proxy-agent`. pharn passes no `proxy` option, but the environment reaches the fetch
+  regardless. Only the **lowercase** name is read — `HTTPS_PROXY`, `no_proxy`, and `ALL_PROXY` are
+  ignored.
+- **degit's `warn` events are dropped by pharn, not by degit.** degit emits `warn` on three
+  tar→`git clone` fallbacks (ssh transport, a git-LFS pointer in the snapshot, and a failed tarball
+  download or extraction). Its own CLI registers a listener and prints them; `fetchRepo` registers
+  none, so on pharn's path the transport can silently change from an HTTP tarball to a spawned
+  `git clone` with no signal to the user. The silence is pharn's.
 
 ---
 
@@ -72,8 +113,9 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 | malformed capability frontmatter | `parseCapabilityIndex` hard-fails naming the offending capability on missing subtree/markdown, unknown `role` (`assertRole`), unknown `applies` token (`assertAppliesToken`), or subtree/role mismatch — never a silent skip | shape check |
 | oversized / slow `SKILLS_VERSION` fetch | 256 KB body cap + 8s timeout + `redirect: 'error'` | `fetchRemoteSkillsVersion` (`src/lib/skills-version.ts`) |
 | oversized / slow commit-SHA resolve | 8s timeout + `redirect: 'error'` (JSON body; no separate cap) | `fetchCommitSha` (`src/lib/repo.ts`) |
-| oversized / slow `degit` clone | **no pharn-imposed timeout or body cap** — labeled limit (§4) | (labeled limit) |
+| oversized / slow `degit` clone | **no pharn-imposed timeout or body cap** — labeled limit (§4). The bundled extractor's own `maxDecompressionRatio` bounds a compression bomb, but it is degit's guard, not pharn's | (labeled limit + dependency-owned guard) |
 | redirect to attacker host (lightweight fetches) | `redirect: 'error'` on every pharn `fetch()` call | `fetchRemoteSkillsVersion`, `fetchCommitSha` |
+| poisoned entry in the shared `degit` cache | **none in pharn** — reuse is keyed by filename, not a verified digest — labeled limit (§4b) | (labeled limit) |
 | consent bypass / silent overwrite | install summary confirm (`runArchetypeSummary`); overwrite-conflict list derived from `collectExpectedInstallPaths` + default **No** (`confirmWriteTargets` in `src/steps/overwrite-check.ts`) | consent gate |
 | copied methodology (Surface A) | validated for placement only; content trust is provenance + user review (`LIMITS.md §1`) | (labeled limit) |
 | stale / renamed upstream | drift derived live; a missing expected path is **reported**, never guessed | `diffInstalledCapabilities` (`src/lib/diff.ts`) |
@@ -108,10 +150,34 @@ a named per-field sanitizer, not a "the source repo is ours" assumption (P0).
   bytes land (`safeJoin` + symlink rejection) and **how** the lightweight fetches are bounded — a
   hostile upstream is bounded to "content inside the mirrored install paths you can read and review,"
   never arbitrary-path write via validated names; off-host egress is blocked on pharn's `fetch()` calls.
-- **4b. No pharn-imposed bounds on the `degit` clone.** `fetchRepo` delegates the full-tree download
-  to `degit` with no timeout or body cap in pharn code. A pathological upstream tarball can still DoS
-  an install. _Backstop:_ the clone lands in a temp dir and only **structurally filtered** subsets are
-  copied (`installCapabilities` / `install-manifest.ts`); report bypasses of that filter, not mere size.
+- **4b. The `degit` clone is delegated, and pharn bounds none of it.** `fetchRepo` hands the
+  full-tree download to `degit` with no timeout and no body cap in pharn code, so a pathological
+  upstream tarball can still DoS an install. Four further properties of that delegation are residuals
+  in their own right, all measured at `degit@3.6.6` (§2):
+  - **The shared cache is real state pharn does not control.** `cache: false` suppresses neither the
+    write nor the reuse; every fetch persists a SHA-named tarball into a cross-project cache
+    directory, and a later fetch **reuses whatever file sits at that path**. Reuse is keyed by
+    **filename, not a verified digest**, so anything able to write
+    `<cache>/github/<owner>/<repo>/<sha>.tar.gz` can have pharn extract those bytes with no network
+    fetch at all. Pinning to a commit SHA does **not** close this: the SHA is the file's _name_, never
+    a checked property of its contents.
+  - **The transport can change silently.** Ref resolution falls through pure-JS tiers to a spawned
+    `git ls-remote` on empty `catch {}`, and three tar failures fall back to a spawned `git clone`.
+    degit emits `warn` at those fallback sites; pharn registers no listener, so neither the user nor
+    the install record learns which transport actually ran.
+  - **The environment reaches the fetch.** degit reads `process.env.https_proxy` itself and routes
+    downloads through a bundled `https-proxy-agent`, so an attacker-controlled environment can
+    interpose on the clone even though pharn passes no proxy option. The lowercase-only read also
+    means `HTTPS_PROXY` is silently ignored — a footgun in both directions.
+  - **Claimed upward:** extraction is **not** unguarded. The bundled node-tar enforces a
+    `maxDecompressionRatio`, strips absolute paths (degit leaves `preservePaths` unset), and rejects
+    malformed entries (`TAR_ENTRY_INVALID`, `TAR_BAD_ARCHIVE`). Understating this would be as
+    dishonest as overstating it — but the guards belong to the dependency, so they are **provenance,
+    not pharn floor**, and a degit change could remove them without any pharn test noticing.
+
+  _Backstop:_ the clone lands in a temp dir and only **structurally filtered** subsets are copied
+  (`installCapabilities` / `install-manifest.ts`), with `safeJoin` + symlink rejection gating every
+  path that leaves it; report bypasses of that filter, not mere size.
 - **4c. The stored content-hashes cover only what pharn wrote, at the matching stamp.** pharn does keep
   a per-file sha256 baseline — [`pharn.records.json`](docs/reference/pharn-records.md), stamped with the
   config's `skillsVersion`/`commit` — and `update` gates every file on it. The residual is its
