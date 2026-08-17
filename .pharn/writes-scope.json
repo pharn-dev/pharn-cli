@@ -1,7 +1,20 @@
 {
   "scope": [
+    "THREAT-MODEL.UPDATED.md",
+    "THREAT-MODEL.md",
+    "src/lib/repo.ts",
+    "CHANGELOG.md",
+    ".pharn/writes-scope.json",
+    ".dev/features/degit-fetch-boundary-truth/PLAN.md",
+    ".dev/features/degit-fetch-boundary-truth/FACT-TABLE.md",
+    ".dev/features/degit-fetch-boundary-truth/GRILL.md",
+    ".dev/features/degit-fetch-boundary-truth/REGRESSION.md",
+    ".dev/features/degit-fetch-boundary-truth/regression-report.json",
+    ".dev/features/degit-fetch-boundary-truth/VERIFY.md",
+    ".dev/features/degit-fetch-boundary-truth/verify-report.json",
+    ".dev/features/degit-fetch-boundary-truth/REVIEW.md",
     ".dev/features/degit-fetch-boundary-truth/SHIP.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-17T18:21:39.686Z"
+  "set_by": ".dev/features/degit-fetch-boundary-truth/PLAN.md",
+  "set_at": "2026-08-17T19:59:20.872Z"
 }

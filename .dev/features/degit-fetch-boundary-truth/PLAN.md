@@ -8,11 +8,27 @@
 ## Files
 
 - `THREAT-MODEL.UPDATED.md` — full corrected `THREAT-MODEL.md` (§2 + §4b applied), for a human to move into place — layer: handoff artifact
+- `THREAT-MODEL.md` — **the applied result**, moved into place **by the human** (`mv`), never written by the agent — layer: trusted doc
 - `src/lib/repo.ts` — **comment lines only**: correct the `git ls-remote` mechanism claim in the `fetchRepo` doc block — layer: lib
 - `CHANGELOG.md` — one line under Unreleased, `Docs` — layer: user-facing record
+- `.pharn/writes-scope.json` — rewritten by each stage's own Step 0 setter — layer: loop artifact
 - `.dev/features/degit-fetch-boundary-truth/PLAN.md` — this plan — layer: loop artifact
 - `.dev/features/degit-fetch-boundary-truth/FACT-TABLE.md` — the Phase A evidence record (H1–H8) — layer: loop artifact
+- `.dev/features/degit-fetch-boundary-truth/GRILL.md` — grill log — layer: loop artifact
+- `.dev/features/degit-fetch-boundary-truth/REGRESSION.md` — regression render — layer: loop artifact
+- `.dev/features/degit-fetch-boundary-truth/regression-report.json` — machine regression report — layer: loop artifact
+- `.dev/features/degit-fetch-boundary-truth/VERIFY.md` — verify render — layer: loop artifact
+- `.dev/features/degit-fetch-boundary-truth/verify-report.json` — machine verify report — layer: loop artifact
+- `.dev/features/degit-fetch-boundary-truth/REVIEW.md` — review log — layer: loop artifact
 - `.dev/features/degit-fetch-boundary-truth/SHIP.md` — ship roll-up — layer: loop artifact
+
+> **Two paths were added to this list after the first scope check exited 1** — `THREAT-MODEL.md` and
+> `.pharn/writes-scope.json`. Neither is a build escape. `THREAT-MODEL.md` changed because the **human**
+> applied the handoff (`mv THREAT-MODEL.UPDATED.md THREAT-MODEL.md`), which is the hook's own sanctioned
+> route for a `DEFAULT_PROTECTED` file; `check-regress.mjs scope` compares changed paths against the
+> plan's list and has no concept of "applied by a human." `.pharn/writes-scope.json` is rewritten by every
+> stage's own Step 0 setter. Resolved by **declaring** them, exactly as #93 did — never by suppressing the
+> check.
 
 **Not touched:** `CONSTITUTION.md`, `ARCHITECTURE.md`, `LIMITS.md`, any `tests/**`, any `.dev/floor/**`,
 any `src/**` other than `repo.ts` comment lines. **No behavior changes**: no `cache` option change, no
