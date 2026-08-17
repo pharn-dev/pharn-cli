@@ -1,6 +1,7 @@
 import { copyFileSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { sha256File } from './hash.js';
+import { findSymlinkComponent } from './symlink-guard.js';
 import { ManifestValidationError, safeJoin } from './validate.js';
 import type { DiskState } from './update-decision.js';
 
@@ -91,7 +92,16 @@ export function applyWrites(params: {
     }
     try {
       const to = safeJoin(projectRoot, rel);
-      assertNoSymlinkPath(projectRoot, rel);
+      // Refuse a destination that is a symlink, or that sits under one, anywhere
+      // below projectRoot — the shared physical gate (lib/symlink-guard.ts),
+      // which backup.ts uses on the read side. Inside the try, so the refusal is
+      // wrapped into an ApplyError carrying what was already written.
+      const link = findSymlinkComponent(projectRoot, rel);
+      if (link !== null) {
+        throw new ManifestValidationError(
+          `${link} is a symlink; refusing to write through it.`,
+        );
+      }
       mkdirSync(dirname(to), { recursive: true });
       copyFileSync(from, to);
       written.push(rel);
@@ -103,25 +113,4 @@ export function applyWrites(params: {
     }
   }
   return written;
-}
-
-/**
- * Refuse a destination that is a symlink, or that sits under one, anywhere below
- * `projectRoot`. Only components BELOW the root are checked — the project root
- * itself may legitimately live under a symlinked ancestor (e.g. macOS `/tmp`).
- */
-function assertNoSymlinkPath(projectRoot: string, rel: string): void {
-  const segments = rel.split('/').filter((s) => s.length > 0);
-  let current = '';
-  for (const segment of segments) {
-    current = current ? `${current}/${segment}` : segment;
-    const stat = lstatSync(safeJoin(projectRoot, current), {
-      throwIfNoEntry: false,
-    });
-    if (stat?.isSymbolicLink()) {
-      throw new ManifestValidationError(
-        `${current} is a symlink; refusing to write through it.`,
-      );
-    }
-  }
 }

@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { findSymlinkComponent } from './symlink-guard.js';
 import { ManifestValidationError, safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
@@ -71,9 +72,14 @@ export function createBackup(
   for (const rel of rels) {
     const from = safeJoin(projectRoot, rel);
     // Per COMPONENT, not just the leaf — `lstat` refuses to dereference only the
-    // final component, so a symlinked parent would still be read through. Mirrors
-    // applyWrites' assertNoSymlinkPath on the write side.
-    assertNoSymlinkComponent(projectRoot, rel, `back up ${rel}`);
+    // final component, so a symlinked parent would still be read through. Shares
+    // findSymlinkComponent (lib/symlink-guard.ts) with applyWrites' write side.
+    const link = findSymlinkComponent(projectRoot, rel);
+    if (link !== null) {
+      throw new ManifestValidationError(
+        `Cannot back up ${rel}: ${link} is a symlink.`,
+      );
+    }
     const stat = lstatSync(from, { throwIfNoEntry: false });
     if (!stat) {
       throw new ManifestValidationError(
@@ -86,27 +92,6 @@ export function createBackup(
   }
 
   return dirRel;
-}
-
-// Refuse a path any of whose components (below `base`) is a symlink. Only
-// components BELOW the root are checked — the project root itself may legitimately
-// live under a symlinked ancestor (e.g. macOS `/tmp`).
-function assertNoSymlinkComponent(
-  base: string,
-  rel: string,
-  action: string,
-): void {
-  let current = '';
-  for (const segment of rel.split('/')) {
-    if (!segment) continue;
-    current = current ? `${current}/${segment}` : segment;
-    const stat = lstatSync(safeJoin(base, current), { throwIfNoEntry: false });
-    if (stat?.isSymbolicLink()) {
-      throw new ManifestValidationError(
-        `Cannot ${action}: ${current} is a symlink.`,
-      );
-    }
-  }
 }
 
 // The first free `<ts>`, `<ts>-2`, `<ts>-3`, … — never an existing directory.

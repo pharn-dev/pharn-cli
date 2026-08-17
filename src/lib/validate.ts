@@ -120,3 +120,19 @@ export function safeJoin(base: string, rel: string): string {
   }
   return target;
 }
+
+// Normalize a dest/relpath to a posix, no-trailing-slash key. Purely LEXICAL —
+// it rewrites the string and touches no filesystem — which is why it lives here
+// beside safeJoin rather than in a consumer (one lexical-path axis, P3). Shared
+// by the install manifest's map keys and by symlink-guard.ts, which normalizes
+// before splitting its components.
+//
+// It converts the PLATFORM separator, so what it does depends on where it runs:
+// on win32 (`sep` = `\`) a `a\b\c` rel becomes `a/b/c` and splits into three
+// components; on posix (`sep` = `/`) that same string is left EXACTLY as it is
+// and stays one opaque segment — a backslash is a legal posix filename
+// character, so treating it as a separator there would invent components the
+// filesystem does not have. Only the trailing-slash strip is cross-platform.
+export function toPosix(rel: string): string {
+  return rel.split(sep).join('/').replace(/\/+$/, '');
+}

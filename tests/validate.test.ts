@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ManifestValidationError,
@@ -11,6 +11,7 @@ import {
   assertAppliesToken,
   isPlainObject,
   safeJoin,
+  toPosix,
 } from '../src/lib/validate.js';
 
 // These four pin `assertSafeString`'s own behavior (the reject/pass ladder); the
@@ -190,5 +191,48 @@ describe('safeJoin (path containment)', () => {
     // resolve(base, '../pharn-base-evil') lexically startsWith the base string
     // but is NOT under base/ — the `root + sep` check must still reject it.
     expect(() => safeJoin(base, '../pharn-base-evil')).toThrow(/escape/);
+  });
+});
+
+// toPosix is the other LEXICAL primitive here (relocated from install-manifest.ts
+// when symlink-guard.ts began sharing it — two consumers, so it belongs beside
+// safeJoin rather than inside one of them). Its two branches are pinned directly
+// because both callers depend on the exact key shape: the manifest uses it for map
+// keys that diff.ts and update look up by, and the symlink walk splits on its
+// output.
+describe('toPosix', () => {
+  it('normalizes the platform separator to posix', () => {
+    // Written against the LIVE `sep` so the contract holds on both platforms
+    // rather than asserting a posix-only literal. On posix this is identity; on
+    // win32 it is the actual conversion.
+    expect(toPosix(['a', 'b', 'c.md'].join(sep))).toBe('a/b/c.md');
+  });
+
+  it('strips a trailing slash', () => {
+    expect(toPosix('a/b/')).toBe('a/b');
+  });
+
+  it('strips REPEATED trailing slashes (the `\\/+$` quantifier)', () => {
+    // A single-slash regex would leave 'a/b/' here, and the manifest would then
+    // key an entry that no lookup could ever match.
+    expect(toPosix('a/b///')).toBe('a/b');
+  });
+
+  it('leaves an already-posix path unchanged', () => {
+    expect(toPosix('a/b/c.md')).toBe('a/b/c.md');
+  });
+
+  it('does NOT collapse interior duplicate separators', () => {
+    // Honest scope: it normalizes the separator and the TAIL only. The symlink
+    // walk tolerates the empty segments this leaves by skipping them.
+    expect(toPosix('a//b')).toBe('a//b');
+  });
+
+  it('an empty string stays empty', () => {
+    expect(toPosix('')).toBe('');
+  });
+
+  it('a bare slash normalizes to empty', () => {
+    expect(toPosix('/')).toBe('');
   });
 });

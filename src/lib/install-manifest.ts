@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
@@ -7,7 +7,8 @@ import {
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import { layoutPaths } from './layout.js';
-import { safeJoin } from './validate.js';
+import { findSymlinkComponent } from './symlink-guard.js';
+import { safeJoin, toPosix } from './validate.js';
 import type { InstalledCapability, Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -53,37 +54,6 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
   }
 }
 
-// Normalize a dest/relpath to a posix, no-trailing-slash key.
-function toPosix(rel: string): string {
-  return rel.split(sep).join('/').replace(/\/+$/, '');
-}
-
-/**
- * Is ANY component of `rel` (below `base`) a symlink? `lstat` only refuses to
- * dereference the FINAL component — it happily resolves every ancestor — so
- * checking the leaf alone would still enumerate a clone whose `pharn-review/`,
- * `.dev/`, or `pharn/` directory is a symlink pointing outside the clone. Since
- * this manifest now drives `pharn update`'s writes, such an entry would copy
- * out-of-clone bytes into the user's project (P2). Components are checked below
- * `base` only: the clone's own temp root may legitimately sit under a symlinked
- * ancestor (e.g. macOS `/tmp`).
- */
-function hasSymlinkComponent(base: string, rel: string): boolean {
-  let current = '';
-  for (const segment of toPosix(rel).split('/')) {
-    if (!segment) continue;
-    current = current ? `${current}/${segment}` : segment;
-    if (
-      lstatSync(safeJoin(base, current), {
-        throwIfNoEntry: false,
-      })?.isSymbolicLink()
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /**
  * The exact project-root-relative paths an archetype install writes, mapped to
  * their source path in `repoDir` — the selected capability dirs + the fixed
@@ -113,7 +83,7 @@ export function collectExpectedInstallPaths(params: {
   // difference between reporting a phantom file and copying one in (P2).
   const addDir = (relDir: string, keep?: (rel: string) => boolean): void => {
     const from = safeJoin(repoDir, relDir);
-    if (hasSymlinkComponent(repoDir, relDir)) return;
+    if (findSymlinkComponent(repoDir, relDir) !== null) return;
     if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return;
     for (const rel of walkFiles(from)) {
       if (keep && !keep(rel)) continue;
@@ -146,7 +116,7 @@ export function collectExpectedInstallPaths(params: {
   // never expected here either (see addDir's note).
   for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
-    if (hasSymlinkComponent(repoDir, doc)) continue;
+    if (findSymlinkComponent(repoDir, doc) !== null) continue;
     if (lstatSync(from, { throwIfNoEntry: false })?.isFile()) add(doc, from);
   }
   // Contracts (whole dir) + floor checkers (test files excluded), at layout paths.
