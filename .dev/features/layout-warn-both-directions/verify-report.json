@@ -8,5 +8,9 @@
     "validate": 0
   },
   "verdict": "PASS",
-  "failing_gates": []
+  "failing_gates": [],
+  "verifiers": {
+    "registered": 0,
+    "findings": []
+  }
 }

@@ -39,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn update` now warns on both layout-migration directions, not just flat→`pharn/`.** The outcome
+  field recording an abandoned layout has always been direction-agnostic, but the report only tested it
+  for `flat` — so a project recorded at the `pharn/` layout meeting a flat clone was migrated in
+  silence, leaving the entire `pharn/` tree (contracts, floor scripts, trusted docs, and every
+  capability) behind with nothing managing it and nothing said about it. That direction now prints its
+  own warning naming what was left and how to clean it up. The flat→`pharn/` message is unchanged, and
+  `update` still never deletes in either direction.
+
 - **`pharn init` no longer misdetects a project whose framework build cache is large.** Archetype
   detection walks your file tree under a bounded entry budget, and that budget was being spent on
   generated output: a `.next/` directory of 55 000 files consumed the whole allowance before the walk

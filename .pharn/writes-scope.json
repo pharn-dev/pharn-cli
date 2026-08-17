@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/symlink-guard-core/SHIP.md"
+    ".dev/features/layout-warn-both-directions/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-17T13:14:56.270Z"
+  "set_at": "2026-08-17T13:44:45.392Z"
 }

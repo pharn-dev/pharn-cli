@@ -382,9 +382,20 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
     );
   }
 
+  // Both directions are named. `abandonedLayout` has always been computed
+  // direction-agnostically (see its assignment above), but only 'flat' used to be
+  // rendered — so a pharn→flat migration abandoned the whole pharn/ tree in
+  // silence, which is strictly more than the other direction leaves behind. The
+  // second test is `=== 'pharn'` rather than a bare `else` so that a third Layout
+  // member would print nothing instead of this message (P5: membership, not a
+  // fallback that guesses).
   if (outcome.abandonedLayout === 'flat') {
     log.warn(
       'Your install moved to the pharn/ layout. The old top-level copies are left behind and are no longer managed by pharn — delete them by hand.',
+    );
+  } else if (outcome.abandonedLayout === 'pharn') {
+    log.warn(
+      'Your install moved to the flat layout. The old pharn/ tree (contracts, floor scripts, docs, and capabilities) is left behind and is no longer managed by pharn — delete it by hand.',
     );
   }
 
