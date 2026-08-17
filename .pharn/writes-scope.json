@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/dead-legacy-symbols/SHIP.md"
+    ".dev/features/symlink-guard-core/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-08-17T08:20:45.350Z"
+  "set_at": "2026-08-17T13:14:56.270Z"
 }
