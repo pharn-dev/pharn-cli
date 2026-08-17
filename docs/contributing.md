@@ -80,7 +80,7 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 
 `lib/validate.ts` and `lib/install-capabilities.ts` handle all untrusted remote input (capability names, install paths, frontmatter). Preserve their invariants when editing:
 
-- Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `INSTALL_PATH_RE`, `COPY_FILENAME_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
+- Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
 - Remote fetches (`lib/skills-version.ts`) use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
 

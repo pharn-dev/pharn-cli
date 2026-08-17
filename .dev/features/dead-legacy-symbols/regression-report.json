@@ -1,0 +1,31 @@
+{
+  "base": "e097adb",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/contributing.md",
+    "src/lib/constitution.ts",
+    "src/lib/format.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/validate.ts",
+    "tests/constitution.test.ts",
+    "tests/format.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/validate.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}

@@ -9,7 +9,6 @@ import {
   loadArchetypeConfigOrExit,
   isConfigValidationError,
   writePharnConfig,
-  toInstalledModules,
   isArchetypeConfig,
   LEGACY_CONFIG_MESSAGE,
   CapabilitySourceError,
@@ -146,13 +145,6 @@ describe('pharn-config', () => {
     // The loader returns the validators' result, not `raw` — so an unknown key is
     // rejected (named), never carried verbatim into the runtime config.
     expect(() => readPharnConfig(tmp.path())).toThrow(/EXTRA/);
-  });
-
-  it('strips extra fields when normalizing modules', () => {
-    const result = toInstalledModules([
-      { name: 'pharn-core', version: '0.2.0', required: true } as never,
-    ]);
-    expect(result).toEqual([{ name: 'pharn-core', version: '0.2.0' }]);
   });
 
   it('round-trips the schemaVersion 2 additive fields (incl. skip answers)', async () => {

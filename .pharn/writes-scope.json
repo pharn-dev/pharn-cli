@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/detect-skip-framework-caches/VERIFY.md"
+    ".dev/features/dead-legacy-symbols/SHIP.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-verify.md",
-  "set_at": "2026-08-12T17:37:07.602Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-08-17T08:20:45.350Z"
 }

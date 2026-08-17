@@ -5,7 +5,7 @@ import { log } from '@clack/prompts';
 import { isPlainObject } from './validate.js';
 import { validateModelRouting, ModelRoutingError } from './model-routing.js';
 import { validateSeamConfig, SeamConfigError } from './seam-config.js';
-import type { InstalledModule, PharnConfig } from '../types.js';
+import type { PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
 
@@ -167,12 +167,6 @@ export async function writePharnConfig(
     `${JSON.stringify(config, null, 2)}\n`,
     'utf8',
   );
-}
-
-export function toInstalledModules(
-  modules: { name: string; version: string }[],
-): InstalledModule[] {
-  return modules.map(({ name, version }) => ({ name, version }));
 }
 
 /**

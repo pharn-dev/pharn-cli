@@ -2,8 +2,6 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ManifestValidationError,
-  MODULE_NAME_RE,
-  INSTALL_PATH_RE,
   CAPABILITY_NAME_RE,
   COPY_FILENAME_RE,
   COMMIT_RE,
@@ -15,28 +13,31 @@ import {
   safeJoin,
 } from '../src/lib/validate.js';
 
+// These four pin `assertSafeString`'s own behavior (the reject/pass ladder); the
+// pattern is a prop, so they are written against a LIVE regex — CAPABILITY_NAME_RE,
+// the one the archetype install actually validates fetched names with.
 describe('assertSafeString', () => {
   it('rejects a non-string value', () => {
-    expect(() => assertSafeString(42, 'x', MODULE_NAME_RE)).toThrow(
+    expect(() => assertSafeString(42, 'x', CAPABILITY_NAME_RE)).toThrow(
       ManifestValidationError,
     );
   });
 
   it('rejects control characters', () => {
     const withControl = `pharn-${String.fromCharCode(1)}`;
-    expect(() => assertSafeString(withControl, 'x', MODULE_NAME_RE)).toThrow(
-      /control/,
-    );
+    expect(() =>
+      assertSafeString(withControl, 'x', CAPABILITY_NAME_RE),
+    ).toThrow(/control/);
   });
 
   it('rejects a value that does not match the pattern', () => {
-    expect(() => assertSafeString('Nope', 'x', MODULE_NAME_RE)).toThrow(
+    expect(() => assertSafeString('Nope', 'x', CAPABILITY_NAME_RE)).toThrow(
       /invalid format/,
     );
   });
 
   it('returns the value when it is safe', () => {
-    expect(assertSafeString('pharn-core', 'x', MODULE_NAME_RE)).toBe(
+    expect(assertSafeString('pharn-core', 'x', CAPABILITY_NAME_RE)).toBe(
       'pharn-core',
     );
   });
@@ -51,25 +52,6 @@ describe('assertNoDotDot', () => {
 
   it('passes a clean value', () => {
     expect(() => assertNoDotDot('a/b', 'x')).not.toThrow();
-  });
-});
-
-describe('INSTALL_PATH_RE', () => {
-  it('accepts relative paths, single segments, and a trailing slash', () => {
-    for (const p of [
-      'templates/memory-bank',
-      'skills/',
-      'commands',
-      'pharn-skills-orm/skills/prisma',
-    ]) {
-      expect(INSTALL_PATH_RE.test(p)).toBe(true);
-    }
-  });
-
-  it('rejects leading slashes, empty segments, and a bare slash', () => {
-    for (const p of ['/etc/x', '//foo', 'a//b', '/']) {
-      expect(INSTALL_PATH_RE.test(p)).toBe(false);
-    }
   });
 });
 

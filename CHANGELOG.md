@@ -21,6 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the real distinction: the hashes pharn stores are drift baselines taken from the written file, which
   authenticate nothing about upstream. No section numbers changed.
 
+### Removed
+
+- **Internal: the module-era symbols nothing calls are gone, and the security narration they left
+  behind is corrected.** Four unused validators (`MODULE_NAME_RE`, `INSTALL_PATH_RE`,
+  `WIZARD_VALUE_RE`, `PACKAGE_NAME_RE`), `shortDescription`, `toInstalledModules`, and all of
+  `lib/constitution.ts` were retained after their callers (`install-modules.ts`, `wizard.ts`) were
+  deleted; a fresh reference sweep found zero production callers for each. None is user-facing —
+  `package.json` exposes only `bin`/`files`, never a library entry point — so there is no API
+  change. The correction that does matter is documentation: `CLAUDE.md` and `docs/contributing.md`
+  both listed `INSTALL_PATH_RE` among the allowlists that validate untrusted remote input, and it
+  had validated nothing since the module install path was removed. Both now enumerate the
+  allowlists that are actually enforced. Path containment itself never depended on it and is
+  unchanged — `safeJoin` is the live gate. The four tests that pinned `assertSafeString`'s
+  reject/pass ladder used `MODULE_NAME_RE` only as a sample pattern; they were rewritten against
+  `CAPABILITY_NAME_RE` before the regex was deleted, so that function's coverage is intact.
+
 ### Fixed
 
 - **`pharn init` no longer misdetects a project whose framework build cache is large.** Archetype
