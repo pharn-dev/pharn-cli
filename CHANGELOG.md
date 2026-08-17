@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Docs
 
+- **The fetch boundary now tells the truth about `degit`.** `THREAT-MODEL.md` described the clone as an
+  opaque delegation, and `src/lib/repo.ts` claimed degit "resolves the ref via `git ls-remote`". Measured
+  against the installed `degit@3.6.6`: ref resolution is three tiers (pure-JS `listServerRefs`, then
+  `getRemoteInfo2`, then a spawned `git ls-remote`) falling through on empty `catch {}`, so the git binary
+  is a last resort rather than the mechanism. More consequentially, `cache: false` suppresses neither
+  writing nor reuse — every fetch persists a SHA-named tarball into a shared, cross-project cache
+  directory and a later fetch reuses whatever file sits at that path, keyed by **filename, not a verified
+  digest**. degit also reads `process.env.https_proxy` on its own (lowercase only), and emits `warn` on
+  three tar→`git clone` fallbacks that `fetchRepo` drops by registering no listener. §2 gains the measured
+  mechanics and §4b restates the residuals over them — including one claim made **upward**: the bundled
+  node-tar does enforce a decompression-ratio cap, absolute-path stripping, and entry validation, so the
+  extractor is not unguarded, though those guards are the dependency's and not pharn's floor.
 - **The trust map now matches the records era.** `LIMITS.md` and `THREAT-MODEL.md` still described the
   deleted module/manifest subsystem and a world with no stored file hashes, both of which stopped being
   true when `pharn.records.json` shipped. Three claims were corrected in place. `LIMITS.md §1d` said
