@@ -198,6 +198,11 @@ upstream has since moved to `pharn/`, the update installs the `pharn/` tree — 
 never deletes, the old top-level copies remain. They are no longer managed by `pharn` (no command
 addresses them any more), so delete them by hand; the update prints a warning when this happens.
 
+The reverse direction behaves the same way. If your project is recorded at the `pharn/` layout and the
+clone is flat, the update installs the top-level tree and the whole `pharn/` directory — contracts,
+floor scripts, trusted docs, and every capability — is what stays behind. `update` never deletes it, no
+command addresses it any more, and the update prints its own warning naming it. Delete it by hand.
+
 ## What is protected by default
 
 - `.claude/settings.json` — your Claude Code configuration. `init` writes it only when absent; `update`

@@ -986,5 +986,43 @@ describe('runUpdate (drift-safe)', () => {
       // update never deletes, so the old copies are still there — hence the warning.
       expect(body(CAP_FILE)).toBe('a11y v1');
     });
+
+    // The mirror direction: a project recorded `pharn` meeting a flat clone — which
+    // is the default fixture, since scaffoldClone writes the flat tree. The field
+    // has always been direction-agnostic; the report used to test only for 'flat'
+    // and dropped this case on the floor, silently abandoning the whole pharn/ tree
+    // (contracts, floor, docs, every capability) — strictly more than the other
+    // direction leaves behind.
+    //
+    // Scope, honestly: this pins the RENDERER branch, not a migration end-to-end. A
+    // real pharn→flat migration restores the flat paths (they do not exist yet)
+    // whereas here they are present at v1 and upgrade; the branch fires either way,
+    // because it keys off `written.length > 0` and not off which action wrote them.
+    it('warns that the abandoned pharn/ tree is no longer managed', async () => {
+      await installed({ layout: 'pharn' });
+      // A real pharn/ tree for the warning to be about. It sits outside the flat
+      // manifest, so update neither reads nor touches it — and detectLayout reads
+      // the CLONE, so this cannot change which layout is resolved.
+      write(
+        join(proj, 'pharn/pharn-contracts/finding-shape.md'),
+        'contract v1',
+      );
+
+      await runUpdate();
+
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(warned).toContain('pharn/ tree');
+      // The other direction's message must NOT fire: this pins the branch that ran,
+      // not merely that some warning appeared.
+      expect(warned).not.toContain('moved to the pharn/ layout');
+      // update never deletes, so the abandoned tree is still there — hence the warning.
+      expect(body('pharn/pharn-contracts/finding-shape.md')).toBe(
+        'contract v1',
+      );
+      expect(readPharnConfig(proj)!.layout).toBe('flat');
+    });
   });
 });
