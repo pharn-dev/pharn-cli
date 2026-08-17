@@ -2,8 +2,10 @@
   "base": "45c4be805bd4f708c08c988e5980affe9a1a5376",
   "inside": [
     "THREAT-MODEL.md",
+    "LIMITS.md",
     "src/lib/repo.ts",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/troubleshooting.md"
   ],
   "outside_gates": {
     "tests": {

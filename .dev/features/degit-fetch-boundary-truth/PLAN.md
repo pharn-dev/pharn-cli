@@ -11,6 +11,9 @@
 - `THREAT-MODEL.md` — **the applied result**, moved into place **by the human** (`mv`), never written by the agent — layer: trusted doc
 - `src/lib/repo.ts` — **comment lines only**: correct the `git ls-remote` mechanism claim in the `fetchRepo` doc block — layer: lib
 - `CHANGELOG.md` — one line under Unreleased, `Docs` — layer: user-facing record
+- `LIMITS.UPDATED.md` — full corrected `LIMITS.md` (§3a: the git dependency is a fallback, not a hard requirement), for a human to move into place — layer: handoff artifact
+- `LIMITS.md` — the applied result, moved into place **by the human** — layer: trusted doc
+- `docs/troubleshooting.md` — correct "nothing is written" on a declined overwrite (the shared degit cache is already written by then) — layer: user-facing doc
 - `.pharn/writes-scope.json` — rewritten by each stage's own Step 0 setter — layer: loop artifact
 - `.dev/features/degit-fetch-boundary-truth/PLAN.md` — this plan — layer: loop artifact
 - `.dev/features/degit-fetch-boundary-truth/FACT-TABLE.md` — the Phase A evidence record (H1–H8) — layer: loop artifact

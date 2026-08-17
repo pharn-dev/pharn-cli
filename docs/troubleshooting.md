@@ -109,7 +109,9 @@ PHARN_DEBUG=1 npx @pharn-dev/pharn init
 
 ## Overwrite declined
 
-If any install targets already exist and you decline the overwrite prompt, the wizard cancels with exit 0 and nothing is written (the temporary clone is cleaned up).
+If any install targets already exist and you decline the overwrite prompt, the wizard cancels with exit 0 and **nothing is written into your project** (the temporary clone is cleaned up).
+
+One thing *is* written outside your project, before either prompt appears: the repo fetch runs first, and `degit` persists a commit-named `.tar.gz` plus `map.json`/`access.json` into its own shared cache directory (`~/Library/Caches/degit` on macOS, `%LOCALAPPDATA%\degit` on Windows, `$XDG_CACHE_HOME`/`~/.cache` + `/degit` elsewhere). That cache is degit's, not pharn's, and declining the prompt does not remove it — delete the directory yourself if you need to reclaim the space.
 
 ## `add` / `update` say to run init first
 
