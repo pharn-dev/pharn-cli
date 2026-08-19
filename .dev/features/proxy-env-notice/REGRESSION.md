@@ -1,5 +1,7 @@
 # REGRESSION — proxy-env-notice
 
+**Run 3** — after amendment 2 (`repo.ts` re-scoped, lockfile bumped to degit 3.8.0).
+
 **Run 2** — after the `/pharn-dev-review` fix pass. (Run 1's report is superseded; its two
 self-inflicted reds are preserved below, because a stage that quietly drops its own mistakes is worse
 than one that carries them.)
@@ -9,7 +11,7 @@ deterministic state test (P5): `git status --porcelain` non-empty → working-tr
 
 ## Scope partition (fix #7)
 
-`scope` exit **0**, `escaped: []`, and `inside == declared` — **fifteen** files each, byte-for-byte the
+`scope` exit **0**, `escaped: []`, and `inside == declared` — **seventeen** files each, byte-for-byte the
 amended plan's `## Files`.
 
 | inside (= declared, 15) | |
@@ -23,7 +25,7 @@ amended plan's `## Files`.
 | `docs/troubleshooting.md` | `.dev/features/degit-fetch-boundary-truth/FACT-TABLE.md` |
 | `CHANGELOG.md` | |
 
-The plan grew from 9 declared paths to 15 to accommodate the review fixes, and the scope setter was
+The plan grew from 9 declared paths to 15, then to 17 to accommodate the review fixes, and the scope setter was
 re-run against the amended plan **before** any of the new files were written — the documented
 procedure, never a hook bypass. One detail worth recording: the first amendment marked new entries
 with a `**+**` prefix, which `set-writes-scope.cjs`'s `isPathItem` pattern

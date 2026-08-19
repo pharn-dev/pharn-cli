@@ -1,7 +1,8 @@
 # SHIP — proxy-env-notice
 
-A `/pharn-dev-ship` roll-up across **two passes**: the initial gated chain, and a fix pass driven by
-`/pharn-dev-review`'s blocking finding. It records **that the chain ran and its floor verdicts** —
+A `/pharn-dev-ship` roll-up across **three passes**: the initial gated chain, a fix pass driven by
+`/pharn-dev-review`'s blocking finding, and a third closing the two advisories that pass 2 recorded as
+out of scope. It records **that the chain ran and its floor verdicts** —
 nothing more.
 
 ## Stages
@@ -14,6 +15,10 @@ nothing more.
 | 4 | `/pharn-dev-regress` | **`no-regressions`** | **`no-regressions`** | `regression-report.json` `.verdict` |
 | 5 | `/pharn-dev-verify` | **`PASS`** | **`PASS`** | `verify-report.json` `.verdict` |
 | 6 | `/pharn-dev-review` | **BLOCKED — 1 floor-gate finding** | **GREEN — 0 floor-gate findings** | `REVIEW.md` |
+
+Pass 3 (amendment 2) re-ran build → regress → verify → review against an expanded scope of **17**
+declared files: `validate` exit **0**, **`no-regressions`**, **`PASS`**, review **GREEN with 0 open
+advisories**.
 
 **Where the run ended: GATE 2** — the post-review human decision. No stage returned a non-GREEN floor
 verdict in either pass.
@@ -56,8 +61,10 @@ be a real tripwire** by mutating the expected list and observing RED.
 | 5 | P2 | minor | **Fixed** — length bound + no-echo now tested |
 | 6 | P3 | minor | **Fixed** — presentation split into `proxy-env-format.ts` |
 | 7 | P6 | minor | **Fixed** — `FACT-TABLE.md` H5 corrected |
-| — | P0 | minor (new) | **Open, out of scope** — `repo.ts:63` carries 3.6.6-scoped comments |
-| — | P7 | minor (new) | **Open, out of scope** — `^3.6.1` resolves two minors past what CI exercises |
+| 8 | P0 | minor | **Fixed (pass 3)** — `repo.ts`'s degit claims re-measured at 3.8.0 and re-scoped to the range |
+| 9 | P7 | minor | **Fixed (pass 3)** — lockfile bumped to 3.8.0; published range deliberately unchanged |
+
+**Nine findings raised across three review passes, nine addressed.**
 
 ## Self-inflicted problems this run produced and corrected — recorded, not smoothed over
 
@@ -84,10 +91,17 @@ be a real tripwire** by mutating the expected list and observing RED.
 
 ## What the chain still does NOT establish
 
-`MEASURED_DEGIT_VERSIONS` is now re-derived from the installed bytes on every run — but only for the
-**one** version installed. That the other eight were measured correctly rests on a manual sweep no gate
-repeats. And nothing compares a doc sentence to `package.json`; the class of defect that blocked run 1
-would still be caught only by review.
+- `MEASURED_DEGIT_VERSIONS` is re-derived from the installed bytes on every run — but only for the
+  **one** version installed. It is now **3.8.0**, the version consumers resolve, which is the strongest
+  form this check has taken; that the other eight were measured correctly still rests on a manual sweep
+  no gate repeats.
+- Nothing compares a doc sentence to `package.json`. The class of defect that blocked pass 1 would
+  still be caught only by review.
+- `repo.ts`'s cache / ref-tier / tar claims are re-measured but **not** tripwired — unlike the proxy
+  read, no test re-derives them. They are labeled ADVISORY / provenance-bounded, which is honest, not
+  guaranteed.
+- The published range still permits a future degit past what was measured. That is handled by
+  **degradation** (the notice hedges) rather than by pinning, which remains a maintainer's call.
 
 ---
 

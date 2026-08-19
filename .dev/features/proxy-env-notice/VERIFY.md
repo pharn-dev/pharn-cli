@@ -1,6 +1,8 @@
 # VERIFY — proxy-env-notice
 
-**Run 2** — after the `/pharn-dev-review` fix pass.
+**Run 3** — after amendment 2. The suite now runs against **degit 3.8.0**, the version a
+consumer resolves, rather than the 3.6.6 the lockfile previously pinned — so the tripwire below
+re-derives the proxy claim from the bytes users actually get.
 
 ## FLOOR layer — the deterministic gates (owns the verdict)
 

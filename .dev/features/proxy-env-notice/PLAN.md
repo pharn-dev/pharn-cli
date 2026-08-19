@@ -83,9 +83,12 @@ is a statement about *configuration*, never about *the transport that ran*.
 - `.dev/features/degit-fetch-boundary-truth/FACT-TABLE.md` — H5 corrected: the `PROXY` event is
   `verboseInfo`-gated and never fires on pharn's path. (added by amendment — review finding P6)
 - `CHANGELOG.md` — `[Unreleased]` entry.
+- `src/lib/repo.ts` — version-scope the degit comments to the measured range. (added by amendment 2 — review finding P0, minor)
+- `package-lock.json` — bump the dev/CI degit to the version consumers actually resolve. (added by amendment 2 — review finding P7, minor)
 
-**Not touched:** `src/lib/repo.ts`, `src/degit.d.ts`, `pharn.config.json`'s schema, `LIMITS.md` /
-`THREAT-MODEL.md` (hook-protected, human-only), `package.json`'s `^3.6.1` range.
+**Not touched:** `src/degit.d.ts`, `pharn.config.json`'s schema, `LIMITS.md` / `THREAT-MODEL.md`
+(hook-protected, human-only), and `package.json`'s `^3.6.1` **range** — the published contract is
+unchanged; only the lockfile moves.
 
 ### Why not in `fetchRepo` (P3, and one concrete bug it avoids)
 
@@ -249,4 +252,48 @@ accurate, since it never named a version. `package.json`'s `^3.6.1` range is **n
 the dependency is a separate decision with its own trade-offs, and this increment's job is to stop
 *claiming* a pin that does not exist, not to create one. Worth surfacing for the human, though: pharn's
 lockfile sits at 3.6.6 while 3.8.0 is current.
+
+---
+
+## Amendment 2 — 2026-08-19, closing the two findings left open at the post-review gate
+
+`/pharn-dev-review` run 2 returned GREEN with two advisory findings recorded as **out of scope**, and
+recommended a follow-up increment. The human elected to close them here instead. This amendment
+records the scope expansion and the reasoning, rather than letting two files appear in a diff
+un-declared.
+
+### Why bundling is defensible here (the P3/P7 tension, argued not waved)
+
+Run 2's finding said folding `repo.ts` in "would bundle two increments," because the proxy read and
+the cache/ref-tier/tar claims are different **measurement axes**. That is true of the axes and false
+of the **defect**: both are version-scoped claims about `degit` written without version scoping, and
+both are falsified by the same fact (the declared range resolves past what this repo develops
+against). Fixing one and leaving the other would leave the root cause live in the file the increment
+already cites. The axes stay separate in the code; only the correction is shared.
+
+### What amendment 2 changes
+
+1. **`src/lib/repo.ts` comments are re-scoped, not rewritten.** Each claim they make was re-measured
+   against **3.8.0**, the version `^3.6.1` resolves to today, and all still hold: the tarball download
+   still sits inside `if(!t.cache)` behind a `FILE_EXISTS` early return; the cache dir still resolves
+   `%LOCALAPPDATA% ?? ~/AppData/Local` on win32, `~/Library/Caches` on darwin, `$XDG_CACHE_HOME ??
+   ~/.cache` elsewhere; `map.json` / `access.json` / `USING_CACHE` / `TAR_BAD_ARCHIVE` are all present;
+   the three ref-resolution tiers and `GIT_LS_REMOTE_FAILED` are intact. So the comments were never
+   **wrong** — they were pinned to a version nobody runs. They now name the measured **range**.
+2. **The lockfile moves to 3.8.0.** The published contract (`package.json`'s `^3.6.1`) is deliberately
+   **unchanged** — narrowing a dependency range is a maintainer decision with its own trade-offs, and
+   this increment's job is to stop *claiming* a pin, not to create one. What moves is the version CI
+   installs, so the version tested is the version users resolve. This also points the new tripwire in
+   `tests/proxy-env.test.ts` at 3.8.0, meaning the claim is re-derived on every CI run from the bytes
+   consumers actually get.
+
+   API compatibility verified live before the bump: `degit(src, opts)` is still a callable default
+   export, `.clone()` / `.on()` are present, `this.proxy` still reads from the environment, there are
+   still no runtime dependencies, and `engines.node` is `>=20.0.0` against pharn's `>=20`.
+
+### What it still does not change
+
+`package.json`'s range, `src/degit.d.ts` (there is still no `proxy` option to declare), the `cache`
+option, the cache dir, and the absence of a clone timeout / body cap. `THREAT-MODEL.md` §4b's labeled
+limit stands untouched and remains accurate — it never named a version.
 

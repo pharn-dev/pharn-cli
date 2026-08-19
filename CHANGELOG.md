@@ -39,6 +39,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report your environment against measured degit versions, never the transport that ran.
   `docs/troubleshooting.md` gains a "Proxy environment variables" section.
 
+### Changed
+
+- **The dev/CI `degit` now matches what a consumer resolves.** `package.json` declares `^3.6.1` and the
+  published package ships no lockfile, so an install resolves the newest matching release — `3.8.0` —
+  while this repo's lockfile still pinned `3.6.6`. The version the gates exercised was therefore two
+  minors behind the one users get, which is precisely how a claim about `degit` internals gets written
+  against a version nobody runs. The **lockfile** moves to `3.8.0`; the declared **range is
+  unchanged** (narrowing it is a separate decision). API compatibility was verified before the bump —
+  same callable default export, `.clone()` / `.on()` intact, still no runtime dependencies, and
+  `engines.node >=20.0.0` against pharn's `>=20`. `src/lib/repo.ts`'s comments about degit's ref tiers,
+  cache behavior, and warn sites are re-scoped from a single version to the measured **range**
+  (3.6.1-3.8.0), where every claim was re-verified.
+
 ### Docs
 
 - **The fetch boundary now tells the truth about `degit`.** `THREAT-MODEL.md` described the clone as an

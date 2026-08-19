@@ -1,5 +1,8 @@
 # REVIEW — proxy-env-notice
 
+**Run 3** — after amendment 2 closed the two findings run 2 left open. Their entries below are
+updated in place with their disposition.
+
 **Run 2** — re-review after the fix pass. Run 1 blocked on one floor-gate finding; this run re-checks
 it and looks for what the fix itself introduced.
 
@@ -48,10 +51,19 @@ right: an unmeasured degit makes the notice *more cautious*, never wrong — ver
 - type: FINDING
   rule_id: "P0"
   severity: minor
-  file: "src/lib/repo.ts:63"
-  problem: "Comments in a file this increment deliberately did not touch still assert degit behavior measured at 3.6.6 with no version qualifier, which is the same class of claim that blocked run 1 — bounded here because the audience is a developer reading source, not a user reading output."
+  file: "src/lib/repo.ts:48"
+  problem: "RESOLVED — every degit claim in the file was re-measured against 3.8.0 and re-scoped from a single version to the measured range, with one note covering them all."
   evidence: "// `cache: false` is NOT no-cache — measured against degit@3.6.6, it selects"
 ```
+
+**Disposition (amendment 2).** Each claim was re-measured at **3.8.0**, the version `^3.6.1` resolves
+to today, and **all still hold**: the tarball download still sits inside `if(!t.cache)` behind a
+`FILE_EXISTS` early return; the cache dir still resolves `%LOCALAPPDATA% ?? ~/AppData/Local` (win32),
+`~/Library/Caches` (darwin), `$XDG_CACHE_HOME ?? ~/.cache` (else); `map.json`, `access.json`,
+`USING_CACHE`, `TAR_BAD_ARCHIVE` and the three ref tiers with `GIT_LS_REMOTE_FAILED` are all present.
+So the comments were never **wrong** — they were pinned to a version nobody runs. `repo.ts` now
+carries **one** version-scope note covering ref tiers, cache, and warn sites, naming the measured
+**range** and labeling them ADVISORY / provenance-bounded. `grep 'degit@3.6.6' src/lib/repo.ts` → none.
 
 Named rather than fixed, deliberately: `repo.ts` is on the plan's **Not touched** list, and the
 cache/tier/tar claims there are a different measurement axis than the proxy one — folding them in
@@ -72,10 +84,21 @@ range now demonstrably floats past what they describe.
   evidence: '"degit": "^3.6.1",'
 ```
 
-Surfaced, not acted on — narrowing or bumping the range is a dependency decision with its own
-trade-offs and is explicitly outside this increment's scope (`PLAN.md`, **Not touched**). Worth the
-human's attention because it is the *root* of the run-1 defect: the gap between what is tested and
-what ships is exactly what let a confident sentence be written about the wrong version.
+**Disposition (amendment 2).** Closed on the side that carries the risk, left alone on the side that
+is a contract. The **lockfile** moves to `3.8.0` so the version CI exercises is the version users
+resolve; `package.json`'s **range stays `^3.6.1`**, because narrowing a published dependency range is
+a maintainer decision and this increment's job was to stop *claiming* a pin, not to create one.
+
+Two consequences worth naming. First, the tripwire in `tests/proxy-env.test.ts` now re-derives the
+proxy claim from **3.8.0's** bytes on every run — the strongest form this guarantee has taken, since
+it is checked against what consumers get rather than a stale dev pin. Second, API compatibility was
+verified **before** the bump, not assumed: same callable default export, `.clone()` / `.on()` intact,
+`this.proxy` still env-read, still zero runtime dependencies, `engines.node >=20.0.0` against pharn's
+`>=20`.
+
+Residual, unchanged: the range still *permits* a future release past what was measured. That is now
+handled by degradation rather than silence — an unmeasured version hedges the notice — which is the
+best available answer short of pinning.
 
 ## What the fix pass itself introduced — checked, and one thing caught
 
@@ -124,12 +147,19 @@ Presentation split into `proxy-env-format.ts`, which imports only a type and a c
 
 ## Verdict
 
-**GREEN — 0 floor-gate findings.**
+**GREEN — 0 floor-gate findings, 0 open advisories.**
 
-The run-1 blocking finding is resolved by a mechanism rather than a rewording, and the three important
-advisories from run 1 (P0 mislabel, P1 coverage, P5 casing) plus the two minors (P3 split, P6 stale
-FACT-TABLE) are all closed. Two advisory findings remain, both **deliberately out of scope** and both
-about `repo.ts` / `package.json` rather than this increment's own files.
+The run-1 blocking finding is resolved by a mechanism rather than a rewording; the three important
+advisories (P0 mislabel, P1 coverage, P5 casing) and the two minors (P3 split, P6 stale FACT-TABLE)
+are closed; and amendment 2 closes the two that run 2 recorded as out of scope. **Nine findings
+raised across three review passes, nine addressed.**
+
+One judgment worth flagging for the human rather than burying: amendment 2 bundles a second
+measurement axis (`repo.ts`'s cache / ref-tier / tar claims) into an increment scoped to the proxy
+read, which run 2 itself argued against on P3/P7 grounds. The counter-argument is recorded in
+`PLAN.md`'s amendment 2 — the axes differ but the *defect* is identical, and fixing one while leaving
+the other keeps the root cause live in a file the increment already cites. Reasonable people could
+scope that the other way.
 
 As in run 1: the **floor** here is `validate.mjs` GREEN plus the machine-checkable facts behind each
 finding. The lens judgments and all severities are **LLM-assigned and advisory** (`finding-shape.md`,
