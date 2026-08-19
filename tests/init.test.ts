@@ -125,6 +125,81 @@ describe('runInit (archetype default)', () => {
     expect(runInstallArchetype).not.toHaveBeenCalled();
   });
 
+  // --- the degit proxy notice ------------------------------------------------
+  //
+  // degit reads process.env.https_proxy ITSELF and reads ONLY that lowercase
+  // spelling, so an `HTTPS_PROXY`-only environment clones DIRECTLY on POSIX
+  // while a `https_proxy` one is interposed by a host pharn never declared.
+  // Neither was discoverable from any pharn output. These pin the WIRING (the
+  // truth table itself lives in tests/proxy-env.test.ts).
+  describe('proxy notice', () => {
+    // mockResolvedValue survives clearAllMocks, so the cancel paths asserted
+    // earlier in this file would otherwise leak in and exit(0) before the
+    // install. Re-arm the happy path explicitly.
+    beforeEach(() => {
+      runArchetypeSummary.mockResolvedValue('install');
+      confirmWriteTargets.mockResolvedValue(true);
+    });
+    afterEach(() => vi.unstubAllEnvs());
+
+    // The ordering is the point, not merely that a warn happened: a clone that
+    // FAILS because of a misconfigured proxy is exactly when the user most needs
+    // to have been told, so the notice must precede the fetch rather than follow
+    // a successful one.
+    it.skipIf(process.platform === 'win32')(
+      'warns that HTTPS_PROXY is ignored, BEFORE the fetch',
+      async () => {
+        vi.stubEnv('https_proxy', undefined);
+        vi.stubEnv('HTTPS_PROXY', 'http://proxy.internal:3128');
+        let warnedBeforeFetch = false;
+        fetchRepo.mockImplementationOnce(async () => {
+          warnedBeforeFetch = vi.mocked(log.warn).mock.calls.length > 0;
+          return { dir: '/fake/repo', sha: 'sha123', cleanup };
+        });
+
+        await runInit();
+
+        expect(warnedBeforeFetch).toBe(true);
+        const warned = vi
+          .mocked(log.warn)
+          .mock.calls.map(([m]) => String(m))
+          .join('\n');
+        expect(warned).toContain('HTTPS_PROXY');
+        // The message is version-gated (confident on a measured degit, hedged
+        // otherwise), so assert the half that holds either way.
+        expect(warned).toContain('https_proxy');
+      },
+    );
+
+    // The other direction: degit WILL read this one, so say so — hedged, because
+    // a cached tarball short-circuits the download entirely. Platform-independent:
+    // the lowercase name resolves everywhere.
+    it('warns that a lowercase https_proxy MAY route the clone', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      vi.stubEnv('HTTPS_PROXY', undefined);
+
+      await runInit();
+
+      const warned = vi
+        .mocked(log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('may be routed');
+      expect(warned).toContain('no_proxy');
+    });
+
+    // Silence on the common path — the notice must not become install noise.
+    it('says nothing when neither spelling is set', async () => {
+      vi.stubEnv('https_proxy', undefined);
+      vi.stubEnv('HTTPS_PROXY', undefined);
+
+      await runInit();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(log.warn).not.toHaveBeenCalled();
+    });
+  });
+
   // --- non-interactive honesty: the TTY gate ---------------------------------
   //
   // The bug this closes: off a TTY the archetype summary's select rendered into a

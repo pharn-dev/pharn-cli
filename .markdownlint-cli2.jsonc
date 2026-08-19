@@ -1,6 +1,6 @@
 {
   // Apply to all markdown except dependencies, generated output, and the changelog
-  "ignores": ["node_modules", "dist", "coverage", "CHANGELOG.md"],
+  "ignores": ["node_modules", "dist", "coverage", "CHANGELOG.md", "**/*.updated.*"],
   "config": {
     "default": true,
     // Line length: docs sometimes need long lines (URLs, tables, code fences)

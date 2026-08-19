@@ -1,0 +1,35 @@
+{
+  "base": "03160c8e71e14a125f7dd3d107a42f18952a6f15",
+  "inside": [
+    ".dev/features/degit-fetch-boundary-truth/FACT-TABLE.md",
+    "CHANGELOG.md",
+    "docs/troubleshooting.md",
+    "package-lock.json",
+    "src/commands/add.ts",
+    "src/commands/init.ts",
+    "src/commands/status.ts",
+    "src/commands/update.ts",
+    "src/lib/proxy-env-format.ts",
+    "src/lib/proxy-env.ts",
+    "src/lib/repo.ts",
+    "tests/add.test.ts",
+    "tests/init.test.ts",
+    "tests/proxy-env-format.test.ts",
+    "tests/proxy-env.test.ts",
+    "tests/status.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

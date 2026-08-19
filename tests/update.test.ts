@@ -185,6 +185,62 @@ describe('runUpdate (drift-safe)', () => {
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 
+  // --- the degit proxy notice (wiring) ---------------------------------------
+  //
+  // update clones, so the notice fires; the early-return "already up to date"
+  // path does not clone and must stay silent.
+  describe('proxy notice', () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('warns before the clone', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      await installed({ skillsVersion: '1.0.0' });
+      let warnedBeforeFetch = false;
+      fetchRepo.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        return { dir: repo, sha: 'a'.repeat(40), cleanup };
+      });
+
+      await runUpdate();
+
+      expect(warnedBeforeFetch).toBe(true);
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('may be routed');
+    });
+
+    // No clone on the up-to-date early return, so no transport to describe.
+    it('says nothing when update returns early without cloning', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      await installed({ skillsVersion: '1.1.0' });
+
+      await runUpdate();
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).not.toContain('may be routed');
+    });
+
+    it('says nothing when no proxy variable is set', async () => {
+      vi.stubEnv('https_proxy', undefined);
+      vi.stubEnv('HTTPS_PROXY', undefined);
+      await installed({ skillsVersion: '1.0.0' });
+
+      await runUpdate();
+
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).not.toContain('may be routed');
+    });
+  });
+
   it('reports already up to date without cloning', async () => {
     await installed({ skillsVersion: '1.1.0' });
     await runUpdate();

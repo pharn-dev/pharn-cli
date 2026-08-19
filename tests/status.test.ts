@@ -94,6 +94,68 @@ describe('runStatus (archetype)', () => {
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 
+  // --- the degit proxy notice (wiring) ---------------------------------------
+  //
+  // status clones on the drift path only, so the notice must fire there and be
+  // silent under --no-drift. The --no-drift silence was previously asserted only
+  // in a code comment.
+  describe('proxy notice', () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('warns before the clone on the drift path', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      const cleanup = vi.fn();
+      let warnedBeforeFetch = false;
+      fetchRepo.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        return { dir: '/repo', cleanup };
+      });
+      readSkillsVersion.mockReturnValue('1.0.0');
+      diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+      await runStatus({});
+
+      expect(warnedBeforeFetch).toBe(true);
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('may be routed');
+    });
+
+    // --no-drift never clones, so there is no transport to describe.
+    it('says nothing under --no-drift, which never clones', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+      await runStatus({ drift: false });
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).not.toContain('may be routed');
+    });
+
+    it('says nothing when no proxy variable is set', async () => {
+      vi.stubEnv('https_proxy', undefined);
+      vi.stubEnv('HTTPS_PROXY', undefined);
+      const cleanup = vi.fn();
+      fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+      readSkillsVersion.mockReturnValue('1.0.0');
+      diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+      await runStatus({});
+
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).not.toContain('may be routed');
+    });
+  });
+
   it('default: clones, reads SKILLS_VERSION, diffs capabilities, cleans up', async () => {
     const cleanup = vi.fn();
     fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
