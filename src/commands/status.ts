@@ -2,6 +2,8 @@ import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { REPO, REPO_BRANCH } from '../lib/constants.js';
 import { fetchRepo } from '../lib/repo.js';
+import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
+import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
 import type { InstallDiff } from '../lib/diff.js';
 import { configLayout } from '../lib/layout.js';
@@ -67,6 +69,15 @@ async function runArchetypeStatus(
     if (strict && outdated) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
     return;
+  }
+
+  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // the spinner so it survives the frame and precedes a proxy-caused failure
+  // (see src/commands/init.ts). Inside the drift branch, so
+  // `status --no-drift` — which never clones — stays silent.
+  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
   }
 
   const s = spinner();

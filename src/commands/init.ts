@@ -7,6 +7,8 @@ import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
+import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
+import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { runGitPrereq } from '../steps/prereqs.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
@@ -62,6 +64,21 @@ async function runInitArchetype(): Promise<void> {
   const cwd = process.cwd();
   const { archetypes } = detectArchetypesFromProject(cwd);
   note(archetypes.join(', '), 'Detected archetypes');
+
+  // degit reads process.env.https_proxy ITSELF (measured at degit@3.6.6) and
+  // reads ONLY that lowercase spelling, so a non-lowercase-only environment
+  // clones DIRECTLY on POSIX while a `https_proxy` one is interposed by a host
+  // pharn never declared — neither of which was discoverable from any pharn
+  // output. Emit BEFORE the spinner starts, for two reasons: a log.warn into an
+  // active clack spinner frame is overwritten, and a clone that FAILS because of
+  // a misconfigured proxy is exactly when the user most needs to have been told.
+  // ADVISORY: this reports what degit WILL READ, never what transport ran; the
+  // confident wording is gated on the installed degit being a version pharn
+  // measured (lib/proxy-env.ts, MEASURED_DEGIT_VERSIONS).
+  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
+  }
 
   const s = spinner();
   s.start(`Fetching PHARN from ${REPO_URL}`);

@@ -26,6 +26,8 @@ import {
 } from '../lib/install-records.js';
 import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
+import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
+import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import {
   loadArchetypeConfigOrExit,
@@ -131,6 +133,14 @@ async function runArchetypeAdd(
     process.exit(1);
   }
 
+  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // the spinner so it survives the frame and precedes a proxy-caused failure
+  // (see src/commands/init.ts for the full rationale).
+  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
+  }
+
   const s = spinner();
   s.start(`Fetching capabilities from ${REPO_URL}`);
   let repo;
@@ -200,6 +210,14 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       'Specify a capability (e.g. `pharn add a11y` or `pharn add lens:n-plus-one`), or run `pharn add` in an interactive terminal to pick from a list.',
     );
     process.exit(1);
+  }
+
+  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // the spinner so it survives the frame and precedes a proxy-caused failure
+  // (see src/commands/init.ts for the full rationale).
+  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
   }
 
   const s = spinner();

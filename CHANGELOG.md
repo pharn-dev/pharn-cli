@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The `degit` clone's proxy handling is no longer invisible.** `degit` reads
+  `process.env.https_proxy` in its own constructor — unconditionally, with no option `pharn` could
+  pass — and only that **lowercase** spelling appears anywhere in its bundle. So a user who exported
+  `HTTPS_PROXY`, the spelling most tooling honors, was connecting **directly** on macOS and Linux with
+  no signal anywhere; a user who exported `https_proxy` was having the clone interposed by a host
+  `pharn` never mentioned. Both directions were silent. `init` / `add` / `update` / `status` now read
+  the environment before starting the clone and print the applicable line — that the variable will be
+  ignored (suppressed on Windows, where lookups are case-insensitive and it _is_ read), or that the
+  clone **may be routed** through the named proxy and that `no_proxy` exclusions do not apply to it,
+  since degit reads no such variable. The warning names whichever spelling you actually set, so a
+  `Https_Proxy` typo is caught too, and several variants resolve deterministically rather than by
+  environment order. Credentials in the value are redacted to `***`, an unparseable value degrades to
+  `(set)` rather than echoing raw bytes, and the value is **never** written to `pharn.config.json` —
+  it is git-committed, and proxy URLs routinely carry passwords.
+
+  **The confident wording is gated on a measured degit version.** `pharn` declares the range `^3.6.1`
+  and the published package ships no lockfile, so the installed version is whatever `npm` resolves —
+  today `3.8.0`, not the `3.6.6` this repo develops against. Every published version in that range was
+  swept (`3.6.1` … `3.8.0`, nine in total) and all read only the lowercase name; `pharn` reads the
+  version at runtime and states the negative assertion only for those. On any other version it hedges,
+  naming both the measured range and what is installed — so a newer degit makes the notice more
+  cautious rather than wrong.
+
+  Deliberately **not** done: recording the proxy in the config or the install summary as a fact about
+  the connection. degit skips the download entirely when the tarball is already cached and falls back
+  to a spawned `git clone` on some failures, so "a proxy was in effect" is not derivable from the
+  environment — hence "may be routed", never "was routed". The notices remain **advisory**: they
+  report your environment against measured degit versions, never the transport that ran.
+  `docs/troubleshooting.md` gains a "Proxy environment variables" section.
+
 ### Docs
 
 - **The fetch boundary now tells the truth about `degit`.** `THREAT-MODEL.md` described the clone as an
@@ -93,7 +125,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there.** The drift check read your project with its own bare `existsSync` / `readFileSync`, which
   went wrong four ways. A **directory** where a file belongs threw `EISDIR` out of the middle of the
   comparison, so status printed a raw errno naming no file and **the drift report for every other file
-  was lost** — one bad path took down the whole run. A **symlink** was read *through*: pointing it at a
+  was lost** — one bad path took down the whole run. A **symlink** was read _through_: pointing it at a
   file with other bytes listed the path under "differs", erasing the fact that a link — not an edit —
   was the cause, and pointing it at a **byte-identical** file made status count it as matching and say
   **nothing at all**, silently blessing a path that leads outside your install and can change under it
@@ -118,23 +150,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pharn add` / `pharn remove` pickers have always used (`interactiveAllowed` — imported, not
   re-implemented; a static test pins that this repo has exactly one such predicate). Each gate sits
   **after** that command's promptless local step — `update`'s config load, `init`'s git prerequisite —
-  so an uninitialized directory still gets *"run `pharn init`"* and a directory with no `.git` still
-  gets *"run `git init`"*, never a misleading message about a prompt they would not have reached. Each
+  so an uninitialized directory still gets _"run `pharn init`"_ and a directory with no `.git` still
+  gets _"run `git init`"_, never a misleading message about a prompt they would not have reached. Each
   gate also sits **before any network call**, so a refused run costs zero round-trips and wastes no
   clone. **TTY behavior is deliberately unchanged:** a human choosing Cancel is still a user-initiated,
   graceful exit 0 — only EOF masquerading as that choice is now unreachable.
 
 - **`pharn add` no longer installs at a layout your config does not record.** PHARN ships in two
-  install layouts (the legacy flat one, and everything under `pharn/`). `add` copied at the *clone's*
+  install layouts (the legacy flat one, and everything under `pharn/`). `add` copied at the _clone's_
   layout while `pharn remove`, `pharn list`, and `pharn status` all look at the layout recorded in
   `pharn.config.json` — so when the two disagreed, the capability landed where nothing would ever find
-  it: invisible to `list`/`status`, and a later `remove` reported *"its files were already gone"* while
+  it: invisible to `list`/`status`, and a later `remove` reported _"its files were already gone"_ while
   dropping only the config entry, orphaning the directory on disk. `add` now **refuses** when the
   clone's layout differs from your recorded one, naming both layouts and pointing at `pharn update --force`,
   and writes nothing — no capability directory, no `pharn.config.json`, no `pharn.records.json`.
   `add` deliberately does **not** record the clone's layout the way `update` does: `update` may only
   because it rewrites your whole install at that layout, while `add` writes a single capability.
-  *Scope, honestly:* the common flat→`pharn` migration window was already closed by the version gate
+  _Scope, honestly:_ the common flat→`pharn` migration window was already closed by the version gate
   in the previous release, since a pre-migration install also has a pre-migration `skillsVersion`.
   What this closes is the residual case — a config that reached the current version with a stale,
   absent, or hand-edited `layout`. Note that resolving such a same-version drift needs
@@ -145,7 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pharn update --yes` (`-y`) — a real flag, for CI and scripts.** It skips **the confirmation prompt
   and nothing else**: the version note still prints, the same per-file decision table applies, files you
   edited are still skipped rather than overwritten, the recorded version is still withheld when anything
-  was skipped, and every exit code is unchanged. It means *"do not ask"*, not *"non-interactive mode"* —
+  was skipped, and every exit code is unchanged. It means _"do not ask"_, not _"non-interactive mode"_ —
   so it works in a terminal too — and it composes with `--force` (`pharn update --yes --force` is the
   full CI re-apply). `--force` does **not** imply `--yes`: overwriting your edits is the most destructive
   thing `update` does, so it still asks. Because `--yes` is only consent, it is not a drift check — a run
@@ -177,7 +209,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gate without editing a single script: their `console`/`process` were never wrong, the config simply
   declared no globals at all. Choosing `nodeBuiltin` over plain `node` keeps `__dirname`/`require` in
   an `.mjs` a lint error, since those do not exist in ESM and would otherwise crash at runtime.
-  *Scope, honestly:* the root config files (`eslint.config.mjs`, `vitest.config.ts`), `.dev/floor/`,
+  _Scope, honestly:_ the root config files (`eslint.config.mjs`, `vitest.config.ts`), `.dev/floor/`,
   and `.claude/hooks/` are **not** linted. And `--max-warnings 0` counts warnings that are actually
   **emitted** — it is not a defence against a rule set to `off`, a new `ignores` entry, or an inline
   `eslint-disable` comment.
@@ -201,8 +233,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Every capability membership change is now named.** When the list changes, `update` prints a
   `CAPABILITIES` section saying exactly what moved and why — `ADDED — newly selected for your
-  archetypes`, `REMOVED — no longer selected for your archetypes`, `REMOVED — no longer exists upstream
-  (was a manual add)`, or `KEPT — your manual add, not selected by your archetypes`. When nothing
+archetypes`, `REMOVED — no longer selected for your archetypes`, `REMOVED — no longer exists upstream
+(was a manual add)`, or `KEPT — your manual add, not selected by your archetypes`. When nothing
   changed, nothing is printed.
 
   > **Named limit:** a removal is not a tombstone. If your archetypes still select a capability you
@@ -230,7 +262,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A `source` present but outside `{auto, manual}` is reported by name (`capabilities[2].source`) and
   exits, instead of falling back to "run `pharn init`". Deleting the field is a valid fix.
-
 
 - **`pharn add` no longer makes `pharn update` report "Already up to date" over a stale install.**
   `add` clones the tip of `pharn-dev/pharn-oss`, and it used to write that clone's `SKILLS_VERSION`

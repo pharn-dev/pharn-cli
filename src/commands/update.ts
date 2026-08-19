@@ -31,6 +31,8 @@ import {
 } from '../lib/install-records.js';
 import { planUpdate, type UpdatePlan } from '../lib/update-decision.js';
 import { fetchRepo } from '../lib/repo.js';
+import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
+import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
@@ -171,6 +173,14 @@ async function runArchetypeUpdate(
       initialValue: true,
     });
     if (isCancel(ok) || ok !== true) cancelAndExit();
+  }
+
+  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // the spinner so it survives the frame and precedes a proxy-caused failure
+  // (see src/commands/init.ts for the full rationale).
+  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
   }
 
   const s2 = spinner();

@@ -202,6 +202,98 @@ describe('runAdd (archetype)', () => {
     ]);
   });
 
+  // --- the degit proxy notice (wiring) ---------------------------------------
+  //
+  // add has TWO fetch sites — the named path and the picker path — and the
+  // picker one sits behind an arg check plus a non-TTY refusal, making it the
+  // site most likely to be lost in a refactor. Both are pinned, plus the
+  // no-clone refusal paths.
+  describe('proxy notice', () => {
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('warns before the clone on the NAMED path', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+      mockClone();
+      let warnedBeforeFetch = false;
+      const cleanup = vi.fn();
+      fetchRepo.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        return { dir: '/repo', sha: 'sha', cleanup };
+      });
+
+      await runAdd('a11y');
+
+      expect(warnedBeforeFetch).toBe(true);
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('may be routed');
+    });
+
+    it('warns before the clone on the PICKER path', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([
+          { name: 'a11y', role: 'griller' },
+          { name: 'security', role: 'griller' },
+          { name: 'n-plus-one', role: 'lens' },
+        ]),
+      );
+      mockClone();
+      setTTY(true, true);
+      let warnedBeforeFetch = false;
+      const cleanup = vi.fn();
+      fetchRepo.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        return { dir: '/repo', sha: 'sha', cleanup };
+      });
+
+      await runAdd(undefined);
+
+      expect(warnedBeforeFetch).toBe(true);
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('may be routed');
+    });
+
+    // A path that never clones must not describe a transport. The legacy-config
+    // abort exits before any fetch.
+    it('says nothing on a path that never clones', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      loadArchetypeConfigOrExit.mockImplementationOnce(() => {
+        throw new ProcessExit(1);
+      });
+
+      await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).not.toContain('may be routed');
+    });
+
+    it('says nothing when no proxy variable is set', async () => {
+      vi.stubEnv('https_proxy', undefined);
+      vi.stubEnv('HTTPS_PROXY', undefined);
+      loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+      mockClone();
+
+      await runAdd('a11y');
+
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).not.toContain('may be routed');
+    });
+  });
+
   it('no-arg in a TTY with everything installed exits 0 without prompting', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(
       archConfig([

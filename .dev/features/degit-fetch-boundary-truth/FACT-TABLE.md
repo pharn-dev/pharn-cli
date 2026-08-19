@@ -93,7 +93,18 @@ Bundled **node-tar** (no dependency entry — vendored). Guards found in `dist/s
 `dist/src-COTalb41.js` constructor: `… this.proxy = process.env.https_proxy, …` — unconditional, on
 the programmatic path pharn uses. `https-proxy-agent` is **vendored** into `dist/utils-DCX7uekb.js`
 (debug namespaces `https-proxy-agent:parse-proxy-response` / `:agent`, `secureProxy`,
-`ALPNProtocols`). `Ao` logs `{code:'PROXY'}` and passes `t.proxy` into `t.fetch`.
+`ALPNProtocols`). `Ao` passes `t.proxy` into `t.fetch`.
+
+> **Correction (2026-08-19, increment `proxy-env-notice`).** This entry originally read "`Ao` logs
+> `{code:'PROXY'}` and passes `t.proxy` into `t.fetch`." The log half is misleading as stated: the
+> emit is `t.verboseInfo({code:'PROXY', …})`, and `verboseInfo` is defined
+> `verboseInfo(e){this.verbose&&this.info(e)}`. `fetchRepo` passes `{force:true, cache:false}` and no
+> `verbose`, so **the PROXY event never fires on pharn's path** — an `emitter.on('info', …)` listener
+> would observe nothing. The `t.fetch(n.url, n.file, t.proxy)` call is unaffected and still happens.
+> This matters because it rules out "observe degit rather than read the env," which otherwise looks
+> like the more honest design. Re-verified across every published version in the declared `^3.6.1`
+> range (3.6.1-3.8.0): the assignment, the single lowercase name, and the `verboseInfo` gate are
+> identical in all nine.
 
 Literal sweep over `dist/*.js` for `https?_proxy|no_proxy|ALL_PROXY` → **exactly one hit**:
 `src-COTalb41.js: https_proxy`. **Lowercase only.** `src/lib/repo.ts` passes no `proxy` option — but
