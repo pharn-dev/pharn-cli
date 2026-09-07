@@ -61,14 +61,22 @@ a whole tree to relocate.
 ## What is intentionally excluded
 
 `.claude/settings.json` is **never** flagged — it is your Claude Code configuration, which the install
-preserves (never overwrites). The copied-verbatim trusted docs, `.cjs` hooks, `pharn-contracts/`, and
-`.dev/floor/` checkers **are** compared, so an edit to any of those surfaces shows up as drift.
+preserves (never overwrites). The copied-verbatim trusted docs, `.cjs` hooks, `pharn-contracts/`,
+`pharn/pharn-core/`, and `.dev/floor/` checkers **are** compared, so an edit to any of those surfaces
+shows up as drift.
 
 ## Exit code
 
 Exits `0` by default, even when drift or an available update is found (it is a report) — including when
 a path is unreadable. Pass `--strict` to exit `1` whenever anything is outdated, differing, missing, or
 unreadable — useful as a CI gate.
+
+One case is worth knowing before you wire `--strict` into CI: when a new `pharn` release begins
+installing a surface earlier releases did not, an existing install is genuinely missing those files and
+`--strict` goes red — but a plain `pharn update` reports "Already up to date" if your `skillsVersion`
+already matches upstream. See
+[a surface added by a newer CLI](update.md#a-surface-added-by-a-newer-cli-at-the-same-skills-version)
+for the two ways through.
 
 ## Related
 

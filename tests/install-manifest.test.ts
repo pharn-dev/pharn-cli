@@ -77,6 +77,10 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
   write(join(repo, 'pharn/floor/validate.test.mjs'));
+  // pharn-core: the fixed skill surface (seam-resolver + its evals), copied whole.
+  write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'));
+  write(join(repo, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'));
+  write(join(repo, 'pharn/pharn-core/seam-resolver/evals/expected/resolve.md'));
   // dev-only, stay at root, must NOT be part of a pharn install:
   write(join(repo, 'THREAT-MODEL.md'));
   write(join(repo, 'LIMITS.md'));
@@ -148,6 +152,9 @@ describe('collectExpectedInstallPaths (flat)', () => {
     ]) {
       expect(k).not.toContain(p);
     }
+    // The flat `core` path resolves, but no flat clone ships the dir, so it
+    // contributes no keys — a flat install's expected set is unchanged (P7).
+    expect(k.some((p) => p.startsWith('pharn-core/'))).toBe(false);
   });
 });
 
@@ -195,12 +202,43 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).toContain('pharn/ARCHITECTURE.md');
     expect(k).toContain('pharn/pharn-contracts/finding-shape.md');
     expect(k).toContain('pharn/floor/validate.mjs');
+    // pharn-core is in the expected set, so status compares it and update
+    // restores it — the drift coverage the manifest entry buys.
+    expect(k).toContain('pharn/pharn-core/seam-resolver/seam-resolver.md');
+    expect(k).toContain(
+      'pharn/pharn-core/seam-resolver/evals/cases/resolve.md',
+    );
     // pharn docs set is CONSTITUTION + ARCHITECTURE only; THREAT-MODEL/LIMITS drop.
     expect(k).not.toContain('THREAT-MODEL.md');
     expect(k).not.toContain('LIMITS.md');
     expect(k).not.toContain('pharn/floor/validate.test.mjs');
     // .claude/* stays layout-invariant (at root, not under pharn/).
     expect(k).toContain('.claude/commands/pharn-plan.md');
+  });
+
+  // P2: the manifest is the SOURCE side of every update write, so a symlinked
+  // pharn-core root must contribute nothing — the writer refuses it, and a
+  // mirror that enumerated it would have `update` copy files from outside the
+  // clone into the user's repo.
+  it('a symlinked pharn-core root contributes NO keys', () => {
+    const repo = join(tmp.path(), 'repo');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepoPharn(repo);
+    write(join(outside, 'secret.md'), 'not from the clone');
+    rmSync(join(repo, 'pharn/pharn-core'), { recursive: true, force: true });
+    symlinkSync(outside, join(repo, 'pharn/pharn-core'));
+
+    const k = [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'pharn',
+      }).keys(),
+    ];
+    expect(k.some((p) => p.startsWith('pharn/pharn-core/'))).toBe(false);
+    expect(k.some((p) => p.includes('secret'))).toBe(false);
+    // The sibling surfaces are unaffected — the skip is scoped to this root.
+    expect(k).toContain('pharn/pharn-contracts/finding-shape.md');
   });
 });
 
@@ -315,16 +353,19 @@ describe('collectExpectedInstallPaths ⟷ installCapabilities (mirror)', () => {
 describe('collectExpectedInstallPaths ⟷ the update writer (mirror)', () => {
   const tmp = useTmpDir();
 
-  it('applying every manifest entry writes exactly the manifest keys', () => {
+  function assertUpdateMirror(
+    layout: 'flat' | 'pharn',
+    scaffold: (r: string) => void,
+  ): Map<string, string> {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     mkdirSync(proj, { recursive: true });
-    scaffoldRepo(repo);
+    scaffold(repo);
 
     const expected = collectExpectedInstallPaths({
       repoDir: repo,
       capabilities: selection().selected,
-      layout: 'flat',
+      layout,
     });
     // A fresh project: every expected file is absent → row 1 → all written.
     applyWrites({
@@ -334,6 +375,22 @@ describe('collectExpectedInstallPaths ⟷ the update writer (mirror)', () => {
     });
 
     expect(walkRel(proj).sort()).toEqual([...expected.keys()].sort());
+    return expected;
+  }
+
+  it('applying every manifest entry writes exactly the manifest keys', () => {
+    assertUpdateMirror('flat', scaffoldRepo);
+  });
+
+  // The pharn layout carries the surfaces the flat scaffold cannot (pharn-core),
+  // so pin the update writer against it too — otherwise the new surface is
+  // covered by the init writer's mirror only, and `update` could silently
+  // diverge on exactly the files it is now expected to restore.
+  it('pharn layout: applying every manifest entry writes exactly the keys', () => {
+    const expected = assertUpdateMirror('pharn', scaffoldRepoPharn);
+    expect([...expected.keys()]).toContain(
+      'pharn/pharn-core/seam-resolver/seam-resolver.md',
+    );
   });
 });
 

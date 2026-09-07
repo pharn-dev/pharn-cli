@@ -87,8 +87,10 @@ export interface ModelRouting {
 // parallel floor validator .dev/floor/check-seam-config.mjs. It is the policy
 // for the agnostic seam resolver's confidence-gated chain (ARCHITECTURE.md §5):
 // an ordered resolutionOrder walked until a step resolves, with a MANDATORY
-// terminal `ask` (P5, fail-closed). Config shape + validator only — the runtime
-// resolver that walks it is a later increment (a pharn-core capability).
+// terminal `ask` (P5, fail-closed). The CLI owns the config shape + its
+// validator; the runtime resolver that WALKS it is pharn-oss's seam-resolver
+// skill, installed verbatim as part of the fixed `pharn-core` surface
+// (lib/constants.ts → PHARN_CORE_DIR). The CLI never parses or executes it.
 // ---------------------------------------------------------------------------
 
 // One step in the seam-resolution chain (ARCHITECTURE.md §5 sources). Runtime

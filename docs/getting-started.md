@@ -50,8 +50,8 @@ npx @pharn-dev/pharn init
    capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the rest
    with a reason.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus
-   the fixed product surfaces (commands, hooks, contracts, floor checkers, and the canonical
-   constitution) into the mirrored layout and writes `pharn.config.json`.
+   the fixed product surfaces (commands, hooks, contracts, `pharn-core`, floor checkers, and the
+   canonical constitution) into the mirrored layout and writes `pharn.config.json`.
 
 To add a capability the detection didn't select — or remove one it did — use
 [`pharn add`](commands/add.md) / [`pharn remove`](commands/remove.md) afterward.
@@ -67,6 +67,7 @@ surfaces:
 | `.claude/commands/`                                       | The `pharn-*` product slash commands                                                     |
 | `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                     |
 | `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                             |
+| `pharn/pharn-core/`                                       | The agnostic mechanism skills the commands cite (the seam resolver + its evals)          |
 | `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                        |
 | `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout |
 | `pharn.records.json`                                      | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites   |

@@ -39,6 +39,9 @@ describe('layoutPaths', () => {
     expect(p.lenses).toBe('pharn-review');
     expect(p.contracts).toBe('pharn-contracts');
     expect(p.floor).toBe('.dev/floor');
+    // Resolved for interface uniformity; no flat clone upstream ships this dir,
+    // so the copy/mirror sites see existsSync false and no-op (see constants.ts).
+    expect(p.core).toBe('pharn-core');
     expect(p.docs).toEqual([
       'CONSTITUTION.md',
       'ARCHITECTURE.md',
@@ -54,6 +57,8 @@ describe('layoutPaths', () => {
     expect(p.lenses).toBe('pharn/pharn-review');
     expect(p.contracts).toBe('pharn/pharn-contracts');
     expect(p.floor).toBe('pharn/floor');
+    // The pharn-core surface upstream actually ships (seam-resolver + its evals).
+    expect(p.core).toBe('pharn/pharn-core');
     expect(p.docs).toEqual(['pharn/CONSTITUTION.md', 'pharn/ARCHITECTURE.md']);
   });
 });

@@ -70,6 +70,7 @@ After a summary of what was selected vs. skipped and your confirmation, the CLI 
 | `.claude/commands/`                                       | The `pharn-*` product slash commands                                                 |
 | `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                 |
 | `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                         |
+| `pharn/pharn-core/`                                       | The agnostic mechanism skills the commands cite (the seam resolver + its evals)      |
 | `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                    |
 | `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and layout |
 

@@ -190,6 +190,28 @@ Resolve it once, either way:
 
 Either path writes a full record store, and every later update is precise.
 
+## A surface added by a newer CLI, at the same skills version
+
+`update` compares versions before it compares files: if your `skillsVersion` already equals upstream's,
+it reports "Already up to date" and exits **without reading a single file** (step 3 above). That is the
+right call for the common case, but it has one sharp edge.
+
+When a **new `pharn` release starts installing a surface that earlier releases did not** — as the
+release adding `pharn/pharn-core/` does — an install pinned at the *current* skills version is missing
+those files and `update` will not restore them. [`pharn status`](status.md) reports them as `missing`, and
+`pharn status --strict` exits `1`, but a plain `pharn update` still answers "Already up to date".
+
+Two ways through:
+
+- `pharn update --force` — bypasses the version check and writes the missing files. It also overwrites
+  files you have edited, so read the [`--force`](#--force-and-pharn-backup) section first: every
+  casualty is copied to `.pharn-backup/<timestamp>/` before it is touched.
+- Wait for the next skills-version bump, which makes the ordinary `pharn update` restore them (missing
+  files are always `restore`d — there is nothing local to protect).
+
+Nothing is silently wrong in the meantime: the files are absent, `status` says so, and the commands that
+cite them are the ones affected.
+
 ## Layout migrations
 
 `update` records the layout of the clone it actually copied from, so `pharn.config.json` can no longer
