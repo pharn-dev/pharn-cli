@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`pharn/pharn-core/` is now installed.** The product `/pharn-build` command shipped by pharn-oss
+  cites `pharn/pharn-core/seam-resolver/seam-resolver.md` at three points, and `init` has always
+  written a `seam` block into `pharn.config.json` and installed `check-seam-config.mjs` with the
+  floor — so the seam gate validated GREEN and then pointed the model at a file no code path ever
+  copied. `init` and `update` now install `pharn/pharn-core/` (today the `seam-resolver` skill plus
+  its `evals/`) as a **fixed product surface**, copied whole and verbatim exactly the way
+  `pharn-contracts/` is: one layout path, one copy block guarded by `safeJoin` at both ends plus the
+  `isSymlink` root reject and the `noSymlinks` filter, and one entry in the install manifest — which
+  is what also gives it `status` drift coverage and `update`'s missing-file restore. It is **not**
+  modeled as a capability: its frontmatter declares `role: skill`, deliberately outside the CLI's
+  `ROLE_VALUES`, and the CLI never parses it — `pharn add`/`remove` cannot address it. The flat
+  layout has no counterpart upstream (the directory postdates the `pharn/` relocation), so a flat
+  clone copies nothing and a flat install is byte-for-byte unchanged.
+
 - **The `degit` clone's proxy handling is no longer invisible.** `degit` reads
   `process.env.https_proxy` in its own constructor — unconditionally, with no option `pharn` could
   pass — and only that **lowercase** spelling appears anywhere in its bundle. So a user who exported

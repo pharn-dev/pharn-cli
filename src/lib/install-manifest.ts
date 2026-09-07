@@ -58,7 +58,7 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
  * The exact project-root-relative paths an archetype install writes, mapped to
  * their source path in `repoDir` — the selected capability dirs + the fixed
  * product surfaces (product `pharn-*` commands, `.cjs` hooks, trusted docs,
- * `pharn-contracts/`, `.dev/floor/` minus tests), at `layout`. `.claude/settings.json`
+ * `pharn-contracts/`, `pharn-core/`, `.dev/floor/` minus tests), at `layout`. `.claude/settings.json`
  * is user-owned (preserved at install) and is NOT included. Mirrors
  * installCapabilities (lib/install-capabilities.ts); every read is safeJoin-guarded.
  */
@@ -119,8 +119,12 @@ export function collectExpectedInstallPaths(params: {
     if (findSymlinkComponent(repoDir, doc) !== null) continue;
     if (lstatSync(from, { throwIfNoEntry: false })?.isFile()) add(doc, from);
   }
-  // Contracts (whole dir) + floor checkers (test files excluded), at layout paths.
+  // Contracts + pharn-core (whole dirs) + floor checkers (test files excluded),
+  // at layout paths. pharn-core is a FIXED surface, not a capability, so it
+  // reaches status/update only through this entry — a flat clone has none, so
+  // addDir's lstat finds no directory and contributes nothing (P7).
   addDir(paths.contracts);
+  addDir(paths.core);
   addDir(paths.floor, (rel) => !/\.test\.(mjs|cjs)$/.test(rel));
 
   return expected;

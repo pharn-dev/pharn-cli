@@ -150,6 +150,46 @@ describe('diffInstalledCapabilities', () => {
     );
   });
 
+  // The point of putting pharn-core in the install manifest: `status` compares it
+  // like any other fixed surface, so an install that predates the surface — or a
+  // user who deleted it — is REPORTED instead of silently diverging. This is what
+  // makes `status --strict` exit 1 for a missing seam-resolver.
+  it('reports a deleted pharn/pharn-core file as missing (status drift)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
+    write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'), 'sr');
+    write(join(proj, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
+    // The project does NOT have the core file (a pre-surface install).
+
+    const r = diffInstalledCapabilities({
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: [],
+      layout: 'pharn',
+    });
+    expect(r.missing).toContain(
+      'pharn/pharn-core/seam-resolver/seam-resolver.md',
+    );
+    expect(r.modified).toEqual([]);
+
+    // Present but locally edited → modified, not missing (the other arm).
+    write(
+      join(proj, 'pharn/pharn-core/seam-resolver/seam-resolver.md'),
+      'sr-EDITED',
+    );
+    const r2 = diffInstalledCapabilities({
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: [],
+      layout: 'pharn',
+    });
+    expect(r2.missing).toEqual([]);
+    expect(r2.modified).toEqual([
+      'pharn/pharn-core/seam-resolver/seam-resolver.md',
+    ]);
+  });
+
   it('degrades gracefully (skips, never throws) when the clone lacks the project layout', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');

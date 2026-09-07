@@ -1014,6 +1014,15 @@ describe('runUpdate (drift-safe)', () => {
       );
       write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v2');
       write(join(repo, '.claude/commands/pharn-plan.md'), 'plan v2');
+      // The fixed pharn-core surface (seam-resolver + its evals).
+      write(
+        join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'),
+        'resolver v2',
+      );
+      write(
+        join(repo, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'),
+        'case v2',
+      );
     }
 
     it("records the CLONE's layout, not the stale one from the config", async () => {
@@ -1025,6 +1034,33 @@ describe('runUpdate (drift-safe)', () => {
       expect(readPharnConfig(proj)!.layout).toBe('pharn');
       expect(body('pharn/pharn-pipeline/grillers/a11y/a11y.md')).toBe(
         'a11y v2',
+      );
+    });
+
+    // pharn-core is a FIXED surface, not a capability, so it reaches the project
+    // only through the install manifest. A project that predates the surface has
+    // none of its files — they classify `missing → restore` (row 1: nothing local
+    // to protect), so a version-bumping update installs the seam-resolver the
+    // copied /pharn-build command cites. Note the bound this does NOT cover: a
+    // project already at the latest skillsVersion early-returns before any of
+    // this (src/commands/update.ts) and needs --force — see docs/commands/update.md.
+    it('RESTORES a missing pharn/pharn-core (fixed surface, missing → restore)', async () => {
+      await installed(); // v1.0.0 tree; no pharn/pharn-core anywhere
+      pharnClone(); // v1.1.0 clone that ships it
+      expect(existsSync(join(proj, 'pharn/pharn-core'))).toBe(false);
+
+      await runUpdate();
+
+      expect(body('pharn/pharn-core/seam-resolver/seam-resolver.md')).toBe(
+        'resolver v2',
+      );
+      expect(
+        body('pharn/pharn-core/seam-resolver/evals/cases/resolve.md'),
+      ).toBe('case v2');
+      // Restored files are recorded, so the next run can tell pharn's bytes from
+      // the user's edits (an unrecorded file would skip as `unrecorded` forever).
+      expect(records()).toHaveProperty(
+        'pharn/pharn-core/seam-resolver/seam-resolver.md',
       );
     });
 

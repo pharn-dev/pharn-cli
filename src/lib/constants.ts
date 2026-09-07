@@ -34,6 +34,17 @@ export const TRUSTED_DOCS = [
 ];
 // Inter-layer schema contracts (whole dir).
 export const CONTRACTS_DIR = 'pharn-contracts';
+// pharn-core (ARCHITECTURE.md §4, L0–L2): the agnostic mechanism layer — today
+// the seam-resolver skill + its evals, which the copied product commands cite by
+// path. A FIXED product surface (copied whole, like pharn-contracts), NOT a
+// capability: its frontmatter says `role: skill`, deliberately outside the CLI's
+// ROLE_VALUES, and it is never resolved through the capability index.
+//
+// P7, honest scope: this FLAT path is resolved for LayoutPaths uniformity only —
+// pharn-oss has no root `pharn-core/` (the dir postdates the pharn/ relocation),
+// so on every flat clone the copy and the manifest see existsSync false and
+// no-op. It is a no-op path, not support for a layout upstream ships.
+export const CORE_DIR = 'pharn-core';
 // Deterministic floor checkers the product commands + hooks invoke at runtime.
 // Copied whole EXCEPT test files (see install-capabilities.ts). NOT `.dev/`
 // wholesale — `.dev/features` and `.dev/memory-bank` are dev-only and excluded.
@@ -52,6 +63,8 @@ export const FLOOR_DIR = '.dev/floor';
 export const PHARN_GRILLERS_DIR = 'pharn/pharn-pipeline/grillers';
 export const PHARN_LENSES_DIR = 'pharn/pharn-review';
 export const PHARN_CONTRACTS_DIR = 'pharn/pharn-contracts';
+// The pharn-core surface upstream actually ships (see CORE_DIR above).
+export const PHARN_CORE_DIR = 'pharn/pharn-core';
 export const PHARN_FLOOR_DIR = 'pharn/floor';
 export const PHARN_TRUSTED_DOCS = [
   'pharn/CONSTITUTION.md',

@@ -31,8 +31,8 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 //
 // Dev-only exclusion is STRUCTURAL, not a scan: only these source subtrees are
 // ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands,
-// `.cjs` hooks, settings.json, the trusted docs, pharn-contracts/, and
-// `.dev/floor/` minus test files. `pharn-dev-*` commands, `.dev/features/`,
+// `.cjs` hooks, settings.json, the trusted docs, pharn-contracts/, pharn-core/,
+// and `.dev/floor/` minus test files. `pharn-dev-*` commands, `.dev/features/`,
 // `.dev/memory-bank/`, and `*.test.*` are NEVER in the copy set.
 //
 // One axis (P3): the capability copy routine.
@@ -167,6 +167,22 @@ export function installCapabilities(
   const contractsFrom = safeJoin(repoDir, paths.contracts);
   if (existsSync(contractsFrom) && !isSymlink(contractsFrom)) {
     cpSync(contractsFrom, safeJoin(projectRoot, paths.contracts), {
+      recursive: true,
+      force: true,
+      filter: noSymlinks,
+    });
+  }
+
+  // --- pharn-core (whole dir; mirrored at the layout's path) -----------------
+  // The agnostic mechanism layer the copied product commands cite by path (today
+  // the seam-resolver skill + its evals). Copied like pharn-contracts — whole,
+  // verbatim, no filter: its evals are content, not test files. Contents are
+  // NEVER parsed; its `role: skill` frontmatter is deliberately outside
+  // ROLE_VALUES and never reaches the capability index. A flat clone has no such
+  // dir upstream, so this is a no-op there (P7).
+  const coreFrom = safeJoin(repoDir, paths.core);
+  if (existsSync(coreFrom) && !isSymlink(coreFrom)) {
+    cpSync(coreFrom, safeJoin(projectRoot, paths.core), {
       recursive: true,
       force: true,
       filter: noSymlinks,

@@ -2,10 +2,12 @@ import { existsSync } from 'node:fs';
 import { safeJoin } from './validate.js';
 import {
   CONTRACTS_DIR,
+  CORE_DIR,
   FLOOR_DIR,
   GRILLERS_DIR,
   LENSES_DIR,
   PHARN_CONTRACTS_DIR,
+  PHARN_CORE_DIR,
   PHARN_FLOOR_DIR,
   PHARN_GRILLERS_DIR,
   PHARN_LENSES_DIR,
@@ -36,6 +38,11 @@ export interface LayoutPaths {
   lenses: string;
   // Inter-layer schema contracts dir (whole dir).
   contracts: string;
+  // pharn-core dir (whole dir): the agnostic mechanism layer the copied product
+  // commands cite — today the seam-resolver skill + its evals. A fixed surface,
+  // not a capability. Resolved in BOTH layouts for uniformity; the flat clone has
+  // no such dir upstream, so its consumers simply find nothing there (P7).
+  core: string;
   // Deterministic floor checkers dir (test files excluded on copy).
   floor: string;
   // Trusted spec docs copied verbatim (write-protected post-install by the
@@ -61,6 +68,7 @@ export function layoutPaths(layout: Layout): LayoutPaths {
       grillers: PHARN_GRILLERS_DIR,
       lenses: PHARN_LENSES_DIR,
       contracts: PHARN_CONTRACTS_DIR,
+      core: PHARN_CORE_DIR,
       floor: PHARN_FLOOR_DIR,
       docs: PHARN_TRUSTED_DOCS,
     };
@@ -70,6 +78,7 @@ export function layoutPaths(layout: Layout): LayoutPaths {
     grillers: GRILLERS_DIR,
     lenses: LENSES_DIR,
     contracts: CONTRACTS_DIR,
+    core: CORE_DIR,
     floor: FLOOR_DIR,
     docs: TRUSTED_DOCS,
   };

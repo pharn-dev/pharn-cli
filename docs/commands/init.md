@@ -8,7 +8,7 @@ pharn init
 pharn
 ```
 
-`init` detects your project's **archetype(s)** and installs the PHARN **capabilities** that apply to them. It fetches nothing you did not ask for: only the capabilities matching your project, plus the fixed product surfaces (commands, hooks, docs, contracts, floor), are copied. There is no module catalog and no `manifest.json` fetch — capabilities are the install unit.
+`init` detects your project's **archetype(s)** and installs the PHARN **capabilities** that apply to them. It fetches nothing you did not ask for: only the capabilities matching your project, plus the fixed product surfaces (commands, hooks, docs, contracts, `pharn-core`, floor), are copied. There is no module catalog and no `manifest.json` fetch — capabilities are the install unit.
 
 > The `--archetype` flag is a **deprecated no-op** kept for one release: archetype detection is now the default, so `pharn init --archetype` behaves identically to `pharn init`.
 
@@ -102,14 +102,14 @@ Lists the **selected** capabilities (name, role, and why — `universal` or the 
 | Yes, install | Copy the capabilities + product surfaces and write config |
 | Cancel       | Exit 0; nothing written                                   |
 
-After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs` hooks, `pharn-contracts/`, the floor checkers, the constitution, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs` hooks, `pharn-contracts/`, `pharn/pharn-core/`, the floor checkers, the constitution, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 ### 7. Install
 
 | Action                     | Behavior                                                                                                                                        |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                  |
-| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs` hooks, the trusted docs, `pharn-contracts/`, and `.dev/floor/` (minus test files)             |
+| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs` hooks, trusted docs, `pharn-contracts/`, `pharn-core/`, and `.dev/floor/` (minus test files)  |
 | Preserve settings          | An existing `.claude/settings.json` is **never** overwritten (a note tells you to wire the hooks by hand if needed)                             |
 | Mirror the layout          | Whichever layout the fetched clone uses — flat, or the relocated `pharn/` — is mirrored verbatim; the CLI never rewrites copied file contents   |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                             |

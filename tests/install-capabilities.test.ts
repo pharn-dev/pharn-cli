@@ -163,6 +163,16 @@ describe('installCapabilities', () => {
     );
   });
 
+  // The flat `core` path is resolved for interface uniformity only: no flat clone
+  // upstream ships a root pharn-core/ (the dir postdates the pharn/ relocation),
+  // so the copy site sees existsSync false and no-ops. Nothing is written, and
+  // nothing throws — a flat install is byte-for-byte what it was before (P7).
+  it('writes NO pharn-core for a flat clone that has none (tolerant no-op)', () => {
+    const { proj } = run();
+    expect(existsSync(join(proj, 'pharn-core'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/pharn-core'))).toBe(false);
+  });
+
   it('copies .dev/floor checkers but EXCLUDES *.test.mjs, .dev/features and .dev/memory-bank', () => {
     const { proj } = run();
     expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
@@ -369,6 +379,17 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
     write(join(repo, 'pharn/floor/validate.mjs'), 'floor');
     write(join(repo, 'pharn/floor/validate.test.mjs'), 'FLOORTEST');
+    // pharn-core: the fixed skill surface the installed /pharn-build cites
+    // (seam-resolver + its evals). Copied whole, like pharn-contracts.
+    write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'), 'sr');
+    write(
+      join(repo, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'),
+      'case',
+    );
+    write(
+      join(repo, 'pharn/pharn-core/seam-resolver/evals/expected/resolve.md'),
+      'expected',
+    );
     // dev-only surfaces that stay at root and must NOT be installed under pharn:
     write(join(repo, 'THREAT-MODEL.md'), 'T');
     write(join(repo, 'LIMITS.md'), 'L');
@@ -408,6 +429,49 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(existsSync(join(proj, 'pharn/floor/validate.test.mjs'))).toBe(false);
     expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(true);
     expect(existsSync(join(proj, 'pharn/ARCHITECTURE.md'))).toBe(true);
+  });
+
+  // The gap this surface closes: the installed /pharn-build cites
+  // pharn/pharn-core/seam-resolver/seam-resolver.md, so the install must actually
+  // ship it — whole dir, evals included, exactly like a capability dir.
+  it('installs pharn/pharn-core whole (seam-resolver + its evals)', () => {
+    const { proj } = run();
+    expect(
+      existsSync(join(proj, 'pharn/pharn-core/seam-resolver/seam-resolver.md')),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(proj, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(proj, 'pharn/pharn-core/seam-resolver/evals/expected/resolve.md'),
+      ),
+    ).toBe(true);
+  });
+
+  // P2: the clone is untrusted. A symlinked copy ROOT is rejected outright (the
+  // same isSymlink guard contracts/floor get), so nothing under it materializes —
+  // never a file sourced from outside the clone.
+  it('SKIPS a symlinked pharn-core root (nothing materialized)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepoPharn(repo);
+    write(join(outside, 'secret.md'), 'not from the clone');
+    rmSync(join(repo, 'pharn/pharn-core'), { recursive: true, force: true });
+    symlinkSync(outside, join(repo, 'pharn/pharn-core'));
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(proj, 'pharn/pharn-core'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/pharn-core/secret.md'))).toBe(false);
+    // The sibling surfaces are unaffected — the skip is scoped to this root.
+    expect(
+      existsSync(join(proj, 'pharn/pharn-contracts/finding-shape.md')),
+    ).toBe(true);
   });
 
   it('DROPS THREAT-MODEL/LIMITS and leaves nothing flat at the project root', () => {
