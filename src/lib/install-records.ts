@@ -65,9 +65,9 @@ export const SHA256_RE = /^[0-9a-f]{64}$/;
 // The rule remains defense in depth (P2), never containment: a key is COMPARED,
 // never path-joined (see the header), so containment is safeJoin's job and
 // accepting an odd-but-inert name gives up nothing. The corollary is that what it
-// rejects is narrow ON PURPOSE — a drive-absolute `C:/x` or a posix key holding
-// `..\..\etc\passwd` as one opaque segment reads as an ordinary name here, and is
-// inert for the same reason every other key is.
+// rejects is narrow ON PURPOSE — a posix key holding `..\..\etc\passwd` as one
+// opaque segment reads as an ordinary name here, and is inert for the same reason
+// every other key is.
 function isInvalidRecordKey(key: string): boolean {
   // Normalize a COPY to split it; the key itself is stored verbatim, because the
   // manifest supplies the lookups and they are literal string comparisons.
@@ -76,10 +76,20 @@ function isInvalidRecordKey(key: string): boolean {
   // stays one opaque segment — the same reading findSymlinkComponent relies on.
   const normalized = toPosix(key);
   if (normalized === '' || normalized.startsWith('/')) return true;
+  // "Absolute" has a second spelling. A win32 `C:\x` normalizes to `C:/x`, which
+  // no leading-`/` test catches — so without this the reader would accept a key
+  // the docs call invalid. The separator after the colon is required, and that is
+  // the whole point: `C:notes.md` is an ordinary posix filename, and rejecting it
+  // would recreate the over-rejection this rule exists to remove.
+  if (DRIVE_ABSOLUTE_RE.test(normalized)) return true;
   return normalized
     .split('/')
     .some((segment) => segment === '..' || segment === '.');
 }
+
+// A drive letter followed by a separator — `C:/x`, and a win32 `C:\x` once
+// toPosix has run. Enum/regex floor (P0), matching SHA256_RE's style.
+const DRIVE_ABSOLUTE_RE = /^[A-Za-z]:\//;
 
 /** rel path (posix) → sha256 of the bytes pharn wrote there. */
 export type FileRecords = Record<string, string>;

@@ -13,8 +13,25 @@
 | `tests/update.test.ts`           | yes                    |
 | `docs/reference/pharn-records.md` | yes                    |
 
-`git diff --name-only HEAD` minus `.pharn/**` is **byte-identical** to the plan's `## Files`: the
-build wrote exactly what it declared, and nothing else.
+**The exact partition, stated without ambiguity.** The full change set the scope helper was given is
+`git diff --name-only HEAD` (tracked modifications) **plus** `git ls-files --others
+--exclude-standard` (untracked-new) — seven paths in total:
+
+| path                                              | changed by                |
+| ------------------------------------------------- | ------------------------- |
+| `src/lib/install-records.ts`                       | `/pharn-dev-build`        |
+| `tests/install-records.test.ts`                    | `/pharn-dev-build`        |
+| `tests/update.test.ts`                             | `/pharn-dev-build`        |
+| `docs/reference/pharn-records.md`                  | `/pharn-dev-build`        |
+| `.pharn/writes-scope.json`                         | every stage's Step 0 setter |
+| `.dev/features/records-key-segment-rule/PLAN.md`   | `/pharn-dev-plan`         |
+| `.dev/features/records-key-segment-rule/GRILL.md`  | `/pharn-dev-grill`        |
+
+The **build-only** subset — the first four rows — is byte-identical to the plan's `## Files`: the
+build wrote exactly what it declared, and nothing else. The remaining three are the other stages'
+own artifacts, itemized in the next section. The **verdict** below was computed over the build-only
+subset as `--inside`; that choice is the advisory orchestration this stage owns, and both partitions
+are recorded here.
 
 ## The fix #7 scope check — raw result, and why it is not a build escape
 

@@ -195,6 +195,10 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
     ['a literal backslash', 'pharn-review/x/we\\ird.md'],
     ['a leading dot', '.claude/hooks/set-writes-scope.cjs'],
     ['a dot-suffixed directory', 'pharn-review/a11y.v2/lens.md'],
+    // A drive LETTER is only absolute when a separator follows it. `C:notes.md`
+    // is an ordinary posix filename, so rejecting it would recreate exactly the
+    // over-rejection this rule exists to remove.
+    ['a drive letter with no separator', 'C:notes.md'],
   ])('%s is a valid key — the store reads back ok', (_label, key) => {
     const proj = tmp.path();
     writeStore(proj, validStore({ [key]: sha('x') }));
@@ -210,6 +214,10 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
     ['a `.` segment mid-path', 'a/./b.md'],
     ['a bare `.`', '.'],
     ['an empty key', ''],
+    // Drive-absolute. `toPosix` maps a win32 `C:\\x` onto this same form, so one
+    // rule covers both spellings and the docs' "absolute keys are invalid" stays
+    // true on every platform rather than only for a leading `/`.
+    ['a drive-absolute key', 'C:/x'],
   ])('%s invalidates the store', (_label, key) => {
     const proj = tmp.path();
     writeStore(proj, validStore({ [key]: sha('x') }));
