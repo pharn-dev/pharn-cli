@@ -34,10 +34,18 @@ the temptation.
 issue and nothing else* — forking or patching the copied hook would break the verbatim-copy invariant
 that is itself a security property.
 
-Folded in, and worth naming: `5.6d` caught `tests/check-composition.test.ts` claiming "if a seventh
-gate is ever added to CI, this fails" when its gate list is a local literal. Same class as the nine —
-a guarantee that held because it was written down — and it came from my own earlier PR. Corrected
-here rather than left for someone to trust.
+Two claims of the same class were folded in, both surfaced by other ships and both mine:
+
+- `tests/check-composition.test.ts` claimed "if a seventh gate is ever added to CI, this fails" when
+  its gate list is a local literal — from the PR that added `lint:md` to `npm run check`.
+- `src/commands/{init,add,update,status}.ts` still explained the proxy notice as reporting **degit's**
+  lowercase `https_proxy` read, gated on a measured degit version, after #146 removed the dependency
+  and rewrote `lib/proxy-env.ts`. The comments contradicted both that module's own header and
+  `tests/init.test.ts`, which asserts the warning does **not** contain `degit`.
+
+Neither is one of the nine. Both are exactly what the nine are about — a guarantee that held because
+it was written down — so leaving them for a later sweep while triaging that category would have been
+the wrong call.
 
 **Advisory finding (low).** The CI gate list now exists in three test files. `5.6d` recorded the same
 observation. Consolidation is a design increment, not a triage item.

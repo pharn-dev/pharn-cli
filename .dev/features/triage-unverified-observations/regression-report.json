@@ -1,9 +1,13 @@
 {
-  "base": "4972abbfce3038e6a48eda1bc505fde0e8a9f607",
+  "base": "ab940f132edd6c6a21de25a55c29eb3e78c93d95",
   "inside": [
     "tests/detect-archetype.test.ts",
     "tests/check-composition.test.ts",
     "src/lib/install-manifest.ts",
+    "src/commands/init.ts",
+    "src/commands/add.ts",
+    "src/commands/update.ts",
+    "src/commands/status.ts",
     "CLAUDE.md",
     "CONTRIBUTING.md",
     "docs/contributing.md"

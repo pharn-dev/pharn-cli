@@ -41,11 +41,29 @@ regenerates, so listing it adds a line the user cannot act on to a warning whose
 every line is one of THEIR files. So the **prose** moved, not the set — widening the set would have
 broken an existing pin on purpose in order to make a sentence true.
 
-## Also fixed here, found by 5.6d, not one of the nine
+## Also fixed here, found by another ship, not one of the nine
+
+Two claims of the same class — a statement that outlived the thing it described — surfaced while the
+other prompts landed, and both are corrected on this branch:
+
+- **`src/commands/{init,add,update,status}.ts`** still explained the proxy notice in `degit`'s terms
+  ("degit reads process.env.https_proxy ITSELF … gated on the installed degit being a version pharn
+  measured") after #146 removed the dependency and rewrote `lib/proxy-env.ts`. Found by the agent
+  shipping `5.6b`, which noticed the comments contradict both `proxy-env.ts`'s own header and
+  `tests/init.test.ts`, where the warning is asserted **not** to contain `degit`.
+- **`tests/check-composition.test.ts`** — below.
 
 `tests/check-composition.test.ts` claimed "If a seventh gate is ever added to CI, this fails". It does
 not — its gate list is a local literal. Same class as the nine (a guarantee that holds because it was
 written down), and it was mine, from the PR that added `lint:md` to `npm run check`.
+
+## Files
+
+- `tests/detect-archetype.test.ts` — item 1's three pins — layer `tests`
+- `src/lib/install-manifest.ts`, `CLAUDE.md` — item 2's prose — layer `docs`
+- `CONTRIBUTING.md`, `docs/contributing.md`, `CLAUDE.md` — items 5, 6, 8 — layer `docs`
+- `tests/check-composition.test.ts` — the corrected overclaim — layer `tests`
+- `src/commands/{init,add,update,status}.ts` — the stale degit proxy comments — layer `commands`
 
 ## Guarantee audit (P0)
 
