@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The floor's `test-fixtures/` are no longer installed into your project.** `pharn init` copies the
+  deterministic floor checkers the product commands invoke at runtime, excluding `*.test.mjs` /
+  `*.test.cjs` — but not the `test-fixtures/` subtree those tests read, so 16 files of dev test
+  apparatus shipped with nothing installed that consumes them. Among them a **deliberately malformed
+  capability** and a set of red failure fixtures, so a user browsing their installed floor could
+  reasonably conclude the install was broken; `pharn status` also drift-tracked all 16 as product
+  files, and `--strict` went red if you deleted them. The subtree is now excluded on both the copy
+  side and the expected-file side together. Matched as a path **segment** relative to the floor dir, so
+  a file merely named `my-test-fixtures.mjs` is unaffected. **Already-installed copies stay** — `pharn
+  update` never deletes — but they drop out of the tracked set, so they are now ordinary files in your
+  own tree: deleting `test-fixtures/` under your installed floor is safe, and `pharn` will neither
+  restore it nor report it missing.
+
 - **`pharn init` now installs upstream's `features/README.md`.** Seven of the ten installed product
   commands — `/pharn-spec`, `/pharn-plan`, `/pharn-grill`, `/pharn-build`, `/pharn-regress`,
   `/pharn-verify`, `/pharn-ship` — cite `features/README.md` **by name** as the normative statement of

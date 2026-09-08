@@ -11,7 +11,7 @@
 
 ## Discovery (live state, read this run — P6)
 
-Verified in `/Users/pgalarowicz/Projects/pharn-cli` (clean tree, branched off `main` @ `2db6563`,
+Verified in this repo (clean tree, branched off `main` @ `2db6563`,
 `package.json` version `0.4.0`):
 
 - `src/lib/skills-version.ts:155-179` is the whole function. Its `try { res = await fetch(...) }

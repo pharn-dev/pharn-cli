@@ -10,7 +10,7 @@
 - `src/lib/constants.ts:33-40` — flat `TRUSTED_DOCS` is four entries; `:47-50` — a comment asserts the pharn set drops THREAT-MODEL/LIMITS "(they stay dev-only)"; `:56-59` — `PHARN_TRUSTED_DOCS` is two entries.
 - `src/lib/layout.ts:48-49` — the `docs` field comment repeats the claim; `:65` — `layoutPaths('pharn')` returns the two-entry set.
 - Consumers, verified not re-implemented: the installer iterates `paths.docs` with `existsSync(from) && !isSymlink(from)`; `collectExpectedInstallPaths` adds a doc only when `findSymlinkComponent(...) === null` and `lstatSync(...)?.isFile()`; `diff.ts` derives from that manifest. One constant reaches install, overwrite-check, `status` and `update`'s plan.
-- **Upstream state, read live this run:** `/Users/pgalarowicz/Projects/pharn-oss` at `2e183e6` has `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md` but **NO** `pharn/THREAT-MODEL.md` / `pharn/LIMITS.md` (only root copies). So the two new entries name files that do not exist upstream **yet** — which is exactly why the existence-guard pin below is the load-bearing part of this increment, not an afterthought.
+- **Upstream state, read live this run:** a local `pharn-dev/pharn-oss` checkout at `2e183e6` has `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md` but **NO** `pharn/THREAT-MODEL.md` / `pharn/LIMITS.md` (only root copies). So the two new entries name files that do not exist upstream **yet** — which is exactly why the existence-guard pin below is the load-bearing part of this increment, not an afterthought.
 
 ## Files
 

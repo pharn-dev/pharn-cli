@@ -1,7 +1,12 @@
 {
   "scope": [
-    ".dev/features/install-features-readme/SHIP.md"
+    "src/lib/constants.ts",
+    "src/lib/install-capabilities.ts",
+    "src/lib/install-manifest.ts",
+    "tests/install-capabilities.test.ts",
+    "tests/install-manifest.test.ts",
+    "docs/commands/init.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T16:22:36.279Z"
+  "set_by": ".dev/features/exclude-floor-test-fixtures/PLAN.md",
+  "set_at": "2026-09-08T16:49:12.413Z"
 }

@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   readdirSync,
   rmSync,
@@ -65,6 +66,9 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, 'pharn-contracts/finding-shape.md'));
   write(join(repo, '.dev/floor/validate.mjs'));
   write(join(repo, '.dev/floor/validate.test.mjs'));
+  write(join(repo, '.dev/floor/test-fixtures/red/skill.md'));
+  write(join(repo, '.dev/floor/test-fixtures/structural/red-1.expected.json'));
+  write(join(repo, '.dev/floor/my-test-fixtures.mjs'));
   write(join(repo, '.dev/features/some-feature/PLAN.md'));
   write(join(repo, '.dev/memory-bank/lessons-learned.md'));
 }
@@ -88,6 +92,8 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
   write(join(repo, 'pharn/floor/validate.test.mjs'));
+  write(join(repo, 'pharn/floor/test-fixtures/red/skill.md'));
+  write(join(repo, 'pharn/floor/my-test-fixtures.mjs'));
   // pharn-core: the fixed skill surface (seam-resolver + its evals), copied whole.
   write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'));
   write(join(repo, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'));
@@ -327,6 +333,56 @@ describe('conflictingWriteTargets', () => {
       'CONSTITUTION.md',
       'pharn-review/n-plus-one/n-plus-one.md',
     ]);
+  });
+});
+
+// The floor's test apparatus is excluded from the expected set too, or `status`
+// would drift-track 16 dev files as product and `update` would restore them.
+describe('collectExpectedInstallPaths — floor test-fixtures excluded', () => {
+  const tmp = useTmpDir();
+
+  function keysFor(layout: 'flat' | 'pharn'): string[] {
+    const repo = join(tmp.path(), 'repo');
+    if (layout === 'flat') scaffoldRepo(repo);
+    else scaffoldRepoPharn(repo);
+    return [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout,
+      }).keys(),
+    ];
+  }
+
+  it('omits every test-fixtures path but keeps the checkers (flat)', () => {
+    const k = keysFor('flat');
+    expect(k).toContain('.dev/floor/validate.mjs');
+    expect(k.filter((p) => p.includes('test-fixtures/'))).toEqual([]);
+    // SEGMENT, not substring: the near-miss sibling survives.
+    expect(k).toContain('.dev/floor/my-test-fixtures.mjs');
+  });
+
+  it('omits every test-fixtures path but keeps the checkers (pharn)', () => {
+    const k = keysFor('pharn');
+    expect(k).toContain('pharn/floor/validate.mjs');
+    expect(k.filter((p) => p.includes('test-fixtures/'))).toEqual([]);
+    expect(k).toContain('pharn/floor/my-test-fixtures.mjs');
+  });
+
+  // The mirror pin below proves writer and manifest agree — but ONLY if the
+  // scaffold actually contains a fixture. Without this guard a future scaffold
+  // edit could remove it and the pin would go quiet rather than red.
+  it('the mirror scaffolds really do contain a fixture file (else the pin is vacuous)', () => {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepo(repo);
+    expect(
+      existsSync(join(repo, '.dev/floor/test-fixtures/red/skill.md')),
+    ).toBe(true);
+    const pharnRepo = join(tmp.path(), 'pharn-repo');
+    scaffoldRepoPharn(pharnRepo);
+    expect(
+      existsSync(join(pharnRepo, 'pharn/floor/test-fixtures/red/skill.md')),
+    ).toBe(true);
   });
 });
 

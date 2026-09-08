@@ -1,4 +1,5 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
+import { relative } from 'node:path';
 import {
   assertNoDotDot,
   assertSafeString,
@@ -6,13 +7,15 @@ import {
   COPY_FILENAME_RE,
   ManifestValidationError,
   safeJoin,
+  toPosix,
 } from './validate.js';
 import {
   CLAUDE_COMMANDS_DIR,
-  FEATURES_README,
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
   DEV_COMMAND_PREFIX,
+  FEATURES_README,
+  FLOOR_TEST_FIXTURES_DIR,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import { detectLayout, layoutPaths, type LayoutPaths } from './layout.js';
@@ -34,7 +37,8 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 // Dev-only exclusion is STRUCTURAL, not a scan: only these source subtrees are
 // ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands,
 // `.cjs` hooks, settings.json, the trusted docs, the root features/README.md,
-// pharn-contracts/, pharn-core/, and `.dev/floor/` minus test files. `pharn-dev-*` commands, `.dev/features/`,
+// pharn-contracts/, pharn-core/, and `.dev/floor/` minus test FILES and its
+// `test-fixtures/` subtree. `pharn-dev-*` commands, `.dev/features/`,
 // `.dev/memory-bank/`, and `*.test.*` are NEVER in the copy set.
 //
 // One axis (P3): the capability copy routine.
@@ -53,6 +57,23 @@ export interface InstallCapabilitiesResult {
 }
 
 const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
+
+// Is this absolute source path the floor's test-fixtures dir, or inside it?
+//
+// ANCHORED at the floor root, deliberately. cpSync hands the filter an ABSOLUTE
+// path and calls it for the source ROOT too, so a bare segment test on the
+// absolute path would also match an ANCESTOR directory that happens to be named
+// `test-fixtures` — returning false for the root and copying NOTHING, silently
+// shipping no floor at all. Anchoring also makes this the same test, on the same
+// path shape, as the manifest mirror's: both compare a floor-relative posix
+// string. `relative(floorFrom, floorFrom)` is '', so the root is always kept.
+const inFloorFixtures = (floorFrom: string, src: string): boolean => {
+  const rel = toPosix(relative(floorFrom, src));
+  return (
+    rel === FLOOR_TEST_FIXTURES_DIR ||
+    rel.startsWith(`${FLOOR_TEST_FIXTURES_DIR}/`)
+  );
+};
 
 // Trust (P2): the fetched repo is untrusted, and a recursive cpSync copies
 // symlinks VERBATIM by default — so a malicious clone could plant a symlink
@@ -231,13 +252,14 @@ export function installCapabilities(
     });
   }
 
-  // --- floor checkers (whole dir minus test files; mirrored at layout path) --
+  // --- floor checkers (whole dir minus test files + test-fixtures/) ----------
   const floorFrom = safeJoin(repoDir, paths.floor);
   if (existsSync(floorFrom) && !isSymlink(floorFrom)) {
     cpSync(floorFrom, safeJoin(projectRoot, paths.floor), {
       recursive: true,
       force: true,
-      filter: (src) => !isTestFile(src) && noSymlinks(src),
+      filter: (src) =>
+        !isTestFile(src) && !inFloorFixtures(floorFrom, src) && noSymlinks(src),
     });
   }
 

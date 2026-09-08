@@ -12,7 +12,7 @@
 
 ## Discovery (live state, read this run — P6)
 
-Verified in `/Users/pgalarowicz/Projects/pharn-cli` (clean tree, HEAD `64e5d28`, floor GREEN,
+Verified in this repo (clean tree, HEAD `64e5d28`, floor GREEN,
 `package.json` version `0.4.0`):
 
 - `src/lib/capability-index.ts:74-103` is ONE loop with **six** reachable hard-fail sites, every one
@@ -190,7 +190,7 @@ originating finding.
 - A third subtree/role or `pharn/pharn-core` in the index (FABLE §3.1 — already shipped as a fixed
   surface, PR #119).
 - `fetchRemoteSkillsVersion`'s network guards and degit pinning (FABLE §4.1/§4.10).
-- Any edit to `/Users/pgalarowicz/Projects/pharn-oss`, its CI, or its floor enums — the two upstream
+- Any edit to a local `pharn-dev/pharn-oss` checkout, its CI, or its floor enums — the two upstream
   steps (ship a root `MIN_CLI`; gate pharn-oss merges on the released parser) are recorded in the PR
   description only.
 - Tombstones / preventing resurrection.
