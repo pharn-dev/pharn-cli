@@ -76,6 +76,21 @@ Exits `0` by default, even when drift or an available update is found (it is a r
 a path is unreadable. Pass `--strict` to exit `1` whenever anything is outdated, differing, missing, or
 unreadable — useful as a CI gate.
 
+`--strict` governs **findings**, not failures. `status` still exits `1` without it when it cannot
+produce a report at all: no `pharn.config.json` (or a pre-archetype one), a clone it cannot fetch, or
+a **fetched name pharn refuses** — a product `pharn-*.md` command or `.cjs` hook basename that fails
+the copy allowlist (lowercase words joined by single hyphens, one of `.md`/`.cjs`/`.mjs`/`.json`, no
+control characters), or any path that would escape your project root. That is a fetch-boundary
+refusal, not drift in your project: `pharn init` and `pharn update` refuse the same clone, so there is
+nothing for `status` to report against.
+
+A **capability directory** whose name fails that allowlist is different — it is not fatal. `status`
+warns that the capability "could not be read and was SKIPPED", then reports on the rest: the same
+forward-compatibility posture it takes for a capability whose `role` or `applies` it does not
+recognise.
+
+Nothing is written on any of these paths — `status` still never writes, deletes, or overwrites.
+
 One case is worth knowing before you wire `--strict` into CI: when a new `pharn` release begins
 installing a surface earlier releases did not, an existing install is genuinely missing those files and
 `--strict` goes red — but a plain `pharn update` reports "Already up to date" if your `skillsVersion`
