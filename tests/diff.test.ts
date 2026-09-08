@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -308,6 +309,31 @@ describe('diffInstalledCapabilities', () => {
       expect(r.unreadable[0]!.reason).toMatch(/symlink/);
       expect(r.missing).toEqual([]);
       expect(r.okCount).toBe(REST);
+    });
+
+    it('a file under a symlinked PARENT → unreadable, never counted ok', () => {
+      // The read-side twin of tests/apply-update.test.ts's parent case, and the
+      // one that made diff.ts's "the read and the write can never disagree"
+      // false: status hashed THROUGH the link, found the upstream bytes, and
+      // counted the file ok — blessing a directory that lives outside the
+      // install and can be re-pointed tomorrow. `update` meanwhile planned a
+      // write and aborted mid-run on the write-side walk.
+      const { repo, proj } = fixture();
+      const dir = join(proj, 'pharn-pipeline/grillers/a11y');
+      renameSync(dir, join(proj, 'a11y-moved'));
+      symlinkSync(join(proj, 'a11y-moved'), dir);
+
+      const r = run(repo, proj);
+
+      expect(r.unreadable.map((u) => u.rel)).toEqual([
+        'pharn-pipeline/grillers/a11y/a11y.md',
+      ]);
+      expect(r.unreadable[0]!.reason).toMatch(/symlink/);
+      // okCount is asserted, not just membership: counting it would leave every
+      // other assertion here satisfied.
+      expect(r.okCount).toBe(REST); // NOT REST + 1
+      expect(r.modified).toEqual([]);
+      expect(r.missing).toEqual([]);
     });
 
     it('a path whose PARENT is a regular file (ENOTDIR) → unreadable, not `missing`', () => {

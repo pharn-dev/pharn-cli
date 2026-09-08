@@ -1,7 +1,16 @@
 {
   "scope": [
-    ".dev/features/unreadable-skips-force-advice/SHIP.md"
+    "tests/apply-update.test.ts",
+    "tests/symlink-guard.test.ts",
+    "tests/diff.test.ts",
+    "tests/update.test.ts",
+    "src/lib/apply-update.ts",
+    "src/lib/symlink-guard.ts",
+    "src/lib/diff.ts",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "CHANGELOG.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T12:00:23.326Z"
+  "set_by": ".dev/features/symlinked-parent-unreadable/PLAN.md",
+  "set_at": "2026-09-08T11:44:26.466Z"
 }

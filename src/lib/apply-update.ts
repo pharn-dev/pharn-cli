@@ -44,20 +44,32 @@ export class ApplyError extends Error {
  */
 export function readDiskState(projectRoot: string, rel: string): DiskState {
   const dest = safeJoin(projectRoot, rel);
-  // `throwIfNoEntry: false` suppresses ENOENT ONLY — a path whose PARENT is a
-  // regular file raises ENOTDIR, which would crash the whole run instead of
-  // producing the named skip this function promises. Catching keeps the terminal
-  // deterministic (P5): unreadable, reported, never silently overwritten.
+  // ONE try over both physical reads, because they land in the same terminal.
+  //
+  // The walk is the shared PHYSICAL gate applyWrites writes against
+  // (lib/symlink-guard.ts), and running it HERE is what makes the read side and
+  // the write side agree: `lstat` refuses to dereference only the FINAL
+  // component — it happily resolves every ancestor — so checking the leaf alone
+  // hashed straight through a symlinked PARENT and answered `file` (or
+  // `absent`) for a path pointing outside the install. It checks the leaf too,
+  // which is why no separate leaf-symlink branch remains below.
+  //
+  // Either call can throw: `throwIfNoEntry: false` suppresses ENOENT ONLY, so a
+  // path whose PARENT is a regular file raises ENOTDIR, which would crash the
+  // whole run instead of producing the named skip this function promises.
+  // Catching keeps the terminal deterministic (P5): unreadable, reported, never
+  // silently overwritten.
   let stat;
   try {
+    const link = findSymlinkComponent(projectRoot, rel);
+    if (link !== null) {
+      return { kind: 'unreadable', reason: `${link} is a symlink` };
+    }
     stat = lstatSync(dest, { throwIfNoEntry: false });
   } catch {
     return { kind: 'unreadable', reason: 'the path could not be inspected' };
   }
   if (!stat) return { kind: 'absent' };
-  if (stat.isSymbolicLink()) {
-    return { kind: 'unreadable', reason: 'the path is a symlink' };
-  }
   if (!stat.isFile()) {
     return { kind: 'unreadable', reason: 'the path is not a regular file' };
   }
@@ -96,6 +108,11 @@ export function applyWrites(params: {
       // below projectRoot — the shared physical gate (lib/symlink-guard.ts),
       // which backup.ts uses on the read side. Inside the try, so the refusal is
       // wrapped into an ApplyError carrying what was already written.
+      //
+      // readDiskState now runs the same walk, so a planned write should never
+      // reach a symlinked path at all. This stays: the two walks happen at
+      // different instants (TOCTOU), and this one is the SECURITY backstop —
+      // the classifier's copy is defense in depth, not a replacement.
       const link = findSymlinkComponent(projectRoot, rel);
       if (link !== null) {
         throw new ManifestValidationError(

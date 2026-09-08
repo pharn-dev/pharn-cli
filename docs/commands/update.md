@@ -129,8 +129,10 @@ records for the files that **differ**, which is exactly the set an upgrade needs
 skipped until you `--force` them or restore them yourself.
 
 There is a seventh outcome the table cannot cause: a path that exists but is **not a readable regular
-file** (a directory where a file belongs, an unreadable file, a symlink) is reported as `unreadable`
-and skipped — including under `--force`.
+file** (a directory where a file belongs, an unreadable file, a symlink — at the path itself or at any
+parent directory below your project root) is reported as `unreadable` and skipped — including under
+`--force`. The reason names the offending component, so a `.claude/hooks` symlinked into a dotfiles
+repo is reported as that directory, not as its files.
 
 ### The three skip labels
 

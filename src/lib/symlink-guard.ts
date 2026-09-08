@@ -35,7 +35,14 @@ import { safeJoin, toPosix } from './validate.js';
  *
  * Returns the offending accumulated POSIX path, which is what each caller's
  * message or skip decision names. Callers own the failure shape — this returns a
- * value and never throws (beyond `safeJoin`'s own escape refusal).
+ * value rather than throwing a typed refusal of its own.
+ *
+ * It is NOT total, and the exception matters to every caller: `throwIfNoEntry:
+ * false` suppresses ENOENT ONLY, so a component below a REGULAR FILE raises
+ * ENOTDIR straight out of the walk (as does `safeJoin`'s escape refusal). Each
+ * caller guards it — `readDiskState` wraps the call and returns its `unreadable`
+ * terminal, `applyWrites` and `backup.ts` are already inside a try that becomes
+ * their own error. Pinned by tests/symlink-guard.test.ts.
  */
 export function findSymlinkComponent(base: string, rel: string): string | null {
   let current = '';

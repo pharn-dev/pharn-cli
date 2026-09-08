@@ -70,6 +70,66 @@ describe('readDiskState — the disk side of the decision table', () => {
       kind: 'unreadable',
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // The PARENT twins of the three leaf cases above. `lstat` refuses to
+  // dereference only the FINAL component — every ancestor is resolved — so a
+  // link one level up used to be read straight through, and the classifier
+  // answered `file` (or `absent`) for a path that lives outside the install.
+  // ---------------------------------------------------------------------------
+
+  it('a file under a symlinked PARENT → unreadable, even when the bytes match', () => {
+    // The sharpest arm: reading through the link returns exactly the bytes an
+    // update would have written, so `{kind:'file'}` here would classify the path
+    // ok and silently bless a file the install does not own.
+    const proj = tmp.path();
+    write(join(proj, 'elsewhere/a11y.md'), 'identical');
+    mkdirSync(join(proj, 'grillers'), { recursive: true });
+    symlinkSync(join(proj, 'elsewhere'), join(proj, 'grillers/a11y'));
+
+    const state = readDiskState(proj, 'grillers/a11y/a11y.md');
+
+    expect(state).toMatchObject({
+      kind: 'unreadable',
+      // The reason names the offending COMPONENT, not the leaf.
+      reason: expect.stringContaining('grillers/a11y'),
+    });
+    expect(state).not.toMatchObject({ kind: 'file' });
+  });
+
+  it('a file under a DANGLING parent symlink → unreadable, not absent', () => {
+    // `absent` would be row 1 = restore it, which writes THROUGH the link the
+    // moment its target appears.
+    const proj = tmp.path();
+    mkdirSync(join(proj, 'grillers'), { recursive: true });
+    symlinkSync(join(proj, 'ghost-dir'), join(proj, 'grillers/a11y'));
+
+    expect(readDiskState(proj, 'grillers/a11y/a11y.md')).toMatchObject({
+      kind: 'unreadable',
+    });
+  });
+
+  it('reports the walk’s FIRST offender, not the component nearest the file', () => {
+    // What this pins beyond tests/symlink-guard.test.ts's own ordering case: the
+    // reason readDiskState returns is the walk's answer, not one re-derived here.
+    const proj = tmp.path();
+    write(join(proj, 'target/inner-target/c.md'), 'x');
+    symlinkSync(
+      join(proj, 'target/inner-target'),
+      join(proj, 'target/inner-link'),
+    );
+    symlinkSync(join(proj, 'target'), join(proj, 'outer'));
+
+    const state = readDiskState(proj, 'outer/inner-link/c.md');
+
+    expect(state).toMatchObject({
+      kind: 'unreadable',
+      reason: expect.stringContaining('outer'),
+    });
+    expect(state).not.toMatchObject({
+      reason: expect.stringContaining('inner-link'),
+    });
+  });
 });
 
 describe('applyWrites', () => {
