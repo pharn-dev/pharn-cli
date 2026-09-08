@@ -138,6 +138,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`SKILLS_VERSION`'s 8s timeout and 256KB body cap now actually cover the body.** Both guards
+  stopped at the header exchange. `fetch()` resolves as soon as headers arrive, so the timer was
+  cleared before a single byte of body was read — a server that dribbles the response could hang
+  `pharn update` and `pharn status --no-drift` for undici's 300s inter-chunk timeout with no pharn
+  timer armed at all. The cap was worse than absent: it trusted the remote's own `content-length`
+  (a chunked response omits it, and `Number(null)` is `0`, which passed the compare) and then
+  re-checked the fully-buffered body with `String.length`, counting UTF-16 code units — so a body of
+  3-byte characters cleared it at roughly three times its size. The fetch and the read now share one
+  `try` whose `finally` clears the timer only after the read settles, and the body streams under a
+  running **byte** counter that stops and cancels the read the moment the total exceeds 256 KB.
+  `redirect: 'error'`, the error-message shapes, and the `VERSION_RE` validation of the result are
+  unchanged, and every failure still throws — the consumers print it and exit 1. The
+  `content-length` fast-fail is kept, now labeled for what it is: an advisory courtesy over an
+  attacker-controlled header, backstopped by the counter. Both cap branches and the timer's scope
+  are pinned by tests; before this the invariant CLAUDE.md, `SECURITY.md`, and `THREAT-MODEL.md` all
+  named was protected by nothing (the coverage thresholds are global, so deleting the cap outright
+  would have left CI green).
+
 - **`pharn update` now warns on both layout-migration directions, not just flat→`pharn/`.** The outcome
   field recording an abandoned layout has always been direction-agnostic, but the report only tested it
   for `flat` — so a project recorded at the `pharn/` layout meeting a flat clone was migrated in

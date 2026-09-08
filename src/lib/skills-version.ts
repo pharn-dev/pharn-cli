@@ -151,29 +151,98 @@ function unusableMinCli(err: unknown): string {
  * lightweight currency check `status --no-drift` / `update` uses. Applies the
  * three network guards (redirect:'error', an 8s timeout, a 256KB body cap) and
  * validates the result (P2).
+ *
+ * The two guards that CAN cover the body now do: the timer is cleared only after
+ * the read settles, and the cap is counted in wire bytes while the body streams.
+ * (`redirect: 'error'` is a header-phase guard by nature — it is unchanged, and
+ * it was never the one that stopped short.) Every failure THROWS — no default,
+ * no null — because both consumers print the message and exit(1)
+ * (`commands/update.ts`, `commands/status.ts`).
  */
 export async function fetchRemoteSkillsVersion(): Promise<string> {
   const url = `${RAW}/${REPO}/${REPO_BRANCH}/${SKILLS_VERSION_FILE}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  let res: Response;
+  // ONE try around the fetch AND the body read — the timer shape `fetchCommitSha`
+  // already uses (`lib/repo.ts`). `fetch()` resolves as soon as HEADERS arrive, so
+  // a `finally` that closes before the body is consumed disarms the abort exactly
+  // where it is needed: a server that dribbles bytes then runs until undici's
+  // 300s inter-chunk bodyTimeout with no pharn timer armed at all.
+  //
+  // Only the SHAPE is mirrored. `fetchCommitSha` swallows every failure to `null`
+  // (best-effort provenance, LIMITS.md §1b/§3b); this function must keep throwing.
   try {
-    res = await fetch(url, { redirect: 'error', signal: controller.signal });
+    const res = await fetch(url, {
+      redirect: 'error',
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(
+        `SKILLS_VERSION fetch failed (${res.status}) from ${url}`,
+      );
+    }
+    // ADVISORY (P0), and backstopped below — never the guard itself.
+    // `content-length` is the remote's own claim: a chunked response omits it
+    // entirely (`Number(null)` is `0`, which sails through this compare), and a
+    // hostile server is free to declare a small lie. It buys exactly one thing —
+    // an HONESTLY declared oversize is refused before a single byte is read.
+    const declared = Number(res.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      throw new Error(
+        `SKILLS_VERSION too large (${declared} bytes) from ${url}`,
+      );
+    }
+    const text = await readCappedBody(res, url);
+    return assertSafeString(text.trim(), SKILLS_VERSION_FILE, VERSION_RE);
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) {
-    throw new Error(`SKILLS_VERSION fetch failed (${res.status}) from ${url}`);
+}
+
+/**
+ * Read a response body under a hard byte cap, counted on the wire as it streams.
+ *
+ * Not `res.text()` + a length check: that buffers the WHOLE body first (so the
+ * cap arrives after the damage) and `String.length` counts UTF-16 code units,
+ * which a body of 3-byte characters clears at roughly three times the cap.
+ *
+ * What the cap guarantees, stated exactly: the read STOPS the first time the
+ * running total exceeds MAX_BODY_BYTES. The compare necessarily runs after a
+ * chunk has been handed to us, so at most one chunk beyond the cap is ever held,
+ * and that chunk's size is the runtime's (undici sizes them from a socket read),
+ * not pharn's. It bounds accumulation across chunks — not peak allocation.
+ */
+async function readCappedBody(res: Response, url: string): Promise<string> {
+  // A bodyless response (a 204, or `new Response(null)`) reads as empty text and
+  // then fails VERSION_RE downstream — the same outcome `res.text()` produced.
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  // FABLE 4.6: the wrap must cover this read, not just the fetch call. The 8s
+  // abort used to surface out of `await fetch(...)`; it now fires HERE instead.
+  //
+  // The reader is cancelled on the cap refusal only. An abort or a transport
+  // error mid-body leaves it un-cancelled, which is benign ONLY because both
+  // callers exit(1) on the throw — a caller property, not a local one. A future
+  // non-exiting caller needs a cancel on those paths too.
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      // Release the socket rather than draining a body already refused. A cancel
+      // failure must never mask the refusal, hence the ignore.
+      await reader.cancel().catch(() => undefined);
+      throw new Error(`SKILLS_VERSION too large (${total} bytes) from ${url}`);
+    }
+    chunks.push(value);
   }
-  const declared = Number(res.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-    throw new Error(`SKILLS_VERSION too large (${declared} bytes) from ${url}`);
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
   }
-  const text = await res.text();
-  if (text.length > MAX_BODY_BYTES) {
-    throw new Error(
-      `SKILLS_VERSION too large (${text.length} bytes) from ${url}`,
-    );
-  }
-  return assertSafeString(text.trim(), SKILLS_VERSION_FILE, VERSION_RE);
+  return new TextDecoder().decode(merged);
 }

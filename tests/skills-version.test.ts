@@ -9,13 +9,19 @@ import {
 } from '../src/lib/skills-version.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 
+// A REAL `Response`, not an object literal. `fetchRemoteSkillsVersion` streams
+// `res.body` chunk by chunk, so a fake without a genuine `ReadableStream` cannot
+// exercise the implementation at all — and one that reports a truthful, tiny
+// `content-length` (the old helper did) can never reach either cap branch.
+// `content-length` is set from the payload's BYTE length, which is what a real
+// server sends and what the advisory fast-fail reads.
 function fakeResponse(body: string, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
+  return new Response(body, {
     status,
-    headers: { get: () => String(body.length) },
-    text: async () => body,
-  } as unknown as Response;
+    headers: {
+      'content-length': String(new TextEncoder().encode(body).byteLength),
+    },
+  });
 }
 
 describe('readSkillsVersion', () => {
@@ -136,5 +142,130 @@ describe('fetchRemoteSkillsVersion', () => {
     await expect(fetchRemoteSkillsVersion()).rejects.toThrow(
       ManifestValidationError,
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // The 256KB body cap. Both branches were untestable before the streaming
+  // rewrite (the old helper always declared a truthful, tiny content-length),
+  // and the coverage thresholds in vitest.config.ts are GLOBAL — so deleting
+  // the cap outright would not have turned CI red. These two cases are what
+  // make it un-deletable.
+  // -------------------------------------------------------------------------
+
+  it('rejects an honestly-declared oversize WITHOUT reading the body', async () => {
+    // The body is already errored, so touching it surfaces THIS message instead
+    // of the cap error. That makes the `/too large/` assertion below its own
+    // proof that the body was never read — no spy, no flag. (Both obvious
+    // alternatives fail silently: `Response.prototype.body` is a prototype
+    // getter, and a ReadableStream's `start` runs at construction, not at read.)
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.error(new Error('body must not be read'));
+      },
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(body, {
+        headers: { 'content-length': String(300 * 1024) },
+      }),
+    );
+    await expect(fetchRemoteSkillsVersion()).rejects.toThrow(/too large/);
+  });
+
+  it('rejects an oversized chunked body by BYTE count, with no content-length', async () => {
+    // Multi-byte is load-bearing, not stylistic. An ASCII body over the cap was
+    // already rejected before the fix by the post-read `text.length` check, so
+    // it would pin nothing. This payload is 100,000 UTF-16 code units but
+    // 300,000 bytes: pre-fix it slipped past BOTH caps (a constructed stream
+    // sends no content-length, and `Number(null) === 0` passes the fast-fail)
+    // and died downstream in assertSafeString as /invalid format/ — a
+    // rejection, but the wrong one, after the whole body was buffered.
+    const payload = new TextEncoder().encode('\u4e00'.repeat(100_000));
+    expect(payload.byteLength).toBeGreaterThan(256 * 1024);
+    expect('\u4e00'.repeat(100_000).length).toBeLessThan(256 * 1024);
+    const res = new Response(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(payload);
+          c.close();
+        },
+      }),
+    );
+    expect(res.headers.get('content-length')).toBeNull();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+    await expect(fetchRemoteSkillsVersion()).rejects.toThrow(/too large/);
+  });
+
+  it('reassembles a body that arrives in several chunks', async () => {
+    // The success path above sends one chunk, so nothing else exercises the
+    // offset accumulation in the merge loop — an off-by-one there would corrupt
+    // the version silently rather than fail loudly. Decoding once over the
+    // merged bytes (rather than per chunk) is also what makes a multi-byte
+    // character split across a chunk boundary safe by construction.
+    const encoder = new TextEncoder();
+    const res = new Response(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          for (const part of ['1.', '2', '.3\n'])
+            c.enqueue(encoder.encode(part));
+          c.close();
+        },
+      }),
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+    await expect(fetchRemoteSkillsVersion()).resolves.toBe('1.2.3');
+  });
+
+  it('treats a bodyless response as empty, and rejects it as an invalid version', async () => {
+    // `new Response(null)` has a null `body`, which the streaming reader must
+    // handle rather than dereference. The outcome is the one `res.text()` gave:
+    // empty text, refused by VERSION_RE — never a silent "no version".
+    const res = new Response(null, { status: 204 });
+    expect(res.body).toBeNull();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(res);
+    await expect(fetchRemoteSkillsVersion()).rejects.toThrow(
+      ManifestValidationError,
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // The 8s timeout. What this pins is pharn's half: the abort timer is still
+  // ARMED while the body is being read. Move `clearTimeout` back in front of
+  // the read and this case stops rejecting and hangs to vitest's own timeout.
+  //
+  // The half it does NOT pin, stated rather than implied: that undici wires the
+  // request signal into a real response body stream. The mock supplies that
+  // wiring here; asserting it for real would be asserting Node's behaviour, not
+  // pharn's. A hand-constructed ReadableStream is connected to no
+  // AbortController, so a fake body that merely never closes leaves
+  // `reader.read()` pending forever and proves nothing.
+  // -------------------------------------------------------------------------
+
+  it('keeps the abort timer armed through the BODY read, not just the headers', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(
+        async (_url, opts) =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(c) {
+                opts!.signal!.addEventListener('abort', () =>
+                  c.error(
+                    new DOMException(
+                      'This operation was aborted',
+                      'AbortError',
+                    ),
+                  ),
+                );
+              },
+            }),
+          ),
+      );
+      const pending = fetchRemoteSkillsVersion();
+      const rejects = expect(pending).rejects.toThrow(/abort/i);
+      await vi.advanceTimersByTimeAsync(8000);
+      await rejects;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

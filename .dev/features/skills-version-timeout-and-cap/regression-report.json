@@ -1,0 +1,21 @@
+{
+  "base": "2db65631d1243c96b75e19281b6ad19ea1d81722",
+  "inside": [
+    "CHANGELOG.md",
+    "src/lib/skills-version.ts",
+    "tests/skills-version.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
