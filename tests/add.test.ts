@@ -175,6 +175,102 @@ describe('runAdd (archetype)', () => {
     return cleanup;
   }
 
+  // ---------------------------------------------------------------------------
+  // The unpinned control flow. `add.ts` measured the weakest branch coverage of
+  // any command file, and the gaps were not obscure — they were the ambiguity
+  // hard-fail CLAUDE.md documents, the cancel exit code, and both clone
+  // failures. Each is a path a user reaches, and none of them had a test.
+  // ---------------------------------------------------------------------------
+
+  /** An index where one name exists in BOTH roles — the ambiguity fixture. */
+  const AMBIGUOUS = {
+    unknown: [],
+    capabilities: [
+      { name: 'dup', role: 'griller', applies: 'universal' },
+      { name: 'dup', role: 'lens', applies: 'universal' },
+    ],
+  };
+
+  it('hard-fails on an ambiguous bare name, listing both role:name addresses', async () => {
+    // `matches[0]!` sits on the line right after the length check, so a
+    // regression that dropped or inverted it would silently install whichever
+    // capability the index happened to list first. `remove`'s twin branch is
+    // pinned; this one was not.
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    const cleanup = mockClone();
+    parseCapabilityIndex.mockReturnValue(AMBIGUOUS as never);
+
+    await expect(runAdd('dup')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(lastError()).toMatch(/griller:dup/);
+    expect(lastError()).toMatch(/lens:dup/);
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    // The refusal still happens after the finally that disposes of the clone.
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('and the role:name form resolves that ambiguity and installs', async () => {
+    // The positive companion is what makes this a disambiguation CONTRACT
+    // rather than "an error exists": the error must be escapable by the exact
+    // address the error names.
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    parseCapabilityIndex.mockReturnValue(AMBIGUOUS as never);
+
+    await runAdd('lens:dup');
+
+    expect(installCapabilityDirs).toHaveBeenCalledWith('/repo', '/proj', [
+      { name: 'dup', role: 'lens' },
+    ]);
+    const [, written] = writePharnConfig.mock.calls[0]!;
+    expect((written as PharnConfig).capabilities).toContainEqual({
+      name: 'dup',
+      role: 'lens',
+      source: 'manual',
+    });
+  });
+
+  it('the picker cancel exits 0 — a user cancel is not a failure', async () => {
+    // `add`'s cancel exit-code contract was entirely unpinned: a cancel that
+    // leaked a non-zero code, or fell through to "Nothing selected", would have
+    // gone unnoticed.
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    setTTY(true, true);
+    const cleanup = mockClone();
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue(CANCEL as never);
+
+    await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(0));
+
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('exits 1 when the clone fails on the NAMED path, before any parse', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    fetchRepo.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(parseCapabilityIndex).not.toHaveBeenCalled();
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('exits 1 when the clone fails on the PICKER path, without prompting', async () => {
+    // The user is never asked to choose from a menu the command cannot serve.
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    setTTY(true, true);
+    fetchRepo.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(prompts.groupMultiselect).not.toHaveBeenCalled();
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
   it('aborts before any fetch when the config is not an archetype install', async () => {
     // loadArchetypeConfigOrExit prints LEGACY_CONFIG_MESSAGE + exit(1) for a
     // legacy config (asserted in pharn-config.test.ts); here: no network.
