@@ -3,6 +3,7 @@ import { safeJoin } from './validate.js';
 import {
   CONTRACTS_DIR,
   CORE_DIR,
+  FLAT_LICENSE_DEST,
   FLOOR_DIR,
   GRILLERS_DIR,
   LENSES_DIR,
@@ -11,8 +12,10 @@ import {
   PHARN_FLOOR_DIR,
   PHARN_GRILLERS_DIR,
   PHARN_LENSES_DIR,
+  PHARN_LICENSE_DEST,
   PHARN_TRUSTED_DOCS,
   TRUSTED_DOCS,
+  UPSTREAM_LICENSE,
 } from './constants.js';
 import type { Layout, PharnConfig } from '../types.js';
 
@@ -22,8 +25,10 @@ import type { Layout, PharnConfig } from '../types.js';
 // single-install layout (everything under pharn/, pharn-oss PR #86). The CLI
 // MIRRORS whichever the fetched clone has — it never rewrites copied file
 // contents — so a layout's source-relative-to-clone path IS its
-// dest-relative-to-project path. Only the `.claude/*` command/hook/settings
-// surfaces are layout-invariant (identical in both) and live in constants.ts.
+// dest-relative-to-project path, with ONE deliberate exception: `license`, whose
+// dest differs from its source (see the field). Only the `.claude/*`
+// command/hook/settings surfaces are layout-invariant (identical in both) and
+// live in constants.ts.
 //
 // P5 (determinism): every layout decision here is a membership test whose else
 // branch is the safe legacy default `flat` — never a guess, never an LLM.
@@ -45,6 +50,18 @@ export interface LayoutPaths {
   core: string;
   // Deterministic floor checkers dir (test files excluded on copy).
   floor: string;
+  // Upstream's Apache-2.0 LICENSE, the ONE deliberate source≠dest mapping in the
+  // CLI. Apache-2.0 §4(a) requires giving recipients a copy of the license when
+  // redistributing, and a user who commits and publishes a pharn-initialized
+  // repo is redistributing ~450 Apache-2.0 files.
+  //
+  // Why it cannot be an ordinary identity-mapped doc: those are copied
+  // `{ force: true }` at the SAME relative path, so a root `LICENSE` entry would
+  // overwrite the USER's own root LICENSE on every flat install — silent,
+  // unprompted data loss in a file people care about. The destination is
+  // therefore unmistakably pharn's: `pharn/LICENSE` beside the other pharn docs,
+  // or `PHARN-LICENSE` at the root in the legacy flat layout.
+  license: { from: string; to: string };
   // Trusted spec docs copied verbatim (write-protected post-install by the
   // installed protect-trusted-paths hook). The SAME four documents in both
   // layouts — only their prefix differs. Every consumer existence-guards each
@@ -62,7 +79,8 @@ export function detectLayout(rootDir: string): Layout {
 }
 
 // The resolved path set for a layout — the same relative paths are used as the
-// clone source AND the project destination (the mirror). Pure; no I/O.
+// clone source AND the project destination (the mirror), EXCEPT `license`, which
+// carries its source and dest separately. Pure; no I/O.
 export function layoutPaths(layout: Layout): LayoutPaths {
   if (layout === 'pharn') {
     return {
@@ -73,6 +91,7 @@ export function layoutPaths(layout: Layout): LayoutPaths {
       core: PHARN_CORE_DIR,
       floor: PHARN_FLOOR_DIR,
       docs: PHARN_TRUSTED_DOCS,
+      license: { from: UPSTREAM_LICENSE, to: PHARN_LICENSE_DEST },
     };
   }
   return {
@@ -83,6 +102,7 @@ export function layoutPaths(layout: Layout): LayoutPaths {
     core: CORE_DIR,
     floor: FLOOR_DIR,
     docs: TRUSTED_DOCS,
+    license: { from: UPSTREAM_LICENSE, to: FLAT_LICENSE_DEST },
   };
 }
 

@@ -164,6 +164,17 @@ export function collectExpectedInstallPaths(params: {
     if (findSymlinkComponent(repoDir, doc) !== null) continue;
     if (lstatSync(from, { throwIfNoEntry: false })?.isFile()) add(doc, from);
   }
+  // Upstream's LICENSE at a MAPPED destination — the one entry whose dest differs
+  // from its source, which is exactly what this map's dest→source shape exists
+  // for. A symlinked source must be absent here as well as unwritten by the
+  // installer: a manifest entry the installer never writes is phantom drift, and
+  // since this map drives `update`'s WRITES it would also copy one in.
+  if (findSymlinkComponent(repoDir, paths.license.from) === null) {
+    const licenseFrom = safeJoin(repoDir, paths.license.from);
+    if (lstatSync(licenseFrom, { throwIfNoEntry: false })?.isFile()) {
+      add(paths.license.to, licenseFrom);
+    }
+  }
   // features/README.md — the product-loop boundary contract the installed product
   // commands cite by name. Root in BOTH layouts, like .claude/*. Manifest posture
   // (lstat + component walk), not the writer's leaf-only isSymlink: a symlink

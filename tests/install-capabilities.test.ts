@@ -60,6 +60,7 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, 'THREAT-MODEL.md'), 'T');
   write(join(repo, 'LIMITS.md'), 'L');
   write(join(repo, 'features/README.md'), 'FEATURES');
+  write(join(repo, 'LICENSE'), 'APACHE-2.0 UPSTREAM');
   // contracts
   write(join(repo, 'pharn-contracts/finding-shape.md'), 'fs');
   // floor (+ tests, dev-only) + dev-only trees
@@ -462,6 +463,71 @@ describe('installCapabilities', () => {
     expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
   });
 
+  // Apache-2.0 §4(a): a redistributor must give recipients a copy of the license,
+  // and a published pharn-initialized repo redistributes ~450 Apache-2.0 files.
+  it('installs upstream LICENSE as PHARN-LICENSE (flat)', () => {
+    const { proj } = run();
+    expect(readFileSync(join(proj, 'PHARN-LICENSE'), 'utf8')).toBe(
+      'APACHE-2.0 UPSTREAM',
+    );
+  });
+
+  // THE DATA-LOSS REGRESSION. An identity-mapped `LICENSE` entry would cpSync
+  // upstream's text over the user's own root LICENSE with `{ force: true }` and
+  // no prompt. The two files carry DIFFERENT bytes on purpose — with identical
+  // content this assertion would pass no matter which file won.
+  it("never touches the project's own root LICENSE", () => {
+    const repo = join(tmp.path(), 'lic-repo');
+    const proj = join(tmp.path(), 'lic-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    write(join(proj, 'LICENSE'), 'THE USER OWN LICENSE — DO NOT TOUCH');
+
+    installCapabilities(repo, proj, selection());
+
+    expect(readFileSync(join(proj, 'LICENSE'), 'utf8')).toBe(
+      'THE USER OWN LICENSE — DO NOT TOUCH',
+    );
+    // …and upstream's landed beside it, under pharn's own name.
+    expect(readFileSync(join(proj, 'PHARN-LICENSE'), 'utf8')).toBe(
+      'APACHE-2.0 UPSTREAM',
+    );
+  });
+
+  it('does NOT copy a symlinked upstream LICENSE, and does not expect it', () => {
+    const repo = join(tmp.path(), 'liclink-repo');
+    const proj = join(tmp.path(), 'liclink-proj');
+    const outside = join(tmp.path(), 'outside-license');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    write(outside, 'NOT FROM THE CLONE');
+    rmSync(join(repo, 'LICENSE'));
+    symlinkSync(outside, join(repo, 'LICENSE'));
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(false);
+    const keys = [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }).keys(),
+    ];
+    expect(keys).not.toContain('PHARN-LICENSE');
+  });
+
+  it('installs cleanly from a clone with no LICENSE, and expects none', () => {
+    const repo = join(tmp.path(), 'nolic-repo');
+    const proj = join(tmp.path(), 'nolic-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    rmSync(join(repo, 'LICENSE'));
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(false);
+  });
+
   it('does NOT copy symlinked fixed surfaces (settings, trusted docs, contracts, floor)', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -583,6 +649,7 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     // Root in BOTH layouts, like .claude/* — upstream keeps features/ at the
     // repo root even in a pharn-layout tree.
     write(join(repo, 'features/README.md'), 'FEATURES');
+    write(join(repo, 'LICENSE'), 'APACHE-2.0 UPSTREAM');
     // The dev repo's OWN root copies. Different bytes from the pharn/ ones, so a
     // test that passes cannot be passing because the two are indistinguishable.
     write(join(repo, 'THREAT-MODEL.md'), 'T');
@@ -708,6 +775,16 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(
       readFileSync(join(proj, 'pharn/floor/my-test-fixtures.mjs'), 'utf8'),
     ).toBe('KEEP ME');
+  });
+
+  it('installs upstream LICENSE as pharn/LICENSE (pharn layout)', () => {
+    const { proj } = run();
+    expect(readFileSync(join(proj, 'pharn/LICENSE'), 'utf8')).toBe(
+      'APACHE-2.0 UPSTREAM',
+    );
+    // Never at the root, where the user's own LICENSE lives.
+    expect(existsSync(join(proj, 'LICENSE'))).toBe(false);
+    expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(false);
   });
 
   it('installs features/README.md at the project ROOT, not under pharn/', () => {

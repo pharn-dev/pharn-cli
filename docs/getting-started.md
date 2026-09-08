@@ -69,6 +69,7 @@ surfaces:
 | `pharn-contracts/`, `.dev/floor/`                                    | Inter-layer schemas + the floor checkers the commands invoke                                                                                                 |
 | `pharn/pharn-core/`                                                  | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                                              |
 | `CONSTITUTION.md`, `ARCHITECTURE.md`, `THREAT-MODEL.md`, `LIMITS.md` | The four trusted spec docs, copied verbatim — at the project root in the flat layout, or under `pharn/`. Each is copied only if the fetched version ships it |
+| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                              | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched                                         |
 | `pharn.config.json`                                                  | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                                                                     |
 | `pharn.records.json`                                                 | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites                                                                       |
 

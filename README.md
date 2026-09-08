@@ -64,15 +64,16 @@ Vibe-coding with an AI agent is fast — until the chat history scrolls away and
 
 After a summary of what was selected vs. skipped and your confirmation, the CLI copies the selected capabilities plus the fixed product surfaces into the mirrored layout and writes `pharn.config.json`:
 
-| Artifact                                                  | What lands in your project                                                           |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The selected grillers + lenses (flat layout, or the same under `pharn/`)             |
-| `.claude/commands/`                                       | The `pharn-*` product slash commands                                                 |
-| `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                 |
-| `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                         |
-| `pharn/pharn-core/`                                       | The agnostic mechanism skills the commands cite (the seam resolver + its evals)      |
-| `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                    |
-| `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and layout |
+| Artifact                                                  | What lands in your project                                                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The selected grillers + lenses (flat layout, or the same under `pharn/`)                                     |
+| `.claude/commands/`                                       | The `pharn-*` product slash commands                                                                         |
+| `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                                         |
+| `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                                                 |
+| `pharn/pharn-core/`                                       | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                              |
+| `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                                            |
+| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                   | PHARN's Apache-2.0 license, so republishing your repo carries the grant. Your own `LICENSE` is never touched |
+| `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and layout                         |
 
 An existing `.claude/settings.json` is **never** overwritten. To adjust the selection afterward, use [`pharn add`](docs/commands/add.md) / [`pharn remove`](docs/commands/remove.md).
 

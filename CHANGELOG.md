@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn init` now installs PHARN's Apache-2.0 `LICENSE`.** A `pharn`-initialized project contains
+  roughly 450 Apache-2.0 files — hooks, floor checkers, contracts, docs — and Apache-2.0 §4(a)
+  requires a redistributor to give recipients a copy of the license. Nothing in the install set
+  carried one, so a user who committed and published such a repo republished all of it with no grant
+  visible to anyone downstream. The license now lands at **`pharn/LICENSE`** (or `PHARN-LICENSE` at
+  the root in the legacy flat layout), is drift-tracked by `pharn status`, and is restored by
+  `pharn update` if deleted.
+
+  **Your own `LICENSE` is never touched.** The destination differs from the source on purpose: every
+  other copied doc uses the same path on both sides and is written with force and no prompt, so a
+  plain `LICENSE` entry would have overwritten yours silently. This is the only file in the install
+  whose destination is deliberately not its upstream path.
+
+  This does not make an initialized repo license-compliant in general — no `NOTICE` is generated and
+  no per-file attribution headers are added, because `pharn` copies file contents verbatim and never
+  rewrites them; anything inline has to come from upstream. **Existing installs do not receive it
+  immediately** either: a CLI-side change to the install set does not move upstream's
+  `SKILLS_VERSION`, so a plain `pharn update` reports "Already up to date" while `pharn status`
+  reports the file missing. Wait for the next upstream skills-version bump, or run
+  `pharn update --force` now (casualties are copied to `.pharn-backup/<timestamp>/` first).
+
 - **The floor's `test-fixtures/` are no longer installed into your project.** `pharn init` copies the
   deterministic floor checkers the product commands invoke at runtime, excluding `*.test.mjs` /
   `*.test.cjs` — but not the `test-fixtures/` subtree those tests read, so 16 files of dev test
