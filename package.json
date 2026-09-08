@@ -45,7 +45,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "check": "npm run format:check && npm run lint && npm run lint:md && npm run typecheck && npm run test",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check"
   },
