@@ -916,6 +916,46 @@ describe('runUpdate (drift-safe)', () => {
   });
 
   // -------------------------------------------------------------------------
+  // A benign upstream FILENAME must not read as a corrupt store.
+  //
+  // The record store is keyed by the install manifest, which enumerates the
+  // CLONE — capability contents are copied verbatim and their basenames are
+  // never name-validated. A `..` INSIDE a basename is not a traversal segment,
+  // but a substring ban read it as one and invalidated the WHOLE store, so every
+  // present file degraded to `unverifiable` and the version bump was withheld —
+  // for a filename `cpSync` had copied happily.
+  //
+  // The fixture file lives INSIDE the installed capability directory on purpose:
+  // that is the only thing that puts it in the manifest, so the upgrade
+  // assertion exercises the real write path rather than passing because the file
+  // was never a candidate.
+  // -------------------------------------------------------------------------
+  it('a `..`-in-basename file upgrades normally instead of invalidating the store', async () => {
+    const ODD = 'pharn-pipeline/grillers/a11y/migration..v2.md';
+    const config = await installed();
+    write(join(repo, ODD), 'odd v2');
+    write(join(proj, ODD), 'odd v1');
+    await writeRecords(proj, {
+      skillsVersion: config.skillsVersion,
+      commit: config.commit,
+      files: { ...records()!, [ODD]: sha256File(join(proj, ODD)) },
+    });
+
+    await runUpdate();
+
+    // The store read OK, so the odd-named file matched its record and upgraded
+    // like every other recorded file — and so did everything else.
+    expect(body(ODD)).toBe('odd v2');
+    expect(body(DOC)).toBe('constitution v2');
+    const skipNote = vi
+      .mocked(prompts.note)
+      .mock.calls.find((c) => c[1] === 'SKIPPED')?.[0];
+    expect(skipNote).toBeUndefined();
+    // Nothing was skipped, so the bump is not withheld for this reason.
+    expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+  });
+
+  // -------------------------------------------------------------------------
   // FORWARD COMPATIBILITY — a capability the fetch boundary could not PARSE.
   //
   // Two things must hold at once, and they pull in opposite directions:

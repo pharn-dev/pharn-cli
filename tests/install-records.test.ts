@@ -173,6 +173,91 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
     expect(readRecords(proj).kind).toBe('invalid');
   });
 
+  // -------------------------------------------------------------------------
+  // The key rule is a SEGMENT rule, not a substring ban.
+  //
+  // The writer records whatever relative paths the install manifest hands it,
+  // and those come from enumerating the untrusted clone — capability contents,
+  // contracts and floor files are copied verbatim and their basenames are never
+  // name-validated. So the reader must accept every benign name the writer can
+  // legitimately produce, or `pharn` declares its OWN store corrupt and degrades
+  // the whole update to `unverifiable` for a filename `cpSync` copied happily.
+  //
+  // What makes the loose rule sound is that a key is COMPARED, never joined (see
+  // the pin above): containment is `safeJoin`'s job, not this predicate's.
+  // -------------------------------------------------------------------------
+  it.each([
+    ['`..` inside a basename', 'pharn-review/x/migration..v2.md'],
+    ['`..` inside a directory name', 'pharn-pipeline/v1..v2/skill.md'],
+    // A backslash is a legal POSIX filename character (lib/validate.ts, toPosix):
+    // on win32 it splits into ordinary segments, on posix it stays one opaque
+    // segment. Safe either way, because nothing joins it.
+    ['a literal backslash', 'pharn-review/x/we\\ird.md'],
+    ['a leading dot', '.claude/hooks/set-writes-scope.cjs'],
+    ['a dot-suffixed directory', 'pharn-review/a11y.v2/lens.md'],
+    // A drive LETTER is only absolute when a separator follows it. `C:notes.md`
+    // is an ordinary posix filename, so rejecting it would recreate exactly the
+    // over-rejection this rule exists to remove.
+    ['a drive letter with no separator', 'C:notes.md'],
+  ])('%s is a valid key — the store reads back ok', (_label, key) => {
+    const proj = tmp.path();
+    writeStore(proj, validStore({ [key]: sha('x') }));
+    const read = readRecords(proj);
+    expect(read.kind).toBe('ok');
+    expect(read.kind === 'ok' && read.store.files[key]).toBe(sha('x'));
+  });
+
+  it.each([
+    ['a `..` segment mid-path', 'a/../b.md'],
+    ['a bare `..`', '..'],
+    ['a trailing `..` segment', 'pharn-review/..'],
+    ['a `.` segment mid-path', 'a/./b.md'],
+    ['a bare `.`', '.'],
+    ['an empty key', ''],
+    // Drive-absolute. `toPosix` maps a win32 `C:\\x` onto this same form, so one
+    // rule covers both spellings and the docs' "absolute keys are invalid" stays
+    // true on every platform rather than only for a leading `/`.
+    ['a drive-absolute key', 'C:/x'],
+  ])('%s invalidates the store', (_label, key) => {
+    const proj = tmp.path();
+    writeStore(proj, validStore({ [key]: sha('x') }));
+    const read = readRecords(proj);
+    expect(read.kind).toBe('invalid');
+    expect(read.kind === 'invalid' && read.message).toMatch(
+      /invalid file path/,
+    );
+  });
+
+  // The key is validated on a NORMALIZED copy and stored VERBATIM. `toPosix`'s
+  // separator swap is platform-conditional, but its trailing-slash strip is not
+  // — so this one fixture discriminates on every platform, including the only
+  // one CI runs. An implementation that keyed the map with the normalized string
+  // would return `a/b` here and silently stop matching the manifest lookup that
+  // is this store's only consumer (lib/update-decision.ts).
+  it('validates a normalized copy but stores the ORIGINAL key', () => {
+    const proj = tmp.path();
+    writeStore(proj, validStore({ 'a/b/': sha('x') }));
+    const read = readRecords(proj);
+    expect(read.kind).toBe('ok');
+    expect(read.kind === 'ok' && Object.keys(read.store.files)).toEqual([
+      'a/b/',
+    ]);
+  });
+
+  it('round-trips a `..`-in-basename key through writeRecords → readRecords', async () => {
+    const proj = tmp.path();
+    const key = 'pharn-review/x/migration..v2.md';
+    await writeRecords(proj, { ...STAMP, files: { [key]: sha('bytes') } });
+
+    const read = readRecords(proj);
+
+    expect(read.kind).toBe('ok');
+    // Byte-identical: what the writer emits, the reader accepts and returns.
+    expect(read.kind === 'ok' && read.store.files).toEqual({
+      [key]: sha('bytes'),
+    });
+  });
+
   it('a non-string stamp invalidates the store', () => {
     const proj = tmp.path();
     writeStore(proj, { ...validStore(), skillsVersion: 42 });

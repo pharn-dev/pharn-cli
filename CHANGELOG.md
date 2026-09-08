@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A benign upstream filename no longer makes `pharn` declare its own `pharn.records.json` corrupt.**
+  The store's reader rejected any key containing `..` as a **substring** — including inside an
+  ordinary basename such as `migration..v2.md` — or a backslash anywhere. Its writer applied no such
+  rule: it records whatever paths the install manifest enumerated out of the fetched repo, whose
+  capability contents, contracts and floor files are copied verbatim with their basenames never
+  name-validated. So `pharn` could write a store its own next read called invalid, which is
+  fail-closed but for nothing: every present file that differed from upstream degraded to
+  `unverifiable` and was skipped, the `skillsVersion`/`commit` bump was withheld, and `pharn add` /
+  `pharn remove` silently stopped maintaining the store — recoverable only with `--force` or by hand-
+  editing the file. The reader now applies a path-**segment** rule: a key is invalid when it is empty,
+  absolute, or has a segment exactly equal to `..` or `.`. Traversal and absolute keys are rejected
+  exactly as before; a name that merely contains those characters is not. The key is validated on a
+  normalized copy and stored verbatim, so it still matches the manifest lookup it exists for. No
+  filename existed upstream that triggered this, so no installed store changes meaning — the accepted
+  set only widens for names the writer could already produce.
+
 - **A file under a symlinked parent directory is now classified `unreadable` — in `pharn update`'s
   plan and in `pharn status`'s drift report alike.** `lstat` refuses to dereference only the FINAL
   path component, so the disk classifier checked the leaf and resolved every ancestor: a project whose

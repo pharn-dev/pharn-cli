@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { sha256File } from './hash.js';
-import { isPlainObject, safeJoin } from './validate.js';
+import { isPlainObject, safeJoin, toPosix } from './validate.js';
 import type { LayoutPaths } from './layout.js';
 import type { InstalledCapability } from '../types.js';
 
@@ -48,9 +48,48 @@ export const RECORDS_SCHEMA_VERSION = 1;
 // A recorded content hash: lowercase sha256 hex. Enum/regex floor (P0).
 export const SHA256_RE = /^[0-9a-f]{64}$/;
 
-// A record key is a project-root-relative posix path. Validated for shape even
-// though it is never path-joined (defense in depth, P2).
-const RECORD_KEY_RE = /^[^/\\][^\\]*$/;
+// A record key is a project-root-relative posix path, and the reader accepts it
+// on a SEGMENT rule: a key is rejected when it normalizes to nothing, when it is
+// absolute, or when any of its path segments is exactly `..` or `.`.
+//
+// That is deliberately looser than banning `..` as a SUBSTRING. `migration..v2.md`
+// is an ordinary filename, and so is one carrying a backslash on posix — and the
+// writer records whatever the install manifest enumerated out of the untrusted
+// clone, whose capability contents, contracts and floor files are copied verbatim
+// with their basenames never name-validated. A reader stricter than its own
+// writer declares pharn's OWN store corrupt for such a name and degrades the
+// whole update to `unverifiable`: fail-closed, but for nothing. Writer and reader
+// now agree BY CONSTRUCTION, since every key originates from
+// collectExpectedInstallPaths (toPosix-normalized, root-relative).
+//
+// The rule remains defense in depth (P2), never containment: a key is COMPARED,
+// never path-joined (see the header), so containment is safeJoin's job and
+// accepting an odd-but-inert name gives up nothing. The corollary is that what it
+// rejects is narrow ON PURPOSE — a posix key holding `..\..\etc\passwd` as one
+// opaque segment reads as an ordinary name here, and is inert for the same reason
+// every other key is.
+function isInvalidRecordKey(key: string): boolean {
+  // Normalize a COPY to split it; the key itself is stored verbatim, because the
+  // manifest supplies the lookups and they are literal string comparisons.
+  // toPosix converts the PLATFORM separator (lib/validate.ts), so a win32-written
+  // `a\b\c` splits into components while a posix key with a literal backslash
+  // stays one opaque segment — the same reading findSymlinkComponent relies on.
+  const normalized = toPosix(key);
+  if (normalized === '' || normalized.startsWith('/')) return true;
+  // "Absolute" has a second spelling. A win32 `C:\x` normalizes to `C:/x`, which
+  // no leading-`/` test catches — so without this the reader would accept a key
+  // the docs call invalid. The separator after the colon is required, and that is
+  // the whole point: `C:notes.md` is an ordinary posix filename, and rejecting it
+  // would recreate the over-rejection this rule exists to remove.
+  if (DRIVE_ABSOLUTE_RE.test(normalized)) return true;
+  return normalized
+    .split('/')
+    .some((segment) => segment === '..' || segment === '.');
+}
+
+// A drive letter followed by a separator — `C:/x`, and a win32 `C:\x` once
+// toPosix has run. Enum/regex floor (P0), matching SHA256_RE's style.
+const DRIVE_ABSOLUTE_RE = /^[A-Za-z]:\//;
 
 /** rel path (posix) → sha256 of the bytes pharn wrote there. */
 export type FileRecords = Record<string, string>;
@@ -129,7 +168,7 @@ export function readRecords(cwd: string): ReadRecordsResult {
 
   const files: FileRecords = {};
   for (const [key, value] of Object.entries(raw.files)) {
-    if (!RECORD_KEY_RE.test(key) || key.includes('..')) {
+    if (isInvalidRecordKey(key)) {
       return {
         kind: 'invalid',
         message: `${RECORDS_FILE} has an invalid file path key ${JSON.stringify(key)}`,
