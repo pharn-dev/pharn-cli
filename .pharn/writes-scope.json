@@ -1,20 +1,7 @@
 {
   "scope": [
-    "src/lib/install-manifest.ts",
-    "src/lib/dest-drift.ts",
-    "src/commands/add.ts",
-    "src/lib/install-records.ts",
-    "src/commands/remove.ts",
-    "src/lib/symlink-guard.ts",
-    "tests/add.test.ts",
-    "tests/dest-drift.test.ts",
-    "tests/install-manifest.test.ts",
-    "tests/install-records.test.ts",
-    "tests/remove.test.ts",
-    "docs/commands/add.md",
-    "CLAUDE.md",
-    "CHANGELOG.md"
+    ".dev/features/update-backup-dir-on-failure/SHIP.md"
   ],
-  "set_by": ".dev/features/add-dest-drift-backup/PLAN.md",
-  "set_at": "2026-09-08T12:27:05.690Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-08T13:36:09.413Z"
 }

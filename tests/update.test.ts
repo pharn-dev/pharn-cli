@@ -176,6 +176,19 @@ describe('runUpdate (drift-safe)', () => {
     existsSync(join(proj, BACKUP_DIR))
       ? readdirSync(join(proj, BACKUP_DIR))
       : [];
+  const infoLines = () =>
+    vi
+      .mocked(prompts.log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+  // Everything the run said through the three log levels. The aborted-run backup
+  // notice splits across warn (the abort line) and info (the pointer), so "did
+  // the user actually see it" cannot be answered by reading one level.
+  const printedLines = () =>
+    [prompts.log.error, prompts.log.warn, prompts.log.info]
+      .flatMap((fn) => vi.mocked(fn).mock.calls)
+      .map((c) => String(c[0]))
+      .join('\n');
 
   it('aborts before any fetch when the config is not an archetype install', async () => {
     loadArchetypeConfigOrExit.mockImplementationOnce(() => {
@@ -1125,12 +1138,23 @@ describe('runUpdate (drift-safe)', () => {
     it("prints the backup directory — the user's only pointer to their bytes", async () => {
       await installed();
       write(join(proj, DOC), 'MY LOCAL EDIT');
+
       await runUpdate({ force: true });
-      const info = vi
-        .mocked(prompts.log.info)
-        .mock.calls.map((c) => String(c[0]))
-        .join('\n');
-      expect(info).toContain(BACKUP_DIR);
+
+      const dirs = backupDirs();
+      // The DIRECTORY, not merely the constant: `.pharn-backup` alone also
+      // appears in the gitignore line, so it would pass while the run named the
+      // wrong timestamp.
+      expect(infoLines()).toContain(`${BACKUP_DIR}/${dirs[0]!}`);
+      expect(infoLines()).toContain('Backed up 1 file(s)');
+      expect(infoLines()).toContain('not gitignored');
+      // The success notice stays on STDOUT. Pinned at a real call site because
+      // the wording now travels through a helper that takes an output stream —
+      // a wiring slip sending this to stderr would pass every other assertion
+      // here, and the vi.fn() mock would swallow a missing option silently.
+      expect(vi.mocked(prompts.log.info).mock.calls.at(-1)![1]).toEqual({
+        output: process.stdout,
+      });
     });
 
     it('creates NO backup when nothing needed one', async () => {
@@ -1152,6 +1176,86 @@ describe('runUpdate (drift-safe)', () => {
       expect(backupDirs()).toHaveLength(1);
     });
 
+    // --- the pointer on the FAILURE path --------------------------------
+    //
+    // createBackup runs BEFORE the first original is touched, but its path used
+    // to travel out only inside a successful outcome — so a run that died after
+    // the backup exited 1 having moved the user's bytes somewhere it never
+    // named. Everything past createBackup is a post-backup throw site.
+
+    // Two --force casualties, and the hook's DEST made read-only so the backup
+    // still completes (0o444 is readable, so readDiskState hashes it and
+    // copyFileSync reads it) and the WRITE is what fails, mid-loop.
+    //
+    // ORDER IS LOAD-BEARING: the chmod comes after the writes above it, or the
+    // fixture's own write would fail EACCES and the test would pass for the
+    // wrong reason.
+    async function abortedForcedRun(): Promise<void> {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+      write(join(proj, HOOK), 'MY LOCAL HOOK EDIT');
+      chmodSync(join(proj, HOOK), 0o444);
+      try {
+        await expect(runUpdate({ force: true })).rejects.toMatchObject(
+          new ProcessExit(1),
+        );
+      } finally {
+        // Restored inside the helper, not in an afterEach: useTmpDir's rmSync
+        // suppresses ENOENT, not EACCES, and this must hold even if the
+        // assertion throws. (Inert for uid 0 — this suite must not run as root.)
+        chmodSync(join(proj, HOOK), 0o644);
+      }
+    }
+
+    it('names the backup directory when the apply aborts part-way', async () => {
+      await abortedForcedRun();
+
+      const dirs = backupDirs();
+      expect(dirs).toHaveLength(1);
+      // The pre-overwrite bytes really are in there, and the run named THAT
+      // directory — earlier runs may have left others beside it.
+      expect(readFileSync(join(proj, BACKUP_DIR, dirs[0]!, HOOK), 'utf8')).toBe(
+        'MY LOCAL HOOK EDIT',
+      );
+      expect(printedLines()).toContain(`${BACKUP_DIR}/${dirs[0]!}`);
+      expect(printedLines()).toContain('Backed up 2 file(s)');
+      // The abort is named too: some originals are already gone from the tree.
+      expect(printedLines()).toContain('stopped part-way');
+    });
+
+    it('sends the aborted-run notice to stderr, with the rest of the failure', async () => {
+      await abortedForcedRun();
+
+      // An operator running `pharn update --force > out.log 2> err.log` must
+      // find the pointer in the file they read after a non-zero exit.
+      expect(vi.mocked(prompts.log.info).mock.calls.at(-1)![1]).toEqual({
+        output: process.stderr,
+      });
+      expect(vi.mocked(prompts.log.warn).mock.calls.at(-1)![1]).toEqual({
+        output: process.stderr,
+      });
+      // The failure itself is still reported, and still exits 1 (above).
+      expect(printedLines()).toContain('⚠');
+    });
+
+    it('names the backup directory when the CONFIG write is what fails', async () => {
+      // Every post-backup throw site, not just applyWrites: writeRecords and
+      // writePharnConfig throw plain Errors and are equally past the point of no
+      // return. A pointer attached to ApplyError alone would miss both.
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+      rmSync(join(proj, 'pharn.config.json'), { force: true });
+      mkdirSync(join(proj, 'pharn.config.json'), { recursive: true });
+
+      await expect(runUpdate({ force: true })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      const dirs = backupDirs();
+      expect(dirs).toHaveLength(1);
+      expect(printedLines()).toContain(`${BACKUP_DIR}/${dirs[0]!}`);
+    });
+
     it('aborts without touching any original when the backup cannot be written', async () => {
       await installed();
       write(join(proj, DOC), 'MY LOCAL EDIT');
@@ -1165,6 +1269,9 @@ describe('runUpdate (drift-safe)', () => {
       expect(body(DOC)).toBe('MY LOCAL EDIT');
       expect(body(CAP_FILE)).toBe('a11y v1');
       expect(cleanup).toHaveBeenCalled();
+      // A backup that never happened is never announced: createBackup threw, so
+      // the tree is intact and there is nothing to point at.
+      expect(printedLines()).not.toContain('Backed up');
     });
   });
 
@@ -1430,6 +1537,22 @@ describe('runUpdate (drift-safe)', () => {
     // Equal here because the copy behaved — the point is that the value is
     // obtained by re-reading disk, so it cannot disagree with what landed.
     expect(records()?.[DOC]).toBe(sha256File(join(proj, DOC)));
+  });
+
+  it('prints NO backup line when the failed run created no backup', async () => {
+    // The other half of the contract: without --force nothing is backed up, so a
+    // mid-run failure has no pointer to offer and must not invent one. (The
+    // writes it did make were all to files pharn itself wrote and proved
+    // pristine — rows 1 and 3 — so no user bytes were at risk.)
+    await installed();
+    rmSync(join(proj, 'pharn.config.json'), { force: true });
+    mkdirSync(join(proj, 'pharn.config.json'), { recursive: true });
+
+    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(backupDirs()).toEqual([]);
+    expect(printedLines()).not.toContain(BACKUP_DIR);
+    expect(printedLines()).not.toContain('stopped part-way');
   });
 
   it('writes the records BEFORE the config, so a failed config write still leaves records describing disk', async () => {

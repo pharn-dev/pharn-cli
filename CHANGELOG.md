@@ -21,6 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offending component named, the `skillsVersion` bump withheld). The write-side refusal stays exactly
   where it was, as the security backstop.
 
+- **`pharn update --force` now names the backup directory when the run aborts part-way.**
+  `createBackup` copies every about-to-be-overwritten file into `.pharn-backup/<timestamp>/` before a
+  single original is touched, but that path used to travel out only inside a **successful** run — so a
+  run that died after the backup (a file it could not write, a records or config write that threw)
+  printed the error, exited 1, and never said where the copies went. The user's originals were already
+  gone from the tree, the one pointer back to them was withheld at exactly the moment it was needed,
+  and earlier runs may have left other timestamped directories beside the new one. The path is now
+  carried out of the apply phase the instant the backup exists, so every exit reachable after it names
+  the directory — with a line saying the run stopped part-way and some originals may already have been
+  overwritten. It goes to **stderr** with the rest of the fatal output, so an operator redirecting
+  stderr to a log finds it there. The success path is unchanged and both paths now print through one
+  helper, so they cannot drift. Nothing is printed when no backup exists: a `createBackup` that itself
+  throws leaves the tree intact with nothing to point at, and a run without `--force` only ever writes
+  over files pharn wrote and proved pristine.
+
 ### Added
 
 - **`pharn add` now backs up destination drift before it overwrites.** `add` was the only write path

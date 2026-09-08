@@ -102,6 +102,14 @@ export async function runUpdate(
   await runArchetypeUpdate(config, cwd, opts.force ?? false, yes);
 }
 
+// Where the `--force` copies went, and how many there are — the two facts the
+// report needs. One shape, so the count is never re-derived at a second site and
+// cannot drift from the directory it describes.
+interface Backup {
+  dir: string;
+  count: number;
+}
+
 // The outcome of the fetch+apply phase, assembled inside the try so cleanup can
 // run in the finally and every process.exit happens AFTER it (Node skips finally
 // on exit) — the discipline this command has always kept.
@@ -116,7 +124,7 @@ interface UpdateOutcome {
   // Empty ⇒ nothing changed ⇒ nothing is printed about capabilities at all.
   capabilityChanges: CapabilityChange[];
   plan: UpdatePlan;
-  backupDir: string | null;
+  backup: Backup | null;
   recordsNote: string | null;
   versionWithheld: boolean;
   abandonedLayout: Layout | null;
@@ -208,6 +216,13 @@ async function runArchetypeUpdate(
   }
 
   let outcome: UpdateOutcome | null = null;
+  // The backup pointer, carried OUT of applyUpdate the moment it exists rather
+  // than riding home inside a successful outcome — everything after createBackup
+  // can throw, and a run that dies there has already moved the user's bytes.
+  //
+  // A HOLDER, not a bare `let`: TypeScript drops narrowing for a `let` assigned
+  // only inside a closure, so the `if` below would fight `strict` for no reason.
+  const backupRef: { current: Backup | null } = { current: null };
   // The ERROR OBJECT, not its message — the reporter needs it to tell an
   // exception (which earns the PHARN_DEBUG affordance) from a curated refusal.
   // Boxed so a thrown nullish value stays distinguishable from "nothing failed"
@@ -228,7 +243,16 @@ async function runArchetypeUpdate(
       s2.stop('Update refused');
       refusal = gate.refusal;
     } else {
-      outcome = await applyUpdate(repo.dir, repo.sha, config, cwd, force);
+      outcome = await applyUpdate(
+        repo.dir,
+        repo.sha,
+        config,
+        cwd,
+        force,
+        (backup) => {
+          backupRef.current = backup;
+        },
+      );
       s2.stop(
         outcome.plan.writes.length
           ? 'Capabilities updated'
@@ -255,6 +279,17 @@ async function runArchetypeUpdate(
     // does not exist.
     if (failure) reportFatal(errorMessage(failure.err), failure);
     else reportFatal('Update failed.');
+    // Past the backup, the originals it copied may already be overwritten, and
+    // this is the last chance anything names where the copies went — the success
+    // report never runs. After the `finally` above, so the clone is cleaned up
+    // before the exit, the discipline every exit in this file keeps.
+    //
+    // Nothing prints when no backup exists: `createBackup` throwing leaves the
+    // tree intact with nothing to point at, and a run without `--force` only
+    // ever writes over files pharn itself wrote and proved pristine.
+    if (backupRef.current) {
+      printBackupNotice(backupRef.current, { aborted: true });
+    }
     process.exit(1);
   }
 
@@ -263,12 +298,16 @@ async function runArchetypeUpdate(
 
 // The fetch-side work: resolve, hash, decide, back up, write, persist. Pure of
 // process.exit — the caller owns cleanup + exit.
+//
+// `onBackup` fires the instant a backup exists, because the caller needs that
+// path on the paths this function does NOT return from.
 async function applyUpdate(
   repoDir: string,
   sha: string | null,
   config: PharnConfig,
   cwd: string,
   force: boolean,
+  onBackup: (backup: Backup) => void,
 ): Promise<UpdateOutcome> {
   const index = parseCapabilityIndex(repoDir);
   // No silent skips (P5): a capability the fetch boundary refused is NAMED here,
@@ -345,8 +384,16 @@ async function applyUpdate(
 
   // Back up EVERY about-to-be-clobbered file before a single original is
   // touched; a failure here aborts with the whole tree still intact.
-  const backupDir =
-    plan.backups.length > 0 ? createBackup(cwd, plan.backups) : null;
+  //
+  // Ordered exactly as before — after planUpdate, before applyWrites — and the
+  // pointer is handed UP here rather than only in the return value below: every
+  // line after this one (the writes, the records, the config) can throw, and a
+  // run that dies there has already moved the user's bytes into that directory.
+  const backup: Backup | null =
+    plan.backups.length > 0
+      ? { dir: createBackup(cwd, plan.backups), count: plan.backups.length }
+      : null;
+  if (backup) onBackup(backup);
 
   // A run that could not apply everything must not claim the new version: the
   // recorded version describes the last COMPLETE state, so the next `pharn
@@ -435,7 +482,7 @@ async function applyUpdate(
     capCount: configCapabilities.length,
     capabilityChanges: merged.changes,
     plan,
-    backupDir,
+    backup,
     recordsNote,
     versionWithheld,
     abandonedLayout:
@@ -464,7 +511,7 @@ const FORCEABLE_SKIPS = new Set<UpdateLabel | 'unreadable'>([
 // failure — but they are never silent: each bucket is listed with the one action
 // that resolves it.
 function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
-  const { plan, backupDir, recordsNote, versionWithheld } = outcome;
+  const { plan, backup, recordsNote, versionWithheld } = outcome;
   const { counts } = plan;
 
   if (recordsNote) log.warn(`⚠ ${recordsNote}`);
@@ -510,14 +557,7 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
     note(lines.join('\n'), 'SKIPPED');
   }
 
-  if (backupDir) {
-    log.info(
-      `Backed up ${plan.backups.length} file(s) to ${backupDir} before overwriting.`,
-    );
-    log.info(
-      `${BACKUP_DIR}/ is not gitignored — add it to .gitignore or delete it once you are happy.`,
-    );
-  }
+  if (backup) printBackupNotice(backup, { aborted: false });
 
   // Both directions are named. `abandonedLayout` has always been computed
   // direction-agnostically (see its assignment above), but only 'flat' used to be
@@ -553,6 +593,36 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
 
   outro(
     `${pc.green('✔')} ${summary} ${pc.dim(`(${outcome.capCount} capabilit${outcome.capCount === 1 ? 'y' : 'ies'}, skills v${outcome.recordedVersion})`)}`,
+  );
+}
+
+// The backup pointer — ONE wording, reached from BOTH the success report and the
+// failure branch. `.pharn-backup/<ts>/` is the user's only route back to their
+// pre-overwrite bytes, so the two paths must never drift into saying different
+// things about it — which is why the failure branch calls this rather than
+// growing a second copy of the sentence.
+//
+// The stream is the difference, and it follows lib/report-error.ts's contract:
+// an aborted run's notice is part of that run's fatal output, so it goes to
+// stderr with the rest of it — an operator redirecting stderr to a log must find
+// the pointer there. The success notice stays on stdout, where it has always been.
+function printBackupNotice(backup: Backup, opts: { aborted: boolean }): void {
+  const output = opts.aborted ? process.stderr : process.stdout;
+  if (opts.aborted) {
+    // Said plainly, because the tree is now in a state the user did not ask for:
+    // the run stopped between the first overwrite and the last.
+    log.warn(
+      'The update stopped part-way — some originals may already have been overwritten.',
+      { output },
+    );
+  }
+  log.info(
+    `Backed up ${backup.count} file(s) to ${backup.dir} before overwriting.`,
+    { output },
+  );
+  log.info(
+    `${BACKUP_DIR}/ is not gitignored — add it to .gitignore or delete it once you are happy.`,
+    { output },
   );
 }
 
