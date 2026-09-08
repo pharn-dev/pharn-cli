@@ -109,8 +109,15 @@ a test.
   `map.json`/`access.json` in a shared, cross-project cache directory on every fetch, reused entries
   by **filename rather than a verified digest**, and — when ref resolution threw — took the
   ref→commit mapping out of that same cached `map.json`. Both the poisoned-cache surface and the
-  cache-as-resolver surface are gone because the cache is gone. Caches already on disk from earlier
-  versions are inert but not removed; see `docs/troubleshooting.md`.
+  cache-as-resolver surface are gone because the cache is gone.
+
+  It also grew without bound, which is worth recording because the surface was proportional to it.
+  `degit`'s only tarball deletion fires when an existing **ref's** mapped hash changes; pharn passed
+  the resolved SHA _as_ the ref, so every fetch wrote a self-mapped `"<sha>": "<sha>"` entry under a
+  new key, the previous hash was always `undefined`, and the delete branch could never run. One
+  ~2.4 MB tarball per distinct upstream commit, retained forever, each one an entry reusable by
+  filename. Caches already on disk are inert but **not** removed — pharn deletes nothing outside the
+  user's project; `docs/troubleshooting.md` says where they live and how to size them.
 - **No proxy support, stated as a limit.** Node's global `fetch` reads **no** proxy environment
   variable, on any platform. The previous dependency read `process.env.https_proxy` itself — only
   that lowercase spelling, and never `no_proxy`. So a user behind a corporate proxy who succeeded

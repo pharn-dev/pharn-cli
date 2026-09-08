@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Documented why a leftover `degit` cache can be large, and how to size it.** `pharn` no longer
+  writes one at all, but the directory earlier versions left behind grew by ~2.4 MB per distinct
+  upstream commit and was never reclaimed: `degit` deletes a tarball only when an existing **ref's**
+  mapped hash changes, and `pharn` passed the resolved SHA _as_ the ref — so every fetch wrote a
+  self-mapped entry under a new key and the delete branch could never fire. `docs/troubleshooting.md`
+  now says so, with a `du` command, and warns against deleting the whole shared directory if another
+  tool uses `degit`.
+
 - **The repo fetch no longer goes through `degit`.** `pharn` now resolves the branch head once over
   the GitHub API and downloads that exact commit's tarball from `codeload.github.com`, extracting it
   with its own ustar reader (`src/lib/tar-extract.ts`). **`degit` is removed from `dependencies`**,
