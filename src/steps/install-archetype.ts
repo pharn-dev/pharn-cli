@@ -102,8 +102,14 @@ export async function runInstallArchetype(
   const grillers = capabilities.filter((c) => c.role === 'griller').length;
   const lenses = capabilities.filter((c) => c.role === 'lens').length;
   // Render the per-stage routing from the config just written (not a second
-  // hardcoded copy), so spend is legible right after install. config.models is
-  // set on every fresh install; the guard narrows its optional type (P7 legacy).
+  // hardcoded copy), so the recorded intent is legible right after install.
+  // config.models is set on every fresh install; the guard narrows its optional
+  // type (P7 legacy). The hint below says plainly that no installed STAGE
+  // consumes the block yet: it is written, validated and displayed — this line
+  // and status's MODELS note are two of its readers — but nothing reads it to
+  // PICK a model (docs/roadmap.md carries the Planned row). Claiming an edit
+  // here changes a stage's model would document unimplemented behavior
+  // (CLAUDE.md).
   const modelLines = config.models
     ? formatModelRoutingLines(config.models)
     : [];
@@ -116,7 +122,7 @@ export async function runInstallArchetype(
       '',
       pc.bold('Models per stage'),
       ...modelLines.map((line) => `  ${line}`),
-      `  ${pc.dim('Change per-stage routing anytime in pharn.config.json → models.stages')}`,
+      `  ${pc.dim('Recorded in pharn.config.json → models.stages — no installed stage reads it yet')}`,
       '',
       pc.bold('Next steps'),
       `  ${pc.cyan('1.')}  ${pc.bold('claude')}            ${pc.dim('open Claude Code')}`,
