@@ -86,7 +86,7 @@ What `update` does with it:
 - **Nothing under that capability's directory is written into your project.** pharn will not copy
   content it could not validate.
 - **Your `pharn.config.json` entry is kept**, reported as `KEPT — pharn could not read these
-  upstream this run`. A capability you have is not dropped because one fetch could not read it.
+upstream this run`. A capability you have is not dropped because one fetch could not read it.
 - **Everything else updates normally**, including the skills version — so the next
   [`pharn add`](add.md) is not blocked.
 
@@ -158,7 +158,13 @@ relative path preserved, into:
 .pharn-backup/<YYYYMMDD-HHMMSS>/
 ```
 
-The directory is printed when it is created. If **any** backup copy fails, the update aborts before a
+The directory is printed when it is created — on **both** paths. If the update then fails part-way
+(a file it cannot write, a config it cannot save), it still names the directory before exiting 1,
+alongside a line telling you some originals may already have been overwritten. That path is your only
+route back to your pre-overwrite bytes, so it is never withheld at the moment you need it most, and
+earlier runs may have left other timestamped directories beside it.
+
+If **any** backup copy fails, nothing is printed and nothing is at risk: the update aborts before a
 single original is touched. A colliding timestamp directory is never written into — the run
 uniquifies (`…-2`, `…-3`) instead, so a second `--force` in the same second cannot overwrite the only
 surviving copy of your edits.
@@ -243,7 +249,7 @@ it reports "Already up to date" and exits **without reading a single file** (ste
 right call for the common case, but it has one sharp edge.
 
 When a **new `pharn` release starts installing a surface that earlier releases did not** — as the
-release adding `pharn/pharn-core/` does — an install pinned at the *current* skills version is missing
+release adding `pharn/pharn-core/` does — an install pinned at the _current_ skills version is missing
 those files and `update` will not restore them. [`pharn status`](status.md) reports them as `missing`, and
 `pharn status --strict` exits `1`, but a plain `pharn update` still answers "Already up to date".
 
