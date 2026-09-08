@@ -13,8 +13,8 @@
 
 ## Discovery (live state, read this run — P6)
 
-Verified in `/Users/pgalarowicz/Projects/pharn-cli` (clean tree, HEAD `56fec66`) and the local
-upstream checkout `/Users/pgalarowicz/Projects/pharn-oss`:
+Verified in this repo (clean tree, HEAD `56fec66`) and the local
+upstream checkout a local `pharn-dev/pharn-oss` checkout:
 
 - Upstream ships `pharn/pharn-core/seam-resolver/seam-resolver.md` + `evals/{cases,expected}/`
   with **6 case/expected pairs** (13 files total). Frontmatter declares `role: skill`,

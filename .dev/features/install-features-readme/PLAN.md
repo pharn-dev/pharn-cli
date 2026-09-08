@@ -9,7 +9,7 @@
 
 - `src/lib/install-capabilities.ts:156-164` — the trusted-docs loop (`existsSync && !isSymlink`, `safeJoin` both sides, `{ force: true }`); `:32-36` — the header enumerating the copy set.
 - `src/lib/install-manifest.ts:114-121` — the mirror's stricter posture (`findSymlinkComponent` skip, then `lstatSync(...)?.isFile()`); `:59-64` — its own enumeration.
-- Upstream `/Users/pgalarowicz/Projects/pharn-oss` at `2e183e6`: `features/README.md` EXISTS at the repo root of a `pharn`-layout tree — so the path is layout-invariant, like `.claude/*`.
+- Upstream a local `pharn-dev/pharn-oss` checkout at `2e183e6`: `features/README.md` EXISTS at the repo root of a `pharn`-layout tree — so the path is layout-invariant, like `.claude/*`.
 - **A stale comment found live:** `src/lib/install-capabilities.ts:157-158` still says the pharn docs set drops THREAT-MODEL/LIMITS. That became false in the previous increment (`d7c8f52`), which missed this one comment. It is in this increment's `## Files`, so it is corrected here rather than left to rot (P4).
 
 ## Files

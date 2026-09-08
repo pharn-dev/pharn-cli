@@ -9,7 +9,7 @@
 
 - `src/lib/install-capabilities.ts:53` — `isTestFile` matches `*.test.{mjs,cjs}` only; `:176-184` — the floor `cpSync` with `filter: (src) => !isTestFile(src) && noSymlinks(src)`.
 - `src/lib/install-manifest.ts` — the mirror's `addDir(paths.floor, (rel) => !/\.test\.(mjs|cjs)$/.test(rel))`, where `rel` is ALREADY posix and floor-relative (`walkFiles` builds it with `/`).
-- Upstream `/Users/pgalarowicz/Projects/pharn-oss` at `2e183e6`: `pharn/floor/test-fixtures/` exists and its files are read only by `check-structural.test.mjs` / `validate.test.mjs` — both excluded from the install. Count measured in the build.
+- Upstream a local `pharn-dev/pharn-oss` checkout at `2e183e6`: `pharn/floor/test-fixtures/` exists and its files are read only by `check-structural.test.mjs` / `validate.test.mjs` — both excluded from the install. Count measured in the build.
 - `tests/helpers.ts` — scaffolds live under `mkdtempSync(join(tmpdir(), 'pharn-test-'))`, so no path component ever contains `test-fixtures`. **The existing mirror pin therefore could NOT catch an unanchored writer predicate** — it would stay green. The anchor is the guarantee; the pin is not.
 
 ## Files
@@ -20,6 +20,7 @@
 - `tests/install-capabilities.test.ts` — fixtures in the scaffolds; the subtree is not installed; a same-named ancestor does not prune the floor; `my-test-fixtures.mjs` survives — layer `tests`
 - `tests/install-manifest.test.ts` — the mirror pin runs over a scaffold that actually CONTAINS a fixture file (else it passes vacuously) — layer `tests`
 - `docs/commands/init.md`, `docs/commands/status.md`, `CLAUDE.md`, `CHANGELOG.md` — the copied-set enumerations — layer `docs`
+- `.dev/features/*/PLAN.md` (six files) — scrub the developer-specific ABSOLUTE path to the upstream checkout; it leaks a username and local filesystem layout into a public repo. Three of the six predate this increment — layer `docs`
 
 ## Contracts satisfied
 
