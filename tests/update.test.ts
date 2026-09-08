@@ -388,6 +388,69 @@ describe('runUpdate (drift-safe)', () => {
     expect(body(DOC)).toBe('constitution v1');
   });
 
+  // --- the two network failures: exit code + EFFECTS, not wording -------------
+  //
+  // `update` makes exactly two network calls — the SKILLS_VERSION read and the
+  // clone — and each has its own catch that reports and exits 1. The
+  // fatal-error suite above pins what those catches SAY (the message, the
+  // PHARN_DEBUG hint, the stream); nothing pinned what a failed run LEAVES
+  // BEHIND, or how far it got before giving up. Those are the two properties a
+  // refactor breaks silently, and a `pharn update` that reports success having
+  // written nothing is the same automation failure shape the TTY gate exists to
+  // eliminate. No message string is asserted here on purpose: the wording is
+  // owned by the fatal-error suite above and may change without touching this.
+  describe('network failure', () => {
+    it('version check fails: exit 1 before the confirm and before any clone', async () => {
+      await installed();
+      const recorded = { ...records()! };
+      fetchRemoteSkillsVersion.mockRejectedValueOnce(new Error('offline'));
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      // The ORDER is the property worth pinning: the cheap version read gates
+      // the expensive clone, so a run that cannot even reach SKILLS_VERSION
+      // costs zero fetches — and never asks the user to approve work it already
+      // knows it cannot do. A reorder that cloned first would still report and
+      // still exit 1, so only these two absences would notice.
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      // Nothing written. A completed update writes pharn.config.json into the
+      // project; its absence is the proof — and it is the withheld-bump rule at
+      // its strongest, since no version can advance over bytes never fetched.
+      expect(readPharnConfig(proj)).toBeNull();
+      expect(body(DOC)).toBe('constitution v1');
+      expect(body(CAP_FILE)).toBe('a11y v1');
+      // The record store is byte-stable AND still describes the disk: a store
+      // that had drifted from the files would satisfy only the first half.
+      expect(records()).toEqual(recorded);
+      expect(records()![DOC]).toBe(sha256File(join(proj, DOC)));
+      expect(backupDirs()).toEqual([]);
+    });
+
+    it('clone fails: exit 1, no clone to clean up, nothing written', async () => {
+      await installed();
+      const recorded = { ...records()! };
+      fetchRepo.mockRejectedValueOnce(new Error('offline'));
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      // The mirror of "a SUCCESSFUL clone is always cleaned up before the exit":
+      // there is no temp directory on this path at all, so nothing is cleaned
+      // up and the fetch is attempted exactly once. `cleanup` is reachable ONLY
+      // through a fetchRepo that resolved, so the call count is what makes the
+      // pair falsifiable — a retry, or a second salvage fetch, breaks it while
+      // the message assertions above stay green.
+      expect(cleanup).not.toHaveBeenCalled();
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(readPharnConfig(proj)).toBeNull();
+      expect(body(DOC)).toBe('constitution v1');
+      expect(body(CAP_FILE)).toBe('a11y v1');
+      expect(records()).toEqual(recorded);
+      expect(records()![DOC]).toBe(sha256File(join(proj, DOC)));
+      expect(backupDirs()).toEqual([]);
+    });
+  });
+
   // --- non-interactive honesty: the TTY gate + the real --yes ----------------
   //
   // The bug this closes: off a TTY the confirm above cancelled on stream end and
