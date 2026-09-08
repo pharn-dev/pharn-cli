@@ -1209,6 +1209,107 @@ describe('runUpdate (drift-safe)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  // The advice a skip report prints must name an action that can actually
+  // succeed. `--force` overrides exactly the three record-based buckets
+  // (`skipOrForce`); `unreadable` is decided BEFORE the decision table and
+  // `force` is not an input to that branch — so prescribing `--force` when every
+  // skip is `unreadable` sends the user round a loop that produces a
+  // byte-identical run forever, while the withheld version bump keeps
+  // `pharn status --strict` red with no command that clears it.
+  describe('advice for skips --force cannot clear', () => {
+    const skipNote = () =>
+      vi.mocked(prompts.note).mock.calls.find((c) => c[1] === 'SKIPPED')?.[0];
+    const withheldWarning = () =>
+      vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .find((m) => m.includes('still recorded as skills v'));
+
+    // A regular file where a directory belongs: CAP_FILE's destination cannot be
+    // inspected at all, which is the only way into the `unreadable` bucket.
+    const makeUnreadable = () => {
+      rmSync(join(proj, 'pharn-pipeline'), { recursive: true, force: true });
+      write(join(proj, 'pharn-pipeline'), 'a FILE where a directory belongs');
+    };
+
+    it('does NOT prescribe --force when every skip is unreadable', async () => {
+      await installed();
+      makeUnreadable();
+
+      await expect(runUpdate()).resolves.toBeUndefined();
+
+      const skipped = skipNote();
+      expect(skipped).toContain('UNREADABLE');
+      expect(skipped).not.toContain('Re-run with --force');
+      expect(skipped).toContain(
+        '--force cannot clear the UNREADABLE paths above.',
+      );
+      expect(skipped).toContain('Inspect each path by hand');
+      expect(withheldWarning()).toContain('resolve them to finish the upgrade');
+      expect(withheldWarning()).not.toContain('--force');
+    });
+
+    it('says the same under --force, which changes nothing for these paths', async () => {
+      await installed();
+      makeUnreadable();
+
+      // Still a skip and still exit 0 — `--force` cannot reach this bucket...
+      await expect(runUpdate({ force: true })).resolves.toBeUndefined();
+
+      const skipped = skipNote();
+      expect(skipped).toContain('UNREADABLE');
+      expect(skipped).not.toContain('Re-run with --force');
+      expect(skipped).toContain(
+        '--force cannot clear the UNREADABLE paths above.',
+      );
+      expect(withheldWarning()).toContain('resolve them to finish the upgrade');
+      expect(withheldWarning()).not.toContain('--force');
+      // ...and the bump stays withheld, so the recorded version stays true.
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.0.0');
+    });
+
+    it('KEEPS the --force advice when a forceable bucket is skipped too', async () => {
+      await installed();
+      makeUnreadable();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+
+      await runUpdate();
+
+      const skipped = skipNote();
+      expect(skipped).toContain('MODIFIED');
+      expect(skipped).toContain('Re-run with --force');
+      expect(skipped).toContain(
+        '--force cannot clear the UNREADABLE paths above.',
+      );
+      // Fixed at the source, never by map iteration order (P5).
+      expect(skipped!.indexOf('Re-run with --force')).toBeLessThan(
+        skipped!.indexOf('--force cannot clear'),
+      );
+      expect(withheldWarning()).toContain('or re-run with --force');
+    });
+
+    // The invariant the whole wording leans on: under `--force` the three
+    // record-based buckets all become writes, so `unreadable` is the only label
+    // that can still reach the skip report — a forced run can therefore never
+    // honestly prescribe `--force`.
+    it('drops the --force advice on a FORCED run that also had a modified file', async () => {
+      await installed();
+      makeUnreadable();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+
+      await runUpdate({ force: true });
+
+      // The modified file was overwritten; only the unreadable path survives.
+      expect(body(DOC)).toBe('constitution v2');
+      const skipped = skipNote();
+      expect(skipped).toContain('UNREADABLE');
+      expect(skipped).not.toContain('MODIFIED');
+      expect(skipped).not.toContain('Re-run with --force');
+      expect(withheldWarning()).toContain('resolve them to finish the upgrade');
+      expect(withheldWarning()).not.toContain('--force');
+    });
+  });
+
   // The replacement for the whole-dir copy's "no partial installs" property: if
   // the loop dies part-way, the files pharn DID write must still be recorded —
   // an unrecorded pharn write reads as the user's edit on the next run and is

@@ -39,7 +39,11 @@ import {
   RECORDS_FILE,
   writeRecords,
 } from '../lib/install-records.js';
-import { planUpdate, type UpdatePlan } from '../lib/update-decision.js';
+import {
+  planUpdate,
+  type UpdateLabel,
+  type UpdatePlan,
+} from '../lib/update-decision.js';
 import { fetchRepo } from '../lib/repo.js';
 import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
@@ -439,6 +443,23 @@ async function applyUpdate(
   };
 }
 
+// The skip buckets `--force` actually overrides, mirroring `skipOrForce` in
+// lib/update-decision.ts. Membership, not a negation of one label (P5): a bucket
+// outside this set is one `--force` cannot clear, so an unrecognised label fails
+// in the safe direction — no advice at all — rather than prescribing a command
+// that cannot work.
+//
+// It names the same three labels `skipHeading` switches on, so the heading and
+// the advice agree about every label today. That agreement is convention, not a
+// check (there is no shared enum and no test pinning the two lists): a new skip
+// label has to be added HERE as well as there, or the heading will say UNREADABLE
+// while the advice offers `--force`.
+const FORCEABLE_SKIPS = new Set<UpdateLabel | 'unreadable'>([
+  'modified',
+  'unrecorded',
+  'unverifiable',
+]);
+
 // The report. Skips are exit 0 — a skip is a decision the user asked for, not a
 // failure — but they are never silent: each bucket is listed with the one action
 // that resolves it.
@@ -450,6 +471,16 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
 
   reportCapabilityChanges(outcome.capabilityChanges);
 
+  // An unhashable destination is skipped BEFORE the decision table and `force`
+  // is not an input to that branch (lib/update-decision.ts) — deliberately, since
+  // there is no hash to compare and guessing one is what P5 forbids. So the
+  // report must not prescribe `--force` for it: a run whose skips are all
+  // unreadable would otherwise be told to re-run a command that produces a
+  // byte-identical outcome, forever, while the withheld version bump keeps
+  // `pharn status --strict` red with nothing that clears it.
+  const forceable = plan.skipped.some((g) => FORCEABLE_SKIPS.has(g.label));
+  const hasUnreadable = plan.skipped.some((g) => !FORCEABLE_SKIPS.has(g.label));
+
   if (plan.skipped.length > 0) {
     const lines: string[] = [];
     for (const group of plan.skipped) {
@@ -457,11 +488,25 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
       for (const rel of group.rels) lines.push(`  ${rel}`);
       lines.push('');
     }
-    lines.push(
-      pc.dim(
-        `  Re-run with --force to overwrite (skipped files are backed up to ${BACKUP_DIR}/ first).`,
-      ),
-    );
+    if (forceable) {
+      lines.push(
+        pc.dim(
+          `  Re-run with --force to overwrite (skipped files are backed up to ${BACKUP_DIR}/ first).`,
+        ),
+      );
+    }
+    if (hasUnreadable) {
+      // SKIP_ORDER puts `unreadable` last, so this sits under the group it names.
+      // The closing two lines are `pharn status`'s drift report verbatim
+      // (src/commands/status.ts): same situation, same sentence, so the two
+      // commands read as one product. The bucket is named rather than "these"
+      // because the forceable advice above can sit between it and its group.
+      lines.push(
+        pc.dim('  --force cannot clear the UNREADABLE paths above.'),
+        pc.dim('  Inspect each path by hand — a directory, a symlink, or an'),
+        pc.dim('  unreadable file sits where pharn expects a regular file.'),
+      );
+    }
     note(lines.join('\n'), 'SKIPPED');
   }
 
@@ -492,8 +537,11 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   }
 
   if (versionWithheld) {
+    // `--force` is offered only while a bucket it can actually clear is still
+    // skipped. When every remaining skip is unreadable it finishes nothing, and
+    // naming it here is the same dead prescription as above.
     log.warn(
-      `${counts.skipped} file(s) were skipped, so your install is still recorded as skills v${outcome.recordedVersion} (upstream is v${outcome.installedVersion}) — resolve them, or re-run with --force, to finish the upgrade.`,
+      `${counts.skipped} file(s) were skipped, so your install is still recorded as skills v${outcome.recordedVersion} (upstream is v${outcome.installedVersion}) — resolve them${forceable ? ', or re-run with --force,' : ''} to finish the upgrade.`,
     );
   }
 
