@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { REPO, REPO_BRANCH } from '../src/lib/constants.js';
 import { githubArchive } from './support/tar-fixture.js';
 
 // fetchRepo's temp clone is multi-megabyte and the clone/copy phases are the
@@ -26,6 +27,13 @@ import { githubArchive } from './support/tar-fixture.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VALID_SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
+
+// Exact match, never a prefix: `startsWith('https://api.github.com')` also
+// matches `https://api.github.com.example.invalid/...`, so the stub would answer
+// for a host the code should never contact (CodeQL
+// js/incomplete-url-substring-sanitization). Comparing the whole string also
+// makes the discriminator an assertion about the resolve URL.
+const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/${REPO_BRANCH}`;
 
 // Each test gets a FRESH module instance. The handlers install once per module
 // (that is the property under test), so sharing one instance would make every
@@ -64,7 +72,7 @@ describe('temp-clone cleanup handlers', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
-        url.startsWith('https://api.github.com')
+        url === RESOLVE_URL
           ? { ok: true, json: async () => ({ sha: VALID_SHA }) }
           : tarResponse(githubArchive(VALID_SHA)),
       ),
@@ -169,8 +177,9 @@ import { githubArchive } from ${JSON.stringify(join(repoRoot, 'tests/support/tar
 import { fetchRepo } from ${JSON.stringify(join(repoRoot, 'src/lib/repo.ts'))};
 
 const SHA = ${JSON.stringify(VALID_SHA)};
+const RESOLVE = ${JSON.stringify(RESOLVE_URL)};
 globalThis.fetch = (async (url) => {
-  if (String(url).startsWith('https://api.github.com')) {
+  if (String(url) === RESOLVE) {
     return { ok: true, json: async () => ({ sha: SHA }) };
   }
   const bytes = githubArchive(SHA);
