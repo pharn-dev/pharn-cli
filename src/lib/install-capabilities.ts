@@ -9,12 +9,14 @@ import {
 } from './validate.js';
 import {
   CLAUDE_COMMANDS_DIR,
+  FEATURES_README,
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
   DEV_COMMAND_PREFIX,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import { detectLayout, layoutPaths, type LayoutPaths } from './layout.js';
+import { findSymlinkComponent } from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -31,8 +33,8 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 //
 // Dev-only exclusion is STRUCTURAL, not a scan: only these source subtrees are
 // ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands,
-// `.cjs` hooks, settings.json, the trusted docs, pharn-contracts/, pharn-core/,
-// and `.dev/floor/` minus test files. `pharn-dev-*` commands, `.dev/features/`,
+// `.cjs` hooks, settings.json, the trusted docs, the root features/README.md,
+// pharn-contracts/, pharn-core/, and `.dev/floor/` minus test files. `pharn-dev-*` commands, `.dev/features/`,
 // `.dev/memory-bank/`, and `*.test.*` are NEVER in the copy set.
 //
 // One axis (P3): the capability copy routine.
@@ -154,13 +156,38 @@ export function installCapabilities(
     cpSync(settingsFrom, settingsTo, { force: true });
   }
 
-  // --- trusted docs (flat: 4 at root; pharn: CONSTITUTION + ARCHITECTURE under
-  // pharn/, THREAT-MODEL/LIMITS dropped — they are not under pharn/) -----------
+  // --- trusted docs (the SAME four in both layouts; only the prefix differs --
+  // at the project root when flat, under pharn/ otherwise) --------------------
   for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
     if (existsSync(from) && !isSymlink(from)) {
       cpSync(from, safeJoin(projectRoot, doc), { force: true });
     }
+  }
+
+  // --- features/README.md (root in BOTH layouts, like .claude/*) -------------
+  // The product-loop boundary contract the installed product commands cite by
+  // name. Deliberately NOT called a trusted doc: it is not write-protected by
+  // the installed hook.
+  //
+  // findSymlinkComponent, not just the leaf isSymlink the trusted docs use. This
+  // is the first ROOT-RELATIVE file the install copies that has an INTERMEDIATE
+  // directory, so the leaf-only check is newly insufficient: measured on this
+  // Node, a clone whose `features/` is a symlink reports existsSync true and
+  // lstat(leaf).isSymbolicLink() FALSE, and cpSync copies the pointed-to bytes
+  // straight through — bytes from outside the clone, into the user's project.
+  // safeJoin cannot catch it (it is lexical and never resolves a link). The
+  // manifest already walks every component; the writer must agree, or the two
+  // trust floors diverge on exactly the path this increment adds (P2).
+  const featuresFrom = safeJoin(repoDir, FEATURES_README);
+  if (
+    findSymlinkComponent(repoDir, FEATURES_README) === null &&
+    existsSync(featuresFrom) &&
+    !isSymlink(featuresFrom)
+  ) {
+    cpSync(featuresFrom, safeJoin(projectRoot, FEATURES_README), {
+      force: true,
+    });
   }
 
   // --- contracts (whole dir; mirrored at the layout's path) ------------------

@@ -82,6 +82,21 @@ export const PHARN_TRUSTED_DOCS = [
   'pharn/LIMITS.md',
 ];
 // Claude Code surfaces.
+// The product-loop boundary contract: upstream's root features/README.md, cited
+// BY NAME from 7 of the 10 installed product commands (`pharn-spec`, `-plan`,
+// `-grill`, `-build`, `-regress`, `-verify`, `-ship`). All seven are installed;
+// before this, the file they cite was not, so every one of those pointers landed
+// on nothing in the user's project.
+//
+// Layout-invariant: upstream keeps `features/` at the repo ROOT in both layouts —
+// verified against a live pharn-layout checkout — exactly like the `.claude/*`
+// surfaces below. NOT a trusted doc: it is absent from the installed
+// protect-trusted-paths hook's DEFAULT_PROTECTED, and rightly so, since it
+// describes a directory the user's own agent writes into.
+//
+// Failure mode if upstream ever relocates it under `pharn/`: both readers are
+// existence-guarded, so it is QUIETLY NOT INSTALLED — no error, no warning.
+export const FEATURES_README = 'features/README.md';
 export const CLAUDE_COMMANDS_DIR = '.claude/commands';
 export const CLAUDE_HOOKS_DIR = '.claude/hooks';
 export const CLAUDE_SETTINGS_FILE = '.claude/settings.json';
