@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Knock-on for maintainers:** `prepublishOnly` is `npm run check`, so a release now also requires
   markdownlint-clean docs.
+- **`pharn remove` now tells one story about confirming.** It told three: the bare picker asks for one
+  destructive confirmation (default No), `runRemove` accepted a `yes` option it never read, and both
+  `CLAUDE.md` and `docs/commands/remove.md` asserted flatly that "capability removal has no
+  confirmation prompt to skip". The dead parameter is deleted, the dispatcher passes the argument
+  alone, and the docs now state the contract **per path**: the named `pharn remove a11y` deletes
+  without asking, and the picker's single confirm is the destructive gate — always shown, always
+  defaulting to No.
+
+  **Nothing about removal changed** — what is deleted, what is pruned from `pharn.records.json`, the
+  `delete → prune → config` order, the auto re-add warning, and every exit code are byte-identical.
+  `--yes` / `-y` remains an [`update`](docs/commands/update.md) flag: `pharn remove --yes` still
+  parses and is still ignored, exactly as before. Only the false sentences and the parameter that
+  seemed to justify them are gone.
 
 - **`npm run dev` now exists.** `README.md` and `docs/contributing.md` both told contributors to run
   the CLI from source with `npm run dev`, and `package.json` had no such script — the documented

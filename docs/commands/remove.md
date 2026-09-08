@@ -40,7 +40,10 @@ under `pharn/`. Removal is therefore precise; siblings are never touched.
   disambiguate with `griller:` / `lens:`.
 - Already-deleted directory → treated as done (idempotent).
 
-`--yes` / `-y` is accepted but has no effect — capability removal has no confirmation prompt to skip.
+`--yes` / `-y` is an [`update`](update.md) flag, and `remove` ignores it. There is nothing here for it
+to skip: the named form above deletes without asking, and the picker's one confirmation is the
+destructive gate itself — it is always shown, it lists exactly what will be deleted, and it defaults
+to **No**.
 
 ## The record store
 

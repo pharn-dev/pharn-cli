@@ -31,17 +31,17 @@ import type { InstalledCapability, PharnConfig } from '../types.js';
 
 // The inverse of `pharn add`: removes installed capabilities from an archetype
 // project (no clone, no network — everything is derivable from
-// config.capabilities + the filesystem). Bare `pharn remove` in a terminal opens
-// a grouped multi-select over the installed capabilities, confirms once, then
-// deletes each via the SAME per-name delete path (deleteCapabilityDir); non-TTY
-// keeps a usage error. The legacy module/skill removal (which read the manifest)
-// was removed; a pre-archetype config is rejected up front. `_opts.yes` is
-// accepted for CLI compat but unused — capability removal has no confirm prompt
-// on the named path.
-export async function runRemove(
-  arg: string | undefined,
-  _opts: { yes?: boolean } = {},
-): Promise<void> {
+// config.capabilities + the filesystem). Two paths, and the confirm contract is
+// PER PATH: the NAMED remove (`pharn remove a11y`) never prompts, while bare
+// `pharn remove` in a terminal opens a grouped multi-select over the installed
+// capabilities, confirms ONCE (listing the picks, default No), then deletes each
+// via the SAME per-name delete path (deleteCapabilityDir); non-TTY keeps a usage
+// error. `remove` therefore has NO `--yes`: the named path has no prompt to
+// skip, and the picker's single confirm IS the destructive gate, so nothing may
+// skip it either — the dispatcher passes the argument alone (src/index.ts). The
+// legacy module/skill removal (which read the manifest) was removed; a
+// pre-archetype config is rejected up front.
+export async function runRemove(arg: string | undefined): Promise<void> {
   intro('pharn remove');
 
   const cwd = process.cwd();
