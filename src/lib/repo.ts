@@ -19,6 +19,64 @@ const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
 const MAX_EXTRACTED_BYTES = 128 * 1024 * 1024;
 const MAX_ENTRIES = 20_000;
 
+// ---------------------------------------------------------------------------
+// Temp-clone lifecycle backstop.
+//
+// Every caller disposes of its clone in a `finally`, and that stays the primary
+// mechanism — this is a net underneath it, never a replacement. The net exists
+// because two real exits never reach a `finally`:
+//
+//   1. `process.exit()`. Node does not run `finally` on it. This is not a corner
+//      case: while a clack spinner is up — which is exactly the clone window —
+//      @clack/core's block() raw-modes stdin, so Ctrl-C arrives as a KEYPRESS,
+//      not a signal, and clack calls process.exit(0). So the longest prompt-free
+//      window in the CLI ends by leaking the clone AND reporting success.
+//   2. A signal. Nothing in pharn handled one, so default disposition applied —
+//      or worse, in a piped run @clack/prompts' own SIGINT listener printed and
+//      returned, swallowing the signal entirely.
+//
+// Registered dirs are removed synchronously, because an `exit` listener may not
+// await.
+// ---------------------------------------------------------------------------
+
+/** Clone dirs this process currently owns. Empty once every caller has disposed. */
+const liveClones = new Set<string>();
+let handlersInstalled = false;
+
+/** A handler must never throw — a failure here would replace the real exit reason. */
+function rmQuiet(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+}
+
+function installCleanupHandlers(): void {
+  // Once-only: `pharn update` calls fetchRepo more than once per run, and a
+  // listener per call would eventually trip MaxListenersExceededWarning.
+  if (handlersInstalled) return;
+  handlersInstalled = true;
+
+  process.on('exit', () => {
+    for (const dir of liveClones) rmQuiet(dir);
+  });
+
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(sig, () => {
+      for (const dir of liveClones) rmQuiet(dir);
+      liveClones.clear();
+      // Re-raise so the exit status is TRUTHFUL — 130 for SIGINT, 143 for
+      // SIGTERM — rather than the 0 an interrupted install used to report to
+      // whatever script invoked it. removeAllListeners first: any other listener
+      // on this signal (clack's spinner handler prints and returns) would
+      // otherwise swallow the re-raise and hang the process.
+      process.removeAllListeners(sig);
+      process.kill(process.pid, sig);
+    });
+  }
+}
+
 export interface FetchedRepo {
   dir: string;
   // The commit the tree was pinned to — recorded verbatim as pharn.config.json
@@ -58,6 +116,11 @@ export interface FetchedRepo {
  * valid-shaped tree at that SHA still passes. Trust is provenance + the
  * path/network floor, never signature verification.
  *
+ * The clone is registered in a process-wide set that `exit`/`SIGINT`/`SIGTERM`
+ * handlers drain, so an interrupted run cannot leak it — see the block above
+ * `FetchedRepo`. That is a backstop under each caller's `finally`, not a
+ * replacement for it.
+ *
  * The network floor is the same three guards `lib/skills-version.ts` carries —
  * `redirect: 'error'`, a timeout cleared in `finally`, and a body cap — and the
  * path floor is `lib/tar-extract.ts`, whose rejections are pharn's own rather
@@ -78,7 +141,9 @@ export async function fetchRepo(): Promise<FetchedRepo> {
     rawSha === null ? null : assertSafeString(rawSha, 'commit SHA', COMMIT_RE);
   // Pin to the resolved SHA; else float the branch (LIMITS.md §3b degraded mode).
   const ref = sha ?? `refs/heads/${REPO_BRANCH}`;
+  installCleanupHandlers();
   const dir = mkdtempSync(join(tmpdir(), 'pharn-'));
+  liveClones.add(dir);
   try {
     const archive = await downloadArchive(ref);
     extractTarGz(archive, dir, {
@@ -88,13 +153,21 @@ export async function fetchRepo(): Promise<FetchedRepo> {
   } catch (err) {
     // Extraction is not transactional, so a partially-written tree must never
     // be returned. Callers treat a fetchRepo throw as fatal.
+    liveClones.delete(dir);
     rmSync(dir, { recursive: true, force: true });
     throw err;
   }
   return {
     dir,
     sha,
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    cleanup: () => {
+      // Deregister before removing: a disposed dir must never be resurrected in
+      // the registry, or a later handler run would rm a path this process no
+      // longer owns. mkdtemp names collide only by chance, and "only by chance"
+      // is not a guard.
+      liveClones.delete(dir);
+      rmSync(dir, { recursive: true, force: true });
+    },
   };
 }
 
