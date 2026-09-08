@@ -59,6 +59,7 @@ archetypes — then it re-enters as `auto` and is named under `ADDED`. See
 | `REMOVED — no longer selected for your archetypes`        | An `auto` entry your archetypes no longer select                |
 | `REMOVED — no longer exists upstream (was a manual add)`  | A `manual` entry whose capability is gone from the index        |
 | `KEPT — your manual add, not selected by your archetypes` | A pre-`source` entry preserved as manual (printed once)         |
+| `KEPT — pharn could not read these upstream this run`     | A capability this pharn version could not parse (see below)     |
 
 If nothing changed, nothing is printed. Removed entries' **files are left on disk** — `update` never
 deletes.
@@ -67,6 +68,47 @@ deletes.
 > it does not record a tombstone. If your archetypes still select that capability, the next `update`
 > re-adds it — but it will now **say so** under `ADDED`, instead of resurrecting it in silence.
 > `pharn remove` warns you about this at removal time for an `auto` capability.
+
+## When pharn cannot read a capability upstream
+
+pharn always fetches `pharn-dev/pharn-oss` at `main`, so a capability can change upstream in a way
+your installed pharn version does not understand yet — a new field value, a directory that does not
+have its markdown yet, a shape from a newer release. When that happens `update` **skips that one
+capability and says so**; it does not abort:
+
+```text
+1 upstream capability could not be read and was SKIPPED — not installed:
+  griller:backwards-compat (pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
+```
+
+What `update` does with it:
+
+- **Nothing under that capability's directory is written into your project.** pharn will not copy
+  content it could not validate.
+- **Your `pharn.config.json` entry is kept**, reported as `KEPT — pharn could not read these
+  upstream this run`. A capability you have is not dropped because one fetch could not read it.
+- **Everything else updates normally**, including the skills version — so the next
+  [`pharn add`](add.md) is not blocked.
+
+The message repeats on every run while the situation lasts, because the situation lasts. It usually
+clears by itself when upstream finishes the change, or when you upgrade pharn
+(`npm install -g @pharn-dev/pharn@latest`). If you no longer want the capability at all, remove it
+with [`pharn remove`](remove.md).
+
+## `pharn is too old for the current pharn-oss`
+
+pharn-oss can ship a root `MIN_CLI` file declaring the **minimum pharn version** its content needs.
+When your installed version is older, `init` / `add` / `update` refuse **before writing anything**,
+clean up the temporary clone, and exit 1:
+
+```text
+⚠ This pharn is too old for the current github.com/pharn-dev/pharn-oss: it requires
+  @pharn-dev/pharn v0.9.0 or newer, and v0.4.0 is installed. Upgrade …, then re-run
+  this command. Nothing was written.
+```
+
+Upgrading is the fix. A `MIN_CLI` file that is missing, unreadable, or malformed imposes **no**
+constraint (a warning at most) — only a well-formed version newer than yours ever refuses.
 
 ## The decision table
 

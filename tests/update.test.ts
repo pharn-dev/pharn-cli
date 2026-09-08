@@ -149,7 +149,7 @@ describe('runUpdate (drift-safe)', () => {
     scaffoldClone(repo, '1.1.0', 'v2');
     fetchRepo.mockResolvedValue({ dir: repo, sha: 'a'.repeat(40), cleanup });
     fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
-    parseCapabilityIndex.mockReturnValue({ capabilities: [] });
+    parseCapabilityIndex.mockReturnValue({ capabilities: [], unknown: [] });
     resolveCapabilities.mockReturnValue({
       selected: [{ ...CAP, matched: ['ssr'] }],
       skipped: [],
@@ -467,6 +467,7 @@ describe('runUpdate (drift-safe)', () => {
 
     expect(resolveCapabilities).toHaveBeenCalledWith(['ssr'], {
       capabilities: [],
+      unknown: [],
     });
     expect(readPharnConfig(proj)!.capabilities).toEqual([
       { ...CAP, source: 'auto' },
@@ -561,7 +562,7 @@ describe('runUpdate (drift-safe)', () => {
       selectsA11yOnly();
       fetchRepo.mockResolvedValue({ dir: repo, sha: 'a'.repeat(40), cleanup });
       fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
-      parseCapabilityIndex.mockReturnValue({ capabilities: [] });
+      parseCapabilityIndex.mockReturnValue({ capabilities: [], unknown: [] });
       vi.mocked(prompts.confirm).mockResolvedValue(true);
       loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
 
@@ -804,6 +805,203 @@ describe('runUpdate (drift-safe)', () => {
 
     // Fails CLOSED: the stale store is not trusted, so nothing is overwritten.
     expect(body(DOC)).toBe('constitution v1');
+  });
+
+  // -------------------------------------------------------------------------
+  // FORWARD COMPATIBILITY — a capability the fetch boundary could not PARSE.
+  //
+  // Two things must hold at once, and they pull in opposite directions:
+  //   * the config entry SURVIVES (update never deletes, and a transient upstream
+  //     grammar break must not silently drop a user's capability), and
+  //   * NOT ONE BYTE of its clone directory is written (the manifest is update's
+  //     only write source, so leaving it in would copy an arbitrary WIP upstream
+  //     directory into the project — the exact fail-open this contract prevents).
+  //
+  // The fixture ships a POPULATED unparseable directory in the clone on purpose:
+  // an empty one would make the manifest contribute nothing regardless of the
+  // fix, so the test would pass for the wrong reason (GRILL.md F5).
+  // -------------------------------------------------------------------------
+  describe('unparseable upstream capability (frozen)', () => {
+    const FROZEN = { name: 'backwards-compat', role: 'griller' as const };
+    const FROZEN_FILE =
+      'pharn-pipeline/grillers/backwards-compat/backwards-compat.md';
+    const FROZEN_EXTRA =
+      'pharn-pipeline/grillers/backwards-compat/evals/cases/one.md';
+
+    // A real, file-bearing directory in the clone that the parse refused.
+    function frozenUpstream(): void {
+      write(join(repo, FROZEN_FILE), 'WIP upstream content');
+      write(join(repo, FROZEN_EXTRA), 'WIP eval case');
+      parseCapabilityIndex.mockReturnValue({
+        capabilities: [],
+        unknown: [
+          {
+            name: FROZEN.name,
+            role: FROZEN.role,
+            subtree: 'pharn-pipeline/grillers',
+            reason: 'Capability "backwards-compat" has invalid role "auditor"',
+          },
+        ],
+      });
+    }
+
+    const capNote = () =>
+      vi
+        .mocked(prompts.note)
+        .mock.calls.find((c) => c[1] === 'CAPABILITIES')?.[0];
+
+    it('writes ZERO files under it while KEEPING its pharn.config.json entry', async () => {
+      await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
+      frozenUpstream();
+
+      await runUpdate();
+
+      // Nothing under the unparseable dir was copied into the project.
+      expect(existsSync(join(proj, FROZEN_FILE))).toBe(false);
+      expect(existsSync(join(proj, FROZEN_EXTRA))).toBe(false);
+      // ...and it was not recorded either (recorded is not the same as copied).
+      expect(records()?.[FROZEN_FILE]).toBeUndefined();
+      // The entry survives, verbatim.
+      expect(readPharnConfig(proj)!.capabilities).toEqual([
+        { ...CAP, source: 'auto' },
+        { ...FROZEN, source: 'auto' },
+      ]);
+    });
+
+    // Its records must SURVIVE. planUpdate keys nextRecords by the manifest, and
+    // a frozen capability is deliberately absent from it — so without an explicit
+    // carry-over its entries would be pruned as "no longer installed". They are
+    // not: nothing under it was touched, so the recorded hashes are still true.
+    // Losing them would make the next run (once upstream parses again) read every
+    // one of those files as `unrecorded` and skip it — a transient upstream break
+    // turned into a --force.
+    it('KEEPS the records of an already-installed frozen capability', async () => {
+      await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
+      // The capability WAS installed at v1, so the project holds its bytes and
+      // the store holds their hashes.
+      const INSTALLED_FILE = FROZEN_FILE;
+      write(join(proj, INSTALLED_FILE), 'installed at v1');
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: null,
+        files: {
+          ...read.store.files,
+          [INSTALLED_FILE]: sha256File(join(proj, INSTALLED_FILE)),
+        },
+      });
+      const before = records()![INSTALLED_FILE];
+      frozenUpstream();
+
+      await runUpdate();
+
+      // Untouched on disk...
+      expect(body(INSTALLED_FILE)).toBe('installed at v1');
+      // ...and still recorded, at the same hash.
+      expect(records()?.[INSTALLED_FILE]).toBe(before);
+    });
+
+    it('reports it as KEPT — never dropped-unselected, never dropped-gone', async () => {
+      await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
+      frozenUpstream();
+
+      await runUpdate();
+
+      expect(capNote()).toContain('griller:backwards-compat');
+      expect(capNote()).toContain('KEPT');
+      expect(capNote()).not.toContain('REMOVED');
+    });
+
+    it('names the skipped capability with its reason (no silent skips, P5)', async () => {
+      await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
+      frozenUpstream();
+
+      await runUpdate();
+
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(warned).toContain('backwards-compat');
+      expect(warned).toContain('invalid role');
+    });
+
+    // THE UNWEDGING PROPERTY. `add`'s versionGate refuses on ANY
+    // readSkillsVersion(clone) !== config.skillsVersion, so if an unparseable dir
+    // on main made every update withhold the bump, the config would never reach
+    // the upstream version and every `pharn add` would be refused FOREVER — the
+    // very wedge this whole contract removes. A frozen capability contributes no
+    // expected file, hence no FILE-level skip, hence no withholding.
+    it('still bumps skillsVersion/commit when nothing at FILE level was skipped', async () => {
+      await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
+      frozenUpstream();
+
+      await runUpdate();
+
+      const written = readPharnConfig(proj)!;
+      expect(written.skillsVersion).toBe('1.1.0');
+      expect(written.commit).toBe('a'.repeat(40));
+      // The withheld-bump warning must NOT have fired.
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(warned).not.toContain('still recorded as skills');
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The MIN_CLI handshake, at the command level.
+  // -------------------------------------------------------------------------
+  describe('MIN_CLI gate', () => {
+    it('refuses a too-old CLI: exit 1, clone cleaned up, NOTHING written', async () => {
+      await installed();
+      write(join(repo, 'MIN_CLI'), '99.0.0\n');
+      const before = body(CAP_FILE);
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(cleanup).toHaveBeenCalled();
+      expect(body(CAP_FILE)).toBe(before);
+      // Not "the config still says 1.0.0" — NO config was written at all: the
+      // refusal fires before applyUpdate, so the whole write phase never runs.
+      expect(readPharnConfig(proj)).toBeNull();
+      const errored = vi
+        .mocked(prompts.log.error)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(errored).toContain('too old');
+      expect(errored).toContain('99.0.0');
+    });
+
+    it('a GARBAGE MIN_CLI does NOT exit 1 — it warns and updates normally', async () => {
+      await installed();
+      write(join(repo, 'MIN_CLI'), 'not-a-version\n');
+
+      await runUpdate();
+
+      expect(body(CAP_FILE)).toBe('a11y v2');
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(warned).toContain('MIN_CLI');
+    });
+
+    it('a satisfied MIN_CLI is silent and updates normally', async () => {
+      await installed();
+      write(join(repo, 'MIN_CLI'), '0.0.1\n');
+
+      await runUpdate();
+
+      expect(body(CAP_FILE)).toBe('a11y v2');
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(warned).not.toContain('MIN_CLI');
+    });
   });
 
   describe('--force', () => {

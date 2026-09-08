@@ -187,8 +187,39 @@ export interface CapabilityEntry {
   applies: 'universal' | Archetype[];
 }
 
+// A capability the fetch boundary enumerated but could NOT parse into a
+// CapabilityEntry — a directory under a known subtree whose name, markdown,
+// frontmatter, `role` or `applies` failed validation. It is the FORWARD-
+// COMPATIBILITY escape hatch: a released CLI always parses `main` HEAD and can
+// never pin older content, so one routine grammar evolution upstream used to
+// abort init/add/update in every deployed CLI at once. Unknown content is now
+// skipped and REPORTED instead — fail closed on INSTALLING it, never on merely
+// seeing it.
+//
+// Every field is UNTRUSTED upstream text and reaches only the terminal, through
+// the single sanitizing renderer in lib/unknown-capabilities.ts. Nothing here is
+// ever selected, copied, enumerated by the install manifest, or newly recorded in
+// pharn.config.json (P2).
+export interface UnknownCapability {
+  // The directory name as found. May itself be why it was skipped (a name that
+  // failed CAPABILITY_NAME_RE is reported and joined no further).
+  name: string;
+  // The SUBTREE's role, which is authoritative in this codebase — never the
+  // frontmatter `role`, which may be exactly what failed. This is what makes a
+  // `role:name` key derivable for an entry whose declared role is unusable.
+  role: 'griller' | 'lens';
+  // The subtree directory it was found under, at the clone's layout.
+  subtree: string;
+  // Why it was skipped (the validation message), for the human.
+  reason: string;
+}
+
 export interface CapabilityIndex {
   capabilities: CapabilityEntry[];
+  // Additive (P7): every capability the parse refused, in the same deterministic
+  // enumeration order as `capabilities`. Empty for a fully-parseable clone, which
+  // is what keeps a healthy install exactly as quiet as it was.
+  unknown: UnknownCapability[];
 }
 
 // A capability chosen for install. `matched` is why: 'universal', or the

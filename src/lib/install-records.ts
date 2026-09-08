@@ -242,6 +242,38 @@ export function mergeRecords(
  * exactly those and never a path it did not touch. Symlinks are skipped (the
  * installer never materializes one), and every read is safeJoin-contained.
  */
+/**
+ * The subset of a record store that belongs to the given capabilities — a pure
+ * KEY-PREFIX filter over the store, never a filesystem walk.
+ *
+ * `pharn update` needs this for FROZEN capabilities: their files are excluded
+ * from the install manifest (nothing unparseable may be written), and
+ * `planUpdate` keys `nextRecords` by that manifest, so their entries would be
+ * pruned as "no longer installed". But their BYTES on disk are untouched, so the
+ * recorded hashes are still TRUE — and dropping them would make the next run,
+ * once upstream parses again, classify every one of those files `unrecorded` and
+ * skip it, turning a transient upstream break into a `--force`.
+ *
+ * The trailing slash is load-bearing, exactly as in `pruneCapabilityRecords`:
+ * `pharn-review/a11y` must not match `pharn-review/a11y-extended`.
+ */
+export function recordsUnderCapabilities(
+  records: FileRecords,
+  paths: LayoutPaths,
+  capabilities: readonly InstalledCapability[],
+): FileRecords {
+  const prefixes = capabilities.map((cap) => {
+    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
+    return `${subtree}/${cap.name}/`;
+  });
+  if (prefixes.length === 0) return {};
+  const out: FileRecords = {};
+  for (const [rel, hash] of Object.entries(records)) {
+    if (prefixes.some((prefix) => rel.startsWith(prefix))) out[rel] = hash;
+  }
+  return out;
+}
+
 export function capabilityRecordPaths(
   projectRoot: string,
   paths: LayoutPaths,

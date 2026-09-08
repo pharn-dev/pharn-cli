@@ -24,6 +24,12 @@ export const LENSES_DIR = 'pharn-review';
 // Root version file pharn-oss ships instead of a manifest (the archetype flow
 // reads this in place of manifest.skillsVersion).
 export const SKILLS_VERSION_FILE = 'SKILLS_VERSION';
+// OPTIONAL root file pharn-oss may ship declaring the MINIMUM pharn CLI version
+// its content requires — the forward-compatibility handshake (lib/min-cli-gate.ts).
+// Upstream ships none today, so its absence is the normal case and means "no
+// constraint"; a malformed one means the same, plus a warning. Only a well-formed
+// value NEWER than the installed CLI ever refuses.
+export const MIN_CLI_FILE = 'MIN_CLI';
 // Trusted spec docs copied to the project root (write-protected there by the
 // installed protect-trusted-paths.cjs hook).
 export const TRUSTED_DOCS = [

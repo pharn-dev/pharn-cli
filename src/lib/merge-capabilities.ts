@@ -39,22 +39,42 @@ import type {
  * The decision table (per `role:name` key; every cell enumerated, first match
  * wins). `in resolved?` = the key is in `selection.selected`. `in index?` = the
  * key is in `selected ∪ skipped`. `selected ⊆ index`, so `in index?` is only a
- * live question on the not-resolved rows (`—` = entailed).
+ * live question on the not-resolved rows (`—` = entailed). `frozen?` = the key is
+ * in the `frozen` set — a capability the fetch boundary could not PARSE this run.
  *
- * | # | in resolved | previous source | in index | next entry             | reported as        |
- * |---|-------------|-----------------|----------|------------------------|--------------------|
- * | 1 | yes         | not present     | —        | ADD, source: auto      | added              |
- * | 2 | yes         | auto            | —        | KEEP, auto             | — (silent)         |
- * | 3 | yes         | manual          | —        | KEEP, manual (sticky)  | — (silent)         |
- * | 4 | yes         | absent (legacy) | —        | KEEP, tag auto         | — (silent)         |
- * | 5 | no          | auto            | any      | DROP                   | dropped-unselected |
- * | 6 | no          | manual          | yes      | KEEP, manual           | — (silent)         |
- * | 7 | no          | manual          | no       | DROP                   | dropped-gone       |
- * | 8 | no          | absent (legacy) | yes      | KEEP, tag manual       | kept-manual        |
- * | 9 | no          | absent (legacy) | no       | DROP                   | dropped-gone       |
+ * | # | frozen | in resolved | previous source | in index | next entry             | reported as        |
+ * |---|--------|-------------|-----------------|----------|------------------------|--------------------|
+ * | 0 | yes    | no          | any             | no       | KEEP VERBATIM          | kept-frozen        |
+ * | 1 | no     | yes         | not present     | —        | ADD, source: auto      | added              |
+ * | 2 | no     | yes         | auto            | —        | KEEP, auto             | — (silent)         |
+ * | 3 | no     | yes         | manual          | —        | KEEP, manual (sticky)  | — (silent)         |
+ * | 4 | no     | yes         | absent (legacy) | —        | KEEP, tag auto         | — (silent)         |
+ * | 5 | no     | no          | auto            | any      | DROP                   | dropped-unselected |
+ * | 6 | no     | no          | manual          | yes      | KEEP, manual           | — (silent)         |
+ * | 7 | no     | no          | manual          | no       | DROP                   | dropped-gone       |
+ * | 8 | no     | no          | absent (legacy) | yes      | KEEP, tag manual       | kept-manual        |
+ * | 9 | no     | no          | absent (legacy) | no       | DROP                   | dropped-gone       |
  *
- * Nine cells, three outcomes (ADD / KEEP / DROP). The LEGACY inference runs
- * FIRST — a `source`-absent entry reads as `auto` when it is in the resolved set
+ * ROW 0 — the FROZEN row, and it must run FIRST among the not-resolved rows.
+ * An unparseable capability leaves the index ENTIRELY, so without this row a
+ * recorded entry for it falls into one of the two DROP branches, chosen by its
+ * stored `source`: `auto` → row 5, mis-reported as "your archetypes no longer
+ * select it"; manual or legacy → rows 7/9, mis-reported as "no longer exists
+ * upstream". Both are false, and both lose the entry over a TRANSIENT upstream
+ * grammar break the user cannot see or fix. Row 5 runs before rows 7/9, so
+ * patching only the `!inIndex` branch would still drop an auto entry — which is
+ * exactly why row 0 sits above the `source` test rather than beside it.
+ *
+ * Row 0 KEEPS the entry VERBATIM, including an ABSENT `source`. The legacy
+ * inference (rows 4/8/9) deliberately does not run on it: a parse failure is
+ * evidence about upstream's bytes, not about who asked for this capability, so
+ * reconstructing provenance from it would be inventing a fact. And it is
+ * reported on EVERY run while the break persists — unlike the one-shot
+ * `kept-manual` — because the anomaly is still live, and a steady-state silence
+ * would hide an ongoing upstream break.
+ *
+ * Ten cells, three outcomes (ADD / KEEP / DROP). Among rows 1-9 the LEGACY
+ * inference runs FIRST — a `source`-absent entry reads as `auto` when it is in the resolved set
  * (row 4) and as `manual` when it is not (rows 8/9) — and then the manual rules
  * run over the result. That is why row 9 lands on the same `dropped-gone` as row
  * 7 instead of inventing a tenth outcome. The inference is deterministic, but it
@@ -64,11 +84,13 @@ import type {
  * sets only the TAG — row 9 still DROPS a capability gone from the index. It is
  * applied ONLY here, because this is the only place holding the fresh index.
  *
- * Idempotent by construction: after one merge every surviving entry carries an
- * explicit `source`, so row 4's entry becomes row 2 next run and row 8's becomes
- * row 6 — both silent. Rows 1/5/7/9 leave no entry behind to re-fire. Hence
- * `merge(merge(x)) = merge(x)` with an EMPTY change list, which is what makes a
- * second `pharn update` quiet.
+ * Idempotent by construction: after one merge every surviving NON-FROZEN entry
+ * carries an explicit `source`, so row 4's entry becomes row 2 next run and row
+ * 8's becomes row 6 — both silent. Rows 1/5/7/9 leave no entry behind to re-fire.
+ * Hence `merge(merge(x)) = merge(x)` with an EMPTY change list, which is what
+ * makes a second `pharn update` quiet. Row 0 is idempotent in its OUTPUT (the
+ * entry is unchanged) but deliberately NOT silent on repeat, because its input —
+ * an upstream capability the CLI cannot read — is still true.
  *
  * Row 5 is where a user-removed capability RESURRECTS: once removed it is gone
  * from `previous`, so the resolver re-selects it and it re-enters through row 1 —
@@ -76,7 +98,11 @@ import type {
  * preventing it needs tombstones, which are deliberately out of scope (P7).
  */
 export type CapabilityChangeReason =
-  'added' | 'dropped-unselected' | 'dropped-gone' | 'kept-manual';
+  | 'added'
+  | 'dropped-unselected'
+  | 'dropped-gone'
+  | 'kept-manual'
+  | 'kept-frozen';
 
 export interface CapabilityChange {
   // The entry the change is about, carrying the `source` it resolved to.
@@ -85,7 +111,9 @@ export interface CapabilityChange {
 }
 
 export interface CapabilityMerge {
-  // The next `capabilities` array: every entry carries an explicit `source`.
+  // The next `capabilities` array. Every entry carries an explicit `source`
+  // EXCEPT a frozen one (row 0), which is preserved byte-for-byte — including an
+  // absent `source`, because a parse failure is not evidence of provenance.
   capabilities: InstalledCapability[];
   // Every membership difference, for the report. EMPTY means nothing changed —
   // and the caller renders nothing at all (no report noise on a steady state).
@@ -104,10 +132,17 @@ function key(cap: { name: string; role: 'griller' | 'lens' }): string {
  * capabilities. Returns the next `capabilities` array plus every membership
  * change, by the table above.
  *
- * `selection` alone carries full-index membership — `resolveCapabilities` pushes
- * EVERY index entry into either `selected` or `skipped` — so no separate index
- * parameter is needed, and "does this still exist upstream?" stays a membership
- * test rather than a second fetch.
+ * `selection` alone carries full-index membership for everything the fetch
+ * boundary could PARSE — `resolveCapabilities` pushes every index entry into
+ * either `selected` or `skipped` — so "does this still exist upstream?" stays a
+ * membership test rather than a second fetch.
+ *
+ * `frozen` supplies the ONE fact `selection` structurally cannot: a capability
+ * the parse REFUSED never enters the index at all, so it is indistinguishable
+ * from a deleted one by membership alone. Its keys are `role:name` built from the
+ * SUBTREE's role (the authoritative one — a frozen capability's declared `role`
+ * may be exactly what failed), and they are the caller's to supply because this
+ * module owns the merge, not the fetch.
  *
  * ORDER (deterministic, P5): `selection.selected` in index order, then the
  * preserved-manual entries in their previous-config order. Stable across runs, so
@@ -123,6 +158,7 @@ function key(cap: { name: string; role: 'griller' | 'lens' }): string {
 export function mergeCapabilities(
   selection: Selection,
   previous: readonly InstalledCapability[],
+  frozen: ReadonlySet<string>,
 ): CapabilityMerge {
   const resolved = new Set(selection.selected.map(key));
   const inIndex = new Set([
@@ -174,6 +210,18 @@ export function mergeCapabilities(
     const k = key(cap);
     // Already emitted by the prefix loop (rows 2-4).
     if (resolved.has(k)) continue;
+
+    // Row 0 — FROZEN. The capability exists upstream; this run just could not
+    // read it. Kept VERBATIM (no provenance re-tag) and NAMED, so a transient
+    // grammar break upstream can never silently delete a user's config entry.
+    // It must precede the `source` test below: row 5 would otherwise claim an
+    // auto entry, and report the wrong reason for the wrong outcome.
+    if (frozen.has(k)) {
+      const kept: InstalledCapability = { ...cap };
+      capabilities.push(kept);
+      changes.push({ cap: kept, reason: 'kept-frozen' });
+      continue;
+    }
 
     // Row 5 — pharn chose it, pharn un-chooses it. Its FILES are left on disk:
     // `update` never deletes.

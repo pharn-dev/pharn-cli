@@ -32,7 +32,18 @@ vi.mock('../src/lib/install-capabilities.js', () => ({
 }));
 
 const readSkillsVersion = vi.fn();
-vi.mock('../src/lib/skills-version.js', () => ({ readSkillsVersion }));
+// min-cli-gate imports readMinCli from this module, so the mock must expose it —
+// the default is the real-world case: upstream ships no MIN_CLI, no constraint.
+const readMinCli = vi.fn(
+  (): { version: string | null; warning: string | null } => ({
+    version: null,
+    warning: null,
+  }),
+);
+vi.mock('../src/lib/skills-version.js', () => ({
+  readSkillsVersion,
+  readMinCli,
+}));
 
 const loadArchetypeConfigOrExit = vi.fn();
 const writePharnConfig = vi.fn();
@@ -74,6 +85,7 @@ describe('runAdd (archetype)', () => {
   });
 
   const index = {
+    unknown: [],
     capabilities: [
       { name: 'a11y', role: 'griller', applies: ['ssr', 'spa'] },
       { name: 'security', role: 'griller', applies: 'universal' },
@@ -515,6 +527,7 @@ describe('runAdd — pharn.records.json', () => {
       cleanup: vi.fn(),
     });
     parseCapabilityIndex.mockReturnValue({
+      unknown: [],
       capabilities: [
         { name: 'a11y', role: 'griller', applies: ['ssr'] },
         { name: 'n-plus-one', role: 'lens', applies: ['ssr'] },
@@ -673,6 +686,7 @@ describe('runAdd — the layout gate', () => {
     vi.spyOn(process, 'cwd').mockReturnValue(proj);
     loadArchetypeConfigOrExit.mockReturnValue(config('flat'));
     parseCapabilityIndex.mockReturnValue({
+      unknown: [],
       capabilities: [
         { name: 'a11y', role: 'griller', applies: ['ssr'] },
         { name: 'trust-fence', role: 'lens', applies: 'universal' },
@@ -903,5 +917,188 @@ describe('runAdd — the layout gate', () => {
     expect(Object.keys(files!).sort()).toEqual(
       [EXISTING, GRILLER_FILE, LENS_FILE].sort(),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Forward compatibility at `add`: the MIN_CLI handshake and the skipped-capability
+// warning. `add` is the command the old fail-hard behaviour wedged HARDEST — its
+// versionGate points at `pharn update`, whose own first act was the parse that
+// threw — so both surfaces are pinned here.
+// ---------------------------------------------------------------------------
+describe('runAdd — forward compatibility', () => {
+  stubProcessExit();
+  beforeEach(() => {
+    vi.spyOn(process, 'cwd').mockReturnValue('/proj');
+    // vi.clearAllMocks() clears CALLS, not IMPLEMENTATIONS, so the real-filesystem
+    // installers the records/layout suites install would otherwise leak in here.
+    installCapabilityDirs.mockReset();
+    writePharnConfig.mockReset();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+    restoreTTY();
+  });
+
+  const archConfig = (): PharnConfig => ({
+    pharnVersion: '0.4.0',
+    skillsVersion: '1.0.0',
+    repo: 'pharn-dev/pharn-oss',
+    commit: 'old',
+    modules: [],
+    installedAt: '2026-07-07T00:00:00.000Z',
+    archetypes: ['ssr'],
+    capabilities: [{ name: 'security', role: 'griller' }],
+  });
+
+  function mockClone(): ReturnType<typeof vi.fn> {
+    const cleanup = vi.fn();
+    fetchRepo.mockResolvedValue({ dir: '/repo', sha: 'sha', cleanup });
+    parseCapabilityIndex.mockReturnValue({
+      unknown: [],
+      capabilities: [{ name: 'a11y', role: 'griller', applies: ['ssr'] }],
+    });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    readMinCli.mockReturnValue({ version: null, warning: null });
+    return cleanup;
+  }
+
+  const errors = () =>
+    vi
+      .mocked(prompts.log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+  const warnings = () =>
+    vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+
+  it('refuses a too-old CLI: exit 1, clone cleaned up, nothing installed', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    const cleanup = mockClone();
+    readMinCli.mockReturnValue({ version: '99.0.0', warning: null });
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(cleanup).toHaveBeenCalled();
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(errors()).toContain('too old');
+  });
+
+  // MIN_CLI leads the `??` chain deliberately: `pharn update` — what versionGate
+  // names — would be refused for the SAME reason, so pointing the user at it
+  // would send them in a circle. Upgrading is the only action that resolves it.
+  it('the MIN_CLI refusal WINS over the version gate when both fire', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    readMinCli.mockReturnValue({ version: '99.0.0', warning: null });
+    readSkillsVersion.mockReturnValue('2.0.0'); // versionGate would also refuse
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(errors()).toContain('too old');
+    expect(errors()).not.toContain('Skills version mismatch');
+  });
+
+  it('a garbage MIN_CLI warns but does NOT block the install', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    readMinCli.mockReturnValue({
+      version: null,
+      warning:
+        'MIN_CLI in the fetched repo is not a valid version; continuing.',
+    });
+
+    await runAdd('a11y');
+
+    expect(installCapabilityDirs).toHaveBeenCalled();
+    expect(warnings()).toContain('MIN_CLI');
+  });
+
+  it('names an unparseable upstream capability, and still installs the rest', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    parseCapabilityIndex.mockReturnValue({
+      capabilities: [{ name: 'a11y', role: 'griller', applies: ['ssr'] }],
+      unknown: [
+        {
+          name: 'backwards-compat',
+          role: 'griller',
+          subtree: 'pharn-pipeline/grillers',
+          reason: 'missing its markdown',
+        },
+      ],
+    });
+
+    await runAdd('a11y');
+
+    expect(warnings()).toContain('backwards-compat');
+    expect(warnings()).toContain('missing its markdown');
+    expect(installCapabilityDirs).toHaveBeenCalled();
+  });
+
+  // The unparseable capability is not in the index, so `add` cannot address it —
+  // and says so with the addresses that DO work, rather than half-installing it.
+  it('warns ONCE for a multi-pick picker run, not once per pick', async () => {
+    setTTY(true, true);
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...archConfig(),
+      capabilities: [],
+    });
+    mockClone();
+    parseCapabilityIndex.mockReturnValue({
+      capabilities: [
+        { name: 'a11y', role: 'griller', applies: ['ssr'] },
+        { name: 'n-plus-one', role: 'lens', applies: ['ssr'] },
+      ],
+      unknown: [
+        {
+          name: 'backwards-compat',
+          role: 'griller',
+          subtree: 'pharn-pipeline/grillers',
+          reason: 'missing its markdown',
+        },
+      ],
+    });
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+
+    await runAdd(undefined);
+
+    // The index is parsed once and threaded into every pick, so the same fact is
+    // stated once — not once per selected capability.
+    expect(parseCapabilityIndex).toHaveBeenCalledTimes(1);
+    const skipWarnings = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .filter((m) => m.includes('backwards-compat'));
+    expect(skipWarnings).toHaveLength(1);
+  });
+
+  it('cannot add an unparseable capability by name (fail closed on installing)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    parseCapabilityIndex.mockReturnValue({
+      capabilities: [{ name: 'a11y', role: 'griller', applies: ['ssr'] }],
+      unknown: [
+        {
+          name: 'backwards-compat',
+          role: 'griller',
+          subtree: 'pharn-pipeline/grillers',
+          reason: 'missing its markdown',
+        },
+      ],
+    });
+
+    await expect(runAdd('backwards-compat')).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+    expect(errors()).toContain('Unknown capability');
   });
 });

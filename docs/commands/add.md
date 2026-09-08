@@ -28,6 +28,33 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
 `CONSTITUTION.md` is **not** touched — `add` never changes your constitution. Your detected `archetypes`
 are left unchanged; `add` only appends to `capabilities`.
 
+## `pharn is too old for the current pharn-oss`
+
+pharn-oss can ship a root `MIN_CLI` file declaring the **minimum pharn version** its content needs.
+When your installed version is older, `add` refuses **before anything is written** and before the
+picker renders, cleans up the temporary clone, and exits 1. Upgrading
+(`npm install -g @pharn-dev/pharn@latest`) is the fix.
+
+This refusal takes priority over the version mismatch below, on purpose: `pharn update` — which the
+version mismatch tells you to run — would be refused for the same reason, so upgrading is the only
+step that actually resolves it.
+
+A `MIN_CLI` that is missing, unreadable, or malformed imposes **no** constraint (a warning at most).
+
+## Skipped upstream capabilities
+
+`add` always clones the tip of `main`, so a capability can exist upstream in a shape your installed
+pharn version cannot read yet. `add` names each one and continues:
+
+```text
+1 upstream capability could not be read and was SKIPPED — not installed:
+  griller:backwards-compat (pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
+```
+
+Such a capability is **not addressable**: `pharn add backwards-compat` reports it as an unknown
+capability and lists the ones that do work. pharn will not install content it could not validate.
+Upgrade pharn, or wait for upstream to finish the change.
+
 ## Version mismatch
 
 `add` always clones the tip of `pharn-dev/pharn-oss@main`, so the clone can be **newer** than what you

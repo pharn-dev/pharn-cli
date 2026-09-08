@@ -12,6 +12,9 @@ import { cancelAndExit } from '../lib/confirm.js';
 import { REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
+import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
+import { minCliGate } from '../lib/min-cli-gate.js';
+import { PHARN_VERSION } from '../version.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import {
   mergeCapabilities,
@@ -21,11 +24,12 @@ import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { applyWrites, ApplyError, readDiskState } from '../lib/apply-update.js';
 import { createBackup, BACKUP_DIR } from '../lib/backup.js';
 import { sha256File } from '../lib/hash.js';
-import { configLayout, detectLayout } from '../lib/layout.js';
+import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import {
   buildRecords,
   readRecords,
   recordsBaseline,
+  recordsUnderCapabilities,
   RECORDS_FILE,
   writeRecords,
 } from '../lib/install-records.js';
@@ -197,17 +201,40 @@ async function runArchetypeUpdate(
 
   let outcome: UpdateOutcome | null = null;
   let failure: string | null = null;
+  let refusal: string | null = null;
   try {
-    outcome = await applyUpdate(repo.dir, repo.sha, config, cwd, force);
-    s2.stop(
-      outcome.plan.writes.length ? 'Capabilities updated' : 'Nothing to write',
-    );
+    // THE MIN_CLI GATE — upstream's lever to refuse a stale CLI CLEANLY instead
+    // of breaking somewhere downstream. Inside the try (like `add`'s gates) so
+    // the clone's finally cleanup still runs before any exit, and BEFORE
+    // applyUpdate so a refusal writes nothing at all. It can only fire after the
+    // confirm, because the file it reads lives in the clone — named in
+    // GRILL.md; the refusal still costs zero writes.
+    const gate = minCliGate(repo.dir, PHARN_VERSION);
+    if (gate.warning) log.warn(gate.warning);
+    if (gate.refusal) {
+      s2.stop('Update refused');
+      refusal = gate.refusal;
+    } else {
+      outcome = await applyUpdate(repo.dir, repo.sha, config, cwd, force);
+      s2.stop(
+        outcome.plan.writes.length
+          ? 'Capabilities updated'
+          : 'Nothing to write',
+      );
+    }
   } catch (err) {
     s2.stop('Update failed');
     failure = err instanceof Error ? err.message : String(err);
     if (process.env.PHARN_DEBUG) console.error(err);
   } finally {
     repo.cleanup();
+  }
+
+  // A policy refusal is not a failure to debug — no PHARN_DEBUG hint, and the
+  // message already names the one action that resolves it.
+  if (refusal) {
+    log.error(`⚠ ${refusal}`);
+    process.exit(1);
   }
 
   if (failure || !outcome) {
@@ -231,6 +258,16 @@ async function applyUpdate(
   force: boolean,
 ): Promise<UpdateOutcome> {
   const index = parseCapabilityIndex(repoDir);
+  // No silent skips (P5): a capability the fetch boundary refused is NAMED here,
+  // immediately after the parse, at every call site.
+  const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+  if (unknownWarning) log.warn(unknownWarning);
+  // The frozen key set: `role:name` for every unparseable capability, built from
+  // the SUBTREE's role (authoritative — a frozen capability's declared role may
+  // be exactly what failed). It answers the one question index membership
+  // structurally cannot: "is this entry missing because it was REMOVED upstream,
+  // or because we could not READ it this run?"
+  const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
   const selection = resolveCapabilities(config.archetypes ?? [], index);
   // The UNION, not a wholesale replace: the freshly-resolved auto set PLUS every
   // manual entry the user added by name (lib/merge-capabilities.ts owns the
@@ -246,8 +283,23 @@ async function applyUpdate(
   // they always take the `restored` row and are written regardless; withholding
   // membership instead would strand a phantom entry forever for any user whose
   // tree has a single local edit.
-  const merged = mergeCapabilities(selection, config.capabilities ?? []);
-  const capabilities: InstalledCapability[] = merged.capabilities;
+  const merged = mergeCapabilities(
+    selection,
+    config.capabilities ?? [],
+    frozen,
+  );
+  // TWO arrays, deliberately — they answer different questions and a frozen entry
+  // separates them. The CONFIG keeps the entry (it is still this project's
+  // capability; `update` never deletes, and a transient upstream parse failure
+  // must not silently drop it). The MANIFEST must NOT: it is `update`'s only
+  // write source, and enumerating an unparseable clone directory would classify
+  // its files `restored` (update-decision.ts row 1) and copy an arbitrary WIP
+  // upstream directory into the user's project — the exact fail-open this whole
+  // contract exists to prevent. Recorded is not the same as re-copied.
+  const configCapabilities: InstalledCapability[] = merged.capabilities;
+  const manifestCapabilities = configCapabilities.filter(
+    (cap) => !frozen.has(`${cap.role}:${cap.name}`),
+  );
   const installedVersion = readSkillsVersion(repoDir);
 
   // The layout the copy actually mirrors is the CLONE's (this is what
@@ -259,7 +311,7 @@ async function applyUpdate(
 
   const expected = collectExpectedInstallPaths({
     repoDir,
-    capabilities,
+    capabilities: manifestCapabilities,
     layout,
   });
 
@@ -329,16 +381,37 @@ async function applyUpdate(
   // exactly the assumption a record exists to avoid making: hashing what landed
   // is what makes "the record cannot disagree with disk" true by construction
   // rather than by trusting the copy (lib/install-records.ts).
+  // A frozen capability is absent from the manifest, and `planUpdate` keys
+  // `nextRecords` by the manifest — so without this its entries would be pruned
+  // as "no longer installed". They are not: nothing under it was touched, so its
+  // recorded hashes are still true, and dropping them would make the next run
+  // (once upstream parses again) read every one of those files as `unrecorded`
+  // and skip it — a transient upstream break turned into a `--force`.
+  const frozenRecords =
+    records === null
+      ? {}
+      : recordsUnderCapabilities(
+          records,
+          layoutPaths(layout),
+          configCapabilities.filter((cap) =>
+            frozen.has(`${cap.role}:${cap.name}`),
+          ),
+        );
+
   await writeRecords(cwd, {
     skillsVersion: nextSkillsVersion,
     commit: nextCommit,
-    files: { ...plan.nextRecords, ...buildRecords(cwd, written) },
+    files: {
+      ...frozenRecords,
+      ...plan.nextRecords,
+      ...buildRecords(cwd, written),
+    },
   });
   await writePharnConfig(cwd, {
     ...config,
     skillsVersion: nextSkillsVersion,
     commit: nextCommit,
-    capabilities,
+    capabilities: configCapabilities,
     layout,
     installedAt: new Date().toISOString(),
   });
@@ -346,7 +419,7 @@ async function applyUpdate(
   return {
     installedVersion,
     recordedVersion: nextSkillsVersion,
-    capCount: capabilities.length,
+    capCount: configCapabilities.length,
     capabilityChanges: merged.changes,
     plan,
     backupDir,
@@ -446,6 +519,11 @@ const CHANGE_ORDER: { reason: CapabilityChange['reason']; heading: string }[] =
     {
       reason: 'kept-manual',
       heading: 'KEPT — your manual add, not selected by your archetypes',
+    },
+    {
+      reason: 'kept-frozen',
+      heading:
+        'KEPT — pharn could not read these upstream this run, so they were left exactly as they are',
     },
   ];
 

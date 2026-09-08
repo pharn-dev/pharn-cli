@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Forward-compatibility contract at the capability-index boundary.** pharn always fetches
+  `pharn-dev/pharn-oss` at `main` HEAD and can never pin older content, so one routine grammar
+  evolution upstream — a new capability directory without its markdown, a new `role`, a new `applies`
+  token — used to abort `init` / `add` / `update` in every released CLI at once, with no rollback
+  lever (`add` doubly so: its version gate names `pharn update`, whose own first act was the parse
+  that threw). `parseCapabilityIndex` now **tolerates and reports**: any validation refusal raised
+  while processing ONE capability skips that capability and records it in a new
+  `CapabilityIndex.unknown` list, which every fetching command names with its reason. The posture is
+  unchanged where it matters — `validate.ts`'s enums stay frozen, and nothing unparseable is ever
+  selected, copied, enumerated by the install manifest, or written; a **structural** break (a missing
+  subtree) still hard-fails. `update` keeps a frozen capability's `pharn.config.json` entry (reported
+  as `KEPT`, never `REMOVED`) while excluding it from the manifest, and still bumps `skillsVersion`,
+  so a following `pharn add` is not wedged. `status` excludes it from the drift comparison, so
+  `--strict` cannot fail on drift no command can resolve. Named as `LIMITS.md` §3e.
+- **Optional `MIN_CLI` version handshake.** pharn-oss may ship a root `MIN_CLI` file declaring the
+  minimum CLI version its content requires; `init` / `add` / `update` refuse a too-old CLI **before
+  any write**, with an actionable upgrade message, and clean the clone up. Deliberately fail-open in
+  one direction: absent, unreadable, or malformed imposes **no** constraint (a warning at most), so
+  one upstream typo in a one-line file cannot become the fleet outage the handshake exists to
+  prevent. Only a well-formed value whose numeric core is greater refuses; a prerelease compares
+  equal to its release.
+
 - **`pharn/pharn-core/` is now installed.** The product `/pharn-build` command shipped by pharn-oss
   cites `pharn/pharn-core/seam-resolver/seam-resolver.md` at three points, and `init` has always
   written a `seam` block into `pharn.config.json` and installed `check-seam-config.mjs` with the

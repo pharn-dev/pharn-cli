@@ -1,23 +1,7 @@
 {
   "scope": [
-    "src/lib/constants.ts",
-    "src/lib/layout.ts",
-    "src/lib/install-capabilities.ts",
-    "src/lib/install-manifest.ts",
-    "src/types.ts",
-    "tests/install-capabilities.test.ts",
-    "tests/install-manifest.test.ts",
-    "tests/layout.test.ts",
-    "tests/update.test.ts",
-    "tests/diff.test.ts",
-    "tests/overwrite-check.test.ts",
-    "docs/getting-started.md",
-    "docs/commands/init.md",
-    "docs/commands/update.md",
-    "docs/commands/status.md",
-    "README.md",
-    "CHANGELOG.md"
+    ".dev/features/capability-index-forward-compat/SHIP.md"
   ],
-  "set_by": ".dev/features/install-pharn-core/PLAN.md",
-  "set_at": "2026-09-07T14:16:24.140Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-08T05:52:07.955Z"
 }
