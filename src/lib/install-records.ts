@@ -260,7 +260,20 @@ export function buildRecords(
   const files: FileRecords = {};
   for (const rel of rels) {
     const dest = safeJoin(projectRoot, rel);
-    const stat = lstatSync(dest, { throwIfNoEntry: false });
+    // An UNSTATABLE dest is treated exactly like an absent one. `throwIfNoEntry`
+    // suppresses ENOENT only, so a rel whose parent is a REGULAR FILE raises
+    // ENOTDIR here — and the caller feeds this the SOURCE-derived install
+    // manifest, which cannot know the copy skipped that path for the same
+    // reason. Recording what did not land is impossible; crashing the install
+    // after every file is already written is worse. Skipping keeps this
+    // function's one invariant intact: a record describes bytes that are
+    // actually there.
+    let stat;
+    try {
+      stat = lstatSync(dest, { throwIfNoEntry: false });
+    } catch {
+      continue;
+    }
     if (!stat?.isFile()) continue;
     files[rel] = sha256File(dest);
   }

@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are now measured and pinned by tests. No release shipped either unguarded copy; both holes were
   found and closed in the same change that introduced the path.
 
+  A project that merely has a **regular file** named `features` is left alone rather than breaking the
+  install: the copy is skipped (a copy there would fail anyway), and the record-writing pass, which is
+  driven by what upstream ships rather than by what was written, now skips a path it cannot stat
+  instead of failing after every other file is already on disk.
+
 - **A `pharn`-layout install can now ship `THREAT-MODEL.md` and `LIMITS.md`.** The install placed only
   `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md`, treating the other two trusted docs as
   dev-only — while the same install shipped ten product commands, the floor checkers and the

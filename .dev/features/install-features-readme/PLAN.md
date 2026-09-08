@@ -17,6 +17,8 @@
 - `src/lib/constants.ts` — `FEATURES_README = 'features/README.md'`, layout-invariant, with its failure mode named — layer `lib`
 - `src/lib/install-capabilities.ts` — copy it after the docs loop, same posture; correct the header enumeration AND the stale pharn-docs comment — layer `lib`
 - `src/lib/install-manifest.ts` — mirror it after the docs loop, manifest posture; correct the header enumeration — layer `lib`
+- `src/lib/install-records.ts` — `buildRecords` must treat an UNSTATABLE dest like an absent one (ENOTDIR from a component below a regular file), so a path the copy skipped is not recorded — layer `lib`
+- `tests/install-records.test.ts` — that skip — layer `tests`
 - `tests/install-capabilities.test.ts` — fixtures in both layouts; lands at the project root in both; symlinked copy refused — layer `tests`
 - `tests/install-manifest.test.ts` — fixtures in both layouts; key present in both; the P7 omission — layer `tests`
 - `docs/commands/init.md`, `docs/commands/status.md` — the copied-set enumerations — layer `docs`
