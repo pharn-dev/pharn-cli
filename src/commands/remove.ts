@@ -17,6 +17,7 @@ import {
   interactiveAllowed,
 } from '../lib/capability-picker.js';
 import { safeJoin } from '../lib/validate.js';
+import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
   loadArchetypeConfigOrExit,
   writePharnConfig,
@@ -46,7 +47,20 @@ export async function runRemove(arg: string | undefined): Promise<void> {
 
   const cwd = process.cwd();
   const config = loadArchetypeConfigOrExit(cwd);
-  await removeCapability(cwd, config, arg);
+  try {
+    await removeCapability(cwd, config, arg);
+  } catch (err) {
+    // A held lock is the one refusal this command can hit from below, and it is
+    // a policy refusal rather than a crash: the message names the one action
+    // that resolves it, so it gets the same no-stack-trace treatment as the
+    // ambiguity and not-installed refusals above. `remove` takes no clone, so
+    // there is nothing to clean up before the exit.
+    if (err instanceof ProjectLockedError) {
+      logError(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
 }
 
 // Each capability is an isolated dir, so removal is a precise recursive delete
@@ -211,31 +225,37 @@ async function removeNamed(
 
   const target = matches[0]!;
   const paths = layoutPaths(configLayout(config));
-  const existed = deleteCapabilityDir(cwd, paths, target);
-  const note = existed ? '' : pc.dim(' (its files were already gone)');
+  // The single-writer lock spans delete → prune → config: the three writes are
+  // individually atomic but the sequence is not, so another process must not
+  // land between them. `remove` has no prompt on this path and no network, so
+  // the held window is the write itself.
+  const note = await withProjectLock(cwd, 'remove', async () => {
+    const existed = deleteCapabilityDir(cwd, paths, target);
 
-  // Order: delete → prune records → write config (mirroring `add`'s
-  // records-before-config). Each of those two writes is individually atomic
-  // (lib/atomic-write.ts), but the PAIR is not a transaction, so this remains a
-  // benign-failure argument, NOT an atomicity claim (advisory, P0): a prune that
-  // fails after the delete leaves exactly today's status quo — stale entries the
-  // next `update` prunes — and a config write that fails after the prune leaves
-  // the entry listed with its files absent, which the next `update` restores and
-  // re-records. Neither direction corrupts, and since the stamp never moves the
-  // two files cannot skew relative to each other.
-  //
-  // `existed` deliberately does NOT gate this: on the "already gone" path the
-  // records are exactly what is left to clean up.
-  await pruneCapabilityRecords(cwd, config, paths, [target]);
+    // Order: delete → prune records → write config (mirroring `add`'s
+    // records-before-config). Each of those two writes is individually atomic
+    // (lib/atomic-write.ts), but the PAIR is not a transaction, so this remains a
+    // benign-failure argument, NOT an atomicity claim (advisory, P0): a prune that
+    // fails after the delete leaves exactly today's status quo — stale entries the
+    // next `update` prunes — and a config write that fails after the prune leaves
+    // the entry listed with its files absent, which the next `update` restores and
+    // re-records. Neither direction corrupts, and since the stamp never moves the
+    // two files cannot skew relative to each other.
+    //
+    // `existed` deliberately does NOT gate this: on the "already gone" path the
+    // records are exactly what is left to clean up.
+    await pruneCapabilityRecords(cwd, config, paths, [target]);
 
-  // The surviving entries are the ORIGINAL objects, so every other capability's
-  // `source` is carried through untouched.
-  await writePharnConfig(cwd, {
-    ...config,
-    capabilities: installed.filter(
-      (c) => !(c.name === target.name && c.role === target.role),
-    ),
-    installedAt: new Date().toISOString(),
+    // The surviving entries are the ORIGINAL objects, so every other
+    // capability's `source` is carried through untouched.
+    await writePharnConfig(cwd, {
+      ...config,
+      capabilities: installed.filter(
+        (c) => !(c.name === target.name && c.role === target.role),
+      ),
+      installedAt: new Date().toISOString(),
+    });
+    return existed ? '' : pc.dim(' (its files were already gone)');
   });
 
   warnIfAutoSelected([target]);
@@ -307,19 +327,26 @@ async function runRemovePicker(
   if (isCancel(ok) || ok !== true) cancelAndExit();
 
   const paths = layoutPaths(configLayout(config));
-  for (const target of targets) deleteCapabilityDir(cwd, paths, target);
+  // Taken AFTER the confirm — holding it across an unanswered destructive
+  // prompt would block an agent hook for as long as a human takes to answer —
+  // and spanning the whole selection, not one lock per capability.
+  await withProjectLock(cwd, 'remove', async () => {
+    for (const target of targets) deleteCapabilityDir(cwd, paths, target);
 
-  // One prune for the whole selection — the same delete → prune → config order
-  // as removeNamed, and one store write to match the one config write below.
-  await pruneCapabilityRecords(cwd, config, paths, targets);
+    // One prune for the whole selection — the same delete → prune → config
+    // order as removeNamed, and one store write to match the one config write.
+    await pruneCapabilityRecords(cwd, config, paths, targets);
 
-  // As in removeNamed: survivors are the original objects, so their `source` is
-  // preserved verbatim.
-  const removed = new Set(targets.map((t) => `${t.role}:${t.name}`));
-  await writePharnConfig(cwd, {
-    ...config,
-    capabilities: installed.filter((c) => !removed.has(`${c.role}:${c.name}`)),
-    installedAt: new Date().toISOString(),
+    // As in removeNamed: survivors are the original objects, so their `source`
+    // is preserved verbatim.
+    const removed = new Set(targets.map((t) => `${t.role}:${t.name}`));
+    await writePharnConfig(cwd, {
+      ...config,
+      capabilities: installed.filter(
+        (c) => !removed.has(`${c.role}:${c.name}`),
+      ),
+      installedAt: new Date().toISOString(),
+    });
   });
 
   warnIfAutoSelected(targets);

@@ -31,6 +31,25 @@ vi.mock('@clack/prompts', () => ({
 const fetchRepo = vi.fn();
 vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
 
+// The single-writer lock does REAL fs work in the project root, and most of this
+// file runs against the fake cwd `/proj`. Pass it through here and assert the
+// WIRING (which command name, which cwd) — the lock's own behaviour, and the
+// end-to-end refusal, are covered against real directories in
+// tests/project-lock.test.ts and tests/project-lock-commands.test.ts.
+const withProjectLock = vi.fn(
+  async (_cwd: string, _command: string, fn: () => unknown) => fn(),
+);
+vi.mock('../src/lib/project-lock.js', async () => ({
+  // Only the acquisition is stubbed. ProjectLockedError stays the REAL class,
+  // because add.ts branches on `instanceof` to route a held lock to the refusal
+  // path (no PHARN_DEBUG hint) rather than the crash path — a stand-in class
+  // would silently take the wrong branch.
+  ...(await vi.importActual<typeof import('../src/lib/project-lock.js')>(
+    '../src/lib/project-lock.js',
+  )),
+  withProjectLock,
+}));
+
 const parseCapabilityIndex = vi.fn();
 vi.mock('../src/lib/capability-index.js', () => ({ parseCapabilityIndex }));
 
@@ -184,6 +203,21 @@ describe('runAdd (archetype)', () => {
     ]);
     expect((written as PharnConfig).archetypes).toEqual(['ssr']);
     expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('holds the single-writer lock across the install, once per run', async () => {
+    // Wiring, not behaviour: the lock itself is covered in
+    // tests/project-lock.test.ts and the refusal end-to-end in
+    // tests/project-lock-commands.test.ts. What must be pinned HERE is that
+    // `add` takes it at all, names itself, and takes exactly one — a per-pick
+    // lock would leave gaps between picks for another process to interleave.
+    await runAdd('a11y');
+    expect(withProjectLock).toHaveBeenCalledTimes(1);
+    expect(withProjectLock).toHaveBeenCalledWith(
+      '/proj',
+      'add',
+      expect.any(Function),
+    );
   });
 
   it('resolves role:name addressing', async () => {

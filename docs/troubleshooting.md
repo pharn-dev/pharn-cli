@@ -261,6 +261,41 @@ du -sh "${XDG_CACHE_HOME:-$HOME/.cache}/degit"   # Linux and other POSIX
 The directory is shared with any other tool that uses `degit`, so if you use one, delete only
 `degit/github/pharn-dev/pharn-oss` inside it rather than the whole tree.
 
+## Another pharn process is running
+
+`init`, `add`, `remove` and `update` take a single-writer lock on the project before they write
+anything, and refuse rather than queue:
+
+```text
+■  Another pharn process is writing to this project: pharn update (pid 4821 on my-laptop,
+   since 2026-09-08T20:14:03.117Z).
+   Wait for it to finish, or delete .pharn.lock if you are sure no pharn process is running.
+```
+
+Exit code 1, and **nothing is written**.
+
+This exists because two concurrent runs do not merely race on a file — they corrupt the drift
+baseline. Process A overwrites a file; process B, which planned against the pre-A snapshot,
+overwrites it again and records its own hash; A then persists its records and config last, recording
+a hash for bytes B replaced. `pharn.records.json` then disagrees with disk **under a matching stamp**,
+which is exactly the state the stamp check exists to catch — so `update` loses its ability to tell
+"pharn wrote this" from "you edited this".
+
+**`list` and `status` are never blocked and never take the lock**, so `pharn status --strict` stays
+runnable in CI while an update is in flight.
+
+### If the lock outlives its owner
+
+A run that is `SIGKILL`ed or loses power cannot release. `pharn` breaks such a lock by itself when
+any of these hold:
+
+- the file is missing, unreadable, or not a well-formed lock payload;
+- it is more than six hours old;
+- it names a pid on **this** host that is no longer running.
+
+A lock from **another host** is only retired by age — a pid means nothing across machines. If you are
+certain nothing is running, deleting `.pharn.lock` is safe and is the documented escape.
+
 ## `add` / `update` say to run init first
 
 ```text

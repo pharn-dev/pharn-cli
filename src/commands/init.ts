@@ -16,6 +16,7 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
+import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { runGitPrereq } from '../steps/prereqs.js';
@@ -142,12 +143,21 @@ async function runInitArchetype(): Promise<void> {
         // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
         // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
         const commit = repo.sha;
-        await runInstallArchetype(repo.dir, cwd, archetypes, selection, commit);
+        // The single-writer lock, taken after BOTH prompts and released in the
+        // same finally that disposes of the clone. Holding it across an
+        // unanswered confirm would block an agent hook for as long as a human
+        // takes to answer.
+        await withProjectLock(cwd, 'init', () =>
+          runInstallArchetype(repo.dir, cwd, archetypes, selection, commit),
+        );
         outcome = 'installed';
       }
     }
   } catch (err) {
-    failure = { err };
+    // A held lock is a policy refusal, not a crash — same treatment as the
+    // other refusals below: named, actionable, and no PHARN_DEBUG hint.
+    if (err instanceof ProjectLockedError) refusal = err.message;
+    else failure = { err };
   } finally {
     repo.cleanup();
   }
