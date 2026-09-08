@@ -868,6 +868,40 @@ describe('runUpdate (drift-safe)', () => {
       ]);
     });
 
+    // Its records must SURVIVE. planUpdate keys nextRecords by the manifest, and
+    // a frozen capability is deliberately absent from it — so without an explicit
+    // carry-over its entries would be pruned as "no longer installed". They are
+    // not: nothing under it was touched, so the recorded hashes are still true.
+    // Losing them would make the next run (once upstream parses again) read every
+    // one of those files as `unrecorded` and skip it — a transient upstream break
+    // turned into a --force.
+    it('KEEPS the records of an already-installed frozen capability', async () => {
+      await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
+      // The capability WAS installed at v1, so the project holds its bytes and
+      // the store holds their hashes.
+      const INSTALLED_FILE = FROZEN_FILE;
+      write(join(proj, INSTALLED_FILE), 'installed at v1');
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: null,
+        files: {
+          ...read.store.files,
+          [INSTALLED_FILE]: sha256File(join(proj, INSTALLED_FILE)),
+        },
+      });
+      const before = records()![INSTALLED_FILE];
+      frozenUpstream();
+
+      await runUpdate();
+
+      // Untouched on disk...
+      expect(body(INSTALLED_FILE)).toBe('installed at v1');
+      // ...and still recorded, at the same hash.
+      expect(records()?.[INSTALLED_FILE]).toBe(before);
+    });
+
     it('reports it as KEPT — never dropped-unselected, never dropped-gone', async () => {
       await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
       frozenUpstream();

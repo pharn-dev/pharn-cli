@@ -24,11 +24,12 @@ import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { applyWrites, ApplyError, readDiskState } from '../lib/apply-update.js';
 import { createBackup, BACKUP_DIR } from '../lib/backup.js';
 import { sha256File } from '../lib/hash.js';
-import { configLayout, detectLayout } from '../lib/layout.js';
+import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import {
   buildRecords,
   readRecords,
   recordsBaseline,
+  recordsUnderCapabilities,
   RECORDS_FILE,
   writeRecords,
 } from '../lib/install-records.js';
@@ -380,10 +381,31 @@ async function applyUpdate(
   // exactly the assumption a record exists to avoid making: hashing what landed
   // is what makes "the record cannot disagree with disk" true by construction
   // rather than by trusting the copy (lib/install-records.ts).
+  // A frozen capability is absent from the manifest, and `planUpdate` keys
+  // `nextRecords` by the manifest — so without this its entries would be pruned
+  // as "no longer installed". They are not: nothing under it was touched, so its
+  // recorded hashes are still true, and dropping them would make the next run
+  // (once upstream parses again) read every one of those files as `unrecorded`
+  // and skip it — a transient upstream break turned into a `--force`.
+  const frozenRecords =
+    records === null
+      ? {}
+      : recordsUnderCapabilities(
+          records,
+          layoutPaths(layout),
+          configCapabilities.filter((cap) =>
+            frozen.has(`${cap.role}:${cap.name}`),
+          ),
+        );
+
   await writeRecords(cwd, {
     skillsVersion: nextSkillsVersion,
     commit: nextCommit,
-    files: { ...plan.nextRecords, ...buildRecords(cwd, written) },
+    files: {
+      ...frozenRecords,
+      ...plan.nextRecords,
+      ...buildRecords(cwd, written),
+    },
   });
   await writePharnConfig(cwd, {
     ...config,

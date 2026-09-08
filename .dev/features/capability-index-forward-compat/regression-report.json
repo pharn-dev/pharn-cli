@@ -1,0 +1,55 @@
+{
+  "base": "64e5d28c959612a2e353658bc3bde225454a7b7c",
+  "inside": [
+    "CHANGELOG.md",
+    "LIMITS.md",
+    "docs/commands/add.md",
+    "docs/commands/init.md",
+    "docs/commands/update.md",
+    "docs/troubleshooting.md",
+    "src/commands/add.ts",
+    "src/commands/init.ts",
+    "src/commands/status.ts",
+    "src/commands/update.ts",
+    "src/lib/capability-index.ts",
+    "src/lib/constants.ts",
+    "src/lib/merge-capabilities.ts",
+    "src/lib/min-cli-gate.ts",
+    "src/lib/semver.ts",
+    "src/lib/skills-version.ts",
+    "src/lib/unknown-capabilities.ts",
+    "src/types.ts",
+    "tests/add.test.ts",
+    "tests/capability-index.test.ts",
+    "tests/capability-picker.test.ts",
+    "tests/constants.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/init.test.ts",
+    "tests/merge-capabilities.test.ts",
+    "tests/min-cli-gate.test.ts",
+    "tests/resolve-capabilities.test.ts",
+    "tests/semver.test.ts",
+    "tests/skills-version.test.ts",
+    "tests/status.test.ts",
+    "tests/unknown-capabilities.test.ts",
+    "tests/update.test.ts",
+    "src/lib/install-records.ts"
+  ],
+  "outside_gates": {
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

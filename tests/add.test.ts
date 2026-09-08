@@ -1041,6 +1041,44 @@ describe('runAdd — forward compatibility', () => {
 
   // The unparseable capability is not in the index, so `add` cannot address it —
   // and says so with the addresses that DO work, rather than half-installing it.
+  it('warns ONCE for a multi-pick picker run, not once per pick', async () => {
+    setTTY(true, true);
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...archConfig(),
+      capabilities: [],
+    });
+    mockClone();
+    parseCapabilityIndex.mockReturnValue({
+      capabilities: [
+        { name: 'a11y', role: 'griller', applies: ['ssr'] },
+        { name: 'n-plus-one', role: 'lens', applies: ['ssr'] },
+      ],
+      unknown: [
+        {
+          name: 'backwards-compat',
+          role: 'griller',
+          subtree: 'pharn-pipeline/grillers',
+          reason: 'missing its markdown',
+        },
+      ],
+    });
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+
+    await runAdd(undefined);
+
+    // The index is parsed once and threaded into every pick, so the same fact is
+    // stated once — not once per selected capability.
+    expect(parseCapabilityIndex).toHaveBeenCalledTimes(1);
+    const skipWarnings = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .filter((m) => m.includes('backwards-compat'));
+    expect(skipWarnings).toHaveLength(1);
+  });
+
   it('cannot add an unparseable capability by name (fail closed on installing)', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(archConfig());
     mockClone();

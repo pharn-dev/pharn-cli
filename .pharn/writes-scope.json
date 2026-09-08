@@ -1,38 +1,7 @@
 {
   "scope": [
-    "src/types.ts",
-    "src/lib/capability-index.ts",
-    "src/lib/unknown-capabilities.ts",
-    "src/lib/semver.ts",
-    "src/lib/constants.ts",
-    "src/lib/skills-version.ts",
-    "src/lib/min-cli-gate.ts",
-    "src/lib/merge-capabilities.ts",
-    "src/commands/init.ts",
-    "src/commands/add.ts",
-    "src/commands/update.ts",
-    "src/commands/status.ts",
-    "tests/capability-index.test.ts",
-    "tests/skills-version.test.ts",
-    "tests/semver.test.ts",
-    "tests/min-cli-gate.test.ts",
-    "tests/unknown-capabilities.test.ts",
-    "tests/merge-capabilities.test.ts",
-    "tests/update.test.ts",
-    "tests/status.test.ts",
-    "tests/add.test.ts",
-    "tests/init.test.ts",
-    "tests/init-archetype.test.ts",
-    "tests/capability-picker.test.ts",
-    "tests/resolve-capabilities.test.ts",
-    "tests/constants.test.ts",
-    "docs/troubleshooting.md",
-    "docs/commands/update.md",
-    "docs/commands/add.md",
-    "docs/commands/init.md",
-    "LIMITS.md",
-    "CHANGELOG.md"
+    ".dev/features/capability-index-forward-compat/SHIP.md"
   ],
-  "set_by": ".dev/features/capability-index-forward-compat/PLAN.md",
-  "set_at": "2026-09-08T05:32:43.126Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-08T05:52:07.955Z"
 }

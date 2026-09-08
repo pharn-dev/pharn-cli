@@ -36,7 +36,11 @@ import {
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
-import type { InstalledCapability, PharnConfig } from '../types.js';
+import type {
+  CapabilityIndex,
+  InstalledCapability,
+  PharnConfig,
+} from '../types.js';
 
 // `pharn add <name>` / `add <role>:<name>` installs one capability into an
 // archetype project. Bare `pharn add` in a terminal opens a grouped multi-select
@@ -310,7 +314,9 @@ async function resolveAddPicker(
   // No silent skips (P5): named immediately after the parse, so it precedes both
   // the `all-installed` outro and the picker itself — the user never reads
   // "all available capabilities are already installed" without also being told
-  // that something upstream was skipped.
+  // that something upstream was skipped. ONCE per command: the index is threaded
+  // into every pick below rather than re-parsed, so an N-pick run does not repeat
+  // the same warning N times.
   const unknownWarning = unknownCapabilitiesWarning(index.unknown);
   if (unknownWarning) log.warn(unknownWarning);
   const installed = config.capabilities ?? [];
@@ -347,6 +353,7 @@ async function resolveAddPicker(
       cwd,
       parsed,
       value,
+      index,
     );
     if (result.kind === 'added') {
       log.info(`${pc.green('✔')} Added ${result.name}`);
@@ -401,14 +408,20 @@ async function resolveArchetypeAdd(
   cwd: string,
   parsed: { name: string; role?: 'griller' | 'lens' },
   arg: string,
+  // The already-parsed index, when the caller holds one. The picker passes its
+  // own so an N-pick run parses ONCE and warns ONCE; the named path omits it and
+  // parses here. Either way the unknown list is surfaced exactly once per
+  // command — naming it at only some parses is how a skipped capability becomes
+  // invisible, and naming it at every pick is just noise for the same fact.
+  parsedIndex?: CapabilityIndex,
 ): Promise<AddResult> {
-  const index = parseCapabilityIndex(repoDir);
-  // No silent skips (P5). The picker path also parses (resolveAddPicker), so a
-  // multi-pick run renders this once per pick; that is the honest cost of naming
-  // it at EVERY parse, and the alternative — naming it at only some — is how a
-  // skipped capability becomes invisible.
-  const unknownWarning = unknownCapabilitiesWarning(index.unknown);
-  if (unknownWarning) log.warn(unknownWarning);
+  let index = parsedIndex;
+  if (index === undefined) {
+    index = parseCapabilityIndex(repoDir);
+    // No silent skips (P5).
+    const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+    if (unknownWarning) log.warn(unknownWarning);
+  }
   const matches = index.capabilities.filter(
     (c) =>
       c.name === parsed.name &&
