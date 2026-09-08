@@ -197,7 +197,7 @@ async function runArchetypeUpdate(
     if (isCancel(ok) || ok !== true) cancelAndExit();
   }
 
-  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
   // the spinner so it survives the frame and precedes a proxy-caused failure
   // (see src/commands/init.ts for the full rationale).
   const proxyNotice = detectProxyNotice(process.env);

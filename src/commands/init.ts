@@ -35,7 +35,7 @@ export async function runInit(): Promise<void> {
   // Without this, init's first prompt (the archetype summary's select) renders
   // into a dead stream and cancels through cancelAndExit's exit(0) — a silent
   // no-op that has ALREADY paid for a full clone, since the fetch precedes it.
-  // Refusing here wastes neither the network nor the ~/.degit tarball.
+  // Refusing here wastes no network round trip at all.
   //
   // The prereq runs FIRST and deliberately so: a directory with no `.git` gets
   // the more useful "run git init" error, exactly as `update` lets its config
@@ -75,16 +75,13 @@ async function runInitArchetype(): Promise<void> {
   const { archetypes } = detectArchetypesFromProject(cwd);
   note(archetypes.join(', '), 'Detected archetypes');
 
-  // degit reads process.env.https_proxy ITSELF (measured at degit@3.6.6) and
-  // reads ONLY that lowercase spelling, so a non-lowercase-only environment
-  // clones DIRECTLY on POSIX while a `https_proxy` one is interposed by a host
-  // pharn never declared — neither of which was discoverable from any pharn
-  // output. Emit BEFORE the spinner starts, for two reasons: a log.warn into an
-  // active clack spinner frame is overwritten, and a clone that FAILS because of
-  // a misconfigured proxy is exactly when the user most needs to have been told.
-  // ADVISORY: this reports what degit WILL READ, never what transport ran; the
-  // confident wording is gated on the installed degit being a version pharn
-  // measured (lib/proxy-env.ts, MEASURED_DEGIT_VERSIONS).
+  // pharn's fetches go through Node's global fetch, which reads NO proxy
+  // environment variable on any platform — so a configured proxy is simply
+  // unused, and in a network that blocks direct egress the only symptom is a
+  // timeout with nothing pointing at the cause (LIMITS.md §3a). Emit BEFORE the
+  // spinner starts, for two reasons: a log.warn into an active clack spinner
+  // frame is overwritten, and a fetch that FAILS because of a proxy-only network
+  // is exactly when the user most needs to have been told.
   const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
     log.warn(proxyNoticeMessage(proxyNotice));
