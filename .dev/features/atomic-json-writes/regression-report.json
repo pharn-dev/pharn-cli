@@ -1,0 +1,26 @@
+{
+  "base": "391c9a67e95cabd9648e46a5a27d8248714f58d8",
+  "inside": [
+    "src/lib/atomic-write.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/install-records.ts",
+    "src/commands/remove.ts",
+    "CLAUDE.md",
+    "tests/atomic-write.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/install-records.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

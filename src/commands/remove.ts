@@ -215,7 +215,8 @@ async function removeNamed(
   const note = existed ? '' : pc.dim(' (its files were already gone)');
 
   // Order: delete → prune records → write config (mirroring `add`'s
-  // records-before-config). `writeRecords` is a plain `writeFile`, so this is a
+  // records-before-config). Each of those two writes is individually atomic
+  // (lib/atomic-write.ts), but the PAIR is not a transaction, so this remains a
   // benign-failure argument, NOT an atomicity claim (advisory, P0): a prune that
   // fails after the delete leaves exactly today's status quo — stale entries the
   // next `update` prunes — and a config write that fails after the prune leaves

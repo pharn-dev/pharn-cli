@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { writeJsonAtomic } from './atomic-write.js';
 import { resolve } from 'node:path';
 import { sha256File } from './hash.js';
 import { isPlainObject, safeJoin, toPosix } from './validate.js';
@@ -234,11 +234,11 @@ export async function writeRecords(
     // Sorted so the committed file has a stable, reviewable diff (P5).
     files: sortRecords(params.files),
   };
-  await writeFile(
-    recordsPath(cwd),
-    `${JSON.stringify(store, null, 2)}\n`,
-    'utf8',
-  );
+  // ATOMIC (lib/atomic-write.ts): a torn write would leave truncated JSON, which
+  // the reader names `invalid` — fail-closed, but it degrades every update
+  // decision to `unverifiable` and silently stops `add`/`remove` maintaining the
+  // store. Bytes are unchanged.
+  await writeJsonAtomic(recordsPath(cwd), store);
 }
 
 function sortRecords(files: FileRecords): FileRecords {

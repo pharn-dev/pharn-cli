@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/manifest-filename-floor/SHIP.md"
+    ".dev/features/atomic-json-writes/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T15:15:22.340Z"
+  "set_at": "2026-09-08T15:32:00.748Z"
 }
