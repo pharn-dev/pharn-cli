@@ -13,7 +13,7 @@ Machine report: `.dev/features/skills-version-timeout-and-cap/verify-report.json
 | `lint`         | `npm run lint` (--max-warnings 0)| 0    |
 | `lint:md`      | `npm run lint:md`                | 0    |
 | `typecheck`    | `npm run typecheck` (both configs)| 0   |
-| `test`         | `npm test` (vitest, 892 tests)   | 0    |
+| `test`         | `npm test` (vitest, 894 tests)   | 0    |
 | `build`        | `npm run build`                  | 0    |
 | `validate`     | `node .dev/floor/validate.mjs .` | 0    |
 
@@ -21,7 +21,12 @@ The set is exactly the repo's `npm run check` aggregate plus `build` and `valida
 `structural:*` gate: this increment ships no committed eval pair, so none exists (absent from the map,
 not skipped).
 
-The three cases that carry this increment's own correctness, all inside `npm test`:
+Counts are post-fix throughout: the gates above were re-run **after** the two blocking
+`/pharn-dev-review` findings were resolved, so 894 is the current suite. Where `892` appears in
+`REVIEW.md` it is always the explicitly-labeled **pre-fix** baseline (the suite the two surviving
+mutants were measured against), never a second reading of the same run.
+
+The five cases that carry this increment's own correctness, all inside `npm test`:
 
 - `rejects an honestly-declared oversize WITHOUT reading the body` — passed before the fix too; it
   pins that the advisory `content-length` fast-fail SURVIVED the rewrite.
@@ -30,6 +35,9 @@ The three cases that carry this increment's own correctness, all inside `npm tes
   large/`.
 - `keeps the abort timer armed through the BODY read, not just the headers` — **failed before the
   fix** by hanging to vitest's 5s timeout. Now rejects at the 8,000th faked millisecond.
+- `reassembles a body that arrives in several chunks` and `treats a bodyless response as empty, and
+  rejects it as an invalid version` — added in response to `/pharn-dev-review`'s P1 finding; both
+  mutation-checked (`offset += 0` and dropping the null-body guard each kill exactly one).
 
 ## ADVISORY layer — verifiers
 
