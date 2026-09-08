@@ -11,8 +11,9 @@ import {
 // The unit under test is the truth table in src/lib/proxy-env.ts, which encodes
 // one measured fact: degit's constructor reads `process.env.https_proxy`
 // unconditionally, and that LOWERCASE name is the only proxy variable anywhere
-// in its bundle — verified across every published version in the declared
-// ^3.6.1 range. Node's process.env is case-insensitive on win32 and
+// in its bundle — verified across every published 3.6.1 through 3.8.0, the
+// neighbourhood around the exactly-pinned degit@3.6.6.
+// Node's process.env is case-insensitive on win32 and
 // case-sensitive everywhere else, so the same environment means opposite things
 // on the two platform families; that is why the detector takes `env` and
 // `platform` as PARAMETERS. Nothing here reads process.*, so the win32 rows run
@@ -162,10 +163,12 @@ describe('detectProxyNotice - purity', () => {
 });
 
 describe('MEASURED_DEGIT_VERSIONS', () => {
-  // The floor under the confident wording. Every published version in the
-  // ^3.6.1 range package.json declares was swept; all nine read only the
-  // lowercase name. Extending this set requires MEASURING, never assuming.
-  it('covers every published version in the declared ^3.6.1 range', () => {
+  // The floor under the confident wording. Every published 3.6.1 through 3.8.0
+  // was swept — deliberately WIDER than the exactly-pinned degit@3.6.6, because
+  // an overriding or hoisting consumer tree can seat a neighbour — and all nine
+  // read only the lowercase name. Extending this set requires MEASURING, never
+  // assuming.
+  it('covers every published version from 3.6.1 through 3.8.0', () => {
     expect([...MEASURED_DEGIT_VERSIONS].sort()).toEqual([
       '3.6.1',
       '3.6.2',

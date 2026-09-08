@@ -81,9 +81,10 @@ describe('proxyNoticeMessage - ignored branch', () => {
     expect(message).toContain('will connect DIRECTLY');
   });
 
-  // The whole point of the version gate: pharn declares a RANGE and ships no
-  // lockfile, so on a version nobody measured the confident sentence must not
-  // be asserted.
+  // The whole point of the version gate: pharn pins degit exactly, but ships no
+  // lockfile and marks it external, so an overriding or hoisting consumer tree
+  // can still seat a version nobody measured — and there the confident sentence
+  // must not be asserted.
   it('hedges on an unmeasured degit and names both versions', () => {
     const message = proxyNoticeMessage(
       { kind: 'ignored', name: 'HTTPS_PROXY' },

@@ -46,13 +46,14 @@ export interface FetchedRepo {
  * the path/network floor, never signature verification.
  *
  * VERSION SCOPE for every degit claim in this file (ref tiers, the cache, the
- * warn sites). They were measured across EVERY published version in the range
- * package.json declares — `^3.6.1`, i.e. 3.6.1 through 3.8.0 — and hold in all
- * of them. Naming the range rather than a single version is deliberate: the
- * published package ships no lockfile (`files: ["dist"]`) and marks degit
- * `external` in the bundle, so a consumer resolves the RANGE, not whatever this
- * repo's lockfile pins. A comment pinned to one version is a claim about a
- * version most users are not running. These are ADVISORY, provenance-bounded
+ * warn sites). package.json pins `degit@3.6.6` EXACTLY, so that is the version a
+ * default install resolves and the version these claims are stated at. They were
+ * nonetheless measured across a WIDER set — every published 3.6.1 through 3.8.0 —
+ * and hold in all nine. The wider sweep is deliberate: the published package
+ * ships no lockfile (`files: ["dist"]`) and marks degit `external` in the
+ * bundle, so a consumer tree that overrides, hoists, or dedupes the pin can
+ * still seat a neighbouring version, and a claim measured only at the pin would
+ * say nothing about it. These are ADVISORY, provenance-bounded
  * (THREAT-MODEL.md §4b): properties of the dependency, not pharn floor checks
  * that re-run — a later degit could change them. The one degit property pharn
  * DOES re-derive on every test run is the proxy-env read
@@ -73,9 +74,10 @@ export async function fetchRepo(): Promise<FetchedRepo> {
   const ref = sha ?? REPO_BRANCH;
   const dir = mkdtempSync(join(tmpdir(), 'pharn-'));
   try {
-    // `cache: false` is NOT no-cache — it selects the HASH SOURCE (resolve the
-    // ref over the network rather than read the cached map); it does not
-    // suppress the cache. degit's tarball download runs
+    // `cache: false` is NOT no-cache — measured against degit@3.6.6 (the exact
+    // version `package.json` pins), it selects the HASH SOURCE (resolve the ref
+    // over the network rather than read the cached map); it does not suppress
+    // the cache. degit's tarball download runs
     // INSIDE `if (!options.cache)`: it reuses an existing tarball at the cache
     // path when one is there, else mkdirs that path and downloads into it. Writing
     // is broader still — access.json/map.json are written UNGATED, as is the

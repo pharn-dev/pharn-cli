@@ -64,8 +64,9 @@ surface:
 
 **The `degit` boundary, measured.** The description above says "pharn `degit`-clones"; what that
 delegates is worth naming precisely, because several properties of it are counter-intuitive. Measured
-against the installed dependency at **`degit@3.6.6`** (the version `package-lock.json` pins;
-`package.json` declares the range `^3.6.1`):
+against the installed dependency at **`degit@3.6.6`** — the exact version `package.json` pins
+(no range) and `package-lock.json` resolves. The pin is exact on purpose: these are measured facts,
+so a bump must re-measure them before it can land (`tests/degit-pin.test.ts` fails until it does):
 
 - **Identity** (registry metadata — read from `npm view`, **not** measured from the installed bytes,
   and **not verified by pharn at any point**). `degit` is published from
