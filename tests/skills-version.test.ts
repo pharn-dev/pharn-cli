@@ -92,6 +92,20 @@ describe('readMinCli', () => {
     expect(read.version).toBeNull();
     expect(read.warning!.length).toBeLessThan(400);
   });
+
+  // The bytes come from an untrusted clone, so the size is checked BEFORE the
+  // read — a file too large to be a version is never slurped into a string.
+  it('refuses to READ an oversized MIN_CLI, and still imposes no constraint', () => {
+    writeFileSync(join(tmp.path(), 'MIN_CLI'), 'x'.repeat(2048));
+    const read = readMinCli(tmp.path());
+    expect(read.version).toBeNull();
+    expect(read.warning).toContain('too large');
+  });
+
+  it('a version at the size boundary still reads normally', () => {
+    writeFileSync(join(tmp.path(), 'MIN_CLI'), '1.2.3\n');
+    expect(readMinCli(tmp.path()).version).toBe('1.2.3');
+  });
 });
 
 describe('fetchRemoteSkillsVersion', () => {

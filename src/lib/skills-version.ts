@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import {
   MIN_CLI_FILE,
   REPO,
@@ -18,6 +18,8 @@ import {
 // validated before use/persist. One axis (P3): obtaining the skills version.
 
 const RAW = 'https://raw.githubusercontent.com';
+// A version string is ~50 characters; 1KB is generous and still bounds the read.
+const MAX_MIN_CLI_BYTES = 1024;
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_BODY_BYTES = 256 * 1024;
 
@@ -77,6 +79,17 @@ export function readMinCli(repoDir: string): MinCliRead {
 
   let raw: string;
   try {
+    // Size-check BEFORE reading. The bytes come from an untrusted clone, and a
+    // version string is ~50 characters — so a file above this cap is not a
+    // version by any reading, and slurping it into a string first would be a
+    // needless memory hazard. (The network path applies the same discipline with
+    // its own cap; this is the on-disk counterpart.)
+    if (statSync(path).size > MAX_MIN_CLI_BYTES) {
+      return {
+        version: null,
+        warning: `${MIN_CLI_FILE} in the fetched repo is too large to be a version; continuing without a minimum-version constraint.`,
+      };
+    }
     raw = readFileSync(path, 'utf8');
   } catch (err) {
     // A directory at the path, a permission error, a mid-clone corruption.
