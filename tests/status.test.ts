@@ -103,6 +103,53 @@ describe('runStatus (archetype)', () => {
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 
+  // --- fatal-error reporting (FABLE 4.6 + 5.2) -------------------------------
+  //
+  // status's local `reportError` was one of eight hand-rolled copies and the
+  // only one of the three that never printed the hint. It is folded into the
+  // shared reporter, so every one of its three call sites gains it at once.
+  describe('fatal-error reporting', () => {
+    const realDebug = process.env.PHARN_DEBUG;
+    beforeEach(() => delete process.env.PHARN_DEBUG);
+    afterEach(() => {
+      if (realDebug === undefined) delete process.env.PHARN_DEBUG;
+      else process.env.PHARN_DEBUG = realDebug;
+    });
+
+    it('prints the hint and the message on stderr when the version fetch throws', async () => {
+      fetchRemoteSkillsVersion.mockRejectedValueOnce(
+        new Error('Could not reach raw.githubusercontent.com: fetch failed'),
+      );
+
+      await expect(runStatus({ drift: false })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      const [msg, opts] = vi.mocked(prompts.log.error).mock.calls.at(-1)!;
+      expect(String(msg)).toContain('Could not reach');
+      expect(opts).toEqual({ output: process.stderr });
+      expect(
+        vi
+          .mocked(prompts.log.info)
+          .mock.calls.map((c) => String(c[0]))
+          .join('\n'),
+      ).toContain('PHARN_DEBUG');
+    });
+
+    it('prints the hint when the clone throws, and still exits 1', async () => {
+      fetchRepo.mockRejectedValueOnce(new Error('offline'));
+
+      await expect(runStatus({})).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(
+        vi
+          .mocked(prompts.log.info)
+          .mock.calls.map((c) => String(c[0]))
+          .join('\n'),
+      ).toContain('PHARN_DEBUG');
+    });
+  });
+
   // --- the degit proxy notice (wiring) ---------------------------------------
   //
   // status clones on the drift path only, so the notice must fire there and be

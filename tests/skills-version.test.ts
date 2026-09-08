@@ -268,4 +268,89 @@ describe('fetchRemoteSkillsVersion', () => {
       vi.useRealTimers();
     }
   });
+
+  // -------------------------------------------------------------------------
+  // FABLE 4.6 - transport failures name the host they could not reach.
+  //
+  // Before this, the fetch rejection propagated raw: offline, both consumers
+  // printed undici's bare `fetch failed` with the real
+  // `getaddrinfo ENOTFOUND raw.githubusercontent.com` diagnosis sitting
+  // unprinted in `err.cause`, and the 8s abort printed
+  // `This operation was aborted`. Neither named a host, a URL, or a next step.
+  //
+  // The wrap covers the two NETWORK-ORIGIN phases only - the connect and the
+  // body read. The three deliberate throws below them (non-ok status, the two
+  // cap refusals, and assertSafeString) must keep their own identity, or every
+  // cap case above becomes a false "transport failure".
+  // -------------------------------------------------------------------------
+
+  const rejection = async (): Promise<Error> =>
+    (await fetchRemoteSkillsVersion().catch((e: unknown) => e)) as Error;
+
+  it('wraps a CONNECT failure with the URL and the cause text', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new TypeError('fetch failed', {
+        cause: new Error('getaddrinfo ENOTFOUND raw.githubusercontent.com'),
+      }),
+    );
+    const err = await rejection();
+    expect(err.message).toContain('Could not reach');
+    expect(err.message).toContain('raw.githubusercontent.com');
+    expect(err.message).toContain('SKILLS_VERSION');
+    // The half undici hides: without this the user is told only "fetch failed".
+    expect(err.message).toContain('ENOTFOUND');
+  });
+
+  it('keeps the original as `cause`, so PHARN_DEBUG still dumps it', async () => {
+    const original = new TypeError('fetch failed');
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(original);
+    expect((await rejection()).cause).toBe(original);
+  });
+
+  it('wraps a failure raised while READING THE BODY, not just at the fetch call', async () => {
+    // This is the case a `mockRejectedValue` assertion cannot reach and would
+    // silently pass without: since the streaming rewrite the 8s abort surfaces
+    // from the read loop, not from `await fetch(...)`, so a wrap on the fetch
+    // expression alone would leave exactly the case this fix exists for raw.
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.error(new DOMException('This operation was aborted', 'AbortError'));
+      },
+    });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body));
+    const err = await rejection();
+    expect(err.message).toContain('Could not reach');
+    expect(err.message).toContain('This operation was aborted');
+  });
+
+  it('does NOT re-label the deliberate non-ok throw as a transport failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fakeResponse('nope', 404));
+    const err = await rejection();
+    expect(err.message).toContain('fetch failed (404)');
+    expect(err.message).not.toContain('Could not reach');
+  });
+
+  it('does NOT re-label the body-cap refusal as a transport failure', async () => {
+    const payload = new TextEncoder().encode('一'.repeat(100_000));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(payload);
+            c.close();
+          },
+        }),
+      ),
+    );
+    const err = await rejection();
+    expect(err.message).toContain('too large');
+    expect(err.message).not.toContain('Could not reach');
+  });
+
+  it('does NOT re-label an invalid version as a transport failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fakeResponse('garbage!!'));
+    const err = await rejection();
+    expect(err).toBeInstanceOf(ManifestValidationError);
+    expect(err.message).not.toContain('Could not reach');
+  });
 });

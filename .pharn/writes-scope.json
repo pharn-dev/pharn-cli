@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/skills-version-timeout-and-cap/VERIFY.md"
+    ".dev/features/cli-robustness/SHIP.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-verify.md",
-  "set_at": "2026-09-08T07:08:46.109Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-08T07:57:32.001Z"
 }

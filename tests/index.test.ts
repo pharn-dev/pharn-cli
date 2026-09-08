@@ -187,6 +187,174 @@ describe('main (argv dispatch)', () => {
     expect(runInit).not.toHaveBeenCalled();
   });
 
+  // -------------------------------------------------------------------------
+  // FABLE 5.2 (first bullet) - a numeric-looking positional must stay a STRING.
+  //
+  // minimist coerces `123` to the NUMBER 123 unless `_` is declared a string, and
+  // that number is handed straight to `parseCapabilityArg`, which calls
+  // `.includes(':')` on it - a raw `TypeError` stack instead of the curated
+  // "valid capabilities" listing. `@types/minimist` declares `_: string[]`, so
+  // the type checker never saw it; only a runtime assertion can.
+  // -------------------------------------------------------------------------
+
+  it('keeps a numeric `add` positional a string (not the number 123)', async () => {
+    setArgv('add', '123');
+    await main();
+    expect(runAdd).toHaveBeenCalledWith('123');
+    // The equality above would also hold for a loosely-compared number, so
+    // assert the TYPE of what the command actually received.
+    expect(typeof runAdd.mock.calls[0]![0]).toBe('string');
+  });
+
+  it('keeps a numeric `remove` positional a string (not the number 7)', async () => {
+    setArgv('remove', '7');
+    await main();
+    expect(runRemove).toHaveBeenCalledWith('7', { yes: false });
+    expect(typeof runRemove.mock.calls[0]![0]).toBe('string');
+  });
+
+  // A bare `add` / `remove` must still reach the interactive picker: the picker
+  // branch is `arg === undefined`, so `string: ['_']` must not turn an absent
+  // positional into anything else.
+  it('leaves a bare `add` / `remove` argument undefined (the picker branch)', async () => {
+    setArgv('add');
+    await main();
+    expect(runAdd).toHaveBeenCalledWith(undefined);
+    setArgv('remove');
+    await main();
+    expect(runRemove).toHaveBeenCalledWith(undefined, { yes: false });
+  });
+
+  // -------------------------------------------------------------------------
+  // FABLE 4.5 - argv pharn does not understand is REFUSED, never dropped.
+  //
+  // Before this, an unknown COMMAND exited 1 but an unknown FLAG was parsed into
+  // `argv` and silently ignored: `pharn status --sctrict` ran in the default
+  // exit-0 mode, so a typo in a CI pipeline permanently disarmed the drift gate
+  // while every run stayed green. Same shape as `assertNoUnknownKeys`
+  // (src/lib/seam-config.ts) at the other untrusted boundary - collect the
+  // offenders, then hard-fail naming them (P5 fail-closed).
+  // -------------------------------------------------------------------------
+
+  const noCommandRan = (): void => {
+    expect(runInit).not.toHaveBeenCalled();
+    expect(runAdd).not.toHaveBeenCalled();
+    expect(runRemove).not.toHaveBeenCalled();
+    expect(runUpdate).not.toHaveBeenCalled();
+    expect(runList).not.toHaveBeenCalled();
+    expect(runStatus).not.toHaveBeenCalled();
+  };
+  const stderrText = (): string =>
+    errSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
+  const stdoutText = (): string =>
+    logSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
+
+  it('exits(1) on a mistyped --strict, so a CI drift gate cannot be silently disarmed', async () => {
+    setArgv('status', '--sctrict');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('--sctrict');
+    // Errors go to stderr, never stdout: `pharn list --json --bogus` must stay
+    // parseable for a JSON consumer.
+    expect(stdoutText()).toBe('');
+    noCommandRan();
+  });
+
+  it('exits(1) on a mistyped --force, rather than running un-forced', async () => {
+    setArgv('update', '--froce', '--yes');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('--froce');
+    expect(stdoutText()).toBe('');
+    noCommandRan();
+  });
+
+  it('exits(1) on an unknown short flag', async () => {
+    setArgv('status', '-x');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('-x');
+    noCommandRan();
+  });
+
+  it('exits(1) on a mistyped --help instead of starting a real install', async () => {
+    // The worst case of the old behavior: `help` is a declared boolean, so
+    // `--hepl` parsed as `{ help: false, hepl: true }`, missed the help
+    // short-circuit, and fell through to `argv._[0] ?? 'init'`.
+    setArgv('--hepl');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('--hepl');
+    noCommandRan();
+  });
+
+  it('prints the usage text on stderr when it refuses', async () => {
+    setArgv('status', '--sctrict');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Usage:');
+  });
+
+  // The pair the gate's PLACEMENT decides: after the short-circuits these print
+  // usage / the version and swallow the typo; before them they refuse. A genuine
+  // --help does not license an unknown sibling.
+  it('exits(1) on `--help --bogus` and prints no usage on stdout', async () => {
+    setArgv('--help', '--bogus');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stdoutText()).not.toContain('Usage:');
+    expect(stderrText()).toContain('--bogus');
+    noCommandRan();
+  });
+
+  it('exits(1) on `--version --bogus` and prints no version on stdout', async () => {
+    setArgv('--version', '--bogus');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stdoutText()).toBe('');
+    expect(stderrText()).toContain('--bogus');
+    noCommandRan();
+  });
+
+  it('exits(1) on an extra positional for `add` instead of dropping it', async () => {
+    setArgv('add', 'a11y', 'extra');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('extra');
+    expect(stdoutText()).toBe('');
+    noCommandRan();
+  });
+
+  it('exits(1) on any positional after a no-argument command', async () => {
+    setArgv('status', 'extra');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('extra');
+    noCommandRan();
+  });
+
+  // An unknown COMMAND keeps its own, more useful message: the arity table has
+  // no entry for it, so the arity gate must not pre-empt the dispatch default.
+  it('still says "Unknown command" (not "unexpected argument") for `bogus x`', async () => {
+    setArgv('bogus', 'x');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unknown command');
+  });
+
+  // `cmd` is untrusted argv, so the arity table must not resolve inherited
+  // Object.prototype keys: an object lookup would hand back a FUNCTION for
+  // `toString`, and only the accident that `n > fn` is `n > NaN` kept the
+  // outcome right. A Map makes "absent from the table" mean exactly that.
+  it('treats an Object.prototype key as an unknown command, not an arity entry', async () => {
+    setArgv('toString', 'x', 'y');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unknown command');
+    expect(stderrText()).not.toContain('Unexpected argument');
+    noCommandRan();
+  });
+
+  // Untrusted argv is echoed as DATA (P2), the way seam-config.ts names an
+  // unknown config key: a control character must not reach the terminal raw.
+  it('escapes the offending argument rather than echoing raw bytes', async () => {
+    const bell = String.fromCharCode(7);
+    setArgv('status', `--a${bell}b`);
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    const printed = stderrText();
+    expect(printed).toContain('\\u0007');
+    expect(printed).not.toContain(bell);
+  });
+
   it('exits(1) on an unknown command', async () => {
     setArgv('bogus');
     await expect(main()).rejects.toMatchObject(new ProcessExit(1));

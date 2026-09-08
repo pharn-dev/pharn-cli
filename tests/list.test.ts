@@ -86,7 +86,12 @@ describe('runList', () => {
   it('rejects a legacy (non-archetype) config with the legacy message + exit(1)', async () => {
     readPharnConfig.mockReturnValue(legacyConfig());
     await expect(runList()).rejects.toMatchObject(new ProcessExit(1));
-    expect(prompts.log.error).toHaveBeenCalledWith(LEGACY);
+    // Errors go to stderr (FABLE 5.2): the exact-args match is deliberate -
+    // it is what proves the `output` option actually reaches clack rather
+    // than being swallowed by the vi.fn() mock every command suite installs.
+    expect(prompts.log.error).toHaveBeenCalledWith(LEGACY, {
+      output: process.stderr,
+    });
     // Never the crash/lie paths — no note rendered, no "run init".
     expect(prompts.note).not.toHaveBeenCalled();
   });

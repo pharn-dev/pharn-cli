@@ -12,6 +12,7 @@ import { configLayout } from '../lib/layout.js';
 import { row } from '../lib/format.js';
 import { formatModelRoutingLines } from '../lib/model-routing-format.js';
 import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
+import { errorMessage, reportFatal } from '../lib/report-error.js';
 import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
@@ -63,7 +64,7 @@ async function runArchetypeStatus(
       s.stop(`Latest skills v${latest}`);
     } catch (err) {
       s.stop('Failed to check for updates');
-      reportError(err);
+      reportFatal(errorMessage(err), { err });
       process.exit(1);
     }
     const outdated = printArchetypeVersion(config, latest);
@@ -90,7 +91,7 @@ async function runArchetypeStatus(
     s.stop(`Compared against ${REF}`);
   } catch (err) {
     s.stop(`Failed to reach ${REPO}`);
-    reportError(err);
+    reportFatal(errorMessage(err), { err });
     process.exit(1);
   }
 
@@ -127,7 +128,7 @@ async function runArchetypeStatus(
       exitCode = 1;
     }
   } catch (err) {
-    reportError(err);
+    reportFatal(errorMessage(err), { err });
     exitCode = 1;
   } finally {
     repo.cleanup();
@@ -230,10 +231,4 @@ function printDriftSection(result: InstallDiff): void {
   }
   lines.push('', pc.dim(`  ${result.okCount} file(s) match ${REF}.`));
   note(lines.join('\n'), 'DRIFT');
-}
-
-function reportError(err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
-  log.error(`⚠ ${message}`);
-  if (process.env.PHARN_DEBUG) console.error(err);
 }

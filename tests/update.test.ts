@@ -185,6 +185,100 @@ describe('runUpdate (drift-safe)', () => {
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 
+  // --- fatal-error reporting (FABLE 4.6 + 5.2) -------------------------------
+  //
+  // The hint used to print at exactly two of update's fatal exits and at none of
+  // the exception-derived ones - so the first network failure a user meets, the
+  // one they paste into an issue, offered no next step at all. It now rides on a
+  // single axis: an exception was passed to the reporter.
+  describe('fatal-error reporting', () => {
+    const realDebug = process.env.PHARN_DEBUG;
+    beforeEach(() => delete process.env.PHARN_DEBUG);
+    afterEach(() => {
+      if (realDebug === undefined) delete process.env.PHARN_DEBUG;
+      else process.env.PHARN_DEBUG = realDebug;
+    });
+
+    const errored = (): string =>
+      vi
+        .mocked(prompts.log.error)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+    const informed = (): string =>
+      vi
+        .mocked(prompts.log.info)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+
+    it('prints the PHARN_DEBUG hint when the version check throws, on stderr', async () => {
+      await installed();
+      fetchRemoteSkillsVersion.mockRejectedValueOnce(
+        new Error('Could not reach raw.githubusercontent.com: fetch failed'),
+      );
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(errored()).toContain('Could not reach');
+      expect(informed()).toContain('PHARN_DEBUG');
+      // The stream, proven at a real call site and not only at the helper's
+      // definition: the vi.fn() mock would swallow a missing option silently.
+      expect(vi.mocked(prompts.log.error).mock.calls.at(-1)![1]).toEqual({
+        output: process.stderr,
+      });
+      expect(vi.mocked(prompts.log.info).mock.calls.at(-1)![1]).toEqual({
+        output: process.stderr,
+      });
+    });
+
+    it('prints the hint when the clone throws', async () => {
+      await installed();
+      fetchRepo.mockRejectedValueOnce(new Error('degit exploded'));
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(errored()).toContain('degit exploded');
+      expect(informed()).toContain('PHARN_DEBUG');
+    });
+
+    // The other half of the axis: a curated refusal has no stack to dump, so
+    // offering PHARN_DEBUG there would be a lie.
+    it('prints NO hint for the non-TTY refusal', async () => {
+      await installed();
+      setTTY(false, false);
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(errored()).toContain('interactive terminal');
+      expect(informed()).not.toContain('PHARN_DEBUG');
+    });
+
+    it('prints NO hint for the MIN_CLI policy refusal', async () => {
+      await installed();
+      write(join(repo, 'MIN_CLI'), '99.0.0\n');
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(errored()).toContain('too old');
+      expect(informed()).not.toContain('PHARN_DEBUG');
+    });
+
+    it('dumps the error instead of the hint under PHARN_DEBUG=1', async () => {
+      process.env.PHARN_DEBUG = '1';
+      const errSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      await installed();
+      const boom = new Error('degit exploded');
+      fetchRepo.mockRejectedValueOnce(boom);
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(errSpy).toHaveBeenCalledWith(boom);
+      expect(informed()).not.toContain('PHARN_DEBUG');
+      errSpy.mockRestore();
+    });
+  });
+
   // --- the degit proxy notice (wiring) ---------------------------------------
   //
   // update clones, so the notice fires; the early-return "already up to date"

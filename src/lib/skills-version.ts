@@ -147,6 +147,37 @@ function unusableMinCli(err: unknown): string {
 }
 
 /**
+ * Build the "the network did not get us there" rethrower for one URL.
+ *
+ * Applied to the two NETWORK-ORIGIN phases only — the connect and the body read.
+ * Offline, undici rejects with a bare `TypeError: fetch failed` whose real
+ * diagnosis (`getaddrinfo ENOTFOUND raw.githubusercontent.com`) sits unprinted
+ * in `err.cause`; the 8s abort rejects with `This operation was aborted`.
+ * Neither names a host, a URL, or a next step, and both consumers print
+ * `err.message` verbatim. Mirrors `commands/init.ts`'s "Could not reach …"
+ * phrasing so the CLI has one voice.
+ *
+ * `{ cause: err }` keeps the original reachable, so `PHARN_DEBUG=1` still dumps
+ * exactly what the runtime threw.
+ */
+function rethrowUnreachable(url: string): (err: unknown) => never {
+  return (err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    const inner = err instanceof Error ? err.cause : undefined;
+    const cause =
+      inner === undefined
+        ? null
+        : inner instanceof Error
+          ? inner.message
+          : String(inner);
+    throw new Error(
+      `Could not reach ${url}: ${message}${cause ? ` (${cause})` : ''}`,
+      { cause: err },
+    );
+  };
+}
+
+/**
  * Fetch the latest `SKILLS_VERSION` from `@main` without cloning — the
  * lightweight currency check `status --no-drift` / `update` uses. Applies the
  * three network guards (redirect:'error', an 8s timeout, a 256KB body cap) and
@@ -161,6 +192,7 @@ function unusableMinCli(err: unknown): string {
  */
 export async function fetchRemoteSkillsVersion(): Promise<string> {
   const url = `${RAW}/${REPO}/${REPO_BRANCH}/${SKILLS_VERSION_FILE}`;
+  const unreachable = rethrowUnreachable(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   // ONE try around the fetch AND the body read — the timer shape `fetchCommitSha`
@@ -172,10 +204,14 @@ export async function fetchRemoteSkillsVersion(): Promise<string> {
   // Only the SHAPE is mirrored. `fetchCommitSha` swallows every failure to `null`
   // (best-effort provenance, LIMITS.md §1b/§3b); this function must keep throwing.
   try {
+    // `.catch` on the EXPRESSION, not a `try` around the block: the wrap must
+    // cover this rejection and nothing thrown after it resolves, or the three
+    // deliberate throws below (non-ok status, the two cap refusals,
+    // assertSafeString) get re-labelled as transport failures.
     const res = await fetch(url, {
       redirect: 'error',
       signal: controller.signal,
-    });
+    }).catch(unreachable);
     if (!res.ok) {
       throw new Error(
         `SKILLS_VERSION fetch failed (${res.status}) from ${url}`,
@@ -192,7 +228,7 @@ export async function fetchRemoteSkillsVersion(): Promise<string> {
         `SKILLS_VERSION too large (${declared} bytes) from ${url}`,
       );
     }
-    const text = await readCappedBody(res, url);
+    const text = await readCappedBody(res, url, unreachable);
     return assertSafeString(text.trim(), SKILLS_VERSION_FILE, VERSION_RE);
   } finally {
     clearTimeout(timer);
@@ -212,22 +248,28 @@ export async function fetchRemoteSkillsVersion(): Promise<string> {
  * and that chunk's size is the runtime's (undici sizes them from a socket read),
  * not pharn's. It bounds accumulation across chunks — not peak allocation.
  */
-async function readCappedBody(res: Response, url: string): Promise<string> {
+async function readCappedBody(
+  res: Response,
+  url: string,
+  unreachable: (err: unknown) => never,
+): Promise<string> {
   // A bodyless response (a 204, or `new Response(null)`) reads as empty text and
   // then fails VERSION_RE downstream — the same outcome `res.text()` produced.
   if (!res.body) return '';
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  // FABLE 4.6: the wrap must cover this read, not just the fetch call. The 8s
-  // abort used to surface out of `await fetch(...)`; it now fires HERE instead.
+  // FABLE 4.6: the wrap covers this read, not just the fetch call — since the
+  // streaming rewrite the 8s abort surfaces HERE rather than out of
+  // `await fetch(...)`, so a wrap on the fetch expression alone would leave
+  // exactly the case the wrap exists for propagating raw.
   //
   // The reader is cancelled on the cap refusal only. An abort or a transport
   // error mid-body leaves it un-cancelled, which is benign ONLY because both
   // callers exit(1) on the throw — a caller property, not a local one. A future
   // non-exiting caller needs a cancel on those paths too.
   for (;;) {
-    const { done, value } = await reader.read();
+    const { done, value } = await reader.read().catch(unreachable);
     if (done) break;
     total += value.byteLength;
     if (total > MAX_BODY_BYTES) {
