@@ -24,6 +24,7 @@ What PHARN CLI does today versus what is planned.
 | Stack scaffolding | Install npm packages / generate app code for a detected framework |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only warns) |
 | Orphaned-file detection in `pharn status` | `status` today reports modified + missing PHARN-owned files; flagging files left orphaned after an upstream rename is not built yet |
+| Per-stage model routing | `pharn init` writes and validates the `models` block and both `init` and `status` display it, but no installed command reads it — editing it changes nothing yet. When a consumer lands, drop this row and the **Coming soon** marker in [pharn.config.json](reference/pharn-config.md#model-routing) |
 | Other agents | Codex and Cursor in addition to Claude Code |
 
 ## Related

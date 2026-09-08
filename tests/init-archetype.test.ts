@@ -24,6 +24,15 @@ const { readRecords } = await import('../src/lib/install-records.js');
 const { collectExpectedInstallPaths } =
   await import('../src/lib/install-manifest.js');
 const { sha256File } = await import('../src/lib/hash.js');
+const prompts = await import('@clack/prompts');
+
+// The single string runInstallArchetype passed to outro() — the same
+// mocked-call read tests/status.test.ts uses for note() bodies. The outro is a
+// user-visible claim surface, so its copy is pinned, not just its existence.
+function outroBody(): string {
+  const call = vi.mocked(prompts.outro).mock.calls.at(-1);
+  return (call?.[0] as string | undefined) ?? '';
+}
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -126,6 +135,16 @@ describe('archetype install (fixture e2e)', () => {
       model: 'opus-4-8',
       effort: 'high',
     });
+    // The outro still RENDERS the routing it just wrote...
+    const outro = outroBody();
+    expect(outro).toContain('Models per stage');
+    expect(outro).toContain('review');
+    // ...but no longer invites an edit that would change which model a stage
+    // runs: nothing installed reads models.stages yet. Both directions are
+    // pinned — the old promise gone AND the honest replacement present — so a
+    // later copy edit cannot quietly re-promise the effect with the test green.
+    expect(outro).not.toContain('Change per-stage routing anytime');
+    expect(outro).toContain('no installed stage reads it yet');
     // Everything a fresh install writes came from archetype resolution, so it is
     // `auto` — update owns it. Only `pharn add` writes `manual`.
     expect(config!.capabilities).toEqual([

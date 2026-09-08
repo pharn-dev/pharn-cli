@@ -160,10 +160,20 @@ function printArchetypeVersion(config: PharnConfig, latest: string): boolean {
 // MODELS note: the per-stage routing recorded in pharn.config.json, rendered
 // from the same config via formatModelRoutingLines (the init summary's "Models
 // per stage" block, mirrored here). Omitted when `models` is absent — a
-// pre-`models` archetype config (P7 additive/legacy). Read-only: display only.
+// pre-`models` archetype config (P7 additive/legacy). Read-only: display only —
+// and the trailing qualifier keeps it honest: the block is written, validated
+// and shown, but NO installed command reads it, so these lines report a
+// recorded intent, not the model a stage will run (docs/roadmap.md, Planned).
 function printModelRouting(config: PharnConfig): void {
   if (config.models === undefined) return;
-  note(formatModelRoutingLines(config.models).join('\n'), 'MODELS');
+  note(
+    [
+      ...formatModelRoutingLines(config.models),
+      '',
+      pc.dim('Recorded only — no installed stage reads this yet.'),
+    ].join('\n'),
+    'MODELS',
+  );
 }
 
 // DRIFT note: differing, missing and unreadable PHARN-owned files, or a clean

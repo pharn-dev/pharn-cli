@@ -20,7 +20,7 @@ archetypes/capabilities and the pinned commit).
 | `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below             |                                                                     |
 | `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)          |                                                                     |
 | `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)        |                                                                     |
-| `models`        | object         | Per-stage model routing ([`model-routing.ts`](../../src/lib/model-routing.ts)) |                                                                     |
+| `models`        | object         | Per-stage routing — recorded, not yet read ([Coming soon](../roadmap.md))      |                                                                     |
 | `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |                                                                     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
@@ -92,9 +92,16 @@ skipped any file deliberately leaves them at their previous values (see [update]
 
 ## Model routing
 
-The `models` block routes each dev-loop stage to a model + effort. It is **written on every fresh
-install** and is **user-owned afterwards** — edit it in `pharn.config.json` and re-run your stages;
-`pharn` never migrates it. Source of truth: [`model-routing.ts`](../../src/lib/model-routing.ts).
+> **Coming soon** — see the [roadmap](../roadmap.md).
+>
+> The `models` block is **written and validated today, and read by nothing**. None of the commands
+> `pharn init` installs consults it, so editing it does **not** change which model a stage runs — it
+> records the routing you want for when the consumer lands. `pharn init` and `pharn status` display
+> the block for that reason, and say so.
+
+The block records a per-stage model + effort. It is **written on every fresh install** and is
+**user-owned afterwards** — `pharn` never migrates it. Source of truth:
+[`model-routing.ts`](../../src/lib/model-routing.ts).
 
 The block is a required `default` plus per-stage overrides under `stages`. `default` is the fallback
 for every stage without its own entry (`grill`, `build`, `regress`, `verify`, `ship`); a stage with no
@@ -111,8 +118,10 @@ Defaults written at install:
 **Why `review` is `opus-4-8`/`high`, not `fable-5`/`max`.** Review is the fan-out stage — a backend
 install ships ~22 lenses, so its cost multiplies per lens; a premium model at `max` effort across that
 fan-out is the worst-case token multiplier, and it would apply silently. `opus-4-8`/`high` is the
-spend-safe default. Cross-model review on `fable-5`/`max` has proven catch value, so it is a
-**documented opt-in** for release audits — set it explicitly under `models.stages.review`:
+spend-safe default. Cross-model review on `fable-5`/`max` has proven catch value, so recording it for
+release audits is the intent the block exists to capture — set it explicitly under
+`models.stages.review`. Until the consumer lands this changes nothing about the model your review
+actually runs on; it is a note to your future self, and to whoever reads the config:
 
 ```json
 {

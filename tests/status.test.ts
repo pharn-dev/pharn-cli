@@ -447,6 +447,10 @@ describe('runStatus (archetype)', () => {
     const models = noteBody('MODELS');
     expect(models).toContain('default   sonnet-5 · high');
     expect(models).toContain('review    opus-4-8 · high');
+    // The note reports what the config RECORDS, and says so: no installed
+    // command reads models.stages yet, so a reader must not take these lines
+    // as the model a stage will actually run.
+    expect(models).toContain('no installed stage reads this yet');
   });
 
   it('omits the MODELS note when config.models is absent (legacy archetype config)', async () => {
