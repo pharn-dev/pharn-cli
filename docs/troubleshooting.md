@@ -231,16 +231,35 @@ this makes one boundary consistent rather than newly broken, but it does break a
 
 ### A leftover cache you may want to delete
 
-`degit` persisted a commit-named `.tar.gz` plus `map.json`/`access.json` into a shared cache directory
-on every fetch. `pharn` no longer writes or reads it: each fetch downloads into a fresh temp dir that
-is always removed. Anything already on disk is inert, and `pharn` will not clean it up for you —
-delete it yourself to reclaim the space:
+`pharn` no longer writes or reads a download cache: each fetch downloads into a fresh temp dir that is
+always removed. But earlier versions cloned through `degit`, which persisted a commit-named `.tar.gz`
+(~2.4 MB) plus `map.json`/`access.json` into a shared, cross-project cache directory on **every**
+fetch — and **nothing ever reclaimed them**.
+
+That is worth stating plainly, because the directory can be much larger than "one leftover download"
+suggests. `degit` does have a deletion path, but it fires only when an existing **ref's** mapped hash
+changes. `pharn` passed the resolved commit SHA *as* the ref, so every fetch wrote a self-mapped
+`"<sha>": "<sha>"` entry under a **new key** — the previous hash for that key was always `undefined`,
+so the delete branch could never run. One tarball accumulated per distinct upstream commit you ever
+fetched, forever. A CI machine running `pharn status` on each upstream push could reach hundreds of
+megabytes on an image nothing purges, and `pharn` printed nothing about it.
+
+Check what is there, then delete the whole directory — `pharn` will not do it for you, and nothing
+reads it any more:
 
 | Platform | Path |
 | -------- | ---- |
 | macOS | `~/Library/Caches/degit` |
 | Windows | `%LOCALAPPDATA%\degit` |
 | Other | `$XDG_CACHE_HOME/degit`, else `~/.cache/degit` |
+
+```bash
+du -sh ~/Library/Caches/degit          # macOS
+du -sh "${XDG_CACHE_HOME:-$HOME/.cache}/degit"   # Linux and other POSIX
+```
+
+The directory is shared with any other tool that uses `degit`, so if you use one, delete only
+`degit/github/pharn-dev/pharn-oss` inside it rather than the whole tree.
 
 ## `add` / `update` say to run init first
 
