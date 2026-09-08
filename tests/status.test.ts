@@ -150,7 +150,7 @@ describe('runStatus (archetype)', () => {
     });
   });
 
-  // --- the degit proxy notice (wiring) ---------------------------------------
+  // --- the proxy notice (wiring) ----------------------------------------------
   //
   // status clones on the drift path only, so the notice must fire there and be
   // silent under --no-drift. The --no-drift silence was previously asserted only
@@ -176,7 +176,7 @@ describe('runStatus (archetype)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).toContain('may be routed');
+      expect(warned).toContain('will not use it');
     });
 
     // --no-drift never clones, so there is no transport to describe.
@@ -191,7 +191,7 @@ describe('runStatus (archetype)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).not.toContain('may be routed');
+      expect(warned).not.toContain('will not use it');
     });
 
     it('says nothing when no proxy variable is set', async () => {
@@ -208,7 +208,7 @@ describe('runStatus (archetype)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).not.toContain('may be routed');
+      expect(warned).not.toContain('will not use it');
     });
   });
 

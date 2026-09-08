@@ -12,7 +12,7 @@ await build({
   platform: 'node',
   format: 'esm',
   target: 'node20',
-  external: ['@clack/prompts', 'degit', 'minimist', 'picocolors'],
+  external: ['@clack/prompts', 'minimist', 'picocolors'],
   minifyWhitespace: true,
   minifySyntax: true,
   legalComments: 'none',

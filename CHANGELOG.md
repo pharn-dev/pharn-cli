@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The repo fetch no longer goes through `degit`.** `pharn` now resolves the branch head once over
+  the GitHub API and downloads that exact commit's tarball from `codeload.github.com`, extracting it
+  with its own ustar reader (`src/lib/tar-extract.ts`). **`degit` is removed from `dependencies`**,
+  and with it the last dependency that fetched or unpacked untrusted remote content.
+
+  **What this fixes beyond the saved round trip.** The old path handed the already-resolved SHA to
+  `degit`, which resolved the same ref *again* and matched the result only against current ref tips —
+  so an upstream push landing between the two resolves failed the whole command, with a valid
+  SHA-named tarball sitting unreadable in the cache. codeload serves any commit, tip or not.
+
+  **Stricter extraction.** The bundled extractor was called with neither `strict` nor `onwarn`, so a
+  malformed entry was silently dropped and the clone still succeeded. `pharn` now **rejects**:
+  symlinks, hardlinks, devices and fifos are refused outright, header checksums are verified, `..`
+  and absolute paths are rejected, every entry must share one root, and every write goes through
+  `safeJoin`.
+
+  **Bounded, at last.** The clone previously had no pharn-imposed timeout or body cap. It now has a
+  60s timeout, a cap counted over the streamed bytes (codeload sends no `content-length`), and a
+  separate cap on the *decompressed* size, so a compression bomb is bounded by something.
+
+  **No more shared cache.** Every fetch downloads into a fresh temp dir. The old cross-project cache
+  reused entries by filename rather than a verified digest, and — when ref resolution failed — took
+  the ref→commit mapping out of that same cache, meaning it could decide which commit `pharn`
+  believed it had fetched. Caches already on disk are inert; `docs/troubleshooting.md` says where to
+  delete them.
+
+### Removed
+
+- **Proxy support, which `pharn` never implemented itself.** `degit` read `process.env.https_proxy`
+  on its own, so a user who set exactly that lowercase spelling had a proxied clone. Node's global
+  `fetch` reads no proxy environment variable on any platform, so that no longer works. Your
+  `pharn update` and `status --no-drift` were already unproxied — they were always plain `fetch` — so
+  this makes one boundary consistent rather than newly broken, **but it does break a setup that
+  worked.** It is a named limit (`LIMITS.md` §3a), and every network-bearing command warns before
+  fetching when it finds a proxy variable set, so the failure is explained rather than silent.
+
 ### Fixed
 
 - **`npm run check` now runs `lint:md`, and `CONTRIBUTING.md` names all six CI gates.** The quick-start

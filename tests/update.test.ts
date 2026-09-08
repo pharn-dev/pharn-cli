@@ -268,11 +268,11 @@ describe('runUpdate (drift-safe)', () => {
 
     it('prints the hint when the clone throws', async () => {
       await installed();
-      fetchRepo.mockRejectedValueOnce(new Error('degit exploded'));
+      fetchRepo.mockRejectedValueOnce(new Error('fetch exploded'));
 
       await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
 
-      expect(errored()).toContain('degit exploded');
+      expect(errored()).toContain('fetch exploded');
       expect(informed()).toContain('PHARN_DEBUG');
     });
 
@@ -304,7 +304,7 @@ describe('runUpdate (drift-safe)', () => {
         .spyOn(console, 'error')
         .mockImplementation(() => undefined);
       await installed();
-      const boom = new Error('degit exploded');
+      const boom = new Error('fetch exploded');
       fetchRepo.mockRejectedValueOnce(boom);
 
       await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
@@ -315,7 +315,7 @@ describe('runUpdate (drift-safe)', () => {
     });
   });
 
-  // --- the degit proxy notice (wiring) ---------------------------------------
+  // --- the proxy notice (wiring) ----------------------------------------------
   //
   // update clones, so the notice fires; the early-return "already up to date"
   // path does not clone and must stay silent.
@@ -338,7 +338,7 @@ describe('runUpdate (drift-safe)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).toContain('may be routed');
+      expect(warned).toContain('will not use it');
     });
 
     // No clone on the up-to-date early return, so no transport to describe.
@@ -353,7 +353,7 @@ describe('runUpdate (drift-safe)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).not.toContain('may be routed');
+      expect(warned).not.toContain('will not use it');
     });
 
     it('says nothing when no proxy variable is set', async () => {
@@ -367,7 +367,7 @@ describe('runUpdate (drift-safe)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).not.toContain('may be routed');
+      expect(warned).not.toContain('will not use it');
     });
   });
 

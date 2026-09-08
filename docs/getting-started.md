@@ -46,7 +46,7 @@ npx @pharn-dev/pharn init
    symlink-safe file-tree scan (names only, never file bodies) into an archetype set — `ssr`, `backend`,
    `spa`, `lib` (a project may match several, e.g. Next + Express → `ssr` + `backend`). It shows what it
    detected.
-2. **Fetch + resolve.** It degit-clones `pharn-dev/pharn-oss` at a pinned SHA and selects the
+2. **Fetch + resolve.** It downloads `pharn-dev/pharn-oss` as a tarball at a pinned SHA and selects the
    capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the rest
    with a reason.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus

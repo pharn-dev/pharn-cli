@@ -1,23 +1,35 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import degit from 'degit';
 import { REPO, REPO_BRANCH } from './constants.js';
+import { extractTarGz } from './tar-extract.js';
 import { assertSafeString, COMMIT_RE } from './validate.js';
 
 const API = 'https://api.github.com';
+const CODELOAD = 'https://codeload.github.com';
 const FETCH_TIMEOUT_MS = 8000;
+// The clone timeout has to cover a ~2.5 MB streamed body, not just the response
+// headers, so it is deliberately not the 8 s the two metadata fetches use.
+const CLONE_TIMEOUT_MS = 60_000;
+// Caps on both sides of the gunzip. codeload sends NO content-length, so the
+// compressed cap is enforced by counting bytes as they stream; the decompressed
+// cap is what bounds a zip bomb, which neither the header nor the archive size
+// would.
+const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
+const MAX_EXTRACTED_BYTES = 128 * 1024 * 1024;
+const MAX_ENTRIES = 20_000;
 
 export interface FetchedRepo {
   dir: string;
   // The commit the tree was pinned to — recorded verbatim as pharn.config.json
-  // `commit`. It is EITHER the resolved SHA (degit was pinned to exactly it) OR
-  // `null` (the SHA could not be resolved — offline / GitHub rate-limit — so the
-  // fetch floated REPO_BRANCH, the documented degraded mode, LIMITS.md §3b). A
-  // non-null value is validated against COMMIT_RE at the boundary (fetchRepo) — a
-  // full 40-hex sha — so a malformed / hostile API response is rejected, never
-  // recorded. It is NEVER a non-null SHA that differs from what was fetched: the
-  // same value drives the degit ref and this field, so the record cannot silently lie.
+  // `commit`. It is EITHER the resolved SHA (the tarball was fetched at exactly
+  // it) OR `null` (the SHA could not be resolved — offline / GitHub rate-limit —
+  // so the fetch floated REPO_BRANCH, the documented degraded mode, LIMITS.md
+  // §3b). A non-null value is validated against COMMIT_RE at the boundary
+  // (fetchRepo) — a full 40-hex sha — so a malformed / hostile API response is
+  // rejected, never recorded. It is NEVER a non-null SHA that differs from what
+  // was fetched: the same value is both the last URL segment and this field, so
+  // the record cannot silently lie.
   sha: string | null;
   cleanup: () => void;
 }
@@ -30,70 +42,52 @@ export interface FetchedRepo {
  * capability index from the clone (lib/capability-index.ts), records `sha` as
  * `commit`, then calls cleanup().
  *
- * When the SHA cannot be resolved, fall back to REPO_BRANCH (LIMITS.md §3b — the
- * install still proceeds; `sha` is null). Provenance is by-SHA, NOT
- * cryptographic (LIMITS.md §1b): a full SHA is a valid degit ref
- * (github.com/<repo>/archive/<sha>.tar.gz). degit resolves the ref through THREE
- * tiers, not `git ls-remote` alone: pure-JS `listServerRefs`, then
- * `getRemoteInfo2`, and only then a spawned `git ls-remote --symref`. Tiers 1-2
- * fall through on an EMPTY catch; tier 3 does NOT — it throws
- * (GIT_LS_REMOTE_FAILED), so the git binary is a last resort whose absence is
- * harmless only while the pure-JS tiers succeed. Either way, pinning to
- * REPO_BRANCH's current HEAD SHA fetches exactly it,
- * and if REPO_BRANCH moves mid-fetch degit's own resolution fails (the SHA is no
- * longer a ref tip) rather than fetching drift — but a compromised upstream
- * serving a valid-shaped tree at that SHA still passes; trust is provenance +
- * the path/network floor, never signature verification.
+ * ONE resolve, then a direct download. The SHA that `fetchCommitSha` returns is
+ * the last segment of `codeload.github.com/<repo>/tar.gz/<sha>`; nothing
+ * re-resolves the ref. That matters beyond the saved round trip: the previous
+ * implementation handed the already-resolved SHA to a dependency that resolved
+ * the same ref again and matched the result only against CURRENT ref tips, so a
+ * push landing between pharn's resolve and the dependency's failed the whole
+ * command. codeload serves any commit, tip or not, so an upstream push mid-fetch
+ * now yields exactly the pinned SHA rather than an error — which is at least as
+ * honest, since `sha` and the fetched bytes still come from one value.
  *
- * VERSION SCOPE for every degit claim in this file (ref tiers, the cache, the
- * warn sites). package.json pins `degit@3.6.6` EXACTLY, so that is the version a
- * default install resolves and the version these claims are stated at. They were
- * nonetheless measured across a WIDER set — every published 3.6.1 through 3.8.0 —
- * and hold in all nine. The wider sweep is deliberate: the published package
- * ships no lockfile (`files: ["dist"]`) and marks degit `external` in the
- * bundle, so a consumer tree that overrides, hoists, or dedupes the pin can
- * still seat a neighbouring version, and a claim measured only at the pin would
- * say nothing about it. These are ADVISORY, provenance-bounded
- * (THREAT-MODEL.md §4b): properties of the dependency, not pharn floor checks
- * that re-run — a later degit could change them. The one degit property pharn
- * DOES re-derive on every test run is the proxy-env read
- * (lib/proxy-env.ts + tests/proxy-env.test.ts).
+ * When the SHA cannot be resolved, fall back to `refs/heads/<REPO_BRANCH>`
+ * (LIMITS.md §3b — the install still proceeds; `sha` is null). Provenance is
+ * by-SHA, NOT cryptographic (LIMITS.md §1b): a compromised upstream serving a
+ * valid-shaped tree at that SHA still passes. Trust is provenance + the
+ * path/network floor, never signature verification.
+ *
+ * The network floor is the same three guards `lib/skills-version.ts` carries —
+ * `redirect: 'error'`, a timeout cleared in `finally`, and a body cap — and the
+ * path floor is `lib/tar-extract.ts`, whose rejections are pharn's own rather
+ * than a dependency's. pharn invokes no `git` binary and keeps no tarball cache:
+ * every fetch is a fresh download into a fresh temp dir.
  */
 export async function fetchRepo(): Promise<FetchedRepo> {
   // The sha is network-derived (fetchCommitSha reads it from the GitHub commits
   // API) and untrusted (P2): a non-null value MUST be a full 40-hex commit SHA
-  // before it becomes the degit ref OR is recorded as pharn.config.json `commit`.
-  // Reject a malformed one loudly (same failure style as skills-version.ts) rather
-  // than feed garbage to degit or record it as provenance; `null` is the documented
-  // degraded mode (LIMITS.md §3b) and passes through. One boundary guard covers
-  // every downstream sink (the ref below + the three config-assembly writers).
+  // before it becomes a URL segment OR is recorded as pharn.config.json
+  // `commit`. Reject a malformed one loudly (same failure style as
+  // skills-version.ts) rather than paste garbage into a URL or record it as
+  // provenance; `null` is the documented degraded mode (LIMITS.md §3b) and
+  // passes through. One boundary guard covers every downstream sink (the URL
+  // below + the three config-assembly writers).
   const rawSha = await fetchCommitSha();
   const sha =
     rawSha === null ? null : assertSafeString(rawSha, 'commit SHA', COMMIT_RE);
   // Pin to the resolved SHA; else float the branch (LIMITS.md §3b degraded mode).
-  const ref = sha ?? REPO_BRANCH;
+  const ref = sha ?? `refs/heads/${REPO_BRANCH}`;
   const dir = mkdtempSync(join(tmpdir(), 'pharn-'));
   try {
-    // `cache: false` is NOT no-cache — measured against degit@3.6.6 (the exact
-    // version `package.json` pins), it selects the HASH SOURCE (resolve the ref
-    // over the network rather than read the cached map); it does not suppress
-    // the cache. degit's tarball download runs
-    // INSIDE `if (!options.cache)`: it reuses an existing tarball at the cache
-    // path when one is there, else mkdirs that path and downloads into it. Writing
-    // is broader still — access.json/map.json are written UNGATED, as is the
-    // re-fetch on TAR_BAD_ARCHIVE. So every fetch leaves a SHA-named tarball in a
-    // shared, cross-project cache dir (darwin ~/Library/Caches/degit; win32
-    // %LOCALAPPDATA%/degit; every other platform $XDG_CACHE_HOME ?? ~/.cache, then
-    // /degit), reuse is keyed by FILENAME rather than a verified digest, and a
-    // failed ref resolve falls back to the commit hash stored in that same
-    // map.json (THREAT-MODEL.md §4b). The emitter warns on those fallbacks; we
-    // register no listener, so they are silently dropped HERE, not by degit.
-    const emitter = degit(`${REPO}#${ref}`, {
-      force: true,
-      cache: false,
+    const archive = await downloadArchive(ref);
+    extractTarGz(archive, dir, {
+      maxEntries: MAX_ENTRIES,
+      maxTotalBytes: MAX_EXTRACTED_BYTES,
     });
-    await emitter.clone(dir);
   } catch (err) {
+    // Extraction is not transactional, so a partially-written tree must never
+    // be returned. Callers treat a fetchRepo throw as fatal.
     rmSync(dir, { recursive: true, force: true });
     throw err;
   }
@@ -102,6 +96,46 @@ export async function fetchRepo(): Promise<FetchedRepo> {
     sha,
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
+}
+
+/**
+ * Download the repo tarball at `ref` into memory, bounded on both time and
+ * size. `ref` is either a COMMIT_RE-validated SHA or the literal
+ * `refs/heads/<branch>` — never user input.
+ */
+async function downloadArchive(ref: string): Promise<Buffer> {
+  const url = `${CODELOAD}/${REPO}/tar.gz/${ref}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CLONE_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      redirect: 'error',
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to download ${url}: HTTP ${res.status}`);
+    }
+    if (!res.body) {
+      throw new Error(`Failed to download ${url}: empty response body`);
+    }
+    // codeload sends no content-length, so the cap is a running count over the
+    // stream rather than a header check.
+    const chunks: Buffer[] = [];
+    let total = 0;
+    for await (const chunk of res.body) {
+      const buf = Buffer.from(chunk as Uint8Array);
+      total += buf.byteLength;
+      if (total > MAX_ARCHIVE_BYTES) {
+        throw new Error(
+          `Refusing ${url}: archive exceeds ${MAX_ARCHIVE_BYTES} bytes.`,
+        );
+      }
+      chunks.push(buf);
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

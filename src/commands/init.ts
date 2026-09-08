@@ -16,7 +16,7 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
-import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
+import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { runGitPrereq } from '../steps/prereqs.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
@@ -84,9 +84,9 @@ async function runInitArchetype(): Promise<void> {
   // ADVISORY: this reports what degit WILL READ, never what transport ran; the
   // confident wording is gated on the installed degit being a version pharn
   // measured (lib/proxy-env.ts, MEASURED_DEGIT_VERSIONS).
-  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
+    log.warn(proxyNoticeMessage(proxyNotice));
   }
 
   const s = spinner();

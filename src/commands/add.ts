@@ -37,7 +37,7 @@ import {
 } from '../lib/install-records.js';
 import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
-import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
+import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import {
@@ -151,9 +151,9 @@ async function runArchetypeAdd(
   // What degit's single lowercase `https_proxy` read means here — emitted before
   // the spinner so it survives the frame and precedes a proxy-caused failure
   // (see src/commands/init.ts for the full rationale).
-  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
+    log.warn(proxyNoticeMessage(proxyNotice));
   }
 
   const s = spinner();
@@ -242,9 +242,9 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
   // What degit's single lowercase `https_proxy` read means here — emitted before
   // the spinner so it survives the frame and precedes a proxy-caused failure
   // (see src/commands/init.ts for the full rationale).
-  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
+    log.warn(proxyNoticeMessage(proxyNotice));
   }
 
   const s = spinner();
