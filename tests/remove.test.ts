@@ -284,6 +284,59 @@ describe('runRemove (archetype)', () => {
     expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(true);
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
+
+  // --- the `--yes` contract: `remove` does not have one ----------------------
+  //
+  // Three surfaces used to disagree about whether `remove` confirms: the
+  // picker's confirm (unconditional), a `_opts.yes` parameter `runRemove`
+  // accepted and never read, and two doc sentences asserting "capability
+  // removal has no confirmation prompt to skip". The parameter is gone; these
+  // pin the contract that replaced it — per PATH, which is what the false
+  // sentences flattened.
+
+  it('runRemove declares exactly one parameter — no `yes` option survives', () => {
+    const src = readFileSync(
+      new URL('../src/commands/remove.ts', import.meta.url),
+      'utf8',
+    );
+    const params = /export async function runRemove\(([\s\S]*?)\):/.exec(
+      src,
+    )?.[1];
+    // Asserted BEFORE the negative one: a regex that stops matching (a rename,
+    // a reformat) must fail loudly rather than pass on an absent capture (P5).
+    expect(params).toBeDefined();
+    expect(params).not.toMatch(/yes/);
+    expect(params!.split(',').filter((p) => p.trim() !== '')).toHaveLength(1);
+  });
+
+  it('the NAMED path never confirms — there is nothing for a flag to skip', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+
+    await runRemove('a11y');
+
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(false);
+  });
+
+  it("the PICKER's one confirm is unconditional and defaults to No", async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    setTTY(true, true);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue(['griller:a11y']);
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+
+    await runRemove(undefined);
+
+    expect(prompts.confirm).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(prompts.confirm).mock.calls[0]![0]).toMatchObject({
+      initialValue: false,
+    });
+  });
   // -------------------------------------------------------------------------
   // The re-add warning. Derived from the STORED `source` alone — `remove` has no
   // capability index and never fetches one, so this is all it could honestly say.

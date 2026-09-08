@@ -3,9 +3,7 @@ import { ProcessExit, stubProcessExit } from './helpers.js';
 
 const runInit = vi.fn(async () => undefined);
 const runAdd = vi.fn(async (_arg?: string) => undefined);
-const runRemove = vi.fn(
-  async (_arg?: string, _opts?: { yes?: boolean }) => undefined,
-);
+const runRemove = vi.fn(async (_arg?: string) => undefined);
 const runUpdate = vi.fn(async () => undefined);
 const runList = vi.fn(async (_opts?: { json?: boolean }) => undefined);
 const runStatus = vi.fn(
@@ -64,22 +62,31 @@ describe('main (argv dispatch)', () => {
     expect(runAdd).toHaveBeenCalledWith('lens:n-plus-one');
   });
 
-  it('routes `remove <arg>` to runRemove with the argument and yes:false', async () => {
+  it('routes `remove <arg>` to runRemove with the argument alone', async () => {
     setArgv('remove', 'a11y');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('a11y', { yes: false });
+    expect(runRemove).toHaveBeenCalledWith('a11y');
   });
 
-  it('passes yes:true through for `remove --yes`', async () => {
+  // `remove` has NO `--yes`. Its named path never confirms, and the bare
+  // picker's ONE destructive confirm is unconditional — there is nothing for a
+  // flag to skip, so nothing is threaded into the command. The flag stays a
+  // declared minimist boolean because it belongs to `update`: that is what
+  // keeps `pharn remove --yes` PARSING (the unknown-option gate below must not
+  // start refusing it) instead of exiting 1.
+  it('accepts `remove --yes` and drops it — it is an update flag', async () => {
     setArgv('remove', 'a11y', '--yes');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('a11y', { yes: true });
+    expect(runRemove).toHaveBeenCalledWith('a11y');
+    // The exact-arity check: `toHaveBeenCalledWith` already rejects an extra
+    // argument, but this names the contract the dispatcher is being held to.
+    expect(runRemove.mock.calls[0]).toHaveLength(1);
   });
 
   it('routes the `rm` alias to runRemove', async () => {
     setArgv('rm', 'lens:n-plus-one');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('lens:n-plus-one', { yes: false });
+    expect(runRemove).toHaveBeenCalledWith('lens:n-plus-one');
   });
 
   it('routes `update` to runUpdate with force:false, yes:false by default', async () => {
@@ -95,8 +102,8 @@ describe('main (argv dispatch)', () => {
   });
 
   // `--yes` was parsed but dead before this: minimist listed it and only
-  // runRemove read it, where it is documented as a deliberate no-op. It is now
-  // a real flag on exactly one command.
+  // `runRemove` took it — in a parameter it never read. That parameter is gone
+  // (`remove` has no `--yes`), so this is the flag's ONE real consumer.
   it('passes yes:true through for `update --yes`', async () => {
     setArgv('update', '--yes');
     await main();
@@ -209,7 +216,7 @@ describe('main (argv dispatch)', () => {
   it('keeps a numeric `remove` positional a string (not the number 7)', async () => {
     setArgv('remove', '7');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('7', { yes: false });
+    expect(runRemove).toHaveBeenCalledWith('7');
     expect(typeof runRemove.mock.calls[0]![0]).toBe('string');
   });
 
@@ -222,7 +229,7 @@ describe('main (argv dispatch)', () => {
     expect(runAdd).toHaveBeenCalledWith(undefined);
     setArgv('remove');
     await main();
-    expect(runRemove).toHaveBeenCalledWith(undefined, { yes: false });
+    expect(runRemove).toHaveBeenCalledWith(undefined);
   });
 
   // -------------------------------------------------------------------------

@@ -147,11 +147,15 @@ export async function main(): Promise<void> {
       return;
     case 'remove':
     case 'rm':
-      // `--yes` is a documented no-op here (remove has no confirm prompt to
-      // skip). Whether the passthrough should exist at all is FABLE 4.07's
-      // question, not this gate's — left exactly as it was so that decision
-      // stays findable rather than pre-empted.
-      await runRemove(argv._[1], { yes: Boolean(argv.yes) });
+      // The argument alone, exactly like `add` above: `remove` has no `--yes`.
+      // Its named path never confirms (nothing to skip) and its picker's ONE
+      // confirm is the destructive gate (nothing MAY skip it), so there was
+      // never a consumer for the option object this used to build. `--yes`
+      // stays a declared boolean above because it is `update`'s flag — which is
+      // also what keeps `pharn remove --yes` a harmless parse here rather than
+      // an unknown-option refusal. Turning it INTO a refusal is a per-command
+      // allowlist's job, not this switch's.
+      await runRemove(argv._[1]);
       return;
     case 'update':
       await runUpdate({ force: Boolean(argv.force), yes: Boolean(argv.yes) });
