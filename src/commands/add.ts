@@ -24,10 +24,12 @@ import {
   buildAddSelection,
   interactiveAllowed,
 } from '../lib/capability-picker.js';
+import { createBackup } from '../lib/backup.js';
+import { scanDest } from '../lib/dest-drift.js';
 import { installCapabilityDirs } from '../lib/install-capabilities.js';
+import { capabilityCloneFiles } from '../lib/install-manifest.js';
 import {
   buildRecords,
-  capabilityRecordPaths,
   mergeRecords,
   readRecords,
   recordsBaseline,
@@ -463,6 +465,68 @@ async function resolveArchetypeAdd(
   if (existing.some((c) => c.name === cap.name && c.role === cap.role)) {
     return { kind: 'noop', name: cap.name };
   }
+  // The files the copy is about to write, enumerated in the CLONE — the one list
+  // that drives BOTH the drift set below and the records merge further down, so
+  // the two can never disagree about what this add actually wrote.
+  const paths = layoutPaths(detectLayout(repoDir));
+  const cloneRels = capabilityCloneFiles(repoDir, paths, cap);
+
+  // DESTINATION-DRIFT PROTECTION. `add` was the only write path with none of the
+  // product's three edit-protections: no prompt (init's confirmWriteTargets), no
+  // per-file skip (update's records table), no backup (update --force). And the
+  // destructive sequence is one `update` MANUFACTURES and announces: a
+  // dropped-unselected capability's files are left on disk ("update never
+  // deletes"), the user edits them, and a later `add` of that capability is not a
+  // config no-op — so cpSync's `force: true` replaced the edits with pristine
+  // upstream bytes, unrecoverably.
+  //
+  // So every file whose destination bytes DIFFER from the clone's is copied to
+  // `.pharn-backup/<ts>/` first (lib/backup.ts — the same directory
+  // `update --force` uses). `add` still overwrites; it no longer does so
+  // irrecoverably. Byte-identical is not drift, so a drop-then-re-add of unedited
+  // files stays silent (lib/dest-drift.ts).
+  //
+  // BEFORE the copy, and before installCapabilityDirs' pre-flight can throw: a
+  // failed backup must abort with every original intact, which is exactly
+  // createBackup's contract. The scan skips an unreadable source rather than
+  // throwing, so a missing/symlinked capability dir still gets the pre-flight's
+  // curated message rather than a raw ENOENT from here.
+  const scan = scanDest({ repoDir, projectRoot: cwd, rels: cloneRels });
+
+  // REFUSE rather than write through a symlink. Measured on node v24.13.1: with a
+  // symlinked INTERMEDIATE directory under the capability dir, cpSync writes
+  // straight THROUGH it, replacing bytes wherever the link points — outside the
+  // project included. Skipping those paths would be worse than doing nothing: the
+  // copy still writes through the link while the backup meant to protect it
+  // silently omits the file. Backing them up is not an option either —
+  // createBackup refuses a symlinked component by design, and copyFileSync would
+  // save the TARGET's bytes rather than the link. So `add` writes NOTHING and
+  // names the offending component, the same shape as its version and layout gates
+  // (lib/dest-drift.ts carries the full measurement).
+  if (scan.unsafe.length > 0) {
+    const first = scan.unsafe[0]!;
+    const more =
+      scan.unsafe.length > 1
+        ? ` (and ${scan.unsafe.length - 1} more under the same capability)`
+        : '';
+    return {
+      kind: 'error',
+      message: `Refusing to add ${cap.name}: \`${first.link}\` in your project is a symlink, and \`${first.rel}\` sits under it${more}. \`pharn add\` copies the whole capability directory, which would write THROUGH that link and replace files it points at — possibly outside your project — and those cannot be backed up. Replace the symlink with a real directory (or move it aside), then re-run \`pharn add ${cap.name}\`.`,
+    };
+  }
+
+  if (scan.drifted.length > 0) {
+    const backupDir = createBackup(cwd, scan.drifted);
+    // Announced AT CREATION, not only on success: this path is the user's ONLY
+    // pointer back to their pre-overwrite bytes (lib/backup.ts), and everything
+    // after this line can still throw — the pre-flight, the records write, the
+    // config write. Printing here is what keeps the pointer reachable on the very
+    // path that most needs it.
+    log.info(
+      `Backed up ${scan.drifted.length} file(s) to ${backupDir} before overwriting.`,
+    );
+  }
+
   installCapabilityDirs(repoDir, cwd, [{ name: cap.name, role: cap.role }]);
   const version = readSkillsVersion(repoDir);
   // The SHA the tree was pinned to (recorded == fetched, or null when the branch
@@ -481,10 +545,15 @@ async function resolveArchetypeAdd(
   // capability is not later mistaken for a file pharn never wrote (`unrecorded`)
   // by `pharn update`. Only an already-READABLE store is extended: minting a
   // partial one over an absent/corrupt store would silently relabel the whole
-  // install, so absent stays absent (fail closed, lib/install-records.ts). The
-  // paths are read back from the project — never guessed — at the layout the copy
-  // above actually mirrored.
-  await mergeCapabilityRecords(cwd, repoDir, config, cap, version, commit);
+  // install, so absent stays absent (fail closed, lib/install-records.ts).
+  //
+  // The paths come from the CLONE — what the copy wrote — never from a walk of
+  // the destination. A leftover capability directory can hold files the user put
+  // there, and a dest walk recorded those as pharn-written: if upstream later
+  // shipped a file at that path, record==dest would make `update` read the user's
+  // file as cleanly upgradeable instead of `modified`. The hashes are still taken
+  // at the DEST (buildRecords), so a record can never disagree with what landed.
+  await mergeCapabilityRecords(cwd, config, cloneRels, version, commit);
   await writePharnConfig(cwd, {
     ...config,
     skillsVersion: version,
@@ -501,9 +570,10 @@ async function resolveArchetypeAdd(
 // is how a store written by another tool is detected and ignored.
 async function mergeCapabilityRecords(
   cwd: string,
-  repoDir: string,
   config: PharnConfig,
-  cap: InstalledCapability,
+  // The CLONE-derived paths the copy just wrote (capabilityCloneFiles), not a
+  // walk of the destination — see the call site.
+  cloneRels: string[],
   skillsVersion: string,
   commit: string | null,
 ): Promise<void> {
@@ -512,8 +582,7 @@ async function mergeCapabilityRecords(
     commit: config.commit,
   });
   if (records === null) return; // absent/corrupt/stale → leave it alone
-  const paths = layoutPaths(detectLayout(repoDir));
-  const added = buildRecords(cwd, capabilityRecordPaths(cwd, paths, cap));
+  const added = buildRecords(cwd, cloneRels);
   await writeRecords(cwd, {
     skillsVersion,
     commit,

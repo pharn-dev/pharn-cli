@@ -23,6 +23,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`pharn add` now backs up destination drift before it overwrites.** `add` was the only write path
+  with none of the product's three edit-protections — no prompt (`init`'s overwrite confirmation), no
+  per-file skip (`update`'s records table), no backup (`update --force`) — so it `cpSync`'d over
+  whatever sat at the destination. The reachable sequence is one `update` itself manufactures and
+  announces: a `dropped-unselected` capability's files are **left on disk** (update never deletes),
+  you edit them, and a later `pharn add <name>` is not a config no-op because the entry is gone.
+  `add` now enumerates the capability dir in the **clone**, compares each file's sha256 against the
+  destination, and copies every **differing** file to `.pharn-backup/<timestamp>/` — the same
+  directory `update --force` uses — **before** the first byte is written, printing the path as soon
+  as it is created so it stays visible even if a later step throws. Byte-identical files are not
+  drift (mirroring `update`'s `identical → no-op`), so re-adding an untouched capability stays
+  silent, and a normal first-time `add` still produces no backup directory. A backup that cannot be
+  written aborts the add with every original intact.
+
+  `add` also now **refuses**, writing nothing, when a path it would copy sits under a **symlinked
+  directory** in your project, naming the offending component. The copy is a recursive `cpSync` that
+  guards only its source: measured on node v24.13.1, a symlinked intermediate directory under the
+  capability dir is written straight **through**, replacing whatever it points at — outside your
+  project included — while a symlinked leaf is silently replaced. Neither can be backed up, because
+  saving a symlink means saving its target rather than the link, so refusing is the only outcome that
+  leaves your files as they were. (`update` reaches the same answer by classifying such a path
+  `unreadable` and skipping it.)
+
 - **Forward-compatibility contract at the capability-index boundary.** pharn always fetches
   `pharn-dev/pharn-oss` at `main` HEAD and can never pin older content, so one routine grammar
   evolution upstream — a new capability directory without its markdown, a new `role`, a new `applies`
@@ -198,6 +221,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly the same three buckets, skips still exit 0, and a run that skipped anything still withholds
   the version bump. One consequence worth naming: on a forced run `unreadable` is the only label that
   can still reach the skip report, so a forced run never prescribes `--force` at all.
+
+- **`pharn add` records only the files it actually copied.** The records merge derived its path list
+  from a walk of the **destination** directory, so any pre-existing file a user had put inside a
+  leftover capability directory was recorded in `pharn.records.json` as pharn-written — and if
+  upstream later shipped a file at that path, the record-equals-disk match would make `pharn update`
+  classify the user's file as cleanly upgradeable instead of `modified`. The list now comes from the
+  **clone** (what the copy wrote); the hashes are still taken at the destination, so a record can
+  never disagree with what landed on disk.
 
 - **`pharn add 123` / `pharn remove 7` no longer crash with a raw `TypeError`.** minimist converts a
   numeric-looking positional into a JavaScript number unless `_` is declared a string, so the value

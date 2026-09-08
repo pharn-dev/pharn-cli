@@ -6,7 +6,7 @@ import {
   DEV_COMMAND_PREFIX,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
-import { layoutPaths } from './layout.js';
+import { layoutPaths, type LayoutPaths } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { safeJoin, toPosix } from './validate.js';
 import type { InstalledCapability, Layout } from '../types.js';
@@ -15,9 +15,11 @@ import type { InstalledCapability, Layout } from '../types.js';
 // Install manifest — the SINGLE source of truth for the set of project-root-
 // relative paths an archetype install writes (lib/install-capabilities.ts →
 // installCapabilities). Pure + read-only: it enumerates the fetched clone and
-// NEVER writes. Consumed by BOTH lib/diff.ts (byte-compare at `status`) and
-// steps/overwrite-check.ts (the pre-install overwrite warning), so the "what
-// init writes" knowledge lives in exactly one place.
+// NEVER writes. Consumed by lib/diff.ts (byte-compare at `status`),
+// steps/overwrite-check.ts (the pre-install overwrite warning), and — through
+// capabilityCloneFiles below — commands/add.ts (its destination-drift set and
+// its records keys), so the "what an install writes" knowledge lives in exactly
+// one place.
 //
 // MIRROR, not the writer: this MIRRORS installCapabilities (the same diff↔install
 // mirror the repo already carried, now shared to one function). tests/
@@ -158,4 +160,35 @@ export function conflictingWriteTargets(params: {
     if (existsSync(safeJoin(projectRoot, rel))) conflicts.push(rel);
   }
   return conflicts.sort();
+}
+
+/**
+ * The project-root-relative paths of ONE capability's files, enumerated in the
+ * CLONE — what a copy of that dir would actually write. The relative path is the
+ * same on both sides (the layout is mirrored, lib/layout.ts), so the result
+ * addresses the clone source and the project destination at once.
+ *
+ * `pharn add` uses it twice: for the destination-drift set it backs up
+ * (lib/dest-drift.ts) and for the records it merges. Deriving both from the
+ * CLONE is what keeps a pre-existing user file that merely SITS in a leftover
+ * capability directory out of them — a dest walk would sweep it in and record it
+ * as pharn-written.
+ *
+ * READ-SIDE guards, deliberately not the writer's: a source that is absent, is a
+ * symlink at any component, or is not a directory contributes NOTHING. The
+ * curated refusal for those cases belongs to installCapabilityDirs' pre-flight
+ * (lib/install-capabilities.ts), which runs after this and must be the message
+ * the user sees — the same skips-here/throws-there split `addDir` above uses.
+ */
+export function capabilityCloneFiles(
+  repoDir: string,
+  paths: LayoutPaths,
+  capability: InstalledCapability,
+): string[] {
+  const subtree = capability.role === 'griller' ? paths.grillers : paths.lenses;
+  const relDir = `${subtree}/${capability.name}`;
+  if (findSymlinkComponent(repoDir, relDir) !== null) return [];
+  const from = safeJoin(repoDir, relDir);
+  if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return [];
+  return [...walkFiles(from)].map((rel) => `${relDir}/${rel}`).sort();
 }

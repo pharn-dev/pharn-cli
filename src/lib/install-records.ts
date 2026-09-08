@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { sha256File } from './hash.js';
@@ -237,12 +237,6 @@ export function mergeRecords(
 }
 
 /**
- * The project-relative paths of one INSTALLED capability's files, read from the
- * project (not the clone) — what `pharn add` just wrote, so it can record
- * exactly those and never a path it did not touch. Symlinks are skipped (the
- * installer never materializes one), and every read is safeJoin-contained.
- */
-/**
  * The subset of a record store that belongs to the given capabilities — a pure
  * KEY-PREFIX filter over the store, never a filesystem walk.
  *
@@ -272,26 +266,4 @@ export function recordsUnderCapabilities(
     if (prefixes.some((prefix) => rel.startsWith(prefix))) out[rel] = hash;
   }
   return out;
-}
-
-export function capabilityRecordPaths(
-  projectRoot: string,
-  paths: LayoutPaths,
-  capability: InstalledCapability,
-): string[] {
-  const subtree = capability.role === 'griller' ? paths.grillers : paths.lenses;
-  const relDir = `${subtree}/${capability.name}`;
-  const root = safeJoin(projectRoot, relDir);
-  if (!existsSync(root)) return [];
-  const out: string[] = [];
-  const walk = (dir: string, prefix: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isSymbolicLink()) continue;
-      const rel = `${prefix}/${entry.name}`;
-      if (entry.isDirectory()) walk(resolve(dir, entry.name), rel);
-      else if (entry.isFile()) out.push(rel);
-    }
-  };
-  walk(root, relDir);
-  return out.sort();
 }

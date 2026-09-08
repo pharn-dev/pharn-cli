@@ -20,10 +20,11 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
 4. **Checks the layout.** If the clone's install layout does not match the `layout` recorded in your
    `pharn.config.json`, `add` **refuses** — see [Layout mismatch](#layout-mismatch) below.
 5. Resolves your argument against that index. If it uniquely names a capability you don't already have,
-   it copies that capability's directory into your project **at your recorded layout** — steps 3 and 4
-   have already established that the clone's layout and yours agree — and **appends** it to
-   `capabilities` in `pharn.config.json`. Your `skillsVersion` is left as it was, and `commit` is
-   refreshed to the SHA the clone was pinned to.
+   it **backs up any destination file it is about to overwrite with different bytes** (see
+   [Overwrite protection](#overwrite-protection) below), then copies that capability's directory into
+   your project **at your recorded layout** — steps 3 and 4 have already established that the clone's
+   layout and yours agree — and **appends** it to `capabilities` in `pharn.config.json`. Your
+   `skillsVersion` is left as it was, and `commit` is refreshed to the SHA the clone was pinned to.
 
 `CONSTITUTION.md` is **not** touched — `add` never changes your constitution. Your detected `archetypes`
 are left unchanged; `add` only appends to `capabilities`.
@@ -102,7 +103,7 @@ find your files.
 Without this check, `add` would copy the capability at the **clone's** layout while your config still
 described the other one — so the files would land somewhere nothing else ever looks. The capability
 would be invisible to `pharn list` and `pharn status`, and a later `pharn remove` would report
-*"its files were already gone"* while dropping only the config entry, leaving the directory orphaned on
+_"its files were already gone"_ while dropping only the config entry, leaving the directory orphaned on
 disk permanently.
 
 **Why `add` does not simply record the clone's layout** (which is what [`update`](update.md) does):
@@ -127,6 +128,68 @@ with the freshly-resolved archetype set. Before this field existed, an `add` was
 next `update` — a source-less entry is now inferred as manual on that first update, and kept only while
 the capability still exists in the latest index (dropped with a named report line if upstream removed it).
 See [`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
+
+## Overwrite protection
+
+`add` copies a whole capability directory. If files already exist there, the ones whose contents
+**differ** from upstream's are copied into `.pharn-backup/<timestamp>/` **before** anything is
+overwritten — the same backup directory [`pharn update --force`](update.md) writes, preserving each
+file's project-relative path:
+
+```text
+Backed up 1 file(s) to .pharn-backup/20260908-141530 before overwriting.
+```
+
+Files that are already **byte-identical** to upstream are not backed up — re-adding an untouched
+capability stays silent. Files that do not exist yet are simply created, so a normal first-time `add`
+never produces a backup directory. Files that are in the directory but **not** part of the capability
+upstream are never touched at all, and are never recorded in
+[`pharn.records.json`](../reference/pharn-records.md) — `add` records only the files it actually
+copied.
+
+**Why this exists.** [`pharn update`](update.md) never deletes: when a capability stops being
+selected, its directory is left on disk and the report says so. If you then edit those files and
+later run `pharn add <name>` for that same capability, the add is not a no-op — the config entry is
+gone — so the copy lands on your edits. The backup is what makes that recoverable.
+
+If the backup itself cannot be written (for example `.pharn-backup` is a symlink, or a file to be
+saved sits under one), `add` **aborts before copying anything** and your files are left exactly as
+they were.
+
+### Symlinks inside a capability directory
+
+`add` **refuses** — writing nothing — when a path it would copy sits under a **symlinked directory**
+in your project:
+
+```text
+⚠ Refusing to add a11y: `pharn-pipeline/grillers/a11y/evals` in your project is a symlink, and
+  `pharn-pipeline/grillers/a11y/evals/basic.md` sits under it. `pharn add` copies the whole
+  capability directory, which would write THROUGH that link and replace files it points at —
+  possibly outside your project — and those cannot be backed up. Replace the symlink with a real
+  directory (or move it aside), then re-run `pharn add a11y`.
+```
+
+The copy is a recursive `cpSync` that guards only its **source**. On the destination side a symlinked
+intermediate directory is followed, so the copy would overwrite whatever it points at — and a backup
+cannot help, because saving a symlink's contents means saving its _target_, not the link. Refusing is
+the only outcome that leaves your files as they were. Replace the symlink with a real directory and
+re-run. ([`update`](update.md) reaches the same answer by a different route: it classifies such a path
+`unreadable` and skips it.)
+
+**Known limit.** This is a check made just before the copy, not a lock held across it. A directory
+that becomes a symlink in the moment between the two is not caught — the copy itself guards only its
+source. What the check covers is the case that actually happens: a symlink already in your project
+when you run `add`. A concurrent local process racing the install is not something `pharn` defends
+against today.
+
+> **This is a copy, not a merge.** `add` still overwrites the destination with upstream's version —
+> it simply no longer does so irreversibly. Restoring is your call: the backup directory is printed
+> as soon as it is written, so it stays visible even if a later step fails.
+
+**Retention is yours**, exactly as for [`update --force`](update.md#--force-and-pharn-backup): `pharn`
+never prunes `.pharn-backup/` and never edits your `.gitignore`, so the directories accumulate and are
+committable by accident — and a picker run that overwrites edits in several capabilities writes **one
+per capability**. Delete them once you are happy, or add `.pharn-backup/` to your `.gitignore`.
 
 ## The capability argument
 

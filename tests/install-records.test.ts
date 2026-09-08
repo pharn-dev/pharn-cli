@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   buildRecords,
-  capabilityRecordPaths,
   mergeRecords,
   readRecords,
   recordsBaseline,
@@ -13,7 +12,6 @@ import {
   RECORDS_SCHEMA_VERSION,
   writeRecords,
 } from '../src/lib/install-records.js';
-import { layoutPaths } from '../src/lib/layout.js';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
@@ -272,59 +270,5 @@ describe('mergeRecords', () => {
       shared: sha('new'),
       added: sha('added'),
     });
-  });
-});
-
-describe('capabilityRecordPaths — what `add` just wrote, read back from the project', () => {
-  const tmp = useTmpDir();
-
-  it('enumerates the installed capability dir (incl. evals), sorted, at the given layout', () => {
-    const proj = tmp.path();
-    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'));
-    write(join(proj, 'pharn-review/n-plus-one/evals/cases/c.md'));
-    write(join(proj, 'pharn-review/other/other.md'));
-
-    expect(
-      capabilityRecordPaths(proj, layoutPaths('flat'), {
-        name: 'n-plus-one',
-        role: 'lens',
-      }),
-    ).toEqual([
-      'pharn-review/n-plus-one/evals/cases/c.md',
-      'pharn-review/n-plus-one/n-plus-one.md',
-    ]);
-  });
-
-  it('addresses the pharn/ layout when that is the recorded layout', () => {
-    const proj = tmp.path();
-    write(join(proj, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'));
-    expect(
-      capabilityRecordPaths(proj, layoutPaths('pharn'), {
-        name: 'a11y',
-        role: 'griller',
-      }),
-    ).toEqual(['pharn/pharn-pipeline/grillers/a11y/a11y.md']);
-  });
-
-  it('is [] when the capability dir is absent', () => {
-    expect(
-      capabilityRecordPaths(tmp.path(), layoutPaths('flat'), {
-        name: 'ghost',
-        role: 'lens',
-      }),
-    ).toEqual([]);
-  });
-
-  it('skips symlinks inside the capability dir', () => {
-    const proj = tmp.path();
-    write(join(proj, 'pharn-review/x/x.md'));
-    write(join(proj, 'outside.md'));
-    symlinkSync(join(proj, 'outside.md'), join(proj, 'pharn-review/x/link.md'));
-    expect(
-      capabilityRecordPaths(proj, layoutPaths('flat'), {
-        name: 'x',
-        role: 'lens',
-      }),
-    ).toEqual(['pharn-review/x/x.md']);
   });
 });
