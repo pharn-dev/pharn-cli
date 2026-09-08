@@ -64,18 +64,19 @@ Vibe-coding with an AI agent is fast — until the chat history scrolls away and
 
 After a summary of what was selected vs. skipped and your confirmation, the CLI copies the selected capabilities plus the fixed product surfaces into the mirrored layout and writes `pharn.config.json`:
 
-| Artifact                                                  | What lands in your project                                                                                   |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The selected grillers + lenses (flat layout, or the same under `pharn/`)                                     |
-| `.claude/commands/`                                       | The `pharn-*` product slash commands                                                                         |
-| `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                                         |
-| `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                                                 |
-| `pharn/pharn-core/`                                       | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                              |
-| `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                                            |
-| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                   | PHARN's Apache-2.0 license, so republishing your repo carries the grant. Your own `LICENSE` is never touched |
-| `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and layout                         |
+| Artifact                                                              | What lands in your project                                                                                           |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | The installed grillers + lenses, each with its `evals/`                                                              |
+| `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs` floor hooks                                          |
+| `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files and `test-fixtures/`) |
+| `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                      |
+| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | The trusted spec docs, copied verbatim — see the layout note below                                                   |
+| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched |
+| `features/README.md`                                                  | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                |
+| `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                             |
+| `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites                               |
 
-An existing `.claude/settings.json` is **never** overwritten. To adjust the selection afterward, use [`pharn add`](docs/commands/add.md) / [`pharn remove`](docs/commands/remove.md).
+`.claude/*` is **layout-invariant**, and an existing `.claude/settings.json` is **never** overwritten. Everything else follows the fetched version: the CLI **mirrors** whichever layout `pharn-dev/pharn-oss` ships and never rewrites a copied file's contents, so the paths above are the `pharn` layout it installs today. The trusted-doc set also names `pharn/THREAT-MODEL.md` and `pharn/LIMITS.md`, and every doc is copied only if the fetched version ships it at that path. The legacy **flat** layout puts the same surfaces at the project root instead (`pharn-pipeline/grillers/`, `pharn-review/`, `pharn-contracts/`, `.dev/floor/`, `PHARN-LICENSE`, and the trusted docs), and ships no `pharn-core/`; which layout you got is recorded as `layout` in `pharn.config.json`. To adjust the selection afterward, use [`pharn add`](docs/commands/add.md) / [`pharn remove`](docs/commands/remove.md).
 
 ---
 

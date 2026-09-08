@@ -67,9 +67,11 @@ a whole tree to relocate.
 
 `.claude/settings.json` is **never** flagged — it is your Claude Code configuration, which the install
 preserves (never overwrites). The copied-verbatim trusted docs, `.cjs` hooks, `features/README.md`,
-`pharn-contracts/`, `pharn/pharn-core/`, and `.dev/floor/` checkers **are** compared, so an edit to any
-of those surfaces shows up as drift. The floor's own `test-fixtures/` subtree is dev test apparatus —
-never installed, and so never compared.
+pharn's `LICENSE` copy, and the contracts, `pharn-core` and floor dirs at your recorded layout
+(`pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`, or `pharn-contracts/`, `pharn-core/`,
+`.dev/floor/` when it is flat) **are** compared, so an edit to any of those surfaces shows up as
+drift. The floor's own `test-fixtures/` subtree is dev test apparatus — never installed, and so
+never compared.
 
 ## Exit code
 

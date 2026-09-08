@@ -13,10 +13,11 @@ PHARN does not scaffold your app. You create your project (e.g. with `create-nex
 package prerequisite to satisfy. See [Troubleshooting](troubleshooting.md).
 
 PHARN installs **into your existing project**. Just before writing, `pharn init` checks which of its
-actual install targets (the selected capability dirs, the product commands/hooks, `pharn-contracts/`,
-the floor checkers, the constitution, and `pharn.config.json`) already exist in your project. If any
-do, it lists them and asks you to confirm before overwriting — default **no**; if none do, there is no
-prompt at all. Your `.claude/settings.json` is never overwritten, so it is not part of the check.
+actual install targets (the selected capability dirs, the product commands/hooks, the contracts, core
+and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in
+your project. If any do, it lists them and asks you to confirm before overwriting — default **no**;
+if none do, there is no prompt at all. Your `.claude/settings.json` is never overwritten, so it is
+not part of the check.
 
 ## Running the CLI
 
@@ -61,17 +62,29 @@ To add a capability the detection didn't select — or remove one it did — use
 After a successful install, your project contains the selected capabilities plus the fixed product
 surfaces:
 
-| Artifact                                                             | Description                                                                                                                                                  |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/`            | The installed grillers + lenses (flat layout; or the same under `pharn/`)                                                                                    |
-| `.claude/commands/`                                                  | The `pharn-*` product slash commands                                                                                                                         |
-| `.claude/hooks/`                                                     | The deterministic `.cjs` floor hooks                                                                                                                         |
-| `pharn-contracts/`, `.dev/floor/`                                    | Inter-layer schemas + the floor checkers the commands invoke                                                                                                 |
-| `pharn/pharn-core/`                                                  | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                                              |
-| `CONSTITUTION.md`, `ARCHITECTURE.md`, `THREAT-MODEL.md`, `LIMITS.md` | The four trusted spec docs, copied verbatim — at the project root in the flat layout, or under `pharn/`. Each is copied only if the fetched version ships it |
-| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                              | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched                                         |
-| `pharn.config.json`                                                  | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                                                                     |
-| `pharn.records.json`                                                 | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites                                                                       |
+| Artifact                                                              | Description                                                                                                          |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | The installed grillers + lenses, each with its `evals/`                                                              |
+| `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs` floor hooks                                          |
+| `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files and `test-fixtures/`) |
+| `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                      |
+| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | The trusted spec docs, copied verbatim — see the layout note below                                                   |
+| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched |
+| `features/README.md`                                                  | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                |
+| `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                             |
+| `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites                               |
+
+`.claude/*` is **layout-invariant** — commands, hooks and `settings.json` sit at those paths either
+way, and an existing `.claude/settings.json` is never overwritten. Everything else follows the fetched
+version: the CLI **mirrors** whichever layout `pharn-dev/pharn-oss` ships and never rewrites a copied
+file's contents, so the paths above are the `pharn` layout it installs today. The legacy **flat**
+layout puts the same surfaces at the project root instead — `pharn-pipeline/grillers/`,
+`pharn-review/`, `pharn-contracts/`, `.dev/floor/`, `PHARN-LICENSE` — and upstream ships no root
+`pharn-core/`, so that one surface is simply absent there. The trusted-doc set also names
+`pharn/THREAT-MODEL.md` and `pharn/LIMITS.md`, but every doc is copied only if the fetched version
+ships it at that path — upstream still keeps those two at the repo root, so today a flat install
+lands all four there while a `pharn` install lands the two in the table. Which layout you got is
+recorded as `layout` in `pharn.config.json`.
 
 See [pharn.config.json](reference/pharn-config.md) and
 [pharn.records.json](reference/pharn-records.md) for the exact schemas. **Commit both** — they are
