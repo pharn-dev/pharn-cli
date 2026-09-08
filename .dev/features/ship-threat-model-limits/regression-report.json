@@ -1,0 +1,25 @@
+{
+  "base": "bda050dcaaaa0b0e447fa9db50dbd27f372cdeba",
+  "inside": [
+    "src/lib/constants.ts",
+    "src/lib/layout.ts",
+    "tests/layout.test.ts",
+    "tests/install-manifest.test.ts",
+    "tests/install-capabilities.test.ts",
+    "docs/getting-started.md",
+    "CHANGELOG.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

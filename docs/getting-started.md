@@ -61,16 +61,16 @@ To add a capability the detection didn't select — or remove one it did — use
 After a successful install, your project contains the selected capabilities plus the fixed product
 surfaces:
 
-| Artifact                                                  | Description                                                                              |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/` | The installed grillers + lenses (flat layout; or the same under `pharn/`)                |
-| `.claude/commands/`                                       | The `pharn-*` product slash commands                                                     |
-| `.claude/hooks/`                                          | The deterministic `.cjs` floor hooks                                                     |
-| `pharn-contracts/`, `.dev/floor/`                         | Inter-layer schemas + the floor checkers the commands invoke                             |
-| `pharn/pharn-core/`                                       | The agnostic mechanism skills the commands cite (the seam resolver + its evals)          |
-| `CONSTITUTION.md`                                         | The canonical PHARN constitution, copied verbatim                                        |
-| `pharn.config.json`                                       | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout |
-| `pharn.records.json`                                      | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites   |
+| Artifact                                                             | Description                                                                                                                                                  |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pharn-pipeline/grillers/<name>/`, `pharn-review/<name>/`            | The installed grillers + lenses (flat layout; or the same under `pharn/`)                                                                                    |
+| `.claude/commands/`                                                  | The `pharn-*` product slash commands                                                                                                                         |
+| `.claude/hooks/`                                                     | The deterministic `.cjs` floor hooks                                                                                                                         |
+| `pharn-contracts/`, `.dev/floor/`                                    | Inter-layer schemas + the floor checkers the commands invoke                                                                                                 |
+| `pharn/pharn-core/`                                                  | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                                              |
+| `CONSTITUTION.md`, `ARCHITECTURE.md`, `THREAT-MODEL.md`, `LIMITS.md` | The four trusted spec docs, copied verbatim — at the project root in the flat layout, or under `pharn/`. Each is copied only if the fetched version ships it |
+| `pharn.config.json`                                                  | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                                                                     |
+| `pharn.records.json`                                                 | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites                                                                       |
 
 See [pharn.config.json](reference/pharn-config.md) and
 [pharn.records.json](reference/pharn-records.md) for the exact schemas. **Commit both** — they are

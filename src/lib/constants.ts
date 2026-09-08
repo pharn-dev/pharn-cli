@@ -62,9 +62,12 @@ export const FLOOR_DIR = '.dev/floor';
 // installed project share ONE tree. The CLI mirrors whichever layout the fetched
 // clone actually has (lib/layout.ts → detectLayout); these are the pharn/
 // counterparts of the flat constants above. `.claude/*` command/hook/settings
-// paths are identical in both layouts. THREAT-MODEL.md / LIMITS.md are NOT under
-// pharn/ (they stay dev-only), so the pharn docs set is CONSTITUTION + ARCHITECTURE
-// only — the flat set's THREAT-MODEL/LIMITS are dropped from a pharn install.
+// paths are identical in both layouts. The docs set is the SAME four documents in
+// both — the pharn install ships THREAT-MODEL.md and LIMITS.md too, because the
+// product commands, floor checkers and contracts it also installs cite them by
+// path; dropping them left every one of those pointers dangling in the user's
+// project. Each doc copy is existence-guarded at both readers, so a clone that
+// predates a doc simply does not install it (P7).
 // ---------------------------------------------------------------------------
 export const PHARN_GRILLERS_DIR = 'pharn/pharn-pipeline/grillers';
 export const PHARN_LENSES_DIR = 'pharn/pharn-review';
@@ -75,6 +78,8 @@ export const PHARN_FLOOR_DIR = 'pharn/floor';
 export const PHARN_TRUSTED_DOCS = [
   'pharn/CONSTITUTION.md',
   'pharn/ARCHITECTURE.md',
+  'pharn/THREAT-MODEL.md',
+  'pharn/LIMITS.md',
 ];
 // Claude Code surfaces.
 export const CLAUDE_COMMANDS_DIR = '.claude/commands';

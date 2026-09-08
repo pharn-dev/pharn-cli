@@ -46,7 +46,9 @@ export interface LayoutPaths {
   // Deterministic floor checkers dir (test files excluded on copy).
   floor: string;
   // Trusted spec docs copied verbatim (write-protected post-install by the
-  // installed protect-trusted-paths hook). The pharn set drops THREAT-MODEL/LIMITS.
+  // installed protect-trusted-paths hook). The SAME four documents in both
+  // layouts — only their prefix differs. Every consumer existence-guards each
+  // entry, so a clone missing one contributes nothing rather than failing (P7).
   docs: string[];
 }
 
