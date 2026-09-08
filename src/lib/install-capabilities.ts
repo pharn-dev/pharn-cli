@@ -179,9 +179,19 @@ export function installCapabilities(
   // safeJoin cannot catch it (it is lexical and never resolves a link). The
   // manifest already walks every component; the writer must agree, or the two
   // trust floors diverge on exactly the path this increment adds (P2).
+  //
+  // The DESTINATION is walked too, for the mirror-image reason: measured, a
+  // project whose own `features/` is a symlink to an external directory takes
+  // the copy straight THROUGH it, creating or overwriting a README.md outside
+  // the project root — and the pre-install overwrite check never warns, because
+  // `existsSync` on the absent leaf inside that link is false. safeJoin is
+  // lexical here too. This is the posture `apply-update.ts` already takes on
+  // every write it makes; the install path must match it for the one surface
+  // whose destination has an intermediate directory (P2).
   const featuresFrom = safeJoin(repoDir, FEATURES_README);
   if (
     findSymlinkComponent(repoDir, FEATURES_README) === null &&
+    findSymlinkComponent(projectRoot, FEATURES_README) === null &&
     existsSync(featuresFrom) &&
     !isSymlink(featuresFrom)
   ) {

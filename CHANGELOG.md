@@ -32,8 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   symlinked *parent*: `existsSync` returns true, the leaf is not itself a link, and the copy reads
   straight through to wherever the directory points. The lexical path guard cannot catch this — it
   never resolves links. The copy site now runs the same physical component walk the expected-file
-  manifest already ran, so both agree and neither writes such a file. No release shipped the
-  unguarded copy; the hole was found and closed in the same change that introduced the path.
+  manifest already ran, so both agree and neither writes such a file.
+
+  The **destination** is walked for the mirror-image reason: a project whose own `features/` is a
+  symlink to an external directory took the copy straight through it, creating or overwriting a
+  `README.md` outside the project root — and the pre-install overwrite prompt never warned, because
+  the check for an existing file returns false for an absent leaf inside that link. Both directions
+  are now measured and pinned by tests. No release shipped either unguarded copy; both holes were
+  found and closed in the same change that introduced the path.
 
 - **A `pharn`-layout install can now ship `THREAT-MODEL.md` and `LIMITS.md`.** The install placed only
   `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md`, treating the other two trusted docs as

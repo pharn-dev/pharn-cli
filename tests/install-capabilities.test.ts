@@ -354,6 +354,25 @@ describe('installCapabilities', () => {
     expect(keys).not.toContain('features/README.md');
   });
 
+  // The mirror image of the source case, and equally measured: a PROJECT whose
+  // own features/ is a symlink to an external directory takes the copy straight
+  // through it, writing outside the project root — and the pre-install overwrite
+  // check never warns, because existsSync on the absent leaf inside that link is
+  // false. safeJoin is lexical and cannot see it.
+  it('does NOT write through a symlinked features/ in the PROJECT (no escape)', () => {
+    const repo = join(tmp.path(), 'destlink-repo');
+    const proj = join(tmp.path(), 'destlink-proj');
+    const outside = join(tmp.path(), 'outside-dest');
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    symlinkSync(outside, join(proj, 'features'));
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(outside, 'README.md'))).toBe(false);
+  });
+
   it('does NOT copy symlinked fixed surfaces (settings, trusted docs, contracts, floor)', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
