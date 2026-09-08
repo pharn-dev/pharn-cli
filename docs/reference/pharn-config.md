@@ -94,10 +94,11 @@ skipped any file deliberately leaves them at their previous values (see [update]
 
 > **Coming soon** — see the [roadmap](../roadmap.md).
 >
-> The `models` block is **written and validated today, and read by nothing**. None of the commands
-> `pharn init` installs consults it, so editing it does **not** change which model a stage runs — it
-> records the routing you want for when the consumer lands. `pharn init` and `pharn status` display
-> the block for that reason, and say so.
+> The `models` block is **written, validated and displayed today — and consumed by nothing.** No
+> stage `pharn init` installs reads it to pick a model, so editing it does **not** change which model
+> a stage runs; it records the routing you want for when the consumer lands. The block _is_ read for
+> two things that are not routing: `pharn init` and `pharn status` render it back to you, and
+> `pharn` validates it on every command (a bad hand-edit still fails loudly).
 
 The block records a per-stage model + effort. It is **written on every fresh install** and is
 **user-owned afterwards** — `pharn` never migrates it. Source of truth:

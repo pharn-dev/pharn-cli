@@ -1,7 +1,7 @@
 # PLAN — make the `models` routing block honest (Coming soon, not a working lever)
 
 - spec_content_hash: ee79ebd718cc2b37266bf0897779a6ae4f467d2b8955878f2dec8a6f41293043 # fix #4
-- increment: The `models` block is written, validated and displayed, but NOTHING installed reads it. Mark it **Coming soon** in the reference doc, add one **Planned** roadmap row, and reword the init outro + `status` MODELS note so neither promises an effect that does not happen. Behavior of the writer, the validator and the renderer is unchanged.
+- increment: The `models` block is written, validated and displayed, but no installed STAGE consumes it for routing. Mark it **Coming soon** in the reference doc, add one **Planned** roadmap row, and reword the init outro + `status` MODELS note so neither promises an effect that does not happen. Behavior of the writer, the validator and the renderer is unchanged.
 - layer(s): `src/steps` (outro copy), `src/commands` (status note copy), `tests`, `docs`
 - constitution_refs: [P0, P4, P7]
 

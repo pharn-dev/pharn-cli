@@ -104,10 +104,12 @@ export async function runInstallArchetype(
   // Render the per-stage routing from the config just written (not a second
   // hardcoded copy), so the recorded intent is legible right after install.
   // config.models is set on every fresh install; the guard narrows its optional
-  // type (P7 legacy). The hint below says plainly that NOTHING installed reads
-  // the block yet — it is written, validated and displayed, and that is all
-  // (docs/roadmap.md carries the Planned row). Claiming an edit here changes a
-  // stage's model would be documenting unimplemented behavior (CLAUDE.md).
+  // type (P7 legacy). The hint below says plainly that no installed STAGE
+  // consumes the block yet: it is written, validated and displayed — this line
+  // and status's MODELS note are two of its readers — but nothing reads it to
+  // PICK a model (docs/roadmap.md carries the Planned row). Claiming an edit
+  // here changes a stage's model would document unimplemented behavior
+  // (CLAUDE.md).
   const modelLines = config.models
     ? formatModelRoutingLines(config.models)
     : [];

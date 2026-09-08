@@ -20,6 +20,11 @@ every row into the diff.
 Not done here, reported: `docs/commands/init.md:134` mentions `models` without the Coming-soon signal
 (true as written, so left alone); `docs/commands/status.md` still does not mention MODELS at all.
 
+CodeRabbit raised one valid finding on the PR and it is now fixed: the doc said the block was "read by
+nothing", which is false — `init` and `status` read it to DISPLAY it, and the validator reads it on
+every command. The precise claim is that no installed **stage** CONSUMES it to pick a model. An
+over-broad claim inside a PR about over-broad claims; narrowed on all five surfaces.
+
 Findings in `REVIEW.md` and `GRILL.md` are advisory free-text — cited, not restated (P4).
 
 chain ran; the named floor verdicts are as shown — this is NOT a judgment that the increment is good

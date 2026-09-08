@@ -11,10 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The `models` block no longer claims an effect it does not have.** `pharn init` writes a per-stage
   model + effort block into `pharn.config.json`, and the reference doc invited you to "edit it and
-  re-run your stages" while the init outro offered to "change per-stage routing anytime". **Nothing
-  `pharn init` installs reads that block** — not one of the product `pharn-*` commands, no hook, and
-  nothing under the installed floor — so setting `models.stages.review` to `fable-5`/`max` and running
-  a review silently ran the session default. The block is now marked **Coming soon** in
+  re-run your stages" while the init outro offered to "change per-stage routing anytime". **No stage
+  `pharn init` installs consumes that block** — not one of the product `pharn-*` commands, no hook,
+  and nothing under the installed floor — so setting `models.stages.review` to `fable-5`/`max` and
+  running a review silently ran the session default. (The block _is_ read, to be displayed and
+  validated; it is never read to pick a model.) The block is now marked **Coming soon** in
   [`docs/reference/pharn-config.md`](docs/reference/pharn-config.md) with a
   [roadmap](docs/roadmap.md) row, the init outro says the routing is recorded and unread, and
   `pharn status`'s MODELS note carries the same qualifier.
