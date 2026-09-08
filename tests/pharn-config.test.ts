@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { log } from '@clack/prompts';
@@ -13,6 +13,7 @@ import {
   LEGACY_CONFIG_MESSAGE,
   CapabilitySourceError,
 } from '../src/lib/pharn-config.js';
+import { tmpPathFor } from '../src/lib/atomic-write.js';
 import type { PharnConfig } from '../src/types.js';
 import {
   DEFAULT_MODEL_ROUTING,
@@ -419,5 +420,46 @@ describe('loadArchetypeConfigOrExit', () => {
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
     expect(msg).toMatch(/pharn init/);
+  });
+});
+
+// The config is written temp-then-rename (lib/atomic-write.ts). A torn write here
+// is the worst failure the CLI can leave behind: `readPharnConfig` collapses
+// malformed JSON to `null`, so every command reports the file as ABSENT and
+// prescribes a re-init that resets hand-edited `models`/`seam` and re-stamps
+// every capability `source: 'auto'` — losing the manual-add provenance only this
+// file remembers.
+describe('writePharnConfig — atomic replacement', () => {
+  const tmp = useTmpDir();
+  const configFile = () => join(tmp.path(), 'pharn.config.json');
+
+  it('writes the same bytes as before: 2-space JSON + trailing newline', async () => {
+    await writePharnConfig(tmp.path(), sample);
+    expect(readFileSync(configFile(), 'utf8')).toBe(
+      `${JSON.stringify(sample, null, 2)}\n`,
+    );
+  });
+
+  it('overwrites an existing config in place, leaving no temp sibling', async () => {
+    await writePharnConfig(tmp.path(), sample);
+    await writePharnConfig(tmp.path(), { ...sample, skillsVersion: '9.9.9' });
+    expect(readdirSync(tmp.path())).toEqual(['pharn.config.json']);
+    expect(readPharnConfig(tmp.path())?.skillsVersion).toBe('9.9.9');
+  });
+
+  // A directory planted at the temp path fails the write for ANY user —
+  // deterministic, unlike a read-only-directory fixture a root runner writes
+  // straight through.
+  it('leaves the previous config intact and loadable when the write fails', async () => {
+    await writePharnConfig(tmp.path(), sample);
+    mkdirSync(tmpPathFor(configFile()), { recursive: true });
+
+    await expect(
+      writePharnConfig(tmp.path(), { ...sample, skillsVersion: '9.9.9' }),
+    ).rejects.toThrow();
+
+    // The whole point: the old config is still THERE and still parses, so no
+    // command mistakes it for absent and prescribes a destructive re-init.
+    expect(readPharnConfig(tmp.path())?.skillsVersion).toBe('0.68.0');
   });
 });

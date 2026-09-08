@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { writeJsonAtomic } from './atomic-write.js';
 import { resolve } from 'node:path';
 import { logError } from './report-error.js';
 import { isPlainObject } from './validate.js';
@@ -158,15 +158,19 @@ export function isConfigValidationError(
   );
 }
 
+/**
+ * Write `pharn.config.json`. ATOMIC (lib/atomic-write.ts): a torn write would
+ * leave truncated JSON that `readPharnConfig` collapses to `null`, so every
+ * command would report the file as ABSENT and prescribe a re-init — which resets
+ * hand-edited `models`/`seam` blocks and re-stamps every capability
+ * `source: 'auto'`, losing exactly the manual-add provenance only this file
+ * remembers. Bytes are unchanged.
+ */
 export async function writePharnConfig(
   cwd: string,
   config: PharnConfig,
 ): Promise<void> {
-  await writeFile(
-    configPath(cwd),
-    `${JSON.stringify(config, null, 2)}\n`,
-    'utf8',
-  );
+  await writeJsonAtomic(configPath(cwd), config);
 }
 
 /**

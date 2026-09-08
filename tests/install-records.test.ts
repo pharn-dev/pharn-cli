@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -12,6 +18,7 @@ import {
   RECORDS_SCHEMA_VERSION,
   writeRecords,
 } from '../src/lib/install-records.js';
+import { tmpPathFor } from '../src/lib/atomic-write.js';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
@@ -354,6 +361,49 @@ describe('mergeRecords', () => {
       keep: sha('keep'),
       shared: sha('new'),
       added: sha('added'),
+    });
+  });
+});
+
+// The store is written temp-then-rename (lib/atomic-write.ts). A torn write is
+// fail-closed here — the reader names it `invalid` — but it still degrades every
+// update decision to `unverifiable`, withholds the version bump, and silently
+// stops `add`/`remove` maintaining the store until `--force` or a hand-edit.
+describe('writeRecords — atomic replacement', () => {
+  const tmp = useTmpDir();
+  const proj = () => tmp.path();
+  const storeFile = () => join(proj(), RECORDS_FILE);
+
+  it('writes the same bytes as before: 2-space JSON + trailing newline', async () => {
+    const files = { 'a.md': sha('a') };
+    await writeRecords(proj(), { ...STAMP, files });
+    expect(readFileSync(storeFile(), 'utf8')).toBe(
+      `${JSON.stringify(validStore(files), null, 2)}\n`,
+    );
+  });
+
+  it('overwrites an existing store in place, leaving no temp sibling', async () => {
+    await writeRecords(proj(), { ...STAMP, files: { 'a.md': sha('a') } });
+    await writeRecords(proj(), { ...STAMP, files: { 'b.md': sha('b') } });
+    expect(readdirSync(proj())).toEqual([RECORDS_FILE]);
+    const read = readRecords(proj());
+    expect(read.kind === 'ok' && read.store.files).toEqual({
+      'b.md': sha('b'),
+    });
+  });
+
+  it('leaves the previous store intact and readable when the write fails', async () => {
+    await writeRecords(proj(), { ...STAMP, files: { 'a.md': sha('a') } });
+    mkdirSync(tmpPathFor(storeFile()), { recursive: true });
+
+    await expect(
+      writeRecords(proj(), { ...STAMP, files: { 'b.md': sha('b') } }),
+    ).rejects.toThrow();
+
+    const read = readRecords(proj());
+    expect(read.kind).toBe('ok');
+    expect(read.kind === 'ok' && read.store.files).toEqual({
+      'a.md': sha('a'),
     });
   });
 });

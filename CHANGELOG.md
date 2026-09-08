@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn.config.json` and `pharn.records.json` are now written atomically.** Both were written with
+  a plain `writeFile`, so a write torn by power loss or `SIGKILL` left truncated JSON on disk. For the
+  records store that fails closed — the reader names it invalid, every update decision degrades to
+  `unverifiable`, and the version bump is withheld. For the config it was worse: `readPharnConfig`
+  collapses malformed JSON to `null`, so every command reported **"No `pharn.config.json` found. Run
+  `pharn init` first."** — about a file that was right there — and the prescribed re-init resets
+  hand-edited `models`/`seam` blocks to defaults and re-stamps every capability `source: 'auto'`,
+  destroying the manual-add provenance only that file remembers. Both writes now go through one
+  helper that writes a sibling temp file and `rename`s it over the target, so the file is either
+  replaced whole or left exactly as it was. The bytes are unchanged, and so are the file's permission
+  bits — `rename` swaps in a new inode, so an existing regular file's mode is copied onto the temp
+  first, and a `0600` config stays `0600` instead of becoming whatever your umask gives. A
+  `pharn.config.json` that is a **symlink** is now replaced by a regular file rather than written
+  through, matching how the rest of the CLI treats symlinks. **What this does not do,** and
+  is not claimed anywhere: it does not make the two files a transaction (a crash between them still
+  leaves the stamp mismatch `recordsBaseline` already reports by name), it adds no lock and does not
+  serialize two concurrent `pharn` processes, and it does not `fsync` — surviving a power cut at the
+  block layer is a different guarantee from never observing a torn file, and only the second is made.
+
 - **One filename trust floor across both write paths.** `pharn init` hard-fails on a product-command
   or `.cjs` hook basename from the fetched repo that violates the copy allowlist (lowercase words
   joined by single hyphens, one of `.md`/`.cjs`/`.mjs`/`.json`, no control characters) — but
