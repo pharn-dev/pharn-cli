@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+} from 'node:fs';
 import {
   MIN_CLI_FILE,
   REPO,
@@ -75,28 +81,48 @@ export interface MinCliRead {
  */
 export function readMinCli(repoDir: string): MinCliRead {
   const path = safeJoin(repoDir, MIN_CLI_FILE);
-  if (!existsSync(path)) return { version: null, warning: null };
+
+  // ONE descriptor, opened once and read once. Not `existsSync` + `readFileSync`
+  // and not `statSync` + `readFileSync`: both check one file and then read
+  // whatever is at that name afterwards, which is a TOCTOU race on an untrusted
+  // clone directory. Opening first and reading from the SAME fd means the bytes
+  // that arrive are the bytes of the file that was opened.
+  let fd: number;
+  try {
+    fd = openSync(path, 'r');
+  } catch (err) {
+    // ENOENT is the NORMAL case and is SILENT: MIN_CLI is optional and upstream
+    // ships none today, so "absent" means "no constraint", not "something is
+    // wrong". Every other open failure is a present-but-unusable file, which is
+    // still no constraint — but named (P5).
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { version: null, warning: null };
+    }
+    return { version: null, warning: unusableMinCli(err) };
+  }
 
   let raw: string;
   try {
-    // Size-check BEFORE reading. The bytes come from an untrusted clone, and a
-    // version string is ~50 characters — so a file above this cap is not a
-    // version by any reading, and slurping it into a string first would be a
-    // needless memory hazard. (The network path applies the same discipline with
-    // its own cap; this is the on-disk counterpart.)
-    if (statSync(path).size > MAX_MIN_CLI_BYTES) {
+    // Bounded BY CONSTRUCTION rather than by a prior size check: at most
+    // MAX_MIN_CLI_BYTES + 1 bytes are ever allocated or read, whatever the file's
+    // real size. Reading the extra byte is what distinguishes "exactly at the
+    // cap" from "over it". A version string is ~50 characters, so anything above
+    // the cap is not a version by any reading.
+    const buf = Buffer.alloc(MAX_MIN_CLI_BYTES + 1);
+    const bytes = readSync(fd, buf, 0, buf.length, 0);
+    if (bytes > MAX_MIN_CLI_BYTES) {
       return {
         version: null,
         warning: `${MIN_CLI_FILE} in the fetched repo is too large to be a version; continuing without a minimum-version constraint.`,
       };
     }
-    raw = readFileSync(path, 'utf8');
+    raw = buf.subarray(0, bytes).toString('utf8');
   } catch (err) {
-    // A directory at the path, a permission error, a mid-clone corruption.
-    return {
-      version: null,
-      warning: `${MIN_CLI_FILE} in the fetched repo could not be read (${err instanceof Error ? err.name : 'unknown error'}); continuing without a minimum-version constraint.`,
-    };
+    // A directory at the path (EISDIR), a permission error, a mid-clone
+    // corruption.
+    return { version: null, warning: unusableMinCli(err) };
+  } finally {
+    closeSync(fd);
   }
 
   const value = raw.trim();
@@ -109,6 +135,15 @@ export function readMinCli(repoDir: string): MinCliRead {
     };
   }
   return { version: value, warning: null };
+}
+
+// The one wording for "the file is there but unusable". Deliberately reports the
+// ERROR class only, never the file's bytes — those are untrusted (P2).
+function unusableMinCli(err: unknown): string {
+  const code =
+    (err as NodeJS.ErrnoException | undefined)?.code ??
+    (err instanceof Error ? err.name : 'unknown error');
+  return `${MIN_CLI_FILE} in the fetched repo could not be read (${code}); continuing without a minimum-version constraint.`;
 }
 
 /**
