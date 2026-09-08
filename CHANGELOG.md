@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`npm run check` now runs `lint:md`, and `CONTRIBUTING.md` names all six CI gates.** The quick-start
+  told contributors that four commands were "exactly what CI runs". CI runs six, and the two it
+  omitted — `Markdown lint` and `Build` — are required status checks on `main`, so a docs-only PR
+  could pass every gate the file documented and still land a red required X with no local command
+  that reproduced it. `check` now covers `format:check` + `lint` + `lint:md` + `typecheck` + `test`.
+
+  **It is still not the whole of CI, and the docs now say so:** `check` skips `build`, and it runs
+  `test` rather than `test:coverage`, so the coverage thresholds are not enforced locally.
+
+  **Knock-on for maintainers:** `prepublishOnly` is `npm run check`, so a release now also requires
+  markdownlint-clean docs.
+
 - **`npm run dev` now exists.** `README.md` and `docs/contributing.md` both told contributors to run
   the CLI from source with `npm run dev`, and `package.json` had no such script — the documented
   command failed with `npm error Missing script: "dev"`. Added as `tsx src/index.ts`, so

@@ -134,8 +134,8 @@ npm install
 npm run dev          # e.g. npm run dev -- init
 npm run build
 npm run test
-npm run check        # format:check + lint + typecheck + test
-npm run build:install-local   # link pharn into the local test-app/
+npm run check        # every CI gate except build, without the coverage threshold
+npm run build:install-local   # link pharn into every local test-*/ app
 ```
 
 `PHARN_DEBUG=1` for verbose errors. Details: [Contributing](CONTRIBUTING.md).

@@ -21,7 +21,7 @@ npm run format:check         # prettier check (use `format` to write)
 npm test                     # vitest run (single pass)
 npm run test:watch
 npm run test:coverage        # vitest run --coverage (CI runs this)
-npm run check                # format:check + lint + typecheck + test (aggregate; excludes lint:md)
+npm run check                # format:check + lint + lint:md + typecheck + test (aggregate; no build, no coverage gate)
 npx vitest run tests/install-capabilities.test.ts   # single test file
 ```
 

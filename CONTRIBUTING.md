@@ -1,12 +1,12 @@
 # Contributing to pharn
 
-Thanks for your interest in improving PHARN. This repository **is `pharn`** — the ESM-only Node CLI that fetches PHARN modules from `pharn-dev/pharn-oss` and installs them into a project's `.claude/`. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
+Thanks for your interest in improving PHARN. This repository **is `pharn`** — the ESM-only Node CLI that installs PHARN capabilities from `pharn-dev/pharn-oss` into a project's `.claude/` and `pharn/`. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
 
 ## Read first
 
 Before changing anything, read these in order:
 
-1. [`CLAUDE.md`](./CLAUDE.md) — how the CLI works and its hard constraints (the architecture source of truth: the init step pipeline, dependency resolution, and the security-sensitive libs).
+1. [`CLAUDE.md`](./CLAUDE.md) — how the CLI works and its hard constraints (the architecture source of truth: the archetype install flow, capability resolution, and the security-sensitive libs).
 2. [`README.md`](./README.md) — what the CLI is and how it's run.
 3. [`docs/contributing.md`](./docs/contributing.md) — the full development guide (setup, quality gates, test map, doc maintenance).
 
@@ -23,11 +23,12 @@ Before changing anything, read these in order:
 
 1. **Open an issue first** for any non-trivial change. PHARN is small-surface on purpose.
 2. **Install**: `cd pharn-cli && npm install` (dev-only tooling; only `dist/` ships to npm).
-3. **Run the gates before pushing** — all four must pass (this is exactly what CI runs):
-   `npm run format:check` · `npm run lint` · `npm run typecheck` · `npm test`
+3. **Run the gates before pushing.** CI runs **six**, each as its own job, and all six are required status checks on `main`:
+   `npm run format:check` · `npm run lint` · `npm run lint:md` · `npm run typecheck` · `npm run test:coverage` · `npm run build`
+   `npm run check` runs the first four plus `test`, so it is the one command to reach for — but it is **not** the whole of CI: it skips `build`, and it runs `test` rather than `test:coverage`, so it does not enforce the coverage thresholds. See the [gates table](./docs/contributing.md#quality-gates) for the job names.
 4. **Branch**: `feat/…`, `fix/…`, or `docs/…`.
 5. **Commit** in [Conventional Commits](https://www.conventionalcommits.org/) style, one logical change per commit.
-6. **Tests first** — when changing wizard behavior, update the matching `tests/*.test.ts` before touching code. The suite mirrors `steps/` and `lib/` one-to-one.
+6. **Tests first** — when changing behavior, update the matching `tests/*.test.ts` before touching code. The suite mirrors `commands/`, `steps/` and `lib/` one-to-one.
 7. **Security-sensitive files** (`lib/validate.ts`, `lib/install-capabilities.ts`, `lib/skills-version.ts`) — preserve the validation invariants (regex/enum allowlists, `safeJoin` path guard, symlink rejection, `redirect: 'error'`, and the fetch timeout/size caps) called out in [`CLAUDE.md`](./CLAUDE.md).
 8. **Keep docs in sync** — see the [Documentation maintenance](./docs/contributing.md#documentation-maintenance) table.
 

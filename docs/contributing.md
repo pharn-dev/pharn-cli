@@ -15,7 +15,7 @@ npm install
 | ----------------------------- | ------------------------------------------------------------------------------------------------- |
 | `npm run dev`                 | Run CLI via tsx, e.g. `npm run dev -- init`                                                       |
 | `npm run build`               | Compile `src/` to `dist/`                                                                         |
-| `npm run build:install-local` | Build and symlink `pharn` into the local `test-app/node_modules` (no-op if `test-app/` is absent) |
+| `npm run build:install-local` | Build and symlink `pharn` into every local `test-*/` app's `node_modules` (no-op if none exist)   |
 | `npm run test`                | Vitest (single run)                                                                               |
 | `npm run test:watch`          | Vitest watch mode                                                                                 |
 | `npm run test:coverage`       | Coverage report                                                                                   |
@@ -23,8 +23,10 @@ npm install
 | `npm run lint`                | ESLint on `src/`, `tests/`, `scripts/` — fails on any warning                                     |
 | `npm run format`              | Prettier write                                                                                    |
 | `npm run format:check`        | Prettier check (CI-friendly)                                                                      |
+| `npm run lint:md`             | markdownlint over `docs/**/*.md` and root `*.md`                                                  |
+| `npm run check`               | All of the above except `build`, without the coverage gate                                        |
 
-From the `test-app/` directory (which needs its own `package.json`) after `build:install-local`:
+From a `test-*/` directory (which needs its own `package.json`) after `build:install-local`:
 
 ```bash
 npx @pharn-dev/pharn init
@@ -49,7 +51,7 @@ Each gate is a **separate job**, so it reports its own status check and a failur
 
 Gates run on **ubuntu-latest with Node 24**. `package.json` declares `engines.node: ">=20"`; CI does not exercise Node 20 or 22, so verify locally if your change touches runtime-version-sensitive APIs.
 
-`npm run check` runs `format:check` + `lint` + `typecheck` + `test` as a single local pre-push command.
+`npm run check` runs `format:check` + `lint` + `lint:md` + `typecheck` + `test` as a single local pre-push command. It covers every gate above **except `build`**, and it runs `test` rather than `test:coverage` — so it does not enforce the coverage thresholds the `Test` job does. A green `check` is the strongest single local signal, not a proof that CI will be green.
 
 Three more workflows report required checks: `floor` (the deterministic PHARN floor), `gitleaks` (secret scanning), and `Analyze (javascript-typescript)` (CodeQL, also on pushes to `main` and weekly).
 
