@@ -1,0 +1,20 @@
+{
+  "base": "19eb3457296584913d220b549df70b0c57d558fb",
+  "inside": [
+    "src/commands/update.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

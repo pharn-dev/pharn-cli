@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/cli-robustness/SHIP.md"
+    ".dev/features/unreadable-skips-force-advice/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T07:57:32.001Z"
+  "set_at": "2026-09-08T12:00:23.326Z"
 }

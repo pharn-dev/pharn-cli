@@ -75,8 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report your environment against measured degit versions, never the transport that ran.
   `docs/troubleshooting.md` gains a "Proxy environment variables" section.
 
-- **`pharn` now refuses argv it does not understand.** An unknown *command* always exited 1, but an
-  unknown *option* was parsed into the arg map and silently dropped, and extra positionals were
+- **`pharn` now refuses argv it does not understand.** An unknown _command_ always exited 1, but an
+  unknown _option_ was parsed into the arg map and silently dropped, and extra positionals were
   ignored outright. So `pharn status --sctrict` ran in the default exit-0 mode — a typo in a CI
   pipeline permanently disarmed the drift gate while every run stayed green — `pharn update --froce`
   ran un-forced, `pharn add a11y extra` dropped its third argument, and `pharn --hepl` fell through
@@ -88,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consequences are deliberate and worth naming: a genuine `--help` / `--version` no longer excuses an
   unknown sibling (`pharn --help --bogus` refuses rather than printing usage), and flags stay parsed
   globally, so a flag belonging to another command still parses and is ignored (`pharn init --force`)
-  — only *unrecognised* options are refused. No flag's semantics moved: `--archetype` is still a
+  — only _unrecognised_ options are refused. No flag's semantics moved: `--archetype` is still a
   parsing no-op, `--no-drift` still flips the drift default off, `update --yes` still skips only the
   confirm, and `remove --yes` is still the passthrough its own finding owns.
 
@@ -168,6 +168,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CAPABILITY_NAME_RE` before the regex was deleted, so that function's coverage is intact.
 
 ### Fixed
+
+- **`pharn update` no longer prescribes `--force` for skips `--force` cannot clear.** A destination
+  that is not a readable regular file — a directory, a symlink, an unreadable file — is classified
+  `unreadable` and skipped _before_ the per-file decision table, and `force` is not an input to that
+  branch, so `--force` never reaches it. The skip report offered "Re-run with `--force` to overwrite"
+  unconditionally anyway, and because any skip withholds the `skillsVersion` bump, the withheld-version
+  warning repeated the same prescription — so a user who, say, symlinked `pharn/CONSTITUTION.md` to a
+  company-wide copy was told to run a command that produced a byte-identical outcome, forever, while
+  `pharn status --strict` stayed red in CI with nothing that could clear it. The `--force` advice is now
+  printed only when a bucket `--force` actually overrides (`modified` / `unrecorded` / `unverifiable`)
+  is among the skips, the withheld-version warning drops its `--force` clause when every remaining skip
+  is unreadable, and an unreadable group now carries `pharn status`'s own wording — inspect the path by
+  hand, because nothing pharn can run resolves it. Behaviour is unchanged: `--force` still covers
+  exactly the same three buckets, skips still exit 0, and a run that skipped anything still withholds
+  the version bump. One consequence worth naming: on a forced run `unreadable` is the only label that
+  can still reach the skip report, so a forced run never prescribes `--force` at all.
 
 - **`pharn add 123` / `pharn remove 7` no longer crash with a raw `TypeError`.** minimist converts a
   numeric-looking positional into a JavaScript number unless `_` is declared a string, so the value
