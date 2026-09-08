@@ -1,16 +1,7 @@
 {
   "scope": [
-    "tests/apply-update.test.ts",
-    "tests/symlink-guard.test.ts",
-    "tests/diff.test.ts",
-    "tests/update.test.ts",
-    "src/lib/apply-update.ts",
-    "src/lib/symlink-guard.ts",
-    "src/lib/diff.ts",
-    "docs/commands/status.md",
-    "docs/commands/update.md",
-    "CHANGELOG.md"
+    ".dev/features/symlinked-parent-unreadable/SHIP.md"
   ],
-  "set_by": ".dev/features/symlinked-parent-unreadable/PLAN.md",
-  "set_at": "2026-09-08T11:44:26.466Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-08T11:54:09.172Z"
 }

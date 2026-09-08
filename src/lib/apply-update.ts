@@ -2,7 +2,7 @@ import { copyFileSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { sha256File } from './hash.js';
 import { findSymlinkComponent } from './symlink-guard.js';
-import { ManifestValidationError, safeJoin } from './validate.js';
+import { ManifestValidationError, safeJoin, toPosix } from './validate.js';
 import type { DiskState } from './update-decision.js';
 
 // ---------------------------------------------------------------------------
@@ -63,7 +63,17 @@ export function readDiskState(projectRoot: string, rel: string): DiskState {
   try {
     const link = findSymlinkComponent(projectRoot, rel);
     if (link !== null) {
-      return { kind: 'unreadable', reason: `${link} is a symlink` };
+      // Naming the component is the whole point when the offender is a PARENT.
+      // When it IS the leaf, both readers already print `rel` beside the reason
+      // (src/commands/status.ts), so repeating it would render
+      // "CONSTITUTION.md — CONSTITUTION.md is a symlink".
+      return {
+        kind: 'unreadable',
+        reason:
+          link === toPosix(rel)
+            ? 'the path is a symlink'
+            : `${link} is a symlink`,
+      };
     }
     stat = lstatSync(dest, { throwIfNoEntry: false });
   } catch {

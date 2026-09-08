@@ -1,0 +1,28 @@
+{
+  "base": "19eb345",
+  "inside": [
+    "CHANGELOG.md",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "src/lib/apply-update.ts",
+    "src/lib/diff.ts",
+    "src/lib/symlink-guard.ts",
+    "tests/apply-update.test.ts",
+    "tests/diff.test.ts",
+    "tests/symlink-guard.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -49,6 +49,10 @@ describe('readDiskState — the disk side of the decision table', () => {
     symlinkSync(join(proj, 'real.md'), join(proj, 'link.md'));
     expect(readDiskState(proj, 'link.md')).toMatchObject({
       kind: 'unreadable',
+      // The LEAF phrasing, kept deliberately: both readers print `rel` beside
+      // the reason, so naming the component here would stutter
+      // ("link.md — link.md is a symlink").
+      reason: 'the path is a symlink',
     });
   });
 
