@@ -520,6 +520,50 @@ describe('scanFileTreeSignals', () => {
       clientUi: true,
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // The BOUNDED half of the walk. Its symlink-safety was pinned; its bounds were
+  // not — so MAX_DEPTH could have been raised, lowered, or dropped entirely with
+  // the suite green. These two pin the boundary from BOTH sides, which is what
+  // makes them a bound rather than a direction: a test that only checks "deep
+  // enough is not found" passes just as well if the walk stopped at depth 1.
+  // ---------------------------------------------------------------------------
+
+  /** `a/a/a/.../Page.tsx` — the file sits at `depth` directories below root. */
+  function buryTsxAt(root: string, depth: number): void {
+    touch(
+      root,
+      `${Array.from({ length: depth }, () => 'a').join('/')}/Page.tsx`,
+    );
+  }
+
+  it('finds a signal at the deepest permitted level (MAX_DEPTH = 24)', () => {
+    buryTsxAt(tmp.path(), 24);
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(true);
+  });
+
+  it('does not find one past it', () => {
+    buryTsxAt(tmp.path(), 25);
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+  });
+
+  it('a skipped subtree costs ZERO budget, so a real signal is still reached', () => {
+    // The load-bearing property the SKIP_DIRS comment claims: a skipped dir
+    // `continue`s BEFORE `budget -= 1`, so a fat framework cache cannot exhaust
+    // MAX_ENTRIES and truncate the walk before it reaches the project's real
+    // source. `.next` sorts before `src`, which is exactly the ordering that
+    // made a 55k-file cache turn an `spa` into a frameworkless `lib`.
+    //
+    // 200 entries, not 50k: what is under test is that the skipped ones are not
+    // COUNTED, and a fixture that has to exhaust a real 50k budget to prove it
+    // would be measuring the machine, not the rule.
+    for (let i = 0; i < 200; i += 1) {
+      touch(tmp.path(), `.next/cache/f${i}.js`);
+    }
+    touch(tmp.path(), 'src/Page.tsx');
+
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
