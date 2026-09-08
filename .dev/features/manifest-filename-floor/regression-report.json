@@ -1,0 +1,21 @@
+{
+  "base": "2b1201895d36b70a2b44282d4dbaf2301b157e0d",
+  "inside": [
+    "src/lib/install-manifest.ts",
+    "tests/install-manifest.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One filename trust floor across both write paths.** `pharn init` hard-fails on a product-command
+  or `.cjs` hook basename from the fetched repo that violates the copy allowlist (lowercase words
+  joined by single hyphens, one of `.md`/`.cjs`/`.mjs`/`.json`, no control characters) — but
+  `pharn update` copied that same file in without a murmur, because the install manifest that now
+  drives its writes filtered only on shape (`endsWith` / `startsWith`). One clone, one repo, two
+  different trust floors: `init` refused it, `update` installed it. The manifest's product-command
+  and hook enumerations now run the same `assertSafeString` + `assertNoDotDot` pair, in the same
+  order (`keep` first, so a `README.md`, a `pharn-dev-*` command, or anything nested still never
+  reaches the validator). A clone carrying such a name is now refused by `update` — and by `status`,
+  which hard-fails on it exactly as it already did on every other fetch-boundary validation error,
+  rather than reporting it as drift. Deliberately **not** extended to capability directories,
+  `pharn-contracts/`, `pharn-core/`, `.dev/floor/`, or the trusted docs: those are copied verbatim
+  with no name check, so validating them in the mirror would break the manifest-to-installer mirror
+  and reject legitimate `evals/` fixtures. No such filename exists upstream today — this closes a
+  latent asymmetry, and no existing install changes meaning.
+
 - **A benign upstream filename no longer makes `pharn` declare its own `pharn.records.json` corrupt.**
   The store's reader rejected any key containing `..` as a **substring** — including inside an
   ordinary basename such as `migration..v2.md` — or a backslash anywhere. Its writer applied no such

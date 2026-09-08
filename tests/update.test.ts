@@ -199,6 +199,28 @@ describe('runUpdate (drift-safe)', () => {
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 
+  // One clone, ONE filename floor. The install manifest drives update's writes,
+  // and it now holds the clone's product-command / hook basenames to the same
+  // COPY_FILENAME_RE allowlist copyFilteredDir holds them to at `init`. Before
+  // that, this exact clone was refused by `init` and copied straight in by
+  // `update` — two write paths, two trust floors.
+  it('refuses a clone whose product-command name fails the allowlist, and writes nothing', async () => {
+    await installed();
+    write(join(repo, '.claude/commands/pharn-Weird_Name.md'), 'weird');
+
+    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(printedLines()).toMatch(/pharn-Weird_Name\.md/);
+    // The offending file is not installed, and the run is not a partial write:
+    // the manifest throws before planUpdate, so no expected file moves either.
+    expect(existsSync(join(proj, '.claude/commands/pharn-Weird_Name.md'))).toBe(
+      false,
+    );
+    expect(body(CAP_FILE)).toBe('a11y v1');
+    expect(body('.claude/commands/pharn-plan.md')).toBe('plan v1');
+    expect(cleanup).toHaveBeenCalled();
+  });
+
   // --- fatal-error reporting (FABLE 4.6 + 5.2) -------------------------------
   //
   // The hint used to print at exactly two of update's fatal exits and at none of
