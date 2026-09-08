@@ -4,6 +4,7 @@ import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   DEV_COMMAND_PREFIX,
+  FEATURES_README,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import { layoutPaths, type LayoutPaths } from './layout.js';
@@ -71,8 +72,9 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
 /**
  * The exact project-root-relative paths an archetype install writes, mapped to
  * their source path in `repoDir` — the selected capability dirs + the fixed
- * product surfaces (product `pharn-*` commands, `.cjs` hooks, trusted docs,
- * `pharn-contracts/`, `pharn-core/`, `.dev/floor/` minus tests), at `layout`. `.claude/settings.json`
+ * product surfaces (product `pharn-*` commands, `.cjs` hooks, trusted docs, the
+ * root `features/README.md`, `pharn-contracts/`, `pharn-core/`, `.dev/floor/`
+ * minus tests), at `layout`. `.claude/settings.json`
  * is user-owned (preserved at install) and is NOT included. Mirrors
  * installCapabilities (lib/install-capabilities.ts); every read is safeJoin-guarded.
  */
@@ -160,6 +162,16 @@ export function collectExpectedInstallPaths(params: {
     const from = safeJoin(repoDir, doc);
     if (findSymlinkComponent(repoDir, doc) !== null) continue;
     if (lstatSync(from, { throwIfNoEntry: false })?.isFile()) add(doc, from);
+  }
+  // features/README.md — the product-loop boundary contract the installed product
+  // commands cite by name. Root in BOTH layouts, like .claude/*. Manifest posture
+  // (lstat + component walk), not the writer's leaf-only isSymlink: a symlink
+  // must never enter the expected set, since this map drives update's WRITES.
+  if (findSymlinkComponent(repoDir, FEATURES_README) === null) {
+    const featuresFrom = safeJoin(repoDir, FEATURES_README);
+    if (lstatSync(featuresFrom, { throwIfNoEntry: false })?.isFile()) {
+      add(FEATURES_README, featuresFrom);
+    }
   }
   // Contracts + pharn-core (whole dirs) + floor checkers (test files excluded),
   // at layout paths. pharn-core is a FIXED surface, not a capability, so it

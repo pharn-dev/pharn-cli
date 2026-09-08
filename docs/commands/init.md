@@ -124,15 +124,15 @@ After you choose **install**, `init` checks which of its **actual write targets*
 
 ### 7. Install
 
-| Action                     | Behavior                                                                                                                                        |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                  |
-| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs` hooks, trusted docs, `pharn-contracts/`, `pharn-core/`, and `.dev/floor/` (minus test files)  |
-| Preserve settings          | An existing `.claude/settings.json` is **never** overwritten (a note tells you to wire the hooks by hand if needed)                             |
-| Mirror the layout          | Whichever layout the fetched clone uses — flat, or the relocated `pharn/` — is mirrored verbatim; the CLI never rewrites copied file contents   |
-| Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                             |
-| Write `pharn.config.json`  | `skillsVersion` (from the repo's `SKILLS_VERSION`), `commit`, `archetypes`, `capabilities`, `layout`, `models`, `seam`, `modules: []`           |
-| Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md)) |
+| Action                     | Behavior                                                                                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                       |
+| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs` hooks, trusted docs, `features/README.md`, `pharn-contracts/`, `pharn-core/`, and `.dev/floor/` (minus test files) |
+| Preserve settings          | An existing `.claude/settings.json` is **never** overwritten (a note tells you to wire the hooks by hand if needed)                                                  |
+| Mirror the layout          | Whichever layout the fetched clone uses — flat, or the relocated `pharn/` — is mirrored verbatim; the CLI never rewrites copied file contents                        |
+| Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                  |
+| Write `pharn.config.json`  | `skillsVersion` (from the repo's `SKILLS_VERSION`), `commit`, `archetypes`, `capabilities`, `layout`, `models`, `seam`, `modules: []`                                |
+| Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                      |
 
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 

@@ -9,12 +9,14 @@ import {
 } from './validate.js';
 import {
   CLAUDE_COMMANDS_DIR,
+  FEATURES_README,
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
   DEV_COMMAND_PREFIX,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import { detectLayout, layoutPaths, type LayoutPaths } from './layout.js';
+import { findSymlinkComponent } from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -31,8 +33,8 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 //
 // Dev-only exclusion is STRUCTURAL, not a scan: only these source subtrees are
 // ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands,
-// `.cjs` hooks, settings.json, the trusted docs, pharn-contracts/, pharn-core/,
-// and `.dev/floor/` minus test files. `pharn-dev-*` commands, `.dev/features/`,
+// `.cjs` hooks, settings.json, the trusted docs, the root features/README.md,
+// pharn-contracts/, pharn-core/, and `.dev/floor/` minus test files. `pharn-dev-*` commands, `.dev/features/`,
 // `.dev/memory-bank/`, and `*.test.*` are NEVER in the copy set.
 //
 // One axis (P3): the capability copy routine.
@@ -154,13 +156,53 @@ export function installCapabilities(
     cpSync(settingsFrom, settingsTo, { force: true });
   }
 
-  // --- trusted docs (flat: 4 at root; pharn: CONSTITUTION + ARCHITECTURE under
-  // pharn/, THREAT-MODEL/LIMITS dropped — they are not under pharn/) -----------
+  // --- trusted docs (the SAME four in both layouts; only the prefix differs --
+  // at the project root when flat, under pharn/ otherwise) --------------------
   for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
     if (existsSync(from) && !isSymlink(from)) {
       cpSync(from, safeJoin(projectRoot, doc), { force: true });
     }
+  }
+
+  // --- features/README.md (root in BOTH layouts, like .claude/*) -------------
+  // The product-loop boundary contract the installed product commands cite by
+  // name. Deliberately NOT called a trusted doc: it is not write-protected by
+  // the installed hook.
+  //
+  // findSymlinkComponent, not just the leaf isSymlink the trusted docs use. This
+  // is the first ROOT-RELATIVE file the install copies that has an INTERMEDIATE
+  // directory, so the leaf-only check is newly insufficient: measured on this
+  // Node, a clone whose `features/` is a symlink reports existsSync true and
+  // lstat(leaf).isSymbolicLink() FALSE, and cpSync copies the pointed-to bytes
+  // straight through — bytes from outside the clone, into the user's project.
+  // safeJoin cannot catch it (it is lexical and never resolves a link). The
+  // manifest already walks every component; the writer must agree, or the two
+  // trust floors diverge on exactly the path this increment adds (P2).
+  //
+  // The DESTINATION is walked too, for the mirror-image reason: measured, a
+  // project whose own `features/` is a symlink to an external directory takes
+  // the copy straight THROUGH it, creating or overwriting a README.md outside
+  // the project root — and the pre-install overwrite check never warns, because
+  // `existsSync` on the absent leaf inside that link is false. safeJoin is
+  // lexical here too. This is the posture `apply-update.ts` already takes on
+  // every write it makes; the install path must match it for the one surface
+  // whose destination has an intermediate directory (P2).
+  //
+  // ORDER MATTERS: the SOURCE checks come first and short-circuit. The file is
+  // optional (an older pinned clone has none), and its absence must stay a
+  // silent no-op — so a clone without it must never reach the destination walk,
+  // which can raise on a project the copy would not have touched anyway.
+  const featuresFrom = safeJoin(repoDir, FEATURES_README);
+  if (
+    findSymlinkComponent(repoDir, FEATURES_README) === null &&
+    existsSync(featuresFrom) &&
+    !isSymlink(featuresFrom) &&
+    destAcceptsWrite(projectRoot, FEATURES_README)
+  ) {
+    cpSync(featuresFrom, safeJoin(projectRoot, FEATURES_README), {
+      force: true,
+    });
   }
 
   // --- contracts (whole dir; mirrored at the layout's path) ------------------
@@ -200,6 +242,28 @@ export function installCapabilities(
   }
 
   return { capabilities, settingsPreserved, layout: paths.layout };
+}
+
+/**
+ * May the install write `rel` under `projectRoot`? False when any component
+ * below the root is a symlink — following one writes OUTSIDE the project, which
+ * `safeJoin` cannot see (it is lexical) and the pre-install overwrite prompt
+ * cannot warn about (the leaf inside the link does not exist, so it is not a
+ * conflict). This is the posture `apply-update.ts` already takes on every write.
+ *
+ * ENOTDIR — a component below a REGULAR FILE — is a SKIP, not a failure.
+ * `findSymlinkComponent` deliberately lets that raise (it suppresses ENOENT
+ * only), and each caller owns the shape: here `cpSync` would throw on the same
+ * tree anyway, so failing the whole install over one OPTIONAL surface would turn
+ * a project that merely has a file named `features` into an init that cannot
+ * complete. Skipping leaves that project exactly as it was.
+ */
+function destAcceptsWrite(projectRoot: string, rel: string): boolean {
+  try {
+    return findSymlinkComponent(projectRoot, rel) === null;
+  } catch {
+    return false;
+  }
 }
 
 /**

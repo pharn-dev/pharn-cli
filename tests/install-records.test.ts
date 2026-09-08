@@ -407,3 +407,23 @@ describe('writeRecords — atomic replacement', () => {
     });
   });
 });
+
+// The install manifest is SOURCE-derived: it lists what the clone has, not what
+// the copy managed to write. When the two disagree because the destination is
+// unwritable, buildRecords must not crash the install after every other file is
+// already on disk.
+describe('buildRecords — an unstatable dest is skipped, not fatal', () => {
+  const tmp = useTmpDir();
+
+  it('skips a rel whose parent is a REGULAR FILE (ENOTDIR), and records the rest', () => {
+    const proj = tmp.path();
+    write(join(proj, 'CONSTITUTION.md'), 'C');
+    // `features` is a file, so `features/README.md` cannot be stat'd at all —
+    // lstat's throwIfNoEntry suppresses ENOENT only.
+    writeFileSync(join(proj, 'features'), 'a regular file');
+
+    const files = buildRecords(proj, ['CONSTITUTION.md', 'features/README.md']);
+
+    expect(Object.keys(files)).toEqual(['CONSTITUTION.md']);
+  });
+});

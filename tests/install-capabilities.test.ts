@@ -59,6 +59,7 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, 'ARCHITECTURE.md'), 'A');
   write(join(repo, 'THREAT-MODEL.md'), 'T');
   write(join(repo, 'LIMITS.md'), 'L');
+  write(join(repo, 'features/README.md'), 'FEATURES');
   // contracts
   write(join(repo, 'pharn-contracts/finding-shape.md'), 'fs');
   // floor (+ tests, dev-only) + dev-only trees
@@ -281,6 +282,132 @@ describe('installCapabilities', () => {
     );
   });
 
+  it('installs features/README.md at the project root (flat layout)', () => {
+    const { proj } = run();
+    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
+      'FEATURES',
+    );
+  });
+
+  it('installs cleanly from a clone WITHOUT features/README.md, and expects it not at all', () => {
+    const repo = join(tmp.path(), 'no-features-repo');
+    const proj = join(tmp.path(), 'no-features-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    rmSync(join(repo, 'features/README.md'));
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
+    const keys = [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }).keys(),
+    ];
+    expect(keys).not.toContain('features/README.md');
+  });
+
+  it('does NOT copy a symlinked features/README.md', () => {
+    const repo = join(tmp.path(), 'link-feat-repo');
+    const proj = join(tmp.path(), 'link-feat-proj');
+    const outside = join(tmp.path(), 'outside-readme.md');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    write(outside, 'NOT FROM THE CLONE');
+    rmSync(join(repo, 'features/README.md'));
+    symlinkSync(outside, join(repo, 'features/README.md'));
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
+  });
+
+  // The asymmetry this closes, MEASURED not assumed: with a symlinked `features/`
+  // PARENT, `existsSync(features/README.md)` is true and
+  // `lstat(leaf).isSymbolicLink()` is FALSE, so a leaf-only guard lets cpSync
+  // copy the pointed-to bytes — from outside the clone — into the user's project.
+  // safeJoin cannot catch it: it is lexical and never resolves a link. This is
+  // the first root-relative file the install copies that HAS an intermediate
+  // directory, which is what makes the hole newly reachable.
+  it('does NOT copy through a symlinked features/ PARENT directory', () => {
+    const repo = join(tmp.path(), 'link-parent-repo');
+    const proj = join(tmp.path(), 'link-parent-proj');
+    const outside = join(tmp.path(), 'outside-dir');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    write(join(outside, 'README.md'), 'NOT FROM THE CLONE');
+    rmSync(join(repo, 'features'), { recursive: true, force: true });
+    symlinkSync(outside, join(repo, 'features'));
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
+    // …and the manifest agrees, so update never writes it either.
+    const keys = [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }).keys(),
+    ];
+    expect(keys).not.toContain('features/README.md');
+  });
+
+  // The mirror image of the source case, and equally measured: a PROJECT whose
+  // own features/ is a symlink to an external directory takes the copy straight
+  // through it, writing outside the project root — and the pre-install overwrite
+  // check never warns, because existsSync on the absent leaf inside that link is
+  // false. safeJoin is lexical and cannot see it.
+  it('does NOT write through a symlinked features/ in the PROJECT (no escape)', () => {
+    const repo = join(tmp.path(), 'destlink-repo');
+    const proj = join(tmp.path(), 'destlink-proj');
+    const outside = join(tmp.path(), 'outside-dest');
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    symlinkSync(outside, join(proj, 'features'));
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(outside, 'README.md'))).toBe(false);
+  });
+
+  // ORDER: the file is OPTIONAL, so a clone without it must never reach the
+  // destination walk. That walk raises ENOTDIR on a component below a regular
+  // file, which would turn "upstream does not ship this yet" into an init that
+  // cannot complete on a project that merely has a file named `features`.
+  it('does not fail init when the clone lacks the file and the project has a FILE named features', () => {
+    const repo = join(tmp.path(), 'nofeat-repo');
+    const proj = join(tmp.path(), 'nofeat-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    rmSync(join(repo, 'features/README.md'));
+    write(join(proj, 'features'), 'a regular file, not a directory');
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    // The user's file is left exactly as it was.
+    expect(readFileSync(join(proj, 'features'), 'utf8')).toBe(
+      'a regular file, not a directory',
+    );
+    // The rest of the install still happened.
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+  });
+
+  // Same shape with the source PRESENT: cpSync would throw ENOTDIR on that tree
+  // anyway, so one optional surface is skipped rather than failing the install.
+  it('skips the copy (does not throw) when the project has a FILE named features', () => {
+    const repo = join(tmp.path(), 'filefeat-repo');
+    const proj = join(tmp.path(), 'filefeat-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    write(join(proj, 'features'), 'a regular file');
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    expect(readFileSync(join(proj, 'features'), 'utf8')).toBe('a regular file');
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+  });
+
   it('does NOT copy symlinked fixed surfaces (settings, trusted docs, contracts, floor)', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -394,6 +521,9 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     );
     write(join(repo, 'pharn/THREAT-MODEL.md'), 'TM');
     write(join(repo, 'pharn/LIMITS.md'), 'LIM');
+    // Root in BOTH layouts, like .claude/* — upstream keeps features/ at the
+    // repo root even in a pharn-layout tree.
+    write(join(repo, 'features/README.md'), 'FEATURES');
     // The dev repo's OWN root copies. Different bytes from the pharn/ ones, so a
     // test that passes cannot be passing because the two are indistinguishable.
     write(join(repo, 'THREAT-MODEL.md'), 'T');
@@ -510,6 +640,16 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
   // the manifest must simply omit the entries — which is what makes listing a
   // doc the CLI's promise about WHERE upstream puts it, not a requirement that
   // it already exists. Without this, adding the constant is a break, not a no-op.
+  // features/README.md is layout-INVARIANT: upstream keeps features/ at the repo
+  // root even in a pharn-layout tree, exactly like .claude/*.
+  it('installs features/README.md at the project ROOT, not under pharn/', () => {
+    const { proj } = run();
+    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
+      'FEATURES',
+    );
+    expect(existsSync(join(proj, 'pharn/features/README.md'))).toBe(false);
+  });
+
   it('installs cleanly from a pharn clone that predates the two docs, and expects neither', () => {
     const repo = join(tmp.path(), 'old-repo');
     const proj = join(tmp.path(), 'old-proj');

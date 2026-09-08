@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn init` now installs upstream's `features/README.md`.** Seven of the ten installed product
+  commands — `/pharn-spec`, `/pharn-plan`, `/pharn-grill`, `/pharn-build`, `/pharn-regress`,
+  `/pharn-verify`, `/pharn-ship` — cite `features/README.md` **by name** as the normative statement of
+  where product-loop artifacts go. All seven were installed; the file they cite was not, so every one
+  of those pointers landed on nothing in your project. It is copied to the project **root in both
+  layouts** (like `.claude/*`), is drift-tracked by `pharn status`, and is restored by `pharn update`
+  if you delete it (and skipped if you edited it). It is deliberately **not** called a trusted doc: it
+  is not write-protected by the installed hook, and the directory it describes is one your own agent
+  writes into. **Existing installs do not receive it immediately:** a CLI-side change to the install
+  set does not move upstream's `SKILLS_VERSION`, so a plain `pharn update` still reports "Already up
+  to date" while `pharn status` reports the file as missing (and `--strict` exits 1). Two ways
+  through: wait for the next upstream skills-version bump, after which a plain `update` restores it;
+  or run `pharn update --force` now, which also overwrites the skip buckets — every casualty is copied
+  to `.pharn-backup/<timestamp>/` first.
+
+### Security
+
+- **A symlinked `features/` directory in a fetched repo can no longer copy files from outside the
+  clone into your project.** `features/README.md` is the first root-relative file the install copies
+  that has an intermediate directory, and the existing leaf-only symlink check does not see a
+  symlinked *parent*: `existsSync` returns true, the leaf is not itself a link, and the copy reads
+  straight through to wherever the directory points. The lexical path guard cannot catch this — it
+  never resolves links. The copy site now runs the same physical component walk the expected-file
+  manifest already ran, so both agree and neither writes such a file.
+
+  The **destination** is walked for the mirror-image reason: a project whose own `features/` is a
+  symlink to an external directory took the copy straight through it, creating or overwriting a
+  `README.md` outside the project root — and the pre-install overwrite prompt never warned, because
+  the check for an existing file returns false for an absent leaf inside that link. Both directions
+  are now measured and pinned by tests. No release shipped either unguarded copy; both holes were
+  found and closed in the same change that introduced the path.
+
+  A project that merely has a **regular file** named `features` is left alone rather than breaking the
+  install: the copy is skipped (a copy there would fail anyway), and the record-writing pass, which is
+  driven by what upstream ships rather than by what was written, now skips a path it cannot stat
+  instead of failing after every other file is already on disk.
+
 - **A `pharn`-layout install can now ship `THREAT-MODEL.md` and `LIMITS.md`.** The install placed only
   `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md`, treating the other two trusted docs as
   dev-only — while the same install shipped ten product commands, the floor checkers and the

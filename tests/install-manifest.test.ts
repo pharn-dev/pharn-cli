@@ -61,6 +61,7 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, 'ARCHITECTURE.md'));
   write(join(repo, 'THREAT-MODEL.md'));
   write(join(repo, 'LIMITS.md'));
+  write(join(repo, 'features/README.md'));
   write(join(repo, 'pharn-contracts/finding-shape.md'));
   write(join(repo, '.dev/floor/validate.mjs'));
   write(join(repo, '.dev/floor/validate.test.mjs'));
@@ -82,6 +83,8 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/ARCHITECTURE.md'));
   write(join(repo, 'pharn/THREAT-MODEL.md'));
   write(join(repo, 'pharn/LIMITS.md'));
+  // Root in BOTH layouts, like .claude/*.
+  write(join(repo, 'features/README.md'));
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
   write(join(repo, 'pharn/floor/validate.test.mjs'));
@@ -140,6 +143,8 @@ describe('collectExpectedInstallPaths (flat)', () => {
       'LIMITS.md',
       'pharn-contracts/finding-shape.md',
       '.dev/floor/validate.mjs',
+      // The product-loop boundary contract the installed commands cite by name.
+      'features/README.md',
     ]) {
       expect(k).toContain(p);
     }
@@ -218,6 +223,9 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     );
     expect(k).toContain('pharn/THREAT-MODEL.md');
     expect(k).toContain('pharn/LIMITS.md');
+    // Layout-INVARIANT: root in both layouts, like .claude/*.
+    expect(k).toContain('features/README.md');
+    expect(k).not.toContain('pharn/features/README.md');
     // Path-anchored, not a basename: the point is that nothing leaks to the
     // project ROOT, and `not.toContain('THREAT-MODEL.md')` would fail on the
     // pharn/-prefixed key it is supposed to allow.
