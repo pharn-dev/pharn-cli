@@ -64,7 +64,7 @@ async function runArchetypeStatus(
       s.stop(`Latest skills v${latest}`);
     } catch (err) {
       s.stop('Failed to check for updates');
-      reportFatal(errorMessage(err), err);
+      reportFatal(errorMessage(err), { err });
       process.exit(1);
     }
     const outdated = printArchetypeVersion(config, latest);
@@ -91,7 +91,7 @@ async function runArchetypeStatus(
     s.stop(`Compared against ${REF}`);
   } catch (err) {
     s.stop(`Failed to reach ${REPO}`);
-    reportFatal(errorMessage(err), err);
+    reportFatal(errorMessage(err), { err });
     process.exit(1);
   }
 
@@ -128,7 +128,7 @@ async function runArchetypeStatus(
       exitCode = 1;
     }
   } catch (err) {
-    reportFatal(errorMessage(err), err);
+    reportFatal(errorMessage(err), { err });
     exitCode = 1;
   } finally {
     repo.cleanup();

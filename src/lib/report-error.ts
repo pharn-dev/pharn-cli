@@ -20,9 +20,24 @@ import { log } from '@clack/prompts';
 export const PHARN_DEBUG_HINT =
   'Re-run with PHARN_DEBUG=1 for full error output.';
 
-/** The message of a caught `unknown`, without the `instanceof` dance at 20 sites. */
+/**
+ * The message of a caught `unknown`, without the `instanceof` dance at 20 sites.
+ *
+ * `String(err)` is itself fallible: a null-prototype object (`Object.create(null)`)
+ * or one with a hostile `toString` makes it throw `TypeError: Cannot convert
+ * object to primitive value`. This function is the LAST thing standing between a
+ * failure and the user, so it must never become the thing that crashes — a throw
+ * here would swallow the fatal message entirely and replace it with a stack from
+ * inside the error reporter. Name the class of value instead and let the exit
+ * code carry the rest (P5: the terminal fallback is a named message, not a crash).
+ */
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  if (err instanceof Error) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return 'an unstringifiable value was thrown';
+  }
 }
 
 /**
@@ -41,23 +56,38 @@ export function logError(message: string): void {
 }
 
 /**
- * Report a fatal failure: `⚠ <message>` on stderr, plus — and ONLY when an `err`
- * is passed — the `PHARN_DEBUG` affordance.
+ * A caught exception, BOXED. The box is the point: `throw undefined` is legal
+ * JavaScript, so a bare `err?: unknown` parameter cannot tell "no exception —
+ * this is a curated refusal" from "an exception whose value happens to be
+ * `undefined`", and would silently drop the affordance for the second. Callers
+ * that defer their exit past a `finally` already carry this exact shape
+ * (`commands/init.ts`, `commands/update.ts`), so the box now travels intact all
+ * the way to the reporter instead of being flattened one line short of it.
+ */
+export interface FatalCause {
+  err: unknown;
+}
+
+/**
+ * Report a fatal failure: `⚠ <message>` on stderr, plus — and ONLY when a
+ * `cause` is passed — the `PHARN_DEBUG` affordance.
  *
- * **Passing the error is the single axis** that marks "this came from an
+ * **Passing the cause is the single axis** that marks "this came from an
  * exception". That is what keeps the hint off a curated refusal — a bad
  * argument, a version/layout gate refusal, the non-TTY message — where there is
- * no stack to dump and offering one would be a lie.
+ * no stack to dump and offering one would be a lie. Because the axis is the
+ * box's PRESENCE and not its contents, it is total: every thrown value,
+ * `undefined` included, still gets the affordance.
  *
  * Under `PHARN_DEBUG` the original is dumped through `console.error` (already
  * stderr) and the hint is suppressed, since it would be noise beside the stack
  * it was offering to print.
  */
-export function reportFatal(message: string, err?: unknown): void {
+export function reportFatal(message: string, cause?: FatalCause): void {
   logError(`⚠ ${message}`);
-  if (err === undefined) return;
+  if (cause === undefined) return;
   if (process.env.PHARN_DEBUG) {
-    console.error(err);
+    console.error(cause.err);
     return;
   }
   // The hint is part of the fatal message, so it travels with it to stderr

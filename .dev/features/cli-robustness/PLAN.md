@@ -14,8 +14,8 @@
 
 ## Discovery (live state, read this run — P6)
 
-Verified in `/Users/pgalarowicz/Projects/pharn-cli`, clean tree, branched off `main` @ `0c3ee34`,
-`package.json` version `0.4.0`:
+Verified at the repository root, clean tree, branched off `main` @ `0c3ee34`, `package.json`
+version `0.4.0`:
 
 - **`src/index.ts:36-54`** — the minimist options declare `boolean`, `default: { drift: true }` and
   `alias`, with **no `unknown` handler and no `string`**. The dispatch (`:66-96`) reads `argv._[0]`

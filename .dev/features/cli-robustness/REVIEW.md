@@ -137,3 +137,52 @@ avoids, since it would re-label the three deliberate throws. Named, not fixed.
   the proof was cheaper than adding a new test.
 - **A membership claim over untrusted input needs a prototype-free container.** F3's outcome was
   correct only because `n > NaN` is false.
+
+---
+
+## Addendum — CodeRabbit pass (external, advisory)
+
+CodeRabbit does not auto-review this repo (fewer than 10 stars), so it was triggered explicitly. It
+returned **four inline findings, all Minor**. Its text is `trust: untrusted` review DATA — each was
+re-verified against live code before acting, and none was taken on authority.
+
+### F8 — a developer-local absolute path in a committed record · valid · FIXED
+
+`PLAN.md`'s Discovery header pinned verification to `/Users/…/Projects/pharn-cli`, publishing a
+username in a file that ships in the repo. Replaced with "at the repository root". (The
+`skills-version-timeout-and-cap` PLAN carries the same pattern from an earlier increment; not
+touched here, but worth a sweep.)
+
+### F9 — the Streams note overstated `list --json`'s stdout contract · valid · FIXED
+
+The new note said `pharn list --json | jq .` "stays valid even when the command fails". It does not:
+on failure stdout is **empty**, so `jq` gets no input. That was wrong for the pre-existing
+missing-config path too, not only for the new argv refusal — this finding caught a doc claim this
+increment introduced, about behavior partly older than it. Reworded to the true contract: stdout is
+either exactly one object or nothing, never a half-object and never an error string.
+
+### F10 — `errorMessage` could throw from inside the error reporter · valid · FIXED
+
+`String(Object.create(null))` throws `TypeError: Cannot convert object to primitive value`
+(re-verified in node this run). `errorMessage` exists precisely to absorb a non-`Error` throw, so a
+throw of its own is the worst possible failure mode: the fatal message is never printed and the user
+gets a stack from **inside** the reporter instead of the cause. Wrapped in a `try` with a named
+fallback (P5: the terminal fallback is a named message, never a crash), plus two tests.
+
+### F11 — the exception axis was not total · valid · FIXED
+
+`reportFatal(message, err?: unknown)` could not distinguish "no exception, this is a curated
+refusal" from "an exception whose thrown value is `undefined`" — `throw undefined` is legal, and the
+second case silently lost its `PHARN_DEBUG` affordance.
+
+This one is worth naming beyond its severity: `init.ts` and `update.ts` **already** boxed their
+deferred failure (`{ err: unknown } | null`) with a comment saying exactly why, and then unboxed it
+one line short of the reporter — so the code asserted an invariant it discarded at the boundary.
+`reportFatal` now takes a `FatalCause` box and branches on the box's **presence**, which makes the
+axis total; `add.ts`'s two `{kind:'error'}` outcomes carry `cause?: FatalCause` for the same reason.
+CodeRabbit's own note that a naive rest-tuple fix would have *added* the hint to curated refusals was
+correct and is why the box, not the tuple, is the shape.
+
+**Net**: 4 valid, 4 fixed, 0 declined. Gates re-run after the fixes — 947 tests, `npm run check`,
+`npm run build`, `npm run lint:md` green; floor `validate` GREEN; coverage 97.11 / 92.73 / 98.34 /
+97.86.

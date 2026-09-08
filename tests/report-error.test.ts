@@ -78,7 +78,7 @@ describe('report-error', () => {
   });
 
   it('prints the PHARN_DEBUG hint when an exception is passed', () => {
-    reportFatal('Could not reach github.com', new Error('ENOTFOUND'));
+    reportFatal('Could not reach github.com', { err: new Error('ENOTFOUND') });
     expect(log.info).toHaveBeenCalledWith(PHARN_DEBUG_HINT, {
       output: process.stderr,
     });
@@ -92,10 +92,28 @@ describe('report-error', () => {
   it('dumps the error and suppresses the hint when PHARN_DEBUG is set', () => {
     process.env.PHARN_DEBUG = '1';
     const err = new Error('ENOTFOUND');
-    reportFatal('Could not reach github.com', err);
+    reportFatal('Could not reach github.com', { err });
     expect(errSpy).toHaveBeenCalledWith(err);
     // The hint would be noise next to the stack it is offering to print.
     expect(log.info).not.toHaveBeenCalled();
+  });
+
+  // The cause is BOXED, and the box's PRESENCE is the axis — not its contents.
+  // `throw undefined` is legal JavaScript, so a bare `err?: unknown` parameter
+  // could not tell "no exception, this is a curated refusal" from "an exception
+  // whose value is undefined", and would silently drop the affordance for the
+  // second. Boxing makes the axis total.
+  it('still prints the hint for an exception whose thrown value is undefined', () => {
+    reportFatal('Update failed.', { err: undefined });
+    expect(log.info).toHaveBeenCalledWith(PHARN_DEBUG_HINT, {
+      output: process.stderr,
+    });
+  });
+
+  it('dumps a thrown undefined under PHARN_DEBUG rather than staying silent', () => {
+    process.env.PHARN_DEBUG = '1';
+    reportFatal('Update failed.', { err: undefined });
+    expect(errSpy).toHaveBeenCalledWith(undefined);
   });
 
   // --- errorMessage ---------------------------------------------------------
@@ -104,6 +122,24 @@ describe('report-error', () => {
     expect(errorMessage(new Error('nope'))).toBe('nope');
     expect(errorMessage('a bare string')).toBe('a bare string');
     expect(errorMessage(undefined)).toBe('undefined');
+  });
+
+  // `String()` is itself fallible: a null-prototype object throws
+  // `TypeError: Cannot convert object to primitive value`. The reporter is the
+  // last thing between a failure and the user, so a throw HERE would swallow the
+  // fatal message and replace it with a stack from inside the error reporter.
+  it('never throws on a value String() cannot convert', () => {
+    const hostile: unknown = Object.create(null);
+    expect(() => String(hostile)).toThrow(TypeError);
+    expect(errorMessage(hostile)).toBe('an unstringifiable value was thrown');
+  });
+
+  it('still reports a fatal whose thrown value is unstringifiable', () => {
+    const hostile: unknown = Object.create(null);
+    expect(() =>
+      reportFatal(errorMessage(hostile), { err: hostile }),
+    ).not.toThrow();
+    expect(vi.mocked(log.error).mock.calls[0]![0]).toContain('unstringifiable');
   });
 
   // --- structural pins ------------------------------------------------------

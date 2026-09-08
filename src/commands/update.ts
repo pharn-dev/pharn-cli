@@ -9,7 +9,12 @@ import {
 } from '@clack/prompts';
 import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
-import { errorMessage, logError, reportFatal } from '../lib/report-error.js';
+import {
+  errorMessage,
+  logError,
+  reportFatal,
+  type FatalCause,
+} from '../lib/report-error.js';
 import { REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
@@ -127,7 +132,7 @@ async function runArchetypeUpdate(
     s.stop(`Latest skills v${latest}`);
   } catch (err) {
     s.stop('Failed to check for updates');
-    reportFatal(errorMessage(err), err);
+    reportFatal(errorMessage(err), { err });
     process.exit(1);
   }
 
@@ -194,7 +199,7 @@ async function runArchetypeUpdate(
     repo = await fetchRepo();
   } catch (err) {
     s2.stop('Update failed');
-    reportFatal(errorMessage(err), err);
+    reportFatal(errorMessage(err), { err });
     process.exit(1);
   }
 
@@ -202,8 +207,9 @@ async function runArchetypeUpdate(
   // The ERROR OBJECT, not its message — the reporter needs it to tell an
   // exception (which earns the PHARN_DEBUG affordance) from a curated refusal.
   // Boxed so a thrown nullish value stays distinguishable from "nothing failed"
-  // across the deferred, post-cleanup exit below.
-  let failure: { err: unknown } | null = null;
+  // across the deferred, post-cleanup exit below, and so the same box can be
+  // handed straight to reportFatal.
+  let failure: FatalCause | null = null;
   let refusal: string | null = null;
   try {
     // THE MIN_CLI GATE — upstream's lever to refuse a stale CLI CLEANLY instead
@@ -243,7 +249,7 @@ async function runArchetypeUpdate(
     // No `failure` means the `!outcome` branch — a defensive guard, not a caught
     // exception — so nothing is passed and no hint is offered for a stack that
     // does not exist.
-    if (failure) reportFatal(errorMessage(failure.err), failure.err);
+    if (failure) reportFatal(errorMessage(failure.err), failure);
     else reportFatal('Update failed.');
     process.exit(1);
   }

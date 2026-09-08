@@ -9,7 +9,12 @@ import {
 import pc from 'picocolors';
 import { REPO_URL } from '../lib/constants.js';
 import { cancelAndExit } from '../lib/confirm.js';
-import { errorMessage, logError, reportFatal } from '../lib/report-error.js';
+import {
+  errorMessage,
+  logError,
+  reportFatal,
+  type FatalCause,
+} from '../lib/report-error.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
@@ -157,7 +162,7 @@ async function runArchetypeAdd(
     s.stop(`Capabilities fetched from ${REPO_URL}`);
   } catch (err) {
     s.stop('Failed to fetch capabilities');
-    reportFatal(errorMessage(err), err);
+    reportFatal(errorMessage(err), { err });
     process.exit(1);
   }
 
@@ -184,20 +189,22 @@ async function runArchetypeAdd(
       ? { kind: 'error', message: refusal }
       : await resolveArchetypeAdd(repo.dir, repo.sha, config, cwd, parsed, arg);
   } catch (err) {
-    // `err` is carried, not flattened to a message: it is the single axis that
-    // separates a caught exception (which earns the PHARN_DEBUG affordance) from
-    // the gate refusals that reach this same `{kind:'error'}` outcome above.
+    // The exception is carried BOXED, not flattened to a message: the box's
+    // presence is the single axis that separates a caught exception (which earns
+    // the PHARN_DEBUG affordance) from the gate refusals that reach this same
+    // `{kind:'error'}` outcome above. Boxed rather than bare because `throw
+    // undefined` is legal, and a bare field could not tell it from "absent".
     result = {
       kind: 'error',
       message: errorMessage(err),
-      err,
+      cause: { err },
     };
   } finally {
     repo.cleanup();
   }
 
   if (result.kind === 'error') {
-    reportFatal(result.message, result.err);
+    reportFatal(result.message, result.cause);
     process.exit(1);
   }
   if (result.kind === 'noop') {
@@ -246,7 +253,7 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     s.stop(`Capabilities fetched from ${REPO_URL}`);
   } catch (err) {
     s.stop('Failed to fetch capabilities');
-    reportFatal(errorMessage(err), err);
+    reportFatal(errorMessage(err), { err });
     process.exit(1);
   }
 
@@ -267,19 +274,19 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       ? { kind: 'error', message: refusal }
       : await resolveAddPicker(repo.dir, repo.sha, config, cwd);
   } catch (err) {
-    // Same axis as the named path: the exception travels with the outcome so a
-    // crash gets the PHARN_DEBUG hint and a gate refusal does not.
+    // Same axis as the named path: the boxed exception travels with the outcome
+    // so a crash gets the PHARN_DEBUG hint and a gate refusal does not.
     outcome = {
       kind: 'error',
       message: errorMessage(err),
-      err,
+      cause: { err },
     };
   } finally {
     repo.cleanup();
   }
 
   if (outcome.kind === 'error') {
-    reportFatal(outcome.message, outcome.err);
+    reportFatal(outcome.message, outcome.cause);
     process.exit(1);
   }
   if (outcome.kind === 'all-installed') {
@@ -301,10 +308,10 @@ type PickerAddOutcome =
   | { kind: 'all-installed' }
   | { kind: 'none' }
   | { kind: 'cancelled' }
-  // `err` is present ONLY when this outcome came from a caught exception. Its
+  // `cause` is present ONLY when this outcome came from a caught exception. Its
   // absence is what keeps the PHARN_DEBUG hint off a curated gate refusal, which
   // reaches the very same variant.
-  | { kind: 'error'; message: string; err?: unknown };
+  | { kind: 'error'; message: string; cause?: FatalCause };
 
 // Build the menu (available = index − installed), multi-select, then install each
 // pick via the EXISTING per-name path (resolveArchetypeAdd), threading the
@@ -406,8 +413,8 @@ function plural(n: number): string {
 type AddResult =
   | { kind: 'added'; name: string; version: string }
   | { kind: 'noop'; name: string }
-  // See PickerAddOutcome: `err` present ⇔ this came from an exception.
-  | { kind: 'error'; message: string; err?: unknown };
+  // See PickerAddOutcome: `cause` present ⇔ this came from an exception.
+  | { kind: 'error'; message: string; cause?: FatalCause };
 
 // Resolve the arg against the fetched index and, if it uniquely names a not-yet-
 // installed capability, copy it + append to config. Pure of process.exit — the

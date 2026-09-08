@@ -1,7 +1,12 @@
 import { intro, log, note, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
 import { cancelAndExit } from '../lib/confirm.js';
-import { errorMessage, logError, reportFatal } from '../lib/report-error.js';
+import {
+  errorMessage,
+  logError,
+  reportFatal,
+  type FatalCause,
+} from '../lib/report-error.js';
 import { REPO_URL } from '../lib/constants.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
@@ -91,7 +96,7 @@ async function runInitArchetype(): Promise<void> {
     repo = await fetchRepo();
   } catch (err) {
     s.stop('Failed to fetch PHARN');
-    reportFatal(`Could not reach ${REPO_URL}: ${errorMessage(err)}`, err);
+    reportFatal(`Could not reach ${REPO_URL}: ${errorMessage(err)}`, { err });
     process.exit(1);
   }
 
@@ -103,8 +108,9 @@ async function runInitArchetype(): Promise<void> {
   // affordance). Boxed rather than stored bare so that a thrown `null` or
   // `undefined` is still distinguishable from "nothing failed" — the exit is
   // deferred past the finally, which is exactly where a nullish sentinel would
-  // silently read as success.
-  let failure: { err: unknown } | null = null;
+  // silently read as success. The SAME box is what reportFatal takes, so it
+  // travels intact rather than being flattened one line short of the reporter.
+  let failure: FatalCause | null = null;
   let refusal: string | null = null;
   try {
     // THE MIN_CLI GATE — refuse a too-old CLI CLEANLY, before the index parse
@@ -148,7 +154,7 @@ async function runInitArchetype(): Promise<void> {
     process.exit(1);
   }
   if (failure) {
-    reportFatal(errorMessage(failure.err), failure.err);
+    reportFatal(errorMessage(failure.err), failure);
     process.exit(1);
   }
   if (outcome === 'cancelled') cancelAndExit();

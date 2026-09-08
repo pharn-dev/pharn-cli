@@ -23,8 +23,11 @@ Error-level messages go to **stderr**; normal output (notes, summaries, prompts,
 pharn update --yes > update.log 2> errors.log
 ```
 
-`pharn list --json` writes exactly one inventory object to stdout and every diagnostic to stderr, so
-`pharn list --json | jq .` stays valid even when the command fails.
+On success, `pharn list --json` writes exactly one inventory object to stdout and nothing else, so
+`pharn list --json | jq .` parses cleanly. On **any** failure — a missing config, a pre-archetype
+config, or an argv refusal such as `pharn list --json --bogus` — stdout is **empty**, the diagnostic
+goes to stderr, and the exit code is 1. So stdout is either one object or nothing; it is never a
+half-written object or an error string.
 
 Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 

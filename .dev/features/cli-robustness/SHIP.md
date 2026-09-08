@@ -13,7 +13,7 @@ and what each stage's floor verdict was. It is not an approval, not a "shipped",
 | 3 | `/pharn-dev-build` | `node .dev/floor/validate.mjs .` exit code | **0** (FLOOR: GREEN) |
 | 4 | `/pharn-dev-regress` | `regression-report.json` `.verdict` | **`no-regressions`** |
 | 5 | `/pharn-dev-verify` | `verify-report.json` `.verdict` | **`PASS`** |
-| 6 | `/pharn-dev-review` | *(none — `/pharn-dev-review` has no structural verdict)* | `REVIEW.md`: 0 floor-gate findings, 7 advisory |
+| 6 | `/pharn-dev-review` | *(none — `/pharn-dev-review` has no structural verdict)* | `REVIEW.md`: 0 floor-gate findings, 7 advisory + a 4-finding CodeRabbit addendum, all fixed |
 
 The run ended at **GATE 2**. No stage returned a non-GREEN verdict, so there was no RED STOP.
 
