@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   `confirmWarning` (`src/lib/confirm.ts`) is removed — this stage was its only caller, and every
   helper it offered ends in an exit, which is the one thing this stage must not do.
+- **An interrupted `pharn` no longer leaks its temp clone — or claims to have succeeded.** Disposal
+  hung entirely off a `finally` in each caller, and two real exits never reach one. Node does not run
+  `finally` on `process.exit`, and while a spinner is up — which is exactly the multi-megabyte clone
+  window — `@clack/core` raw-modes stdin, so **Ctrl-C arrives as a keypress, not a signal**, and clack
+  calls `process.exit(0)`. The clone leaked and the cancelled run **exited 0**, looking successful to
+  any calling script. In a piped run, `@clack/prompts`' own `SIGINT` listener printed and returned,
+  swallowing the signal entirely.
+
+  `fetchRepo` now registers each clone in a process-wide set drained by `exit`, `SIGINT` and
+  `SIGTERM` handlers (installed once, not once per fetch). The signal handlers re-raise after
+  cleaning up, so the exit status is truthful: **130** for `SIGINT`, **143** for `SIGTERM`. This is a
+  backstop **underneath** each caller's `finally`, not a replacement — `docs/commands/init.md`'s
+  promise that "the temp clone is always cleaned up (even on cancel or error)" is now true.
 
 ### Changed
 

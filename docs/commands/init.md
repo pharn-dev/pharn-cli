@@ -105,7 +105,7 @@ Reads `package.json` dependency names and walks the project tree (bounded and sy
 
 ### 4. Fetch PHARN
 
-Resolves the branch head via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up (even on cancel or error), and `pharn` keeps no download cache.
+Resolves the branch head via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up — on success, on error, on cancel, and on Ctrl-C or a `SIGTERM` mid-clone — and `pharn` keeps no download cache. An interrupted run also exits **130** (or 143 for `SIGTERM`) rather than reporting success.
 
 ### 5. Resolve capabilities
 
