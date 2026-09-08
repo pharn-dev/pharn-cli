@@ -1,6 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { confirmWarning } from '../lib/confirm.js';
-import { conflictingWriteTargets } from '../lib/install-manifest.js';
+import {
+  conflictingWriteTargets,
+  PHARN_CONFIG_FILE,
+} from '../lib/install-manifest.js';
 import { detectLayout } from '../lib/layout.js';
+import { safeJoin, VERSION_RE } from '../lib/validate.js';
 import type { Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -28,6 +33,44 @@ import type { Selection } from '../types.js';
 // stays readable; the count of the remainder is still surfaced.
 export const MAX_LISTED = 10;
 
+// The `skillsVersion` the project's own pharn.config.json records, or null when
+// there is not one worth showing. Cosmetic input, cosmetic failure.
+//
+// DELIBERATELY NOT readPharnConfig (lib/pharn-config.ts). That reader lets
+// ModelRoutingError / SeamConfigError / CapabilitySourceError PROPAGATE so a bad
+// hand-edit is never collapsed into the "run init" lie — correct for every
+// command that must not act on a config it failed to understand. But `init` IS
+// the command you run to REPAIR a broken config, and it has no recovery around
+// this stage: an unguarded read here would turn a repairable config into an
+// aborting init. So this reads the ONE scalar it displays and treats EVERY
+// failure (absent, EISDIR, EACCES, truncated JSON, a JSON scalar at top level,
+// a missing or wrong-typed field) as "no version to show" — it can never change
+// the prompt's outcome, only whether one extra clause is printed.
+//
+// Kept file-local and UNEXPORTED on purpose (P3): a total-catch reader is right
+// for decorating one prompt and wrong for every other caller, so it must not
+// become importable from the module whose whole point is that it throws.
+//
+// Trust (P2): the value reaches a terminal warning, so it is filtered through
+// VERSION_RE — the same allowlist readSkillsVersion holds the upstream
+// SKILLS_VERSION to — before interpolation. A hand-edited escape sequence is
+// DROPPED, never printed. The read is safeJoin-contained under the project root
+// even though PHARN_CONFIG_FILE is a compile-time constant. Zero network: this
+// is the local config's number, never upstream's.
+function recordedSkillsVersion(cwd: string): string | null {
+  try {
+    const raw = readFileSync(safeJoin(cwd, PHARN_CONFIG_FILE), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const version = (parsed as { skillsVersion?: unknown }).skillsVersion;
+    return typeof version === 'string' && VERSION_RE.test(version)
+      ? version
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // Returns true to proceed with the install (no conflicts, or the user confirmed
 // overwrite), false when the user declined. Ctrl+C cancels the whole run
 // (confirmWarning → cancelAndExit).
@@ -48,8 +91,19 @@ export async function confirmWriteTargets(
   const more = conflicts.length - shown.length;
   const list = shown.map((p) => `  • ${p}`).join('\n');
   const tail = more > 0 ? `\n  …and ${more} more` : '';
+  // Only when the config itself is at risk — i.e. a re-install over an existing
+  // one — and only AFTER the zero-conflict return above, so a conflict-free
+  // project still reaches none of this (P5: the branch stays `conflicts.length
+  // > 0`, and a banner must never turn a silent install into a prompting one).
+  const version = conflicts.includes(PHARN_CONFIG_FILE)
+    ? recordedSkillsVersion(cwd)
+    : null;
+  const intro =
+    version === null
+      ? 'PHARN installs into your existing project.'
+      : `PHARN installs into your existing project (currently at skills v${version}).`;
   return confirmWarning(
-    `PHARN installs into your existing project. These paths already exist and may be overwritten:\n${list}${tail}`,
+    `${intro} These paths already exist and may be overwritten:\n${list}${tail}`,
     'Continue and overwrite?',
     false,
   );

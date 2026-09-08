@@ -1,0 +1,39 @@
+{
+  "base": "977aa3805bdf57c24da299955c55370a84331d58",
+  "inside": [
+    "CHANGELOG.md",
+    "docs/commands/init.md",
+    "docs/reference/pharn-config.md",
+    "src/steps/overwrite-check.ts",
+    "tests/overwrite-check.test.ts"
+  ],
+  "outside_gates": {
+    "floor": {
+      "base": 0,
+      "head": 0
+    },
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "test": {
+      "base": 0,
+      "head": 0
+    },
+    "typecheck": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

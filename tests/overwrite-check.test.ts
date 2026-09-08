@@ -17,6 +17,35 @@ const { confirmWriteTargets, MAX_LISTED } =
 const { installCapabilities } =
   await import('../src/lib/install-capabilities.js');
 type Selection = import('../src/types.js').Selection;
+const { readPharnConfig } = await import('../src/lib/pharn-config.js');
+const { ModelRoutingError } = await import('../src/lib/model-routing.js');
+
+// ESC built from its code point, so no literal control character lives in this
+// file and no editor can silently eat it.
+const ESC = String.fromCharCode(27);
+
+// pharn.config.json fixtures for the recorded-version banner. The broken ones
+// are raw strings so they are exactly what a hand-edit leaves behind.
+const CONFIG_2_3_4 = '{"skillsVersion":"2.3.4","modules":[]}';
+const CONFIG_TRUNCATED = '{"skillsVersion":';
+// readPharnConfig THROWS ModelRoutingError on this one (unknown model id) — the
+// exact class of config `init` has to stay able to repair.
+const CONFIG_BAD_MODELS =
+  '{"skillsVersion":"2.3.4","modules":[],"models":{"default":{"model":"gpt-9","effort":"high"}}}';
+// Valid JSON (stringify escapes the ESC), so JSON.parse SUCCEEDS and it is
+// VERSION_RE, not the parse guard, that drops the value.
+const CONFIG_ESCAPED_VERSION = JSON.stringify({
+  skillsVersion: `2.3.4${ESC}[31mRED`,
+  modules: [],
+});
+
+// The warning the stage most recently emitted. Each test resets the mock, so
+// there is exactly one — but reading the LAST call keeps the helper honest if a
+// future case emits two.
+function lastWarning(): string {
+  const calls = vi.mocked(prompts.log.warn).mock.calls;
+  return calls[calls.length - 1]![0] as string;
+}
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -146,5 +175,70 @@ describe('confirmWriteTargets', () => {
     await confirmWriteTargets(repo, proj, selection());
     const warning = vi.mocked(prompts.log.warn).mock.calls[0]![0] as string;
     expect(warning).toContain('pharn/CONSTITUTION.md');
+  });
+
+  // --- the recorded skillsVersion banner (init re-run orientation) ---------
+  // The deleted confirmOverwriteIfExists showed the version you were about to
+  // overwrite; confirmWriteTargets restores it. Every case below also asserts
+  // the PINNED copy survives — the version is a prefix, never a replacement.
+
+  it('names the recorded skillsVersion when pharn.config.json is a conflict', async () => {
+    const { repo, proj } = dirs(scaffoldRepo);
+    write(join(proj, 'pharn.config.json'), CONFIG_2_3_4);
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+    await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
+      true,
+    );
+    const warning = lastWarning();
+    expect(warning).toContain('skills v2.3.4');
+    expect(warning).toContain('already exist and may be overwritten');
+    expect(warning).toContain('pharn.config.json');
+  });
+
+  it('renders the prompt on an UNPARSEABLE pharn.config.json instead of aborting', async () => {
+    const { repo, proj } = dirs(scaffoldRepo);
+    write(join(proj, 'pharn.config.json'), CONFIG_TRUNCATED);
+    vi.mocked(prompts.confirm).mockResolvedValue(false);
+    await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
+      false,
+    );
+    const warning = lastWarning();
+    expect(warning).toContain('already exist and may be overwritten');
+    expect(warning).not.toContain('skills v');
+  });
+
+  it('survives a config readPharnConfig would REJECT — init is the repair command', async () => {
+    const { repo, proj } = dirs(scaffoldRepo);
+    write(join(proj, 'pharn.config.json'), CONFIG_BAD_MODELS);
+    // Two-sided on purpose: prove the fixture really IS the dangerous class
+    // before claiming the stage survives it. readPharnConfig lets
+    // ModelRoutingError PROPAGATE by design (lib/pharn-config.ts), and init has
+    // no recovery around this stage — so an unguarded read here would make the
+    // one command that repairs a broken config abort on it instead.
+    expect(() => readPharnConfig(proj)).toThrow(ModelRoutingError);
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+    await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
+      true,
+    );
+    expect(lastWarning()).toContain('skills v2.3.4');
+  });
+
+  it('drops a skillsVersion that is not a plain version string', async () => {
+    const { repo, proj } = dirs(scaffoldRepo);
+    write(join(proj, 'pharn.config.json'), CONFIG_ESCAPED_VERSION);
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+    await confirmWriteTargets(repo, proj, selection());
+    const warning = lastWarning();
+    expect(warning).not.toContain('skills v');
+    expect(warning).not.toContain(ESC);
+    expect(warning).toContain('already exist and may be overwritten');
+  });
+
+  it('shows no version when pharn.config.json is not among the conflicts', async () => {
+    const { repo, proj } = dirs(scaffoldRepo);
+    write(join(proj, 'CONSTITUTION.md'));
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+    await confirmWriteTargets(repo, proj, selection());
+    expect(lastWarning()).not.toContain('skills v');
   });
 });

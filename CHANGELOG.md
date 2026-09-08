@@ -71,6 +71,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--yes` / `-y` remains an [`update`](docs/commands/update.md) flag: `pharn remove --yes` still
   parses and is still ignored, exactly as before. Only the false sentences and the parameter that
   seemed to justify them are gone.
+- **The config reference no longer documents a prompt that was deleted.**
+  [`docs/reference/pharn-config.md`](docs/reference/pharn-config.md)'s "Overwrite behavior" table
+  still quoted `init` as asking _"Overwrite existing pharn.config.json?"_ and claimed it showed the
+  previous `skillsVersion` first. Neither had been true since that single-file guard was replaced by
+  `confirmWriteTargets`, which derives the install's **actual** write targets and prompts only when
+  some already exist — the string survived nowhere but that one doc line, and nothing in the init
+  path read a `skillsVersion` at all. The rows now describe the real trigger, the capped listing, the
+  real question (**Continue and overwrite?**, default no), and the fact that a conflict-free project
+  is never prompted.
+
+- **`pharn init` names the `skillsVersion` you are about to overwrite again.** The deleted prompt's
+  one genuinely useful feature is restored: when `pharn.config.json` is among the conflicting paths,
+  the warning reads "currently at skills v2.3.4" before listing them. It is read from your local
+  config only — no network — and **any** failure to read it (absent, unreadable, truncated JSON, a
+  hand-edited value that is not a plain version) is treated as "nothing to show": the clause is
+  omitted and the prompt is otherwise identical. That is deliberate rather than defensive.
+  `init` is the command you run to _repair_ a broken `pharn.config.json`, and the strict reader the
+  other commands share throws by design on a bad `models` / `seam` / `capabilities[].source` block —
+  so reading through it here would have made a repairable config abort the one command that repairs
+  it. A conflict-free install still prompts for nothing and reads nothing.
 
 - **`npm run dev` now exists.** `README.md` and `docs/contributing.md` both told contributors to run
   the CLI from source with `npm run dev`, and `package.json` had no such script — the documented

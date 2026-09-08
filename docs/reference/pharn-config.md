@@ -157,15 +157,23 @@ The module/manifest install path itself has been **removed**, so `add` / `update
 
 ## Overwrite behavior
 
-| Command          | Existing `pharn.config.json` | Prompt                                               | If declined             |
-| ---------------- | ---------------------------- | ---------------------------------------------------- | ----------------------- |
-| `init`           | present                      | "Overwrite existing pharn.config.json?" (default no) | Cancel install (exit 0) |
-| `add` / `update` | required (archetype)         | none — updated in place                              | n/a                     |
+| Command          | Trigger                                                                                  | Prompt                                                                                                             | If declined                                 |
+| ---------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| `init`           | any of the install's write targets already exists (the set includes `pharn.config.json`) | lists the conflicting paths (at most 10, then "…and N more") and asks **Continue and overwrite?** — default **no** | Cancel install (exit 0); nothing is written |
+| `add` / `update` | an archetype config is required                                                          | none — the config is updated in place                                                                              | n/a                                         |
+
+A project with **no** conflicting path gets no prompt at all. The target set is derived from the
+fetched clone's layout plus your resolved capability selection, and `.claude/settings.json` is never
+overwritten — so it is excluded from the check. The [`init` summary step](../commands/init.md#6-summary)
+itemises what the set contains.
+
+When `pharn.config.json` is itself one of the conflicting paths, the prompt also names the
+`skillsVersion` that config currently records, so you can see which version you are about to replace.
+That value is read from your local config only — never fetched — and if the file cannot be read or
+does not carry a plain version string, the clause is omitted and the prompt is otherwise unchanged.
 
 For the files PHARN installs (as opposed to this config), `update` never overwrites one you have
 edited unless you pass `--force` — see the [update decision table](../commands/update.md#the-decision-table).
-
-`init` shows the previous `skillsVersion` before asking.
 
 ## Related
 
