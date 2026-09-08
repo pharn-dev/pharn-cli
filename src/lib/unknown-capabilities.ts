@@ -20,9 +20,10 @@ import type { UnknownCapability } from '../types.js';
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/g;
-// Long enough for a real name/subtree/validation message, short enough that a
-// hostile 5MB dir name cannot flood a terminal.
-const MAX_FIELD = 120;
+// Long enough that a real validation message survives intact (the longest one
+// this repo produces is ~120 chars), short enough that a hostile 5MB dir name
+// cannot flood a terminal.
+const MAX_FIELD = 200;
 // A hard cap on how many are listed; the count line always states the true total.
 const MAX_LISTED = 10;
 
@@ -55,8 +56,11 @@ export function unknownCapabilitiesWarning(
   if (unknown.length > listed.length) {
     lines.push(`  …and ${unknown.length - listed.length} more.`);
   }
+  // Deliberately context-neutral: the SAME renderer serves init, add, update and
+  // status, and status installs nothing — a closing clause about what "installed
+  // normally" would be wrong in a quarter of its uses.
   lines.push(
-    'This usually means pharn-oss changed something your pharn version does not understand yet. Upgrade with `npm install -g @pharn-dev/pharn@latest`; everything else installed normally.',
+    'This usually means pharn-oss changed something your pharn version does not understand yet. Upgrade with `npm install -g @pharn-dev/pharn@latest`.',
   );
   return lines.join('\n');
 }
