@@ -216,6 +216,16 @@ export function collectExpectedInstallPaths(params: {
  * confirmOverwriteIfExists guarded exactly it). Sorted for deterministic output
  * (P5). Every existence check is safeJoin-contained (P2). Pure; a fresh project
  * (nothing already installed) yields `[]`.
+ *
+ * NOT every path an install writes. `init` also writes `pharn.records.json`,
+ * and it is deliberately absent from this set: it is CLI-owned DERIVED state
+ * that a re-install legitimately regenerates from what it just copied, so
+ * prompting about it would add a line the user cannot act on to a warning whose
+ * whole value is that every line is one of THEIR files. `.pharn-backup/` is
+ * excluded for the same reason. Pinned by the "CLI-owned metadata is outside
+ * the install set" case in tests/install-manifest.test.ts — widening this set
+ * to match a loose reading of "the install's write targets" breaks it on
+ * purpose.
  */
 export function conflictingWriteTargets(params: {
   repoDir: string;
