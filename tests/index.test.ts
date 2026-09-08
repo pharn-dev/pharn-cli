@@ -332,6 +332,18 @@ describe('main (argv dispatch)', () => {
     expect(stderrText()).toContain('Unknown command');
   });
 
+  // `cmd` is untrusted argv, so the arity table must not resolve inherited
+  // Object.prototype keys: an object lookup would hand back a FUNCTION for
+  // `toString`, and only the accident that `n > fn` is `n > NaN` kept the
+  // outcome right. A Map makes "absent from the table" mean exactly that.
+  it('treats an Object.prototype key as an unknown command, not an arity entry', async () => {
+    setArgv('toString', 'x', 'y');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unknown command');
+    expect(stderrText()).not.toContain('Unexpected argument');
+    noCommandRan();
+  });
+
   // Untrusted argv is echoed as DATA (P2), the way seam-config.ts names an
   // unknown config key: a control character must not reach the terminal raw.
   it('escapes the offending argument rather than echoing raw bytes', async () => {

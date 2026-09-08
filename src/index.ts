@@ -37,15 +37,22 @@ Options:
 // A command absent from this table gets no arity check at all, which is what
 // keeps `pharn bogus x` on the more useful "Unknown command" path rather than
 // pre-empting it with a wrong-shaped arity error.
-const MAX_POSITIONALS: Record<string, number> = {
-  init: 1,
-  update: 1,
-  list: 1,
-  status: 1,
-  add: 2,
-  remove: 2,
-  rm: 2,
-};
+//
+// A `Map`, not an object literal: `cmd` is untrusted argv, and an object lookup
+// resolves `Object.prototype` keys — `MAX_POSITIONALS['toString']` would hand
+// back a FUNCTION rather than `undefined`. The comparison against it happens to
+// be false (`n > fn` is `n > NaN`), so the outcome is right today by accident;
+// a Map makes "not in the table" mean exactly that (P5: membership, not a
+// coincidence).
+const MAX_POSITIONALS = new Map<string, number>([
+  ['init', 1],
+  ['update', 1],
+  ['list', 1],
+  ['status', 1],
+  ['add', 2],
+  ['remove', 2],
+  ['rm', 2],
+]);
 
 // Refuse argv we do not understand: print the offenders + the usage text to
 // STDERR and exit 1. `console.error`, not the shared reporter, exactly like the
@@ -126,7 +133,7 @@ export async function main(): Promise<void> {
 
   // Extra positionals used to be silently ignored: `pharn add a11y extra`
   // dropped the third token because the dispatch reads only `argv._[1]`.
-  const maxPositionals = MAX_POSITIONALS[cmd];
+  const maxPositionals = MAX_POSITIONALS.get(cmd);
   if (maxPositionals !== undefined && argv._.length > maxPositionals) {
     refuse('Unexpected argument', argv._.slice(maxPositionals));
   }

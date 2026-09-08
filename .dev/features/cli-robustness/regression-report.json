@@ -1,0 +1,33 @@
+{
+  "base": "0c3ee34",
+  "inside": [],
+  "outside_gates": {
+    "build": {
+      "base": 0,
+      "head": 0
+    },
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "test": {
+      "base": 0,
+      "head": 0
+    },
+    "typecheck": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

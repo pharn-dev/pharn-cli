@@ -1,27 +1,7 @@
 {
   "scope": [
-    "tests/index.test.ts",
-    "tests/report-error.test.ts",
-    "tests/skills-version.test.ts",
-    "tests/update.test.ts",
-    "tests/status.test.ts",
-    "tests/add.test.ts",
-    "tests/init.test.ts",
-    "tests/list.test.ts",
-    "tests/pharn-config.test.ts",
-    "src/lib/report-error.ts",
-    "src/index.ts",
-    "src/lib/skills-version.ts",
-    "src/lib/pharn-config.ts",
-    "src/commands/init.ts",
-    "src/commands/update.ts",
-    "src/commands/add.ts",
-    "src/commands/remove.ts",
-    "src/commands/status.ts",
-    "src/commands/list.ts",
-    "docs/troubleshooting.md",
-    "CHANGELOG.md"
+    ".dev/features/cli-robustness/SHIP.md"
   ],
-  "set_by": ".dev/features/cli-robustness/PLAN.md",
-  "set_at": "2026-09-08T07:41:49.787Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-08T07:57:32.001Z"
 }
