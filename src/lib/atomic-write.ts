@@ -1,4 +1,4 @@
-import { unlink, writeFile, rename } from 'node:fs/promises';
+import { chmod, lstat, unlink, writeFile, rename } from 'node:fs/promises';
 
 // ---------------------------------------------------------------------------
 // Atomic replacement of a CLI-owned JSON file — `pharn.config.json` and
@@ -47,6 +47,20 @@ export function tmpPathFor(target: string): string {
  * `JSON.stringify(value, null, 2)` plus a trailing newline, utf8 — so no caller's
  * byte assertions change.
  *
+ * `rename` swaps in a NEW inode, so the previous file's permission bits would
+ * otherwise be discarded and replaced by whatever the umask gives (a `0600`
+ * config silently becoming `0644`). When the target is an existing REGULAR file
+ * its mode is copied onto the temp first. Best-effort: a `chmod` that fails
+ * (win32, an exotic filesystem) must not turn a working write into a failure,
+ * so the write proceeds — losing the mode is bad, losing the write is worse.
+ *
+ * A target that is a SYMLINK is deliberately NOT mode-preserved, and is
+ * REPLACED by a regular file rather than written through. That differs from the
+ * plain `writeFile` this replaced, which followed the link. It is the same
+ * posture the rest of the CLI takes toward symlinks (never followed), and it
+ * keeps the write inside the project root — named here rather than left to be
+ * discovered.
+ *
  * On any failure the temp is unlinked BEST-EFFORT and the original error is
  * rethrown. The unlink's own error is deliberately swallowed: a cleanup failure
  * must never mask the cause. Best-effort is the honest word — a SIGKILL between
@@ -60,6 +74,8 @@ export async function writeJsonAtomic(
   const tmp = tmpPathFor(target);
   try {
     await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    const prev = await lstat(target).catch(() => null);
+    if (prev?.isFile()) await chmod(tmp, prev.mode & 0o777).catch(() => {});
     await rename(tmp, target);
   } catch (err) {
     await unlink(tmp).catch(() => {});

@@ -18,7 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hand-edited `models`/`seam` blocks to defaults and re-stamps every capability `source: 'auto'`,
   destroying the manual-add provenance only that file remembers. Both writes now go through one
   helper that writes a sibling temp file and `rename`s it over the target, so the file is either
-  replaced whole or left exactly as it was. The bytes are unchanged. **What this does not do,** and
+  replaced whole or left exactly as it was. The bytes are unchanged, and so are the file's permission
+  bits — `rename` swaps in a new inode, so an existing regular file's mode is copied onto the temp
+  first, and a `0600` config stays `0600` instead of becoming whatever your umask gives. A
+  `pharn.config.json` that is a **symlink** is now replaced by a regular file rather than written
+  through, matching how the rest of the CLI treats symlinks. **What this does not do,** and
   is not claimed anywhere: it does not make the two files a transaction (a crash between them still
   leaves the stamp mismatch `recordsBaseline` already reports by name), it adds no lock and does not
   serialize two concurrent `pharn` processes, and it does not `fsync` — surviving a power cut at the

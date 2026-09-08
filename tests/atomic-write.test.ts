@@ -1,4 +1,13 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  lstatSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -61,6 +70,46 @@ describe('writeJsonAtomic', () => {
       plantBlocker();
       await expect(writeJsonAtomic(target(), { v: 9 })).rejects.toMatchObject({
         code: 'EISDIR',
+      });
+    });
+  });
+
+  // `rename` swaps in a NEW inode, so without this the previous file's mode is
+  // discarded and replaced by whatever the umask gives — a 0600 config silently
+  // becoming 0644 on the next write.
+  describe('permission bits', () => {
+    it('preserves the mode of an existing regular file', async () => {
+      writeFileSync(target(), '{}');
+      chmodSync(target(), 0o600);
+      await writeJsonAtomic(target(), { v: 1 });
+      expect(statSync(target()).mode & 0o777).toBe(0o600);
+    });
+
+    it('preserves a non-default mode across repeated writes', async () => {
+      writeFileSync(target(), '{}');
+      chmodSync(target(), 0o640);
+      await writeJsonAtomic(target(), { v: 1 });
+      await writeJsonAtomic(target(), { v: 2 });
+      expect(statSync(target()).mode & 0o777).toBe(0o640);
+    });
+
+    // A symlinked target is REPLACED by a regular file, not written through —
+    // the same posture the rest of the CLI takes toward symlinks, and different
+    // from the plain writeFile this helper replaced.
+    it('replaces a symlinked target with a regular file instead of following it', async () => {
+      const outside = join(tmp.path(), 'elsewhere.json');
+      writeFileSync(outside, '{"untouched":true}');
+      symlinkSync(outside, target());
+
+      await writeJsonAtomic(target(), { v: 1 });
+
+      // lstat, not stat: stat FOLLOWS the link, so it would report isFile()
+      // true even if the link were still there and had been written through.
+      expect(lstatSync(target()).isSymbolicLink()).toBe(false);
+      expect(lstatSync(target()).isFile()).toBe(true);
+      expect(JSON.parse(readFileSync(target(), 'utf8'))).toEqual({ v: 1 });
+      expect(JSON.parse(readFileSync(outside, 'utf8'))).toEqual({
+        untouched: true,
       });
     });
   });

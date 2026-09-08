@@ -1,7 +1,14 @@
 {
   "scope": [
-    ".dev/features/atomic-json-writes/SHIP.md"
+    "src/lib/atomic-write.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/install-records.ts",
+    "src/commands/remove.ts",
+    "CLAUDE.md",
+    "tests/atomic-write.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/install-records.test.ts"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T15:32:00.748Z"
+  "set_by": ".dev/features/atomic-json-writes/PLAN.md",
+  "set_at": "2026-09-08T15:43:29.887Z"
 }
