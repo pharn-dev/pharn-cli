@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`npm run dev` now exists.** `README.md` and `docs/contributing.md` both told contributors to run
+  the CLI from source with `npm run dev`, and `package.json` had no such script — the documented
+  command failed with `npm error Missing script: "dev"`. Added as `tsx src/index.ts`, so
+  `npm run dev -- init` forwards argv exactly like the built binary. Contributor-facing only: nothing
+  about the published package changes (`files` is still `["dist"]`, and `dev` is not a CI gate).
+
 - **The `models` block no longer claims an effect it does not have.** `pharn init` writes a per-stage
   model + effort block into `pharn.config.json`, and the reference doc invited you to "edit it and
   re-run your stages" while the init outro offered to "change per-stage routing anytime". **No stage
