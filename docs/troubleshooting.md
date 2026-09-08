@@ -160,7 +160,7 @@ One thing *is* written outside your project, before either prompt appears: the r
 degit reads **only the lowercase `https_proxy`**. If you set any other spelling and nothing else, the clone connects **directly**, ignoring your proxy:
 
 ```text
-⚠ HTTPS_PROXY is set, but degit 3.8.0 reads only the lowercase https_proxy —
+⚠ HTTPS_PROXY is set, but degit 3.6.6 reads only the lowercase https_proxy —
   the PHARN clone will connect DIRECTLY. Set https_proxy to the same value if
   you meant to proxy it.
 ```
@@ -193,10 +193,13 @@ Two details in that message are deliberate:
 
 ### Which degit versions this was measured against
 
-`pharn` does not pin `degit` for you. It declares the **range** `^3.6.1`, and the published package
-ships no lockfile, so `npm` resolves the version fresh when you install — today that is `3.8.0`.
+`pharn` pins `degit` **exactly** — `package.json` declares `3.6.6`, not a range — so a normal install
+gives you the version every claim here was measured against. The pin is not absolute: the published
+package ships no lockfile and marks `degit` external, so an `overrides` entry, a monorepo hoist, or a
+non-npm resolver can still seat a different version in your tree.
 
-Every published version in that range was checked, and all nine read only the lowercase name:
+The sweep therefore covers more than the pin. Every published version from `3.6.1` through `3.8.0`
+was checked, and all nine read only the lowercase name:
 
 ```text
 3.6.1  3.6.2  3.6.3  3.6.4  3.6.5  3.6.6  3.7.0  3.7.1  3.8.0

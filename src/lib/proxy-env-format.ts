@@ -67,9 +67,10 @@ function installedLabel(read: DegitProxyRead): string {
  * 2. The CONFIDENT `ignored` wording fires only when `read.measured` — i.e. the
  *    installed degit is one whose lowercase-only read pharn actually verified.
  *    On any other version the message hedges and names both the measured range
- *    and what is installed. pharn declares a RANGE (`^3.6.1`) and ships no
- *    lockfile, so without this gate the confident sentence would be asserted
- *    over an unmeasured dependency.
+ *    and what is installed. pharn pins `degit@3.6.6` exactly, but ships no
+ *    lockfile and marks degit `external`, so a consumer tree that overrides or
+ *    hoists the pin can still seat another version; without this gate the
+ *    confident sentence would be asserted over an unmeasured dependency.
  *
  * Neither branch echoes an unredacted value, and the `ignored` branch echoes no
  * value at all — a non-lowercase spelling is exactly as credential-bearing as

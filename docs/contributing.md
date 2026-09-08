@@ -84,6 +84,21 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
 - Remote fetches (`lib/skills-version.ts`) use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
 
+### Bumping `degit`
+
+`degit` is the only dependency that fetches and tar-extracts untrusted remote content, so
+`package.json` pins it to an **exact** version (`3.6.6`) rather than a range. That is deliberate:
+lockfiles are not published, so the declared version is what a consumer actually resolves, and
+`THREAT-MODEL.md` §2/§4b and `LIMITS.md` §3b state degit's extraction and ref-resolution behaviour as
+facts *measured against those bytes*.
+
+A bump is therefore a re-measurement, not a version edit. `tests/degit-pin.test.ts` fails until the
+declared version, `package-lock.json`, and every file naming `degit@<version>` agree — which is what a
+Dependabot `degit` PR must do before it can go green. Re-measure the `THREAT-MODEL.md` §2/§4b bullets
+against the new bytes, update `LIMITS.md` §3b and `src/lib/repo.ts`'s comments, and extend
+`MEASURED_DEGIT_VERSIONS` (`lib/proxy-env.ts`) only by measuring the new version — never by assuming a
+patch release kept the behaviour.
+
 ## Test map
 
 | Test file                                                                | Behavior covered                                                                                              |

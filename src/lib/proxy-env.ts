@@ -38,19 +38,21 @@ const LOWER = 'https_proxy';
 const UPPER = 'HTTPS_PROXY';
 
 /**
- * Every published degit version in the range package.json declares (`^3.6.1`),
- * swept for proxy-env behavior. All nine show exactly ONE proxy name in
+ * Every published degit version from 3.6.1 through 3.8.0 — the neighbourhood
+ * around the `degit@3.6.6` package.json pins exactly — swept for proxy-env
+ * behavior. All nine show exactly ONE proxy name in
  * `dist/*.js` — lowercase `https_proxy`, no `no_proxy`/`NO_PROXY`/`ALL_PROXY` —
  * the same unconditional `this.proxy=process.env.https_proxy`, and the same
  * `verboseInfo` gate.
  *
  * This set is the FLOOR under the confident wording (an exact-string membership
  * test, ARCHITECTURE.md §2 primitive 3). It exists because the behavior above is
- * a property of the DEPENDENCY, and pharn does not pin it for consumers: the
- * published package declares the RANGE, ships no lockfile (`files: ["dist"]`),
- * and marks degit `external` in the esbuild bundle — so an install resolves it
- * fresh. Without the gate, `pharn` would assert a measured negative about
- * whatever version npm happened to hand the user.
+ * a property of the DEPENDENCY, and the exact pin does not fully settle it for
+ * consumers: the published package ships no lockfile (`files: ["dist"]`) and
+ * marks degit `external` in the esbuild bundle, so an `overrides` entry, a
+ * monorepo hoist, or a non-npm resolver can still seat a different version.
+ * Deliberately WIDER than the pin for that reason. Without the gate, `pharn`
+ * would assert a measured negative about whatever version was actually seated.
  *
  * Extend this set only by MEASURING the new version, never by assuming a patch
  * release kept the behavior. An unlisted version is not treated as broken — it

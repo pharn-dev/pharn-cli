@@ -60,13 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `(set)` rather than echoing raw bytes, and the value is **never** written to `pharn.config.json` —
   it is git-committed, and proxy URLs routinely carry passwords.
 
-  **The confident wording is gated on a measured degit version.** `pharn` declares the range `^3.6.1`
-  and the published package ships no lockfile, so the installed version is whatever `npm` resolves —
-  today `3.8.0`, not the `3.6.6` this repo develops against. Every published version in that range was
-  swept (`3.6.1` … `3.8.0`, nine in total) and all read only the lowercase name; `pharn` reads the
-  version at runtime and states the negative assertion only for those. On any other version it hedges,
-  naming both the measured range and what is installed — so a newer degit makes the notice more
-  cautious rather than wrong.
+  **The confident wording is gated on a measured degit version.** `pharn` pins `degit@3.6.6` exactly,
+  but the published package ships no lockfile and marks degit external, so an `overrides` entry, a
+  monorepo hoist, or a non-npm resolver can still seat another version. Every published release from
+  `3.6.1` through `3.8.0` was therefore swept (nine in total) — deliberately wider than the pin — and
+  all read only the lowercase name; `pharn` reads the version at runtime and states the negative
+  assertion only for those. On any other version it hedges, naming both the measured range and what is
+  installed — so an unexpected degit makes the notice more cautious rather than wrong.
 
   Deliberately **not** done: recording the proxy in the config or the install summary as a fact about
   the connection. degit skips the download entirely when the tarball is already cached and falls back
@@ -75,18 +75,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report your environment against measured degit versions, never the transport that ran.
   `docs/troubleshooting.md` gains a "Proxy environment variables" section.
 
+### Security
+
+- **`degit` is pinned to the exact version its guarantees were measured against.** `degit` is the one
+  dependency that fetches and tar-extracts untrusted remote content, so the extraction properties
+  `THREAT-MODEL.md` §2/§4b and `LIMITS.md` §3b state are degit’s behaviour, not pharn’s — written as
+  facts measured against `degit@3.6.6`. `package.json` nonetheless declared the caret range `^3.6.1`,
+  and because lockfiles are not published, that range is what a consumer actually resolves. The drift
+  was not hypothetical: the range had already floated this repo to `3.8.0` while every document still
+  said `3.6.6`. The declaration is now the exact version `3.6.6`, and a new `tests/degit-pin.test.ts`
+  ties it to `package-lock.json` and to every file stating a measured claim (`THREAT-MODEL.md`,
+  `LIMITS.md`, `src/lib/repo.ts`), so a bump — a Dependabot PR included — goes red until each claim has
+  been re-measured and re-written. The test proves those documents **name** the installed version; it
+  cannot prove the measured prose is still **true** of those bytes, and says so in its header.
+
 ### Changed
 
-- **The dev/CI `degit` now matches what a consumer resolves.** `package.json` declares `^3.6.1` and the
-  published package ships no lockfile, so an install resolves the newest matching release — `3.8.0` —
-  while this repo's lockfile still pinned `3.6.6`. The version the gates exercised was therefore two
-  minors behind the one users get, which is precisely how a claim about `degit` internals gets written
-  against a version nobody runs. The **lockfile** moves to `3.8.0`; the declared **range is
-  unchanged** (narrowing it is a separate decision). API compatibility was verified before the bump —
-  same callable default export, `.clone()` / `.on()` intact, still no runtime dependencies, and
-  `engines.node >=20.0.0` against pharn's `>=20`. `src/lib/repo.ts`'s comments about degit's ref tiers,
-  cache behavior, and warn sites are re-scoped from a single version to the measured **range**
-  (3.6.1-3.8.0), where every claim was re-verified.
+- **The dev/CI `degit` and a consumer's now resolve the same measured version.** `package.json` used to
+  declare `^3.6.1` and the published package ships no lockfile, so an install resolved the newest
+  matching release while this repo's gates exercised whatever its own lockfile held — the two drifted
+  apart, which is precisely how a claim about `degit` internals gets written against a version nobody
+  runs. Closed by narrowing the declaration instead of chasing the float: see the `### Security` entry
+  above. API compatibility across the span was verified — same callable default export, `.clone()` /
+  `.on()` intact, still no runtime dependencies, and `engines.node >=20.0.0` against pharn's `>=20`.
+  `src/lib/repo.ts`'s comments about degit's ref tiers, cache behavior, and warn sites name the pinned
+  `degit@3.6.6` and record that every claim was re-verified across the wider measured span
+  (3.6.1-3.8.0).
 
 ### Docs
 
