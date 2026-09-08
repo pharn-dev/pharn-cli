@@ -40,6 +40,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The "what you get" tables now describe the layout an install actually produces.** `README.md` and
+  `docs/getting-started.md` both led with `pharn-contracts/`, `.dev/floor/` and a root
+  `CONSTITUTION.md`. Every install today resolves to the `pharn` layout, which writes
+  `pharn/pharn-contracts/`, `pharn/floor/` (a **renamed** directory, not `.dev/floor` relocated) and
+  `pharn/CONSTITUTION.md` — so a new user who looked for `.dev/floor/` after `pharn init` found
+  nothing and could reasonably conclude the install was broken. Both tables are now `pharn`-first,
+  with the legacy `flat` paths named in a note under each, and both gained the rows they were
+  missing: `features/README.md` (installed by every run, listed in neither table), plus
+  `ARCHITECTURE.md`, the trusted-doc set and `pharn.records.json` in `README.md`. The trusted-doc row
+  is deliberately conditional: `PHARN_TRUSTED_DOCS` names four documents, upstream ships only
+  `CONSTITUTION.md` and `ARCHITECTURE.md` under `pharn/`, and each copy is existence-guarded — so a
+  `pharn` install lands two of the four today and a flat install lands all four at the project root.
+  `docs/commands/init.md` and `docs/commands/status.md` lost the same flat-only paths from prose that
+  applies to every install.
+
+  A new `tests/docs-install-tables.test.ts` derives the required path set from `layoutPaths('pharn')`
+  and the layout-invariant constants, so renaming one of those constants fails a gate until both docs
+  follow. It pins the path **set** only — descriptions are still unverified prose.
+
 - **Documented why a leftover `degit` cache can be large, and how to size it.** `pharn` no longer
   writes one at all, but the directory earlier versions left behind grew by ~2.4 MB per distinct
   upstream commit and was never reclaimed: `degit` deletes a tarball only when an existing **ref's**
