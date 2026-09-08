@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npx tsx src/index.ts init    # run the CLI from source via tsx (there is no `dev` script)
+npm run dev -- init          # run the CLI from source via tsx (= npx tsx src/index.ts init)
 npm run build                # rm dist → tsc --noEmit (typecheck) → esbuild bundle+minify → dist/index.js
 npm run build:install-local  # build + install dist/bin into every local test-*/ app's node_modules
 npm run typecheck            # tsc --noEmit for src AND tests (two configs)
