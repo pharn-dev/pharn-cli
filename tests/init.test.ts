@@ -86,6 +86,15 @@ describe('runInit (archetype default)', () => {
     restoreTTY();
   });
 
+  // Every `log.info` line of a run, joined — the affordance surface. Hoisted
+  // to the parent describe so the fatal-error and mid-install-failure blocks
+  // read one helper instead of a copy each; clearAllMocks empties it per case.
+  const informed = (): string =>
+    vi
+      .mocked(log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+
   it('drives the archetype flow and installs — no module/manifest fetch', async () => {
     runArchetypeSummary.mockResolvedValue('install');
     confirmWriteTargets.mockResolvedValue('proceed');
@@ -175,12 +184,6 @@ describe('runInit (archetype default)', () => {
       else process.env.PHARN_DEBUG = realDebug;
     });
 
-    const informed = (): string =>
-      vi
-        .mocked(log.info)
-        .mock.calls.map((c) => String(c[0]))
-        .join('\n');
-
     it('prints the PHARN_DEBUG hint, on stderr, when the fetch fails', async () => {
       fetchRepo.mockRejectedValueOnce(new Error('offline'));
 
@@ -200,6 +203,105 @@ describe('runInit (archetype default)', () => {
       await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
 
       expect(informed()).not.toContain('PHARN_DEBUG');
+    });
+  });
+
+  // --- mid-install failure: the catch inside the try/finally (FABLE 5.6) -----
+  //
+  // Everything after the fetch runs inside ONE try whose finally deletes the temp
+  // clone. Its success half was pinned six ways over and its failure half not at
+  // all: the boxed `failure` cause, the deferred report and the exit code were
+  // every one of them unprotected, so a catch turned into a silent `return` would
+  // have left the suite green while init reported success on a malformed clone.
+  describe('mid-install failure (inside the try/finally)', () => {
+    const realDebug = process.env.PHARN_DEBUG;
+    beforeEach(() => {
+      delete process.env.PHARN_DEBUG;
+      // mockResolvedValue survives clearAllMocks, and the decline/cancel cases
+      // above leave confirmWriteTargets on 'cancel'. Re-arm both here, or the
+      // install branch is never entered and these cases exit 0 as a cancel.
+      runArchetypeSummary.mockResolvedValue('install');
+      confirmWriteTargets.mockResolvedValue('proceed');
+    });
+    afterEach(() => {
+      if (realDebug === undefined) delete process.env.PHARN_DEBUG;
+      else process.env.PHARN_DEBUG = realDebug;
+    });
+
+    // THE ORDERING, not the count. init.ts's header states the invariant: every
+    // process.exit happens AFTER the finally, because Node skips a finally on
+    // exit. toHaveBeenCalledTimes(1) cannot see a violation of it — under
+    // stubProcessExit the exit THROWS, and a throw inside the catch still
+    // unwinds through the finally, so an exit hoisted up into the catch leaves
+    // the count at exactly 1 with the finally never having run as one. Nor
+    // would the leak show up: lib/repo.ts's exit/signal handlers reclaim the
+    // clone anyway, and that backstop is explicitly not to be relied on. Which
+    // is the point — the primary mechanism can stop working with nothing
+    // observable to say so. The first-invocation order is what says so.
+    const cleanupRanBeforeTheReport = (): boolean => {
+      const cleaned = cleanup.mock.invocationCallOrder[0];
+      const reported = vi.mocked(log.error).mock.invocationCallOrder[0];
+      return (
+        cleaned !== undefined && reported !== undefined && cleaned < reported
+      );
+    };
+
+    // A malformed clone is the untrusted-input case this catch exists for:
+    // lib/capability-index.ts throws ManifestValidationError from eight sites in
+    // its frontmatter reader. Modelled as a plain Error — the pin is the catch,
+    // not the error class, whose own cases live beside it.
+    it('exits(1), installs nothing, and still cleans up on a malformed clone', async () => {
+      parseCapabilityIndex.mockImplementationOnce(() => {
+        throw new Error('capability index: invalid applies value');
+      });
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      // The throw is at the first statement past the MIN_CLI gate, so nothing
+      // downstream of it ran — no prompt, and above all no writer.
+      expect(runArchetypeSummary).not.toHaveBeenCalled();
+      expect(confirmWriteTargets).not.toHaveBeenCalled();
+      expect(runInstallArchetype).not.toHaveBeenCalled();
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(cleanupRanBeforeTheReport()).toBe(true);
+      // An exception earns the PHARN_DEBUG affordance (a curated refusal does
+      // not — see the MIN_CLI case below). Matched loosely: the sentence is
+      // report-error.ts's PHARN_DEBUG_HINT, not this test's to re-encode.
+      expect(informed()).toMatch(/PHARN_DEBUG/);
+    });
+
+    // Part-way through the copy: the user is left with a partial tree, so the
+    // exit code is the only signal they get. It must not be the cancel's 0.
+    it('exits(1) and still cleans up when the install throws mid-copy', async () => {
+      runInstallArchetype.mockRejectedValueOnce(
+        new Error('EACCES: permission denied'),
+      );
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      // It really did get as far as the writer — this is not the summary cancel
+      // wearing a different exit code.
+      expect(runInstallArchetype).toHaveBeenCalledTimes(1);
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(cleanupRanBeforeTheReport()).toBe(true);
+    });
+
+    // The BOX (failure: FatalCause | null), not the bare value. `throw undefined`
+    // is legal JavaScript and the exit is deferred past the finally — exactly
+    // where a nullish sentinel stored bare would read as "nothing failed" and let
+    // init exit 0, as a cancel, on a run that crashed and installed nothing.
+    it('treats a thrown undefined as a failure, not as success', async () => {
+      parseCapabilityIndex.mockImplementationOnce(() => {
+        throw undefined;
+      });
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(runInstallArchetype).not.toHaveBeenCalled();
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      // The affordance is gated on the cause box's PRESENCE, never its contents,
+      // so even a thrown undefined still gets it.
+      expect(informed()).toMatch(/PHARN_DEBUG/);
     });
   });
 
