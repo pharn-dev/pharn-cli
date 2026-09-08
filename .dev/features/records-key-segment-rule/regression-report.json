@@ -1,0 +1,22 @@
+{
+  "base": "b12e6ac164eac942d8492a3bfbb41c927b071583",
+  "inside": [
+    "docs/reference/pharn-records.md",
+    "src/lib/install-records.ts",
+    "tests/install-records.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

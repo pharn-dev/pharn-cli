@@ -57,9 +57,12 @@ differs from upstream, labelling them `unverifiable` — whenever it is:
 
 - **absent** (an install created before `pharn` 0.4.0);
 - **unreadable or malformed** — invalid JSON, not an object, a missing `files` object, a non-sha256
-  hash, or a path key that is absolute or contains `..`. Any one of these invalidates the **whole**
-  store rather than a single entry, and the reason is reported by name so a fixable JSON error is not
-  mistaken for a legacy install;
+  hash, or a path key that is empty, absolute, or has a `..` or `.` path **segment**. The key rule is
+  a segment rule, not a substring ban: an ordinary filename that merely _contains_ `..`, such as
+  `migration..v2.md`, is valid, because a key here is only ever compared against the install
+  manifest — never used to build a path. Any one of these invalidates the **whole** store rather than
+  a single entry, and the reason is reported by name so a fixable JSON error is not mistaken for a
+  legacy install;
 - **an unknown `schemaVersion`** — a store written by a newer `pharn` is never partially interpreted;
 - **stamped for a different state** — `skillsVersion`/`commit` here disagree with `pharn.config.json`.
   Every `pharn` operation writes both files together, so a disagreement means something else changed

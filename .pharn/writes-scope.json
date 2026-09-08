@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/update-backup-dir-on-failure/SHIP.md"
+    ".dev/features/records-key-segment-rule/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T13:36:09.413Z"
+  "set_at": "2026-09-08T13:33:52.319Z"
 }
