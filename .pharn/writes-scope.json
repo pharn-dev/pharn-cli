@@ -1,16 +1,7 @@
 {
   "scope": [
-    "src/lib/constants.ts",
-    "src/lib/install-capabilities.ts",
-    "src/lib/install-manifest.ts",
-    "src/lib/install-records.ts",
-    "tests/install-records.test.ts",
-    "tests/install-capabilities.test.ts",
-    "tests/install-manifest.test.ts",
-    "docs/commands/init.md",
-    "CLAUDE.md",
-    "CHANGELOG.md"
+    ".dev/features/install-features-readme/SHIP.md"
   ],
-  "set_by": ".dev/features/install-features-readme/PLAN.md",
-  "set_at": "2026-09-08T16:18:03.411Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-08T16:22:36.279Z"
 }
