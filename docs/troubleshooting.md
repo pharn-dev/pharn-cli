@@ -94,6 +94,44 @@ Symptoms:
 
 `init` / `add` / `update` degit-clone `pharn-dev/pharn-oss`; `update` and `status --no-drift` also fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com`. Check network access to GitHub and that the repo is reachable.
 
+## An upstream capability was skipped
+
+Symptoms:
+
+- A warning naming one or more capabilities: `… could not be read and … SKIPPED — not installed`
+- `init` / `add` / `update` / `status` otherwise complete normally, exit 0
+
+pharn always reads `pharn-dev/pharn-oss` at `main`, so upstream can change a capability into a shape
+your installed pharn version does not understand yet. Rather than abort, pharn skips that **one**
+capability, names it with the reason, and carries on — it will not install content it could not
+validate.
+
+- `update` keeps the capability's entry in `pharn.config.json` (reported as `KEPT`) but writes none
+  of its files, and still bumps the skills version so a later `pharn add` is not blocked.
+- `status` leaves it out of the drift comparison, so `--strict` does not fail on it.
+- `add` cannot install it by name — it is not in the addressable set.
+
+Fix: upgrade with `npm install -g @pharn-dev/pharn@latest`, or wait for upstream to finish the
+change. If you no longer want the capability, `pharn remove <name>`.
+
+## `pharn is too old for the current pharn-oss`
+
+Symptoms:
+
+- `⚠ This pharn is too old for the current github.com/pharn-dev/pharn-oss: it requires
+  @pharn-dev/pharn vX.Y.Z or newer …`
+- Exit code 1, nothing written, temporary clone cleaned up
+
+pharn-oss ships an optional root `MIN_CLI` file declaring the minimum CLI version its content needs.
+`init` / `add` / `update` check it before doing any work. Upgrade:
+
+```bash
+npm install -g @pharn-dev/pharn@latest
+```
+
+A `MIN_CLI` file that is absent, unreadable, or malformed imposes **no** constraint — only a
+well-formed version newer than yours refuses.
+
 ## Install failed
 
 Symptoms:

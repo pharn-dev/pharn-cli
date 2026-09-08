@@ -122,6 +122,33 @@ mirror or failover. Upstream availability is a hard dependency.
 Installs target `.claude/`. **Codex and Cursor are Coming soon** (P7) — explicitly deferred, not
 silently unsupported.
 
+### 3e. Released CLIs read `main` HEAD with a closed grammar
+
+Every released CLI fetches `pharn-dev/pharn-oss` at **`main` HEAD** (`src/lib/repo.ts`) and can never
+pin older content, so upstream's `main` is a **live input to every deployed CLI at once**. The
+capability grammar it parses is closed (`src/lib/validate.ts`, frozen enums), and that is
+deliberate — the fail-closed posture is the security property (P2).
+
+What is **bounded**: a per-capability grammar violation no longer aborts the parse. `parseCapabilityIndex`
+tolerates-and-reports — the offending capability is skipped, named at every call site, kept out of
+`resolveCapabilities`, out of `installCapabilities`, out of the install manifest, and therefore out of
+`update`'s write path; a recorded entry for it is **frozen**, not dropped. So the blast radius of a
+routine grammar evolution is now "that one capability is skipped and reported", not "`init` / `add` /
+`update` exit 1 fleet-wide".
+
+What is **levered**: an optional root `MIN_CLI` file lets upstream refuse a stale CLI **cleanly**, with
+an actionable upgrade message, instead of failing somewhere downstream. Only a well-formed value newer
+than the installed CLI ever refuses; absent / unreadable / malformed imposes no constraint, so the
+lever cannot itself become the outage.
+
+What is **NOT closed**: a **structural** break still hard-fails every released CLI until upstream
+reverts or the user upgrades — a relocated or renamed capability subtree throws
+(`Capability subtree "…" is missing in the fetched repo.`), because a clone whose shape the CLI cannot
+address at all is not "one unknown capability". There is no version pinning, no mirror, and no
+rollback lever on the consumer side (see §3c). Two coordination steps live **upstream**, not here:
+pharn-oss shipping a `MIN_CLI`, and gating its own merges on the **released** CLI's parser. Named,
+bounded, not zeroed.
+
 ---
 
 ## 4. What "good" means here

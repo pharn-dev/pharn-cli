@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit } from './helpers.js';
-import type { PharnConfig } from '../src/types.js';
+import type { CapabilityIndex, PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
@@ -15,6 +15,15 @@ vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
 
 const diffInstalledCapabilities = vi.fn();
 vi.mock('../src/lib/diff.js', () => ({ diffInstalledCapabilities }));
+
+// status parses the index on the drift path to exclude FROZEN capabilities — the
+// ones the fetch boundary could not read — so that `--strict` cannot report drift
+// no command can resolve. Default: a fully-parseable clone (nothing frozen).
+const parseCapabilityIndex = vi.fn((): CapabilityIndex => ({
+  capabilities: [],
+  unknown: [],
+}));
+vi.mock('../src/lib/capability-index.js', () => ({ parseCapabilityIndex }));
 
 const loadArchetypeConfigOrExit = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({ loadArchetypeConfigOrExit }));
@@ -405,6 +414,124 @@ describe('runStatus (archetype)', () => {
     await expect(
       runStatus({ strict: true, drift: false }),
     ).rejects.toMatchObject(new ProcessExit(1));
+    expect(fetchRepo).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FROZEN capabilities and `status`.
+//
+// `update` deliberately KEEPS the config entry of a capability the fetch boundary
+// could not parse, but never writes its files. `status` reads the same config, so
+// without the matching exclusion it would walk the unparseable clone directory,
+// report every file under it as MISSING, and make `--strict` exit 1 forever over
+// a break no command can resolve. The two must agree about which capabilities
+// this install actually owns bytes for.
+// ---------------------------------------------------------------------------
+describe('runStatus — frozen capabilities', () => {
+  stubProcessExit();
+  const cleanup = vi.fn();
+
+  beforeEach(() => {
+    vi.spyOn(process, 'cwd').mockReturnValue('/proj');
+    fetchRepo.mockResolvedValue({ dir: '/repo', sha: null, cleanup });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue({
+      modified: [],
+      missing: [],
+      unreadable: [],
+      okCount: 3,
+    });
+    parseCapabilityIndex.mockReturnValue({ capabilities: [], unknown: [] });
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  const frozenIndex = () =>
+    parseCapabilityIndex.mockReturnValue({
+      capabilities: [],
+      unknown: [
+        {
+          name: 'backwards-compat',
+          role: 'griller',
+          subtree: 'pharn-pipeline/grillers',
+          reason: 'missing its markdown',
+        },
+      ],
+    });
+
+  it('excludes a frozen capability from the diff, keeping the rest', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({
+        capabilities: [
+          { name: 'a11y', role: 'griller' },
+          { name: 'backwards-compat', role: 'griller' },
+        ],
+      }),
+    );
+    frozenIndex();
+
+    await runStatus({});
+
+    expect(diffInstalledCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capabilities: [{ name: 'a11y', role: 'griller' }],
+      }),
+    );
+  });
+
+  it('matches on the (name, role) PAIR — a same-name lens is still compared', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({
+        capabilities: [{ name: 'backwards-compat', role: 'lens' }],
+      }),
+    );
+    frozenIndex();
+
+    await runStatus({});
+
+    expect(diffInstalledCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capabilities: [{ name: 'backwards-compat', role: 'lens' }],
+      }),
+    );
+  });
+
+  it('names the skipped capability (no silent skips, P5) and still exits 0 under --strict', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({ capabilities: [{ name: 'backwards-compat', role: 'griller' }] }),
+    );
+    frozenIndex();
+
+    await runStatus({ strict: true });
+
+    expect(cleanup).toHaveBeenCalled();
+    const warned = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(warned).toContain('backwards-compat');
+    expect(warned).toContain('missing its markdown');
+  });
+
+  it('stays silent about capabilities when the whole clone parsed', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(config());
+
+    await runStatus({});
+
+    const warned = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(warned).not.toContain('could not be read');
+  });
+
+  it('--no-drift never parses the index (it does not clone)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(config());
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+    await runStatus({ drift: false });
+
+    expect(parseCapabilityIndex).not.toHaveBeenCalled();
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 });

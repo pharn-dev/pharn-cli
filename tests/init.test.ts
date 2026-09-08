@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, restoreTTY, setTTY, stubProcessExit } from './helpers.js';
+import type { CapabilityIndex } from '../src/types.js';
 
 // Archetype is now the DEFAULT (and only) init flow. runInit() drives it with no
 // module catalog / manifest fetch. These are command-level control-flow tests
@@ -33,11 +34,26 @@ const fetchRepo = vi.fn(async () => ({
 }));
 vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
 
-const parseCapabilityIndex = vi.fn(() => ({ capabilities: [] }));
+const parseCapabilityIndex = vi.fn((): CapabilityIndex => ({
+  capabilities: [],
+  unknown: [],
+}));
 vi.mock('../src/lib/capability-index.js', () => ({ parseCapabilityIndex }));
 
 const resolveCapabilities = vi.fn(() => ({ selected: [], skipped: [] }));
 vi.mock('../src/lib/resolve-capabilities.js', () => ({ resolveCapabilities }));
+
+// The MIN_CLI handshake. Its own decision table is pinned in
+// tests/min-cli-gate.test.ts; here we pin the WIRING — that init consults it,
+// that a refusal stops the flow before any prompt or write, and that a warning
+// does not.
+const minCliGate = vi.fn(
+  (): { refusal: string | null; warning: string | null } => ({
+    refusal: null,
+    warning: null,
+  }),
+);
+vi.mock('../src/lib/min-cli-gate.js', () => ({ minCliGate }));
 
 const runArchetypeSummary = vi.fn(
   async (): Promise<'install' | 'cancel'> => 'install',
@@ -60,7 +76,11 @@ describe('runInit (archetype default)', () => {
   // init now refuses to prompt into a dead stream, and the vitest runner reports
   // isTTY as undefined — so the flow tests must open the gate. The non-TTY
   // refusals below close it explicitly.
-  beforeEach(() => setTTY(true, true));
+  beforeEach(() => {
+    setTTY(true, true);
+    minCliGate.mockReturnValue({ refusal: null, warning: null });
+    parseCapabilityIndex.mockReturnValue({ capabilities: [], unknown: [] });
+  });
   afterEach(() => {
     vi.clearAllMocks();
     restoreTTY();
@@ -331,5 +351,83 @@ describe('runInit (archetype default)', () => {
       );
     });
     expect(offenders).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Forward compatibility: the MIN_CLI refusal and the skipped-capability warning.
+  // -------------------------------------------------------------------------
+
+  it('refuses a too-old CLI: exit 1 BEFORE the parse, no prompt, no install, clone cleaned up', async () => {
+    minCliGate.mockReturnValue({
+      refusal: 'This pharn is too old for the current pharn-oss.',
+      warning: null,
+    });
+
+    await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+    // The gate sits before the index parse and before every prompt.
+    expect(parseCapabilityIndex).not.toHaveBeenCalled();
+    expect(runArchetypeSummary).not.toHaveBeenCalled();
+    expect(runInstallArchetype).not.toHaveBeenCalled();
+    // Cleanup still ran — the gate is inside the try, not after the fetch.
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.error).mock.calls.map(String).join('\n')).toContain(
+      'too old',
+    );
+    // A policy refusal is not a crash: no PHARN_DEBUG hint.
+    expect(vi.mocked(log.info).mock.calls.map(String).join('\n')).not.toContain(
+      'PHARN_DEBUG',
+    );
+  });
+
+  it('a MIN_CLI warning does not block the install', async () => {
+    minCliGate.mockReturnValue({
+      refusal: null,
+      warning: 'MIN_CLI in the fetched repo is not a valid version.',
+    });
+    runArchetypeSummary.mockResolvedValue('install');
+    confirmWriteTargets.mockResolvedValue(true);
+
+    await runInit();
+
+    expect(runInstallArchetype).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(log.warn).mock.calls.map(String).join('\n')).toContain(
+      'MIN_CLI',
+    );
+  });
+
+  it('names every skipped upstream capability BEFORE the summary the user acts on', async () => {
+    parseCapabilityIndex.mockReturnValue({
+      capabilities: [],
+      unknown: [
+        {
+          name: 'backwards-compat',
+          role: 'griller',
+          subtree: 'pharn-pipeline/grillers',
+          reason: 'missing its markdown',
+        },
+      ],
+    });
+    let warnedBeforeSummary = false;
+    runArchetypeSummary.mockImplementation(async () => {
+      warnedBeforeSummary = vi.mocked(log.warn).mock.calls.length > 0;
+      return 'cancel';
+    });
+
+    await expect(runInit()).rejects.toMatchObject(new ProcessExit(0));
+
+    expect(warnedBeforeSummary).toBe(true);
+    expect(vi.mocked(log.warn).mock.calls.map(String).join('\n')).toContain(
+      'backwards-compat',
+    );
+  });
+
+  it('prints nothing extra when every upstream capability parsed (P5)', async () => {
+    runArchetypeSummary.mockResolvedValue('install');
+    confirmWriteTargets.mockResolvedValue(true);
+
+    await runInit();
+
+    expect(vi.mocked(log.warn)).not.toHaveBeenCalled();
   });
 });

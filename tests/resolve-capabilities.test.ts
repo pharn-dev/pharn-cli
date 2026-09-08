@@ -7,7 +7,7 @@ import type {
 } from '../src/types.js';
 
 function index(...capabilities: CapabilityEntry[]): CapabilityIndex {
-  return { capabilities };
+  return { capabilities, unknown: [] };
 }
 
 const security: CapabilityEntry = {

@@ -205,4 +205,61 @@ describe('archetype install (fixture e2e)', () => {
     // ...even though the install DID write it.
     expect(existsSync(join(proj, '.claude/settings.json'))).toBe(true);
   });
+
+  // THE LIVE REPRO, end to end on a real fixture tree. An untracked WIP directory
+  // upstream (no markdown) is a shape pharn-oss's own floor validator does not
+  // catch — and before the forward-compatibility contract it aborted the whole
+  // install. It must now be skipped and reported, its bytes never copied, while
+  // everything else installs exactly as before.
+  it('an md-less upstream directory is skipped, reported, and NEVER copied', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    // The WIP dir, with a real file under it so "nothing was copied" is a claim
+    // about the fix rather than about an empty directory.
+    write(
+      join(repo, 'pharn-pipeline/grillers/backwards-compat/NOTES.md'),
+      'WIP',
+    );
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const index = parseCapabilityIndex(repo);
+
+    expect(index.unknown).toEqual([
+      {
+        name: 'backwards-compat',
+        role: 'griller',
+        subtree: 'pharn-pipeline/grillers',
+        reason: expect.stringMatching(
+          /missing its markdown/,
+        ) as unknown as string,
+      },
+    ]);
+    expect(index.capabilities.map((c) => c.name).sort()).toEqual([
+      'a11y',
+      'n-plus-one',
+      'path-traversal',
+      'security',
+    ]);
+
+    const selection = resolveCapabilities(archetypes, index);
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    // The good capabilities landed...
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
+      true,
+    );
+    // ...and NOTHING under the unparseable directory did (fail closed on
+    // installing), nor is it recorded in pharn.config.json.
+    expect(
+      existsSync(join(proj, 'pharn-pipeline/grillers/backwards-compat')),
+    ).toBe(false);
+    expect(
+      readPharnConfig(proj)!.capabilities!.map((c) => c.name),
+    ).not.toContain('backwards-compat');
+  });
 });

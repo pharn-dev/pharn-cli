@@ -71,6 +71,24 @@ sequenceDiagram
 - **Archetype** — a closed set describing what your project is: `ssr`, `backend`, `spa`, or `lib` (the frameworkless base). Detection merges two untrusted-but-name-only fact sources — your `package.json` dependency **names** and **file-tree** structural signals (e.g. a `.tsx` file → `spa`) — then applies the archetype rule once. It is deterministic: the same project always yields the same archetypes. A wholly signal-less project resolves to `lib`.
 - **Capability** — one griller or lens (an auditor PHARN ships). Each declares `applies: 'universal'` (always selected) or a set of archetypes. A capability is **selected** iff it is universal or its `applies` set intersects your detected archetypes; otherwise it is **skipped**, with the reason shown.
 
+## When pharn cannot read a capability upstream
+
+`init` fetches `pharn-dev/pharn-oss` at `main`, so a capability can be in a shape your installed
+pharn version does not understand yet. `init` **skips that one capability and names it**, before the
+summary you act on, then installs everything else normally:
+
+```text
+1 upstream capability could not be read and was SKIPPED — not installed:
+  griller:backwards-compat (pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
+```
+
+Nothing under that capability's directory is copied into your project, and it is not recorded in
+`pharn.config.json`. Upgrading (`npm install -g @pharn-dev/pharn@latest`) usually resolves it.
+
+Separately, if pharn-oss ships a root `MIN_CLI` file declaring a **minimum pharn version** newer than
+yours, `init` refuses before any prompt or write, cleans up the clone, and exits 1 — see
+[`pharn add`](add.md#pharn-is-too-old-for-the-current-pharn-oss).
+
 ## Steps
 
 ### 1. Banner and intro

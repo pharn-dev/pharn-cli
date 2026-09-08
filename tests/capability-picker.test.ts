@@ -11,6 +11,7 @@ import type { CapabilityIndex, InstalledCapability } from '../src/types.js';
 // rendering.
 
 const index: CapabilityIndex = {
+  unknown: [],
   capabilities: [
     { name: 'a11y', role: 'griller', applies: ['ssr', 'spa'] },
     { name: 'security', role: 'griller', applies: 'universal' },
@@ -67,6 +68,7 @@ describe('buildAddSelection', () => {
 
   it('still offers a name in the OTHER role when it is installed in one', () => {
     const dupIndex: CapabilityIndex = {
+      unknown: [],
       capabilities: [
         { name: 'dup', role: 'griller', applies: 'universal' },
         { name: 'dup', role: 'lens', applies: 'universal' },
@@ -81,6 +83,7 @@ describe('buildAddSelection', () => {
 
   it('omits an empty group (no lenses available → no lenses key)', () => {
     const grillersOnly: CapabilityIndex = {
+      unknown: [],
       capabilities: [{ name: 'a11y', role: 'griller', applies: 'universal' }],
     };
     const { groups } = buildAddSelection(grillersOnly, []);

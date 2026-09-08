@@ -9,7 +9,12 @@ import {
   ManifestValidationError,
   safeJoin,
 } from './validate.js';
-import type { Archetype, CapabilityEntry, CapabilityIndex } from '../types.js';
+import type {
+  Archetype,
+  CapabilityEntry,
+  CapabilityIndex,
+  UnknownCapability,
+} from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Capability index — the FETCH BOUNDARY (P2). This is the untrusted-frontmatter
@@ -25,11 +30,31 @@ import type { Archetype, CapabilityEntry, CapabilityIndex } from '../types.js';
 // general YAML parser over untrusted bytes — and validate every value against a
 // fixed allowlist (validate.ts): dir names against CAPABILITY_NAME_RE (+ no
 // `..`) before any path-join, `role` against {griller,lens}, each `applies`
-// token against the archetype/`universal` enum. A malformed or unknown value
-// HARD-FAILS naming the offending capability (P5) — never a silent skip, never a
-// silent trust. Every filesystem read is safeJoin-guarded. No free-text
-// frontmatter value escapes: the typed output carries only enum/regex-validated
-// fields.
+// token against the archetype/`universal` enum. Every filesystem read is
+// safeJoin-guarded. No free-text frontmatter value escapes: the typed
+// `capabilities` output carries only enum/regex-validated fields.
+//
+// FORWARD COMPATIBILITY — fail closed on INSTALLING, never on SEEING (the
+// contract this file exists to hold). A released CLI always fetches `main` HEAD
+// and can never pin older content (lib/repo.ts), so before this contract ONE
+// routine grammar evolution upstream — a new capability subdirectory without its
+// markdown, a new `role`, a new `applies` token — aborted init/add/update in
+// EVERY deployed CLI simultaneously, with no rollback lever. `add` was doubly
+// wedged: its version gate points at `pharn update`, whose own first act is this
+// parse.
+//
+// So a malformed or unknown value no longer kills the index. The tolerance is
+// scoped by WHERE the failure happens, not by an enumerated list of shapes:
+// ANY ManifestValidationError raised while processing ONE capability inside the
+// per-capability loop becomes an `unknown` entry plus a `continue`. Enumerating
+// only some shapes would be the same bug again on a different day. Nothing in
+// `unknown` is ever pushed to `capabilities`, so nothing unvalidated can be
+// selected, copied, or enumerated by the install manifest — and nothing is
+// SILENTLY dropped either: every caller renders the list
+// (lib/unknown-capabilities.ts).
+//
+// What stays fatal is what is STRUCTURAL: a missing subtree is not "one unknown
+// capability", it is a clone whose shape the CLI cannot address at all.
 //
 // One axis (P3): deriving the typed index from fetched capability frontmatter.
 // The disk-reading shape is intentionally minimal (a strict frontmatter reader
@@ -39,14 +64,18 @@ import type { Archetype, CapabilityEntry, CapabilityIndex } from '../types.js';
 
 /**
  * Parse + validate the capability index from a fetched pharn-oss clone.
+ *
  * Deterministic (P5): capabilities are enumerated in sorted directory order
  * within each subtree, grillers before lenses, so the same clone always yields
- * the same index. Throws (naming the offending capability) on any missing
- * subtree, missing capability markdown, malformed frontmatter, or invalid
- * `role`/`applies` value — no partial or silently-degraded index.
+ * the same `capabilities` AND the same `unknown` list.
+ *
+ * A capability whose directory name, markdown, frontmatter, `role` or `applies`
+ * fails validation is SKIPPED and reported in `unknown` — never installed, never
+ * silent. Only a missing subtree throws (structural, see the header).
  */
 export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
   const capabilities: CapabilityEntry[] = [];
+  const unknown: UnknownCapability[] = [];
 
   // Mirror the fetched clone's layout (flat OR the relocated pharn/) so the CLI
   // enumerates capabilities wherever pharn-oss put them (P5 — membership on the
@@ -72,38 +101,65 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
     for (const name of names) {
-      // Validate the untrusted dir name BEFORE any path-join (P2).
-      assertSafeString(name, `capability "${name}"`, CAPABILITY_NAME_RE);
-      assertNoDotDot(name, `capability "${name}"`);
+      // ONE try around the WHOLE loop body. Scoping the tolerance by LOCATION
+      // (this capability) rather than by shape is what makes it total: every
+      // throw site reachable from here — the dir-name allowlist, the missing
+      // markdown, the missing frontmatter fence, a missing `role`/`applies`
+      // field, an invalid role, the role/subtree mismatch, and every
+      // parseApplies refusal — lands in the same skip-and-report path, including
+      // any refusal a FUTURE edit adds.
+      try {
+        // Validate the untrusted dir name BEFORE any path-join (P2). A name that
+        // fails here is reported and joined no further — it never reaches the
+        // filesystem at all.
+        assertSafeString(name, `capability "${name}"`, CAPABILITY_NAME_RE);
+        assertNoDotDot(name, `capability "${name}"`);
 
-      const capFile = safeJoin(subtreeDir, `${name}/${name}.md`);
-      if (!existsSync(capFile)) {
-        throw new ManifestValidationError(
-          `Capability "${name}" in ${subtree.dir} is missing its markdown ${name}/${name}.md.`,
+        const capFile = safeJoin(subtreeDir, `${name}/${name}.md`);
+        if (!existsSync(capFile)) {
+          throw new ManifestValidationError(
+            `Capability "${name}" in ${subtree.dir} is missing its markdown ${name}/${name}.md.`,
+          );
+        }
+
+        const frontmatter = extractFrontmatter(
+          readFileSync(capFile, 'utf8'),
+          name,
         );
-      }
-
-      const frontmatter = extractFrontmatter(
-        readFileSync(capFile, 'utf8'),
-        name,
-      );
-      // Cross-check the declared role against the authoritative subtree role.
-      const role = assertRole(readField(frontmatter, 'role', name), name);
-      if (role !== subtree.role) {
-        throw new ManifestValidationError(
-          `Capability "${name}" declares role "${role}" but lives under ${subtree.dir} (expected "${subtree.role}").`,
+        // Cross-check the declared role against the authoritative subtree role.
+        const role = assertRole(readField(frontmatter, 'role', name), name);
+        if (role !== subtree.role) {
+          throw new ManifestValidationError(
+            `Capability "${name}" declares role "${role}" but lives under ${subtree.dir} (expected "${subtree.role}").`,
+          );
+        }
+        const applies = parseApplies(
+          readField(frontmatter, 'applies', name),
+          name,
         );
-      }
-      const applies = parseApplies(
-        readField(frontmatter, 'applies', name),
-        name,
-      );
 
-      capabilities.push({ name, role, applies });
+        capabilities.push({ name, role, applies });
+      } catch (err) {
+        // ONLY a validation refusal is tolerated. An I/O failure (the clone
+        // vanished mid-run, a permission error) is genuinely exceptional and
+        // still propagates — swallowing it would turn a broken clone into a
+        // silently empty index, which is the fail-open direction.
+        if (!(err instanceof ManifestValidationError)) throw err;
+        // The SUBTREE's role, not the frontmatter's: the declared role may be
+        // exactly what failed, and the subtree is authoritative here anyway
+        // (see the cross-check above). That is what lets a caller build a
+        // `role:name` key for an entry it could not otherwise type.
+        unknown.push({
+          name,
+          role: subtree.role,
+          subtree: subtree.dir,
+          reason: err.message,
+        });
+      }
     }
   }
 
-  return { capabilities };
+  return { capabilities, unknown };
 }
 
 /**

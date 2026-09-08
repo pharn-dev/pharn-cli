@@ -5,6 +5,9 @@ import { REPO_URL } from '../lib/constants.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
+import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
+import { minCliGate } from '../lib/min-cli-gate.js';
+import { PHARN_VERSION } from '../version.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
 import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
@@ -97,20 +100,34 @@ async function runInitArchetype(): Promise<void> {
 
   let outcome: 'installed' | 'cancelled' = 'cancelled';
   let failure: string | null = null;
+  let refusal: string | null = null;
   try {
-    const index = parseCapabilityIndex(repo.dir);
-    const selection = resolveCapabilities(archetypes, index);
+    // THE MIN_CLI GATE — refuse a too-old CLI CLEANLY, before the index parse
+    // and before any prompt or write. Inside the try so the clone's finally
+    // cleanup still runs before the exit (P0: cleanup before exit).
+    const gate = minCliGate(repo.dir, PHARN_VERSION);
+    if (gate.warning) log.warn(gate.warning);
+    if (gate.refusal) {
+      refusal = gate.refusal;
+    } else {
+      const index = parseCapabilityIndex(repo.dir);
+      // No silent skips (P5): name every capability the fetch boundary refused,
+      // immediately after the parse and BEFORE the summary the user acts on.
+      const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+      if (unknownWarning) log.warn(unknownWarning);
+      const selection = resolveCapabilities(archetypes, index);
 
-    const action = await runArchetypeSummary(archetypes, selection);
-    if (
-      action === 'install' &&
-      (await confirmWriteTargets(repo.dir, cwd, selection))
-    ) {
-      // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
-      // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
-      const commit = repo.sha;
-      await runInstallArchetype(repo.dir, cwd, archetypes, selection, commit);
-      outcome = 'installed';
+      const action = await runArchetypeSummary(archetypes, selection);
+      if (
+        action === 'install' &&
+        (await confirmWriteTargets(repo.dir, cwd, selection))
+      ) {
+        // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
+        // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
+        const commit = repo.sha;
+        await runInstallArchetype(repo.dir, cwd, archetypes, selection, commit);
+        outcome = 'installed';
+      }
     }
   } catch (err) {
     failure = err instanceof Error ? err.message : String(err);
@@ -119,6 +136,13 @@ async function runInitArchetype(): Promise<void> {
     repo.cleanup();
   }
 
+  // A policy refusal is not a failure to debug — no PHARN_DEBUG hint, and it
+  // wins over the cancel path below (nothing was installed, but the reason is
+  // the refusal, not a user choice).
+  if (refusal) {
+    log.error(`⚠ ${refusal}`);
+    process.exit(1);
+  }
   if (failure) {
     log.error(`⚠ ${failure}`);
     if (!process.env.PHARN_DEBUG) {

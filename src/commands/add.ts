@@ -11,6 +11,9 @@ import { REPO_URL } from '../lib/constants.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
+import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
+import { minCliGate } from '../lib/min-cli-gate.js';
+import { PHARN_VERSION } from '../version.js';
 import {
   buildAddSelection,
   interactiveAllowed,
@@ -163,8 +166,16 @@ async function runArchetypeAdd(
     // later edit could silently invert. The realistic both-mismatch case is an old
     // flat project meeting a new clone, where `pharn update` fixes version AND
     // layout in one pass — so the version message is the one worth printing.
+    const gate = minCliGate(repo.dir, PHARN_VERSION);
+    if (gate.warning) log.warn(gate.warning);
+    // MIN_CLI leads the chain: a CLI too old for this content cannot be fixed by
+    // `pharn update` (which the version gate would name), because `update` would
+    // be refused for the same reason. Upgrading is the only real action, so its
+    // message must be the one the user sees.
     const refusal =
-      versionGate(repo.dir, config) ?? layoutGate(repo.dir, config);
+      gate.refusal ??
+      versionGate(repo.dir, config) ??
+      layoutGate(repo.dir, config);
     result = refusal
       ? { kind: 'error', message: refusal }
       : await resolveArchetypeAdd(repo.dir, repo.sha, config, cwd, parsed, arg);
@@ -240,8 +251,12 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     // Same ordered pair as the named path (see there), and for the same reason it
     // sits before resolveAddPicker: both gates must fire before groupMultiselect
     // renders, or the user picks capabilities only to be refused afterwards.
+    const gate = minCliGate(repo.dir, PHARN_VERSION);
+    if (gate.warning) log.warn(gate.warning);
     const refusal =
-      versionGate(repo.dir, config) ?? layoutGate(repo.dir, config);
+      gate.refusal ??
+      versionGate(repo.dir, config) ??
+      layoutGate(repo.dir, config);
     outcome = refusal
       ? { kind: 'error', message: refusal }
       : await resolveAddPicker(repo.dir, repo.sha, config, cwd);
@@ -292,6 +307,12 @@ async function resolveAddPicker(
   cwd: string,
 ): Promise<PickerAddOutcome> {
   const index = parseCapabilityIndex(repoDir);
+  // No silent skips (P5): named immediately after the parse, so it precedes both
+  // the `all-installed` outro and the picker itself — the user never reads
+  // "all available capabilities are already installed" without also being told
+  // that something upstream was skipped.
+  const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+  if (unknownWarning) log.warn(unknownWarning);
   const installed = config.capabilities ?? [];
   const { groups, availableCount } = buildAddSelection(index, installed);
   if (availableCount === 0) return { kind: 'all-installed' };
@@ -382,6 +403,12 @@ async function resolveArchetypeAdd(
   arg: string,
 ): Promise<AddResult> {
   const index = parseCapabilityIndex(repoDir);
+  // No silent skips (P5). The picker path also parses (resolveAddPicker), so a
+  // multi-pick run renders this once per pick; that is the honest cost of naming
+  // it at EVERY parse, and the alternative — naming it at only some — is how a
+  // skipped capability becomes invisible.
+  const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+  if (unknownWarning) log.warn(unknownWarning);
   const matches = index.capabilities.filter(
     (c) =>
       c.name === parsed.name &&

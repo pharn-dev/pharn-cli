@@ -5,6 +5,8 @@ import { fetchRepo } from '../lib/repo.js';
 import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
+import { parseCapabilityIndex } from '../lib/capability-index.js';
+import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import type { InstallDiff } from '../lib/diff.js';
 import { configLayout } from '../lib/layout.js';
 import { row } from '../lib/format.js';
@@ -96,10 +98,22 @@ async function runArchetypeStatus(
   try {
     const outdated = printArchetypeVersion(config, readSkillsVersion(repo.dir));
     printModelRouting(config);
+    // Exclude FROZEN capabilities — the ones the fetch boundary could not parse
+    // in this clone. `update` deliberately keeps their config entry but never
+    // writes their files, so comparing them here would report drift that no
+    // command can ever resolve and make `status --strict` exit 1 forever over a
+    // transient upstream grammar break. The two commands must agree about which
+    // capabilities this install actually owns bytes for.
+    const index = parseCapabilityIndex(repo.dir);
+    const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+    if (unknownWarning) log.warn(unknownWarning);
+    const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
     const result = diffInstalledCapabilities({
       repoDir: repo.dir,
       projectRoot: cwd,
-      capabilities: config.capabilities ?? [],
+      capabilities: (config.capabilities ?? []).filter(
+        (cap) => !frozen.has(`${cap.role}:${cap.name}`),
+      ),
       layout: configLayout(config),
     });
     printDriftSection(result);
