@@ -22,6 +22,7 @@ import { applyWrites } from '../src/lib/apply-update.js';
 import { BACKUP_DIR } from '../src/lib/backup.js';
 import { RECORDS_FILE } from '../src/lib/install-records.js';
 import { layoutPaths } from '../src/lib/layout.js';
+import { ManifestValidationError } from '../src/lib/validate.js';
 import type { Selection } from '../src/types.js';
 
 function write(path: string, content = 'x'): void {
@@ -640,5 +641,122 @@ describe('capabilityCloneFiles', () => {
         role: 'lens',
       }),
     ).toEqual([]);
+  });
+});
+
+// The manifest is the SOURCE side of every `pharn update` write, and the
+// installer copies the SAME two surfaces through copyFilteredDir — which holds
+// each kept basename to COPY_FILENAME_RE + no-`..` and HARD-FAILS on a miss
+// (src/lib/install-capabilities.ts). Before this floor existed the two write
+// paths disagreed on one clone: `init` refused it, `update` copied the file in.
+// These cases pin that they now refuse together, and that the floor is scoped to
+// exactly those two surfaces.
+describe('collectExpectedInstallPaths — command/hook filename floor (P2)', () => {
+  const tmp = useTmpDir();
+
+  function repoWith(plant: (repo: string) => void): string {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepo(repo);
+    plant(repo);
+    return repo;
+  }
+
+  function keysOf(repo: string): string[] {
+    return [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }).keys(),
+    ];
+  }
+
+  function installInto(repo: string): void {
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    installCapabilities(repo, proj, selection());
+  }
+
+  // Both write paths, one clone: the mirror must agree on the REFUSAL too, not
+  // just on the accepted set.
+  it('an out-of-allowlist product command makes BOTH the manifest and the installer throw', () => {
+    const repo = repoWith((r) =>
+      write(join(r, '.claude/commands/pharn-Weird_Name.md')),
+    );
+    expect(() => keysOf(repo)).toThrow(ManifestValidationError);
+    expect(() => keysOf(repo)).toThrow(/pharn-Weird_Name\.md/);
+    expect(() => installInto(repo)).toThrow(ManifestValidationError);
+  });
+
+  // A NEW name, not an uppercase respelling of the scaffold's own hook: on a
+  // case-insensitive filesystem (macOS default) the respelling would overwrite
+  // the existing entry and readdir would report the original lowercase name, so
+  // the case would pass vacuously.
+  it('an uppercase hook name makes BOTH the manifest and the installer throw', () => {
+    const repo = repoWith((r) =>
+      write(join(r, '.claude/hooks/Guard-Hook.cjs')),
+    );
+    expect(() => keysOf(repo)).toThrow(ManifestValidationError);
+    expect(() => installInto(repo)).toThrow(ManifestValidationError);
+  });
+
+  // The regex half and the control-char half of assertSafeString are different
+  // checks; a control char is a legal POSIX filename byte, so pin it separately.
+  it('a control-char hook name is refused by both (assertSafeString, not just the regex)', () => {
+    const bad = `set${String.fromCharCode(1)}scope.cjs`;
+    const repo = repoWith((r) => write(join(r, '.claude/hooks', bad)));
+    expect(() => keysOf(repo)).toThrow(ManifestValidationError);
+    expect(() => keysOf(repo)).toThrow(/control characters/);
+    expect(() => installInto(repo)).toThrow(ManifestValidationError);
+  });
+
+  // Ordering: `keep` runs first, so a name that is not a copy candidate never
+  // reaches the validator. scaffoldRepo already carries `.claude/commands/
+  // README.md` and `pharn-dev-plan.md`; these add the adversarial spellings.
+  it('a non-candidate odd name throws nothing and contributes nothing', () => {
+    const repo = repoWith((r) => {
+      write(join(r, '.claude/commands/pharn-dev-Weird.md'));
+      write(join(r, '.claude/commands/READ_ME.md'));
+      write(join(r, '.claude/hooks/Some-Hook.test.cjs'));
+    });
+    const keys = keysOf(repo);
+    expect(keys).not.toContain('.claude/commands/pharn-dev-Weird.md');
+    expect(keys).not.toContain('.claude/commands/READ_ME.md');
+    expect(keys).not.toContain('.claude/hooks/Some-Hook.test.cjs');
+    expect(keys).toContain('.claude/commands/pharn-plan.md');
+  });
+
+  // The nested case is what actually pins keep-before-validate: the basename is
+  // adversarial, but `keep`'s `!rel.includes('/')` rejects it first, so the
+  // validator never sees it — matching copyFilteredDir, which only ever reads
+  // top-level entries.
+  it('a nested adversarial name under the commands dir throws nothing', () => {
+    const repo = repoWith((r) =>
+      write(join(r, '.claude/commands/sub/pharn-Weird_Name.md')),
+    );
+    const keys = keysOf(repo);
+    expect(keys).not.toContain('.claude/commands/sub/pharn-Weird_Name.md');
+    expect(keys).toContain('.claude/commands/pharn-plan.md');
+  });
+
+  // Scope proof: the verbatim-copied surfaces are copied by recursive cpSync
+  // with NO name check, so validating them here would break the mirror and
+  // reject legitimate evals fixtures.
+  it('capability, contract and floor names outside COPY_FILENAME_RE are still enumerated', () => {
+    const repo = repoWith((r) => {
+      write(join(r, 'pharn-pipeline/grillers/a11y/evals/cases/Case_One.TXT'));
+      write(join(r, 'pharn-review/n-plus-one/README.notes.md'));
+      write(join(r, 'pharn-contracts/Finding_Shape.md'));
+      write(join(r, '.dev/floor/check-Ship.mjs'));
+    });
+    const keys = keysOf(repo);
+    for (const rel of [
+      'pharn-pipeline/grillers/a11y/evals/cases/Case_One.TXT',
+      'pharn-review/n-plus-one/README.notes.md',
+      'pharn-contracts/Finding_Shape.md',
+      '.dev/floor/check-Ship.mjs',
+    ]) {
+      expect(keys).toContain(rel);
+    }
   });
 });

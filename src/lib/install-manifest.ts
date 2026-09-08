@@ -8,7 +8,13 @@ import {
 } from './constants.js';
 import { layoutPaths, type LayoutPaths } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
-import { safeJoin, toPosix } from './validate.js';
+import {
+  assertNoDotDot,
+  assertSafeString,
+  COPY_FILENAME_RE,
+  safeJoin,
+  toPosix,
+} from './validate.js';
 import type { InstalledCapability, Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -24,7 +30,13 @@ import type { InstalledCapability, Layout } from '../types.js';
 // MIRROR, not the writer: this MIRRORS installCapabilities (the same diff↔install
 // mirror the repo already carried, now shared to one function). tests/
 // install-manifest.test.ts pins the mirror against a REAL installCapabilities run
-// so the two cannot silently drift.
+// so the two cannot silently drift. The mirror covers NAMES as well as paths: the
+// product-command and hook enumerations run the same COPY_FILENAME_RE allowlist
+// copyFilteredDir runs (lib/install-capabilities.ts), so one clone cannot be
+// refused by `init` and copied in by `update`. A clone carrying such a name makes
+// `status` HARD-FAIL rather than report drift — deliberately the posture `init`
+// already takes, since the offending name is the fetch boundary's problem, not
+// the project's.
 //
 // Trust (P2): the fetched clone is untrusted. Names read from it are only
 // path-joined via safeJoin (containment) for existence checks and returned as
@@ -83,15 +95,41 @@ export function collectExpectedInstallPaths(params: {
   // the mirror must not enumerate one either — and since this manifest now drives
   // `pharn update`'s WRITES (not just status's comparison), that is the
   // difference between reporting a phantom file and copying one in (P2).
-  const addDir = (relDir: string, keep?: (rel: string) => boolean): void => {
+  //
+  // `validate` (optional) runs AFTER `keep` and BEFORE `add` — the exact ordering
+  // copyFilteredDir uses — so a name that is not a copy candidate (a `README.md`,
+  // a `pharn-dev-*` command, anything nested) can never throw, while a name that
+  // IS one is held to the same allowlist on both write paths. It throws
+  // (ManifestValidationError); it never silently skips (P2).
+  const addDir = (
+    relDir: string,
+    keep?: (rel: string) => boolean,
+    validate?: (rel: string) => void,
+  ): void => {
     const from = safeJoin(repoDir, relDir);
     if (findSymlinkComponent(repoDir, relDir) !== null) return;
     if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return;
     for (const rel of walkFiles(from)) {
       if (keep && !keep(rel)) continue;
+      validate?.(rel);
       add(join(relDir, rel), resolve(from, rel));
     }
   };
+
+  // The filename floor copyFilteredDir applies to the same two surfaces. Both
+  // keep predicates require `!rel.includes('/')`, so `rel` here IS the basename —
+  // the same input install-capabilities.ts validates. Scoped to commands + hooks
+  // ONLY: capability dirs, pharn-contracts/, pharn-core/, .dev/floor/ and the
+  // trusted docs are copied verbatim by recursive cpSync with no name check, so
+  // validating them here would BREAK the mirror (and reject legitimate evals/
+  // fixtures, uppercase names, and non-md/cjs/mjs/json extensions).
+  const copyNameFloor =
+    (dir: string) =>
+    (rel: string): void => {
+      const label = `${dir}/${rel}`;
+      assertSafeString(rel, label, COPY_FILENAME_RE);
+      assertNoDotDot(rel, label);
+    };
 
   // Selected capabilities (whole dir, incl. evals) at the layout's subtree.
   for (const cap of capabilities) {
@@ -106,12 +144,14 @@ export function collectExpectedInstallPaths(params: {
       rel.endsWith('.md') &&
       rel.startsWith(PRODUCT_COMMAND_PREFIX) &&
       !rel.startsWith(DEV_COMMAND_PREFIX),
+    copyNameFloor(CLAUDE_COMMANDS_DIR),
   );
   // Hooks: top-level *.cjs, excluding *.test.cjs.
   addDir(
     CLAUDE_HOOKS_DIR,
     (rel) =>
       !rel.includes('/') && rel.endsWith('.cjs') && !rel.endsWith('.test.cjs'),
+    copyNameFloor(CLAUDE_HOOKS_DIR),
   );
   // Trusted docs (flat: root files; pharn: CONSTITUTION + ARCHITECTURE under pharn/).
   // lstat, not exists: a symlinked doc is never copied by the installer, so it is
