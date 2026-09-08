@@ -8,10 +8,13 @@ export interface InstallDiff {
   modified: string[];
   // Expected by an installed module/skill but absent on disk.
   missing: string[];
-  // Expected paths that EXIST but cannot be compared: a symlink (live OR
-  // dangling) at the path OR at any parent component below the project root, a
-  // directory, another non-regular file, an unreadable file, or a path whose
-  // parent is a regular file. Reported by name with the reason, never folded
+  // Expected paths that cannot be compared: a symlink (live OR dangling) at the
+  // path OR at any parent component below the project root, a directory,
+  // another non-regular file, an unreadable file, or a path whose parent is a
+  // regular file. Not all of them EXIST — a dangling parent symlink and an
+  // ENOTDIR parent both leave nothing at the leaf, and both belong here rather
+  // than in `missing`, because something is in the way and a restore would
+  // write through it. Reported by name with the reason, never folded
   // into ok/modified/missing — a symlink read THROUGH would masquerade as
   // `modified` (different bytes) or, worse, as `ok` (identical bytes), silently
   // blessing a path that points outside the install. Sorted by `rel`.

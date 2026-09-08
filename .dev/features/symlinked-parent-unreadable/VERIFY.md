@@ -9,6 +9,11 @@
 | `lint`         | `npm run lint`                   | 0    |
 | `format:check` | `npm run format:check`           | 0    |
 | `lint:md`      | `npm run lint:md`                | 0    |
+| `typecheck`    | `npm run typecheck`              | 0    |
+
+The `typecheck` gate was added after CodeRabbit pointed out that the recorded map omitted the one
+`npm run check` member that can fail on its own here (`tsc --noEmit` over src AND tests) — the producer
+in `.claude/commands/pharn-dev-verify.md` now records it, so the omission cannot recur silently.
 
 No `structural:*` gate: this increment ships no committed eval pair (it is TypeScript, not a markdown
 capability), so none is in the map — the absence is by membership, not by omission. `validate` is GREEN

@@ -5,6 +5,7 @@
     "lint": 0,
     "lint:md": 0,
     "test": 0,
+    "typecheck": 0,
     "validate": 0
   },
   "verdict": "PASS",

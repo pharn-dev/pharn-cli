@@ -128,11 +128,13 @@ its record is refreshed, so a degraded install partially heals itself. Partially
 records for the files that **differ**, which is exactly the set an upgrade needs to touch. Those stay
 skipped until you `--force` them or restore them yourself.
 
-There is a seventh outcome the table cannot cause: a path that exists but is **not a readable regular
-file** (a directory where a file belongs, an unreadable file, a symlink — at the path itself or at any
-parent directory below your project root) is reported as `unreadable` and skipped — including under
-`--force`. The reason names the offending component, so a `.claude/hooks` symlinked into a dotfiles
-repo is reported as that directory, not as its files.
+There is a seventh outcome the table cannot cause: a path that is **not a readable regular file** (a
+directory where a file belongs, an unreadable file, a symlink — at the path itself or at any parent
+directory below your project root) is reported as `unreadable` and skipped — including under
+`--force`. It need not exist for that: a dangling parent symlink, or a parent that is a regular file,
+also lands here rather than in the restore row, because something is in the way. When a symlink is the
+cause the reason **names the offending component**, so a `.claude/hooks` symlinked into a dotfiles repo
+is named as that directory; the other cases give a generic reason.
 
 ### The three skip labels
 

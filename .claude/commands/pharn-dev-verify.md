@@ -87,18 +87,20 @@ node .dev/floor/validate.mjs . > /dev/null 2>&1; v=$?      # the structural floo
 npm run lint > /dev/null 2>&1; l=$?                   # eslint clean
 npm run format:check > /dev/null 2>&1; f=$?           # prettier clean — whole-repo (L9: track full `npm run check`)
 npm run lint:md > /dev/null 2>&1; lm=$?               # markdownlint clean — whole-repo (L9)
+npm run typecheck > /dev/null 2>&1; tc=$?             # tsc --noEmit over src AND tests — the 4th `npm run check` gate
 # per committed eval pair the feature ships (see below) — one structural:<expected> gate each:
 node .dev/floor/check-structural.mjs <expected.json> <actual.json> . > /dev/null 2>&1; s=$?
 # assemble → .pharn/pharn-dev-verify/results.json, one entry per gate actually run:
-printf '{"test":%d,"validate":%d,"lint":%d,"format:check":%d,"lint:md":%d,"structural:%s":%d}' \
-  "$t" "$v" "$l" "$f" "$lm" "<expected.json>" "$s" \
+printf '{"test":%d,"validate":%d,"lint":%d,"format:check":%d,"lint:md":%d,"typecheck":%d,"structural:%s":%d}' \
+  "$t" "$v" "$l" "$f" "$lm" "$tc" "<expected.json>" "$s" \
   > .pharn/pharn-dev-verify/results.json
 ```
 
 - **The gates are the existing checks — `/pharn-dev-verify` invents none** (`npm test`, `.dev/floor/validate.mjs`,
-  `.dev/floor/check-structural.mjs`, `npm run lint`, `npm run format:check`, `npm run lint:md`). It orchestrates
-  them; it does not reimplement checking logic. The `format:check` + `lint:md` + `lint` + `test` set is exactly
-  the repo's `npm run check` aggregate, so the verdict **tracks the full `npm run check`** — closing L9's
+  `.dev/floor/check-structural.mjs`, `npm run lint`, `npm run format:check`, `npm run lint:md`,
+  `npm run typecheck`). It orchestrates them; it does not reimplement checking logic. The `format:check` +
+  `lint` + `typecheck` + `test` set is exactly the repo's `npm run check` aggregate (`lint:md` is the fifth
+  CI gate, outside that aggregate), so the verdict **tracks the full `npm run check`** — closing L9's
   style-gate coverage hole **at verify** (an increment's own markdown style is caught here, not only at the full
   `npm run check` / CI; `.dev/memory-bank/lessons-learned.md` L9 — cited, not restated, P4).
 - **`structural:<expected>` — one gate per committed eval pair the feature ships,** discovered by
@@ -110,7 +112,8 @@ printf '{"test":%d,"validate":%d,"lint":%d,"format:check":%d,"lint:md":%d,"struc
 - **The core gates are stdlib-only** (`node --test`, `validate`, `check-structural`); `lint` / `format:check` /
   `lint:md` need the dev devDeps already present in the working tree (no `npm ci` — `/pharn-dev-verify` runs only
   at HEAD, never in a detached worktree, so the style gates are cheap).
-- **Granularity (honest, not a silent gap — P7):** `test` / `validate` / `lint` / `format:check` / `lint:md`
+- **Granularity (honest, not a silent gap — P7):** `test` / `validate` / `lint` / `format:check` / `lint:md` /
+  `typecheck`
   are **whole-repo** (they re-run the full suite/style over the repo with the feature present — the most honest
   "is it green with this in it", so verify PASS requires the **whole** repo clean, not just the increment's
   files); the **feature-specific** correctness signal is the `structural:*` gate over the feature's own evals
@@ -170,7 +173,7 @@ Write, in order (re-scoping per artifact, per Step 0's caveat):
    ```json
    {
      "feature": "<name>",
-     "gates": { "test": 0, "validate": 0, "lint": 0, "format:check": 0, "lint:md": 0, "structural:<expected>": 0 },
+     "gates": { "test": 0, "validate": 0, "lint": 0, "format:check": 0, "lint:md": 0, "typecheck": 0, "structural:<expected>": 0 },
      "verdict": "PASS",
      "failing_gates": [],
      "verifiers": { "registered": 0, "findings": [] }
