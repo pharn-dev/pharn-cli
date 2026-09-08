@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A `pharn`-layout install can now ship `THREAT-MODEL.md` and `LIMITS.md`.** The install placed only
+  `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md`, treating the other two trusted docs as
+  dev-only — while the same install shipped ten product commands, the floor checkers and the
+  contracts, and those cite `THREAT-MODEL.md` / `LIMITS.md` by path. Every one of those pointers
+  dangled in every install. Both docs are now part of the `pharn` trusted-doc set, so they are
+  installed at `pharn/THREAT-MODEL.md` and `pharn/LIMITS.md`, compared by `pharn status`, and
+  restored by `pharn update` under the same per-file rules as `CONSTITUTION.md` (missing → restore,
+  unchanged → upgrade, locally modified → skip). **Nothing changes for existing installs yet:**
+  upstream `pharn-dev/pharn-oss` does not ship those two paths at the time of writing, and every doc
+  copy is existence-guarded at both readers — so a clone without them installs exactly as before,
+  `status` reports nothing missing, and `update` restores nothing. This is the CLI half; the doc
+  content, the repointed citations, and the `protect-trusted-paths.cjs` hook that currently
+  write-protects `THREAT-MODEL.md` at the *user's* project root are upstream changes still to land.
+
 - **`pharn.config.json` and `pharn.records.json` are now written atomically.** Both were written with
   a plain `writeFile`, so a write torn by power loss or `SIGKILL` left truncated JSON on disk. For the
   records store that fails closed — the reader names it invalid, every update decision degrades to

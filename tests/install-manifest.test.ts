@@ -80,6 +80,8 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
   write(join(repo, 'pharn/CONSTITUTION.md'));
   write(join(repo, 'pharn/ARCHITECTURE.md'));
+  write(join(repo, 'pharn/THREAT-MODEL.md'));
+  write(join(repo, 'pharn/LIMITS.md'));
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
   write(join(repo, 'pharn/floor/validate.test.mjs'));
@@ -193,7 +195,7 @@ describe('collectExpectedInstallPaths (untrusted symlinks)', () => {
 describe('collectExpectedInstallPaths (pharn layout)', () => {
   const tmp = useTmpDir();
 
-  it('mirrors surfaces UNDER pharn/ and drops THREAT-MODEL/LIMITS', () => {
+  it('mirrors every surface UNDER pharn/, all four trusted docs included', () => {
     const repo = join(tmp.path(), 'repo');
     scaffoldRepoPharn(repo);
     const k = [
@@ -214,7 +216,11 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).toContain(
       'pharn/pharn-core/seam-resolver/evals/cases/resolve.md',
     );
-    // pharn docs set is CONSTITUTION + ARCHITECTURE only; THREAT-MODEL/LIMITS drop.
+    expect(k).toContain('pharn/THREAT-MODEL.md');
+    expect(k).toContain('pharn/LIMITS.md');
+    // Path-anchored, not a basename: the point is that nothing leaks to the
+    // project ROOT, and `not.toContain('THREAT-MODEL.md')` would fail on the
+    // pharn/-prefixed key it is supposed to allow.
     expect(k).not.toContain('THREAT-MODEL.md');
     expect(k).not.toContain('LIMITS.md');
     expect(k).not.toContain('pharn/floor/validate.test.mjs');

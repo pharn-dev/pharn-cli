@@ -50,7 +50,7 @@ describe('layoutPaths', () => {
     ]);
   });
 
-  it('pharn resolves under pharn/ and drops THREAT-MODEL/LIMITS from the docs set', () => {
+  it('pharn resolves every surface under pharn/, including all four trusted docs', () => {
     const p = layoutPaths('pharn');
     expect(p.layout).toBe('pharn');
     expect(p.grillers).toBe('pharn/pharn-pipeline/grillers');
@@ -59,7 +59,16 @@ describe('layoutPaths', () => {
     expect(p.floor).toBe('pharn/floor');
     // The pharn-core surface upstream actually ships (seam-resolver + its evals).
     expect(p.core).toBe('pharn/pharn-core');
-    expect(p.docs).toEqual(['pharn/CONSTITUTION.md', 'pharn/ARCHITECTURE.md']);
+    // All four, mirrored under pharn/ — the same set as flat. The installed
+    // product commands, floor checkers and contracts cite THREAT-MODEL.md and
+    // LIMITS.md, so an install that dropped them left every one of those
+    // pointers dangling.
+    expect(p.docs).toEqual([
+      'pharn/CONSTITUTION.md',
+      'pharn/ARCHITECTURE.md',
+      'pharn/THREAT-MODEL.md',
+      'pharn/LIMITS.md',
+    ]);
   });
 });
 
