@@ -16,9 +16,10 @@ import { describe, expect, it } from 'vitest';
 //
 // The limit, stated rather than implied away (P0): this proves the documents
 // NAME the installed version. It can never prove the measured prose is still
-// TRUE of those bytes — only a human re-reading degit's source can. It likewise
-// says nothing about what a consumer's `npm install` resolves; lockfiles are not
-// published, so the exact range in `package.json` is the only thing that travels.
+// TRUE of those bytes — only a human re-reading degit's source can. Nor does it
+// reach a consumer’s tree: lockfiles are not published, so the exact VERSION in
+// `package.json` is what travels, and an `overrides` entry, a monorepo hoist, or
+// a non-npm resolver can still seat something else.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Every file that states a fact measured against a specific degit version. */
