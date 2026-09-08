@@ -42,8 +42,11 @@ export function diffInstalledCapabilities(params: {
   capabilities: InstalledCapability[];
   // The project's recorded layout (config.layout via configLayout). The expected
   // set is derived at the layout's paths for BOTH the clone source and the project
-  // dest (the mirror). A clone at @main whose layout differs simply lacks the
-  // source (existsSync false → skipped) in the manifest.
+  // dest (the mirror) — except the license entry, whose dest differs from its
+  // source by design (lib/layout.ts, LayoutPaths.license), which is why the
+  // manifest is a dest→source MAP rather than a set of paths. A clone at @main
+  // whose layout differs simply lacks the source (existsSync false → skipped) in
+  // the manifest.
   layout: Layout;
 }): InstallDiff {
   const { repoDir, projectRoot, capabilities, layout } = params;

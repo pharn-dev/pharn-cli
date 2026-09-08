@@ -134,6 +134,11 @@ After you choose **install**, `init` checks which of its **actual write targets*
 | Write `pharn.config.json`  | `skillsVersion` (from the repo's `SKILLS_VERSION`), `commit`, `archetypes`, `capabilities`, `layout`, `models`, `seam`, `modules: []`                                                     |
 | Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                           |
 
+The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
+the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
+that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and
+publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
+
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 
 On success, the CLI reports the capability count and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.

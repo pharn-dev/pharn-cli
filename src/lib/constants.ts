@@ -32,6 +32,12 @@ export const SKILLS_VERSION_FILE = 'SKILLS_VERSION';
 export const MIN_CLI_FILE = 'MIN_CLI';
 // Trusted spec docs copied to the project root (write-protected there by the
 // installed protect-trusted-paths.cjs hook).
+// Upstream's Apache-2.0 LICENSE at the clone ROOT, and where an install puts it.
+// Source and dest DIFFER on purpose: the user's own root `LICENSE` is theirs, and
+// an identity-mapped copy would overwrite it (see LayoutPaths.license).
+export const UPSTREAM_LICENSE = 'LICENSE';
+export const FLAT_LICENSE_DEST = 'PHARN-LICENSE';
+export const PHARN_LICENSE_DEST = 'pharn/LICENSE';
 export const TRUSTED_DOCS = [
   'CONSTITUTION.md',
   'ARCHITECTURE.md',

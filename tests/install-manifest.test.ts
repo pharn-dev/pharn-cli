@@ -63,6 +63,7 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, 'THREAT-MODEL.md'));
   write(join(repo, 'LIMITS.md'));
   write(join(repo, 'features/README.md'));
+  write(join(repo, 'LICENSE'));
   write(join(repo, 'pharn-contracts/finding-shape.md'));
   write(join(repo, '.dev/floor/validate.mjs'));
   write(join(repo, '.dev/floor/validate.test.mjs'));
@@ -89,6 +90,7 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/LIMITS.md'));
   // Root in BOTH layouts, like .claude/*.
   write(join(repo, 'features/README.md'));
+  write(join(repo, 'LICENSE'));
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
   write(join(repo, 'pharn/floor/validate.test.mjs'));
@@ -383,6 +385,38 @@ describe('collectExpectedInstallPaths — floor test-fixtures excluded', () => {
     expect(
       existsSync(join(pharnRepo, 'pharn/floor/test-fixtures/red/skill.md')),
     ).toBe(true);
+  });
+});
+
+// The license is the ONE entry whose dest differs from its source, which is what
+// the map's dest→source shape exists for. Assert the MAPPING, not just presence.
+describe('collectExpectedInstallPaths — the mapped LICENSE entry', () => {
+  const tmp = useTmpDir();
+
+  it('maps PHARN-LICENSE back to the clone ROOT LICENSE (flat)', () => {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepo(repo);
+    const map = collectExpectedInstallPaths({
+      repoDir: repo,
+      capabilities: selection().selected,
+      layout: 'flat',
+    });
+    expect(map.get('PHARN-LICENSE')).toBe(join(repo, 'LICENSE'));
+    // The dest is NOT a root LICENSE — that one is the user's.
+    expect(map.has('LICENSE')).toBe(false);
+  });
+
+  it('maps pharn/LICENSE back to the clone ROOT LICENSE (pharn)', () => {
+    const repo = join(tmp.path(), 'pharn-repo');
+    scaffoldRepoPharn(repo);
+    const map = collectExpectedInstallPaths({
+      repoDir: repo,
+      capabilities: selection().selected,
+      layout: 'pharn',
+    });
+    expect(map.get('pharn/LICENSE')).toBe(join(repo, 'LICENSE'));
+    expect(map.has('LICENSE')).toBe(false);
+    expect(map.has('PHARN-LICENSE')).toBe(false);
   });
 });
 

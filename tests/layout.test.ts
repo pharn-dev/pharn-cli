@@ -48,6 +48,9 @@ describe('layoutPaths', () => {
       'THREAT-MODEL.md',
       'LIMITS.md',
     ]);
+    // The ONE source≠dest mapping: upstream's LICENSE must never land on the
+    // user's own root LICENSE, so the flat dest is unmistakably pharn's.
+    expect(p.license).toEqual({ from: 'LICENSE', to: 'PHARN-LICENSE' });
   });
 
   it('pharn resolves every surface under pharn/, including all four trusted docs', () => {
@@ -69,6 +72,7 @@ describe('layoutPaths', () => {
       'pharn/THREAT-MODEL.md',
       'pharn/LIMITS.md',
     ]);
+    expect(p.license).toEqual({ from: 'LICENSE', to: 'pharn/LICENSE' });
   });
 });
 

@@ -186,6 +186,20 @@ export function installCapabilities(
     }
   }
 
+  // --- upstream's Apache-2.0 LICENSE, at a MAPPED destination ---------------
+  // Apache-2.0 §4(a): a redistributor must give recipients a copy of the
+  // license, and a user who commits and publishes a pharn-initialized repo is
+  // redistributing ~450 Apache-2.0 files. Same guard shape as the docs loop —
+  // but NOT the same path on both ends: the dest is pharn's own
+  // (`pharn/LICENSE` / `PHARN-LICENSE`), because copying to a root `LICENSE`
+  // would overwrite the user's with `{ force: true }` and no prompt.
+  const licenseFrom = safeJoin(repoDir, paths.license.from);
+  if (existsSync(licenseFrom) && !isSymlink(licenseFrom)) {
+    cpSync(licenseFrom, safeJoin(projectRoot, paths.license.to), {
+      force: true,
+    });
+  }
+
   // --- features/README.md (root in BOTH layouts, like .claude/*) -------------
   // The product-loop boundary contract the installed product commands cite by
   // name. Deliberately NOT called a trusted doc: it is not write-protected by
