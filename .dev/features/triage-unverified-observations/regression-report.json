@@ -1,0 +1,44 @@
+{
+  "base": "ab940f132edd6c6a21de25a55c29eb3e78c93d95",
+  "inside": [
+    "tests/detect-archetype.test.ts",
+    "tests/check-composition.test.ts",
+    "src/lib/install-manifest.ts",
+    "src/commands/init.ts",
+    "src/commands/add.ts",
+    "src/commands/update.ts",
+    "src/commands/status.ts",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "docs/contributing.md"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "test": {
+      "base": 0,
+      "head": 0
+    },
+    "typecheck": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

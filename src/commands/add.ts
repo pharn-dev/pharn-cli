@@ -149,7 +149,7 @@ async function runArchetypeAdd(
     process.exit(1);
   }
 
-  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
   // the spinner so it survives the frame and precedes a proxy-caused failure
   // (see src/commands/init.ts for the full rationale).
   const proxyNotice = detectProxyNotice(process.env);
@@ -246,7 +246,7 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     process.exit(1);
   }
 
-  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
   // the spinner so it survives the frame and precedes a proxy-caused failure
   // (see src/commands/init.ts for the full rationale).
   const proxyNotice = detectProxyNotice(process.env);

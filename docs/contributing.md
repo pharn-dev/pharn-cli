@@ -49,7 +49,14 @@ npm run build          # job "Build" — typecheck + esbuild bundle
 
 Each gate is a **separate job**, so it reports its own status check and a failure in one never hides a failure in another. The job names above are the exact contexts the `main` branch ruleset requires, so renaming a job also means updating the ruleset — [`tests/ci-workflow.test.ts`](../tests/ci-workflow.test.ts) fails if the workflow side drifts.
 
-Gates run on **ubuntu-latest with Node 24**. `package.json` declares `engines.node: ">=20"`; CI does not exercise Node 20 or 22, so verify locally if your change touches runtime-version-sensitive APIs.
+Gates run on **ubuntu-latest with Node 24 only**. Two support claims are therefore wider than what CI tests, and both are deliberate — stated here rather than quietly implied:
+
+| Claim | Tested | Notes |
+| ----- | ------ | ----- |
+| `engines.node: ">=20"` | Node 24 only | Node 20 and 22 are unexercised; verify locally if your change touches runtime-version-sensitive APIs |
+| No `os` field, so Windows is implied supported | ubuntu only | The `win32` branches of `toPosix` (`src/lib/validate.ts`) and the separator handling in `symlink-guard` never execute in CI — `tests/symlink-guard.test.ts` calls this out as PLATFORM-LATENT |
+
+**Do not close either gap by adding a `strategy.matrix` to one of the six existing jobs.** GitHub renders a matrixed job's context as `<name> (<value>)`, so `Test` would stop being reported and every PR would hang blocked on a required context nothing produces — the exact incident [`tests/ci-workflow.test.ts`](../tests/ci-workflow.test.ts) exists to prevent. A separate, additionally-named job (`Test (node 20)`, `Test (windows)`) leaves the six required contexts byte-identical and is the safe shape.
 
 `npm run check` runs `format:check` + `lint` + `lint:md` + `typecheck` + `test` as a single local pre-push command. It covers every gate above **except `build`**, and it runs `test` rather than `test:coverage` — so it does not enforce the coverage thresholds the `Test` job does. A green `check` is the strongest single local signal, not a proof that CI will be green.
 

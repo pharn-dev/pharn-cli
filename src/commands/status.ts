@@ -74,7 +74,7 @@ async function runArchetypeStatus(
     return;
   }
 
-  // What degit's single lowercase `https_proxy` read means here — emitted before
+  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
   // the spinner so it survives the frame and precedes a proxy-caused failure
   // (see src/commands/init.ts). Inside the drift branch, so
   // `status --no-drift` — which never clones — stays silent.

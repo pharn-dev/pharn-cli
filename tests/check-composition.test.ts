@@ -77,8 +77,18 @@ describe('npm run check composition', () => {
 
   it('differs from the CI gate set in exactly the two documented ways', () => {
     // The set relation, stated once: everything CI runs, minus `build`, with
-    // `test` standing in for `test:coverage`. If a seventh gate is ever added to
-    // CI, this fails and forces a decision about whether `check` should cover it.
+    // `test` standing in for `test:coverage`.
+    //
+    // HONEST SCOPE. CI_GATE_SCRIPTS above is a local literal, NOT read from
+    // ci.yml — so adding a seventh job to the workflow does NOT redden this. An
+    // earlier version of this comment claimed it did, which was exactly the kind
+    // of "written down, therefore guaranteed" the repo exists to prevent.
+    //
+    // What actually holds: the workflow side is pinned by
+    // tests/ci-workflow.test.ts (job-set equality), and this pins that `check`'s
+    // composition matches the list HERE. A seventh CI gate reddens that file and
+    // leaves this one green, so the two must be updated together — which is the
+    // duplication worth removing, not this assertion.
     const chained = new Set(checkedScripts());
     const missing = CI_GATE_SCRIPTS.filter((g) => !chained.has(g));
     expect(missing).toEqual(['test:coverage', 'build']);
