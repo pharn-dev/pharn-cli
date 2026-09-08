@@ -9,14 +9,19 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
+  capabilityCloneFiles,
   collectExpectedInstallPaths,
   conflictingWriteTargets,
   PHARN_CONFIG_FILE,
 } from '../src/lib/install-manifest.js';
-import { installCapabilities } from '../src/lib/install-capabilities.js';
+import {
+  installCapabilities,
+  installCapabilityDirs,
+} from '../src/lib/install-capabilities.js';
 import { applyWrites } from '../src/lib/apply-update.js';
 import { BACKUP_DIR } from '../src/lib/backup.js';
 import { RECORDS_FILE } from '../src/lib/install-records.js';
+import { layoutPaths } from '../src/lib/layout.js';
 import type { Selection } from '../src/types.js';
 
 function write(path: string, content = 'x'): void {
@@ -498,5 +503,142 @@ describe('CLI-owned metadata is outside the install set', () => {
       layout: 'flat',
     });
     expect(conflicts).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// capabilityCloneFiles — ONE capability's files enumerated in the CLONE, which
+// is what `pharn add` derives BOTH its drift set and its record keys from. The
+// contract that matters: it reports what the copy WOULD write and nothing else,
+// and on an unreadable source it reports NOTHING rather than throwing — the
+// curated refusal belongs to installCapabilityDirs' pre-flight, which runs after
+// it and must be the message the user sees.
+// ---------------------------------------------------------------------------
+describe('capabilityCloneFiles', () => {
+  const tmp = useTmpDir();
+
+  it('enumerates the capability dir (incl. evals), sorted, prefixed with its subtree', () => {
+    const repo = tmp.path();
+    write(join(repo, 'pharn-review/n-plus-one/n-plus-one.md'));
+    write(join(repo, 'pharn-review/n-plus-one/evals/cases/c.md'));
+    write(join(repo, 'pharn-review/other/other.md'));
+
+    expect(
+      capabilityCloneFiles(repo, layoutPaths('flat'), {
+        name: 'n-plus-one',
+        role: 'lens',
+      }),
+    ).toEqual([
+      'pharn-review/n-plus-one/evals/cases/c.md',
+      'pharn-review/n-plus-one/n-plus-one.md',
+    ]);
+  });
+
+  it('routes a griller to the grillers subtree', () => {
+    const repo = tmp.path();
+    write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'));
+
+    expect(
+      capabilityCloneFiles(repo, layoutPaths('flat'), {
+        name: 'a11y',
+        role: 'griller',
+      }),
+    ).toEqual(['pharn-pipeline/grillers/a11y/a11y.md']);
+  });
+
+  it('addresses the pharn/ layout when that is the layout given', () => {
+    const repo = tmp.path();
+    write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'));
+
+    expect(
+      capabilityCloneFiles(repo, layoutPaths('pharn'), {
+        name: 'a11y',
+        role: 'griller',
+      }),
+    ).toEqual(['pharn/pharn-pipeline/grillers/a11y/a11y.md']);
+  });
+
+  it('skips a symlink inside the capability dir, matching the copy filter', () => {
+    // installCapabilityDirs' cpSync passes `filter: noSymlinks`, so a symlinked
+    // entry is never written — claiming it here would put a path in the drift set
+    // and the record store that the copy never touches.
+    const repo = tmp.path();
+    write(join(repo, 'pharn-review/x/x.md'));
+    write(join(repo, 'outside.md'));
+    symlinkSync(join(repo, 'outside.md'), join(repo, 'pharn-review/x/link.md'));
+
+    expect(
+      capabilityCloneFiles(repo, layoutPaths('flat'), {
+        name: 'x',
+        role: 'lens',
+      }),
+    ).toEqual(['pharn-review/x/x.md']);
+  });
+
+  it('is [] when the capability dir is absent — the pre-flight owns that refusal', () => {
+    // A raw ENOENT from here would pre-empt installCapabilityDirs' curated
+    // `Capability "ghost" (lens) is missing at …` message, which is the one the
+    // user can act on.
+    expect(
+      capabilityCloneFiles(tmp.path(), layoutPaths('flat'), {
+        name: 'ghost',
+        role: 'lens',
+      }),
+    ).toEqual([]);
+  });
+
+  it('is [] when the capability dir is itself a symlink', () => {
+    const repo = tmp.path();
+    write(join(repo, 'elsewhere/x.md'));
+    mkdirSync(join(repo, 'pharn-review'), { recursive: true });
+    symlinkSync(join(repo, 'elsewhere'), join(repo, 'pharn-review/x'));
+
+    expect(
+      capabilityCloneFiles(repo, layoutPaths('flat'), {
+        name: 'x',
+        role: 'lens',
+      }),
+    ).toEqual([]);
+  });
+
+  // The MIRROR pin, the same one collectExpectedInstallPaths carries against a
+  // real installCapabilities run. capabilityCloneFiles drives a DESTRUCTIVE
+  // decision (which files `add` backs up) and a DURABLE one (which it records),
+  // so its agreement with what the copy actually writes must be tested, not
+  // argued: the two traversals are independent (walkFiles' Dirent check vs
+  // cpSync's noSymlinks filter) and could drift apart silently.
+  it('MIRROR: equals exactly what a real installCapabilityDirs copy writes', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    write(join(repo, 'pharn-review/a11y/a11y.md'));
+    write(join(repo, 'pharn-review/a11y/evals/cases/basic.md'));
+    write(join(repo, 'pharn-review/a11y/evals/expected/basic.json'));
+    // A symlink the copy skips — the divergence the mirror exists to catch.
+    write(join(repo, 'outside.md'));
+    symlinkSync(join(repo, 'outside.md'), join(repo, 'pharn-review/a11y/l.md'));
+    const cap = { name: 'a11y', role: 'lens' } as const;
+
+    installCapabilityDirs(repo, proj, [cap]);
+
+    // Both sides sorted: walkRel yields readdir order, so an unsorted compare
+    // would pass or fail on directory-entry ordering rather than on membership.
+    expect(capabilityCloneFiles(repo, layoutPaths('flat'), cap)).toEqual(
+      walkRel(join(proj, 'pharn-review/a11y'))
+        .map((rel) => `pharn-review/a11y/${rel}`)
+        .sort(),
+    );
+  });
+
+  it('is [] when the capability path is a file rather than a directory', () => {
+    const repo = tmp.path();
+    write(join(repo, 'pharn-review/x'));
+
+    expect(
+      capabilityCloneFiles(repo, layoutPaths('flat'), {
+        name: 'x',
+        role: 'lens',
+      }),
+    ).toEqual([]);
   });
 });

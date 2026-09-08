@@ -41,11 +41,13 @@ import { safeJoin, toPosix } from './validate.js';
  * false` suppresses ENOENT ONLY, so a component below a REGULAR FILE raises
  * ENOTDIR straight out of the walk (as does `safeJoin`'s escape refusal). Where
  * each caller stands differs, and is stated rather than assumed: `readDiskState`
- * wraps the call and turns it into its `unreadable` terminal; `applyWrites` is
- * already inside a try, so it becomes an ApplyError carrying what was written;
- * `backup.ts` is NOT wrapped, and would surface it as a fatal error — reachable
- * only if a path with a non-directory component ever reached the backup set,
- * which `readDiskState` now classifies `unreadable` and skips first. Pinned by
+ * wraps the call and turns it into its `unreadable` terminal; `collectDestDrift`
+ * wraps it too and skips the rel, which is what keeps such a path out of the set
+ * it hands `createBackup`; `applyWrites` is already inside a try, so it becomes an
+ * ApplyError carrying what was written; `backup.ts` is NOT wrapped, and would
+ * surface it as a fatal error — reachable only if a path with a non-directory
+ * component ever reached the backup set, which `readDiskState` (for `update`) and
+ * `collectDestDrift` (for `add`) each classify and skip first. Pinned by
  * tests/symlink-guard.test.ts.
  */
 export function findSymlinkComponent(base: string, rel: string): string | null {

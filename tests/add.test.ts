@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -60,6 +68,51 @@ const prompts = await import('@clack/prompts');
 const { readRecords, writeRecords, RECORDS_FILE } =
   await import('../src/lib/install-records.js');
 const { sha256File } = await import('../src/lib/hash.js');
+
+function write(path: string, content: string): void {
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(path, content);
+}
+
+// The project-relative dir one capability occupies, at the flat layout or under
+// pharn/. Mirrors installCapabilityDirs' own role→subtree ternary, which is what
+// the copying installer mocks below have to reproduce to be faithful.
+function capDir(
+  cap: { name: string; role: string },
+  prefix: '' | 'pharn/' = '',
+): string {
+  return cap.role === 'griller'
+    ? `${prefix}pharn-pipeline/grillers/${cap.name}`
+    : `${prefix}pharn-review/${cap.name}`;
+}
+
+// An installCapabilityDirs mock that COPIES the clone dir into the project,
+// exactly as the real one does. `add` derives BOTH its destination-drift set and
+// its record keys from the CLONE now, so a mock that invents files the clone does
+// not carry would be asserting against a tree that cannot exist.
+function copyingInstaller(prefix: '' | 'pharn/' = ''): void {
+  installCapabilityDirs.mockImplementation(
+    (repo: string, root: string, caps: { name: string; role: string }[]) => {
+      for (const c of caps) {
+        const rel = capDir(c, prefix);
+        cpSync(join(repo, rel), join(root, rel), {
+          recursive: true,
+          force: true,
+        });
+      }
+      return caps;
+    },
+  );
+}
+
+// The single `.pharn-backup/<ts>/` directory a run created, or null when it
+// created none. `null` is the assertion that matters for the no-drift cases.
+function backupRoot(proj: string): string | null {
+  const root = join(proj, '.pharn-backup');
+  if (!existsSync(root)) return null;
+  const entries = readdirSync(root);
+  return entries.length === 1 ? join(root, entries[0]!) : null;
+}
 
 describe('runAdd (archetype)', () => {
   stubProcessExit();
@@ -533,29 +586,25 @@ describe('runAdd — pharn.records.json', () => {
   stubProcessExit();
   const tmp = useTmpDir();
   let proj = '';
+  let clone = '';
 
   const CAP_FILE = 'pharn-pipeline/grillers/a11y/a11y.md';
+  const CAP_NESTED = 'pharn-pipeline/grillers/a11y/evals/cases/basic.md';
   const LENS_FILE = 'pharn-review/n-plus-one/n-plus-one.md';
   const EXISTING = 'pharn-pipeline/grillers/security/security.md';
 
-  // The mocked installer writes real files, so the recorded paths are the ones
-  // that actually landed rather than a list the test invented.
-  function installWrites(): void {
-    installCapabilityDirs.mockImplementation(
-      (_repo: string, root: string, caps: { name: string }[]) => {
-        for (const c of caps) {
-          const rel = c.name === 'n-plus-one' ? LENS_FILE : CAP_FILE;
-          mkdirSync(join(root, rel, '..'), { recursive: true });
-          writeFileSync(join(root, rel), `${c.name} bytes`);
-        }
-        return caps;
-      },
-    );
+  // A REAL clone tree on disk, not the '/repo' stub the suites above share: the
+  // record keys are now derived from the clone, so a fixture with no clone would
+  // record nothing and prove nothing.
+  function makeClone(): void {
+    clone = join(tmp.path(), 'clone');
+    write(join(clone, CAP_FILE), 'a11y upstream');
+    write(join(clone, CAP_NESTED), 'a11y eval upstream');
+    write(join(clone, LENS_FILE), 'n-plus-one upstream');
   }
 
   async function seedStore(): Promise<void> {
-    mkdirSync(join(proj, EXISTING, '..'), { recursive: true });
-    writeFileSync(join(proj, EXISTING), 'security bytes');
+    write(join(proj, EXISTING), 'security bytes');
     await writeRecords(proj, {
       skillsVersion: '1.0.0',
       commit: null,
@@ -576,11 +625,13 @@ describe('runAdd — pharn.records.json', () => {
   });
 
   beforeEach(() => {
-    proj = tmp.path();
+    proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    makeClone();
     vi.spyOn(process, 'cwd').mockReturnValue(proj);
     loadArchetypeConfigOrExit.mockReturnValue(config());
     fetchRepo.mockResolvedValue({
-      dir: '/repo',
+      dir: clone,
       sha: 'a'.repeat(40),
       cleanup: vi.fn(),
     });
@@ -597,14 +648,23 @@ describe('runAdd — pharn.records.json', () => {
     // the version the project is already on, so that is the state to test the
     // record merging in. (`commit` still moves: null → the clone's sha.)
     readSkillsVersion.mockReturnValue('1.0.0');
-    installWrites();
+    copyingInstaller();
   });
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    restoreTTY();
+  });
 
   const store = () => {
     const read = readRecords(proj);
     return read.kind === 'ok' ? read.store : null;
   };
+
+  const informed = (): string =>
+    vi
+      .mocked(prompts.log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
 
   it('appends the added capability without dropping pre-existing entries', async () => {
     await seedStore();
@@ -614,6 +674,7 @@ describe('runAdd — pharn.records.json', () => {
     expect(store()!.files).toEqual({
       [EXISTING]: sha256File(join(proj, EXISTING)),
       [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
+      [CAP_NESTED]: sha256File(join(proj, CAP_NESTED)),
     });
   });
 
@@ -655,7 +716,7 @@ describe('runAdd — pharn.records.json', () => {
     await runAdd(undefined);
 
     expect(Object.keys(store()!.files).sort()).toEqual(
-      [EXISTING, CAP_FILE, LENS_FILE].sort(),
+      [EXISTING, CAP_FILE, CAP_NESTED, LENS_FILE].sort(),
     );
   });
 
@@ -677,6 +738,164 @@ describe('runAdd — pharn.records.json', () => {
     const before = readFileSync(join(proj, RECORDS_FILE), 'utf8');
     await runAdd('security');
     expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(before);
+  });
+
+  // -------------------------------------------------------------------------
+  // Destination-drift protection. `add` used to cpSync over whatever was at the
+  // destination with no prompt, no per-file skip, and no backup — the only write
+  // path with none of the three. The reachable sequence is one `update`
+  // manufactures and announces: a dropped-unselected capability's files are left
+  // on disk ("update never deletes"), the user edits them, and the later `add`
+  // is not a config no-op because the entry is gone.
+  // -------------------------------------------------------------------------
+  describe('destination-drift backup', () => {
+    it('backs up a user-edited leftover file before overwriting it', async () => {
+      await seedStore();
+      // The leftover dir `update` left behind, with the user's edit in it.
+      write(join(proj, CAP_FILE), 'MY EDIT');
+      write(join(proj, CAP_NESTED), 'a11y eval upstream'); // untouched → not drift
+
+      await runAdd('a11y');
+
+      const backup = backupRoot(proj)!;
+      expect(backup).not.toBeNull();
+      // The pre-edit bytes survive at the mirrored project-relative path.
+      expect(readFileSync(join(backup, CAP_FILE), 'utf8')).toBe('MY EDIT');
+      // Only the DRIFTED file is copied — the identical one is not noise.
+      expect(existsSync(join(backup, CAP_NESTED))).toBe(false);
+      // The add still happened: the destination now holds the clone's bytes.
+      expect(readFileSync(join(proj, CAP_FILE), 'utf8')).toBe('a11y upstream');
+      // The backup directory is the user's ONLY pointer back, so it is named.
+      expect(informed()).toContain('.pharn-backup');
+      expect(informed()).toContain(backup.split('.pharn-backup/')[1]!);
+    });
+
+    it('creates NO backup when the leftover files are byte-identical', async () => {
+      // A drop-then-re-add of untouched files. Identical is not drift (mirrors
+      // update's `identical → no-op`), or every such add would litter
+      // .pharn-backup/ with copies of bytes nobody lost.
+      await seedStore();
+      write(join(proj, CAP_FILE), 'a11y upstream');
+      write(join(proj, CAP_NESTED), 'a11y eval upstream');
+
+      await runAdd('a11y');
+
+      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(informed()).not.toContain('.pharn-backup');
+    });
+
+    it('creates NO backup on a plain first install (nothing to overwrite)', async () => {
+      await seedStore();
+      await runAdd('a11y');
+      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    });
+
+    it('records ONLY clone-sourced files; an extra user file survives untouched', async () => {
+      // The secondary fix. A dest walk swept this file into the store as
+      // pharn-written; if upstream later shipped a file at that path, record ==
+      // dest would make `update` read the user's file as cleanly upgradeable
+      // instead of `modified`.
+      await seedStore();
+      const EXTRA = 'pharn-pipeline/grillers/a11y/MY-NOTES.md';
+      write(join(proj, EXTRA), 'my notes');
+
+      await runAdd('a11y');
+
+      expect(store()!.files).toEqual({
+        [EXISTING]: sha256File(join(proj, EXISTING)),
+        [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
+        [CAP_NESTED]: sha256File(join(proj, CAP_NESTED)),
+      });
+      // The copy never touches it, so it is neither backed up nor destroyed.
+      expect(readFileSync(join(proj, EXTRA), 'utf8')).toBe('my notes');
+      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    });
+
+    it('backs up on the picker path too, for every pick that overwrites edits', async () => {
+      // The file argues twice elsewhere that a shared code path still needs
+      // asserting at BOTH entry points; the backup surface is no exception.
+      await seedStore();
+      write(join(proj, CAP_FILE), 'MY GRILLER EDIT');
+      write(join(proj, LENS_FILE), 'MY LENS EDIT');
+      setTTY(true, true);
+      vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+        'griller:a11y',
+        'lens:n-plus-one',
+      ]);
+
+      await runAdd(undefined);
+
+      // Two picks, two drifted files, two backup directories — uniqueBackupDir
+      // suffixes the second rather than letting it overwrite the first, which is
+      // the only thing standing between two same-second picks and a lost edit.
+      const roots = readdirSync(join(proj, '.pharn-backup')).sort();
+      expect(roots).toHaveLength(2);
+      const saved = roots.map((r) => {
+        const dir = join(proj, '.pharn-backup', r);
+        const rel = existsSync(join(dir, CAP_FILE)) ? CAP_FILE : LENS_FILE;
+        return readFileSync(join(dir, rel), 'utf8');
+      });
+      expect(saved.sort()).toEqual(['MY GRILLER EDIT', 'MY LENS EDIT']);
+      expect(readFileSync(join(proj, CAP_FILE), 'utf8')).toBe('a11y upstream');
+      expect(readFileSync(join(proj, LENS_FILE), 'utf8')).toBe(
+        'n-plus-one upstream',
+      );
+      // BOTH directories are named, not just the last: each is the only pointer
+      // back to that pick's bytes, and the picker prints many lines in a row.
+      for (const r of roots) expect(informed()).toContain(r);
+    });
+
+    it('REFUSES rather than copy through a symlinked directory in the project', async () => {
+      // Greptile P1, reproduced and measured on node v24.13.1: cpSync guards only
+      // the SOURCE, so a symlinked INTERMEDIATE directory under the capability dir
+      // makes it write straight THROUGH the link — replacing bytes wherever it
+      // points, outside the project included. Skipping such a path would be worse
+      // than doing nothing: the copy still writes through it while the backup that
+      // was supposed to protect it silently omits the file. And it cannot be backed
+      // up — createBackup refuses a symlinked component by design.
+      await seedStore();
+      write(join(proj, 'elsewhere/basic.md'), 'BYTES OUTSIDE THE CAPABILITY');
+      mkdirSync(join(proj, 'pharn-pipeline/grillers/a11y'), {
+        recursive: true,
+      });
+      symlinkSync(
+        join(proj, 'elsewhere'),
+        join(proj, 'pharn-pipeline/grillers/a11y/evals'),
+      );
+      const storeBefore = readFileSync(join(proj, RECORDS_FILE), 'utf8');
+
+      await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+      // Nothing copied, nothing recorded, nothing configured — and crucially the
+      // bytes the link pointed at are untouched.
+      expect(installCapabilityDirs).not.toHaveBeenCalled();
+      expect(writePharnConfig).not.toHaveBeenCalled();
+      expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(storeBefore);
+      expect(readFileSync(join(proj, 'elsewhere/basic.md'), 'utf8')).toBe(
+        'BYTES OUTSIDE THE CAPABILITY',
+      );
+      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      // The message names the offending COMPONENT and the action that clears it.
+      const err = vi.mocked(prompts.log.error).mock.calls.at(-1)![0] as string;
+      expect(err).toContain('pharn-pipeline/grillers/a11y/evals');
+      expect(err).toContain('symlink');
+    });
+
+    it('aborts with the user bytes intact when the backup cannot be written', async () => {
+      // createBackup throws BEFORE it touches any original (lib/backup.ts), and
+      // it runs BEFORE the copy — so a failed backup must leave the edit alone
+      // rather than overwrite it unprotected.
+      await seedStore();
+      write(join(proj, CAP_FILE), 'MY EDIT');
+      write(join(proj, 'elsewhere.md'), 'x');
+      symlinkSync(join(proj, 'elsewhere.md'), join(proj, '.pharn-backup'));
+
+      await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(readFileSync(join(proj, CAP_FILE), 'utf8')).toBe('MY EDIT');
+      expect(installCapabilityDirs).not.toHaveBeenCalled();
+      expect(writePharnConfig).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -700,6 +919,7 @@ describe('runAdd — the layout gate', () => {
   let pharnClone = '';
 
   const LENS_FILE = 'pharn/pharn-review/trust-fence/trust-fence.md';
+  const GRILLER_FILE = 'pharn/pharn-pipeline/grillers/a11y/a11y.md';
   const EXISTING = 'pharn/pharn-pipeline/grillers/security/security.md';
 
   // A clone is `pharn`-layout iff it carries the pharn/pharn-contracts leaf; an
@@ -711,6 +931,12 @@ describe('runAdd — the layout gate', () => {
     mkdirSync(join(pharnClone, 'pharn', 'pharn-contracts'), {
       recursive: true,
     });
+    // Real capability content on BOTH clones: `add` derives its record keys and
+    // its destination-drift set from the clone, so the pharn-layout happy-path
+    // tests below need a tree to derive them from.
+    write(join(flatClone, 'pharn-review/trust-fence/trust-fence.md'), 'tf');
+    write(join(pharnClone, LENS_FILE), 'trust-fence upstream');
+    write(join(pharnClone, GRILLER_FILE), 'a11y upstream');
   }
 
   function useClone(dir: string): ReturnType<typeof vi.fn> {
@@ -752,6 +978,10 @@ describe('runAdd — the layout gate', () => {
       ],
     });
     readSkillsVersion.mockReturnValue('1.0.0'); // matches — version gate passes
+    // vi.clearAllMocks() clears CALLS, not IMPLEMENTATIONS, so the records
+    // suite's copying installer would otherwise leak in and cpSync from a clone
+    // path these gate fixtures never create.
+    installCapabilityDirs.mockReset();
     useClone(pharnClone);
   });
   afterEach(() => {
@@ -890,19 +1120,12 @@ describe('runAdd — the layout gate', () => {
   it('installs at the pharn layout and records pharn/-prefixed paths', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(config('pharn'));
     const cleanup = useClone(pharnClone);
-    // The mocked installer writes real files at the pharn layout, so the recorded
-    // paths are the ones that actually landed rather than a list this test made up.
-    installCapabilityDirs.mockImplementation(
-      (_repo: string, root: string, caps: { name: string }[]) => {
-        for (const _c of caps) {
-          mkdirSync(join(root, LENS_FILE, '..'), { recursive: true });
-          writeFileSync(join(root, LENS_FILE), 'trust-fence bytes');
-        }
-        return caps;
-      },
-    );
-    mkdirSync(join(proj, EXISTING, '..'), { recursive: true });
-    writeFileSync(join(proj, EXISTING), 'security bytes');
+    // The mocked installer COPIES the pharn-layout clone dir, so the recorded
+    // paths are the ones that actually landed rather than a list this test made
+    // up — and dest and clone agree, which is what the clone-derived record keys
+    // require.
+    copyingInstaller('pharn/');
+    write(join(proj, EXISTING), 'security bytes');
     await writeRecords(proj, {
       skillsVersion: '1.0.0',
       commit: null,
@@ -945,19 +1168,8 @@ describe('runAdd — the layout gate', () => {
     loadArchetypeConfigOrExit.mockReturnValue(config('pharn'));
     useClone(pharnClone);
     setTTY(true, true);
-    const GRILLER_FILE = 'pharn/pharn-pipeline/grillers/a11y/a11y.md';
-    installCapabilityDirs.mockImplementation(
-      (_repo: string, root: string, caps: { name: string }[]) => {
-        for (const c of caps) {
-          const rel = c.name === 'a11y' ? GRILLER_FILE : LENS_FILE;
-          mkdirSync(join(root, rel, '..'), { recursive: true });
-          writeFileSync(join(root, rel), `${c.name} bytes`);
-        }
-        return caps;
-      },
-    );
-    mkdirSync(join(proj, EXISTING, '..'), { recursive: true });
-    writeFileSync(join(proj, EXISTING), 'security bytes');
+    copyingInstaller('pharn/');
+    write(join(proj, EXISTING), 'security bytes');
     await writeRecords(proj, {
       skillsVersion: '1.0.0',
       commit: null,

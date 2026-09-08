@@ -99,11 +99,11 @@ function capabilityRelDir(
 // describing bytes that are gone, and they linger until the next `update` prunes
 // them via its manifest.
 //
-// A key-prefix filter over the STORE, never a filesystem walk:
-// `capabilityRecordPaths` enumerates the DEST directory and returns [] once it is
-// gone — which is the case both AFTER the delete and, on the "its files were
-// already gone" path, before it too. So there is no moment at which a walk could
-// see what to prune.
+// A key-prefix filter over the STORE, never a filesystem walk: a walk of the
+// DEST directory finds nothing once that directory is gone — which is the case
+// both AFTER the delete and, on the "its files were already gone" path, before
+// it too. So there is no moment at which a walk could see what to prune, and the
+// store is the only place the answer still exists.
 //
 // Only an already-READABLE store is edited: `recordsBaseline` returns null for
 // absent, corrupt, AND stamped-for-another-state, and each of those means the

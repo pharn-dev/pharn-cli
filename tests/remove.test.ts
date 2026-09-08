@@ -379,10 +379,10 @@ describe('runRemove (archetype)', () => {
   // path that leaves records describing bytes that are gone, and they linger
   // until the next `update` prunes them via its manifest.
   //
-  // The prune is a key-PREFIX filter over the store, never a filesystem walk:
-  // install-records' capabilityRecordPaths enumerates the DEST dir and returns []
-  // once it is gone — true both after the delete and, on the "already gone" path,
-  // before it. The `already gone` case below is what settles that design.
+  // The prune is a key-PREFIX filter over the store, never a filesystem walk: a
+  // walk of the DEST dir finds nothing once it is gone — true both after the
+  // delete and, on the "already gone" path, before it. The `already gone` case
+  // below is what settles that design.
   //
   // Stores are seeded through the REAL writeRecords (as tests/add.test.ts's
   // `runAdd — pharn.records.json` block does) and asserted by reading the real
