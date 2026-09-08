@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { log } from '@clack/prompts';
+import { logError } from './report-error.js';
 import { isPlainObject } from './validate.js';
 import { validateModelRouting, ModelRoutingError } from './model-routing.js';
 import { validateSeamConfig, SeamConfigError } from './seam-config.js';
@@ -131,13 +131,13 @@ export function loadConfigOrExit(cwd: string): PharnConfig {
     if (config) return config;
   } catch (err) {
     if (isConfigValidationError(err)) {
-      log.error(err.message);
+      logError(err.message);
       process.exit(1);
     }
     throw err;
   }
   // Reached only when readPharnConfig returned null (absent / malformed / wrong-shape).
-  log.error('No pharn.config.json found. Run `pharn init` first.');
+  logError('No pharn.config.json found. Run `pharn init` first.');
   process.exit(1);
 }
 
@@ -202,7 +202,7 @@ export const LEGACY_CONFIG_MESSAGE =
 export function loadArchetypeConfigOrExit(cwd: string): PharnConfig {
   const config = loadConfigOrExit(cwd);
   if (!isArchetypeConfig(config)) {
-    log.error(LEGACY_CONFIG_MESSAGE);
+    logError(LEGACY_CONFIG_MESSAGE);
     process.exit(1);
   }
   return config;

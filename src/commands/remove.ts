@@ -11,6 +11,7 @@ import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
 import { configLayout, layoutPaths, type LayoutPaths } from '../lib/layout.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
+import { logError } from '../lib/report-error.js';
 import {
   buildRemoveSelection,
   interactiveAllowed,
@@ -181,7 +182,7 @@ async function removeNamed(
 ): Promise<void> {
   const parsed = parseCapabilityArg(address);
   if (parsed.error) {
-    log.error(parsed.error);
+    logError(parsed.error);
     process.exit(1);
   }
   const matches = installed.filter(
@@ -202,7 +203,7 @@ async function removeNamed(
     return;
   }
   if (matches.length > 1) {
-    log.error(
+    logError(
       `"${parsed.name}" is ambiguous — use ${matches.map((m) => `${m.role}:${m.name}`).join(' or ')}.`,
     );
     process.exit(1);
@@ -264,7 +265,7 @@ async function runRemovePicker(
       stdoutIsTTY: process.stdout.isTTY,
     })
   ) {
-    log.error(
+    logError(
       'Specify a capability to remove (e.g. `pharn remove a11y`), or run `pharn remove` in an interactive terminal to pick from a list.',
     );
     process.exit(1);

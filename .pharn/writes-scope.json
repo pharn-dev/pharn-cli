@@ -1,7 +1,27 @@
 {
   "scope": [
-    ".dev/features/skills-version-timeout-and-cap/VERIFY.md"
+    "tests/index.test.ts",
+    "tests/report-error.test.ts",
+    "tests/skills-version.test.ts",
+    "tests/update.test.ts",
+    "tests/status.test.ts",
+    "tests/add.test.ts",
+    "tests/init.test.ts",
+    "tests/list.test.ts",
+    "tests/pharn-config.test.ts",
+    "src/lib/report-error.ts",
+    "src/index.ts",
+    "src/lib/skills-version.ts",
+    "src/lib/pharn-config.ts",
+    "src/commands/init.ts",
+    "src/commands/update.ts",
+    "src/commands/add.ts",
+    "src/commands/remove.ts",
+    "src/commands/status.ts",
+    "src/commands/list.ts",
+    "docs/troubleshooting.md",
+    "CHANGELOG.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-verify.md",
-  "set_at": "2026-09-08T07:08:46.109Z"
+  "set_by": ".dev/features/cli-robustness/PLAN.md",
+  "set_at": "2026-09-08T07:41:49.787Z"
 }

@@ -366,6 +366,64 @@ describe('runAdd (archetype)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  // --- fatal-error reporting (FABLE 4.6 + 5.2) -------------------------------
+  //
+  // `add`'s `{kind:'error'}` outcome carries BOTH caught exceptions and curated
+  // gate refusals, so the hint has to follow the exception, not the outcome kind.
+  describe('fatal-error reporting', () => {
+    const realDebug = process.env.PHARN_DEBUG;
+    beforeEach(() => delete process.env.PHARN_DEBUG);
+    afterEach(() => {
+      if (realDebug === undefined) delete process.env.PHARN_DEBUG;
+      else process.env.PHARN_DEBUG = realDebug;
+    });
+
+    const informed = (): string =>
+      vi
+        .mocked(prompts.log.info)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+
+    it('prints the PHARN_DEBUG hint when the clone throws', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+      fetchRepo.mockRejectedValueOnce(new Error('degit exploded'));
+
+      await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(lastError()).toContain('degit exploded');
+      expect(informed()).toContain('PHARN_DEBUG');
+      expect(vi.mocked(prompts.log.error).mock.calls.at(-1)![1]).toEqual({
+        output: process.stderr,
+      });
+    });
+
+    it('prints NO hint for the version-gate refusal (a curated policy message)', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+      mockClone();
+      readSkillsVersion.mockReturnValue('2.0.0');
+
+      await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(lastError()).toContain('pharn update');
+      expect(informed()).not.toContain('PHARN_DEBUG');
+    });
+
+    it('prints NO hint for an unresolvable capability name', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+      mockClone();
+      readSkillsVersion.mockReturnValue('1.0.0');
+      parseCapabilityIndex.mockReturnValue({
+        unknown: [],
+        capabilities: [{ name: 'security', role: 'griller' }],
+      });
+
+      await expect(runAdd('nope')).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(lastError()).toContain('Unknown capability');
+      expect(informed()).not.toContain('PHARN_DEBUG');
+    });
+  });
+
   it('writes NOTHING when the gate refuses — this is what keeps update honest', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(archConfig());
     mockClone();

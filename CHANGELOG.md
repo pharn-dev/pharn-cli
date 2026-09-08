@@ -75,6 +75,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   report your environment against measured degit versions, never the transport that ran.
   `docs/troubleshooting.md` gains a "Proxy environment variables" section.
 
+- **`pharn` now refuses argv it does not understand.** An unknown *command* always exited 1, but an
+  unknown *option* was parsed into the arg map and silently dropped, and extra positionals were
+  ignored outright. So `pharn status --sctrict` ran in the default exit-0 mode — a typo in a CI
+  pipeline permanently disarmed the drift gate while every run stayed green — `pharn update --froce`
+  ran un-forced, `pharn add a11y extra` dropped its third argument, and `pharn --hepl` fell through
+  to `argv._[0] ?? 'init'` and started a real install. Every unrecognised option and every positional
+  past a command's arity is now collected during parse and refused **before any command function
+  runs**, printing the offenders (`JSON.stringify`-escaped, so a control-char argument is echoed as
+  data — P2) and the usage text to **stderr** with exit 1. The same fail-closed shape
+  `lib/seam-config.ts` already applies to an unknown config key, now at the argv boundary. Two
+  consequences are deliberate and worth naming: a genuine `--help` / `--version` no longer excuses an
+  unknown sibling (`pharn --help --bogus` refuses rather than printing usage), and flags stay parsed
+  globally, so a flag belonging to another command still parses and is ignored (`pharn init --force`)
+  — only *unrecognised* options are refused. No flag's semantics moved: `--archetype` is still a
+  parsing no-op, `--no-drift` still flips the drift default off, `update --yes` still skips only the
+  confirm, and `remove --yes` is still the passthrough its own finding owns.
+
 ### Security
 
 - **`degit` is pinned to the exact version its guarantees were measured against.** `degit` is the one
@@ -151,6 +168,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CAPABILITY_NAME_RE` before the regex was deleted, so that function's coverage is intact.
 
 ### Fixed
+
+- **`pharn add 123` / `pharn remove 7` no longer crash with a raw `TypeError`.** minimist converts a
+  numeric-looking positional into a JavaScript number unless `_` is declared a string, so the value
+  handed to `parseCapabilityArg` had no `.includes`, and the resulting stack escaped to the
+  entry-point catch instead of the curated "valid capabilities" listing. `@types/minimist` declares
+  `_: string[]`, so the type checker never saw it. Fixed at the argv boundary (`string: ['_']`), not
+  at the dispatch sites — coercing there would map the bare `pharn add` / `pharn remove` case to the
+  literal string `"undefined"` and defeat the interactive-picker branches.
+
+- **Transport failures now name the host they could not reach.** Offline, `pharn update` and
+  `pharn status --no-drift` printed undici's bare `⚠ fetch failed`, with the real
+  `getaddrinfo ENOTFOUND raw.githubusercontent.com` diagnosis sitting unprinted in `err.cause`; the
+  8s abort printed `⚠ This operation was aborted`. Neither named a host, a URL, or a next step. The
+  two **network-origin** phases of the `SKILLS_VERSION` fetch — the connect and the streaming body
+  read — are now wrapped as `Could not reach <url>: <message> (<cause>)`, with the original kept as
+  `cause` so `PHARN_DEBUG=1` still dumps it. The wrap is attached to those two expressions only, so
+  the three deliberate throws below them keep their own identity: an HTTP status, the body-cap
+  refusal, and the `VERSION_RE` validation failure are still reported as what they are.
+
+- **The `PHARN_DEBUG` hint now prints at every fatal error that came from an exception.** It lived at
+  exactly two of the CLI's fatal exits while eight exception-derived ones — the failed clone in
+  `init` / `add` / `update`, the failed version check in `update` / `status`, the mid-install failures
+  — offered no next step at all, which is precisely where a user needs one. All of them now route
+  through one reporter (`lib/report-error.ts`), and the hint follows a single axis: an exception was
+  passed. A **policy refusal** still prints none — the `MIN_CLI` refusal, `add`'s version / layout
+  gates, an unknown capability name, and the non-interactive-terminal messages have no stack behind
+  them, and offering one would be a lie. Nine hand-rolled `if (process.env.PHARN_DEBUG)` blocks
+  collapse into that one file, pinned by a test.
+
+- **Error messages now go to stderr.** Every error-level message went through `@clack/prompts`'
+  `log.error`, which writes to `process.stdout`, so `pharn update --yes > update.log 2> errors.log`
+  exited 1 with **0 bytes** on stderr and left the operator grepping an empty file for the cause.
+  Exit codes were always correct, so automation gating on the code was never affected — this is the
+  stream contract. All ~24 sites now route through the shared reporter, which passes clack's
+  `output` option, and the `PHARN_DEBUG` hint travels to stderr with its error rather than staying
+  behind on stdout. Normal output is untouched: notes, summaries, spinners and `log.info` /
+  `log.warn` stay on stdout, cancelling a prompt is still a stdout message and exit 0, and
+  `pharn list --json` keeps emitting exactly one object on stdout with its diagnostics on stderr.
+  `docs/troubleshooting.md` gains a "Streams" section.
 
 - **`SKILLS_VERSION`'s 8s timeout and 256KB body cap now actually cover the body.** Both guards
   stopped at the header exchange. `fetch()` resolves as soon as headers arrive, so the timer was

@@ -1,6 +1,7 @@
 import { intro, log, note, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
 import { cancelAndExit } from '../lib/confirm.js';
+import { errorMessage, logError, reportFatal } from '../lib/report-error.js';
 import { REPO_URL } from '../lib/constants.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
@@ -44,7 +45,7 @@ export async function runInit(): Promise<void> {
       stdoutIsTTY: process.stdout.isTTY,
     })
   ) {
-    log.error(
+    logError(
       'pharn init is interactive — run it in an interactive terminal. There is deliberately no --yes for init: it confirms before overwriting existing files, and auto-confirming that in a pipeline is what the prompt exists to prevent.',
     );
     process.exit(1);
@@ -90,16 +91,20 @@ async function runInitArchetype(): Promise<void> {
     repo = await fetchRepo();
   } catch (err) {
     s.stop('Failed to fetch PHARN');
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(`⚠ Could not reach ${REPO_URL}: ${message}`);
-    if (process.env.PHARN_DEBUG) console.error(err);
+    reportFatal(`Could not reach ${REPO_URL}: ${errorMessage(err)}`, err);
     process.exit(1);
   }
 
   s.stop(`PHARN fetched from ${REPO_URL}`);
 
   let outcome: 'installed' | 'cancelled' = 'cancelled';
-  let failure: string | null = null;
+  // The ERROR OBJECT, not its message: the reporter needs it to decide whether
+  // this failure came from an exception (and so deserves the PHARN_DEBUG
+  // affordance). Boxed rather than stored bare so that a thrown `null` or
+  // `undefined` is still distinguishable from "nothing failed" — the exit is
+  // deferred past the finally, which is exactly where a nullish sentinel would
+  // silently read as success.
+  let failure: { err: unknown } | null = null;
   let refusal: string | null = null;
   try {
     // THE MIN_CLI GATE — refuse a too-old CLI CLEANLY, before the index parse
@@ -130,8 +135,7 @@ async function runInitArchetype(): Promise<void> {
       }
     }
   } catch (err) {
-    failure = err instanceof Error ? err.message : String(err);
-    if (process.env.PHARN_DEBUG) console.error(err);
+    failure = { err };
   } finally {
     repo.cleanup();
   }
@@ -140,14 +144,11 @@ async function runInitArchetype(): Promise<void> {
   // wins over the cancel path below (nothing was installed, but the reason is
   // the refusal, not a user choice).
   if (refusal) {
-    log.error(`⚠ ${refusal}`);
+    reportFatal(refusal);
     process.exit(1);
   }
   if (failure) {
-    log.error(`⚠ ${failure}`);
-    if (!process.env.PHARN_DEBUG) {
-      log.info('Re-run with PHARN_DEBUG=1 for full error output.');
-    }
+    reportFatal(errorMessage(failure.err), failure.err);
     process.exit(1);
   }
   if (outcome === 'cancelled') cancelAndExit();

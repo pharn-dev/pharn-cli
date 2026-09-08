@@ -1,6 +1,7 @@
-import { intro, log, note, outro } from '@clack/prompts';
+import { intro, note, outro } from '@clack/prompts';
 import pc from 'picocolors';
 import { renderCapabilityLines } from '../lib/capability-groups.js';
+import { logError } from '../lib/report-error.js';
 import {
   isArchetypeConfig,
   isConfigValidationError,
@@ -93,7 +94,9 @@ function renderArchetypeHuman(inv: ArchetypeInventory): void {
 }
 
 function emitError(message: string, json: boolean): void {
-  // JSON mode keeps stdout pure for the object, so errors go to stderr.
+  // Both branches reach stderr now, and the split still earns its keep: the
+  // plain `console.error` is what keeps clack's chrome (glyphs, ANSI framing)
+  // out of a `2>&1` consumer's view when the caller asked for machine output.
   if (json) console.error(message);
-  else log.error(message);
+  else logError(message);
 }

@@ -7,11 +7,26 @@
 | Prerequisite failure (no `.git`)                                                                        | 1         |
 | Capability fetch / install failure                                                                      | 1         |
 | Unknown command                                                                                         | 1         |
+| Unknown option, or an unexpected extra argument                                                         | 1         |
 | `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
 | `update` completed but skipped files it could not verify                                                | 0         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
+
+## Streams
+
+Error-level messages go to **stderr**; normal output (notes, summaries, prompts, spinners, the
+`Cancelled.` line) goes to **stdout**. So the two can be captured separately:
+
+```bash
+pharn update --yes > update.log 2> errors.log
+```
+
+`pharn list --json` writes exactly one inventory object to stdout and every diagnostic to stderr, so
+`pharn list --json | jq .` stays valid even when the command fails.
+
+Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 
 ## `pharn update` skipped my files
 
@@ -94,6 +109,20 @@ Symptoms:
 
 `init` / `add` / `update` degit-clone `pharn-dev/pharn-oss`; `update` and `status --no-drift` also fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com`. Check network access to GitHub and that the repo is reachable.
 
+A failure to reach the host names it, and includes the underlying diagnosis rather than the runtime's
+bare `fetch failed`:
+
+```text
+⚠ Could not reach https://raw.githubusercontent.com/pharn-dev/pharn-oss/main/SKILLS_VERSION:
+  fetch failed (getaddrinfo ENOTFOUND raw.githubusercontent.com)
+Re-run with PHARN_DEBUG=1 for full error output.
+```
+
+A request that takes longer than 8 seconds is aborted and reported the same way. Failures that are
+**not** transport failures keep their own wording — an HTTP status (`SKILLS_VERSION fetch failed
+(404) from …`), an oversized body (`SKILLS_VERSION too large (… bytes)`), or an unusable value
+(`SKILLS_VERSION has invalid format`) — so the message tells you which of the four happened.
+
 ## An upstream capability was skipped
 
 Symptoms:
@@ -144,6 +173,17 @@ Causes include a degit clone failure (network/GitHub), or a selected capability 
 ```bash
 PHARN_DEBUG=1 npx @pharn-dev/pharn init
 ```
+
+### When the `PHARN_DEBUG` hint appears
+
+Every fatal error that came from an **exception** ends with
+`Re-run with PHARN_DEBUG=1 for full error output.` — a failed clone, a failed `SKILLS_VERSION`
+fetch, a copy that could not be completed. Re-running with the variable set prints the original
+error (including its `cause`) instead of the hint.
+
+A **policy refusal** deliberately prints no hint, because there is no stack behind it: the
+`MIN_CLI` refusal, the `pharn add` version / layout gates, an unknown capability name, and the
+non-interactive-terminal messages all name the one action that resolves them instead.
 
 ## Overwrite declined
 
@@ -259,6 +299,37 @@ Unknown command: ...
 ```
 
 Run `pharn --help`. Valid commands: `init`, `add`, `remove`, `update`, `list`, `status`.
+
+## Unknown option, or an unexpected argument
+
+```text
+Unknown option: "--sctrict"
+
+Usage: ...
+```
+
+```text
+Unexpected argument: "extra"
+
+Usage: ...
+```
+
+`pharn` refuses argv it does not understand rather than ignoring it, and refuses **before** running
+any command — so nothing is fetched and nothing is written. Both messages go to stderr with the
+usage text and exit **1**.
+
+This matters most in CI: a mistyped `pharn status --sctrict` used to run in the default exit-0 mode,
+so the drift gate was silently disarmed while every run stayed green. `pharn update --froce` used to
+run un-forced, and `pharn add a11y extra` used to drop the third argument.
+
+Two consequences worth knowing:
+
+- A genuine `--help` or `--version` does **not** excuse an unknown sibling: `pharn --help --bogus`
+  refuses instead of printing the usage text.
+- Flags are parsed globally, so a flag that belongs to another command still parses and is ignored
+  (`pharn init --force` is accepted and does nothing). Only *unrecognised* options are refused.
+
+Run `pharn --help` for the full option list.
 
 ## Local development issues
 

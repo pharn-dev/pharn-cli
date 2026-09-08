@@ -341,6 +341,19 @@ describe('loadConfigOrExit', () => {
     expect(msg).toMatch(/pharn init/);
   });
 
+  // FABLE 5.2 (second bullet): clack's log.* defaults to process.stdout, so
+  // before this `pharn update --yes > out.log 2> err.log` in an uninitialised
+  // directory left the operator grepping an EMPTY err.log for the cause. The
+  // exact-args match is the point — every command suite mocks log.error with a
+  // vi.fn(), which swallows a missing option silently.
+  it('sends the fatal message to STDERR, not stdout', () => {
+    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    expect(log.error).toHaveBeenCalledWith(
+      'No pharn.config.json found. Run `pharn init` first.',
+      { output: process.stderr },
+    );
+  });
+
   it('returns the config when valid', () => {
     writeFileSync(
       join(tmp.path(), 'pharn.config.json'),
@@ -390,6 +403,11 @@ describe('loadArchetypeConfigOrExit', () => {
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
     expect(msg).toBe(LEGACY_CONFIG_MESSAGE);
+    // Single-sourced AND on stderr: the message stays byte-identical while the
+    // stream moves (FABLE 5.2).
+    expect(vi.mocked(log.error).mock.calls.at(-1)![1]).toEqual({
+      output: process.stderr,
+    });
     expect(msg).toMatch(/no longer supported/);
     expect(msg).toMatch(/pharn init/); // the remediation is to re-run init
   });

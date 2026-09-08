@@ -145,6 +145,46 @@ describe('runInit (archetype default)', () => {
     expect(runInstallArchetype).not.toHaveBeenCalled();
   });
 
+  // --- fatal-error reporting (FABLE 4.6 + 5.2) -------------------------------
+  //
+  // The fetch failure is the one most users meet, and it printed no next step:
+  // the hint lived at exactly two of init's fatal exits and this was not one.
+  describe('fatal-error reporting', () => {
+    const realDebug = process.env.PHARN_DEBUG;
+    beforeEach(() => delete process.env.PHARN_DEBUG);
+    afterEach(() => {
+      if (realDebug === undefined) delete process.env.PHARN_DEBUG;
+      else process.env.PHARN_DEBUG = realDebug;
+    });
+
+    const informed = (): string =>
+      vi
+        .mocked(log.info)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+
+    it('prints the PHARN_DEBUG hint, on stderr, when the fetch fails', async () => {
+      fetchRepo.mockRejectedValueOnce(new Error('offline'));
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      const [msg, opts] = vi.mocked(log.error).mock.calls.at(-1)!;
+      // The message shape the rest of the CLI now mirrors: name the host.
+      expect(String(msg)).toContain('Could not reach');
+      expect(String(msg)).toContain('offline');
+      expect(opts).toEqual({ output: process.stderr });
+      expect(informed()).toContain('PHARN_DEBUG');
+    });
+
+    it('prints NO hint for the non-TTY refusal', async () => {
+      setTTY(false, false);
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(informed()).not.toContain('PHARN_DEBUG');
+    });
+  });
+
   // --- the degit proxy notice ------------------------------------------------
   //
   // degit reads process.env.https_proxy ITSELF and reads ONLY that lowercase
