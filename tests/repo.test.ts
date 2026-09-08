@@ -18,6 +18,9 @@ const { fetchRepo, fetchCommitSha } = await import('../src/lib/repo.js');
 // form fetchRepo validates against COMMIT_RE before it fetches or records it.
 const VALID_SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
 
+/** The one URL fetchCommitSha builds — the stub answers this and nothing else. */
+const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/${REPO_BRANCH}`;
+
 // ---------------------------------------------------------------------------
 // A real gzipped ustar archive, shaped like codeload's: a leading
 // pax_global_header, a single `pharn-oss-<sha>/` root, then content. The old
@@ -129,7 +132,12 @@ describe('fetchRepo', () => {
     body: unknown = tarResponse(archive(VALID_SHA)),
   ): ReturnType<typeof vi.fn> {
     const mock = vi.fn(async (url: string) => {
-      if (url.startsWith('https://api.github.com')) {
+      // Exact match, not a prefix: `startsWith('https://api.github.com')` also
+      // matches `https://api.github.com.example.invalid/...`, so the stub would
+      // answer for a host the code should never have contacted — and the test
+      // would keep passing if the resolve URL drifted. Comparing the whole
+      // string makes this an assertion about the resolve URL too.
+      if (url === RESOLVE_URL) {
         return sha === null
           ? { ok: false, json: async () => ({}) }
           : { ok: true, json: async () => ({ sha }) };
