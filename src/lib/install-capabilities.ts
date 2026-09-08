@@ -188,12 +188,17 @@ export function installCapabilities(
   // lexical here too. This is the posture `apply-update.ts` already takes on
   // every write it makes; the install path must match it for the one surface
   // whose destination has an intermediate directory (P2).
+  //
+  // ORDER MATTERS: the SOURCE checks come first and short-circuit. The file is
+  // optional (an older pinned clone has none), and its absence must stay a
+  // silent no-op — so a clone without it must never reach the destination walk,
+  // which can raise on a project the copy would not have touched anyway.
   const featuresFrom = safeJoin(repoDir, FEATURES_README);
   if (
     findSymlinkComponent(repoDir, FEATURES_README) === null &&
-    findSymlinkComponent(projectRoot, FEATURES_README) === null &&
     existsSync(featuresFrom) &&
-    !isSymlink(featuresFrom)
+    !isSymlink(featuresFrom) &&
+    destAcceptsWrite(projectRoot, FEATURES_README)
   ) {
     cpSync(featuresFrom, safeJoin(projectRoot, FEATURES_README), {
       force: true,
@@ -237,6 +242,28 @@ export function installCapabilities(
   }
 
   return { capabilities, settingsPreserved, layout: paths.layout };
+}
+
+/**
+ * May the install write `rel` under `projectRoot`? False when any component
+ * below the root is a symlink — following one writes OUTSIDE the project, which
+ * `safeJoin` cannot see (it is lexical) and the pre-install overwrite prompt
+ * cannot warn about (the leaf inside the link does not exist, so it is not a
+ * conflict). This is the posture `apply-update.ts` already takes on every write.
+ *
+ * ENOTDIR — a component below a REGULAR FILE — is a SKIP, not a failure.
+ * `findSymlinkComponent` deliberately lets that raise (it suppresses ENOENT
+ * only), and each caller owns the shape: here `cpSync` would throw on the same
+ * tree anyway, so failing the whole install over one OPTIONAL surface would turn
+ * a project that merely has a file named `features` into an init that cannot
+ * complete. Skipping leaves that project exactly as it was.
+ */
+function destAcceptsWrite(projectRoot: string, rel: string): boolean {
+  try {
+    return findSymlinkComponent(projectRoot, rel) === null;
+  } catch {
+    return false;
+  }
 }
 
 /**

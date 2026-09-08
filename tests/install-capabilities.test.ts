@@ -373,6 +373,41 @@ describe('installCapabilities', () => {
     expect(existsSync(join(outside, 'README.md'))).toBe(false);
   });
 
+  // ORDER: the file is OPTIONAL, so a clone without it must never reach the
+  // destination walk. That walk raises ENOTDIR on a component below a regular
+  // file, which would turn "upstream does not ship this yet" into an init that
+  // cannot complete on a project that merely has a file named `features`.
+  it('does not fail init when the clone lacks the file and the project has a FILE named features', () => {
+    const repo = join(tmp.path(), 'nofeat-repo');
+    const proj = join(tmp.path(), 'nofeat-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    rmSync(join(repo, 'features/README.md'));
+    write(join(proj, 'features'), 'a regular file, not a directory');
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    // The user's file is left exactly as it was.
+    expect(readFileSync(join(proj, 'features'), 'utf8')).toBe(
+      'a regular file, not a directory',
+    );
+    // The rest of the install still happened.
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+  });
+
+  // Same shape with the source PRESENT: cpSync would throw ENOTDIR on that tree
+  // anyway, so one optional surface is skipped rather than failing the install.
+  it('skips the copy (does not throw) when the project has a FILE named features', () => {
+    const repo = join(tmp.path(), 'filefeat-repo');
+    const proj = join(tmp.path(), 'filefeat-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    write(join(proj, 'features'), 'a regular file');
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    expect(readFileSync(join(proj, 'features'), 'utf8')).toBe('a regular file');
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+  });
+
   it('does NOT copy symlinked fixed surfaces (settings, trusted docs, contracts, floor)', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
