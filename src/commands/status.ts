@@ -2,7 +2,7 @@ import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { REPO, REPO_BRANCH } from '../lib/constants.js';
 import { fetchRepo } from '../lib/repo.js';
-import { detectProxyNotice, resolveDegitProxyRead } from '../lib/proxy-env.js';
+import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
@@ -78,9 +78,9 @@ async function runArchetypeStatus(
   // the spinner so it survives the frame and precedes a proxy-caused failure
   // (see src/commands/init.ts). Inside the drift branch, so
   // `status --no-drift` — which never clones — stays silent.
-  const proxyNotice = detectProxyNotice(process.env, process.platform);
+  const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice, resolveDegitProxyRead()));
+    log.warn(proxyNoticeMessage(proxyNotice));
   }
 
   const s = spinner();

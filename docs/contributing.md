@@ -86,20 +86,29 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
 - Remote fetches (`lib/skills-version.ts`) use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
 
-### Bumping `degit`
+### The fetch boundary
 
-`degit` is the only dependency that fetches and tar-extracts untrusted remote content, so
-`package.json` pins it to an **exact** version (`3.6.6`) rather than a range. That is deliberate:
-lockfiles are not published, so the declared version is what a consumer actually resolves, and
-`THREAT-MODEL.md` §2/§4b and `LIMITS.md` §3b state degit's extraction and ref-resolution behaviour as
-facts *measured against those bytes*.
+`pharn` has **no dependency that fetches or unpacks remote content**. `src/lib/repo.ts` resolves the
+branch head over the GitHub REST API and downloads that exact commit's tarball from
+`codeload.github.com`; `src/lib/tar-extract.ts` unpacks it. Both are pharn's own code, and that is the
+point: when the download and extraction were delegated, `THREAT-MODEL.md` had to state *measured
+properties of a dependency*, which a version bump could move without any pharn test noticing.
 
-A bump is therefore a re-measurement, not a version edit. `tests/degit-pin.test.ts` fails until the
-declared version, `package-lock.json`, and every file naming `degit@<version>` agree — which is what a
-Dependabot `degit` PR must do before it can go green. Re-measure the `THREAT-MODEL.md` §2/§4b bullets
-against the new bytes, update `LIMITS.md` §3b and `src/lib/repo.ts`'s comments, and extend
-`MEASURED_DEGIT_VERSIONS` (`lib/proxy-env.ts`) only by measuring the new version — never by assuming a
-patch release kept the behaviour.
+If you change either file, the guarantees they carry are the ones `THREAT-MODEL.md` §2/§4b and
+`LIMITS.md` §3a state — timeout, streamed-byte cap, decompressed-size cap, `redirect: 'error'`,
+typeflag allowlist, `prefix`+`name` path reassembly, `..`/absolute rejection, single-root check,
+`safeJoin` on every write, entry/byte caps, header checksums. Each has a test in
+`tests/tar-extract.test.ts` or `tests/repo.test.ts`; keep them in step with the prose.
+
+Two rules that are easy to get wrong:
+
+- **Skip pax headers, do not judge them.** Every codeload tarball opens with a `pax_global_header`
+  (typeflag `g`) whose single-segment name has no leading component to strip. Running the path rules
+  over it fails the first block of every real archive — a bug no hand-made fixture would catch, which
+  is why `tests/tar-extract.test.ts` builds its fixtures with one.
+- **Reassemble the path before judging it.** ustar splits anything over 100 characters across the
+  `prefix` and `name` header fields. Reading `name` alone yields a bare leaf that strip-1 then
+  rejects, losing a large fraction of the tree rather than misplacing it.
 
 ## Test map
 
@@ -123,7 +132,8 @@ patch release kept the behaviour.
 | `prereqs.test.ts`                                                        | `.git`-present gate                                                                                           |
 | `overwrite-check.test.ts` / `install-manifest.test.ts`                   | Pre-install write-target conflict check; the shared install manifest (mirror-pinned to `installCapabilities`) |
 | `model-routing.test.ts` / `seam-config.test.ts`                          | `models` / `seam` config validation                                                                           |
-| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts` | helpers; degit clone wrapper; banner; format                                                                  |
+| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts` | helpers; the codeload fetch boundary; banner; format                                                          |
+| `tar-extract.test.ts`                                                    | The ustar reader: strip-1, pax skip, prefix reassembly, and every rejection                                   |
 
 When changing behavior, add or update tests before docs.
 

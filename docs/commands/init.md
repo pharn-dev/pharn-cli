@@ -56,7 +56,7 @@ sequenceDiagram
   Prereqs-->>CLI: ok or exit
   CLI->>Detect: package.json + file-tree signals
   Detect-->>User: "Detected archetypes" note
-  CLI->>Fetch: clone pharn-dev/pharn-oss (degit)
+  CLI->>Fetch: download pharn-dev/pharn-oss tarball (codeload)
   CLI->>Resolve: capability index vs detected archetypes
   CLI->>Summary: capabilities selected + skipped (with reason)
   Summary-->>User: install / cancel
@@ -105,7 +105,7 @@ Reads `package.json` dependency names and walks the project tree (bounded and sy
 
 ### 4. Fetch PHARN
 
-Clones `pharn-dev/pharn-oss` into a temp dir via degit. If the fetch fails, the CLI exits — re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up (even on cancel or error).
+Resolves the branch head via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up (even on cancel or error), and `pharn` keeps no download cache.
 
 ### 5. Resolve capabilities
 

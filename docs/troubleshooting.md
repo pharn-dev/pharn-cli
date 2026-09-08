@@ -110,7 +110,7 @@ Symptoms:
 - Message references `github.com/pharn-dev/pharn-oss`
 - Exit code 1
 
-`init` / `add` / `update` degit-clone `pharn-dev/pharn-oss`; `update` and `status --no-drift` also fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com`. Check network access to GitHub and that the repo is reachable.
+`init` / `add` / `update` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the branch head via `api.github.com`); `update` and `status --no-drift` also fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com`. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy — see [Proxy environment variables](#proxy-environment-variables).
 
 A failure to reach the host names it, and includes the underlying diagnosis rather than the runtime's
 bare `fetch failed`:
@@ -171,7 +171,7 @@ Symptoms:
 - Spinner stops with "Failed to install capabilities"
 - Exit code 1
 
-Causes include a degit clone failure (network/GitHub), or a selected capability missing at its expected path (`<subtree>/<name>/<name>.md`) in the fetched repo. Set `PHARN_DEBUG=1` and re-run for the full stack trace:
+Causes include a fetch failure (network/GitHub), an archive `pharn` refused to extract (see `THREAT-MODEL.md` §2 for what the extractor rejects), or a selected capability missing at its expected path (`<subtree>/<name>/<name>.md`) in the fetched repo. Set `PHARN_DEBUG=1` and re-run for the full stack trace:
 
 ```bash
 PHARN_DEBUG=1 npx @pharn-dev/pharn init
@@ -192,79 +192,55 @@ non-interactive-terminal messages all name the one action that resolves them ins
 
 If any install targets already exist and you decline the overwrite prompt, the wizard cancels with exit 0 and **nothing is written into your project** (the temporary clone is cleaned up).
 
-One thing *is* written outside your project, before either prompt appears: the repo fetch runs first, and `degit` persists a commit-named `.tar.gz` plus `map.json`/`access.json` into its own shared cache directory (`~/Library/Caches/degit` on macOS, `%LOCALAPPDATA%\degit` on Windows, `$XDG_CACHE_HOME`/`~/.cache` + `/degit` elsewhere). That cache is degit's, not pharn's, and declining the prompt does not remove it — delete the directory yourself if you need to reclaim the space.
+Nothing is written outside your project either: the repo fetch runs first, but it downloads into a temporary directory that is removed on every path — success, cancel, and error alike. `pharn` keeps no download cache. (Earlier versions did, through `degit`; see [Proxy environment variables](#a-leftover-cache-you-may-want-to-delete) if you want to reclaim that space.)
 
 ## Proxy environment variables
 
-`init` / `add` / `update` / `status` clone `pharn-dev/pharn-oss` through [`degit`](https://github.com/Rich-Harris/degit), and **degit reads the proxy from the environment itself** — `pharn` passes it no proxy option and has no way to. Two consequences are worth knowing, and `pharn` now prints a line about each **before** it starts the clone.
+**`pharn` does not use an HTTP proxy.** Every network call it makes — the commit-SHA resolve, the repo
+tarball, and `SKILLS_VERSION` for `update` / `status --no-drift` — goes through Node's global `fetch`,
+which reads **no** proxy environment variable: not `https_proxy`, not `HTTPS_PROXY`, not `no_proxy`,
+on any platform. There is no spelling that works and no flag that changes it.
 
-### `HTTPS_PROXY` is not read on macOS or Linux
-
-degit reads **only the lowercase `https_proxy`**. If you set any other spelling and nothing else, the clone connects **directly**, ignoring your proxy:
-
-```text
-⚠ HTTPS_PROXY is set, but degit 3.6.6 reads only the lowercase https_proxy —
-  the PHARN clone will connect DIRECTLY. Set https_proxy to the same value if
-  you meant to proxy it.
-```
-
-The fix is to set both:
-
-```bash
-export https_proxy="$HTTPS_PROXY"
-```
-
-The warning names whichever variable you actually set, so a `Https_Proxy` typo is caught too.
-
-On **Windows** this does not apply — environment lookups are case-insensitive there, so `HTTPS_PROXY` is read and the clone *is* proxied. `pharn` does not print this warning on Windows.
-
-### A proxy that is in force is announced
-
-When `https_proxy` is set (or, on Windows, either spelling), `pharn` names it:
+If a proxy variable is set, `pharn` says so **before** it fetches, so a network that blocks direct
+egress produces an explanation rather than an unexplained timeout:
 
 ```text
-⚠ The PHARN clone may be routed through http://***@proxy.internal:3128 (https_proxy).
-  It reads no no_proxy/NO_PROXY, so proxy exclusions do not apply to it.
+⚠ HTTPS_PROXY is set (http://***@proxy.internal:3128), but pharn will not use it:
+  its network calls go through Node's global fetch, which reads no proxy
+  environment variable on any platform. The download connects DIRECTLY, and
+  fails if direct egress is blocked (LIMITS.md §3a).
 ```
 
 Two details in that message are deliberate:
 
-- **"may be routed", not "was routed".** degit skips the download entirely when the commit's tarball is already in its cache (see [Overwrite declined](#overwrite-declined) for where that cache lives), and some failures fall back to a spawned `git clone` that never sees the proxy. `pharn` reports what degit **will read**, not which transport ran — it cannot observe that.
-- **Credentials are redacted.** Any `user:password@` in the value is replaced with `***`. The value is only printed; it is never written to `pharn.config.json`, which lives in your repository and is committed.
+- **It names the variable you actually set**, so a `Https_Proxy` typo shows up as read-and-still-unused
+  rather than as "pharn did not see it".
+- **Credentials are redacted.** Any `user:password@` in the value is replaced with `***`. The value is
+  only printed; it is never written to `pharn.config.json`, which lives in your repository and is
+  committed.
 
-`no_proxy` / `NO_PROXY` appear nowhere in degit, so an exclusion list that works for your other tools does **not** exempt this clone.
+If you are behind a mandatory proxy, there is no workaround inside `pharn` today — this is a named
+limit (`LIMITS.md` §3a), not a bug to report.
 
-### Which degit versions this was measured against
+### This changed in the codeload release
 
-`pharn` pins `degit` **exactly** — `package.json` declares `3.6.6`, not a range — so a normal install
-gives you the version every claim here was measured against. The pin is not absolute: the published
-package ships no lockfile and marks `degit` external, so an `overrides` entry, a monorepo hoist, or a
-non-npm resolver can still seat a different version in your tree.
+Earlier versions cloned through `degit`, which read `process.env.https_proxy` **itself**. If you had
+set exactly that lowercase spelling, your clone *was* proxied, and it no longer is. Your
+`pharn update` and `status --no-drift` were already unproxied — those were always plain `fetch` — so
+this makes one boundary consistent rather than newly broken, but it does break a setup that worked.
 
-The sweep therefore covers more than the pin. Every published version from `3.6.1` through `3.8.0`
-was checked, and all nine read only the lowercase name:
+### A leftover cache you may want to delete
 
-```text
-3.6.1  3.6.2  3.6.3  3.6.4  3.6.5  3.6.6  3.7.0  3.7.1  3.8.0
-```
+`degit` persisted a commit-named `.tar.gz` plus `map.json`/`access.json` into a shared cache directory
+on every fetch. `pharn` no longer writes or reads it: each fetch downloads into a fresh temp dir that
+is always removed. Anything already on disk is inert, and `pharn` will not clean it up for you —
+delete it yourself to reclaim the space:
 
-`pharn` reads the version you actually have and only states the confident wording above when it is one
-of those. On any other version it hedges instead, naming both what was measured and what you have:
-
-```text
-⚠ HTTPS_PROXY is set, and the PHARN clone will probably ignore it: every degit
-  pharn has measured (3.6.1-3.8.0) reads only the lowercase https_proxy, but the
-  installed degit is 3.9.0. Set https_proxy to the same value to be sure.
-```
-
-So a newer degit makes the notice more cautious, never wrong. If you see the hedged form, the
-behavior has not necessarily changed — it just has not been verified for your version.
-
-### Scope
-
-These notices cover the **degit clone only**. `pharn` makes its own small HTTPS requests too (the commit SHA, and `SKILLS_VERSION` for `update` / `status --no-drift`); their proxy behavior is a separate question this documentation does not make a claim about. `status --no-drift` never clones, so it prints no proxy notice at all.
-
-The notices are **advisory**: they report your environment against degit versions `pharn` has measured. They are not a guarantee about the connection that actually happened — `pharn` cannot observe that.
+| Platform | Path |
+| -------- | ---- |
+| macOS | `~/Library/Caches/degit` |
+| Windows | `%LOCALAPPDATA%\degit` |
+| Other | `$XDG_CACHE_HOME/degit`, else `~/.cache/degit` |
 
 ## `add` / `update` say to run init first
 

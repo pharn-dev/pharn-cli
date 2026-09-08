@@ -267,7 +267,7 @@ describe('runAdd (archetype)', () => {
     ]);
   });
 
-  // --- the degit proxy notice (wiring) ---------------------------------------
+  // --- the proxy notice (wiring) ----------------------------------------------
   //
   // add has TWO fetch sites — the named path and the picker path — and the
   // picker one sits behind an arg check plus a non-TTY refusal, making it the
@@ -294,7 +294,7 @@ describe('runAdd (archetype)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).toContain('may be routed');
+      expect(warned).toContain('will not use it');
     });
 
     it('warns before the clone on the PICKER path', async () => {
@@ -322,7 +322,7 @@ describe('runAdd (archetype)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).toContain('may be routed');
+      expect(warned).toContain('will not use it');
     });
 
     // A path that never clones must not describe a transport. The legacy-config
@@ -340,7 +340,7 @@ describe('runAdd (archetype)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).not.toContain('may be routed');
+      expect(warned).not.toContain('will not use it');
     });
 
     it('says nothing when no proxy variable is set', async () => {
@@ -355,7 +355,7 @@ describe('runAdd (archetype)', () => {
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).not.toContain('may be routed');
+      expect(warned).not.toContain('will not use it');
     });
   });
 
@@ -439,11 +439,11 @@ describe('runAdd (archetype)', () => {
 
     it('prints the PHARN_DEBUG hint when the clone throws', async () => {
       loadArchetypeConfigOrExit.mockReturnValue(archConfig());
-      fetchRepo.mockRejectedValueOnce(new Error('degit exploded'));
+      fetchRepo.mockRejectedValueOnce(new Error('fetch exploded'));
 
       await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
 
-      expect(lastError()).toContain('degit exploded');
+      expect(lastError()).toContain('fetch exploded');
       expect(informed()).toContain('PHARN_DEBUG');
       expect(vi.mocked(prompts.log.error).mock.calls.at(-1)![1]).toEqual({
         output: process.stderr,

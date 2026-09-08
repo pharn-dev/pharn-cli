@@ -33,7 +33,7 @@ with perfectly safe paths can still install methodology whose body is whatever t
 ### 1b. Trust in the remote is provenance, not cryptographic
 
 pharn records a `commit` SHA (best-effort via the GitHub API) but fetches from a mutable remote
-via `degit`; it stores **no signature and no upstream-authenticating hash**. The per-file sha256s it
+over HTTPS; it stores **no signature and no upstream-authenticating hash**. The per-file sha256s it
 does store ([`pharn.records.json`](docs/reference/pharn-records.md)) are taken from the **written
 file, never from the upstream source** — dest-side drift baselines, provenance-neutral by
 construction. A compromised or MITM'd upstream serving valid-shaped content passes the structural
@@ -97,14 +97,25 @@ floor.
 
 State these honestly; do not pretend they are free.
 
-### 3a. Network + git dependency
+### 3a. Network — and no proxy support
 
-`init` / `add` / `update` require a network. They do **not** unconditionally require a `git` binary:
-`degit@3.6.6` resolves refs in three tiers — pure-JS `listServerRefs`, then `getRemoteInfo2`, then a
-spawned `git ls-remote` — so while the first two succeed, `git` is never invoked. It becomes
-load-bearing only when both pure-JS tiers fail (tier 3 throws `GIT_LS_REMOTE_FAILED`) or when a tar
-failure triggers the `git clone` fallback (`THREAT-MODEL.md §2`). There is no offline or air-gapped
-install path today.
+`init` / `add` / `update` require a network. They require **no `git` binary at all**: pharn resolves
+the branch head over the GitHub REST API and downloads the repo tarball from `codeload.github.com`,
+extracting it itself (`src/lib/tar-extract.ts`). Nothing is spawned. There is no offline or
+air-gapped install path today.
+
+**pharn does not use an HTTP proxy.** Every network call goes through Node's global `fetch`, which
+reads **no** proxy environment variable — not `https_proxy`, not `HTTPS_PROXY`, not `no_proxy`, on
+any platform. In a network where direct egress is blocked, `pharn` cannot fetch, and setting a proxy
+variable will not change that.
+
+This is a **regression for one group of users**, and it is named here rather than left to be
+discovered: the previous clone path went through `degit`, which read `process.env.https_proxy`
+itself, so a user who had set exactly that lowercase spelling was proxied for the clone. They were
+already unproxied for `pharn update`'s and `status --no-drift`'s version checks, which were always
+plain `fetch` — so this makes one boundary consistent rather than newly broken, but it does break a
+working setup. Every network-bearing command warns before fetching when it finds a proxy variable
+set, so the failure is explained rather than silent.
 
 ### 3b. GitHub API rate limits
 
@@ -114,7 +125,7 @@ gate).
 
 ### 3c. Single-source coupling
 
-Modules are fetched from **one** configured repo (`pharn-dev/pharn-oss`) via `degit`; there is no
+Capabilities are fetched from **one** configured repo (`pharn-dev/pharn-oss`) over HTTPS; there is no
 mirror or failover. Upstream availability is a hard dependency.
 
 ### 3d. Claude Code only (today)
