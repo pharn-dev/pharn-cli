@@ -129,10 +129,16 @@ async function runInitArchetype(): Promise<void> {
       const selection = resolveCapabilities(archetypes, index);
 
       const action = await runArchetypeSummary(archetypes, selection);
-      if (
-        action === 'install' &&
-        (await confirmWriteTargets(repo.dir, cwd, selection))
-      ) {
+      // Both prompts return a VALUE and neither exits, so `outcome` stays
+      // 'cancelled' and the single cancelAndExit below fires AFTER the finally
+      // that disposes of the clone. 'decline' and 'cancel' are indistinguishable
+      // to the user here — same message, same exit 0 — but only one of them used
+      // to leak the clone.
+      const overwrite =
+        action === 'install'
+          ? await confirmWriteTargets(repo.dir, cwd, selection)
+          : 'cancel';
+      if (overwrite === 'proceed') {
         // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
         // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
         const commit = repo.sha;

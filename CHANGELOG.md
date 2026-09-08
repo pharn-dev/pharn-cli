@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ctrl+C at the overwrite prompt no longer orphans the fetched clone.** `pharn init` fetches
+  pharn-oss into a temp dir, shows the archetype summary, then — when install targets already exist —
+  asks a destructive-overwrite confirmation. That second prompt called `process.exit(0)` on Ctrl+C,
+  from inside the `try` whose `finally` disposes of the clone. Node does not run `finally` on
+  `process.exit`, so the multi-megabyte `$TMPDIR/pharn-*` directory was left behind — on **any**
+  re-install, since an existing `pharn.config.json` alone makes the conflict set non-empty.
+
+  `confirmWriteTargets` now returns `proceed` / `decline` / `cancel` instead of exiting, mirroring the
+  archetype summary one prompt earlier, and `init` takes the exit **after** the cleanup.
+  User-visible behavior is byte-identical: the same "Cancelled. Nothing was changed." and the same
+  exit 0. `docs/commands/init.md`'s promise that the clone is always cleaned up is now true on this
+  path too.
+
+  `confirmWarning` (`src/lib/confirm.ts`) is removed — this stage was its only caller, and every
+  helper it offered ends in an exit, which is the one thing this stage must not do.
+
 ### Changed
 
 - **Documented why a leftover `degit` cache can be large, and how to size it.** `pharn` no longer

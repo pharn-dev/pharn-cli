@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { CANCEL, ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import { CANCEL, stubProcessExit, useTmpDir } from './helpers.js';
 
 // The stage confirms via lib/confirm.js → @clack/prompts. Mock the prompt surface;
 // conflictingWriteTargets + detectLayout run for real over the fake repo/proj.
@@ -107,7 +107,7 @@ describe('confirmWriteTargets', () => {
   it('returns true with NO prompt for a conflict-free project (zero friction)', async () => {
     const { repo, proj } = dirs(scaffoldRepo);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
-      true,
+      'proceed',
     );
     expect(prompts.confirm).not.toHaveBeenCalled();
     expect(prompts.log.warn).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ describe('confirmWriteTargets', () => {
     const { repo, proj } = dirs(scaffoldRepo);
     write(join(proj, '.claude/settings.json'), '{"user":"cfg"}');
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
-      true,
+      'proceed',
     );
     expect(prompts.confirm).not.toHaveBeenCalled();
   });
@@ -127,7 +127,7 @@ describe('confirmWriteTargets', () => {
     write(join(proj, 'CONSTITUTION.md'));
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
-      true,
+      'proceed',
     );
     expect(prompts.confirm).toHaveBeenCalledTimes(1);
     const warning = vi.mocked(prompts.log.warn).mock.calls[0]![0] as string;
@@ -135,22 +135,46 @@ describe('confirmWriteTargets', () => {
     expect(warning).toContain('CONSTITUTION.md');
   });
 
-  it('a declined confirm (default No) returns false — the caller cancels', async () => {
+  it('a declined confirm (default No) returns `decline` — the caller cancels', async () => {
     const { repo, proj } = dirs(scaffoldRepo);
     write(join(proj, 'pharn.config.json'), '{}');
     vi.mocked(prompts.confirm).mockResolvedValue(false);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
-      false,
+      'decline',
     );
   });
 
-  it('a cancelled prompt (Ctrl+C) exits the run', async () => {
+  it('never exits the process on any path', async () => {
+    // A static guard on the contract this refactor exists to establish: the
+    // three outcomes are values, and `decline` and `cancel` are DISTINCT even
+    // though init treats both as cancelled — collapsing them back to a boolean
+    // is exactly how the exit crept in.
+    const { repo, proj } = dirs(scaffoldRepo);
+    write(join(proj, 'pharn.config.json'), '{}');
+    for (const [answer, expected] of [
+      [true, 'proceed'],
+      [false, 'decline'],
+      [CANCEL, 'cancel'],
+    ] as const) {
+      vi.mocked(prompts.confirm).mockResolvedValue(answer as never);
+      await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
+        expected,
+      );
+    }
+  });
+
+  it('a cancelled prompt (Ctrl+C) RETURNS `cancel` — it must not exit', async () => {
+    // The whole point of the three-state return. Exiting from here terminates
+    // the process from inside init's suspended `try`, so the
+    // `finally { repo.cleanup() }` never runs and the multi-megabyte temp clone
+    // is orphaned — Node does not run `finally` on process.exit. The caller
+    // owns the exit, and it takes it AFTER the finally.
     const { repo, proj } = dirs(scaffoldRepo);
     write(join(proj, 'pharn.config.json'), '{}');
     vi.mocked(prompts.confirm).mockResolvedValue(CANCEL as never);
-    await expect(
-      confirmWriteTargets(repo, proj, selection()),
-    ).rejects.toMatchObject(new ProcessExit(0));
+    await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
+      'cancel',
+    );
   });
 
   it(`caps the list at ${MAX_LISTED} with "…and N more"`, async () => {
@@ -187,7 +211,7 @@ describe('confirmWriteTargets', () => {
     write(join(proj, 'pharn.config.json'), CONFIG_2_3_4);
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
-      true,
+      'proceed',
     );
     const warning = lastWarning();
     expect(warning).toContain('skills v2.3.4');
@@ -200,7 +224,7 @@ describe('confirmWriteTargets', () => {
     write(join(proj, 'pharn.config.json'), CONFIG_TRUNCATED);
     vi.mocked(prompts.confirm).mockResolvedValue(false);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
-      false,
+      'decline',
     );
     const warning = lastWarning();
     expect(warning).toContain('already exist and may be overwritten');
@@ -218,7 +242,7 @@ describe('confirmWriteTargets', () => {
     expect(() => readPharnConfig(proj)).toThrow(ModelRoutingError);
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
-      true,
+      'proceed',
     );
     expect(lastWarning()).toContain('skills v2.3.4');
   });

@@ -65,7 +65,7 @@ vi.mock('../src/steps/install-archetype.js', () => ({ runInstallArchetype }));
 
 // The pre-install write-target conflict check (steps/overwrite-check.ts). Default:
 // no conflicts → true → install proceeds; overridden per-test to exercise decline.
-const confirmWriteTargets = vi.fn(async () => true);
+const confirmWriteTargets = vi.fn(async () => 'proceed' as string);
 vi.mock('../src/steps/overwrite-check.js', () => ({ confirmWriteTargets }));
 
 const { runInit } = await import('../src/commands/init.js');
@@ -88,7 +88,7 @@ describe('runInit (archetype default)', () => {
 
   it('drives the archetype flow and installs — no module/manifest fetch', async () => {
     runArchetypeSummary.mockResolvedValue('install');
-    confirmWriteTargets.mockResolvedValue(true);
+    confirmWriteTargets.mockResolvedValue('proceed');
 
     await runInit();
 
@@ -129,7 +129,25 @@ describe('runInit (archetype default)', () => {
 
   it('cancels (no install) when the write-target conflict check is declined', async () => {
     runArchetypeSummary.mockResolvedValue('install');
-    confirmWriteTargets.mockResolvedValue(false);
+    confirmWriteTargets.mockResolvedValue('decline');
+
+    await expect(runInit()).rejects.toMatchObject(new ProcessExit(0));
+
+    expect(runInstallArchetype).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans up the clone when the user Ctrl+Cs AT the overwrite confirm', async () => {
+    // The leak this fix exists for, and the one lifecycle path the suite never
+    // covered. confirmWriteTargets used to process.exit(0) from inside init's
+    // suspended `try`, so `finally { repo.cleanup() }` never ran and the
+    // multi-megabyte clone was orphaned — reachable on ANY re-init, since an
+    // existing pharn.config.json alone makes the conflict set non-empty.
+    //
+    // Cancel must be indistinguishable from decline to the user: same message,
+    // same exit 0. The only difference is that the clone is now cleaned up.
+    runArchetypeSummary.mockResolvedValue('install');
+    confirmWriteTargets.mockResolvedValue('cancel');
 
     await expect(runInit()).rejects.toMatchObject(new ProcessExit(0));
 
@@ -198,7 +216,7 @@ describe('runInit (archetype default)', () => {
     // install. Re-arm the happy path explicitly.
     beforeEach(() => {
       runArchetypeSummary.mockResolvedValue('install');
-      confirmWriteTargets.mockResolvedValue(true);
+      confirmWriteTargets.mockResolvedValue('proceed');
     });
     afterEach(() => vi.unstubAllEnvs());
 
@@ -424,7 +442,7 @@ describe('runInit (archetype default)', () => {
       warning: 'MIN_CLI in the fetched repo is not a valid version.',
     });
     runArchetypeSummary.mockResolvedValue('install');
-    confirmWriteTargets.mockResolvedValue(true);
+    confirmWriteTargets.mockResolvedValue('proceed');
 
     await runInit();
 
@@ -462,7 +480,7 @@ describe('runInit (archetype default)', () => {
 
   it('prints nothing extra when every upstream capability parsed (P5)', async () => {
     runArchetypeSummary.mockResolvedValue('install');
-    confirmWriteTargets.mockResolvedValue(true);
+    confirmWriteTargets.mockResolvedValue('proceed');
 
     await runInit();
 
