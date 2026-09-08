@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/unreadable-skips-force-advice/SHIP.md"
+    ".dev/features/symlinked-parent-unreadable/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T12:00:23.326Z"
+  "set_at": "2026-09-08T11:54:09.172Z"
 }

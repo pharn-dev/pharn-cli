@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A file under a symlinked parent directory is now classified `unreadable` — in `pharn update`'s
+  plan and in `pharn status`'s drift report alike.** `lstat` refuses to dereference only the FINAL
+  path component, so the disk classifier checked the leaf and resolved every ancestor: a project whose
+  `.claude/hooks` (or `.claude/commands`) is a symlink into a dotfiles repo had those files hashed
+  **through** the link. `status` then counted them ok — silently blessing bytes that live outside the
+  install — while `update` planned a write and hit the write-side symlink refusal mid-loop, aborting
+  with exit 1, partial writes, no config write, and the identical abort on every re-run. The
+  classifier now runs the same physical component walk the write side does, so such a path becomes the
+  per-file named skip it was always designed to be (exit 0, listed under `UNREADABLE` with the
+  offending component named, the `skillsVersion` bump withheld). The write-side refusal stays exactly
+  where it was, as the security backstop.
+
 ### Added
 
 - **Forward-compatibility contract at the capability-index boundary.** pharn always fetches

@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -1209,6 +1210,35 @@ describe('runUpdate (drift-safe)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  // A symlinked PARENT directory — `.claude/hooks` pointed into a dotfiles repo
+  // is the shape users actually have. The leaf-only classifier read straight
+  // through it, planned a write, and then the write-side walk threw: exit 1,
+  // partial writes, no config, and the identical abort on every re-run. It is now
+  // the per-file skip the `unreadable` terminal was designed to produce.
+  it('SKIPS a file under a symlinked PARENT instead of aborting the run', async () => {
+    await installed();
+    const outside = join(tmp.path(), 'dotfiles-hooks');
+    mkdirSync(outside, { recursive: true });
+    rmSync(join(proj, '.claude/hooks'), { recursive: true, force: true });
+    symlinkSync(outside, join(proj, '.claude/hooks'));
+
+    await expect(runUpdate()).resolves.toBeUndefined();
+
+    const skipNote = vi
+      .mocked(prompts.note)
+      .mock.calls.find((c) => c[1] === 'SKIPPED')?.[0];
+    expect(skipNote).toContain('UNREADABLE');
+    expect(skipNote).toContain(HOOK);
+    // Not one byte went THROUGH the link.
+    expect(readdirSync(outside)).toEqual([]);
+    // ...while every other file upgraded normally.
+    expect(body(CAP_FILE)).toBe('a11y v2');
+    // ...and the bump is withheld, because something was skipped: the recorded
+    // version stays true and the next run still has work.
+    expect(readPharnConfig(proj)!.skillsVersion).toBe('1.0.0');
+    expect(cleanup).toHaveBeenCalled();
+  });
+
   // The advice a skip report prints must name an action that can actually
   // succeed. `--force` overrides exactly the three record-based buckets
   // (`skipOrForce`); `unreadable` is decided BEFORE the decision table and
@@ -1330,13 +1360,28 @@ describe('runUpdate (drift-safe)', () => {
         ),
       },
     });
-    // ...then make ONE of them unwritable by symlinking its parent, so applyWrites
-    // succeeds on the earlier files and throws on this one.
-    rmSync(join(proj, '.claude/hooks'), { recursive: true, force: true });
-    mkdirSync(join(tmp.path(), 'elsewhere'), { recursive: true });
-    symlinkSync(join(tmp.path(), 'elsewhere'), join(proj, '.claude/hooks'));
+    // ...then make ONE of them unwritable, so applyWrites succeeds on the earlier
+    // files and throws on this one.
+    //
+    // The mechanism has to survive the classifier: a symlinked PARENT (what this
+    // used to use) is now an `unreadable` SKIP and never reaches applyWrites at
+    // all. A read-only DEST FILE does — readDiskState still hashes it, so the
+    // plan is unchanged (row 3, `updated`, a planned write) and copyFileSync is
+    // what fails, mid-loop.
+    //
+    // ORDER IS LOAD-BEARING: the chmod comes AFTER the writes above and AFTER
+    // writeRecords hashed those bytes, or the fixture itself would fail EACCES
+    // and the test would pass for the wrong reason.
+    chmodSync(join(proj, HOOK), 0o444);
 
-    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+    try {
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+    } finally {
+      // Restored inside the test, not in an afterEach: useTmpDir's rmSync
+      // suppresses ENOENT, not EACCES, and this must hold even if the assertion
+      // above throws. (Inert for uid 0 — this suite must not run as root.)
+      chmodSync(join(proj, HOOK), 0o644);
+    }
 
     // The manifest writes capabilities and commands BEFORE hooks, so those
     // landed; the hook write is the one that threw.
@@ -1358,13 +1403,25 @@ describe('runUpdate (drift-safe)', () => {
     // honest `unverifiable` to a false `unrecorded` (the rule `add` also follows).
     await installed();
     rmSync(join(proj, RECORDS_FILE), { force: true });
-    rmSync(join(proj, '.claude/hooks'), { recursive: true, force: true });
-    mkdirSync(join(tmp.path(), 'elsewhere2'), { recursive: true });
-    symlinkSync(join(tmp.path(), 'elsewhere2'), join(proj, '.claude/hooks'));
+    // A DIFFERENT mechanism from the test above, and it has to be: with the store
+    // deleted every PRESENT file is `unverifiable` and skipped (row 6), so a
+    // read-only dest file would leave plan.writes EMPTY and the run would resolve.
+    // The hook must stay ABSENT — row 1, `restored`, the one row that survives a
+    // deleted store — and its PARENT must be what refuses the write. A read-only
+    // directory does exactly that: applyWrites' mkdirSync({recursive:true}) is a
+    // no-op on an existing directory, and the copyFileSync after it fails EACCES.
+    const hooks = join(proj, '.claude/hooks');
+    rmSync(hooks, { recursive: true, force: true });
+    mkdirSync(hooks);
+    chmodSync(hooks, 0o555);
 
-    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+    try {
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
 
-    expect(readRecords(proj)).toEqual({ kind: 'absent' });
+      expect(readRecords(proj)).toEqual({ kind: 'absent' });
+    } finally {
+      chmodSync(hooks, 0o755);
+    }
   });
 
   it('records hashes read back from the DEST, not carried over from the clone', async () => {

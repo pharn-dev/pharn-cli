@@ -8,13 +8,16 @@ export interface InstallDiff {
   modified: string[];
   // Expected by an installed module/skill but absent on disk.
   missing: string[];
-  // Expected paths that EXIST but cannot be compared: a symlink (live OR
-  // dangling), a directory, another non-regular file, an unreadable file, or a
-  // path whose parent is a regular file. Reported by name with the reason,
-  // never folded into ok/modified/missing — a symlink read THROUGH would
-  // masquerade as `modified` (different bytes) or, worse, as `ok` (identical
-  // bytes), silently blessing a path that points outside the install. Sorted by
-  // `rel`.
+  // Expected paths that cannot be compared: a symlink (live OR dangling) at the
+  // path OR at any parent component below the project root, a directory,
+  // another non-regular file, an unreadable file, or a path whose parent is a
+  // regular file. Not all of them EXIST — a dangling parent symlink and an
+  // ENOTDIR parent both leave nothing at the leaf, and both belong here rather
+  // than in `missing`, because something is in the way and a restore would
+  // write through it. Reported by name with the reason, never folded
+  // into ok/modified/missing — a symlink read THROUGH would masquerade as
+  // `modified` (different bytes) or, worse, as `ok` (identical bytes), silently
+  // blessing a path that points outside the install. Sorted by `rel`.
   unreadable: { rel: string; reason: string }[];
   // Files present on disk and byte-identical to upstream.
   okCount: number;
@@ -56,10 +59,13 @@ export function diffInstalledCapabilities(params: {
 // modified / missing / unreadable / ok.
 //
 // The PROJECT side goes through `readDiskState` — the same total classifier
-// `pharn update` writes against, so the read and the write can never disagree
-// about what a symlink (or a directory, or an ENOTDIR parent) at an owned path
-// means. It never throws, so one unreadable path can no longer collapse the
-// whole report.
+// `pharn update` writes against, and it runs the same physical component walk
+// the write side does (lib/symlink-guard.ts), so both refuse a symlink ANYWHERE
+// below the project root rather than only at the leaf. That shared walk is what
+// makes "the read and the write agree" true: while the classifier checked the
+// leaf alone, `status` hashed through a symlinked PARENT and counted the file
+// ok while `update` planned a write and aborted on it. It never throws, so one
+// unreadable path can no longer collapse the whole report.
 //
 // The CLONE side is deliberately NOT symmetric: a plain `sha256File`. The
 // manifest only ever emits paths it existsSync-verified in a fresh private temp

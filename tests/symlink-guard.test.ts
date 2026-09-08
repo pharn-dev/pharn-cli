@@ -68,6 +68,22 @@ describe('findSymlinkComponent — the shared physical path gate', () => {
     expect(findSymlinkComponent(base, 'a/missing/still-fine.md')).toBeNull();
   });
 
+  // The ONE case the walk does NOT swallow, measured rather than assumed:
+  // `throwIfNoEntry: false` suppresses ENOENT only, so a component below a
+  // REGULAR FILE raises ENOTDIR straight out of the walk. Every caller therefore
+  // owns that guard — readDiskState (lib/apply-update.ts) wraps the call and
+  // returns its `unreadable` terminal, and applyWrites already runs inside a try
+  // whose catch becomes an ApplyError. Pinned here so the docstring's corrected
+  // claim is a tested statement and those guards cannot be trimmed as decorative.
+  it('THROWS ENOTDIR when a component sits below a regular file', () => {
+    const base = tmp.path();
+    write(join(base, 'blocker'), 'a file where a directory belongs');
+
+    expect(() => findSymlinkComponent(base, 'blocker/child.md')).toThrow(
+      expect.objectContaining({ code: 'ENOTDIR' }),
+    );
+  });
+
   it('returns the FIRST offender when two components are symlinks', () => {
     const base = join(tmp.path(), 'proj');
     const outside = join(tmp.path(), 'outside');

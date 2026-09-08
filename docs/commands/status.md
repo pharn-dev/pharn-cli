@@ -41,12 +41,17 @@ which, and `status` cannot.
      exits early when already up to date. To install a capability **not yet** in `pharn.config.json`,
      use `pharn add` (additive-only — already-listed capabilities are a no-op, even if their files are
      missing); `add` also requires your install to match the current skills version.
-   - **Unreadable (not a regular readable file)** — expected paths that **exist** but cannot be
-     compared: a symlink (live *or* dangling), a directory, another non-regular file, an unreadable
-     file, or a path whose parent is a regular file. Each is listed with the reason. `status` cannot
-     compare these and `pharn update` skips them too — only you can resolve them, by inspecting the
-     path. A symlink is **never followed**: reading through one would report it as merely "differs"
-     when its target has other bytes, or say nothing at all when its target happens to match.
+   - **Unreadable (not a regular readable file)** — expected paths that **cannot be compared**: a
+     symlink (live *or* dangling), a file **under a symlinked parent directory** (say `.claude/hooks`
+     pointed at a dotfiles repo), a directory, another non-regular file, an unreadable file, or a path
+     whose parent is a regular file. Not all of them exist — a dangling parent symlink or a parent
+     that is a regular file leaves nothing at the path, and that is still reported here rather than as
+     missing, because the truth is that something is in the way. Each is listed with its reason; when
+     a symlink is the cause the reason **names the offending path component**, and the other cases
+     give a generic reason. `status` cannot compare these and `pharn update` skips them too — only
+     you can resolve them, by inspecting the path. A symlink is **never followed**, at the path itself
+     or at any parent directory below your project root: reading through one would report it as merely
+     "differs" when its target has other bytes, or say nothing at all when its target happens to match.
    - If none of the three, reports **No drift**.
 
 The heading says "differs from", not "locally modified", on purpose: the comparison is against
