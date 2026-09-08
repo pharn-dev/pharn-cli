@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/install-features-readme/SHIP.md"
+    ".dev/features/exclude-floor-test-fixtures/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T16:22:36.279Z"
+  "set_at": "2026-09-08T16:37:34.024Z"
 }

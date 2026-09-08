@@ -5,6 +5,7 @@ import {
   CLAUDE_HOOKS_DIR,
   DEV_COMMAND_PREFIX,
   FEATURES_README,
+  FLOOR_TEST_FIXTURES_DIR,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import { layoutPaths, type LayoutPaths } from './layout.js';
@@ -74,7 +75,7 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
  * their source path in `repoDir` — the selected capability dirs + the fixed
  * product surfaces (product `pharn-*` commands, `.cjs` hooks, trusted docs, the
  * root `features/README.md`, `pharn-contracts/`, `pharn-core/`, `.dev/floor/`
- * minus tests), at `layout`. `.claude/settings.json`
+ * minus test files and its `test-fixtures/` subtree), at `layout`. `.claude/settings.json`
  * is user-owned (preserved at install) and is NOT included. Mirrors
  * installCapabilities (lib/install-capabilities.ts); every read is safeJoin-guarded.
  */
@@ -179,7 +180,19 @@ export function collectExpectedInstallPaths(params: {
   // addDir's lstat finds no directory and contributes nothing (P7).
   addDir(paths.contracts);
   addDir(paths.core);
-  addDir(paths.floor, (rel) => !/\.test\.(mjs|cjs)$/.test(rel));
+  // `rel` here is ALREADY a floor-relative posix path (walkFiles builds it with
+  // `/`), and the writer's predicate is anchored at the floor root — so both
+  // sides test the SAME string, and their equivalence is readable rather than
+  // argued. Kept exactly as wide as the writer's, no wider: a mirror that
+  // excludes more than the writer copies is the same divergence in the other
+  // direction (update would report permanent `missing` entries).
+  addDir(
+    paths.floor,
+    (rel) =>
+      !/\.test\.(mjs|cjs)$/.test(rel) &&
+      rel !== FLOOR_TEST_FIXTURES_DIR &&
+      !rel.startsWith(`${FLOOR_TEST_FIXTURES_DIR}/`),
+  );
 
   return expected;
 }

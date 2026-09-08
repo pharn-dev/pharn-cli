@@ -65,6 +65,18 @@ function scaffoldRepo(repo: string): void {
   // floor (+ tests, dev-only) + dev-only trees
   write(join(repo, '.dev/floor/validate.mjs'), 'floor');
   write(join(repo, '.dev/floor/validate.test.mjs'), 'FLOORTEST');
+  // Dev test apparatus: fixture skills + structural pairs, read only by the
+  // *.test.mjs above. Must not reach a user project.
+  write(
+    join(repo, '.dev/floor/test-fixtures/red/skill.md'),
+    'DELIBERATELY RED',
+  );
+  write(
+    join(repo, '.dev/floor/test-fixtures/structural/red-1.expected.json'),
+    '{}',
+  );
+  // A near-miss: SEGMENT match, not substring — this one must survive.
+  write(join(repo, '.dev/floor/my-test-fixtures.mjs'), 'KEEP ME');
   write(join(repo, '.dev/features/some-feature/PLAN.md'), 'DEVPLAN');
   write(join(repo, '.dev/memory-bank/lessons-learned.md'), 'DEVMB');
 }
@@ -408,6 +420,48 @@ describe('installCapabilities', () => {
     expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
   });
 
+  // The floor ships the deterministic checkers the installed product commands
+  // invoke — but NOT its test apparatus, whose only readers are the *.test.mjs
+  // files already excluded. A user browsing an installed floor should not find a
+  // deliberately-malformed capability and a pile of red failure fixtures.
+  it('does NOT install the floor test-fixtures subtree', () => {
+    const { proj } = run();
+    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
+    expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
+    expect(
+      existsSync(join(proj, '.dev/floor/test-fixtures/red/skill.md')),
+    ).toBe(false);
+  });
+
+  // SEGMENT, not substring. The scaffold's `my-test-fixtures.mjs` sits beside
+  // the fixtures dir and must survive.
+  it('still installs a floor file whose NAME merely contains test-fixtures', () => {
+    const { proj } = run();
+    expect(
+      readFileSync(join(proj, '.dev/floor/my-test-fixtures.mjs'), 'utf8'),
+    ).toBe('KEEP ME');
+  });
+
+  // THE ANCHOR CASE. cpSync hands the filter an ABSOLUTE path and calls it for
+  // the source ROOT too, so an unanchored segment test would match an ANCESTOR
+  // directory named `test-fixtures`, return false for the root, and copy NOTHING
+  // — silently shipping no floor at all. The failure is invisible without this.
+  it('installs the whole floor even when an ANCESTOR dir is named test-fixtures', () => {
+    const repo = join(tmp.path(), 'test-fixtures', 'repo');
+    const proj = join(tmp.path(), 'test-fixtures', 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
+    expect(
+      readFileSync(join(proj, '.dev/floor/my-test-fixtures.mjs'), 'utf8'),
+    ).toBe('KEEP ME');
+    // …and the real subtree is still excluded under that ancestor.
+    expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
+  });
+
   it('does NOT copy symlinked fixed surfaces (settings, trusted docs, contracts, floor)', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -508,6 +562,11 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
     write(join(repo, 'pharn/floor/validate.mjs'), 'floor');
     write(join(repo, 'pharn/floor/validate.test.mjs'), 'FLOORTEST');
+    write(
+      join(repo, 'pharn/floor/test-fixtures/red/skill.md'),
+      'DELIBERATELY RED',
+    );
+    write(join(repo, 'pharn/floor/my-test-fixtures.mjs'), 'KEEP ME');
     // pharn-core: the fixed skill surface the installed /pharn-build cites
     // (seam-resolver + its evals). Copied whole, like pharn-contracts.
     write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'), 'sr');
@@ -642,6 +701,15 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
   // it already exists. Without this, adding the constant is a break, not a no-op.
   // features/README.md is layout-INVARIANT: upstream keeps features/ at the repo
   // root even in a pharn-layout tree, exactly like .claude/*.
+  it('does NOT install the floor test-fixtures subtree (pharn layout)', () => {
+    const { proj } = run();
+    expect(existsSync(join(proj, 'pharn/floor/validate.mjs'))).toBe(true);
+    expect(existsSync(join(proj, 'pharn/floor/test-fixtures'))).toBe(false);
+    expect(
+      readFileSync(join(proj, 'pharn/floor/my-test-fixtures.mjs'), 'utf8'),
+    ).toBe('KEEP ME');
+  });
+
   it('installs features/README.md at the project ROOT, not under pharn/', () => {
     const { proj } = run();
     expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(

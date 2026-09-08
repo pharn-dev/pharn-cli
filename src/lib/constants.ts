@@ -55,6 +55,14 @@ export const CORE_DIR = 'pharn-core';
 // Copied whole EXCEPT test files (see install-capabilities.ts). NOT `.dev/`
 // wholesale — `.dev/features` and `.dev/memory-bank` are dev-only and excluded.
 export const FLOOR_DIR = '.dev/floor';
+// Test apparatus INSIDE the floor dir: fixture skills (including a deliberately
+// RED one) plus structural expected/actual pairs, read ONLY by the `*.test.mjs`
+// files the install already excludes. Dev-only, so excluded from a product
+// install — otherwise a user browsing their installed floor finds a deliberately
+// malformed capability and red failure fixtures, and reasonably concludes the
+// install is broken. Matched as a floor-RELATIVE path SEGMENT on both the copy
+// and the mirror side, so `my-test-fixtures.mjs` is unaffected.
+export const FLOOR_TEST_FIXTURES_DIR = 'test-fixtures';
 
 // ---------------------------------------------------------------------------
 // The new pharn/ single-install layout (pharn-oss PR #86 / pharn-runtime-layout):
