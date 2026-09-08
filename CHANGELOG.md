@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A single-writer lock, so two `pharn` runs cannot corrupt the drift baseline.** `init`, `add`,
+  `remove` and `update` now take an advisory lock (`.pharn.lock` at the project root, carrying pid,
+  host, command and start time) across their write phase, and a second process **refuses** with a
+  named message and exit 1 rather than queueing.
+
+  The failure it prevents is subtler than a torn file. Process A overwrites a file; process B, which
+  planned against the pre-A snapshot, overwrites it again and persists records claiming its own hash;
+  A then persists ITS records and config last, recording a hash for bytes B replaced.
+  `pharn.records.json` then disagrees with disk **under a matching stamp** — exactly the state the
+  stamp check exists to detect — so `update` silently loses its ability to tell "pharn wrote this"
+  from "you edited this". The stamp only catches an interleave that *splits* one process's
+  records/config pair.
+
+  **`list` and `status` never take the lock and are never blocked by one**, so `pharn status --strict`
+  stays runnable in CI while an update is in flight.
+
+  A lock whose holder was `SIGKILL`ed does not wedge the project: it is broken when it is malformed,
+  older than six hours, or names a dead pid **on this host**. A lock from another host is only retired
+  by age, because a pid means nothing across machines — and a lock is never deleted by a process that
+  does not own it.
+
 ### Fixed
 
 - **Ctrl+C at the overwrite prompt no longer orphans the fetched clone.** `pharn init` fetches

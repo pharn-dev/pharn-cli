@@ -100,6 +100,18 @@ manifest and looks each path up here, so an invented key cannot cause a read or 
 hash to match your own bytes will make `update` treat that file as pharn's and overwrite it — that is
 your call to make, and it is the only thing such an edit can do.
 
+## The write lock
+
+`init`, `add`, `remove` and `update` hold a single-writer lock — `.pharn.lock` at the project root,
+carrying the holder's pid, host, command and start time — across the write phase, and a second pharn
+process refuses instead of interleaving. Without it, two runs can leave this store describing bytes
+the other one replaced, **under a matching stamp**, which is precisely the case the stamp cannot
+detect. See [troubleshooting](../troubleshooting.md#another-pharn-process-is-running).
+
+The lock is a transient sidecar, not part of the install: it is never in the expected install set,
+never in the overwrite-conflict list, and never recorded here — so `pharn status` reports no drift on
+it. `list` and `status` neither take it nor are blocked by it.
+
 ## Related
 
 - [update](../commands/update.md) — the decision table these hashes drive

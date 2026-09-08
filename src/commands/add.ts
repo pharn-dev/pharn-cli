@@ -40,6 +40,7 @@ import { fetchRepo } from '../lib/repo.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
+import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
   loadArchetypeConfigOrExit,
   writePharnConfig,
@@ -189,18 +190,24 @@ async function runArchetypeAdd(
       layoutGate(repo.dir, config);
     result = refusal
       ? { kind: 'error', message: refusal }
-      : await resolveArchetypeAdd(repo.dir, repo.sha, config, cwd, parsed, arg);
+      : await withProjectLock(cwd, 'add', () =>
+          resolveArchetypeAdd(repo.dir, repo.sha, config, cwd, parsed, arg),
+        );
   } catch (err) {
     // The exception is carried BOXED, not flattened to a message: the box's
     // presence is the single axis that separates a caught exception (which earns
     // the PHARN_DEBUG affordance) from the gate refusals that reach this same
     // `{kind:'error'}` outcome above. Boxed rather than bare because `throw
     // undefined` is legal, and a bare field could not tell it from "absent".
-    result = {
-      kind: 'error',
-      message: errorMessage(err),
-      cause: { err },
-    };
+    //
+    // A held lock is on the REFUSAL side of that axis, so it goes unboxed: the
+    // message already names the one action that resolves it, and offering a
+    // stack trace for it would be offering to debug someone else's running
+    // process.
+    result =
+      err instanceof ProjectLockedError
+        ? { kind: 'error', message: err.message }
+        : { kind: 'error', message: errorMessage(err), cause: { err } };
   } finally {
     repo.cleanup();
   }
@@ -274,15 +281,21 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       layoutGate(repo.dir, config);
     outcome = refusal
       ? { kind: 'error', message: refusal }
-      : await resolveAddPicker(repo.dir, repo.sha, config, cwd);
+      : // ONE lock for the whole selection loop, not one per pick:
+        // resolveArchetypeAdd persists config + records on every iteration, so a
+        // per-pick lock would leave a gap between picks for another process to
+        // interleave into.
+        await withProjectLock(cwd, 'add', () =>
+          resolveAddPicker(repo.dir, repo.sha, config, cwd),
+        );
   } catch (err) {
     // Same axis as the named path: the boxed exception travels with the outcome
-    // so a crash gets the PHARN_DEBUG hint and a gate refusal does not.
-    outcome = {
-      kind: 'error',
-      message: errorMessage(err),
-      cause: { err },
-    };
+    // so a crash gets the PHARN_DEBUG hint, while a gate refusal and a held lock
+    // do not.
+    outcome =
+      err instanceof ProjectLockedError
+        ? { kind: 'error', message: err.message }
+        : { kind: 'error', message: errorMessage(err), cause: { err } };
   } finally {
     repo.cleanup();
   }

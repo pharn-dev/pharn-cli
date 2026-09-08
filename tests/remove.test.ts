@@ -82,6 +82,10 @@ describe('runRemove (archetype)', () => {
   stubProcessExit();
   beforeEach(() => {
     proj = join(tmp.path(), 'proj');
+    // The project root has to EXIST, not merely be a path: a real cwd always
+    // does, and `remove` now takes a lock file in it. Previously only the
+    // capability-writing tests created it as a side effect of `write()`.
+    mkdirSync(proj, { recursive: true });
     vi.spyOn(process, 'cwd').mockReturnValue(proj);
   });
   afterEach(() => {

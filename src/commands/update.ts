@@ -15,6 +15,7 @@ import {
   reportFatal,
   type FatalCause,
 } from '../lib/report-error.js';
+import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
@@ -243,15 +244,18 @@ async function runArchetypeUpdate(
       s2.stop('Update refused');
       refusal = gate.refusal;
     } else {
-      outcome = await applyUpdate(
-        repo.dir,
-        repo.sha,
-        config,
-        cwd,
-        force,
-        (backup) => {
+      // The single-writer lock, taken AFTER the confirm and after the fetch,
+      // and released before the clone cleanup below. Not earlier: the
+      // fetch-failure path above ends in process.exit(1) with no finally, so a
+      // lock taken before it would be stranded in the project root on every
+      // offline / rate-limited / DNS failure — the most common failure this
+      // command has. The fetch writes nothing to the project, so acquiring here
+      // still precedes the first write, and it keeps the held window short,
+      // which is what lets STALE_MS stay short.
+      outcome = await withProjectLock(cwd, 'update', () =>
+        applyUpdate(repo.dir, repo.sha, config, cwd, force, (backup) => {
           backupRef.current = backup;
-        },
+        }),
       );
       s2.stop(
         outcome.plan.writes.length
@@ -260,8 +264,17 @@ async function runArchetypeUpdate(
       );
     }
   } catch (err) {
-    s2.stop('Update failed');
-    failure = { err };
+    // A held lock is a POLICY refusal, not a crash: it earns the same
+    // no-PHARN_DEBUG treatment as the MIN_CLI gate, because the message already
+    // names the one action that resolves it. Routing it through `failure` would
+    // offer a stack trace for a situation with nothing to debug.
+    if (err instanceof ProjectLockedError) {
+      s2.stop('Update refused');
+      refusal = err.message;
+    } else {
+      s2.stop('Update failed');
+      failure = { err };
+    }
   } finally {
     repo.cleanup();
   }
