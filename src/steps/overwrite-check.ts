@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { confirmWarning } from '../lib/confirm.js';
+import { confirm, isCancel, log } from '@clack/prompts';
 import {
   conflictingWriteTargets,
   PHARN_CONFIG_FILE,
@@ -71,21 +71,37 @@ function recordedSkillsVersion(cwd: string): string | null {
   }
 }
 
-// Returns true to proceed with the install (no conflicts, or the user confirmed
-// overwrite), false when the user declined. Ctrl+C cancels the whole run
-// (confirmWarning → cancelAndExit).
+/**
+ * What the user decided about overwriting existing write targets.
+ *
+ * Three states, not a boolean, and the third is the point: this stage must
+ * NEVER call process.exit. It runs inside init's `try`, whose
+ * `finally { repo.cleanup() }` disposes of the multi-megabyte temp clone — and
+ * Node does not run `finally` on process.exit. Exiting from here therefore
+ * orphaned the clone on every Ctrl+C, which is reachable on ANY re-install
+ * since an existing pharn.config.json alone makes the conflict set non-empty.
+ *
+ * The caller owns the exit and takes it after the finally, exactly as
+ * runArchetypeSummary's 'cancel' already does one prompt earlier. `decline` and
+ * `cancel` are kept DISTINCT even though init maps both to `cancelled`:
+ * collapsing them back into one boolean is precisely how the exit crept in.
+ */
+export type WriteTargetsAction = 'proceed' | 'decline' | 'cancel';
+
+// 'proceed' when there is nothing to overwrite or the user confirmed;
+// 'decline' on a No; 'cancel' on Ctrl+C. Never exits.
 export async function confirmWriteTargets(
   repoDir: string,
   cwd: string,
   selection: Selection,
-): Promise<boolean> {
+): Promise<WriteTargetsAction> {
   const conflicts = conflictingWriteTargets({
     repoDir,
     projectRoot: cwd,
     capabilities: selection.selected,
     layout: detectLayout(repoDir),
   });
-  if (conflicts.length === 0) return true; // zero friction — nothing to overwrite
+  if (conflicts.length === 0) return 'proceed'; // zero friction — nothing to overwrite
 
   const shown = conflicts.slice(0, MAX_LISTED);
   const more = conflicts.length - shown.length;
@@ -102,9 +118,16 @@ export async function confirmWriteTargets(
     version === null
       ? 'PHARN installs into your existing project.'
       : `PHARN installs into your existing project (currently at skills v${version}).`;
-  return confirmWarning(
+  // Direct clack rather than a confirm.ts helper, mirroring
+  // steps/archetype-summary.ts: every helper there ends in cancelAndExit, and
+  // this stage's whole contract is that it does not exit.
+  log.warn(
     `${intro} These paths already exist and may be overwritten:\n${list}${tail}`,
-    'Continue and overwrite?',
-    false,
   );
+  const result = await confirm({
+    message: 'Continue and overwrite?',
+    initialValue: false,
+  });
+  if (isCancel(result)) return 'cancel';
+  return result === true ? 'proceed' : 'decline';
 }
