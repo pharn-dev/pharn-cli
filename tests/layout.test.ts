@@ -53,7 +53,7 @@ describe('layoutPaths', () => {
     expect(p.license).toEqual({ from: 'LICENSE', to: 'PHARN-LICENSE' });
   });
 
-  it('pharn resolves every surface under pharn/, including all four trusted docs', () => {
+  it('pharn resolves every runtime surface under pharn/, but the docs keep a per-DOC prefix', () => {
     const p = layoutPaths('pharn');
     expect(p.layout).toBe('pharn');
     expect(p.grillers).toBe('pharn/pharn-pipeline/grillers');
@@ -62,16 +62,29 @@ describe('layoutPaths', () => {
     expect(p.floor).toBe('pharn/floor');
     // The pharn-core surface upstream actually ships (seam-resolver + its evals).
     expect(p.core).toBe('pharn/pharn-core');
-    // All four, mirrored under pharn/ — the same set as flat. The installed
-    // product commands, floor checkers and contracts cite THREAT-MODEL.md and
-    // LIMITS.md, so an install that dropped them left every one of those
-    // pointers dangling.
+    // The same FOUR documents as flat, but the prefix is per-DOC. pharn-oss's
+    // relocation moved CONSTITUTION + ARCHITECTURE under pharn/ and left
+    // THREAT-MODEL + LIMITS at the repo ROOT, and the install mirrors wherever
+    // upstream keeps each one. Measured over the files one install copies: 108
+    // of them cite these docs, `THREAT-MODEL.md` bare 118x and pharn/-prefixed
+    // 0x, `LIMITS.md` bare 68x and prefixed 0x — while the two relocated docs
+    // are cited WITH the prefix (239x / 54x). Upstream's own
+    // protect-trusted-paths.cjs DEFAULT_PROTECTED spells them the same way.
     expect(p.docs).toEqual([
       'pharn/CONSTITUTION.md',
       'pharn/ARCHITECTURE.md',
-      'pharn/THREAT-MODEL.md',
-      'pharn/LIMITS.md',
+      'THREAT-MODEL.md',
+      'LIMITS.md',
     ]);
+    // The dead paths are not resurrected: `pharn/THREAT-MODEL.md` and
+    // `pharn/LIMITS.md` have never existed in pharn-oss, so every install
+    // silently dropped both docs while both readers' existence guards passed.
+    expect(p.docs).not.toContain('pharn/THREAT-MODEL.md');
+    expect(p.docs).not.toContain('pharn/LIMITS.md');
+    // Both layouts carry the same four BASENAMES — only the prefixes differ.
+    expect(p.docs.map((d) => d.split('/').pop())).toEqual(
+      layoutPaths('flat').docs.map((d) => d.split('/').pop()),
+    );
     expect(p.license).toEqual({ from: 'LICENSE', to: 'pharn/LICENSE' });
   });
 });

@@ -54,6 +54,14 @@ export interface InstallCapabilitiesResult {
   // The layout mirrored from the fetched clone (flat OR pharn/). Recorded in
   // pharn.config.json so status/remove address the project the same way.
   layout: Layout;
+  // The trusted docs actually COPIED, as project-relative dest paths, in
+  // paths.docs order. Each doc copy is existence-guarded (a clone that predates
+  // a doc simply does not get it, P7), so this is a subset — and it is collected
+  // INSIDE the copy branch, so a doc that failed its guard cannot appear here by
+  // construction. The caller reports it instead of claiming "docs written"
+  // unconditionally, which is what let two docs go missing from every install
+  // with no warning (see PHARN_TRUSTED_DOCS in constants.ts).
+  docs: string[];
 }
 
 const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
@@ -177,12 +185,23 @@ export function installCapabilities(
     cpSync(settingsFrom, settingsTo, { force: true });
   }
 
-  // --- trusted docs (the SAME four in both layouts; only the prefix differs --
-  // at the project root when flat, under pharn/ otherwise) --------------------
+  // --- trusted docs (the same FOUR documents in both layouts; the prefix is
+  // per-DOC, not per-layout — flat keeps all four at the root, while the pharn
+  // layout has CONSTITUTION/ARCHITECTURE under pharn/ and THREAT-MODEL/LIMITS
+  // still at the root, because that is where upstream keeps each one and the
+  // install mirrors it, see PHARN_TRUSTED_DOCS in constants.ts) ---------------
+  //
+  // The leaf-only isSymlink is sufficient here and NOT the weaker form of the
+  // features/README.md guard: every root-prefixed entry has no intermediate
+  // directory at all, and the pharn/-prefixed pair's component exposure is
+  // unchanged by this loop's shape. `written` collects only the docs this branch
+  // actually copied — the outro reports that, never the expected list.
+  const written: string[] = [];
   for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
     if (existsSync(from) && !isSymlink(from)) {
       cpSync(from, safeJoin(projectRoot, doc), { force: true });
+      written.push(doc);
     }
   }
 
@@ -277,7 +296,12 @@ export function installCapabilities(
     });
   }
 
-  return { capabilities, settingsPreserved, layout: paths.layout };
+  return {
+    capabilities,
+    settingsPreserved,
+    layout: paths.layout,
+    docs: written,
+  };
 }
 
 /**

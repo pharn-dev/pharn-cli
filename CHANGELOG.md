@@ -85,6 +85,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now its own **In scope** bullet. `THREAT-MODEL.md` and `LIMITS.md` were already right; this
   reconciles the last document that was not.
 
+- **`THREAT-MODEL.md` and `LIMITS.md` are installed again — every `pharn` install was silently
+  dropping both.** The trusted-doc set named them `pharn/THREAT-MODEL.md` and `pharn/LIMITS.md`,
+  paths that have **never existed** in pharn-oss: its relocation moved `CONSTITUTION.md` and
+  `ARCHITECTURE.md` under `pharn/` and left these two at the repo root. Both the copy routine and the
+  install manifest existence-guard each doc, so the two simply vanished — no error, no warning, and
+  `pharn status` could not flag it either, because it derives what it expects from the same set.
+
+  The cost was not two absent files. Measured over one real install of `pharn-oss@main`, **108 of the
+  copied files cite these docs** — product commands, floor checkers and contracts — and they cite them
+  by their bare name (`THREAT-MODEL.md` 118 times, `LIMITS.md` 68 times, neither ever with a `pharn/`
+  prefix), the form that resolves against the project root. Every one of those pointers landed on
+  nothing, including the ones to `LIMITS.md`, the document that states what PHARN does **not**
+  guarantee.
+
+  The fix is the mirror the CLI already promises: each doc is installed where upstream keeps it, so
+  the prefix is per-**doc**, not per-layout. A flat install still lands all four at the root.
+  Upstream's own `protect-trusted-paths.cjs` — a hook this CLI installs — already spelled them the
+  same way. That the 108 citations now resolve is **advisory**: the floor is only that the files exist
+  at the project root; nothing parses a citation.
+
+  **Existing installs do not self-heal.** `pharn status` will now correctly report the two docs as
+  `missing` (and `pharn status --strict` will exit 1) on any project installed by an earlier version,
+  but a plain `pharn update` returns `Already up to date` without restoring them — its same-version
+  early-return sits in front of the per-file `missing → restore` rule. Use `pharn update --force`
+  (which copies anything it overwrites to `.pharn-backup/<timestamp>/` first) or re-run `pharn init`.
+
+- **`pharn init` reports which docs it actually wrote.** The outro printed
+  `PHARN commands + hooks + docs written → .claude/` unconditionally — wrong twice over: docs never
+  went to `.claude/`, and the line read as success even when the existence guard had written nothing.
+  It now prints the commands/hooks line and a separate `N trusted docs written → <paths>` naming
+  them, and warns about any doc the fetched repo did not ship. Naming them rather than counting them
+  is the point: a count would hide exactly the silence that let this ship.
+
 - **Ctrl+C at the overwrite prompt no longer orphans the fetched clone.** `pharn init` fetches
   pharn-oss into a temp dir, shows the archetype summary, then — when install targets already exist —
   asks a destructive-overwrite confirmation. That second prompt called `process.exit(0)` on Ctrl+C,

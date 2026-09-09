@@ -156,7 +156,11 @@ export function collectExpectedInstallPaths(params: {
       !rel.includes('/') && rel.endsWith('.cjs') && !rel.endsWith('.test.cjs'),
     copyNameFloor(CLAUDE_HOOKS_DIR),
   );
-  // Trusted docs (flat: root files; pharn: CONSTITUTION + ARCHITECTURE under pharn/).
+  // Trusted docs. The prefix is per-DOC, not per-layout: flat keeps all four at
+  // the root; the pharn layout has CONSTITUTION + ARCHITECTURE under pharn/ and
+  // THREAT-MODEL + LIMITS still at the root, mirroring where upstream keeps each
+  // (lib/constants.ts → PHARN_TRUSTED_DOCS). This loop reads whatever the layout
+  // resolves and needs no per-entry knowledge of the split.
   // lstat, not exists: a symlinked doc is never copied by the installer, so it is
   // never expected here either (see addDir's note).
   for (const doc of paths.docs) {

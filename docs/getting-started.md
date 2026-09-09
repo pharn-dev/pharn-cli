@@ -68,7 +68,8 @@ surfaces:
 | `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs` floor hooks                                          |
 | `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files and `test-fixtures/`) |
 | `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                      |
-| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | The trusted spec docs, copied verbatim — see the layout note below                                                   |
+| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim — see the layout note below                                       |
+| `THREAT-MODEL.md`, `LIMITS.md`                                        | The other two, at the project **root** — where upstream keeps them and where the installed commands cite them        |
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched |
 | `features/README.md`                                                  | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                |
 | `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                             |
@@ -80,11 +81,13 @@ version: the CLI **mirrors** whichever layout `pharn-dev/pharn-oss` ships and ne
 file's contents, so the paths above are the `pharn` layout it installs today. The legacy **flat**
 layout puts the same surfaces at the project root instead — `pharn-pipeline/grillers/`,
 `pharn-review/`, `pharn-contracts/`, `.dev/floor/`, `PHARN-LICENSE` — and upstream ships no root
-`pharn-core/`, so that one surface is simply absent there. The trusted-doc set also names
-`pharn/THREAT-MODEL.md` and `pharn/LIMITS.md`, but every doc is copied only if the fetched version
-ships it at that path — upstream still keeps those two at the repo root, so today a flat install
-lands all four there while a `pharn` install lands the two in the table. Which layout you got is
-recorded as `layout` in `pharn.config.json`.
+`pharn-core/`, so that one surface is simply absent there. The **four trusted docs** are the same set
+in both layouts, but their prefix is per-**doc**, not per-layout: upstream's relocation moved
+`CONSTITUTION.md` and `ARCHITECTURE.md` under `pharn/` and left `THREAT-MODEL.md` and `LIMITS.md` at
+the repo root, so a `pharn` install lands them exactly that way and a flat install lands all four at
+the root. Each doc is copied only if the fetched version ships it — a clone that predates one simply
+does not get it, and `init` says which docs it wrote and warns about any it did not. Which layout you
+got is recorded as `layout` in `pharn.config.json`.
 
 See [pharn.config.json](reference/pharn-config.md) and
 [pharn.records.json](reference/pharn-records.md) for the exact schemas. **Commit both** — they are

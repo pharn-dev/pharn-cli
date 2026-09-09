@@ -1,0 +1,31 @@
+{
+  "base": "558b8dd",
+  "inside": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/getting-started.md",
+    "src/lib/constants.ts",
+    "src/lib/install-capabilities.ts",
+    "src/lib/install-manifest.ts",
+    "src/steps/install-archetype.ts",
+    "tests/init-archetype.test.ts",
+    "tests/install-capabilities.test.ts",
+    "tests/install-manifest.test.ts",
+    "tests/layout.test.ts",
+    ".dev/features/install-root-trusted-docs/GRILL.md",
+    ".dev/features/install-root-trusted-docs/PLAN.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
