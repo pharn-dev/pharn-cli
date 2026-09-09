@@ -192,6 +192,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backstop **underneath** each caller's `finally`, not a replacement — `docs/commands/init.md`'s
   promise that "the temp clone is always cleaned up (even on cancel or error)" is now true.
 
+- **Comments and the roadmap no longer describe a `degit` clone `pharn` does not perform.** Six
+  sites still named the fetch by its removed dependency: `src/lib/constants.ts` ("the CLI
+  degit-clones the whole repo"), both `COMMIT_RE` comments in `src/lib/validate.ts` (the 40-hex form
+  attributed to `degit`, the validated sha called a "degit ref"), the `Trust (P2)` headers of
+  `src/lib/dest-drift.ts` and `src/lib/symlink-guard.ts` ("a degit clone's temp dir"), and the
+  user-facing `docs/roadmap.md` row **Degit-clone `pharn-dev/pharn-oss` … Shipped**. Each now names
+  what actually runs: one commit resolve, then a `codeload.github.com/…/tar.gz/<sha>` download
+  extracted by `src/lib/tar-extract.ts`. The two trust headers keep their **UNTRUSTED**
+  classification and only re-source it, so a reader auditing them is pointed at the hand-written
+  ustar reader that parses attacker-controlled bytes rather than at a dependency that no longer
+  exists. Three more sites in the tests came with it, because a test comment is spec here too:
+  `tests/validate.test.ts`'s `COMMIT_RE` header is a deliberate mirror of the source comment, so it
+  is reworded in the *same words* rather than paraphrased; `tests/init.test.ts`'s proxy-notice
+  section was still headed "the degit proxy notice" and explained itself in the present tense; and
+  its non-TTY case promised that "no `~/.degit` tarball is paid for", naming a cache that no longer
+  exists at all. Comments and docs only — no behavior changed, no assertion touched. The
+  deliberately past-tense mentions stay as they are, in `src/lib/tar-extract.ts`,
+  `src/lib/proxy-env.ts`, `docs/troubleshooting.md`'s migration section, and
+  `tests/init.test.ts`'s own account of why the notice is no longer platform-gated.
+
 ### Changed
 
 - **The "what you get" tables now describe the layout an install actually produces.** `README.md` and

@@ -305,13 +305,20 @@ describe('runInit (archetype default)', () => {
     });
   });
 
-  // --- the degit proxy notice ------------------------------------------------
+  // --- the proxy notice ------------------------------------------------------
   //
-  // degit reads process.env.https_proxy ITSELF and reads ONLY that lowercase
-  // spelling, so an `HTTPS_PROXY`-only environment clones DIRECTLY on POSIX
-  // while a `https_proxy` one is interposed by a host pharn never declared.
-  // Neither was discoverable from any pharn output. These pin the WIRING (the
-  // truth table itself lives in tests/proxy-env.test.ts).
+  // pharn's fetch reads NO proxy environment variable, on any platform, so a
+  // configured proxy is silently unused and the only symptom is a timeout with
+  // nothing pointing at the cause. The notice exists to say so. The clone path
+  // once went through degit, which read `process.env.https_proxy` ITSELF and
+  // only that lowercase spelling — so the notice used to classify (proxied vs.
+  // ignored-because-misspelled) and to gate its confidence on a measured degit
+  // version. With degit retired nothing reads any spelling, and every variant
+  // gets the same warning. What is still true, and still pinned: the notice
+  // fires on the `https_proxy` NAME in ANY letter-case (`HTTP_PROXY` and
+  // `NO_PROXY` are ignored). These cases pin the WIRING — that init warns, and
+  // warns BEFORE the fetch; the truth table itself lives in
+  // tests/proxy-env.test.ts.
   describe('proxy notice', () => {
     // mockResolvedValue survives clearAllMocks, so the cancel paths asserted
     // earlier in this file would otherwise leak in and exit(0) before the
@@ -393,7 +400,7 @@ describe('runInit (archetype default)', () => {
       await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
 
       // The whole point: the refusal precedes the fetch, so no network call and
-      // no ~/.degit tarball is paid for on the way to doing nothing.
+      // no tarball download is paid for on the way to doing nothing.
       expect(fetchRepo).not.toHaveBeenCalled();
       expect(runArchetypeSummary).not.toHaveBeenCalled();
       expect(confirmWriteTargets).not.toHaveBeenCalled();

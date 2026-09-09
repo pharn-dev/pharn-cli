@@ -99,9 +99,11 @@ describe('COPY_FILENAME_RE', () => {
 });
 
 // COMMIT_RE gates the network-derived provenance sha (src/lib/repo.ts, fetchRepo)
-// before it is used as a degit ref or written to pharn.config.json `commit` (P2).
-// The full 40-hex form is the only accepted shape; null (degraded mode) is handled
-// by the caller's null-guard, not here.
+// before that value becomes the final segment of the codeload tarball URL or is
+// recorded as pharn.config.json `commit` (P2) — deliberately the same claim, in
+// the same words, as the comment on COMMIT_RE itself. The full 40-hex form is the
+// only accepted shape; null (degraded mode) is handled by the caller's null-guard,
+// not here.
 describe('COMMIT_RE', () => {
   it('accepts a full 40-char lowercase hex sha', () => {
     for (const s of [

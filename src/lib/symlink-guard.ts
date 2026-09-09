@@ -8,11 +8,11 @@ import { safeJoin, toPosix } from './validate.js';
 // each repeating the same below-the-root rationale verbatim; the walk lives here
 // once and each site keeps its own failure shape at the call.
 //
-// Trust (P2): a base may be UNTRUSTED (a degit clone's temp dir) and so may the
-// rel's segments (names read from that clone). Nothing here executes or reads
-// file CONTENTS — every access is an lstat, safeJoin-contained, and the returned
-// value is DATA (a path string a caller interpolates into a message or tests for
-// null).
+// Trust (P2): a base may be UNTRUSTED (the temp dir a fetched codeload tarball
+// was extracted into) and so may the rel's segments (names read from that tree).
+// Nothing here executes or reads file CONTENTS — every access is an lstat,
+// safeJoin-contained, and the returned value is DATA (a path string a caller
+// interpolates into a message or tests for null).
 //
 // One axis (P3): detecting a symlinked path component.
 // ---------------------------------------------------------------------------

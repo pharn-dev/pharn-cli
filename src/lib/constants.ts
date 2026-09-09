@@ -1,7 +1,8 @@
 // PHARN OSS lives in a single repo with capability subtrees (pharn-pipeline/
-// grillers, pharn-review, …). The CLI degit-clones the whole repo at a pinned
-// SHA, then copies the resolved capabilities + the fixed product surfaces into
-// the user's project (lib/install-capabilities.ts).
+// grillers, pharn-review, …). The CLI downloads the whole repo as a codeload
+// tarball at a pinned SHA and extracts it into a temp dir (lib/repo.ts,
+// lib/tar-extract.ts), then copies the resolved capabilities + the fixed
+// product surfaces into the user's project (lib/install-capabilities.ts).
 export const REPO = 'pharn-dev/pharn-oss';
 export const REPO_BRANCH = 'main';
 export const REPO_URL = 'github.com/pharn-dev/pharn-oss';
