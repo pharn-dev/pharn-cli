@@ -95,6 +95,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`pharn update` now warns about a configured proxy before its first fetch, not its second.** The
+  notice sat inside the lock, above the tarball download — but `update` reaches the network long
+  before that, checking the remote `SKILLS_VERSION` on the very first thing it does. So a proxy-only
+  user (direct egress blocked) got a bare "Failed to check for updates" with no warning at all, and
+  the already-up-to-date early return fetched and returned having said nothing. It is now emitted
+  once at the top of the run, above both fetches.
+
+  The placement was justified by a comment reading "a refused run performs no fetch". That is true of
+  `pharn add`, which makes no fetch before its lock; it was never true of `update`, whose own lock
+  comment says the opposite three paragraphs later. A lock refusal and a cancelled confirm now print
+  the notice too, and in both cases a fetch really did happen.
+
+  The suite asserted the bug — a case pinned the early return's silence "because it never clones" —
+  so the fix inverts that assertion rather than only adding one. Nothing about the network changed:
+  `pharn` still does not use a proxy (`LIMITS.md` §3a), and this only makes the failure explained
+  instead of silent.
+
 - **A stale record store no longer reports two identical values as a difference.**
   `pharn.records.json` is ignored when its `skillsVersion` **or** its `commit` disagrees with
   `pharn.config.json`, but the warning interpolated only `skillsVersion` on both sides — so a

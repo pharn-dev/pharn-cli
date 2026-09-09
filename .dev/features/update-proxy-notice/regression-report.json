@@ -1,0 +1,21 @@
+{
+  "base": "11f04d48102887962211272662a677c95cb3080b",
+  "inside": [
+    "CHANGELOG.md",
+    "src/commands/update.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
