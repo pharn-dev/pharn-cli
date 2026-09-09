@@ -235,10 +235,14 @@ describe('ci.yml required status checks', () => {
 
   it('smokes the PUBLISHED artifact, not just some path that happens to exist', () => {
     // Without this, SMOKE_RUN is an arbitrary literal that the assertion above
-    // only proves is present in the file. With it, renaming `bin.pharn` — or
-    // `scripts/build.mjs`'s `outfile`, which has to agree with it for the
-    // package to work at all — without updating CI goes red here rather than
-    // shipping a bin nothing ever executed.
+    // only proves is present in the file. With it, renaming `bin.pharn` without
+    // updating CI goes red here rather than shipping a bin nothing ever
+    // executed.
+    //
+    // What it does NOT cover: a `scripts/build.mjs` `outfile` that stops
+    // agreeing with `bin.pharn`. This assertion never reads the build script,
+    // so it cannot see that drift; the workflow step catches it at runtime, one
+    // layer out, when node is handed a published path that was never written.
     //
     // Ordering is deliberately NOT asserted here: `dist/` does not exist until
     // the build step has run, but the exact-array equality above already pins
