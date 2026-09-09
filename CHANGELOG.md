@@ -39,6 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was ever universal. The caps are now stated per fetch, agreeing with `THREAT-MODEL.md` §3. Docs only —
   no behavior changed; the code was always right.
 
+- **`SECURITY.md` no longer describes a fetch `pharn` does not perform.** It said the CLI
+  `degit`-clones pharn-oss, listed `degit` among four runtime dependencies (there are three —
+  `degit` went when the fetch moved to a `codeload` tarball), and claimed that clone had **no**
+  pharn-imposed timeout or body cap, while `src/lib/repo.ts` sets `CLONE_TIMEOUT_MS` (60 s),
+  `MAX_ARCHIVE_BYTES` (32 MB), `MAX_EXTRACTED_BYTES` (128 MB), `MAX_ENTRIES` (20 000) and
+  `redirect: 'error'`. So the policy pointed researchers at a removed dependency and away from
+  `src/lib/tar-extract.ts`, the hand-written ustar reader that parses attacker-controlled bytes —
+  now its own **In scope** bullet. `THREAT-MODEL.md` and `LIMITS.md` were already right; this
+  reconciles the last document that was not.
+
 - **Ctrl+C at the overwrite prompt no longer orphans the fetched clone.** `pharn init` fetches
   pharn-oss into a temp dir, shows the archetype summary, then — when install targets already exist —
   asks a destructive-overwrite confirmation. That second prompt called `process.exit(0)` on Ctrl+C,
