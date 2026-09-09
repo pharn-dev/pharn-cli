@@ -149,50 +149,83 @@ async function runArchetypeAdd(
     process.exit(1);
   }
 
-  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
-  // the spinner so it survives the frame and precedes a proxy-caused failure
-  // (see src/commands/init.ts for the full rationale).
-  const proxyNotice = detectProxyNotice(process.env);
-  if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice));
-  }
-
-  const s = spinner();
-  s.start(`Fetching capabilities from ${REPO_URL}`);
-  let repo;
-  try {
-    repo = await fetchRepo();
-    s.stop(`Capabilities fetched from ${REPO_URL}`);
-  } catch (err) {
-    s.stop('Failed to fetch capabilities');
-    reportFatal(errorMessage(err), { err });
-    process.exit(1);
-  }
-
-  // Assigned exactly once per path (try or catch), so cleanup runs in the finally
-  // and the exit/outro happens after it (Node skips finally on process.exit).
+  // Assigned exactly once per path (try or catch), so the exit/outro happens
+  // after the clone cleanup (Node skips finally on process.exit).
   let result: AddResult;
   try {
-    // `??` and not two ifs: short-circuit evaluation is what makes "version wins
-    // when BOTH mismatch" structural rather than a property of statement order a
-    // later edit could silently invert. The realistic both-mismatch case is an old
-    // flat project meeting a new clone, where `pharn update` fixes version AND
-    // layout in one pass — so the version message is the one worth printing.
-    const gate = minCliGate(repo.dir, PHARN_VERSION);
-    if (gate.warning) log.warn(gate.warning);
-    // MIN_CLI leads the chain: a CLI too old for this content cannot be fixed by
-    // `pharn update` (which the version gate would name), because `update` would
-    // be refused for the same reason. Upgrading is the only real action, so its
-    // message must be the one the user sees.
-    const refusal =
-      gate.refusal ??
-      versionGate(repo.dir, config) ??
-      layoutGate(repo.dir, config);
-    result = refusal
-      ? { kind: 'error', message: refusal }
-      : await withProjectLock(cwd, 'add', () =>
-          resolveArchetypeAdd(repo.dir, repo.sha, config, cwd, parsed, arg),
-        );
+    // THE SINGLE-WRITER LOCK — taken BEFORE the fetch, so a run that is going to
+    // be refused pays no download at all. This path has NO prompt, so nothing
+    // human can sit under the lock; see runAddPicker for the path that does, and
+    // src/commands/update.ts for the full reasoning on bounded-vs-unbounded work
+    // under a lock.
+    //
+    // The fetch lives INSIDE `fn` so a fetch failure unwinds through
+    // withProjectLock's `finally` and RELEASES it. Its old `process.exit(1)`
+    // skipped every finally, which would have stranded the lock in the project
+    // root on every offline / rate-limited / DNS failure.
+    //
+    // The narrowing this costs, named honestly: `parseCapabilityArg` above still
+    // rejects a malformed address before the lock, but an UNKNOWN or AMBIGUOUS
+    // name is resolved against the capability index — which lives in the clone —
+    // so under a held lock `pharn add bogus` now reports the lock rather than
+    // listing the valid addresses. Unavoidable: there is no offline index to
+    // resolve against. Every error decidable WITHOUT the clone (a legacy config,
+    // a malformed address) still wins.
+    result = await withProjectLock(cwd, 'add', async () => {
+      // What a configured proxy means here (nothing: fetch never uses one) —
+      // emitted before the spinner so it survives the frame and precedes a
+      // proxy-caused failure (see src/commands/init.ts for the full rationale).
+      // Inside the lock: a refused run never fetches, so a warning about how the
+      // fetch would behave is noise it should not print.
+      const proxyNotice = detectProxyNotice(process.env);
+      if (proxyNotice) {
+        log.warn(proxyNoticeMessage(proxyNotice));
+      }
+
+      const s = spinner();
+      s.start(`Fetching capabilities from ${REPO_URL}`);
+      let repo;
+      try {
+        repo = await fetchRepo();
+        s.stop(`Capabilities fetched from ${REPO_URL}`);
+      } catch (err) {
+        s.stop('Failed to fetch capabilities');
+        // Re-thrown, not exited: the catch below turns it into the same
+        // `{kind:'error'}` + boxed cause the old `reportFatal(...); exit(1)`
+        // produced, and unwinding is what lets the lock release.
+        throw err;
+      }
+      try {
+        // `??` and not two ifs: short-circuit evaluation is what makes "version
+        // wins when BOTH mismatch" structural rather than a property of
+        // statement order a later edit could silently invert. The realistic
+        // both-mismatch case is an old flat project meeting a new clone, where
+        // `pharn update` fixes version AND layout in one pass — so the version
+        // message is the one worth printing.
+        const gate = minCliGate(repo.dir, PHARN_VERSION);
+        if (gate.warning) log.warn(gate.warning);
+        // MIN_CLI leads the chain: a CLI too old for this content cannot be
+        // fixed by `pharn update` (which the version gate would name), because
+        // `update` would be refused for the same reason. Upgrading is the only
+        // real action, so its message must be the one the user sees.
+        const refusal =
+          gate.refusal ??
+          versionGate(repo.dir, config) ??
+          layoutGate(repo.dir, config);
+        return refusal
+          ? { kind: 'error' as const, message: refusal }
+          : await resolveArchetypeAdd(
+              repo.dir,
+              repo.sha,
+              config,
+              cwd,
+              parsed,
+              arg,
+            );
+      } finally {
+        repo.cleanup();
+      }
+    });
   } catch (err) {
     // The exception is carried BOXED, not flattened to a message: the box's
     // presence is the single axis that separates a caught exception (which earns
@@ -208,8 +241,6 @@ async function runArchetypeAdd(
       err instanceof ProjectLockedError
         ? { kind: 'error', message: err.message }
         : { kind: 'error', message: errorMessage(err), cause: { err } };
-  } finally {
-    repo.cleanup();
   }
 
   if (result.kind === 'error') {
@@ -246,48 +277,61 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     process.exit(1);
   }
 
-  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
-  // the spinner so it survives the frame and precedes a proxy-caused failure
-  // (see src/commands/init.ts for the full rationale).
-  const proxyNotice = detectProxyNotice(process.env);
-  if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice));
-  }
-
-  const s = spinner();
-  s.start(`Fetching capabilities from ${REPO_URL}`);
-  let repo;
-  try {
-    repo = await fetchRepo();
-    s.stop(`Capabilities fetched from ${REPO_URL}`);
-  } catch (err) {
-    s.stop('Failed to fetch capabilities');
-    reportFatal(errorMessage(err), { err });
-    process.exit(1);
-  }
-
   // Assigned exactly once per path (try or catch) before it is read, so the
-  // finally can run cleanup with every exit after it (mirrors resolveArchetypeAdd).
+  // exit/outro happens after the clone cleanup (mirrors the named path).
   let outcome: PickerAddOutcome;
   try {
-    // Same ordered pair as the named path (see there), and for the same reason it
-    // sits before resolveAddPicker: both gates must fire before groupMultiselect
-    // renders, or the user picks capabilities only to be refused afterwards.
-    const gate = minCliGate(repo.dir, PHARN_VERSION);
-    if (gate.warning) log.warn(gate.warning);
-    const refusal =
-      gate.refusal ??
-      versionGate(repo.dir, config) ??
-      layoutGate(repo.dir, config);
-    outcome = refusal
-      ? { kind: 'error', message: refusal }
-      : // ONE lock for the whole selection loop, not one per pick:
-        // resolveArchetypeAdd persists config + records on every iteration, so a
-        // per-pick lock would leave a gap between picks for another process to
-        // interleave into.
-        await withProjectLock(cwd, 'add', () =>
-          resolveAddPicker(repo.dir, repo.sha, config, cwd),
-        );
+    // ONE lock for the whole selection loop, not one per pick: resolveArchetypeAdd
+    // persists config + records on every iteration, so a per-pick lock would leave
+    // a gap between picks for another process to interleave into.
+    //
+    // Taken BEFORE the fetch, so a run that is going to be refused pays no
+    // download — the same move as the named path and as `update`.
+    //
+    // This path DOES hold the lock across a human prompt (groupMultiselect, inside
+    // resolveAddPicker), and that was already true before the acquisition moved:
+    // the lock has always wrapped the whole selection loop. Moving it earlier adds
+    // a BOUNDED download (repo.ts caps: 8s resolve, 60s clone) to a hold that was
+    // already unbounded — a change of degree, not of kind. `init` is the case where
+    // it WOULD be a change of kind, which is why init's lock stays where it is.
+    outcome = await withProjectLock(cwd, 'add', async () => {
+      // What a configured proxy means here (nothing: fetch never uses one) —
+      // emitted before the spinner so it survives the frame and precedes a
+      // proxy-caused failure (see src/commands/init.ts for the full rationale).
+      const proxyNotice = detectProxyNotice(process.env);
+      if (proxyNotice) {
+        log.warn(proxyNoticeMessage(proxyNotice));
+      }
+
+      const s = spinner();
+      s.start(`Fetching capabilities from ${REPO_URL}`);
+      let repo;
+      try {
+        repo = await fetchRepo();
+        s.stop(`Capabilities fetched from ${REPO_URL}`);
+      } catch (err) {
+        s.stop('Failed to fetch capabilities');
+        // Re-thrown rather than exited, so the lock releases — see the named path.
+        throw err;
+      }
+      try {
+        // Same ordered pair as the named path (see there), and for the same
+        // reason it sits before resolveAddPicker: both gates must fire before
+        // groupMultiselect renders, or the user picks capabilities only to be
+        // refused afterwards.
+        const gate = minCliGate(repo.dir, PHARN_VERSION);
+        if (gate.warning) log.warn(gate.warning);
+        const refusal =
+          gate.refusal ??
+          versionGate(repo.dir, config) ??
+          layoutGate(repo.dir, config);
+        return refusal
+          ? { kind: 'error' as const, message: refusal }
+          : await resolveAddPicker(repo.dir, repo.sha, config, cwd);
+      } finally {
+        repo.cleanup();
+      }
+    });
   } catch (err) {
     // Same axis as the named path: the boxed exception travels with the outcome
     // so a crash gets the PHARN_DEBUG hint, while a gate refusal and a held lock
@@ -296,8 +340,6 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       err instanceof ProjectLockedError
         ? { kind: 'error', message: err.message }
         : { kind: 'error', message: errorMessage(err), cause: { err } };
-  } finally {
-    repo.cleanup();
   }
 
   if (outcome.kind === 'error') {

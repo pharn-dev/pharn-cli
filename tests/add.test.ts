@@ -316,6 +316,18 @@ describe('runAdd (archetype)', () => {
     );
   });
 
+  it('takes the lock BEFORE the fetch, not after it', async () => {
+    // Audit finding P-9. The end-to-end consequence (a refused run downloads
+    // nothing) is pinned against real directories in
+    // tests/project-lock-commands.test.ts; what is pinned HERE is the wiring
+    // that produces it, because this is the ordering a refactor would invert
+    // silently — both calls still happen, just in the wrong order.
+    await runAdd('a11y');
+    expect(withProjectLock.mock.invocationCallOrder[0]!).toBeLessThan(
+      fetchRepo.mock.invocationCallOrder[0]!,
+    );
+  });
+
   it('resolves role:name addressing', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(archConfig());
     mockClone();

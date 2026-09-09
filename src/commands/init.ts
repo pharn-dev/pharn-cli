@@ -144,6 +144,27 @@ async function runInitArchetype(): Promise<void> {
         // same finally that disposes of the clone. Holding it across an
         // unanswered confirm would block an agent hook for as long as a human
         // takes to answer.
+        //
+        // DELIBERATELY NOT MOVED BEFORE THE FETCH — `add` and `update` were, and
+        // this is the one that was not. Do not "fix" it for consistency.
+        //
+        // Those two acquire before `fetchRepo` so a run that will be refused
+        // never pays for the ~2.5 MB tarball. `init` cannot be given that shape:
+        // BOTH of its prompts sit BETWEEN the fetch and the install (the summary
+        // needs the parsed capability index, and confirmWriteTargets needs the
+        // install manifest — each derived from the clone), so the only slot
+        // before the fetch is also before both prompts. That trades a bounded
+        // hold for an unbounded one: `fetchRepo` is capped by construction
+        // (repo.ts — 8s SHA resolve, 60s download), while a prompt is capped only
+        // by human attention, and `init` hard-fails off a TTY so it is ALWAYS a
+        // human at a keyboard. A walked-away init would refuse every other pharn
+        // command in the project for up to STALE_MS (6h). The lock REFUSES rather
+        // than queues, so a longer hold is a wider refusal window.
+        //
+        // The cost is named, not hidden: a second writer racing `pharn init`
+        // still pays the full download before being refused. Accepted — init is
+        // the bootstrap command, run once, interactively, and it is where a
+        // concurrent-writer collision is least likely.
         await withProjectLock(cwd, 'init', () =>
           runInstallArchetype(repo.dir, cwd, archetypes, selection, commit),
         );
