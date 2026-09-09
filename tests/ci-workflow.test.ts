@@ -39,6 +39,40 @@ const EXPECTED_GATES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
+ * The `Build` job's one EXTRA `run:` — it executes the artifact the same job
+ * just produced.
+ *
+ * Nothing else in this repo runs `dist/index.js`: the suite imports `src/`, and
+ * `tests/repo-signals.test.ts` spawns tsx against `src/` too. So the bundle's
+ * two load-time assumptions shipped unexercised — `src/version.ts`'s
+ * `require('../package.json')`, correct only at the bundle's depth below the
+ * package root, and the three names `scripts/build.mjs` leaves `external` as
+ * bare imports. Both resolve while the module graph loads, before a flag is
+ * parsed, so either drift exits non-zero and reddens `Build`.
+ *
+ * What that buys is narrower than it looks, and the narrow version is the one to
+ * keep: it catches an EXTERNALIZED package that no longer resolves or loads
+ * (moved to devDependencies, dropped, broken CJS/ESM interop). A package MISSING
+ * from `external` is not this step's to catch — esbuild bundles it instead, and
+ * an unresolvable one fails `npm run build` one step earlier.
+ */
+const SMOKE_RUN = 'node dist/index.js --version && node dist/index.js --help';
+
+/**
+ * Run commands a gate executes AFTER its npm script, by gate name. Only `Build`
+ * has one.
+ *
+ * This table is what keeps the per-gate assertion below two-directional: the
+ * smoke step going missing fails it, and a run step appearing in ANY gate —
+ * `Build` included — that is not listed here fails it too. The P3 property the
+ * original exact-array assertion bought (a gate cannot quietly grow a second
+ * responsibility) therefore survives; it is not loosened into a `toContain`.
+ */
+const EXTRA_RUNS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['Build', [SMOKE_RUN]],
+]);
+
+/**
  * Workflows whose required context is the bare JOB ID, because the job carries
  * no `name:` key at all — the map runs workflow path to the id it reports.
  * Their runner setup deliberately differs from ci.yml's (the floor job tracks
@@ -187,13 +221,41 @@ describe('ci.yml required status checks', () => {
         new RegExp(`^ {4}name: ${gate}$`, 'm').test(b),
       );
       expect(block, `no job named ${gate}`).toBeDefined();
-      // Install first, then exactly the one gate command — so a gate cannot
-      // quietly grow a second responsibility (P3).
+      // Install first, then exactly the one gate command, then only whatever
+      // EXTRA_RUNS declares for this gate — so a gate cannot quietly grow a
+      // second responsibility (P3), and the one gate that legitimately has a
+      // second run step has to declare it above.
       expect(captureAll(block!, /^\s+run: (.+)$/gm)).toEqual([
         'npm ci',
         script,
+        ...(EXTRA_RUNS.get(gate) ?? []),
       ]);
     }
+  });
+
+  it('smokes the PUBLISHED artifact, not just some path that happens to exist', () => {
+    // Without this, SMOKE_RUN is an arbitrary literal that the assertion above
+    // only proves is present in the file. With it, renaming `bin.pharn` without
+    // updating CI goes red here rather than shipping a bin nothing ever
+    // executed.
+    //
+    // What it does NOT cover: a `scripts/build.mjs` `outfile` that stops
+    // agreeing with `bin.pharn`. This assertion never reads the build script,
+    // so it cannot see that drift; the workflow step catches it at runtime, one
+    // layer out, when node is handed a published path that was never written.
+    //
+    // Ordering is deliberately NOT asserted here: `dist/` does not exist until
+    // the build step has run, but the exact-array equality above already pins
+    // the whole run list IN ORDER, so a separate index compare could never fail
+    // on its own. An assertion that cannot independently fail is decoration, not
+    // coverage (P0) — verified by deleting the step and watching which
+    // assertions actually fire.
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      bin?: Record<string, string>;
+    };
+    const bin = pkg.bin?.pharn;
+    expect(bin, 'package.json declares no bin.pharn').toBeDefined();
+    expect(SMOKE_RUN).toContain(`node ${bin!} `);
   });
 
   it('pins every gate to the same runner and node version', () => {

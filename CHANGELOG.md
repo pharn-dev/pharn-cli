@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI now runs the bundle it just built.** The `Build` job executes
+  `node dist/index.js --version && node dist/index.js --help` after `npm run build`. Nothing ran
+  `dist/index.js` before, so the bundle's two load-time assumptions — `src/version.ts`'s
+  `require('../package.json')` and the three dependencies left as bare imports — were shipped
+  unexercised, and drift in either would have reached users as `ERR_MODULE_NOT_FOUND`.
+
 - **A single-writer lock, so two `pharn` runs cannot corrupt the drift baseline.** `init`, `add`,
   `remove` and `update` now take an advisory lock (`.pharn.lock` at the project root, carrying pid,
   host, command and start time) across their write phase, and a second process **refuses** with a

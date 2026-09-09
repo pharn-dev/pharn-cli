@@ -123,3 +123,28 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      # Execute what the build just produced. Nothing else in this repo runs
+      # `dist/index.js` — the vitest suite imports `src/`, and the one test that
+      # spawns a process spawns tsx against `src/` too — so the BUNDLE's two
+      # load-time assumptions shipped unexercised: `src/version.ts`'s
+      # `createRequire` + `require('../package.json')`, correct only because the
+      # bundle sits at the same depth below the package root as `src/version.ts`,
+      # and the three dependency names `scripts/build.mjs` leaves `external`, i.e.
+      # as bare imports Node must resolve at runtime. Both are resolved while the
+      # module graph LOADS, before a flag is parsed, so either drift exits
+      # non-zero here instead of reaching users as ERR_MODULE_NOT_FOUND.
+      #
+      # Narrowly, and worth stating so it is not read as more: this catches an
+      # EXTERNALIZED package that no longer resolves or loads. One missing FROM
+      # `external` is not this step's to catch — esbuild bundles it instead, and
+      # an unresolvable one already fails `npm run build` one step earlier. And a
+      # green Build never means "the CLI works": both flags return from `main()`
+      # without dispatching a command, so no command, network call, or filesystem
+      # write is exercised.
+      #
+      # It must stay a STEP in this job. `dist/` does not survive into another
+      # job, and a seventh job would report a status check the `main` ruleset
+      # does not require — see this file's header on why that contract is
+      # load-bearing. `tests/ci-workflow.test.ts` pins the command and its order.
+      - name: Smoke the built bundle
+        run: node dist/index.js --version && node dist/index.js --help
