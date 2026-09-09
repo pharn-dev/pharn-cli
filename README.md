@@ -6,12 +6,11 @@
   <img alt="Pharn" src="assets/pharn-logo-light-transparent.svg" width="420">
 </picture>
 
-**Install PHARN into an existing project: a reviewable workflow for AI-written code.**
+**Install PHARN into an existing git project: an audit-grade Claude Code workflow.**
 
-PHARN is an open, audit-grade methodology for Claude Code. It keeps the intent,
-constraints, plans, checks, and review trail for AI-assisted changes in plain
-files inside your repo, so the reasoning behind a change survives beyond the
-chat window.
+PHARN installs specs, plans, grillers, review lenses, and drift-safe update
+state into your repo. It keeps the reasoning behind AI-assisted changes in
+plain files, so it survives beyond the chat window.
 
 [![npm](https://img.shields.io/npm/v/@pharn-dev/pharn)](https://www.npmjs.com/package/@pharn-dev/pharn)
 [![CI](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml)
