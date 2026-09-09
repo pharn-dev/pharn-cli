@@ -162,6 +162,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sentence it carried was *correct about the old parser*, so landing the fix alone would have put a
   disclosure policy that misdescribes its own reader on `main` for the length of the gap.
 
+- **A corrupt `pharn.config.json` is no longer reported as a missing one — and the fix stops the CLI
+  prescribing a command that would destroy it.** A config with a stray comma used to print
+  "No pharn.config.json found. Run `pharn init` first.", whose two halves are both false: the file is
+  right there, and `init` rewrites it wholesale — resetting hand-edited `models`/`seam` blocks and
+  re-stamping every capability `source: 'auto'`, discarding the manual-`pharn add` provenance only
+  that file remembers. `readPharnConfig` had collapsed "no file" and "unparseable file" into the same
+  `null`.
+
+  Unparseable now raises a named `ConfigParseError` — joining the `ModelRoutingError` /
+  `SeamConfigError` / `CapabilitySourceError` family that both `loadConfigOrExit` and `list --json`
+  already report loudly — which names the file's full path, says it is not valid JSON, gives the line
+  and column when V8 supplies one, and offers a remedy that keeps your bytes (repair by hand, or move
+  the file aside before re-initialising). The parse error's own text is never printed: V8 echoes raw
+  file content into some of its messages, so only the two integers it computed are extracted, and
+  control characters in the reported path are escaped rather than emitted — a project directory whose
+  name carries an escape sequence cannot rewrite the terminal through the error line. Absent,
+  unreadable, and wrong-shape configs are unchanged and still point at `pharn init`.
+
+  `docs/troubleshooting.md` documents the new diagnostic and the move-aside recovery, and its
+  "run init first" section now states that it covers only a config that is absent or unreadable.
+
 - **The README no longer oversells the network floor.** Its Security section applied one fetch's caps —
   an 8s timeout and a 256KB body cap — to _all_ remote input. That pair belongs to the `SKILLS_VERSION`
   read alone: the commit-SHA resolve has no body cap, and the tarball uses a 60s timeout and a 32MB

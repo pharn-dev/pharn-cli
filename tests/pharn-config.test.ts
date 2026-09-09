@@ -10,8 +10,10 @@ import {
   isConfigValidationError,
   writePharnConfig,
   isArchetypeConfig,
+  configPath,
   LEGACY_CONFIG_MESSAGE,
   CapabilitySourceError,
+  ConfigParseError,
 } from '../src/lib/pharn-config.js';
 import { tmpPathFor } from '../src/lib/atomic-write.js';
 import type { PharnConfig } from '../src/types.js';
@@ -77,8 +79,22 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toBeNull();
   });
 
-  it('returns null on malformed JSON', () => {
+  // FLIPPED (audit P-7). This used to assert `null` — the SAME value that means
+  // "there is no file" — so a stray comma was reported as a MISSING config and
+  // answered with `pharn init`, which overwrites it. Present-but-unparseable is
+  // now its own named failure; see the dedicated describe below.
+  it('THROWS (not null) when the file exists but is not JSON', () => {
     writeFileSync(join(tmp.path(), 'pharn.config.json'), '{ not json');
+    expect(() => readPharnConfig(tmp.path())).toThrow(ConfigParseError);
+  });
+
+  // The deliberate boundary of that change (P7): an UNREADABLE file keeps the old
+  // `null`. A directory planted at the config path exists but fails `readFileSync`
+  // with EISDIR — a permissions/shape problem, not a syntax one, and mislabelling
+  // it as bad JSON would be a new lie in place of the old one. Pinned so a later
+  // widening is a deliberate act rather than a drift.
+  it('still returns null when the file exists but cannot be READ', () => {
+    mkdirSync(join(tmp.path(), 'pharn.config.json'));
     expect(readPharnConfig(tmp.path())).toBeNull();
   });
 
@@ -289,6 +305,127 @@ describe('pharn-config', () => {
   });
 });
 
+// Audit finding P-7. `!existsSync → null` and the `JSON.parse` catch `→ null`
+// were indistinguishable at both call sites, so a config with a stray comma was
+// answered with "No pharn.config.json found. Run `pharn init` first." — a line
+// whose two halves are BOTH false: the file is right there, and re-running init
+// overwrites it (resetting hand-edited models/seam and re-stamping every
+// capability `source: 'auto'`, losing the manual-add provenance only this file
+// remembers). These tests pin the message the user now gets instead, and — just
+// as importantly — pin what must NEVER be in it.
+describe('ConfigParseError — a corrupt config is reported as corrupt, not absent', () => {
+  const tmp = useTmpDir();
+  const write = (bytes: string) =>
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), bytes);
+  const thrownMessage = (): string => {
+    try {
+      readPharnConfig(tmp.path());
+    } catch (e) {
+      return (e as Error).message;
+    }
+    throw new Error('expected readPharnConfig to throw');
+  };
+
+  it('names the file by its absolute path and says it is not valid JSON', () => {
+    write('{ "a": 1, }');
+    const msg = thrownMessage();
+    // toContain, not a RegExp: a Windows path is full of regex escapes.
+    expect(msg).toContain(configPath(tmp.path()));
+    expect(msg).toContain('is not valid JSON');
+  });
+
+  // The whole point of the finding. The old sentence prescribed a command that
+  // destroys the file it complains about; the new one warns against it and
+  // offers a remedy that keeps the bytes.
+  it('never tells the user to run the command that would overwrite the file', () => {
+    write('{ "a": 1, }');
+    const msg = thrownMessage();
+    expect(msg).not.toContain('No pharn.config.json found');
+    expect(msg).toContain('Do NOT run `pharn init`');
+    expect(msg).toContain('move it aside first');
+  });
+
+  // A stray comma is far cheaper to fix when you are told WHERE it is. V8 puts
+  // the position in its message; only these two integers are lifted out of it.
+  it('surfaces the line and column when V8 supplies them', () => {
+    write('{\n  "a": 1,\n}\n');
+    expect(thrownMessage()).toContain('(line 3, column 1)');
+  });
+
+  // Degrade honestly (P5): `Unexpected end of JSON input` carries no position, so
+  // the clause is omitted rather than invented.
+  it('omits the location when V8 supplies none, rather than inventing one', () => {
+    write('');
+    const msg = thrownMessage();
+    expect(msg).toContain('is not valid JSON.');
+    // The clause shape, not the bare word: the message interpolates a mkdtemp
+    // path, whose random suffix could contain any substring by chance.
+    expect(msg).not.toMatch(/\(line \d/);
+  });
+
+  // P2. V8's OTHER message shape ECHOES RAW FILE BYTES: parsing "\x1b[31mBOOM"
+  // yields `Unexpected token '\x1b', "\x1b[31mBOOM" is not valid JSON`. This is
+  // the test that fails the day someone "improves" the message by appending
+  // err.message — which would turn a hand-editable local file into terminal
+  // escape injection through an error line.
+  it('leaks NO file content into the message — not even one byte', () => {
+    write(`${String.fromCharCode(27)}[31mBOOM`);
+    const msg = thrownMessage();
+    expect(msg).not.toContain('BOOM');
+    expect(msg).not.toContain(String.fromCharCode(27));
+  });
+
+  // The `$` anchor, as behaviour rather than as a comment. V8's content-echoing
+  // shape always ends `" is not valid JSON`, so a file crafted to CONTAIN a
+  // location literal can never have it read back out as this config's position.
+  it('cannot be tricked into reporting a location planted in the file', () => {
+    write('oops (line 999 column 999)');
+    expect(thrownMessage()).not.toMatch(/\(line \d/);
+  });
+
+  // P2, the other half of the same channel. The message closes V8's parse text
+  // against raw file bytes — but it also interpolates the config's own path, and
+  // that path embeds the process working directory, whose name can carry ESC or a
+  // newline on POSIX. Refusing one source and echoing the other would leave the
+  // principle half-applied; these pin that it is not. (Raised by a reviewer on
+  // the PR that introduced the message.)
+  //
+  // Skipped on win32, where neither byte is a legal filename character — the
+  // hazard, and therefore the test, is POSIX-only. CI is ubuntu-only anyway
+  // (docs/contributing.md).
+  const posixOnly = it.skipIf(process.platform === 'win32');
+
+  const inHostileDir = (name: string): string => {
+    const dir = join(tmp.path(), name);
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'pharn.config.json'), '{ "a": 1, }');
+    try {
+      readPharnConfig(dir);
+    } catch (e) {
+      return (e as Error).message;
+    }
+    throw new Error('expected readPharnConfig to throw');
+  };
+
+  posixOnly('escapes an ESC byte in the cwd instead of emitting it', () => {
+    const msg = inHostileDir(`evil${String.fromCharCode(27)}[31m`);
+    expect(msg).not.toContain(String.fromCharCode(27));
+    // Escaped, NOT stripped: a stripped path would name a directory that does
+    // not exist, which is worse than useless in a "go fix this file" message.
+    expect(msg).toContain('evil\\x1b[31m');
+  });
+
+  posixOnly('escapes a newline in the cwd, so stderr cannot be forged', () => {
+    const msg = inHostileDir('evil\nnot-really-pharn:');
+    expect(msg).not.toContain('\n');
+    expect(msg).toContain('evil\\x0anot-really-pharn:');
+  });
+
+  it('joins isConfigValidationError, so both call sites report it loudly', () => {
+    expect(isConfigValidationError(new ConfigParseError('x'))).toBe(true);
+  });
+});
+
 describe('isArchetypeConfig', () => {
   it('is true for a capabilities-bearing config', () => {
     expect(
@@ -331,6 +468,21 @@ describe('loadConfigOrExit', () => {
       .join('\n');
     expect(msg).toMatch(/gpt-4/);
     expect(msg).not.toMatch(/pharn init/);
+  });
+
+  // The end-to-end shape of audit finding P-7, at the surface a user sees: a
+  // corrupt config must NOT reach the "run init" branch, because that branch's
+  // advice would overwrite the very file it is complaining about.
+  it('exits(1) reporting the corrupt config, NOT "no config found" (P-7)', () => {
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), '{ "a": 1, }');
+    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    const msg = vi
+      .mocked(log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(msg).toContain('is not valid JSON');
+    expect(msg).toContain('(line 1, column 11)');
+    expect(msg).not.toContain('No pharn.config.json found');
   });
 
   it('prints "run init" and exits(1) when the config is absent', () => {
@@ -424,11 +576,14 @@ describe('loadArchetypeConfigOrExit', () => {
 });
 
 // The config is written temp-then-rename (lib/atomic-write.ts). A torn write here
-// is the worst failure the CLI can leave behind: `readPharnConfig` collapses
-// malformed JSON to `null`, so every command reports the file as ABSENT and
-// prescribes a re-init that resets hand-edited `models`/`seam` and re-stamps
-// every capability `source: 'auto'` — losing the manual-add provenance only this
-// file remembers.
+// is the worst failure the CLI can leave behind: it puts truncated JSON on disk,
+// and until audit P-7 was fixed every command answered that by reporting the file
+// as ABSENT and prescribing a re-init — which resets hand-edited `models`/`seam`
+// and re-stamps every capability `source: 'auto'`, losing the manual-add
+// provenance only this file remembers. Truncated JSON now raises
+// `ConfigParseError` instead (see its describe above), so the two defences are
+// layered: atomicity keeps that state unreachable, the named error makes it
+// survivable if it is ever reached another way.
 describe('writePharnConfig — atomic replacement', () => {
   const tmp = useTmpDir();
   const configFile = () => join(tmp.path(), 'pharn.config.json');
