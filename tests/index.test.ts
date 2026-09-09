@@ -4,7 +4,9 @@ import { ProcessExit, stubProcessExit } from './helpers.js';
 const runInit = vi.fn(async () => undefined);
 const runAdd = vi.fn(async (_arg?: string) => undefined);
 const runRemove = vi.fn(async (_arg?: string) => undefined);
-const runUpdate = vi.fn(async () => undefined);
+const runUpdate = vi.fn(
+  async (_opts?: { force?: boolean; yes?: boolean }) => undefined,
+);
 const runList = vi.fn(async (_opts?: { json?: boolean }) => undefined);
 const runStatus = vi.fn(
   async (_opts?: { strict?: boolean; drift?: boolean }) => undefined,
@@ -68,16 +70,9 @@ describe('main (argv dispatch)', () => {
     expect(runRemove).toHaveBeenCalledWith('a11y');
   });
 
-  // `remove` has NO `--yes`. Its named path never confirms, and the bare
-  // picker's ONE destructive confirm is unconditional — there is nothing for a
-  // flag to skip, so nothing is threaded into the command. The flag stays a
-  // declared minimist boolean because it belongs to `update`: that is what
-  // keeps `pharn remove --yes` PARSING (the unknown-option gate below must not
-  // start refusing it) instead of exiting 1.
-  it('accepts `remove --yes` and drops it — it is an update flag', async () => {
-    setArgv('remove', 'a11y', '--yes');
+  it('routes `remove <arg>` with the argument alone — no option object', async () => {
+    setArgv('remove', 'a11y');
     await main();
-    expect(runRemove).toHaveBeenCalledWith('a11y');
     // The exact-arity check: `toHaveBeenCalledWith` already rejects an extra
     // argument, but this names the contract the dispatcher is being held to.
     expect(runRemove.mock.calls[0]).toHaveLength(1);
@@ -367,5 +362,265 @@ describe('main (argv dispatch)', () => {
     await expect(main()).rejects.toMatchObject(new ProcessExit(1));
     expect(errSpy).toHaveBeenCalled();
     expect(runInit).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // AUDIT P-13 - a flag that belongs to ANOTHER command is REFUSED, not dropped.
+  //
+  // minimist declared every flag globally, and the dispatch simply did not read
+  // the ones it did not want, so `pharn status --json` parsed, was dropped, and
+  // exited 0. Measured on main in a project with a real pharn.config.json:
+  // `pharn list --strict` printed the human inventory and exited 0, and
+  // `pharn status --json` rendered clack chrome on STDOUT - so
+  // `pharn status --json | jq` fed a JSON consumer box-drawing characters and a
+  // success code, which is a CI gate that can never go red.
+  //
+  // The refusal reuses the unknown-option machinery entirely (stderr, usage
+  // text, JSON.stringify escaping, exit 1) and differs only in its LABEL,
+  // because `--json` is a flag pharn knows - "Unknown option" would send the
+  // user hunting for a typo that is not there.
+  // -------------------------------------------------------------------------
+
+  const expectUnsupported = async (
+    argv: string[],
+    offender: string,
+  ): Promise<void> => {
+    setArgv(...argv);
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain(offender);
+    expect(stderrText()).toContain('Unsupported option');
+    expect(stdoutText()).toBe('');
+    noCommandRan();
+  };
+
+  it('exits(1) on `status --json` — the CI trap the finding names', async () => {
+    await expectUnsupported(['status', '--json'], '--json');
+    // The command is named, so the message says WHICH command refused, and the
+    // usage text still follows on stderr exactly as the unknown-option path.
+    expect(stderrText()).toContain('status');
+    expect(stderrText()).toContain('Usage:');
+  });
+
+  it('exits(1) on `list --strict` instead of exiting 0 un-stricted', async () => {
+    await expectUnsupported(['list', '--strict'], '--strict');
+  });
+
+  it('exits(1) on `add --json`', async () => {
+    await expectUnsupported(['add', '--json'], '--json');
+  });
+
+  // The one flip that contradicts a shipped contract. `--yes` was a declared
+  // boolean only because it is `update`'s flag, and CLAUDE.md pinned the
+  // resulting `pharn remove --yes` no-op as "a harmless parse ... turning it
+  // into a refusal belongs to a per-command allowlist". This is that allowlist.
+  it('exits(1) on `remove --yes` — it was silently dropped before', async () => {
+    await expectUnsupported(['remove', 'a11y', '--yes'], '--yes');
+  });
+
+  it('exits(1) on the `-y` alias for `remove` too', async () => {
+    await expectUnsupported(['remove', 'a11y', '-y'], '-y');
+  });
+
+  it('exits(1) on `init --force`', async () => {
+    await expectUnsupported(['init', '--force'], '--force');
+  });
+
+  // A command that HAS flags still refuses one that is not its own: the table
+  // is per-command membership, not "does pharn know this flag at all".
+  it('exits(1) on `update --json`', async () => {
+    await expectUnsupported(['update', '--json'], '--json');
+  });
+
+  // `--archetype` is init's retained no-op alias, so it is init's ALONE.
+  it('exits(1) on `status --archetype`', async () => {
+    await expectUnsupported(['status', '--archetype'], '--archetype');
+  });
+
+  // With no command word `cmd` defaults to `init`, so these used to run a FULL
+  // INSTALL while ignoring the flag entirely - the sharpest case in the set.
+  it('exits(1) on a bare `--json` rather than running a full install', async () => {
+    await expectUnsupported(['--json'], '--json');
+  });
+
+  it('exits(1) on a bare `--force` rather than running a full install', async () => {
+    await expectUnsupported(['--force'], '--force');
+  });
+
+  // A genuine --help does not license a MISAPPLIED sibling either, which is the
+  // same rule the unknown-option gate applies to `--help --bogus`. Both gates
+  // sit above the short-circuits so the ruling is one ruling, not two.
+  it('exits(1) on `status --help --json` and prints no usage on stdout', async () => {
+    setArgv('status', '--help', '--json');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stdoutText()).not.toContain('Usage:');
+    expect(stderrText()).toContain('--json');
+    noCommandRan();
+  });
+
+  it('exits(1) on `list --version --force` and prints no version', async () => {
+    setArgv('list', '--version', '--force');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stdoutText()).toBe('');
+    expect(stderrText()).toContain('--force');
+    noCommandRan();
+  });
+
+  // ... but --help and --version are in EVERY command's row, so asking for them
+  // is never itself the offense.
+  it('still prints usage for `status --help` alone', async () => {
+    setArgv('status', '--help');
+    await main();
+    expect(stdoutText()).toContain('Usage:');
+    noCommandRan();
+  });
+
+  it('still prints usage for `bogus --help` (absent from the table)', async () => {
+    setArgv('bogus', '--help');
+    await main();
+    expect(stdoutText()).toContain('Usage:');
+    noCommandRan();
+  });
+
+  // The two labels stay distinct: a TYPO is still "Unknown option", because
+  // telling a user their real flag is unrecognised sends them hunting for a
+  // misspelling that does not exist.
+  it('still says "Unknown option" for a typo, not "Unsupported option"', async () => {
+    setArgv('status', '--sctrict');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unknown option');
+    expect(stderrText()).not.toContain('Unsupported option');
+  });
+
+  // An unknown COMMAND is not flag-checked at all - the table has no row for
+  // it, exactly like the arity table - so the more useful message still wins.
+  it('still says "Unknown command" for `bogus --json`, not a flag error', async () => {
+    setArgv('bogus', '--json');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unknown command');
+    expect(stderrText()).not.toContain('Unsupported option');
+    noCommandRan();
+  });
+
+  // `cmd` is untrusted argv, so the FLAG table must not resolve inherited
+  // Object.prototype keys either: an object lookup would hand back a FUNCTION
+  // for `toString`, and `fn.includes(...)` inside the per-command parse would
+  // throw a raw TypeError instead of reporting an unknown command.
+  it('treats an Object.prototype key as an unknown command, not a flag row', async () => {
+    setArgv('toString', '--json');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unknown command');
+    expect(stderrText()).not.toContain('Unsupported option');
+    noCommandRan();
+  });
+
+  // Precedence: the flag gate runs BEFORE the arity gate, matching the file's
+  // existing order (a global unknown option already beats an extra positional).
+  it('names the unsupported flag, not the extra positional, when both are wrong', async () => {
+    setArgv('status', '--json', 'extra');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('--json');
+    expect(stderrText()).not.toContain('Unexpected argument');
+    noCommandRan();
+  });
+
+  // minimist reports a short BUNDLE once per unknown letter, naming the whole
+  // token each time, so this used to print `"-xz", "-xz"`.
+  it('names a bundled unknown flag once, not once per letter', async () => {
+    setArgv('status', '-xz');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('"-xz"');
+    expect(stderrText()).not.toContain('"-xz", "-xz"');
+  });
+
+  // -------------------------------------------------------------------------
+  // The other half of the gate: a FALSE POSITIVE breaks a working command,
+  // which would be strictly worse than the bug being fixed. The per-command
+  // pass declares a SMALLER boolean set than the real parse, and boolean
+  // declarations are what decide whether minimist swallows the next token - so
+  // the shapes most likely to diverge are pinned here.
+  // -------------------------------------------------------------------------
+
+  it('still routes a positional containing a colon', async () => {
+    setArgv('add', 'lens:n-plus-one');
+    await main();
+    expect(runAdd).toHaveBeenCalledWith('lens:n-plus-one');
+  });
+
+  it('still honours the `--` terminator', async () => {
+    setArgv('add', '--', '--json');
+    await main();
+    expect(runAdd).toHaveBeenCalledWith('--json');
+  });
+
+  it('still routes the `rm` alias with an argument', async () => {
+    setArgv('rm', 'a11y');
+    await main();
+    expect(runRemove).toHaveBeenCalledWith('a11y');
+  });
+
+  it('still composes `update --force --yes` in either order', async () => {
+    setArgv('update', '--force', '--yes');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({ force: true, yes: true });
+    setArgv('update', '--yes', '--force');
+    await main();
+    expect(runUpdate).toHaveBeenLastCalledWith({ force: true, yes: true });
+  });
+
+  it('still runs init on a bare `pharn` with no argv at all', async () => {
+    setArgv();
+    await main();
+    expect(runInit).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // The table grants flags; the dispatch reads them. Nothing structural ties
+  // the two together, so a mistyped row (`['list', ['strict']]`) would be
+  // self-consistent and would silently re-open P-13 for that command with every
+  // other gate green. These pin the agreement.
+  // -------------------------------------------------------------------------
+
+  it('threads exactly the flags each row grants, and no others', async () => {
+    setArgv('update', '--force', '--yes');
+    await main();
+    expect(Object.keys(runUpdate.mock.calls[0]![0]!).sort()).toEqual([
+      'force',
+      'yes',
+    ]);
+
+    setArgv('list', '--json');
+    await main();
+    expect(Object.keys(runList.mock.calls[0]![0]!).sort()).toEqual(['json']);
+
+    setArgv('status', '--strict');
+    await main();
+    expect(Object.keys(runStatus.mock.calls[0]![0]!).sort()).toEqual([
+      'drift',
+      'strict',
+    ]);
+  });
+
+  it('passes no option object at all to the three flagless commands', async () => {
+    setArgv('init');
+    await main();
+    expect(runInit.mock.calls[0]).toHaveLength(0);
+
+    setArgv('add', 'a11y');
+    await main();
+    expect(runAdd.mock.calls[0]).toHaveLength(1);
+
+    setArgv('remove', 'a11y');
+    await main();
+    expect(runRemove.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('scopes every option to its command in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    const printed = stdoutText();
+    expect(printed).toMatch(/--json\s+list:/);
+    expect(printed).toMatch(/--strict\s+status:/);
+    expect(printed).toMatch(/--no-drift\s+status:/);
+    expect(printed).toMatch(/--archetype\s+init:/);
   });
 });

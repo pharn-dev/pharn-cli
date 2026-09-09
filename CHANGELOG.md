@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (argv): an option a command does not take is now refused, not silently ignored.** Options
+  were declared globally, so a flag belonging to another command parsed, was dropped, and the run
+  exited **0**. `pharn status --json | jq` received the human-readable box-drawing output plus a
+  **success** exit code, and `pharn list --strict` exited 0 no matter what it found — a CI gate that
+  could never go red. Each command now has an allowlist, and an option outside it prints
+  `Unsupported option for \`status\`: "--json"` to stderr with the usage text and exits **1**.
+
+  Accepted per command: `init` → `--archetype` (the deprecated no-op); `update` → `--force`,
+  `--yes`/`-y`; `list` → `--json`; `status` → `--strict`, `--no-drift`; `add`, `remove`/`rm` → none.
+  `--help`/`-h` and `--version`/`-v` work everywhere.
+
+  **The sharpest change is the no-command-word form.** `pharn --json`, `pharn --force` and
+  `pharn --strict` each ran a **full `init`** while ignoring the option; all three now exit 1. A
+  reader skimming "flag validation" will not expect that, so it is called out here rather than left
+  to the table.
+
+  Two smaller flips. `pharn remove --yes` was documented as a deliberate no-op — it now exits 1;
+  `remove` still has no `--yes` for the same reason as before (its named path never confirms and its
+  picker's one confirm is the destructive gate), the flag is simply refused instead of dropped. And
+  `--help` no longer excuses a misapplied sibling: `pharn status --help --json` refuses, matching the
+  existing rule that `pharn --help --bogus` refuses. `pharn status --help` alone is unchanged.
+
+  Only the option **name** is checked; value shape is out of scope, so `pharn list --json=false` is
+  still accepted and still prints human-readable output.
+
+- **A bundled unknown flag is named once.** minimist reports a short bundle once per unknown letter,
+  so `pharn status -xz` printed `Unknown option: "-xz", "-xz"`. It now prints it once.
+
 ### Added
 
 - **CI now runs the bundle it just built.** The `Build` job executes

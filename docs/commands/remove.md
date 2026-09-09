@@ -40,10 +40,14 @@ under `pharn/`. Removal is therefore precise; siblings are never touched.
   disambiguate with `griller:` / `lens:`.
 - Already-deleted directory → treated as done (idempotent).
 
-`--yes` / `-y` is an [`update`](update.md) flag, and `remove` ignores it. There is nothing here for it
-to skip: the named form above deletes without asking, and the picker's one confirmation is the
+`remove` takes **no options at all**. `--yes` / `-y` is an [`update`](update.md) flag, and
+`pharn remove --yes` is **refused** (exit 1) rather than accepted and ignored. There is nothing here
+for it to skip: the named form above deletes without asking, and the picker's one confirmation is the
 destructive gate itself — it is always shown, it lists exactly what will be deleted, and it defaults
 to **No**.
+
+> Earlier releases accepted `pharn remove --yes` and silently dropped it. See
+> [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
 ## The record store
 
