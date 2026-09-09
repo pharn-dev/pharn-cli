@@ -137,6 +137,38 @@ async function runArchetypeUpdate(
   force: boolean,
   yes: boolean,
 ): Promise<void> {
+  // What a configured proxy means here (nothing: fetch never uses one), emitted
+  // ONCE at the top so it precedes EVERY fetch this command can make — the
+  // SKILLS_VERSION read immediately below and the tarball download inside the
+  // lock alike. It used to sit inside the lock closure, above fetchRepo,
+  // justified by "a refused run performs no fetch". That premise is false HERE:
+  // the version check below has already gone over the wire by the time the lock
+  // is even attempted — which the lock's own comment further down states in as
+  // many words. `add` carries the same sentence and there it holds, because
+  // `add` makes no pre-lock fetch; the words travelled to a command where the
+  // precondition does not.
+  //
+  // What that cost is the whole reason the notice exists: a proxy-only user
+  // (direct egress blocked) got a bare "Failed to check for updates" from the
+  // one fetch that skipped it, and the already-up-to-date early return fetched
+  // and returned having said nothing at all — against LIMITS.md §3a, which
+  // promises EVERY network-bearing command warns before fetching and names this
+  // command's version check as one of those fetches in the same paragraph.
+  //
+  // Above both spinners for the same reason it was always pre-spinner: a
+  // log.warn into a live clack spinner frame is overwritten (see
+  // src/commands/init.ts for the full rationale). Still below
+  // loadArchetypeConfigOrExit and the TTY gate in runUpdate, so an uninitialized
+  // directory and a piped run each keep their actionable error at zero
+  // round-trips. And it cannot fire early: the fetch below is the unconditional
+  // first statement of the try, so every run reaching this line also fetches —
+  // a lock refusal and a cancelled confirm now warn too, and in both cases a
+  // fetch really did happen.
+  const proxyNotice = detectProxyNotice(process.env);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice));
+  }
+
   const s = spinner();
   s.start('Checking for updates');
   let latest: string;
@@ -252,16 +284,6 @@ async function runArchetypeUpdate(
     // would have been stranded in the project root on every offline /
     // rate-limited / DNS failure, the most common failure this command has.
     outcome = await withProjectLock(cwd, 'update', async () => {
-      // What a configured proxy means here (nothing: fetch never uses one) —
-      // emitted before the spinner so it survives the frame and precedes a
-      // proxy-caused failure (see src/commands/init.ts for the full rationale).
-      // Inside the lock: a refused run performs no fetch, so a warning about how
-      // that fetch would behave is noise it should never print.
-      const proxyNotice = detectProxyNotice(process.env);
-      if (proxyNotice) {
-        log.warn(proxyNoticeMessage(proxyNotice));
-      }
-
       const s2 = spinner();
       spinnerRef.current = s2;
       s2.start(`Updating from ${REPO_URL}`);

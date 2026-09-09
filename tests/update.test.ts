@@ -8,6 +8,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -318,8 +319,23 @@ describe('runUpdate (drift-safe)', () => {
 
   // --- the proxy notice (wiring) ----------------------------------------------
   //
-  // update clones, so the notice fires; the early-return "already up to date"
-  // path does not clone and must stay silent.
+  // update makes TWO fetches, and the notice must precede BOTH: the
+  // SKILLS_VERSION read that opens every run, and the tarball download inside
+  // the lock. LIMITS.md §3a promises it of EVERY network-bearing command and
+  // names this command's version check as one of those fetches in the same
+  // paragraph; docs/troubleshooting.md says pharn "says so before it fetches".
+  //
+  // These cases previously asserted the OPPOSITE for the up-to-date early
+  // return: that it stays silent "because it never clones". That reasoning
+  // conflated the CLONE with the network — the early return reaches
+  // fetchRemoteSkillsVersion before it returns — and the assertion promoted the
+  // mistake from a code comment into the suite, so the suite DEFENDED the bug
+  // and a green `npm test` was evidence for it. The inversion below is the fix;
+  // it is recorded here because a test that pins a documented guarantee's
+  // violation is worth naming, not quietly flipping.
+  //
+  // Each order case pins ORDER, not mere presence: the check runs INSIDE the
+  // fetch mock, so it fires at call time and proves the warning came first.
   describe('proxy notice', () => {
     afterEach(() => vi.unstubAllEnvs());
 
@@ -342,14 +358,154 @@ describe('runUpdate (drift-safe)', () => {
       expect(warned).toContain('will not use it');
     });
 
-    // No clone on the up-to-date early return, so no transport to describe.
-    it('says nothing when update returns early without cloning', async () => {
+    // The up-to-date early return skips the CLONE, not the network: it still
+    // reads SKILLS_VERSION over the wire before it returns. Skipping the notice
+    // here was the bug, and this assertion used to pin it.
+    it('warns before the SKILLS_VERSION fetch on the up-to-date early return, which still fetches', async () => {
       vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
       await installed({ skillsVersion: '1.1.0' });
+      let warnedBeforeFetch = false;
+      fetchRemoteSkillsVersion.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        return '1.1.0';
+      });
 
       await runUpdate();
 
+      // No clone — the early return still does what it says.
       expect(fetchRepo).not.toHaveBeenCalled();
+      // But there WAS a fetch, and the warning preceded it.
+      expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
+      expect(warnedBeforeFetch).toBe(true);
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('will not use it');
+    });
+
+    // The case that would have caught the defect. `warns before the clone`
+    // above was green THROUGHOUT the bug, because the notice did precede the
+    // clone — it just did not precede the command's FIRST fetch, which runs
+    // 100+ lines earlier and on every single run.
+    it('warns before the SKILLS_VERSION fetch, not merely before the clone', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      await installed({ skillsVersion: '1.0.0' });
+      let warnedBeforeFetch = false;
+      fetchRemoteSkillsVersion.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        return '1.1.0';
+      });
+
+      await runUpdate();
+
+      expect(warnedBeforeFetch).toBe(true);
+    });
+
+    // The scenario the notice exists for: a proxy-only network blocks direct
+    // egress, so the fetch FAILS. Every other case here exercises a fetch that
+    // succeeds, which would leave a future edit that warned only on the success
+    // path (moving the block inside the try, after the await) undetected.
+    it('warns before the fetch even when that fetch then fails', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      await installed({ skillsVersion: '1.0.0' });
+      let warnedBeforeFetch = false;
+      fetchRemoteSkillsVersion.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        throw new Error('connect ETIMEDOUT');
+      });
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(warnedBeforeFetch).toBe(true);
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('will not use it');
+    });
+
+    // A lock refusal now warns, and that is the point rather than a side
+    // effect: the old placement was justified by "a refused run performs no
+    // fetch", and this proves the premise false — the version check has already
+    // gone over the wire by the time the lock is attempted.
+    it('warns even when the lock is held, because the version fetch already happened', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      await installed({ skillsVersion: '1.0.0' });
+      // This process is alive by definition, so a same-host lock naming it is live.
+      writeFileSync(
+        join(proj, LOCK_FILE),
+        `${JSON.stringify({
+          pid: process.pid,
+          host: hostname(),
+          command: 'add',
+          startedAt: new Date().toISOString(),
+        })}\n`,
+      );
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
+      expect(fetchRepo).not.toHaveBeenCalled();
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('will not use it');
+    });
+
+    // One warning per run, on either path. This pins what the user SEES; it
+    // cannot see source shape — a block duplicated into both paths would still
+    // emit exactly one warning per run, because they are mutually exclusive.
+    // That the source has a single call site is advisory (the comment and
+    // review), not something a count can check.
+    it.each([
+      ['the up-to-date early return', '1.1.0'],
+      ['the full update path', '1.0.0'],
+    ])('warns exactly once on %s', async (_label, skillsVersion) => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      vi.stubEnv('HTTPS_PROXY', 'http://proxy.internal:3128');
+      await installed({ skillsVersion });
+
+      await runUpdate();
+
+      const notices = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .filter((m) => m.includes('will not use it'));
+      expect(notices).toHaveLength(1);
+    });
+
+    // The promptless local step still wins. An uninitialized directory deserves
+    // its actionable "run pharn init", not a note about a transport it will
+    // never reach — and the refusal still costs zero round-trips.
+    it('stays silent when the config load refuses, which comes first', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      loadArchetypeConfigOrExit.mockImplementationOnce(() => {
+        throw new ProcessExit(1);
+      });
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).not.toContain('will not use it');
+    });
+
+    // Same principle one step later: the TTY gate refuses before any network
+    // call, so a piped run without --yes gets its actionable error and nothing
+    // about proxies.
+    it('stays silent when the TTY gate refuses, which also comes first', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      await installed({ skillsVersion: '1.0.0' });
+      setTTY(false, false);
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
       const warned = vi
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
