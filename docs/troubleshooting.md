@@ -7,7 +7,7 @@
 | Prerequisite failure (no `.git`)                                                                        | 1         |
 | Capability fetch / install failure                                                                      | 1         |
 | Unknown command                                                                                         | 1         |
-| Unknown option, or an unexpected extra argument                                                         | 1         |
+| Unknown option, an option the command does not take, or an unexpected extra argument                    | 1         |
 | `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
 | `update` completed but skipped files it could not verify                                                | 0         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
@@ -357,12 +357,45 @@ run un-forced, and `pharn add a11y extra` used to drop the third argument.
 
 Two consequences worth knowing:
 
-- A genuine `--help` or `--version` does **not** excuse an unknown sibling: `pharn --help --bogus`
-  refuses instead of printing the usage text.
-- Flags are parsed globally, so a flag that belongs to another command still parses and is ignored
-  (`pharn init --force` is accepted and does nothing). Only *unrecognised* options are refused.
+- A genuine `--help` or `--version` does **not** excuse a bad sibling — neither an unrecognised one
+  nor one this command does not take: `pharn --help --bogus` and `pharn status --help --json` both
+  refuse instead of printing the usage text. `pharn status --help` on its own is unaffected.
+- Options are **scoped to one command**, and passing one to a different command is an error, not a
+  no-op — see the next section.
 
 Run `pharn --help` for the full option list.
+
+## Unsupported option for this command
+
+```text
+Unsupported option for `status`: "--json"
+
+Usage: ...
+```
+
+Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
+
+| command                | options it accepts                    |
+| ---------------------- | ------------------------------------- |
+| `init`                 | `--archetype` (a deprecated no-op)    |
+| `add`                  | none                                  |
+| `remove` / `rm`        | none                                  |
+| `update`               | `--force`, `--yes` / `-y`             |
+| `list`                 | `--json`                              |
+| `status`               | `--strict`, `--no-drift`              |
+| *any*                  | `--help` / `-h`, `--version` / `-v`   |
+
+The message goes to stderr with the usage text and exits **1**, exactly like `Unknown option` — the
+label differs only because the option is one `pharn` *knows*, so "unknown" would send you hunting for
+a typo that is not there.
+
+Before this, such an option was parsed and silently dropped. That was worst in CI: `pharn status
+--json | jq` received the human-readable box-drawing output and a **success** exit code, and
+`pharn list --strict` exited 0 no matter what it found. With no command word at all, `pharn --json`,
+`pharn --force` and `pharn --strict` each ran a **full `init`** while ignoring the option.
+
+Note that only the option *name* is checked. `pharn list --json=false` is still accepted (`--json` is
+a `list` option) and still prints human-readable output — pass the bare `--json` for JSON.
 
 ## Local development issues
 

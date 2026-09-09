@@ -32,7 +32,9 @@ leaves your project untouched.
 
 There is deliberately **no `--yes` for `init`** — unlike [`pharn update`](update.md), which has one. The
 second of init's prompts is the destructive overwrite confirmation, and auto-confirming file overwrites
-in a pipeline is precisely the hazard that prompt exists to prevent.
+in a pipeline is precisely the hazard that prompt exists to prevent. `pharn init --yes` is therefore
+**refused** (exit 1), not accepted and ignored — as is any other option `init` does not take, such as
+`--force` or `--json`. `--archetype` is `init`'s only option, and it is the deprecated no-op above.
 
 A directory with no `.git` still gets its own, more useful error first (see **Prerequisites** below) —
 the interactivity check never masks it.
