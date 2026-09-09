@@ -105,6 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reproduce the same identical-looking pair — and says what it costs: every file differing from
   upstream becomes `unverifiable` instead of a clean upgrade.
 
+- **`pharn status --no-drift` now warns about a configured proxy before it fetches, as `init` and
+  `add` already did.** The notice sat inside the drift branch, justified by "`--no-drift` never clones" — true,
+  but never clones is not never fetches: that path still reads `SKILLS_VERSION` over the wire. So the
+  one user the notice exists for, on a proxy-only network where direct egress is blocked, got an
+  unexplained timeout from the single path that skipped it. The notice is now emitted once above the
+  branch, ahead of every fetch the command can make. The test suite had promoted the same mistaken
+  reasoning into an assertion and was pinning the silence; that assertion is inverted.
+
 - **The README no longer oversells the network floor.** Its Security section applied one fetch's caps —
   an 8s timeout and a 256KB body cap — to *all* remote input. That pair belongs to the `SKILLS_VERSION`
   read alone: the commit-SHA resolve has no body cap, and the tarball uses a 60s timeout and a 32MB
