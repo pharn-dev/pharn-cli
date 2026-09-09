@@ -152,9 +152,22 @@ describe('runStatus (archetype)', () => {
 
   // --- the proxy notice (wiring) ----------------------------------------------
   //
-  // status clones on the drift path only, so the notice must fire there and be
-  // silent under --no-drift. The --no-drift silence was previously asserted only
-  // in a code comment.
+  // BOTH status paths are network-bearing, so the notice must precede BOTH: the
+  // drift path's clone and `--no-drift`'s SKILLS_VERSION read. LIMITS.md §3a
+  // promises it of EVERY network-bearing command, and docs/troubleshooting.md
+  // says pharn "says so before it fetches" — with `status --no-drift`'s fetch
+  // named in that same section.
+  //
+  // These cases previously asserted the OPPOSITE for --no-drift: that it stays
+  // silent "because it never clones". That reasoning conflated never-clones with
+  // never-fetches, and the assertion promoted the mistake from a code comment
+  // into the suite — so the suite DEFENDED the bug and a green `npm test` was
+  // evidence for it. The inversion below is the fix; it is recorded here because
+  // a test that pins a documented guarantee's violation is worth naming, not
+  // quietly flipping.
+  //
+  // Each case pins ORDER, not mere presence: the check runs INSIDE the fetch
+  // mock, so it fires at call time and proves the warning came first.
   describe('proxy notice', () => {
     afterEach(() => vi.unstubAllEnvs());
 
@@ -179,19 +192,78 @@ describe('runStatus (archetype)', () => {
       expect(warned).toContain('will not use it');
     });
 
-    // --no-drift never clones, so there is no transport to describe.
-    it('says nothing under --no-drift, which never clones', async () => {
+    // --no-drift skips the CLONE, not the network: it still reads
+    // SKILLS_VERSION over the wire. Skipping the notice here was the bug.
+    it('warns before the SKILLS_VERSION fetch under --no-drift, which still fetches', async () => {
       vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
-      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+      let warnedBeforeFetch = false;
+      fetchRemoteSkillsVersion.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        return '1.0.0';
+      });
 
       await runStatus({ drift: false });
 
+      // No clone — the flag still does what it says.
       expect(fetchRepo).not.toHaveBeenCalled();
+      // But there WAS a fetch, and the warning preceded it.
+      expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
+      expect(warnedBeforeFetch).toBe(true);
       const warned = vi
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
         .join('\n');
-      expect(warned).not.toContain('will not use it');
+      expect(warned).toContain('will not use it');
+    });
+
+    // The scenario the notice exists for: a proxy-only network blocks direct
+    // egress, so the fetch FAILS. Every other case here exercises a fetch that
+    // succeeds, which would leave a future edit that warned only on the success
+    // path (moving the block inside the try, after the await) undetected.
+    it('warns before the fetch even when that fetch then fails', async () => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      let warnedBeforeFetch = false;
+      fetchRemoteSkillsVersion.mockImplementationOnce(async () => {
+        warnedBeforeFetch = vi.mocked(prompts.log.warn).mock.calls.length > 0;
+        throw new Error('connect ETIMEDOUT');
+      });
+
+      await expect(runStatus({ drift: false })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      expect(warnedBeforeFetch).toBe(true);
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+      expect(warned).toContain('will not use it');
+    });
+
+    // One warning per run, on either path. This pins what the user SEES; it
+    // cannot see source shape — a block duplicated into both branches would
+    // still emit exactly one warning per run, because the branches are mutually
+    // exclusive. That the source has a single call site is advisory (the
+    // comment and review), not something a count can check.
+    it.each([
+      ['--no-drift', { drift: false }],
+      ['the drift path', {}],
+    ])('warns exactly once on %s', async (_label, opts) => {
+      vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
+      vi.stubEnv('HTTPS_PROXY', 'http://proxy.internal:3128');
+      const cleanup = vi.fn();
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+      fetchRepo.mockResolvedValue({ dir: '/repo', cleanup });
+      readSkillsVersion.mockReturnValue('1.0.0');
+      diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+      await runStatus(opts);
+
+      const notices = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .filter((m) => m.includes('will not use it'));
+      expect(notices).toHaveLength(1);
     });
 
     it('says nothing when no proxy variable is set', async () => {

@@ -55,6 +55,27 @@ async function runArchetypeStatus(
 ): Promise<void> {
   const { strict, drift } = opts;
 
+  // What a configured proxy means here (nothing: fetch never uses one), emitted
+  // ONCE above the branch so it precedes EVERY fetch this command can make —
+  // `--no-drift`'s SKILLS_VERSION read and the drift path's clone alike. BOTH
+  // branches are network-bearing, and that is the whole correction: this block
+  // used to sit inside the drift branch, justified by "`--no-drift` never
+  // clones". True, and irrelevant — never clones is not never fetches, and
+  // `--no-drift` still reaches the network at `fetchRemoteSkillsVersion`. So the
+  // one user the notice exists for (proxy-only, direct egress blocked) got an
+  // unexplained timeout from the single path that skipped it, against
+  // LIMITS.md §3a: EVERY network-bearing command warns before fetching.
+  //
+  // Above both spinners for the same reason it was always pre-spinner: a
+  // log.warn into a live clack spinner frame is overwritten, and each branch
+  // starts its own spinner below (see src/commands/init.ts for the full
+  // rationale). Still below loadArchetypeConfigOrExit, so a legacy-config
+  // refusal keeps winning at zero round-trips.
+  const proxyNotice = detectProxyNotice(process.env);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice));
+  }
+
   if (!drift) {
     const s = spinner();
     s.start('Checking for updates');
@@ -72,15 +93,6 @@ async function runArchetypeStatus(
     if (strict && outdated) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
     return;
-  }
-
-  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
-  // the spinner so it survives the frame and precedes a proxy-caused failure
-  // (see src/commands/init.ts). Inside the drift branch, so
-  // `status --no-drift` — which never clones — stays silent.
-  const proxyNotice = detectProxyNotice(process.env);
-  if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice));
   }
 
   const s = spinner();
