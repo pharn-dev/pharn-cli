@@ -1,6 +1,10 @@
 <div align="center">
 
-# pharn
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/pharn-logo-dark-transparent.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/pharn-logo-light-transparent.svg">
+  <img alt="Pharn" src="assets/pharn-logo-light-transparent.svg" width="420">
+</picture>
 
 **Install PHARN into an existing project: a reviewable workflow for AI-written code.**
 
