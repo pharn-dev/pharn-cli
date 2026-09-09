@@ -145,7 +145,11 @@ npm run build:install-local   # link pharn into every local test-*/ app
 
 ## Security
 
-All remote input (repo/branch/commit, capability names and paths, and capability frontmatter) is validated against strict allowlists, checked for path escapes, and fetched with `redirect: 'error'`, an 8s timeout, and a 256KB body cap. Contents copied from the clone are never executed or parsed by the CLI. Found a vulnerability? Please follow [`SECURITY.md`](SECURITY.md) rather than opening a public issue.
+All remote input (repo/branch/commit, capability names and paths, and capability frontmatter) is validated against strict allowlists and checked for path escapes, and contents copied from the clone are never executed or parsed by the CLI.
+
+Every `fetch` uses `redirect: 'error'`, but the size and time caps are sized per request rather than shared. The `SKILLS_VERSION` read gets an 8s timeout and a 256KB body cap. The commit-SHA resolve gets an 8s timeout and no separate body cap. The repo tarball has to cover a streamed multi-megabyte body rather than a one-line response, so it gets a 60s timeout and a 32MB cap counted as the download streams — and because neither of those bounds a compression bomb, a 128MB cap on the decompressed size and a 20,000-entry cap in the extractor. [`THREAT-MODEL.md`](THREAT-MODEL.md) §3 is the canonical table.
+
+Found a vulnerability? Please follow [`SECURITY.md`](SECURITY.md) rather than opening a public issue.
 
 ---
 

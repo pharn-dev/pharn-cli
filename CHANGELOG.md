@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The README no longer oversells the network floor.** Its Security section applied one fetch's caps —
+  an 8s timeout and a 256KB body cap — to *all* remote input. That pair belongs to the `SKILLS_VERSION`
+  read alone: the commit-SHA resolve has no body cap, and the tarball uses a 60s timeout and a 32MB
+  streamed cap, plus 128MB decompressed and 20,000 entries in the extractor. Only `redirect: 'error'`
+  was ever universal. The caps are now stated per fetch, agreeing with `THREAT-MODEL.md` §3. Docs only —
+  no behavior changed; the code was always right.
+
 - **Ctrl+C at the overwrite prompt no longer orphans the fetched clone.** `pharn init` fetches
   pharn-oss into a temp dir, shows the archetype summary, then — when install targets already exist —
   asks a destructive-overwrite confirmation. That second prompt called `process.exit(0)` on Ctrl+C,
