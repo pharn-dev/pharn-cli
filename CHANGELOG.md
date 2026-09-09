@@ -95,6 +95,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A stale record store no longer reports two identical values as a difference.**
+  `pharn.records.json` is ignored when its `skillsVersion` **or** its `commit` disagrees with
+  `pharn.config.json`, but the warning interpolated only `skillsVersion` on both sides — so a
+  commit-only mismatch read "a different install state (skills v3.0.1) than pharn.config.json
+  (skills v3.0.1)". The records were dropped for real, and the stated reason contradicted itself.
+  The note now names only the field(s) that actually differ (`skillsVersion`, `commit`, or both),
+  prints each SHA in full — the stamp is deliberately not format-checked, so a short prefix could
+  reproduce the same identical-looking pair — and says what it costs: every file differing from
+  upstream becomes `unverifiable` instead of a clean upgrade.
+
 - **The README no longer oversells the network floor.** Its Security section applied one fetch's caps —
   an 8s timeout and a 256KB body cap — to *all* remote input. That pair belongs to the `SKILLS_VERSION`
   read alone: the commit-SHA resolve has no body cap, and the tarball uses a 60s timeout and a 32MB

@@ -19,6 +19,7 @@ import {
   writeRecords,
 } from '../src/lib/install-records.js';
 import { tmpPathFor } from '../src/lib/atomic-write.js';
+import type { UpdateLabel } from '../src/lib/update-decision.js';
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
@@ -329,24 +330,130 @@ describe('recordsBaseline — the stamp gate', () => {
     );
     expect(result.records).toBeNull();
     expect(result.note).toMatch(/different install state/);
+    // Names the field that differs, with BOTH values — and does not drag in the
+    // field that agrees.
+    expect(result.note).toContain('(skillsVersion "1.0.0")');
+    expect(result.note).toContain('pharn.config.json (skillsVersion "1.1.0")');
+    expect(result.note).not.toContain('commit');
   });
 
-  it('a differing commit alone also invalidates the baseline', () => {
+  // -------------------------------------------------------------------------
+  // The note must name the field that ACTUALLY differs. The check fires on
+  // either stamp field, but the message used to interpolate `skillsVersion` on
+  // both sides — so a commit-only mismatch read "(skills v3.0.1) than
+  // pharn.config.json (skills v3.0.1)": two identical values presented as a
+  // difference, while the records were dropped for real.
+  // -------------------------------------------------------------------------
+  it('a differing commit alone also invalidates the baseline — and the note says COMMIT, not skillsVersion', () => {
     const store = {
       schemaVersion: 1,
       skillsVersion: '1.0.0',
       commit: 'a'.repeat(40),
       files: {},
     };
-    expect(
-      recordsBaseline(
-        { kind: 'ok', store },
-        {
+    const result = recordsBaseline(
+      { kind: 'ok', store },
+      {
+        skillsVersion: '1.0.0',
+        commit: 'b'.repeat(40),
+      },
+    );
+    expect(result.records).toBeNull();
+    expect(result.note).not.toContain('skillsVersion');
+    // Both SHAs in FULL: the stamp is type-checked, never COMMIT_RE-checked, so
+    // no prefix length is guaranteed to identify it — and two SHAs sharing a
+    // short prefix would print as an identical pair, which is the very defect
+    // this test exists for.
+    expect(result.note).toContain(`(commit "${'a'.repeat(40)}")`);
+    expect(result.note).toContain(
+      `pharn.config.json (commit "${'b'.repeat(40)}")`,
+    );
+    // The regression itself, stated directly: the two rendered sides differ.
+    const [storeSide, configSide] = result.note!.split(
+      ') than pharn.config.json (',
+    );
+    expect(storeSide).not.toBe(configSide);
+  });
+
+  it('both fields differing are BOTH named, in source order', () => {
+    const result = recordsBaseline(
+      {
+        kind: 'ok',
+        store: {
+          schemaVersion: 1,
           skillsVersion: '1.0.0',
-          commit: 'b'.repeat(40),
+          commit: 'a'.repeat(40),
+          files: {},
         },
-      ).records,
-    ).toBeNull();
+      },
+      { skillsVersion: '1.1.0', commit: 'b'.repeat(40) },
+    );
+    expect(result.records).toBeNull();
+    expect(result.note).toContain(
+      `(skillsVersion "1.0.0", commit "${'a'.repeat(40)}")`,
+    );
+    expect(result.note).toContain(
+      `pharn.config.json (skillsVersion "1.1.0", commit "${'b'.repeat(40)}")`,
+    );
+  });
+
+  it('a null commit renders as `null`, not as blank or the string "null"', () => {
+    // The legal floated-branch case: a store stamped with no SHA. Rendering it
+    // as nothing would print `(commit )`.
+    const result = recordsBaseline(
+      {
+        kind: 'ok',
+        store: {
+          schemaVersion: 1,
+          skillsVersion: '1.0.0',
+          commit: null,
+          files: {},
+        },
+      },
+      { skillsVersion: '1.0.0', commit: 'a'.repeat(40) },
+    );
+    expect(result.note).toContain('(commit null)');
+    expect(result.note).not.toContain('(commit "null")');
+  });
+
+  it('an empty-string version stays visible instead of collapsing to blank', () => {
+    // Both stamp fields are TYPE-checked, never format-checked, so a hand edit
+    // can leave `""` here. Unquoted it would render `(skillsVersion )`.
+    const result = recordsBaseline(
+      {
+        kind: 'ok',
+        store: {
+          schemaVersion: 1,
+          skillsVersion: '',
+          commit: null,
+          files: {},
+        },
+      },
+      { skillsVersion: '1.0.0', commit: null },
+    );
+    expect(result.note).toContain('(skillsVersion "")');
+  });
+
+  it('the note states the cost — `unverifiable`, the label update will actually use', () => {
+    // Bound through UpdateLabel so a rename in lib/update-decision.ts fails
+    // `npm run typecheck` here rather than shipping a message that names a
+    // bucket which no longer exists. With NO usable store every differing file
+    // is row 6 `unverifiable` — NOT row 5 `unrecorded`, which requires a store.
+    const UNVERIFIABLE: UpdateLabel = 'unverifiable';
+    const result = recordsBaseline(
+      {
+        kind: 'ok',
+        store: {
+          schemaVersion: 1,
+          skillsVersion: '0.9.0',
+          commit: null,
+          files: {},
+        },
+      },
+      STAMP,
+    );
+    expect(result.note).toContain(UNVERIFIABLE);
+    expect(result.note).not.toContain('unrecorded');
   });
 });
 
