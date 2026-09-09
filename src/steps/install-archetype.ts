@@ -3,6 +3,7 @@ import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
 import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
+import { layoutPaths } from '../lib/layout.js';
 import { buildRecords, writeRecords } from '../lib/install-records.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { formatModelRoutingLines } from '../lib/model-routing-format.js';
@@ -38,11 +39,13 @@ export async function runInstallArchetype(
   let settingsPreserved: boolean;
   let skillsVersion: string;
   let layout: Layout;
+  let docsWritten: string[];
   try {
     const result = installCapabilities(repoDir, cwd, selection);
     capabilities = result.capabilities;
     settingsPreserved = result.settingsPreserved;
     layout = result.layout;
+    docsWritten = result.docs;
     skillsVersion = readSkillsVersion(repoDir);
   } catch (err) {
     // Stop the spinner and propagate — the orchestrator cleans up the fetched
@@ -55,6 +58,25 @@ export async function runInstallArchetype(
   if (settingsPreserved) {
     log.warn(
       'Existing .claude/settings.json preserved — compare it against pharn-oss to wire the PHARN hooks if needed.',
+    );
+  }
+
+  // Which trusted docs the fetched repo did NOT ship at their expected path. A
+  // set difference over two CLI-owned string arrays — the expected list from the
+  // layout resolver, the written list from the copy routine itself, so a doc can
+  // only be "missing" here because its existence guard rejected it.
+  //
+  // The guard is deliberate (an older clone that predates a doc must still
+  // install, P7), but its silence is not: two docs were absent from every pharn
+  // install while the outro reported "docs written" regardless. Naming them is
+  // the whole point — the copy is still a no-op, it just no longer reads as
+  // success.
+  const docsMissing = layoutPaths(layout).docs.filter(
+    (doc) => !docsWritten.includes(doc),
+  );
+  if (docsMissing.length) {
+    log.warn(
+      `The fetched repo shipped no ${docsMissing.join(', ')} — not installed. Installed commands and checkers that cite ${docsMissing.length === 1 ? 'it' : 'them'} by path will not resolve.`,
     );
   }
 
@@ -113,10 +135,18 @@ export async function runInstallArchetype(
   const modelLines = config.models
     ? formatModelRoutingLines(config.models)
     : [];
+  // Report the docs that LANDED, by name — never a count and never the expected
+  // list. A count would hide exactly the silence this line exists to end, and
+  // the names are what let a user see at a glance that (say) LIMITS.md is not
+  // among them. Zero docs cannot render as "docs written" at all.
+  const docsLine = docsWritten.length
+    ? `${check} ${docsWritten.length} trusted doc${docsWritten.length === 1 ? '' : 's'} written → ${pc.dim(docsWritten.join(', '))}`
+    : `${pc.yellow('!')} no trusted docs written ${pc.dim('(the fetched repo shipped none at their expected paths)')}`;
   outro(
     [
       `${check} ${capabilities.length} capabilit${capabilities.length === 1 ? 'y' : 'ies'} installed → ${pc.dim(`(${grillers} griller${grillers === 1 ? '' : 's'}, ${lenses} lens${lenses === 1 ? '' : 'es'})`)}`,
-      `${check} PHARN commands + hooks + docs written → ${pc.dim('.claude/')}`,
+      `${check} PHARN commands + hooks written → ${pc.dim('.claude/')}`,
+      docsLine,
       `${check} pharn.config.json written ${pc.dim(`(skills v${skillsVersion}, archetypes: ${archetypes.join(', ')})`)}`,
       `${pc.dim(`Done in ${elapsed}s`)}`,
       '',

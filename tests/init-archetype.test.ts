@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -280,5 +286,104 @@ describe('archetype install (fixture e2e)', () => {
     expect(
       readPharnConfig(proj)!.capabilities!.map((c) => c.name),
     ).not.toContain('backwards-compat');
+  });
+
+  // The outro is the install's only claim surface, and it used to print
+  // `PHARN commands + hooks + docs written` unconditionally — so two docs that
+  // every install silently dropped still read as success. Each doc copy stays
+  // existence-guarded (P7); what changes is that a no-op is now visible.
+  async function install(repo: string, proj: string): Promise<void> {
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const selection = resolveCapabilities(
+      archetypes,
+      parseCapabilityIndex(repo),
+    );
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+  }
+
+  function project(proj: string): void {
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+  }
+
+  it('names the docs it wrote, and warns about the ones the clone did not ship', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo); // ships CONSTITUTION.md only, of the four
+    project(proj);
+    vi.mocked(prompts.log.warn).mockClear();
+
+    await install(repo, proj);
+
+    const outro = outroBody();
+    expect(outro).toContain('1 trusted doc written');
+    expect(outro).toContain('CONSTITUTION.md');
+    // The old unconditional claim is gone in BOTH its halves: no combined line,
+    // and nothing asserts docs landed in .claude/ (they never did).
+    expect(outro).not.toContain('commands + hooks + docs written');
+    expect(outro).toContain('PHARN commands + hooks written');
+    // The three the clone did not ship are NAMED, not silently absent.
+    const warned = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(warned).toContain('ARCHITECTURE.md');
+    expect(warned).toContain('THREAT-MODEL.md');
+    expect(warned).toContain('LIMITS.md');
+  });
+
+  // The branch that matters most to this fix, and the one a fixture never
+  // reaches by accident: a clone shipping NO trusted doc at all. The whole
+  // finding is that an existence-guarded no-op used to read as success, so the
+  // zero case must be pinned, not merely reasoned about.
+  it('never renders "docs written" when the clone shipped no doc at all', async () => {
+    const repo = join(tmp.path(), 'nodocs-repo');
+    const proj = join(tmp.path(), 'nodocs-proj');
+    scaffoldRepo(repo);
+    rmSync(join(repo, 'CONSTITUTION.md'));
+    project(proj);
+    vi.mocked(prompts.log.warn).mockClear();
+
+    await install(repo, proj);
+
+    const outro = outroBody();
+    expect(outro).toContain('no trusted docs written');
+    expect(outro).not.toContain('docs written →');
+    expect(outro).not.toContain('1 trusted doc');
+    // The install still SUCCEEDS — the guard is deliberate (P7); only its
+    // silence was the defect.
+    expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
+    const warned = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(warned).toContain('CONSTITUTION.md');
+    expect(warned).toContain('LIMITS.md');
+  });
+
+  it('reports all four and warns about none when the clone ships them all', async () => {
+    const repo = join(tmp.path(), 'full-repo');
+    const proj = join(tmp.path(), 'full-proj');
+    scaffoldRepo(repo);
+    write(join(repo, 'ARCHITECTURE.md'), 'A');
+    write(join(repo, 'THREAT-MODEL.md'), 'T');
+    write(join(repo, 'LIMITS.md'), 'L');
+    project(proj);
+    vi.mocked(prompts.log.warn).mockClear();
+
+    await install(repo, proj);
+
+    expect(outroBody()).toContain('4 trusted docs written');
+    // A flat clone puts all four at the project root, and this is the shape the
+    // pharn layout now mirrors for the two docs upstream keeps there.
+    expect(readFileSync(join(proj, 'THREAT-MODEL.md'), 'utf8')).toBe('T');
+    expect(readFileSync(join(proj, 'LIMITS.md'), 'utf8')).toBe('L');
+    const warned = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(warned).not.toContain('not installed');
   });
 });

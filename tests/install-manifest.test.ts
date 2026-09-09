@@ -84,10 +84,16 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, '.claude/hooks/set-writes-scope.cjs'));
   write(join(repo, '.claude/hooks/set-writes-scope.test.cjs'));
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
+  // The docs, at the paths pharn-oss ACTUALLY ships them in a pharn-layout tree:
+  // the relocation moved CONSTITUTION + ARCHITECTURE under pharn/ and left
+  // THREAT-MODEL + LIMITS at the repo ROOT. `pharn/THREAT-MODEL.md` and
+  // `pharn/LIMITS.md` are deliberately NOT created — they have never existed
+  // upstream, and scaffolding them is what let this manifest expect two paths no
+  // install could ever produce.
   write(join(repo, 'pharn/CONSTITUTION.md'));
   write(join(repo, 'pharn/ARCHITECTURE.md'));
-  write(join(repo, 'pharn/THREAT-MODEL.md'));
-  write(join(repo, 'pharn/LIMITS.md'));
+  write(join(repo, 'THREAT-MODEL.md'));
+  write(join(repo, 'LIMITS.md'));
   // Root in BOTH layouts, like .claude/*.
   write(join(repo, 'features/README.md'));
   write(join(repo, 'LICENSE'));
@@ -100,9 +106,11 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'));
   write(join(repo, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'));
   write(join(repo, 'pharn/pharn-core/seam-resolver/evals/expected/resolve.md'));
-  // dev-only, stay at root, must NOT be part of a pharn install:
-  write(join(repo, 'THREAT-MODEL.md'));
-  write(join(repo, 'LIMITS.md'));
+  // Genuinely dev-only roots, which a pharn install must NOT copy. (The root
+  // THREAT-MODEL.md / LIMITS.md above are NOT in this class — they are product
+  // docs at the only path upstream ever puts them.)
+  write(join(repo, '.dev/features/x/PLAN.md'));
+  write(join(repo, '.dev/memory-bank/lessons-learned.md'));
 }
 
 function selection(): Selection {
@@ -229,16 +237,21 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).toContain(
       'pharn/pharn-core/seam-resolver/evals/cases/resolve.md',
     );
-    expect(k).toContain('pharn/THREAT-MODEL.md');
-    expect(k).toContain('pharn/LIMITS.md');
+    // Root in the pharn layout too — that is where upstream keeps these two, so
+    // that is where the mirror expects them. This pair FAILS against the old
+    // `pharn/`-prefixed constant, which is the point: the previous scaffold
+    // invented `pharn/THREAT-MODEL.md`, so the manifest could expect a path no
+    // clone has ever carried and no assertion noticed.
+    expect(k).toContain('THREAT-MODEL.md');
+    expect(k).toContain('LIMITS.md');
+    expect(k).not.toContain('pharn/THREAT-MODEL.md');
+    expect(k).not.toContain('pharn/LIMITS.md');
     // Layout-INVARIANT: root in both layouts, like .claude/*.
     expect(k).toContain('features/README.md');
     expect(k).not.toContain('pharn/features/README.md');
-    // Path-anchored, not a basename: the point is that nothing leaks to the
-    // project ROOT, and `not.toContain('THREAT-MODEL.md')` would fail on the
-    // pharn/-prefixed key it is supposed to allow.
-    expect(k).not.toContain('THREAT-MODEL.md');
-    expect(k).not.toContain('LIMITS.md');
+    // The genuinely dev-only roots stay out.
+    expect(k).not.toContain('.dev/features/x/PLAN.md');
+    expect(k).not.toContain('.dev/memory-bank/lessons-learned.md');
     expect(k).not.toContain('pharn/floor/validate.test.mjs');
     // .claude/* stays layout-invariant (at root, not under pharn/).
     expect(k).toContain('.claude/commands/pharn-plan.md');

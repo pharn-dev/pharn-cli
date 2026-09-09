@@ -76,12 +76,7 @@ export const FLOOR_TEST_FIXTURES_DIR = 'test-fixtures';
 // installed project share ONE tree. The CLI mirrors whichever layout the fetched
 // clone actually has (lib/layout.ts → detectLayout); these are the pharn/
 // counterparts of the flat constants above. `.claude/*` command/hook/settings
-// paths are identical in both layouts. The docs set is the SAME four documents in
-// both — the pharn install ships THREAT-MODEL.md and LIMITS.md too, because the
-// product commands, floor checkers and contracts it also installs cite them by
-// path; dropping them left every one of those pointers dangling in the user's
-// project. Each doc copy is existence-guarded at both readers, so a clone that
-// predates a doc simply does not install it (P7).
+// paths are identical in both layouts.
 // ---------------------------------------------------------------------------
 export const PHARN_GRILLERS_DIR = 'pharn/pharn-pipeline/grillers';
 export const PHARN_LENSES_DIR = 'pharn/pharn-review';
@@ -89,11 +84,34 @@ export const PHARN_CONTRACTS_DIR = 'pharn/pharn-contracts';
 // The pharn-core surface upstream actually ships (see CORE_DIR above).
 export const PHARN_CORE_DIR = 'pharn/pharn-core';
 export const PHARN_FLOOR_DIR = 'pharn/floor';
+// The same FOUR documents as the flat set, but the prefix is per-DOC, not per-
+// layout: pharn-oss's relocation moved CONSTITUTION.md and ARCHITECTURE.md under
+// pharn/ and left THREAT-MODEL.md and LIMITS.md at the repo ROOT. The mirror
+// (lib/layout.ts) makes a clone-relative path the project-relative one, so these
+// entries are where upstream actually keeps each doc — not a uniform prefix.
+//
+// Measured against pharn-oss@main, not assumed. Of the files ONE install copies,
+// 108 cite these docs, and the spelling tracks the real location per doc:
+// `THREAT-MODEL.md` bare 118×, `pharn/`-prefixed 0×; `LIMITS.md` bare 68×,
+// prefixed 0×; while the two relocated docs are cited `pharn/ARCHITECTURE.md`
+// 239× and `pharn/CONSTITUTION.md` 54×. None is a markdown link — they are
+// backticked prose paths, the form an agent resolves against the PROJECT ROOT.
+// Upstream's own protect-trusted-paths.cjs (a hook THIS install copies) agrees:
+// its DEFAULT_PROTECTED names `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`,
+// `THREAT-MODEL.md`, `LIMITS.md`.
+//
+// Before this, the last two entries read `pharn/THREAT-MODEL.md` / `pharn/LIMITS.md`
+// — paths that have NEVER existed upstream (the GitHub commits API returns an
+// empty history for both). Both readers are existence-guarded, so the two docs
+// were silently dropped from every install and those 108 files shipped citing
+// nothing. The guards stay: a clone that lacks a doc still installs cleanly and
+// simply does not get it (P7) — but steps/install-archetype.ts now REPORTS which
+// docs landed, so an existence-guarded no-op can no longer read as success.
 export const PHARN_TRUSTED_DOCS = [
   'pharn/CONSTITUTION.md',
   'pharn/ARCHITECTURE.md',
-  'pharn/THREAT-MODEL.md',
-  'pharn/LIMITS.md',
+  'THREAT-MODEL.md',
+  'LIMITS.md',
 ];
 // Claude Code surfaces.
 // The product-loop boundary contract: upstream's root features/README.md, cited

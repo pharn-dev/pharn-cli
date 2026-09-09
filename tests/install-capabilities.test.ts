@@ -644,16 +644,20 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
       join(repo, 'pharn/pharn-core/seam-resolver/evals/expected/resolve.md'),
       'expected',
     );
-    write(join(repo, 'pharn/THREAT-MODEL.md'), 'TM');
-    write(join(repo, 'pharn/LIMITS.md'), 'LIM');
     // Root in BOTH layouts, like .claude/* — upstream keeps features/ at the
     // repo root even in a pharn-layout tree.
     write(join(repo, 'features/README.md'), 'FEATURES');
     write(join(repo, 'LICENSE'), 'APACHE-2.0 UPSTREAM');
-    // The dev repo's OWN root copies. Different bytes from the pharn/ ones, so a
-    // test that passes cannot be passing because the two are indistinguishable.
+    // THE TWO DOCS UPSTREAM KEEPS AT THE ROOT. pharn-oss's relocation moved
+    // CONSTITUTION + ARCHITECTURE under pharn/ and left these two behind; there
+    // is no `pharn/THREAT-MODEL.md` or `pharn/LIMITS.md` anywhere in its history,
+    // so this scaffold deliberately does not invent one. Bytes differ from the
+    // pharn/ docs above so a passing assertion cannot be passing on ambiguity.
     write(join(repo, 'THREAT-MODEL.md'), 'T');
     write(join(repo, 'LIMITS.md'), 'L');
+    // Genuinely dev-only roots, which the install must leave behind.
+    write(join(repo, '.dev/features/x/PLAN.md'), 'DEVPLAN');
+    write(join(repo, '.dev/memory-bank/lessons-learned.md'), 'DEVMEM');
   }
 
   function run(): { repo: string; proj: string } {
@@ -692,15 +696,37 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(existsSync(join(proj, 'pharn/ARCHITECTURE.md'))).toBe(true);
   });
 
-  // The gap this closes: the same install ships ten product commands, the floor
-  // checkers and the contracts, and those cite THREAT-MODEL.md / LIMITS.md by
-  // path. Dropping the two docs left every one of those pointers dangling.
-  it('installs all four trusted docs under pharn/, from the pharn/ copies', () => {
+  // THE REGRESSION. Measured over one real install of pharn-oss@main: 108 of the
+  // copied files cite these two docs, always by their BARE name (118x / 68x, and
+  // 0x with a pharn/ prefix) — the form an agent resolves against the project
+  // root. The install shipped none of them, because the constant named
+  // `pharn/THREAT-MODEL.md` / `pharn/LIMITS.md` and both readers are
+  // existence-guarded, so 108 files landed citing files that were never written.
+  //
+  // Fails against the old constant twice over: it wrote to the pharn/ paths, and
+  // this scaffold no longer contains a pharn/ source for it to read.
+  it('installs THREAT-MODEL.md and LIMITS.md at the project ROOT, from the clone root', () => {
     const { proj } = run();
-    expect(readFileSync(join(proj, 'pharn/THREAT-MODEL.md'), 'utf8')).toBe(
-      'TM',
-    );
-    expect(readFileSync(join(proj, 'pharn/LIMITS.md'), 'utf8')).toBe('LIM');
+    expect(readFileSync(join(proj, 'THREAT-MODEL.md'), 'utf8')).toBe('T');
+    expect(readFileSync(join(proj, 'LIMITS.md'), 'utf8')).toBe('L');
+    // The dead paths are not resurrected.
+    expect(existsSync(join(proj, 'pharn/THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/LIMITS.md'))).toBe(false);
+  });
+
+  // The outro's claim surface: what it reports is what the copy branch actually
+  // wrote, in paths.docs order — not the expected list, and not a count.
+  it('reports the four docs it wrote, at their per-doc paths', () => {
+    const repo = join(tmp.path(), 'docs-repo');
+    const proj = join(tmp.path(), 'docs-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepoPharn(repo);
+    expect(installCapabilities(repo, proj, selection()).docs).toEqual([
+      'pharn/CONSTITUTION.md',
+      'pharn/ARCHITECTURE.md',
+      'THREAT-MODEL.md',
+      'LIMITS.md',
+    ]);
   });
 
   // The gap this surface closes: the installed /pharn-build cites
@@ -746,28 +772,19 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     ).toBe(true);
   });
 
-  it('leaves nothing flat at the project root — not even the dev repo root docs', () => {
+  it('leaks no flat-layout RUNTIME surface to the project root', () => {
     const { proj } = run();
-    // The clone HAS root THREAT-MODEL.md / LIMITS.md (the dev repo's own). A
-    // pharn install must take the pharn/ copies and leave these behind.
-    expect(existsSync(join(proj, 'THREAT-MODEL.md'))).toBe(false);
-    expect(existsSync(join(proj, 'LIMITS.md'))).toBe(false);
-    // No flat-layout leakage at root:
+    // The root docs are the exception and have their own case above: they are at
+    // the project root because that is where upstream keeps them, not leakage.
+    // Everything else a flat install would put at the root must be under pharn/.
     expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+    expect(existsSync(join(proj, 'ARCHITECTURE.md'))).toBe(false);
     expect(existsSync(join(proj, 'pharn-contracts'))).toBe(false);
     expect(existsSync(join(proj, 'pharn-pipeline'))).toBe(false);
     expect(existsSync(join(proj, 'pharn-review'))).toBe(false);
     expect(existsSync(join(proj, '.dev'))).toBe(false);
   });
 
-  // THE P7 PIN. `PHARN_TRUSTED_DOCS` names pharn/THREAT-MODEL.md and
-  // pharn/LIMITS.md, but a clone pinned to an older commit does not have them.
-  // Both readers are existence-guarded, so such a clone must install cleanly and
-  // the manifest must simply omit the entries — which is what makes listing a
-  // doc the CLI's promise about WHERE upstream puts it, not a requirement that
-  // it already exists. Without this, adding the constant is a break, not a no-op.
-  // features/README.md is layout-INVARIANT: upstream keeps features/ at the repo
-  // root even in a pharn-layout tree, exactly like .claude/*.
   it('does NOT install the floor test-fixtures subtree (pharn layout)', () => {
     const { proj } = run();
     expect(existsSync(join(proj, 'pharn/floor/validate.mjs'))).toBe(true);
@@ -795,17 +812,28 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(existsSync(join(proj, 'pharn/features/README.md'))).toBe(false);
   });
 
-  it('installs cleanly from a pharn clone that predates the two docs, and expects neither', () => {
+  // THE P7 PIN. A clone that predates a doc must still install cleanly and the
+  // manifest must simply omit it — which is what makes naming a doc the CLI's
+  // promise about WHERE upstream puts it, not a requirement that it exists yet.
+  // The guard is deliberate; only its SILENCE was the defect, and the outro's
+  // warn (steps/install-archetype.ts) is what ends that.
+  it('installs cleanly from a clone that ships neither root doc, and expects neither', () => {
     const repo = join(tmp.path(), 'old-repo');
     const proj = join(tmp.path(), 'old-proj');
     mkdirSync(proj, { recursive: true });
     scaffoldRepoPharn(repo);
-    rmSync(join(repo, 'pharn/THREAT-MODEL.md'));
-    rmSync(join(repo, 'pharn/LIMITS.md'));
+    rmSync(join(repo, 'THREAT-MODEL.md'));
+    rmSync(join(repo, 'LIMITS.md'));
 
-    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    const result = installCapabilities(repo, proj, selection());
     expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(true);
-    expect(existsSync(join(proj, 'pharn/THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(join(proj, 'THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(join(proj, 'LIMITS.md'))).toBe(false);
+    // What the caller reports is the SHORTER list — the absence is visible.
+    expect(result.docs).toEqual([
+      'pharn/CONSTITUTION.md',
+      'pharn/ARCHITECTURE.md',
+    ]);
 
     // Omitted from the expected set is what makes `status` report no `missing`
     // and `update` restore nothing — the manifest IS status's missing bucket.
@@ -816,27 +844,31 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
         layout: 'pharn',
       }).keys(),
     ];
-    expect(keys).not.toContain('pharn/THREAT-MODEL.md');
-    expect(keys).not.toContain('pharn/LIMITS.md');
+    expect(keys).not.toContain('THREAT-MODEL.md');
+    expect(keys).not.toContain('LIMITS.md');
     expect(keys).toContain('pharn/CONSTITUTION.md');
   });
 
-  // P2: the clone is untrusted, and the added docs get the same symlink refusal
-  // the other trusted docs already had — never copied, never expected. Reading
-  // through one would pull bytes from outside the clone into the user's repo.
-  it('never copies or expects a symlinked pharn/LIMITS.md', () => {
+  // P2: the clone is untrusted, and the root docs get the same symlink refusal
+  // the pharn/-prefixed ones already had — never copied, never expected, and
+  // never reported as written. Reading through one would pull bytes from outside
+  // the clone into the user's repo.
+  it('never copies, expects, or reports a symlinked root LIMITS.md', () => {
     const repo = join(tmp.path(), 'link-repo');
     const proj = join(tmp.path(), 'link-proj');
     const outside = join(tmp.path(), 'outside.md');
     mkdirSync(proj, { recursive: true });
     scaffoldRepoPharn(repo);
     write(outside, 'not from the clone');
-    rmSync(join(repo, 'pharn/LIMITS.md'));
-    symlinkSync(outside, join(repo, 'pharn/LIMITS.md'));
+    rmSync(join(repo, 'LIMITS.md'));
+    symlinkSync(outside, join(repo, 'LIMITS.md'));
 
-    installCapabilities(repo, proj, selection());
+    const result = installCapabilities(repo, proj, selection());
 
-    expect(existsSync(join(proj, 'pharn/LIMITS.md'))).toBe(false);
+    expect(existsSync(join(proj, 'LIMITS.md'))).toBe(false);
+    // The reported list is collected inside the copy branch, so a doc the guard
+    // rejected cannot appear in it.
+    expect(result.docs).not.toContain('LIMITS.md');
     const keys = [
       ...collectExpectedInstallPaths({
         repoDir: repo,
@@ -844,9 +876,9 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
         layout: 'pharn',
       }).keys(),
     ];
-    expect(keys).not.toContain('pharn/LIMITS.md');
-    // The real sibling doc in the same directory is still installed.
-    expect(existsSync(join(proj, 'pharn/THREAT-MODEL.md'))).toBe(true);
+    expect(keys).not.toContain('LIMITS.md');
+    // The real sibling doc at the same root is still installed.
+    expect(readFileSync(join(proj, 'THREAT-MODEL.md'), 'utf8')).toBe('T');
   });
 
   it('keeps .claude/* at root (layout-invariant), excluding pharn-dev + *.test', () => {
