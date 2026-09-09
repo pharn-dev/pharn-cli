@@ -19,6 +19,7 @@ import {
   stubProcessExit,
   useTmpDir,
 } from './helpers.js';
+import { LOCK_FILE } from '../src/lib/project-lock.js';
 import type { PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -386,6 +387,26 @@ describe('runUpdate (drift-safe)', () => {
     await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(0));
     expect(fetchRepo).not.toHaveBeenCalled();
     expect(body(DOC)).toBe('constitution v1');
+  });
+
+  it('takes the lock AFTER the confirm — a declined run creates none', async () => {
+    // The half of audit finding P-9 that was deliberately NOT changed. The
+    // acquisition moved to just BEFORE the fetch, which in `update` is already
+    // after the confirm, so no human prompt is ever held under the lock. If a
+    // later refactor hoisted it above the confirm — to close update's one
+    // remaining small round-trip (fetchRemoteSkillsVersion) — then an unanswered
+    // prompt would refuse every other pharn run in this project for up to
+    // STALE_MS. This is the test that fails when that happens.
+    await installed();
+    vi.mocked(prompts.confirm).mockResolvedValue(false);
+    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(0));
+    expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
+  });
+
+  it('leaves no lock behind after a completed run', async () => {
+    await installed();
+    await runUpdate();
+    expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
   });
 
   // --- the two network failures: exit code + EFFECTS, not wording -------------

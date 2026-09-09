@@ -66,6 +66,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by age, because a pid means nothing across machines — and a lock is never deleted by a process that
   does not own it.
 
+### Changed
+
+- **`add` and `update` now take the single-writer lock BEFORE the download, not after it.** A second
+  `pharn` run that is going to be refused used to pay for the full ~2.5 MB pharn-oss tarball first,
+  then discover the lock. It now refuses immediately.
+
+  The saving is stated precisely: what this closes is **the tarball download**, not every round-trip.
+  `pharn update` checks the remote `SKILLS_VERSION` before it prompts, and that small guarded request
+  still happens on a refused run — closing it too would mean holding the lock across the confirm.
+
+  The lock is now held across the download as well as the write. That widens the refusal window by
+  seconds, and it is a deliberate trade: `fetchRepo` is bounded **by construction** (an 8s cap on the
+  SHA resolve, 60s on the download, plus entry/byte caps on the extraction), so the added hold has a
+  ceiling. It also removes a real race — two concurrent `update`s used to both complete their
+  downloads before either learned who had won.
+
+  **`pharn init` is deliberately unchanged, and that is not an oversight.** Both of its prompts (the
+  archetype summary and the destructive-overwrite confirmation) sit *between* its fetch and its
+  install, so the only slot before the fetch is also before both prompts. A prompt has no ceiling —
+  `init` hard-fails off a TTY, so it is always a human at a keyboard — and a walked-away `init` would
+  refuse every other `pharn` command in the project for up to six hours. A bounded download may go
+  under the lock; an unbounded prompt may not. The cost is named rather than hidden: a second writer
+  racing `pharn init` still pays the download before being refused.
+
+  A failed download no longer strands the lock: the fetch moved inside the locked section and its
+  failure now unwinds through the release instead of calling `process.exit`, which skips `finally`.
+
 ### Fixed
 
 - **The README no longer oversells the network floor.** Its Security section applied one fetch's caps —

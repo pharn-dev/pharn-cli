@@ -197,25 +197,6 @@ async function runArchetypeUpdate(
     if (isCancel(ok) || ok !== true) cancelAndExit();
   }
 
-  // What a configured proxy means here (nothing: fetch never uses one) — emitted before
-  // the spinner so it survives the frame and precedes a proxy-caused failure
-  // (see src/commands/init.ts for the full rationale).
-  const proxyNotice = detectProxyNotice(process.env);
-  if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice));
-  }
-
-  const s2 = spinner();
-  s2.start(`Updating from ${REPO_URL}`);
-  let repo;
-  try {
-    repo = await fetchRepo();
-  } catch (err) {
-    s2.stop('Update failed');
-    reportFatal(errorMessage(err), { err });
-    process.exit(1);
-  }
-
   let outcome: UpdateOutcome | null = null;
   // The backup pointer, carried OUT of applyUpdate the moment it exists rather
   // than riding home inside a successful outcome — everything after createBackup
@@ -224,60 +205,123 @@ async function runArchetypeUpdate(
   // A HOLDER, not a bare `let`: TypeScript drops narrowing for a `let` assigned
   // only inside a closure, so the `if` below would fight `strict` for no reason.
   const backupRef: { current: Backup | null } = { current: null };
+  // The spinner is created and started INSIDE the lock, so a run refused before
+  // the lock is taken never renders a frame it would then have to erase. A
+  // HOLDER for the same reason `backupRef` is one, and it is also what lets the
+  // catch stop a spinner that may never have been started: `withProjectLock` can
+  // throw (a held lock, or an fs error creating the file) BEFORE `fn` runs at
+  // all, and `null` is exactly that case.
+  const spinnerRef: { current: ReturnType<typeof spinner> | null } = {
+    current: null,
+  };
+  // The refusal message. A HOLDER too, because it is now assigned from BOTH the
+  // MIN_CLI gate inside the locked closure and the catch below — a bare `let`
+  // written only inside a closure is the narrowing problem `backupRef` documents.
+  const refusalRef: { current: string | null } = { current: null };
   // The ERROR OBJECT, not its message — the reporter needs it to tell an
   // exception (which earns the PHARN_DEBUG affordance) from a curated refusal.
   // Boxed so a thrown nullish value stays distinguishable from "nothing failed"
   // across the deferred, post-cleanup exit below, and so the same box can be
   // handed straight to reportFatal.
   let failure: FatalCause | null = null;
-  let refusal: string | null = null;
   try {
-    // THE MIN_CLI GATE — upstream's lever to refuse a stale CLI CLEANLY instead
-    // of breaking somewhere downstream. Inside the try (like `add`'s gates) so
-    // the clone's finally cleanup still runs before any exit, and BEFORE
-    // applyUpdate so a refusal writes nothing at all. It can only fire after the
-    // confirm, because the file it reads lives in the clone — named in
-    // GRILL.md; the refusal still costs zero writes.
-    const gate = minCliGate(repo.dir, PHARN_VERSION);
-    if (gate.warning) log.warn(gate.warning);
-    if (gate.refusal) {
-      s2.stop('Update refused');
-      refusal = gate.refusal;
-    } else {
-      // The single-writer lock, taken AFTER the confirm and after the fetch,
-      // and released before the clone cleanup below. Not earlier: the
-      // fetch-failure path above ends in process.exit(1) with no finally, so a
-      // lock taken before it would be stranded in the project root on every
-      // offline / rate-limited / DNS failure — the most common failure this
-      // command has. The fetch writes nothing to the project, so acquiring here
-      // still precedes the first write, and it keeps the held window short,
-      // which is what lets STALE_MS stay short.
-      outcome = await withProjectLock(cwd, 'update', () =>
-        applyUpdate(repo.dir, repo.sha, config, cwd, force, (backup) => {
-          backupRef.current = backup;
-        }),
-      );
-      s2.stop(
-        outcome.plan.writes.length
-          ? 'Capabilities updated'
-          : 'Nothing to write',
-      );
-    }
+    // THE SINGLE-WRITER LOCK — taken AFTER the confirm and BEFORE the fetch.
+    //
+    // BEFORE THE FETCH, because a run that is going to be refused should not pay
+    // for a ~2.5 MB tarball first — the principle the TTY gate above already
+    // states. The claim here is deliberately narrower than that one: the
+    // `fetchRemoteSkillsVersion` check further up has already run, so a refused
+    // `update` still makes ONE small guarded GET. What moving the lock closes is
+    // THE TARBALL DOWNLOAD, not every round-trip; saying "zero round-trips" here
+    // would be false.
+    //
+    // AFTER THE CONFIRM, and that half is not negotiable. The confirm is this
+    // command's last human step, and holding the lock across an unanswered
+    // prompt would block every other pharn run in the project for as long as a
+    // human takes to answer — an UNBOUNDED hold, where the fetch below is
+    // bounded BY CONSTRUCTION (repo.ts caps the SHA resolve at 8s and the
+    // download at 60s; the extraction is capped by entry/byte limits rather than
+    // by a clock). Bounded work may go under the lock; unbounded work may not.
+    // `init` cannot be given this shape at all — BOTH of its prompts sit between
+    // its fetch and its install — which is why init's lock deliberately stays
+    // where it is (see the note in src/commands/init.ts).
+    //
+    // THE FETCH LIVES INSIDE `fn`, not before it, so a fetch failure unwinds
+    // through withProjectLock's `finally` and RELEASES. It used to end in
+    // process.exit(1), which skips every finally — so a lock acquired before it
+    // would have been stranded in the project root on every offline /
+    // rate-limited / DNS failure, the most common failure this command has.
+    outcome = await withProjectLock(cwd, 'update', async () => {
+      // What a configured proxy means here (nothing: fetch never uses one) —
+      // emitted before the spinner so it survives the frame and precedes a
+      // proxy-caused failure (see src/commands/init.ts for the full rationale).
+      // Inside the lock: a refused run performs no fetch, so a warning about how
+      // that fetch would behave is noise it should never print.
+      const proxyNotice = detectProxyNotice(process.env);
+      if (proxyNotice) {
+        log.warn(proxyNoticeMessage(proxyNotice));
+      }
+
+      const s2 = spinner();
+      spinnerRef.current = s2;
+      s2.start(`Updating from ${REPO_URL}`);
+      // Assigned ONLY on success, and the cleanup that consumes it is scoped to
+      // the try below. The previous shape declared `repo` outside its try so an
+      // outer `finally` could clean it up — which, with the fetch now inside the
+      // lock, would dereference `undefined` on a failed fetch and mask the real
+      // "could not reach" message with a TypeError.
+      const repo = await fetchRepo();
+      try {
+        // THE MIN_CLI GATE — upstream's lever to refuse a stale CLI CLEANLY
+        // instead of breaking somewhere downstream. Inside this try so the
+        // clone's cleanup still runs before any exit, and BEFORE applyUpdate so
+        // a refusal writes nothing at all. It can only fire after the confirm,
+        // because the file it reads lives in the clone — named in GRILL.md; the
+        // refusal still costs zero writes.
+        const gate = minCliGate(repo.dir, PHARN_VERSION);
+        if (gate.warning) log.warn(gate.warning);
+        if (gate.refusal) {
+          s2.stop('Update refused');
+          refusalRef.current = gate.refusal;
+          return null;
+        }
+        const applied = await applyUpdate(
+          repo.dir,
+          repo.sha,
+          config,
+          cwd,
+          force,
+          (backup) => {
+            backupRef.current = backup;
+          },
+        );
+        s2.stop(
+          applied.plan.writes.length
+            ? 'Capabilities updated'
+            : 'Nothing to write',
+        );
+        return applied;
+      } finally {
+        repo.cleanup();
+      }
+    });
   } catch (err) {
     // A held lock is a POLICY refusal, not a crash: it earns the same
     // no-PHARN_DEBUG treatment as the MIN_CLI gate, because the message already
     // names the one action that resolves it. Routing it through `failure` would
     // offer a stack trace for a situation with nothing to debug.
+    //
+    // `?.` because a lock refusal is thrown before `fn` runs, so there is no
+    // spinner to stop — stopping one that never started would paint a stray frame.
     if (err instanceof ProjectLockedError) {
-      s2.stop('Update refused');
-      refusal = err.message;
+      spinnerRef.current?.stop('Update refused');
+      refusalRef.current = err.message;
     } else {
-      s2.stop('Update failed');
+      spinnerRef.current?.stop('Update failed');
       failure = { err };
     }
-  } finally {
-    repo.cleanup();
   }
+  const refusal = refusalRef.current;
 
   // A policy refusal is not a failure to debug — no PHARN_DEBUG hint, and the
   // message already names the one action that resolves it.
