@@ -53,10 +53,11 @@ import { safeJoin } from './validate.js';
 // Determinism (P5): every branch is a type check or a byte comparison — a
 // symlink test, `isFile()`, `sha256 !==`. No judgment, no third outcome.
 //
-// Trust (P2): `repoDir` is an untrusted degit clone and `rels` are names read
-// from it. Both `safeJoin`s run BEFORE either walk, so a rel that escapes either
-// base is refused LOUDLY and no catch below can bury it. File contents are hashed,
-// never parsed or executed.
+// Trust (P2): `repoDir` is an untrusted tree — a codeload tarball fetched and
+// extracted into a temp dir (lib/repo.ts, lib/tar-extract.ts) — and `rels` are
+// names read from it. Both `safeJoin`s run BEFORE either walk, so a rel that
+// escapes either base is refused LOUDLY and no catch below can bury it. File
+// contents are hashed, never parsed or executed.
 //
 // NAMED RESIDUAL — this scan is a CHECK, not a LOCK (P0/P7, and stated rather
 // than implied). It reads the destination at time T; `installCapabilityDirs`

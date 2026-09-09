@@ -1,0 +1,35 @@
+{
+  "base": "a382bc3447016af8a28abe16e5cf2e8d35b74c78",
+  "inside": [
+    ".dev/features/retire-degit-present-tense/GRILL.md",
+    ".dev/features/retire-degit-present-tense/PLAN.md",
+    ".dev/features/retire-degit-present-tense/REGRESSION.md",
+    ".dev/features/retire-degit-present-tense/REVIEW.md",
+    ".dev/features/retire-degit-present-tense/SHIP.md",
+    ".dev/features/retire-degit-present-tense/VERIFY.md",
+    ".dev/features/retire-degit-present-tense/regression-report.json",
+    ".dev/features/retire-degit-present-tense/verify-report.json",
+    ".pharn/writes-scope.json",
+    "CHANGELOG.md",
+    "docs/roadmap.md",
+    "src/lib/constants.ts",
+    "src/lib/dest-drift.ts",
+    "src/lib/symlink-guard.ts",
+    "src/lib/validate.ts",
+    "tests/init.test.ts",
+    "tests/validate.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
