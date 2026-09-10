@@ -16,7 +16,7 @@ import {
   type FatalCause,
 } from '../lib/report-error.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
-import { REPO_URL } from '../lib/constants.js';
+import { FEATURES_README, REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
@@ -31,7 +31,7 @@ import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { applyWrites, ApplyError, readDiskState } from '../lib/apply-update.js';
 import { createBackup, BACKUP_DIR } from '../lib/backup.js';
 import { sha256File } from '../lib/hash.js';
-import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
+import { configLayout, detectLayout, layoutPaths, resolveFeaturesReadme } from '../lib/layout.js';
 import {
   buildRecords,
   readRecords,
@@ -129,6 +129,7 @@ interface UpdateOutcome {
   recordsNote: string | null;
   versionWithheld: boolean;
   abandonedLayout: Layout | null;
+  featuresReadmeRelocation: boolean;
 }
 
 async function runArchetypeUpdate(
@@ -566,6 +567,10 @@ async function applyUpdate(
     versionWithheld,
     abandonedLayout:
       previousLayout !== layout && written.length > 0 ? previousLayout : null,
+    featuresReadmeRelocation:
+      records !== null &&
+      FEATURES_README in records &&
+      resolveFeaturesReadme(repoDir, layout) !== FEATURES_README,
   };
 }
 
@@ -652,6 +657,12 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   } else if (outcome.abandonedLayout === 'pharn') {
     log.warn(
       'Your install moved to the flat layout. The old pharn/ tree (contracts, floor scripts, docs, and capabilities) is left behind and is no longer managed by pharn — delete it by hand.',
+    );
+  }
+
+  if (outcome.featuresReadmeRelocation) {
+    log.warn(
+      'Your install now keeps the product-loop boundary contract at pharn/features/README.md. A copy at the project root (features/README.md) is left behind and is no longer managed by pharn — delete it by hand.',
     );
   }
 

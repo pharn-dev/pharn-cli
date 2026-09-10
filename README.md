@@ -143,7 +143,7 @@ still understood through the recorded `layout` field.
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md` | Trusted PHARN docs copied from upstream in the current layout. |
 | `THREAT-MODEL.md`, `LIMITS.md` | Trusted PHARN docs copied at the project root in the current layout. |
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`) | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten. |
-| `features/README.md` | The feature-loop boundary contract referenced by installed commands. |
+| `pharn/features/README.md` | The feature-loop boundary contract referenced by installed commands (pharn layout). |
 | `pharn.config.json` | Installed version, commit, layout, archetypes, capabilities, and defaults. |
 | `pharn.records.json` | Per-file hashes for drift-safe updates. Commit this with the config. |
 

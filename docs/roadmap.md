@@ -9,7 +9,7 @@ What PHARN CLI does today versus what is planned.
 | Archetype-driven `pharn init` — detect `ssr`/`backend`/`spa`/`lib` from `package.json` names + a bounded, symlink-safe file-tree scan | Shipped |
 | Resolve applicable capabilities (grillers + lenses) by `applies` (`universal` or an intersecting archetype), skipping the rest with a reason | Shipped |
 | Fetch `pharn-dev/pharn-oss` as a SHA-pinned `codeload` tarball and copy capabilities + fixed product surfaces into the mirrored layout (`flat` or `pharn/`) | Shipped |
-| Copy the canonical `CONSTITUTION.md` verbatim + the other trusted docs, upstream's `LICENSE` and `features/README.md`; write `pharn.config.json` (`pharnVersion`, `skillsVersion`, `repo`, `commit`, `installedAt`, archetypes, capabilities, layout, `models`, `seam`) and `pharn.records.json` | Shipped |
+| Copy the canonical `CONSTITUTION.md` verbatim + the other trusted docs, upstream's `LICENSE` and `pharn/features/README.md`; write `pharn.config.json` (`pharnVersion`, `skillsVersion`, `repo`, `commit`, `installedAt`, archetypes, capabilities, layout, `models`, `seam`) and `pharn.records.json` | Shipped |
 | `pharn add <name \| role:name>` — add one capability to an existing project | Shipped |
 | `pharn remove <name \| role:name>` — remove an installed capability (no clone, no network) | Shipped |
 | `pharn update` — re-resolve recorded archetypes and re-fetch capabilities at the latest version | Shipped |

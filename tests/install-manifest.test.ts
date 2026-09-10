@@ -94,8 +94,8 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/ARCHITECTURE.md'));
   write(join(repo, 'THREAT-MODEL.md'));
   write(join(repo, 'LIMITS.md'));
-  // Root in BOTH layouts, like .claude/*.
-  write(join(repo, 'features/README.md'));
+  // Post-relocation pharn layout ships under pharn/features/.
+  write(join(repo, 'pharn/features/README.md'));
   write(join(repo, 'LICENSE'));
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
@@ -246,9 +246,9 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).toContain('LIMITS.md');
     expect(k).not.toContain('pharn/THREAT-MODEL.md');
     expect(k).not.toContain('pharn/LIMITS.md');
-    // Layout-INVARIANT: root in both layouts, like .claude/*.
-    expect(k).toContain('features/README.md');
-    expect(k).not.toContain('pharn/features/README.md');
+    // Post-relocation pharn layout resolves to pharn/features/.
+    expect(k).toContain('pharn/features/README.md');
+    expect(k).not.toContain('features/README.md');
     // The genuinely dev-only roots stay out.
     expect(k).not.toContain('.dev/features/x/PLAN.md');
     expect(k).not.toContain('.dev/memory-bank/lessons-learned.md');

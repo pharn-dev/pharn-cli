@@ -13,6 +13,8 @@ import {
   PHARN_GRILLERS_DIR,
   PHARN_LENSES_DIR,
   PHARN_LICENSE_DEST,
+  FEATURES_README,
+  PHARN_FEATURES_README,
   PHARN_TRUSTED_DOCS,
   TRUSTED_DOCS,
   UPSTREAM_LICENSE,
@@ -67,6 +69,7 @@ export interface LayoutPaths {
   // layouts — only their prefix differs. Every consumer existence-guards each
   // entry, so a clone missing one contributes nothing rather than failing (P7).
   docs: string[];
+  featuresReadme: string;
 }
 
 // Detect the layout of a fetched clone (or any dir) by a SPECIFIC marker the flat
@@ -91,6 +94,7 @@ export function layoutPaths(layout: Layout): LayoutPaths {
       core: PHARN_CORE_DIR,
       floor: PHARN_FLOOR_DIR,
       docs: PHARN_TRUSTED_DOCS,
+      featuresReadme: PHARN_FEATURES_README,
       license: { from: UPSTREAM_LICENSE, to: PHARN_LICENSE_DEST },
     };
   }
@@ -102,6 +106,7 @@ export function layoutPaths(layout: Layout): LayoutPaths {
     core: CORE_DIR,
     floor: FLOOR_DIR,
     docs: TRUSTED_DOCS,
+    featuresReadme: FEATURES_README,
     license: { from: UPSTREAM_LICENSE, to: FLAT_LICENSE_DEST },
   };
 }
@@ -111,4 +116,18 @@ export function layoutPaths(layout: Layout): LayoutPaths {
 // the field, or a hand-edited garbage value) → `flat`, the safe legacy default.
 export function configLayout(config: PharnConfig): Layout {
   return config.layout === 'pharn' ? 'pharn' : 'flat';
+}
+
+// Resolve which relative path the clone carries the product-loop boundary contract
+// at — layout-dependent since pharn-oss SKILLS_VERSION 5.0.0. For the pharn
+// layout, a pre-relocation clone may still ship only the root path; the ordered
+// probe keeps that window working without reading any clone content (P5).
+export function resolveFeaturesReadme(repoDir: string, layout: Layout): string {
+  if (layout === 'pharn') {
+    const preferred = safeJoin(repoDir, PHARN_FEATURES_README);
+    if (!existsSync(preferred)) {
+      return FEATURES_README;
+    }
+  }
+  return layoutPaths(layout).featuresReadme;
 }

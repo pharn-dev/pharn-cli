@@ -139,7 +139,7 @@ installs the **universal** capabilities — the ones that apply to any codebase.
 
 Not an error. Just before installing, `pharn init` lists which of its actual write targets already
 exist in your project (capability dirs, product commands/hooks, contracts, `pharn-core`, floor
-checkers, all four trusted docs, pharn's `LICENSE` copy, the root `features/README.md`, and
+checkers, all four trusted docs, pharn's `LICENSE` copy, `pharn/features/README.md`, and
 `pharn.config.json`) and asks you to confirm before overwriting. Confirm to continue
 or cancel to exit cleanly (code 0); the default is **no**.
 
