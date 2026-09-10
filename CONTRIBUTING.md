@@ -1,6 +1,6 @@
 # Contributing to pharn
 
-Thanks for your interest in improving PHARN. This repository **is `pharn`** — the ESM-only Node CLI that installs PHARN capabilities from `pharn-dev/pharn-oss` into a project — under `.claude/` and `pharn/`, plus `THREAT-MODEL.md`, `LIMITS.md`, `features/README.md`, `pharn.config.json` and `pharn.records.json` at the project root. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
+Thanks for your interest in improving PHARN. This repository **is `pharn`** — the ESM-only Node CLI that installs PHARN capabilities from `pharn-dev/pharn-oss` into a project — under `.claude/` and `pharn/`, plus `THREAT-MODEL.md`, `LIMITS.md`, `pharn/features/README.md`, `pharn.config.json` and `pharn.records.json` at the project root. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
 
 ## Read first
 

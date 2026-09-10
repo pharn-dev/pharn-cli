@@ -143,7 +143,7 @@ still understood through the recorded `layout` field.
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md` | Trusted PHARN docs copied from upstream in the current layout. |
 | `THREAT-MODEL.md`, `LIMITS.md` | Trusted PHARN docs copied at the project root in the current layout. |
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`) | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten. |
-| `features/README.md` | The feature-loop boundary contract referenced by installed commands. |
+| `pharn/features/README.md` | The feature-loop boundary contract referenced by installed commands (pharn layout). |
 | `pharn.config.json` | Installed version, commit, layout, archetypes, capabilities, and defaults. |
 | `pharn.records.json` | Per-file hashes for drift-safe updates. Commit this with the config. |
 
@@ -151,7 +151,7 @@ An existing `.claude/settings.json` is preserved. PHARN may create it when
 absent, but it never overwrites your Claude Code settings.
 
 As you run the workflow, PHARN writes one directory per increment —
-`features/<name>/` — holding that increment's `SPEC.md`, `PLAN.md`, `GRILL.md`,
+`pharn/features/<name>/` — holding that increment's `SPEC.md`, `PLAN.md`, `GRILL.md`,
 `BUILD.md`, `REGRESSION.md`, `VERIFY.md` and `SHIP.md`. Those are the durable
 record; commit them. `.pharn/` (runtime scratch), `.pharn-backup/` (see
 [Safety model](#safety-model)) and `.pharn.lock` are not — add them to your
@@ -173,8 +173,8 @@ instead of overwriting it — so until you copy the hook wiring across, every
 guarantee that depends on a `PreToolUse` hook is inactive.
 
 **Once wired, the write guard is fail-closed.** With no active scope, Claude
-Code's Write/Edit/MultiEdit/NotebookEdit tools are restricted to `features/**`
-and `.pharn/**`; ordinary edits to your own source are denied. That is the
+Code's Write/Edit/MultiEdit/NotebookEdit tools are restricted to
+`pharn/features/**` and `.pharn/**`; ordinary edits to your own source are denied. That is the
 intended posture — a stage sets the scope from the concrete paths your
 `PLAN.md` declared — but it means the guard is not a drop-in for editing
 outside a PHARN run. Clearing the scope returns to this default; it does not

@@ -1,10 +1,10 @@
 # PHARN CLI documentation
 
-`pharn` installs [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code — into your project. Run `pharn init` to detect your project's archetype(s) and install the applicable PHARN **capabilities** (grillers + lenses) from `pharn-dev/pharn-oss`, alongside the fixed product surfaces: the `pharn-*` commands and `.cjs` hooks under `.claude/`, the contracts, `pharn-core` and floor checkers, four trusted docs, upstream's `LICENSE` copy, and the root `features/README.md`. It then writes `pharn.config.json` and `pharn.records.json`.
+`pharn` installs [PHARN](https://github.com/pharn-dev/pharn-oss) — an audit-grade methodology for Claude Code — into your project. Run `pharn init` to detect your project's archetype(s) and install the applicable PHARN **capabilities** (grillers + lenses) from `pharn-dev/pharn-oss`, alongside the fixed product surfaces: the `pharn-*` commands and `.cjs` hooks under `.claude/`, the contracts, `pharn-core` and floor checkers, four trusted docs, upstream's `LICENSE` copy, and the product-loop boundary contract at `pharn/features/README.md`. It then writes `pharn.config.json` and `pharn.records.json`.
 
-The install **mirrors whichever layout upstream ships**. Today that is the `pharn` layout: most surfaces move under `pharn/`, while `THREAT-MODEL.md`, `LIMITS.md`, `features/README.md` and `.claude/` stay at the project root. The legacy `flat` layout keeps everything at the root; an install records which one it used in `pharn.config.json`.
+The install **mirrors whichever layout upstream ships**. Today that is the `pharn` layout: most surfaces move under `pharn/`, while `THREAT-MODEL.md`, `LIMITS.md`, and `.claude/` stay at the project root. The legacy `flat` layout keeps everything at the root; an install records which one it used in `pharn.config.json`.
 
-The CLI version (`0.4.0`) and the content version it installs (`skillsVersion`, from upstream's `SKILLS_VERSION`) are independent numbers — `status` and `update` are keyed to the latter.
+The CLI version (`0.5.0`) and the content version it installs (`skillsVersion`, from upstream's `SKILLS_VERSION`) are independent numbers — `status` and `update` are keyed to the latter.
 
 ## Getting started
 

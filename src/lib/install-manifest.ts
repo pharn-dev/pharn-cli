@@ -4,11 +4,14 @@ import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   DEV_COMMAND_PREFIX,
-  FEATURES_README,
   FLOOR_TEST_FIXTURES_DIR,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
-import { layoutPaths, type LayoutPaths } from './layout.js';
+import {
+  layoutPaths,
+  resolveFeaturesReadme,
+  type LayoutPaths,
+} from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import {
   assertNoDotDot,
@@ -179,14 +182,12 @@ export function collectExpectedInstallPaths(params: {
       add(paths.license.to, licenseFrom);
     }
   }
-  // features/README.md — the product-loop boundary contract the installed product
-  // commands cite by name. Root in BOTH layouts, like .claude/*. Manifest posture
-  // (lstat + component walk), not the writer's leaf-only isSymlink: a symlink
-  // must never enter the expected set, since this map drives update's WRITES.
-  if (findSymlinkComponent(repoDir, FEATURES_README) === null) {
-    const featuresFrom = safeJoin(repoDir, FEATURES_README);
+  // features/README.md — layout-dependent since pharn-oss 5.0.0; see resolveFeaturesReadme.
+  const featuresRel = resolveFeaturesReadme(repoDir, layout);
+  if (findSymlinkComponent(repoDir, featuresRel) === null) {
+    const featuresFrom = safeJoin(repoDir, featuresRel);
     if (lstatSync(featuresFrom, { throwIfNoEntry: false })?.isFile()) {
-      add(FEATURES_README, featuresFrom);
+      add(featuresRel, featuresFrom);
     }
   }
   // Contracts + pharn-core (whole dirs) + floor checkers (test files excluded),

@@ -646,7 +646,7 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     );
     // Root in BOTH layouts, like .claude/* — upstream keeps features/ at the
     // repo root even in a pharn-layout tree.
-    write(join(repo, 'features/README.md'), 'FEATURES');
+    write(join(repo, 'pharn/features/README.md'), 'FEATURES');
     write(join(repo, 'LICENSE'), 'APACHE-2.0 UPSTREAM');
     // THE TWO DOCS UPSTREAM KEEPS AT THE ROOT. pharn-oss's relocation moved
     // CONSTITUTION + ARCHITECTURE under pharn/ and left these two behind; there
@@ -804,10 +804,25 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(false);
   });
 
-  it('installs features/README.md at the project ROOT, not under pharn/', () => {
+  it('installs pharn/features/README.md under pharn/, not at the project root', () => {
     const { proj } = run();
-    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
+    expect(readFileSync(join(proj, 'pharn/features/README.md'), 'utf8')).toBe(
       'FEATURES',
+    );
+    expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
+  });
+
+  it('installs at the project root when the clone predates the relocation (C2b window)', () => {
+    const repo = join(tmp.path(), 'pre-reloc-repo');
+    const proj = join(tmp.path(), 'pre-reloc-proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepoPharn(repo);
+    rmSync(join(repo, 'pharn/features/README.md'));
+    write(join(repo, 'features/README.md'), 'LEGACY');
+
+    installCapabilities(repo, proj, selection());
+    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
+      'LEGACY',
     );
     expect(existsSync(join(proj, 'pharn/features/README.md'))).toBe(false);
   });

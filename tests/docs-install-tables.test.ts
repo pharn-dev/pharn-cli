@@ -2,11 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import {
-  CLAUDE_COMMANDS_DIR,
-  CLAUDE_HOOKS_DIR,
-  FEATURES_README,
-} from '../src/lib/constants.js';
+import { CLAUDE_COMMANDS_DIR, CLAUDE_HOOKS_DIR } from '../src/lib/constants.js';
 import { PHARN_CONFIG_FILE } from '../src/lib/install-manifest.js';
 import { RECORDS_FILE } from '../src/lib/install-records.js';
 import { layoutPaths } from '../src/lib/layout.js';
@@ -45,7 +41,7 @@ const REQUIRED = [
   ...pharn.docs,
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
-  FEATURES_README,
+  pharn.featuresReadme,
   PHARN_CONFIG_FILE,
   RECORDS_FILE,
 ];
@@ -57,6 +53,7 @@ const REQUIRED = [
  * it is named there on purpose, parenthesized beside `pharn/LICENSE`.
  */
 const FORBIDDEN_LEADS = [
+  flat.featuresReadme,
   flat.grillers,
   flat.lenses,
   flat.contracts,

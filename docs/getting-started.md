@@ -19,7 +19,7 @@ package prerequisite to satisfy. See [Troubleshooting](troubleshooting.md).
 
 PHARN installs **into your existing project**. Just before writing, `pharn init` checks which of its
 actual install targets (the selected capability dirs, the product commands/hooks, the contracts, core
-and floor dirs, all four trusted docs, pharn's `LICENSE` copy, the root `features/README.md`, and
+and floor dirs, all four trusted docs, pharn's `LICENSE` copy, `pharn/features/README.md`, and
 `pharn.config.json`) already exist in your project. If any do, it lists them and asks you to confirm
 before overwriting — default **no**; if none do, there is no prompt at all. Your
 `.claude/settings.json` is never overwritten, so it is not part of the check.
@@ -62,7 +62,7 @@ npx @pharn-dev/pharn init
    stops here with a named error and writes nothing.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus
    the fixed product surfaces (commands, hooks, contracts, `pharn-core`, floor checkers, the four trusted
-   docs, upstream's `LICENSE` copy, and the root `features/README.md`) into the mirrored layout, then
+   docs, upstream's `LICENSE` copy, and `pharn/features/README.md`) into the mirrored layout, then
    writes `pharn.records.json` and `pharn.config.json`.
 
 To add a capability the detection didn't select — or remove one it did — use
@@ -82,7 +82,7 @@ surfaces:
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim — see the layout note below                                       |
 | `THREAT-MODEL.md`, `LIMITS.md`                                        | The other two, at the project **root** — where upstream keeps them and where the installed commands cite them        |
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched |
-| `features/README.md`                                                  | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                |
+| `pharn/features/README.md`                                            | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                |
 | `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                             |
 | `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites all but `unreadable`          |
 

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-10
+
+### Changed — BREAKING
+
+- **Product artifact root relocation (pharn-oss SKILLS_VERSION 5.0.0).** A `pharn`-layout install now writes the product-loop boundary contract to `pharn/features/README.md` instead of the project root. The legacy flat layout is unchanged (`features/README.md`). A pre-relocation clone probe keeps the release-ordering window working.
+- **`pharn update` migration advisory** when the records store still tracks the old root path and the resolved install path differs.
+
 ### Security
 
 - **`smol-toml` forced off the vulnerable range with an npm `overrides` entry.**

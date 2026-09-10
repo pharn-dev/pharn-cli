@@ -14,11 +14,15 @@ import {
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
   DEV_COMMAND_PREFIX,
-  FEATURES_README,
   FLOOR_TEST_FIXTURES_DIR,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
-import { detectLayout, layoutPaths, type LayoutPaths } from './layout.js';
+import {
+  detectLayout,
+  layoutPaths,
+  resolveFeaturesReadme,
+  type LayoutPaths,
+} from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
@@ -150,6 +154,7 @@ export function installCapabilities(
   // The resolved relative paths are the clone SOURCE and the project DEST at once —
   // the CLI never rewrites copied file contents (lib/layout.ts).
   const paths = layoutPaths(detectLayout(repoDir));
+  const featuresRel = resolveFeaturesReadme(repoDir, paths.layout);
 
   // Copy the selected capability dirs (pre-flighted; no partial installs).
   const capabilities = installCapabilityDirs(
@@ -219,7 +224,7 @@ export function installCapabilities(
     });
   }
 
-  // --- features/README.md (root in BOTH layouts, like .claude/*) -------------
+  // --- features/README.md (layout-dependent; see resolveFeaturesReadme) ------
   // The product-loop boundary contract the installed product commands cite by
   // name. Deliberately NOT called a trusted doc: it is not write-protected by
   // the installed hook.
@@ -247,14 +252,14 @@ export function installCapabilities(
   // optional (an older pinned clone has none), and its absence must stay a
   // silent no-op — so a clone without it must never reach the destination walk,
   // which can raise on a project the copy would not have touched anyway.
-  const featuresFrom = safeJoin(repoDir, FEATURES_README);
+  const featuresFrom = safeJoin(repoDir, featuresRel);
   if (
-    findSymlinkComponent(repoDir, FEATURES_README) === null &&
+    findSymlinkComponent(repoDir, featuresRel) === null &&
     existsSync(featuresFrom) &&
     !isSymlink(featuresFrom) &&
-    destAcceptsWrite(projectRoot, FEATURES_README)
+    destAcceptsWrite(projectRoot, featuresRel)
   ) {
-    cpSync(featuresFrom, safeJoin(projectRoot, FEATURES_README), {
+    cpSync(featuresFrom, safeJoin(projectRoot, featuresRel), {
       force: true,
     });
   }
