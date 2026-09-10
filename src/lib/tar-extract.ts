@@ -22,14 +22,41 @@ import { safeJoin } from './validate.js';
  * Three buckets, not two — the middle one is load-bearing:
  *
  *   ACCEPT  typeflag '0' / NUL (regular file) and '5' (directory).
- *   SKIP    typeflag 'g' (pax global header) and 'x' (pax extended header):
- *           advance past the header and its padded payload, applying NO path
- *           rules. Every GitHub codeload tarball opens with a
- *           `pax_global_header` whose single-segment name has no leading
- *           component to strip — an extractor that runs the path rules over it
- *           rejects every real archive on its FIRST block.
- *   REJECT  everything else: '1'/'2' (hard/symlink), '3'/'4' (devices), '6'
- *           (fifo), '7', and any unknown byte.
+ *   SKIP    typeflag 'g' (pax global header) — but only once its records have
+ *           been READ and found harmless. Every GitHub codeload tarball opens
+ *           with a `pax_global_header` whose single-segment name has no leading
+ *           component to strip, so an extractor that runs the path rules over it
+ *           rejects every real archive on its FIRST block; it is the one entry
+ *           that must be skipped rather than judged as a path.
+ *   REJECT  typeflag 'x' (pax extended header), a 'g' that sets a path/size
+ *           default, and everything else: '1'/'2' (hard/symlink), '3'/'4'
+ *           (devices), '6' (fifo), '7', GNU 'L'/'K' (long name / long link
+ *           name), and any unknown byte.
+ *
+ * WHY PAX IS REFUSED RATHER THAN HONOURED. A pax header's records OVERRIDE the
+ * ustar header they precede, and two of them decide what this module does:
+ * `path=` replaces prefix+name, and `size=` replaces how many bytes the entry
+ * occupies. A writer emits `path=` exactly when the real path does not fit
+ * ustar — and writes the path TRUNCATED to the 100-byte `name` field in the
+ * header it cannot represent. That truncated path is relative, has a leading
+ * component and contains no '..', so it passes every rule below: discarding the
+ * record lands the file at a wrong-but-contained path, SILENTLY. A discarded
+ * `size=` is worse — it mis-frames every following header, so the reader starts
+ * parsing attacker-controlled file CONTENT as tar headers.
+ *
+ * The refusal is asymmetric, and the asymmetry is measured rather than assumed.
+ * The live archive (1,968 entries) contains ZERO 'x' headers and exactly one
+ * 'g', carrying `comment=<sha>`. So for 'x', PRESENCE is the signal: the throw
+ * reads the typeflag byte alone and never consults the payload, which is why no
+ * malformed payload can suppress it. 'g' is mandatory in every real archive, so
+ * only its CONTENTS can be the signal: its records are parsed, and a `path`,
+ * `linkpath` or `size` default — or a payload that does not parse cleanly —
+ * throws, while `comment`/`mtime`/vendor records are skipped as before.
+ *
+ * Honouring pax is deliberately NOT the fix. pharn fetches one known archive
+ * shape; implementing `path=` would mean running the path rules over a second
+ * untrusted path source, which is new attack surface bought for a case that
+ * does not occur.
  *
  * Untrusted input (P2): the archive is remote bytes. Every accepted path is
  * reconstructed from `prefix` + `name`, checked for absoluteness and `..`
@@ -95,6 +122,74 @@ function readOctal(block: Buffer, offset: number, length: number): number {
     );
   }
   return parseInt(text, 8);
+}
+
+/**
+ * The pax record keywords that override what this module reads out of the ustar
+ * header that follows: where the entry is written, and how many bytes it spans.
+ * Membership here is an exact string compare against the raw keyword, so no
+ * encoding trick can spoof it.
+ */
+const PAX_OVERRIDE_KEYWORDS = new Set(['path', 'linkpath', 'size']);
+
+/** Keyword shape allowed into an error message, so no remote byte reaches a terminal raw. */
+const PAX_KEYWORD_RE = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** At most this many keywords are named in a message; the rest are elided. */
+const PAX_KEYWORDS_IN_MESSAGE = 8;
+
+/**
+ * Read a pax header's payload as its list of record KEYWORDS, or `null` when it
+ * does not parse cleanly under the POSIX grammar `<len> SP <keyword>=<value> LF`
+ * (where `<len>` counts the whole record, its own digits included).
+ *
+ * `null` is a refusal, not a shrug: callers throw on it. Returning "the
+ * keywords I managed to find" would let a record whose length prefix disagrees
+ * with its own bytes hide a `path=` between two mis-split records — so a payload
+ * this reader cannot account for END TO END is treated as unexpected input,
+ * which is the same posture the rest of the module takes.
+ *
+ * Values are never returned. Only the keyword is ever used, and only for a
+ * membership test or a filtered message.
+ */
+function readPaxKeywords(payload: Buffer): string[] | null {
+  const keywords: string[] = [];
+  let at = 0;
+  while (at < payload.length) {
+    const space = payload.indexOf(0x20, at); // ' '
+    if (space === -1) return null;
+    const digits = payload.subarray(at, space).toString('latin1');
+    if (!/^[0-9]{1,10}$/.test(digits)) return null;
+    const end = at + Number(digits);
+    // The record must end inside the payload, past its own length field (which
+    // also guarantees forward progress), and on its own newline.
+    if (end > payload.length || end <= space || payload[end - 1] !== 0x0a) {
+      return null;
+    }
+    // ...with a non-empty keyword and a '=' before that newline.
+    const eq = payload.indexOf(0x3d, space + 1); // '='
+    if (eq === -1 || eq < space + 2 || eq > end - 2) return null;
+    keywords.push(payload.subarray(space + 1, eq).toString('latin1'));
+    at = end;
+  }
+  return keywords;
+}
+
+/**
+ * Render keywords for an error message: shape-filtered, deduped and capped, so
+ * a hostile payload cannot push control characters or unbounded text into a
+ * terminal. Diagnosis only — no branch reads this.
+ */
+function describeKeywords(keywords: string[] | null): string {
+  if (keywords === null) return 'its records could not be read';
+  if (keywords.length === 0) return 'it carries no records';
+  const shown = [...new Set(keywords)]
+    .map((keyword) =>
+      PAX_KEYWORD_RE.test(keyword) ? keyword : '<unprintable>',
+    )
+    .slice(0, PAX_KEYWORDS_IN_MESSAGE);
+  const more = new Set(keywords).size - shown.length;
+  return `records ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}`;
 }
 
 /** True when the block is 512 NUL bytes — the end-of-archive marker. */
@@ -231,8 +326,40 @@ export function extractTar(
     const next = dataStart + Math.ceil(size / BLOCK) * BLOCK;
     const typeflag = String.fromCharCode(header[OFF_TYPEFLAG]!);
 
-    // SKIP — pax metadata. No path rules: see the module comment.
-    if (typeflag === 'g' || typeflag === 'x') {
+    // REJECT — a per-file pax extended header. The decision is the typeflag
+    // ALONE; the payload is read only afterwards, to name what was seen. (The
+    // ustar size field above is still read first, so an 'x' whose size field is
+    // itself malformed surfaces as that numeric refusal rather than this one —
+    // both are a TarExtractError and neither writes.)
+    if (typeflag === 'x') {
+      throw new TarExtractError(
+        "tar archive contains a pax extended header (typeflag 'x'), which pharn does not " +
+          `support — its records override the next entry's path and size: ${describeKeywords(
+            readPaxKeywords(tar.subarray(dataStart, dataEnd)),
+          )}.`,
+      );
+    }
+
+    // SKIP — a pax GLOBAL header, but only after reading it. No path rules are
+    // applied to the header itself (see the module comment); its records are
+    // what is judged, because a global record is a default for every entry that
+    // follows it.
+    if (typeflag === 'g') {
+      const keywords = readPaxKeywords(tar.subarray(dataStart, dataEnd));
+      if (keywords === null) {
+        throw new TarExtractError(
+          'tar archive has a pax global header whose records could not be read.',
+        );
+      }
+      const overrides = keywords.filter((keyword) =>
+        PAX_OVERRIDE_KEYWORDS.has(keyword),
+      );
+      if (overrides.length > 0) {
+        throw new TarExtractError(
+          'tar archive has a pax global header setting a default that overrides every ' +
+            `following entry, which pharn does not support: ${describeKeywords(overrides)}.`,
+        );
+      }
       offset = next;
       continue;
     }

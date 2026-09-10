@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A then persists ITS records and config last, recording a hash for bytes B replaced.
   `pharn.records.json` then disagrees with disk **under a matching stamp** — exactly the state the
   stamp check exists to detect — so `update` silently loses its ability to tell "pharn wrote this"
-  from "you edited this". The stamp only catches an interleave that *splits* one process's
+  from "you edited this". The stamp only catches an interleave that _splits_ one process's
   records/config pair.
 
   **`list` and `status` never take the lock and are never blocked by one**, so `pharn status --strict`
@@ -130,8 +130,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   branch, ahead of every fetch the command can make. The test suite had promoted the same mistaken
   reasoning into an assertion and was pinning the silence; that assertion is inverted.
 
+- **The tar reader no longer discards PAX headers, which could land a file at a truncated path.**
+  `src/lib/tar-extract.ts` sorted typeflags `x` and `g` into a SKIP bucket that stepped over the
+  padded payload and threw the records away. Those records **override the ustar header that follows
+  them**, and two of them decide what the reader does: `path=` replaces prefix+name, and `size=`
+  replaces how many bytes the entry occupies.
+
+  A writer emits `path=` exactly when the real path does not fit ustar — and writes that path
+  **truncated to the 100-byte `name` field** in the header it cannot represent. The truncated path is
+  relative, rooted and `..`-free, so it passed every other rule in the module: the file was written
+  to a wrong-but-contained location with nothing logged. Measured, not theorised — against the old
+  reader, an archive whose `path=` asked for a 144-character name extracted without complaint to a
+  100-character one. A discarded `size=` is worse still: it mis-frames every following header, so the
+  reader would start parsing attacker-controlled file _content_ as tar headers.
+
+  Now a per-file `x` header is **refused outright** — the decision reads the typeflag byte alone, so
+  no malformed payload can suppress it — and a global `g` header is refused when it sets a `path`,
+  `linkpath` or `size` default, or when its records do not parse cleanly. `g` cannot take the same
+  blanket rule: every codeload archive opens with one, so refusing them all would fail 100% of real
+  fetches on the first block; the one GitHub sends carries only `comment=<sha>` and is still skipped.
+  The error names the typeflag and the record keywords, so an upstream change that starts emitting
+  PAX is diagnosable in one read. GNU's `L`/`K` long-name typeflags already fell to the
+  unsupported-type refusal and now have a test pinning it.
+
+  **Latent, not exploitable today.** The live archive (1,968 entries) contains **zero** `x` headers
+  and one `g` carrying only a comment; the longest path it writes is 97 characters. But its longest
+  raw `name` field is **exactly 100** — already at the field ceiling — so the margin was one
+  character, not a comfortable distance. Extraction of every real archive is unchanged.
+
+  `SECURITY.md`'s `tar-extract.ts` bullet is updated in the same change rather than after it: the
+  sentence it carried was *correct about the old parser*, so landing the fix alone would have put a
+  disclosure policy that misdescribes its own reader on `main` for the length of the gap.
+
 - **The README no longer oversells the network floor.** Its Security section applied one fetch's caps —
-  an 8s timeout and a 256KB body cap — to *all* remote input. That pair belongs to the `SKILLS_VERSION`
+  an 8s timeout and a 256KB body cap — to _all_ remote input. That pair belongs to the `SKILLS_VERSION`
   read alone: the commit-SHA resolve has no body cap, and the tarball uses a 60s timeout and a 32MB
   streamed cap, plus 128MB decompressed and 20,000 entries in the extractor. Only `redirect: 'error'`
   was ever universal. The caps are now stated per fetch, agreeing with `THREAT-MODEL.md` §3. Docs only —
@@ -195,6 +227,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   `confirmWarning` (`src/lib/confirm.ts`) is removed — this stage was its only caller, and every
   helper it offered ends in an exit, which is the one thing this stage must not do.
+
 - **An interrupted `pharn` no longer leaks its temp clone — or claims to have succeeded.** Disposal
   hung entirely off a `finally` in each caller, and two real exits never reach one. Node does not run
   `finally` on `process.exit`, and while a spinner is up — which is exactly the multi-megabyte clone
@@ -264,7 +297,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and with it the last dependency that fetched or unpacked untrusted remote content.
 
   **What this fixes beyond the saved round trip.** The old path handed the already-resolved SHA to
-  `degit`, which resolved the same ref *again* and matched the result only against current ref tips —
+  `degit`, which resolved the same ref _again_ and matched the result only against current ref tips —
   so an upstream push landing between the two resolves failed the whole command, with a valid
   SHA-named tarball sitting unreadable in the cache. codeload serves any commit, tip or not.
 
@@ -276,7 +309,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Bounded, at last.** The clone previously had no pharn-imposed timeout or body cap. It now has a
   60s timeout, a cap counted over the streamed bytes (codeload sends no `content-length`), and a
-  separate cap on the *decompressed* size, so a compression bomb is bounded by something.
+  separate cap on the _decompressed_ size, so a compression bomb is bounded by something.
 
   **No more shared cache.** Every fetch downloads into a fresh temp dir. The old cross-project cache
   reused entries by filename rather than a verified digest, and — when ref resolution failed — took
@@ -307,6 +340,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Knock-on for maintainers:** `prepublishOnly` is `npm run check`, so a release now also requires
   markdownlint-clean docs.
+
 - **`pharn remove` now tells one story about confirming.** It told three: the bare picker asks for one
   destructive confirmation (default No), `runRemove` accepted a `yes` option it never read, and both
   `CLAUDE.md` and `docs/commands/remove.md` asserted flatly that "capability removal has no
@@ -320,6 +354,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--yes` / `-y` remains an [`update`](docs/commands/update.md) flag: `pharn remove --yes` still
   parses and is still ignored, exactly as before. Only the false sentences and the parameter that
   seemed to justify them are gone.
+
 - **The config reference no longer documents a prompt that was deleted.**
   [`docs/reference/pharn-config.md`](docs/reference/pharn-config.md)'s "Overwrite behavior" table
   still quoted `init` as asking _"Overwrite existing pharn.config.json?"_ and claimed it showed the
@@ -391,7 +426,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files, and `--strict` went red if you deleted them. The subtree is now excluded on both the copy
   side and the expected-file side together. Matched as a path **segment** relative to the floor dir, so
   a file merely named `my-test-fixtures.mjs` is unaffected. **Already-installed copies stay** — `pharn
-  update` never deletes — but they drop out of the tracked set, so they are now ordinary files in your
+update` never deletes — but they drop out of the tracked set, so they are now ordinary files in your
   own tree: deleting `test-fixtures/` under your installed floor is safe, and `pharn` will neither
   restore it nor report it missing.
 
@@ -415,7 +450,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A symlinked `features/` directory in a fetched repo can no longer copy files from outside the
   clone into your project.** `features/README.md` is the first root-relative file the install copies
   that has an intermediate directory, and the existing leaf-only symlink check does not see a
-  symlinked *parent*: `existsSync` returns true, the leaf is not itself a link, and the copy reads
+  symlinked _parent_: `existsSync` returns true, the leaf is not itself a link, and the copy reads
   straight through to wherever the directory points. The lexical path guard cannot catch this — it
   never resolves links. The copy site now runs the same physical component walk the expected-file
   manifest already ran, so both agree and neither writes such a file.
@@ -444,7 +479,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   copy is existence-guarded at both readers — so a clone without them installs exactly as before,
   `status` reports nothing missing, and `update` restores nothing. This is the CLI half; the doc
   content, the repointed citations, and the `protect-trusted-paths.cjs` hook that currently
-  write-protects `THREAT-MODEL.md` at the *user's* project root are upstream changes still to land.
+  write-protects `THREAT-MODEL.md` at the _user's_ project root are upstream changes still to land.
 
 - **`pharn.config.json` and `pharn.records.json` are now written atomically.** Both were written with
   a plain `writeFile`, so a write torn by power loss or `SIGKILL` left truncated JSON on disk. For the

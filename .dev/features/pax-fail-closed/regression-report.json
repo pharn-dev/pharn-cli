@@ -1,0 +1,22 @@
+{
+  "base": "80412de",
+  "inside": [
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "src/lib/tar-extract.ts",
+    "tests/tar-extract.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
