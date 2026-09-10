@@ -1,6 +1,6 @@
 # Contributing to pharn
 
-Thanks for your interest in improving PHARN. This repository **is `pharn`** — the ESM-only Node CLI that installs PHARN capabilities from `pharn-dev/pharn-oss` into a project's `.claude/` and `pharn/`. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
+Thanks for your interest in improving PHARN. This repository **is `pharn`** — the ESM-only Node CLI that installs PHARN capabilities from `pharn-dev/pharn-oss` into a project — under `.claude/` and `pharn/`, plus `THREAT-MODEL.md`, `LIMITS.md`, `features/README.md`, `pharn.config.json` and `pharn.records.json` at the project root. The full contributor guide lives in [`docs/contributing.md`](./docs/contributing.md) — start there.
 
 ## Read first
 
@@ -23,13 +23,13 @@ Before changing anything, read these in order:
 
 1. **Open an issue first** for any non-trivial change. PHARN is small-surface on purpose.
 2. **Install**: `cd pharn-cli && npm install` (dev-only tooling; only `dist/` ships to npm).
-3. **Run the gates before pushing.** CI runs **six**, each as its own job, and all six are required status checks on `main`:
+3. **Run the gates before pushing.** CI runs **six**, each as its own job, and all six are required status checks on `main` (alongside `floor`, `gitleaks` and `Analyze (javascript-typescript)`, for nine in total):
    `npm run format:check` · `npm run lint` · `npm run lint:md` · `npm run typecheck` · `npm run test:coverage` · `npm run build`
    `npm run check` runs the first four plus `test`, so it is the one command to reach for — but it is **not** the whole of CI: it skips `build`, and it runs `test` rather than `test:coverage`, so it does not enforce the coverage thresholds. See the [gates table](./docs/contributing.md#quality-gates) for the job names.
 4. **Branch**: `feat/…`, `fix/…`, or `docs/…`.
 5. **Commit** in [Conventional Commits](https://www.conventionalcommits.org/) style, one logical change per commit — and **write the PR title the same way**. PRs are squash-merged, so the PR title *becomes* the commit message on `main`; individual commit messages inside the branch are discarded. Nothing enforces this automatically, so it is a reviewer check: `main` carries at least one `changes (#97)` that landed a real behaviour change under the least informative possible message.
-6. **Tests first** — when changing behavior, update the matching `tests/*.test.ts` before touching code. The suite mirrors `commands/`, `steps/` and `lib/` one-to-one.
-7. **Security-sensitive files** (`lib/validate.ts`, `lib/install-capabilities.ts`, `lib/skills-version.ts`) — preserve the validation invariants (regex/enum allowlists, `safeJoin` path guard, symlink rejection, `redirect: 'error'`, and the fetch timeout/size caps) called out in [`CLAUDE.md`](./CLAUDE.md).
+6. **Tests first** — when changing behavior, update the matching `tests/*.test.ts` before touching code. The suite mirrors `commands/`, `steps/` and `lib/` one-to-one, with `lib/hash.ts` the single exception.
+7. **Security-sensitive files** (`lib/validate.ts`, `lib/install-capabilities.ts`, `lib/skills-version.ts`, `lib/tar-extract.ts`, `lib/repo.ts`) — preserve the validation invariants (regex/enum allowlists, `safeJoin` path guard, symlink rejection, `redirect: 'error'`, and the fetch timeout/size caps) called out in [`CLAUDE.md`](./CLAUDE.md).
 8. **Keep docs in sync** — see the [Documentation maintenance](./docs/contributing.md#documentation-maintenance) table.
 
 ## Conduct and security

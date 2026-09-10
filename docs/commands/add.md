@@ -13,16 +13,22 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
 ## Behavior
 
 1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
-   a hint to run `pharn init` first.
-2. Clones `pharn-dev/pharn-oss` (SHA-pinned) and reads the capability index from the clone.
-3. **Checks the version.** If the clone's `SKILLS_VERSION` does not match the `skillsVersion` recorded
+   a hint to run `pharn init` first. A config that exists but is **invalid** (a bad `models`/`seam`
+   block, an out-of-enum `capabilities[].source`, unparseable JSON) is reported by its own named error
+   and exits 1 — deliberately not the "run `pharn init`" hint, which would tell you to overwrite it.
+2. Takes the project lock (`.pharn.lock`) — **before** any download, so a run that will be refused pays
+   for no network — warns if a proxy is configured, then clones `pharn-dev/pharn-oss` (SHA-pinned).
+3. **Checks the CLI floor.** If the clone declares a `MIN_CLI` newer than your CLI, `add` refuses here.
+4. **Checks the version.** If the clone's `SKILLS_VERSION` does not match the `skillsVersion` recorded
    in your `pharn.config.json`, `add` **refuses** — see [Version mismatch](#version-mismatch) below.
-4. **Checks the layout.** If the clone's install layout does not match the `layout` recorded in your
+5. **Checks the layout.** If the clone's install layout does not match the `layout` recorded in your
    `pharn.config.json`, `add` **refuses** — see [Layout mismatch](#layout-mismatch) below.
-5. Resolves your argument against that index. If it uniquely names a capability you don't already have,
+6. **Reads the capability index** from the clone — after all three gates, which is why a refusal never
+   depends on parsing it, and why a refused run never renders the picker.
+7. Resolves your argument against that index. If it uniquely names a capability you don't already have,
    it **backs up any destination file it is about to overwrite with different bytes** (see
    [Overwrite protection](#overwrite-protection) below), then copies that capability's directory into
-   your project **at your recorded layout** — steps 3 and 4 have already established that the clone's
+   your project **at your recorded layout** — steps 4 and 5 have already established that the clone's
    layout and yours agree — and **appends** it to `capabilities` in `pharn.config.json`. Your
    `skillsVersion` is left as it was, and `commit` is refreshed to the SHA the clone was pinned to.
 
@@ -49,7 +55,7 @@ pharn version cannot read yet. `add` names each one and continues:
 
 ```text
 1 upstream capability could not be read and was SKIPPED — not installed:
-  griller:backwards-compat (pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
+  griller:backwards-compat (pharn/pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
 ```
 
 Such a capability is **not addressable**: `pharn add backwards-compat` reports it as an unknown
@@ -101,8 +107,10 @@ find your files.
 ```
 
 Without this check, `add` would copy the capability at the **clone's** layout while your config still
-described the other one — so the files would land somewhere nothing else ever looks. The capability
-would be invisible to `pharn list` and `pharn status`, and a later `pharn remove` would report
+described the other one — so the files would land somewhere nothing else ever looks. `pharn list`
+would still show it — `list` reads only `pharn.config.json` and never touches the filesystem — which is
+what makes the failure so quiet: the inventory says installed while `pharn status` finds nothing at the
+recorded layout, and a later `pharn remove` would report
 _"its files were already gone"_ while dropping only the config entry, leaving the directory orphaned on
 disk permanently.
 
@@ -162,8 +170,8 @@ they were.
 in your project:
 
 ```text
-⚠ Refusing to add a11y: `pharn-pipeline/grillers/a11y/evals` in your project is a symlink, and
-  `pharn-pipeline/grillers/a11y/evals/basic.md` sits under it. `pharn add` copies the whole
+⚠ Refusing to add a11y: `pharn/pharn-pipeline/grillers/a11y/evals` in your project is a symlink, and
+  `pharn/pharn-pipeline/grillers/a11y/evals/basic.md` sits under it. `pharn add` copies the whole
   capability directory, which would write THROUGH that link and replace files it points at —
   possibly outside your project — and those cannot be backed up. Replace the symlink with a real
   directory (or move it aside), then re-run `pharn add a11y`.
@@ -200,6 +208,30 @@ per capability**. Delete them once you are happy, or add `.pharn-backup/` to you
 - **Unknown name** → the CLI lists every valid `role:name` address.
 - **Ambiguous** (a name in both roles, given without a role) → the CLI asks you to disambiguate with
   `griller:` / `lens:`.
+- **An extra positional** (`pharn add a11y extra`) → refused with `Unexpected argument: "extra"` on
+  stderr and exit 1. It used to be silently dropped.
+
+## Options
+
+`add` takes **none**. Passing any flag is a hard refusal, not a no-op:
+
+```console
+$ pharn add --force a11y
+Unsupported option for `add`: "--force"
+```
+
+It prints the usage text to stderr and exits **1**. See
+[Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
+`--help`/`-h` and `--version`/`-v` work here as everywhere.
+
+## Concurrency
+
+`add` takes the project lock (`.pharn.lock`) before it downloads anything, and holds it across the
+copy — and, on the bare picker path, across your multi-select. A second `pharn` writer refuses with a
+named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never blocked. One
+consequence worth knowing: under a held lock, even `pharn add bogus` reports the lock rather than
+listing the valid `role:name` addresses, because that list lives in the clone it never fetched. See
+[Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
 
 ## Bare `pharn add` (no argument)
 

@@ -34,6 +34,7 @@ npx @pharn-dev/pharn@latest init
 - [Quick start](#quick-start)
 - [How it works](#how-it-works)
 - [What gets installed](#what-gets-installed)
+- [After install](#after-install)
 - [Day-to-day workflow](#day-to-day-workflow)
 - [CLI commands](#cli-commands)
 - [Safety model](#safety-model)
@@ -52,7 +53,7 @@ review, repeat, and maintain. It gives Claude Code a structured path from
 feature intent to implementation review:
 
 ```text
-spec -> plan -> grill -> build -> regress -> verify -> review -> ship
+spec -> plan -> grill -> build -> regress -> verify -> ship
 ```
 
 The npm package, `@pharn-dev/pharn`, is the installer. It does not scaffold your
@@ -102,10 +103,17 @@ After install, open Claude Code in the project and start with:
 /pharn-spec
 ```
 
-For a small, already-scoped change, you can start at `/pharn-plan`. PHARN also
-ships `/pharn-loop` for the guided chain and `/pharn-ship` for the ship pass;
-the exact command files come from the `pharn-dev/pharn-oss` version installed
-into your repo.
+Or run the whole chain in one command:
+
+```text
+/pharn-loop implement password reset with a one-time token
+```
+
+Either way the run begins at the spec, and it has to: `/pharn-plan` enforces a
+deterministic input gate and halts unless an **Approved**, un-drifted `SPEC.md`
+already exists, so there is no entry point further down the chain. The exact
+command files come from the `pharn-dev/pharn-oss` version installed into your
+repo.
 
 ## How it works
 
@@ -142,24 +150,69 @@ still understood through the recorded `layout` field.
 An existing `.claude/settings.json` is preserved. PHARN may create it when
 absent, but it never overwrites your Claude Code settings.
 
+As you run the workflow, PHARN writes one directory per increment —
+`features/<name>/` — holding that increment's `SPEC.md`, `PLAN.md`, `GRILL.md`,
+`BUILD.md`, `REGRESSION.md`, `VERIFY.md` and `SHIP.md`. Those are the durable
+record; commit them. `.pharn/` (runtime scratch), `.pharn-backup/` (see
+[Safety model](#safety-model)) and `.pharn.lock` are not — add them to your
+`.gitignore`. PHARN never edits `.gitignore` for you.
+
+**Two version numbers, on purpose.** The npm package `@pharn-dev/pharn` carries
+the installer's version. The content it installs carries its own,
+recorded as `skillsVersion` in `pharn.config.json` and taken from upstream's
+`SKILLS_VERSION`. They move independently, and `pharn status` / `pharn update`
+are keyed to the latter.
+
+## After install
+
+Two things about the installed hooks are worth knowing on day one.
+
+**Hooks enforce only once they are registered in `.claude/settings.json`.** If
+your project already had that file, PHARN preserved it and printed a warning
+instead of overwriting it — so until you copy the hook wiring across, every
+guarantee that depends on a `PreToolUse` hook is inactive.
+
+**Once wired, the write guard is fail-closed.** With no active scope, Claude
+Code's Write/Edit/MultiEdit/NotebookEdit tools are restricted to `features/**`
+and `.pharn/**`; ordinary edits to your own source are denied. That is the
+intended posture — a stage sets the scope from the concrete paths your
+`PLAN.md` declared — but it means the guard is not a drop-in for editing
+outside a PHARN run. Clearing the scope returns to this default; it does not
+re-open your source.
+
+Writes issued through Bash bypass both hooks entirely.
+
+The full set of bounds lives in upstream's
+[`LIMITS.md`](https://github.com/pharn-dev/pharn-oss/blob/main/LIMITS.md) and
+[README](https://github.com/pharn-dev/pharn-oss#readme).
+
 ## Day-to-day workflow
 
-Once PHARN is installed, use the slash commands from Claude Code. The core
-workflow can be driven stage-by-stage, or through the shipped orchestration
-commands:
+Once PHARN is installed, use the slash commands from Claude Code. The pipeline
+is seven typed stages, each reading what the previous one produced:
 
 | Stage | Command | Purpose |
 | ----- | ------- | ------- |
-| Loop | `/pharn-loop` | Run the main chain with bounded build, regress, and verify iteration. |
-| Spec | `/pharn-spec` | Capture feature intent and scope. |
-| Plan | `/pharn-plan` | Turn intent into an implementation plan. |
+| Spec | `/pharn-spec` | Capture feature intent and scope. Stops for your approval. |
+| Plan | `/pharn-plan` | Turn the approved spec into an implementation plan. |
 | Grill | `/pharn-grill` | Challenge the plan before code is written. |
 | Build | `/pharn-build` | Implement an approved increment. |
 | Regress | `/pharn-regress` | Look for regressions outside the just-built feature. |
 | Verify | `/pharn-verify` | Verify behavior and PHARN floor requirements. |
-| Review | `/pharn-review` | Review the produced change through installed lenses. |
-| Ship | `/pharn-ship` | Run the release-readiness loop. |
-| Memory | `/pharn-memory-promote` | Promote one lesson into `memory-bank/` through a gated flow. |
+| Ship | `/pharn-ship` | Run stages 1-6 in order, then stop at the merge/fix/abandon gate. |
+
+`/pharn-ship` is itself the seventh stage: it orchestrates the six before it in
+one pass, so you rarely run them by hand. `/pharn-loop` runs that same chain but
+iterates build -> regress -> verify until green, an iteration cap, or a terminal
+failure. Both preserve the two human gates — approve the spec before code is
+written, decide merge/fix/abandon after verification.
+
+Two commands sit outside the pipeline:
+
+| Command | Purpose |
+| ------- | ------- |
+| `/pharn-review` | Run the review lenses in parallel over any code and merge their findings deterministically. Standalone — no pipeline stage invokes it. |
+| `/pharn-memory-promote` | Promote one lesson into `memory-bank/` through a gated provenance check. |
 
 ## CLI commands
 
@@ -168,11 +221,29 @@ commands:
 | `pharn init` | Detect archetypes and install matching capabilities. This is also the default when no command is given. |
 | `pharn add [capability]` | Add one capability manually, for example `a11y` or `lens:n-plus-one`. With no argument, opens an interactive picker. |
 | `pharn remove [capability]` | Remove one installed capability. With no argument, opens an interactive picker. |
-| `pharn update` | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. |
+| `pharn update` | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt. |
 | `pharn list` | Show installed archetypes and capabilities. Use `--json` for machine-readable output. |
 | `pharn status` | Read-only version and drift report. Use `--strict` to make drift fail CI, or `--no-drift` to skip byte comparison. |
 | `pharn --help` | Show command help. |
 | `pharn --version` | Show the installed CLI version. |
+
+`init` also accepts `--archetype`, a deprecated no-op kept for one release —
+archetype detection is now the default.
+
+Three behaviours matter if you script the CLI:
+
+- **Options are per-command.** Passing one a command does not take prints
+  ``Unsupported option for `status`: "--json"`` to stderr with the usage text
+  and exits **1**; an extra positional is refused the same way. Both previously
+  parsed, were silently dropped, and exited 0.
+- **`init` and `update` are interactive-only.** Off a TTY they exit 1 rather
+  than prompting into a dead stream. `update --yes` is the way through in CI;
+  `init` deliberately has no `--yes`, because its second prompt is the
+  destructive overwrite confirmation.
+- **One writer at a time.** `init`, `add`, `remove` and `update` take an
+  advisory lock at `.pharn.lock`; a second run refuses rather than queueing.
+  `list` and `status` never take it and are never blocked by one, so
+  `pharn status --strict` stays runnable in CI while an update is in flight.
 
 ## Safety model
 
@@ -182,11 +253,17 @@ PHARN is intentionally conservative about writes:
 - `update` uses `pharn.records.json` to skip files it cannot prove are
   untouched.
 - `update --force` backs up overwritten files under `.pharn-backup/<timestamp>/`
-  before writing.
+  before writing. `add` does the same for any destination file that differs from
+  upstream, and refuses the whole install — writing nothing — when a destination
+  path crosses a symlinked directory.
 - `status` and `list` are read-only.
 - `remove` deletes only the selected capability directory and prunes its records;
   it never touches `CONSTITUTION.md`, `memory-bank/`, or your detected
   archetypes.
+
+PHARN can also refuse to install at all: if upstream declares a minimum CLI
+version newer than yours, `init`/`add`/`update` stop with a named error before
+writing anything.
 
 Remote content is treated as untrusted input. Capability names, copyable file
 names, versions, commit SHAs, and paths are validated against strict allowlists;
@@ -201,6 +278,11 @@ PHARN is intentionally scoped:
   shipped.
 - It requires a git-initialized project and declares Node >= 20 support. CI
   currently runs on Node 24.
+- **Archetype detection is JS/TS-shaped.** The signals are `package.json`
+  dependency names plus `next.config.*`, `app/` route handlers, `.tsx`/`.jsx`,
+  `migrations/` and `.sql`. A Python, Go or Rust repo produces no signal,
+  resolves to `lib`, and receives the universal capabilities only — a correct
+  outcome, not a failure.
 - It does not scaffold your application or install framework packages.
 - It does not replace tests, human review, or release judgment. It gives those
   activities a structured record and repeatable workflow.

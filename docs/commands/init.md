@@ -19,8 +19,8 @@ exist — whether to overwrite them, so it needs a terminal. Off a TTY (CI, a pi
 with a usage error instead of prompting into a stream nobody is reading:
 
 ```console
-$ echo "" | pharn init
-▲ pharn init is interactive — run it in an interactive terminal. There is deliberately no --yes
+$ echo "" | pharn init   # stderr shown inline
+■ pharn init is interactive — run it in an interactive terminal. There is deliberately no --yes
   for init: it confirms before overwriting existing files, and auto-confirming that in a pipeline
   is what the prompt exists to prevent.
 $ echo $?
@@ -34,7 +34,8 @@ There is deliberately **no `--yes` for `init`** — unlike [`pharn update`](upda
 second of init's prompts is the destructive overwrite confirmation, and auto-confirming file overwrites
 in a pipeline is precisely the hazard that prompt exists to prevent. `pharn init --yes` is therefore
 **refused** (exit 1), not accepted and ignored — as is any other option `init` does not take, such as
-`--force` or `--json`. `--archetype` is `init`'s only option, and it is the deprecated no-op above.
+`--force` or `--json`, and so is an extra positional (`pharn init extra` → `Unexpected argument`).
+`--archetype` is `init`'s only option, and it is the deprecated no-op above.
 
 A directory with no `.git` still gets its own, more useful error first (see **Prerequisites** below) —
 the interactivity check never masks it.
@@ -81,7 +82,7 @@ summary you act on, then installs everything else normally:
 
 ```text
 1 upstream capability could not be read and was SKIPPED — not installed:
-  griller:backwards-compat (pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
+  griller:backwards-compat (pharn/pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
 ```
 
 Nothing under that capability's directory is copied into your project, and it is not recorded in
@@ -107,7 +108,12 @@ Reads `package.json` dependency names and walks the project tree (bounded and sy
 
 ### 4. Fetch PHARN
 
-Resolves the branch head via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up — on success, on error, on cancel, and on Ctrl-C or a `SIGTERM` mid-clone — and `pharn` keeps no download cache. An interrupted run also exits **130** (or 143 for `SIGTERM`) rather than reporting success.
+If a proxy is configured in your environment, `init` warns first: `pharn` uses Node's global `fetch`,
+which reads no proxy variable on any platform, so a proxy-only network fails as an unexplained timeout
+unless you are told. Resolves the branch head via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up — on success, on error, on cancel, and on Ctrl-C or a `SIGTERM` mid-clone — and `pharn` keeps no download cache. An interrupted run also exits **130** (or 143 for `SIGTERM`) rather than reporting success.
+
+If the fetched version declares a `MIN_CLI` newer than your CLI, `init` stops here with a named error
+and writes nothing.
 
 ### 5. Resolve capabilities
 
@@ -133,7 +139,7 @@ After you choose **install**, `init` checks which of its **actual write targets*
 | Preserve settings          | An existing `.claude/settings.json` is **never** overwritten (a note tells you to wire the hooks by hand if needed)                                                                                                                                                |
 | Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
-| Write `pharn.config.json`  | `skillsVersion` (from the repo's `SKILLS_VERSION`), `commit`, `archetypes`, `capabilities`, `layout`, `models`, `seam`, `modules: []`                                                                                                                              |
+| Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from the repo's `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (each stamped `source: "auto"` — only `pharn add` writes `manual`), `layout`, `models`, `seam`, `modules: []`                    |
 | Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
@@ -145,9 +151,28 @@ The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is
 
 On success, the CLI reports the capability count and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.
 
+## Concurrency
+
+`init` takes the project lock (`.pharn.lock`) **after** both of its prompts and holds it across the
+write, releasing it in the same step that disposes of the temp clone. A second `pharn` writer refuses
+with a named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never
+blocked by it.
+
+Two consequences are deliberate. Because the lock is taken late, a second writer racing `pharn init`
+still pays for the full download before being refused — accepted, because the alternative is holding
+the lock across an unanswered human prompt. And because both prompts sit inside the run, a walked-away
+`init` can block other writers until the six-hour staleness window expires. See
+[Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
+
 ## Legacy configs
 
 `init` always writes an **archetype** config, and every command is archetype-only. A pre-archetype **module**-based `pharn.config.json` (one with `modules[]` but no `capabilities[]`, from a much older release) is no longer supported: `add`, `remove`, `list`, `update`, and `status` detect it up front and exit with a message to re-run `pharn init` — there is **no** module/manifest fallback (live pharn-oss ships no `manifest.json`). The config schema is additive, so a legacy config's now-unused fields (`modules`, `constitution`, `stackAnswers`, `installedSkills`) still parse; only the absence of `capabilities[]` triggers the rejection.
+
+A config that is present but **invalid** — a malformed `models`/`seam` block, an out-of-enum
+`capabilities[].source`, or JSON that does not parse — is a different case with its own named error and
+exit 1. It deliberately does **not** say "run `pharn init`", because that would tell you to overwrite
+the file you need to repair. See
+[A command rejects an invalid config](../troubleshooting.md#a-command-rejects-an-invalid-config-does-not-say-run-init).
 
 ## Related
 

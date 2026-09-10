@@ -122,9 +122,14 @@ export interface PharnConfig {
   // Optional: the archetype install (pharn init --archetype) copies pharn-oss's
   // canonical CONSTITUTION.md verbatim (no variant selection), so it omits this.
   constitution?: Constitution;
-  // Whether the project is a multi-tenant SaaS. Written on every fresh install;
-  // absent on legacy installs predating this flag (read as true → P2 kept).
-  // When false, Principle 2 was stripped from CONSTITUTION.md at install.
+  // LEGACY (module/wizard era), like `constitution` above: the wizard asked
+  // whether the project was a multi-tenant SaaS and stripped Principle 2 from
+  // CONSTITUTION.md when the answer was no. That flow is GONE — the archetype
+  // install copies pharn-oss's canonical CONSTITUTION.md verbatim — so nothing
+  // in src/ writes or reads this. It stays declared so an old config that
+  // carries it still type-checks on read (P7, additive); it is not a signal any
+  // command acts on. Do not reintroduce a reader without reinstating the
+  // writer — a half-present flag is worse than an absent one.
   isMultiTenant?: boolean;
   modules: InstalledModule[];
   installedAt: string;

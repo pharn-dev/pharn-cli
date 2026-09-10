@@ -49,6 +49,15 @@ to **No**.
 > Earlier releases accepted `pharn remove --yes` and silently dropped it. See
 > [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
+## Concurrency
+
+`remove` takes the project lock (`.pharn.lock`) around its delete → prune → config write — on the
+named path, and on the picker path after its one confirmation. A second `pharn` writer refuses with a
+named message and exit 1. Worth knowing because `remove` is otherwise entirely local: it makes no
+network call and clones nothing, so a refusal is the one thing that can stop it for a reason outside
+your project. See
+[Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
+
 ## The record store
 
 Removing a capability also drops its entries from [`pharn.records.json`](../reference/pharn-records.md)
@@ -62,9 +71,13 @@ cannot verify — the same rule [`add`](add.md) follows. The removal itself proc
 
 If the entry's recorded `source` is `auto` — it was selected for your archetypes by
 [`init`](init.md) or a prior [`update`](update.md) — `remove` prints a warning that the next
-[`pharn update`](update.md) may re-add it if the latest resolution still selects it for your
-archetypes, because update re-resolves your archetypes every run. Removing a `manual` entry (one you
-added with [`add`](add.md)) warns nothing.
+[`pharn update`](update.md) **will** reinstall it (and will name it in its report), because update
+re-resolves your archetypes every run. Removing a `manual` entry (one you added with
+[`add`](add.md)) warns nothing.
+
+The warning asserts "will", not "may", because it is derived from the stored `source` alone — `remove`
+makes no network call and cannot re-resolve. The next section is why that is a heuristic rather than a
+guarantee.
 
 **Silence is not a promise that the removal is permanent.** `update` writes
 `resolve(archetypes) ∪ manual`; dropping the entry removes it from the _manual_ half, but the
