@@ -7,35 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **BREAKING (argv): an option a command does not take is now refused, not silently ignored.** Options
-  were declared globally, so a flag belonging to another command parsed, was dropped, and the run
-  exited **0**. `pharn status --json | jq` received the human-readable box-drawing output plus a
-  **success** exit code, and `pharn list --strict` exited 0 no matter what it found — a CI gate that
-  could never go red. Each command now has an allowlist, and an option outside it prints
-  `Unsupported option for \`status\`: "--json"` to stderr with the usage text and exits **1**.
-
-  Accepted per command: `init` → `--archetype` (the deprecated no-op); `update` → `--force`,
-  `--yes`/`-y`; `list` → `--json`; `status` → `--strict`, `--no-drift`; `add`, `remove`/`rm` → none.
-  `--help`/`-h` and `--version`/`-v` work everywhere.
-
-  **The sharpest change is the no-command-word form.** `pharn --json`, `pharn --force` and
-  `pharn --strict` each ran a **full `init`** while ignoring the option; all three now exit 1. A
-  reader skimming "flag validation" will not expect that, so it is called out here rather than left
-  to the table.
-
-  Two smaller flips. `pharn remove --yes` was documented as a deliberate no-op — it now exits 1;
-  `remove` still has no `--yes` for the same reason as before (its named path never confirms and its
-  picker's one confirm is the destructive gate), the flag is simply refused instead of dropped. And
-  `--help` no longer excuses a misapplied sibling: `pharn status --help --json` refuses, matching the
-  existing rule that `pharn --help --bogus` refuses. `pharn status --help` alone is unchanged.
-
-  Only the option **name** is checked; value shape is out of scope, so `pharn list --json=false` is
-  still accepted and still prints human-readable output.
-
-- **A bundled unknown flag is named once.** minimist reports a short bundle once per unknown letter,
-  so `pharn status -xz` printed `Unknown option: "-xz", "-xz"`. It now prints it once.
+## [0.4.0] — 2026-09-10
 
 ### Added
 
@@ -66,7 +38,171 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by age, because a pid means nothing across machines — and a lock is never deleted by a process that
   does not own it.
 
+- **`pharn add` now backs up destination drift before it overwrites.** `add` was the only write path
+  with none of the product's three edit-protections — no prompt (`init`'s overwrite confirmation), no
+  per-file skip (`update`'s records table), no backup (`update --force`) — so it `cpSync`'d over
+  whatever sat at the destination. The reachable sequence is one `update` itself manufactures and
+  announces: a `dropped-unselected` capability's files are **left on disk** (update never deletes),
+  you edit them, and a later `pharn add <name>` is not a config no-op because the entry is gone.
+  `add` now enumerates the capability dir in the **clone**, compares each file's sha256 against the
+  destination, and copies every **differing** file to `.pharn-backup/<timestamp>/` — the same
+  directory `update --force` uses — **before** the first byte is written, printing the path as soon
+  as it is created so it stays visible even if a later step throws. Byte-identical files are not
+  drift (mirroring `update`'s `identical → no-op`), so re-adding an untouched capability stays
+  silent, and a normal first-time `add` still produces no backup directory. A backup that cannot be
+  written aborts the add with every original intact.
+
+  `add` also now **refuses**, writing nothing, when a path it would copy sits under a **symlinked
+  directory** in your project, naming the offending component. The copy is a recursive `cpSync` that
+  guards only its source: measured on node v24.13.1, a symlinked intermediate directory under the
+  capability dir is written straight **through**, replacing whatever it points at — outside your
+  project included — while a symlinked leaf is silently replaced. Neither can be backed up, because
+  saving a symlink means saving its target rather than the link, so refusing is the only outcome that
+  leaves your files as they were. (`update` reaches the same answer by classifying such a path
+  `unreadable` and skipping it.)
+
+- **Forward-compatibility contract at the capability-index boundary.** pharn always fetches
+  `pharn-dev/pharn-oss` at `main` HEAD and can never pin older content, so one routine grammar
+  evolution upstream — a new capability directory without its markdown, a new `role`, a new `applies`
+  token — used to abort `init` / `add` / `update` in every released CLI at once, with no rollback
+  lever (`add` doubly so: its version gate names `pharn update`, whose own first act was the parse
+  that threw). `parseCapabilityIndex` now **tolerates and reports**: any validation refusal raised
+  while processing ONE capability skips that capability and records it in a new
+  `CapabilityIndex.unknown` list, which every fetching command names with its reason. The posture is
+  unchanged where it matters — `validate.ts`'s enums stay frozen, and nothing unparseable is ever
+  selected, copied, enumerated by the install manifest, or written; a **structural** break (a missing
+  subtree) still hard-fails. `update` keeps a frozen capability's `pharn.config.json` entry (reported
+  as `KEPT`, never `REMOVED`) while excluding it from the manifest, and still bumps `skillsVersion`,
+  so a following `pharn add` is not wedged. `status` excludes it from the drift comparison, so
+  `--strict` cannot fail on drift no command can resolve. Named as `LIMITS.md` §3e.
+- **Optional `MIN_CLI` version handshake.** pharn-oss may ship a root `MIN_CLI` file declaring the
+  minimum CLI version its content requires; `init` / `add` / `update` refuse a too-old CLI **before
+  any write**, with an actionable upgrade message, and clean the clone up. Deliberately fail-open in
+  one direction: absent, unreadable, or malformed imposes **no** constraint (a warning at most), so
+  one upstream typo in a one-line file cannot become the fleet outage the handshake exists to
+  prevent. Only a well-formed value whose numeric core is greater refuses; a prerelease compares
+  equal to its release.
+
+- **`pharn/pharn-core/` is now installed.** The product `/pharn-build` command shipped by pharn-oss
+  cites `pharn/pharn-core/seam-resolver/seam-resolver.md` at three points, and `init` has always
+  written a `seam` block into `pharn.config.json` and installed `check-seam-config.mjs` with the
+  floor — so the seam gate validated GREEN and then pointed the model at a file no code path ever
+  copied. `init` and `update` now install `pharn/pharn-core/` (today the `seam-resolver` skill plus
+  its `evals/`) as a **fixed product surface**, copied whole and verbatim exactly the way
+  `pharn-contracts/` is: one layout path, one copy block guarded by `safeJoin` at both ends plus the
+  `isSymlink` root reject and the `noSymlinks` filter, and one entry in the install manifest — which
+  is what also gives it `status` drift coverage and `update`'s missing-file restore. It is **not**
+  modeled as a capability: its frontmatter declares `role: skill`, deliberately outside the CLI's
+  `ROLE_VALUES`, and the CLI never parses it — `pharn add`/`remove` cannot address it. The flat
+  layout has no counterpart upstream (the directory postdates the `pharn/` relocation), so a flat
+  clone copies nothing and a flat install is byte-for-byte unchanged.
+
+- **The `degit` clone's proxy handling is no longer invisible.** `degit` reads
+  `process.env.https_proxy` in its own constructor — unconditionally, with no option `pharn` could
+  pass — and only that **lowercase** spelling appears anywhere in its bundle. So a user who exported
+  `HTTPS_PROXY`, the spelling most tooling honors, was connecting **directly** on macOS and Linux with
+  no signal anywhere; a user who exported `https_proxy` was having the clone interposed by a host
+  `pharn` never mentioned. Both directions were silent. `init` / `add` / `update` / `status` now read
+  the environment before starting the clone and print the applicable line — that the variable will be
+  ignored (suppressed on Windows, where lookups are case-insensitive and it _is_ read), or that the
+  clone **may be routed** through the named proxy and that `no_proxy` exclusions do not apply to it,
+  since degit reads no such variable. The warning names whichever spelling you actually set, so a
+  `Https_Proxy` typo is caught too, and several variants resolve deterministically rather than by
+  environment order. Credentials in the value are redacted to `***`, an unparseable value degrades to
+  `(set)` rather than echoing raw bytes, and the value is **never** written to `pharn.config.json` —
+  it is git-committed, and proxy URLs routinely carry passwords.
+
+  **The confident wording is gated on a measured degit version.** `pharn` pins `degit@3.6.6` exactly,
+  but the published package ships no lockfile and marks degit external, so an `overrides` entry, a
+  monorepo hoist, or a non-npm resolver can still seat another version. Every published release from
+  `3.6.1` through `3.8.0` was therefore swept (nine in total) — deliberately wider than the pin — and
+  all read only the lowercase name; `pharn` reads the version at runtime and states the negative
+  assertion only for those. On any other version it hedges, naming both the measured range and what is
+  installed — so an unexpected degit makes the notice more cautious rather than wrong.
+
+  Deliberately **not** done: recording the proxy in the config or the install summary as a fact about
+  the connection. degit skips the download entirely when the tarball is already cached and falls back
+  to a spawned `git clone` on some failures, so "a proxy was in effect" is not derivable from the
+  environment — hence "may be routed", never "was routed". The notices remain **advisory**: they
+  report your environment against measured degit versions, never the transport that ran.
+  `docs/troubleshooting.md` gains a "Proxy environment variables" section.
+
+- **`pharn` now refuses argv it does not understand.** An unknown _command_ always exited 1, but an
+  unknown _option_ was parsed into the arg map and silently dropped, and extra positionals were
+  ignored outright. So `pharn status --sctrict` ran in the default exit-0 mode — a typo in a CI
+  pipeline permanently disarmed the drift gate while every run stayed green — `pharn update --froce`
+  ran un-forced, `pharn add a11y extra` dropped its third argument, and `pharn --hepl` fell through
+  to `argv._[0] ?? 'init'` and started a real install. Every unrecognised option and every positional
+  past a command's arity is now collected during parse and refused **before any command function
+  runs**, printing the offenders (`JSON.stringify`-escaped, so a control-char argument is echoed as
+  data — P2) and the usage text to **stderr** with exit 1. The same fail-closed shape
+  `lib/seam-config.ts` already applies to an unknown config key, now at the argv boundary. Two
+  consequences are deliberate and worth naming: a genuine `--help` / `--version` no longer excuses an
+  unknown sibling (`pharn --help --bogus` refuses rather than printing usage), and flags stay parsed
+  globally, so a flag belonging to another command still parses and is ignored (`pharn init --force`)
+  — only _unrecognised_ options are refused. No flag's semantics moved: `--archetype` is still a
+  parsing no-op, `--no-drift` still flips the drift default off, `update --yes` still skips only the
+  confirm, and `remove --yes` is still the passthrough its own finding owns.
+
+- **`pharn update --yes` (`-y`) — a real flag, for CI and scripts.** It skips **the confirmation prompt
+  and nothing else**: the version note still prints, the same per-file decision table applies, files you
+  edited are still skipped rather than overwritten, the recorded version is still withheld when anything
+  was skipped, and every exit code is unchanged. It means _"do not ask"_, not _"non-interactive mode"_ —
+  so it works in a terminal too — and it composes with `--force` (`pharn update --yes --force` is the
+  full CI re-apply). `--force` does **not** imply `--yes`: overwriting your edits is the most destructive
+  thing `update` does, so it still asks. Because `--yes` is only consent, it is not a drift check — a run
+  that skips your edited files still exits 0; use `pharn status --strict` when CI should fail on drift.
+  The flag was previously parsed but consumed by nothing.
+
+  There is deliberately **no `--yes` for `pharn init`**: init's second prompt is the destructive overwrite
+  confirmation, and auto-confirming file overwrites in a pipeline is precisely the hazard that prompt
+  exists to prevent — so non-interactive `init` refuses rather than offering a bypass.
+
+- **`capabilities[].source` — selection provenance, so `pharn update` stops deleting what you added.**
+  Each entry in `pharn.config.json` now records how it got there: `auto` (selected for your archetypes
+  by `pharn init`) or `manual` (you asked for it by name with `pharn add`). The field is **optional** —
+  a config written by an older CLI omits it and still loads.
+
+- **`pharn list` shows provenance.** The human listing marks a hand-added capability `(manual)`;
+  `--json` gains a `source` field on each capability, **omitted** (never defaulted) when the config
+  does not record one. This is an additive JSON change — existing consumers are unaffected.
+
+- **`pharn update --force`** — overwrite the skipped files anyway. Each is copied, with its relative
+  path preserved, to `.pharn-backup/<YYYYMMDD-HHMMSS>/` **before** anything is overwritten; if any
+  backup write fails the run aborts with every original still intact, and a colliding timestamp
+  directory is uniquified rather than reused. The directory is never gitignored or pruned for you.
+  `--force` also bypasses the same-version early-return, so it works on an up-to-date install — which
+  is exactly what `pharn status` now tells you to do about locally-changed files.
+
 ### Changed
+
+- **BREAKING (argv): an option a command does not take is now refused, not silently ignored.** Options
+  were declared globally, so a flag belonging to another command parsed, was dropped, and the run
+  exited **0**. `pharn status --json | jq` received the human-readable box-drawing output plus a
+  **success** exit code, and `pharn list --strict` exited 0 no matter what it found — a CI gate that
+  could never go red. Each command now has an allowlist, and an option outside it prints
+  `Unsupported option for \`status\`: "--json"` to stderr with the usage text and exits **1**.
+
+  Accepted per command: `init` → `--archetype` (the deprecated no-op); `update` → `--force`,
+  `--yes`/`-y`; `list` → `--json`; `status` → `--strict`, `--no-drift`; `add`, `remove`/`rm` → none.
+  `--help`/`-h` and `--version`/`-v` work everywhere.
+
+  **The sharpest change is the no-command-word form.** `pharn --json`, `pharn --force` and
+  `pharn --strict` each ran a **full `init`** while ignoring the option; all three now exit 1. A
+  reader skimming "flag validation" will not expect that, so it is called out here rather than left
+  to the table.
+
+  Two smaller flips. `pharn remove --yes` was documented as a deliberate no-op — it now exits 1;
+  `remove` still has no `--yes` for the same reason as before (its named path never confirms and its
+  picker's one confirm is the destructive gate), the flag is simply refused instead of dropped. And
+  `--help` no longer excuses a misapplied sibling: `pharn status --help --json` refuses, matching the
+  existing rule that `pharn --help --bogus` refuses. `pharn status --help` alone is unchanged.
+
+  Only the option **name** is checked; value shape is out of scope, so `pharn list --json=false` is
+  still accepted and still prints human-readable output.
+
+- **A bundled unknown flag is named once.** minimist reports a short bundle once per unknown letter,
+  so `pharn status -xz` printed `Unknown option: "-xz", "-xz"`. It now prints it once.
 
 - **`add` and `update` now take the single-writer lock BEFORE the download, not after it.** A second
   `pharn` run that is going to be refused used to pay for the full ~2.5 MB pharn-oss tarball first,
@@ -83,7 +219,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   downloads before either learned who had won.
 
   **`pharn init` is deliberately unchanged, and that is not an oversight.** Both of its prompts (the
-  archetype summary and the destructive-overwrite confirmation) sit *between* its fetch and its
+  archetype summary and the destructive-overwrite confirmation) sit _between_ its fetch and its
   install, so the only slot before the fetch is also before both prompts. A prompt has no ceiling —
   `init` hard-fails off a TTY, so it is always a human at a keyboard — and a walked-away `init` would
   refuse every other `pharn` command in the project for up to six hours. A bounded download may go
@@ -92,6 +228,160 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   A failed download no longer strands the lock: the fetch moved inside the locked section and its
   failure now unwinds through the release instead of calling `process.exit`, which skips `finally`.
+
+- **The "what you get" tables now describe the layout an install actually produces.** `README.md` and
+  `docs/getting-started.md` both led with `pharn-contracts/`, `.dev/floor/` and a root
+  `CONSTITUTION.md`. Every install today resolves to the `pharn` layout, which writes
+  `pharn/pharn-contracts/`, `pharn/floor/` (a **renamed** directory, not `.dev/floor` relocated) and
+  `pharn/CONSTITUTION.md` — so a new user who looked for `.dev/floor/` after `pharn init` found
+  nothing and could reasonably conclude the install was broken. Both tables are now `pharn`-first,
+  with the legacy `flat` paths named in a note under each, and both gained the rows they were
+  missing: `features/README.md` (installed by every run, listed in neither table), plus
+  `ARCHITECTURE.md`, the trusted-doc set and `pharn.records.json` in `README.md`. The trusted-doc row
+  is deliberately conditional: `PHARN_TRUSTED_DOCS` names four documents, upstream ships only
+  `CONSTITUTION.md` and `ARCHITECTURE.md` under `pharn/`, and each copy is existence-guarded — so a
+  `pharn` install lands two of the four today and a flat install lands all four at the project root.
+  `docs/commands/init.md` and `docs/commands/status.md` lost the same flat-only paths from prose that
+  applies to every install.
+
+  A new `tests/docs-install-tables.test.ts` derives the required path set from `layoutPaths('pharn')`
+  and the layout-invariant constants, so renaming one of those constants fails a gate until both docs
+  follow. It pins the path **set** only — descriptions are still unverified prose.
+
+- **Documented why a leftover `degit` cache can be large, and how to size it.** `pharn` no longer
+  writes one at all, but the directory earlier versions left behind grew by ~2.4 MB per distinct
+  upstream commit and was never reclaimed: `degit` deletes a tarball only when an existing **ref's**
+  mapped hash changes, and `pharn` passed the resolved SHA _as_ the ref — so every fetch wrote a
+  self-mapped entry under a new key and the delete branch could never fire. `docs/troubleshooting.md`
+  now says so, with a `du` command, and warns against deleting the whole shared directory if another
+  tool uses `degit`.
+
+- **The repo fetch no longer goes through `degit`.** `pharn` now resolves the branch head once over
+  the GitHub API and downloads that exact commit's tarball from `codeload.github.com`, extracting it
+  with its own ustar reader (`src/lib/tar-extract.ts`). **`degit` is removed from `dependencies`**,
+  and with it the last dependency that fetched or unpacked untrusted remote content.
+
+  **What this fixes beyond the saved round trip.** The old path handed the already-resolved SHA to
+  `degit`, which resolved the same ref _again_ and matched the result only against current ref tips —
+  so an upstream push landing between the two resolves failed the whole command, with a valid
+  SHA-named tarball sitting unreadable in the cache. codeload serves any commit, tip or not.
+
+  **Stricter extraction.** The bundled extractor was called with neither `strict` nor `onwarn`, so a
+  malformed entry was silently dropped and the clone still succeeded. `pharn` now **rejects**:
+  symlinks, hardlinks, devices and fifos are refused outright, header checksums are verified, `..`
+  and absolute paths are rejected, every entry must share one root, and every write goes through
+  `safeJoin`.
+
+  **Bounded, at last.** The clone previously had no pharn-imposed timeout or body cap. It now has a
+  60s timeout, a cap counted over the streamed bytes (codeload sends no `content-length`), and a
+  separate cap on the _decompressed_ size, so a compression bomb is bounded by something.
+
+  **No more shared cache.** Every fetch downloads into a fresh temp dir. The old cross-project cache
+  reused entries by filename rather than a verified digest, and — when ref resolution failed — took
+  the ref→commit mapping out of that same cache, meaning it could decide which commit `pharn`
+  believed it had fetched. Caches already on disk are inert; `docs/troubleshooting.md` says where to
+  delete them.
+
+- **The dev/CI `degit` and a consumer's now resolve the same measured version.** `package.json` used to
+  declare `^3.6.1` and the published package ships no lockfile, so an install resolved the newest
+  matching release while this repo's gates exercised whatever its own lockfile held — the two drifted
+  apart, which is precisely how a claim about `degit` internals gets written against a version nobody
+  runs. Closed by narrowing the declaration instead of chasing the float: see the `### Security` entry
+  above. API compatibility across the span was verified — same callable default export, `.clone()` /
+  `.on()` intact, still no runtime dependencies, and `engines.node >=20.0.0` against pharn's `>=20`.
+  `src/lib/repo.ts`'s comments about degit's ref tiers, cache behavior, and warn sites name the pinned
+  `degit@3.6.6` and record that every claim was re-verified across the wider measured span
+  (3.6.1-3.8.0).
+
+- **The fetch boundary now tells the truth about `degit`.** `THREAT-MODEL.md` described the clone as an
+  opaque delegation, and `src/lib/repo.ts` claimed degit "resolves the ref via `git ls-remote`". Measured
+  against the installed `degit@3.6.6`: ref resolution is three tiers (pure-JS `listServerRefs`, then
+  `getRemoteInfo2`, then a spawned `git ls-remote`), the first two falling through on empty `catch {}`
+  while the third throws — so the git binary is a last resort rather than the mechanism, and its absence
+  is harmless only while the pure-JS tiers succeed. More consequentially, `cache: false` selects the hash
+  source and suppresses neither writing nor reuse — every fetch persists a SHA-named tarball into a
+  shared, cross-project cache directory and a later fetch reuses whatever file sits at that path, keyed by
+  **filename, not a verified digest**; a failed ref resolve then falls back to the commit hash stored in
+  that same cache, so a poisoned cache can decide which commit pharn believes it fetched. degit also reads
+  `process.env.https_proxy` on its own (lowercase only, so `HTTPS_PROXY` is ignored on POSIX but honored
+  on Windows), and warns on fallbacks that `fetchRepo` drops by registering no listener. §2 gains the
+  measured mechanics and §4b restates the residuals over them — including one claim made **upward** and
+  then bounded: the bundled node-tar genuinely contains traversal entries (an escaping path is skipped
+  with `TAR_ENTRY_ERROR`, absolute paths are stripped), but it does **not** reject malformed entries —
+  degit passes neither `strict` nor `onwarn`, so `TAR_ENTRY_INVALID` is recoverable and the entry is
+  silently dropped — and tripping the ratio cap degrades to `git clone` rather than halting the install.
+  `LIMITS.md §3a` and `docs/troubleshooting.md` are corrected to match.
+- **The trust map now matches the records era.** `LIMITS.md` and `THREAT-MODEL.md` still described the
+  deleted module/manifest subsystem and a world with no stored file hashes, both of which stopped being
+  true when `pharn.records.json` shipped. Three claims were corrected in place. `LIMITS.md §1d` said
+  `update`, `remove`, and `status` all reconstruct by reading a manifest from `@main` — there is no
+  manifest, and `remove` is fully offline, addressed from `pharn.config.json` alone; the section now
+  splits those two cases and names what each leaves behind. `THREAT-MODEL.md §4c` said pharn stores no
+  per-file content-hash; it does, and the honest residual is that the baseline covers only pharn-written
+  files at a matching stamp — so an absent or skewed store makes `update` **skip** present files while
+  still **restoring** absent ones. `LIMITS.md §1b` said the same thing one section earlier and now draws
+  the real distinction: the hashes pharn stores are drift baselines taken from the written file, which
+  authenticate nothing about upstream. No section numbers changed.
+
+- **The lint gate lost its soft tier and now covers the checked-in source surface.** `npm run lint`
+  runs ESLint over `src/`, `tests/`, and `scripts/` with `--max-warnings 0`, so **any** warning from
+  **any** rule now fails the gate, locally and in CI. Before this it linted `src/` only, and its one
+  custom rule sat at `warn` — a severity nothing could ever fail on — while `tests/` and `scripts/`
+  were typechecked but never linted. Closing it needed no code change: the tier was measurably empty.
+  The flat config also now declares the platform it actually runs on — `globals.nodeBuiltin`, Node
+  minus the CommonJS-only names, because this package is ESM — which is what let `scripts/` join the
+  gate without editing a single script: their `console`/`process` were never wrong, the config simply
+  declared no globals at all. Choosing `nodeBuiltin` over plain `node` keeps `__dirname`/`require` in
+  an `.mjs` a lint error, since those do not exist in ESM and would otherwise crash at runtime.
+  _Scope, honestly:_ the root config files (`eslint.config.mjs`, `vitest.config.ts`), `.dev/floor/`,
+  and `.claude/hooks/` are **not** linted. And `--max-warnings 0` counts warnings that are actually
+  **emitted** — it is not a defence against a rule set to `off`, a new `ignores` entry, or an inline
+  `eslint-disable` comment.
+
+- **`pharn update` is drift-safe by default — it no longer overwrites files you have edited.** Every
+  install now records a sha256 per written file in a new sidecar,
+  [`pharn.records.json`](docs/reference/pharn-records.md), and `update` compares each expected file
+  against it: a file that is exactly what `pharn` wrote is upgraded, a file that is already identical
+  to upstream is left alone, and anything it cannot prove is untouched is **skipped and listed** under
+  one of three labels — `modified` (you changed it), `unrecorded` (no record for that path), or
+  `unverifiable` (no usable record store, which is every install predating this release). Skips exit
+  `0`; `update` still never deletes. Full decision table in
+  [`docs/commands/update.md`](docs/commands/update.md).
+- **A run that skipped anything no longer advances `skillsVersion` / `commit`.** Those fields describe
+  the last _complete_ install, so `pharn status` keeps reporting the available update and the next
+  `pharn update` still has work to do, instead of the same-version early-return stranding the skipped
+  files permanently.
+- **`pharn update` now records the layout of the clone it copied from.** It previously wrote files at
+  the clone's layout while re-recording the stale `layout` from your config, so `status`, `remove`, and
+  `list` could address a tree the files were no longer in. A `flat → pharn/` migration leaves the old
+  top-level copies behind (update never deletes) and now warns about them.
+- **`pharn status`'s drift section renames "LOCALLY MODIFIED" to "DIFFERS FROM …@main"** and describes
+  the new behavior. The comparison is against upstream `HEAD`, so a file can differ because upstream
+  moved — only `update` (which reads the records) can tell that from an edit of yours.
+
+### Removed
+
+- **Proxy support, which `pharn` never implemented itself.** `degit` read `process.env.https_proxy`
+  on its own, so a user who set exactly that lowercase spelling had a proxied clone. Node's global
+  `fetch` reads no proxy environment variable on any platform, so that no longer works. Your
+  `pharn update` and `status --no-drift` were already unproxied — they were always plain `fetch` — so
+  this makes one boundary consistent rather than newly broken, **but it does break a setup that
+  worked.** It is a named limit (`LIMITS.md` §3a), and every network-bearing command warns before
+  fetching when it finds a proxy variable set, so the failure is explained rather than silent.
+
+- **Internal: the module-era symbols nothing calls are gone, and the security narration they left
+  behind is corrected.** Four unused validators (`MODULE_NAME_RE`, `INSTALL_PATH_RE`,
+  `WIZARD_VALUE_RE`, `PACKAGE_NAME_RE`), `shortDescription`, `toInstalledModules`, and all of
+  `lib/constitution.ts` were retained after their callers (`install-modules.ts`, `wizard.ts`) were
+  deleted; a fresh reference sweep found zero production callers for each. None is user-facing —
+  `package.json` exposes only `bin`/`files`, never a library entry point — so there is no API
+  change. The correction that does matter is documentation: `CLAUDE.md` and `docs/contributing.md`
+  both listed `INSTALL_PATH_RE` among the allowlists that validate untrusted remote input, and it
+  had validated nothing since the module install path was removed. Both now enumerate the
+  allowlists that are actually enforced. Path containment itself never depended on it and is
+  unchanged — `safeJoin` is the live gate. The four tests that pinned `assertSafeString`'s
+  reject/pass ladder used `MODULE_NAME_RE` only as a sample pattern; they were rewritten against
+  `CAPABILITY_NAME_RE` before the regex was deleted, so that function's coverage is intact.
 
 ### Fixed
 
@@ -159,7 +449,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   character, not a comfortable distance. Extraction of every real archive is unchanged.
 
   `SECURITY.md`'s `tar-extract.ts` bullet is updated in the same change rather than after it: the
-  sentence it carried was *correct about the old parser*, so landing the fix alone would have put a
+  sentence it carried was _correct about the old parser_, so landing the fix alone would have put a
   disclosure policy that misdescribes its own reader on `main` for the length of the gap.
 
 - **A corrupt `pharn.config.json` is no longer reported as a missing one — and the fix stops the CLI
@@ -192,8 +482,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The break is now `rename` → re-verify → create. `rename(2)` hands the file to exactly one process
   (the loser gets `ENOENT`), the moved bytes are compared against the ones that were judged, and only
-  then does the unchanged exclusive create take the lock — the rename decides who may *break*,
-  `O_EXCL` still decides who *holds*. A loser refuses with the usual named message and exit 1, never
+  then does the unchanged exclusive create take the lock — the rename decides who may _break_,
+  `O_EXCL` still decides who _holds_. A loser refuses with the usual named message and exit 1, never
   retries; a process that finds it moved a **live** lock puts it back with `link(2)`, which is
   create-or-fail and so can never clobber a lock a third process took in the gap.
 
@@ -298,80 +588,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ustar reader that parses attacker-controlled bytes rather than at a dependency that no longer
   exists. Three more sites in the tests came with it, because a test comment is spec here too:
   `tests/validate.test.ts`'s `COMMIT_RE` header is a deliberate mirror of the source comment, so it
-  is reworded in the *same words* rather than paraphrased; `tests/init.test.ts`'s proxy-notice
+  is reworded in the _same words_ rather than paraphrased; `tests/init.test.ts`'s proxy-notice
   section was still headed "the degit proxy notice" and explained itself in the present tense; and
   its non-TTY case promised that "no `~/.degit` tarball is paid for", naming a cache that no longer
   exists at all. Comments and docs only — no behavior changed, no assertion touched. The
   deliberately past-tense mentions stay as they are, in `src/lib/tar-extract.ts`,
   `src/lib/proxy-env.ts`, `docs/troubleshooting.md`'s migration section, and
   `tests/init.test.ts`'s own account of why the notice is no longer platform-gated.
-
-### Changed
-
-- **The "what you get" tables now describe the layout an install actually produces.** `README.md` and
-  `docs/getting-started.md` both led with `pharn-contracts/`, `.dev/floor/` and a root
-  `CONSTITUTION.md`. Every install today resolves to the `pharn` layout, which writes
-  `pharn/pharn-contracts/`, `pharn/floor/` (a **renamed** directory, not `.dev/floor` relocated) and
-  `pharn/CONSTITUTION.md` — so a new user who looked for `.dev/floor/` after `pharn init` found
-  nothing and could reasonably conclude the install was broken. Both tables are now `pharn`-first,
-  with the legacy `flat` paths named in a note under each, and both gained the rows they were
-  missing: `features/README.md` (installed by every run, listed in neither table), plus
-  `ARCHITECTURE.md`, the trusted-doc set and `pharn.records.json` in `README.md`. The trusted-doc row
-  is deliberately conditional: `PHARN_TRUSTED_DOCS` names four documents, upstream ships only
-  `CONSTITUTION.md` and `ARCHITECTURE.md` under `pharn/`, and each copy is existence-guarded — so a
-  `pharn` install lands two of the four today and a flat install lands all four at the project root.
-  `docs/commands/init.md` and `docs/commands/status.md` lost the same flat-only paths from prose that
-  applies to every install.
-
-  A new `tests/docs-install-tables.test.ts` derives the required path set from `layoutPaths('pharn')`
-  and the layout-invariant constants, so renaming one of those constants fails a gate until both docs
-  follow. It pins the path **set** only — descriptions are still unverified prose.
-
-- **Documented why a leftover `degit` cache can be large, and how to size it.** `pharn` no longer
-  writes one at all, but the directory earlier versions left behind grew by ~2.4 MB per distinct
-  upstream commit and was never reclaimed: `degit` deletes a tarball only when an existing **ref's**
-  mapped hash changes, and `pharn` passed the resolved SHA _as_ the ref — so every fetch wrote a
-  self-mapped entry under a new key and the delete branch could never fire. `docs/troubleshooting.md`
-  now says so, with a `du` command, and warns against deleting the whole shared directory if another
-  tool uses `degit`.
-
-- **The repo fetch no longer goes through `degit`.** `pharn` now resolves the branch head once over
-  the GitHub API and downloads that exact commit's tarball from `codeload.github.com`, extracting it
-  with its own ustar reader (`src/lib/tar-extract.ts`). **`degit` is removed from `dependencies`**,
-  and with it the last dependency that fetched or unpacked untrusted remote content.
-
-  **What this fixes beyond the saved round trip.** The old path handed the already-resolved SHA to
-  `degit`, which resolved the same ref _again_ and matched the result only against current ref tips —
-  so an upstream push landing between the two resolves failed the whole command, with a valid
-  SHA-named tarball sitting unreadable in the cache. codeload serves any commit, tip or not.
-
-  **Stricter extraction.** The bundled extractor was called with neither `strict` nor `onwarn`, so a
-  malformed entry was silently dropped and the clone still succeeded. `pharn` now **rejects**:
-  symlinks, hardlinks, devices and fifos are refused outright, header checksums are verified, `..`
-  and absolute paths are rejected, every entry must share one root, and every write goes through
-  `safeJoin`.
-
-  **Bounded, at last.** The clone previously had no pharn-imposed timeout or body cap. It now has a
-  60s timeout, a cap counted over the streamed bytes (codeload sends no `content-length`), and a
-  separate cap on the _decompressed_ size, so a compression bomb is bounded by something.
-
-  **No more shared cache.** Every fetch downloads into a fresh temp dir. The old cross-project cache
-  reused entries by filename rather than a verified digest, and — when ref resolution failed — took
-  the ref→commit mapping out of that same cache, meaning it could decide which commit `pharn`
-  believed it had fetched. Caches already on disk are inert; `docs/troubleshooting.md` says where to
-  delete them.
-
-### Removed
-
-- **Proxy support, which `pharn` never implemented itself.** `degit` read `process.env.https_proxy`
-  on its own, so a user who set exactly that lowercase spelling had a proxied clone. Node's global
-  `fetch` reads no proxy environment variable on any platform, so that no longer works. Your
-  `pharn update` and `status --no-drift` were already unproxied — they were always plain `fetch` — so
-  this makes one boundary consistent rather than newly broken, **but it does break a setup that
-  worked.** It is a named limit (`LIMITS.md` §3a), and every network-bearing command warns before
-  fetching when it finds a proxy variable set, so the failure is explained rather than silent.
-
-### Fixed
 
 - **`npm run check` now runs `lint:md`, and `CONTRIBUTING.md` names all six CI gates.** The quick-start
   told contributors that four commands were "exactly what CI runs". CI runs six, and the two it
@@ -488,305 +711,6 @@ update` never deletes — but they drop out of the tracked set, so they are now 
   through: wait for the next upstream skills-version bump, after which a plain `update` restores it;
   or run `pharn update --force` now, which also overwrites the skip buckets — every casualty is copied
   to `.pharn-backup/<timestamp>/` first.
-
-### Security
-
-- **A symlinked `features/` directory in a fetched repo can no longer copy files from outside the
-  clone into your project.** `features/README.md` is the first root-relative file the install copies
-  that has an intermediate directory, and the existing leaf-only symlink check does not see a
-  symlinked _parent_: `existsSync` returns true, the leaf is not itself a link, and the copy reads
-  straight through to wherever the directory points. The lexical path guard cannot catch this — it
-  never resolves links. The copy site now runs the same physical component walk the expected-file
-  manifest already ran, so both agree and neither writes such a file.
-
-  The **destination** is walked for the mirror-image reason: a project whose own `features/` is a
-  symlink to an external directory took the copy straight through it, creating or overwriting a
-  `README.md` outside the project root — and the pre-install overwrite prompt never warned, because
-  the check for an existing file returns false for an absent leaf inside that link. Both directions
-  are now measured and pinned by tests. No release shipped either unguarded copy; both holes were
-  found and closed in the same change that introduced the path.
-
-  A project that merely has a **regular file** named `features` is left alone rather than breaking the
-  install: the copy is skipped (a copy there would fail anyway), and the record-writing pass, which is
-  driven by what upstream ships rather than by what was written, now skips a path it cannot stat
-  instead of failing after every other file is already on disk.
-
-- **A `pharn`-layout install can now ship `THREAT-MODEL.md` and `LIMITS.md`.** The install placed only
-  `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md`, treating the other two trusted docs as
-  dev-only — while the same install shipped ten product commands, the floor checkers and the
-  contracts, and those cite `THREAT-MODEL.md` / `LIMITS.md` by path. Every one of those pointers
-  dangled in every install. Both docs are now part of the `pharn` trusted-doc set, so they are
-  installed at `pharn/THREAT-MODEL.md` and `pharn/LIMITS.md`, compared by `pharn status`, and
-  restored by `pharn update` under the same per-file rules as `CONSTITUTION.md` (missing → restore,
-  unchanged → upgrade, locally modified → skip). **Nothing changes for existing installs yet:**
-  upstream `pharn-dev/pharn-oss` does not ship those two paths at the time of writing, and every doc
-  copy is existence-guarded at both readers — so a clone without them installs exactly as before,
-  `status` reports nothing missing, and `update` restores nothing. This is the CLI half; the doc
-  content, the repointed citations, and the `protect-trusted-paths.cjs` hook that currently
-  write-protects `THREAT-MODEL.md` at the _user's_ project root are upstream changes still to land.
-
-- **`pharn.config.json` and `pharn.records.json` are now written atomically.** Both were written with
-  a plain `writeFile`, so a write torn by power loss or `SIGKILL` left truncated JSON on disk. For the
-  records store that fails closed — the reader names it invalid, every update decision degrades to
-  `unverifiable`, and the version bump is withheld. For the config it was worse: `readPharnConfig`
-  collapses malformed JSON to `null`, so every command reported **"No `pharn.config.json` found. Run
-  `pharn init` first."** — about a file that was right there — and the prescribed re-init resets
-  hand-edited `models`/`seam` blocks to defaults and re-stamps every capability `source: 'auto'`,
-  destroying the manual-add provenance only that file remembers. Both writes now go through one
-  helper that writes a sibling temp file and `rename`s it over the target, so the file is either
-  replaced whole or left exactly as it was. The bytes are unchanged, and so are the file's permission
-  bits — `rename` swaps in a new inode, so an existing regular file's mode is copied onto the temp
-  first, and a `0600` config stays `0600` instead of becoming whatever your umask gives. A
-  `pharn.config.json` that is a **symlink** is now replaced by a regular file rather than written
-  through, matching how the rest of the CLI treats symlinks. **What this does not do,** and
-  is not claimed anywhere: it does not make the two files a transaction (a crash between them still
-  leaves the stamp mismatch `recordsBaseline` already reports by name), it adds no lock and does not
-  serialize two concurrent `pharn` processes, and it does not `fsync` — surviving a power cut at the
-  block layer is a different guarantee from never observing a torn file, and only the second is made.
-
-- **One filename trust floor across both write paths.** `pharn init` hard-fails on a product-command
-  or `.cjs` hook basename from the fetched repo that violates the copy allowlist (lowercase words
-  joined by single hyphens, one of `.md`/`.cjs`/`.mjs`/`.json`, no control characters) — but
-  `pharn update` copied that same file in without a murmur, because the install manifest that now
-  drives its writes filtered only on shape (`endsWith` / `startsWith`). One clone, one repo, two
-  different trust floors: `init` refused it, `update` installed it. The manifest's product-command
-  and hook enumerations now run the same `assertSafeString` + `assertNoDotDot` pair, in the same
-  order (`keep` first, so a `README.md`, a `pharn-dev-*` command, or anything nested still never
-  reaches the validator). A clone carrying such a name is now refused by `update` — and by `status`,
-  which hard-fails on it exactly as it already did on every other fetch-boundary validation error,
-  rather than reporting it as drift. Deliberately **not** extended to capability directories,
-  `pharn-contracts/`, `pharn-core/`, `.dev/floor/`, or the trusted docs: those are copied verbatim
-  with no name check, so validating them in the mirror would break the manifest-to-installer mirror
-  and reject legitimate `evals/` fixtures. No such filename exists upstream today — this closes a
-  latent asymmetry, and no existing install changes meaning.
-
-- **A benign upstream filename no longer makes `pharn` declare its own `pharn.records.json` corrupt.**
-  The store's reader rejected any key containing `..` as a **substring** — including inside an
-  ordinary basename such as `migration..v2.md` — or a backslash anywhere. Its writer applied no such
-  rule: it records whatever paths the install manifest enumerated out of the fetched repo, whose
-  capability contents, contracts and floor files are copied verbatim with their basenames never
-  name-validated. So `pharn` could write a store its own next read called invalid, which is
-  fail-closed but for nothing: every present file that differed from upstream degraded to
-  `unverifiable` and was skipped, the `skillsVersion`/`commit` bump was withheld, and `pharn add` /
-  `pharn remove` silently stopped maintaining the store — recoverable only with `--force` or by hand-
-  editing the file. The reader now applies a path-**segment** rule: a key is invalid when it is empty,
-  absolute, or has a segment exactly equal to `..` or `.`. Traversal and absolute keys are rejected
-  exactly as before; a name that merely contains those characters is not. The key is validated on a
-  normalized copy and stored verbatim, so it still matches the manifest lookup it exists for. No
-  filename existed upstream that triggered this, so no installed store changes meaning — the accepted
-  set only widens for names the writer could already produce.
-
-- **A file under a symlinked parent directory is now classified `unreadable` — in `pharn update`'s
-  plan and in `pharn status`'s drift report alike.** `lstat` refuses to dereference only the FINAL
-  path component, so the disk classifier checked the leaf and resolved every ancestor: a project whose
-  `.claude/hooks` (or `.claude/commands`) is a symlink into a dotfiles repo had those files hashed
-  **through** the link. `status` then counted them ok — silently blessing bytes that live outside the
-  install — while `update` planned a write and hit the write-side symlink refusal mid-loop, aborting
-  with exit 1, partial writes, no config write, and the identical abort on every re-run. The
-  classifier now runs the same physical component walk the write side does, so such a path becomes the
-  per-file named skip it was always designed to be (exit 0, listed under `UNREADABLE` with the
-  offending component named, the `skillsVersion` bump withheld). The write-side refusal stays exactly
-  where it was, as the security backstop.
-
-- **`pharn update --force` now names the backup directory when the run aborts part-way.**
-  `createBackup` copies every about-to-be-overwritten file into `.pharn-backup/<timestamp>/` before a
-  single original is touched, but that path used to travel out only inside a **successful** run — so a
-  run that died after the backup (a file it could not write, a records or config write that threw)
-  printed the error, exited 1, and never said where the copies went. The user's originals were already
-  gone from the tree, the one pointer back to them was withheld at exactly the moment it was needed,
-  and earlier runs may have left other timestamped directories beside the new one. The path is now
-  carried out of the apply phase the instant the backup exists, so every exit reachable after it names
-  the directory — with a line saying the run stopped part-way and some originals may already have been
-  overwritten. It goes to **stderr** with the rest of the fatal output, so an operator redirecting
-  stderr to a log finds it there. The success path is unchanged and both paths now print through one
-  helper, so they cannot drift. Nothing is printed when no backup exists: a `createBackup` that itself
-  throws leaves the tree intact with nothing to point at, and a run without `--force` only ever writes
-  over files pharn wrote and proved pristine.
-
-### Added
-
-- **`pharn add` now backs up destination drift before it overwrites.** `add` was the only write path
-  with none of the product's three edit-protections — no prompt (`init`'s overwrite confirmation), no
-  per-file skip (`update`'s records table), no backup (`update --force`) — so it `cpSync`'d over
-  whatever sat at the destination. The reachable sequence is one `update` itself manufactures and
-  announces: a `dropped-unselected` capability's files are **left on disk** (update never deletes),
-  you edit them, and a later `pharn add <name>` is not a config no-op because the entry is gone.
-  `add` now enumerates the capability dir in the **clone**, compares each file's sha256 against the
-  destination, and copies every **differing** file to `.pharn-backup/<timestamp>/` — the same
-  directory `update --force` uses — **before** the first byte is written, printing the path as soon
-  as it is created so it stays visible even if a later step throws. Byte-identical files are not
-  drift (mirroring `update`'s `identical → no-op`), so re-adding an untouched capability stays
-  silent, and a normal first-time `add` still produces no backup directory. A backup that cannot be
-  written aborts the add with every original intact.
-
-  `add` also now **refuses**, writing nothing, when a path it would copy sits under a **symlinked
-  directory** in your project, naming the offending component. The copy is a recursive `cpSync` that
-  guards only its source: measured on node v24.13.1, a symlinked intermediate directory under the
-  capability dir is written straight **through**, replacing whatever it points at — outside your
-  project included — while a symlinked leaf is silently replaced. Neither can be backed up, because
-  saving a symlink means saving its target rather than the link, so refusing is the only outcome that
-  leaves your files as they were. (`update` reaches the same answer by classifying such a path
-  `unreadable` and skipping it.)
-
-- **Forward-compatibility contract at the capability-index boundary.** pharn always fetches
-  `pharn-dev/pharn-oss` at `main` HEAD and can never pin older content, so one routine grammar
-  evolution upstream — a new capability directory without its markdown, a new `role`, a new `applies`
-  token — used to abort `init` / `add` / `update` in every released CLI at once, with no rollback
-  lever (`add` doubly so: its version gate names `pharn update`, whose own first act was the parse
-  that threw). `parseCapabilityIndex` now **tolerates and reports**: any validation refusal raised
-  while processing ONE capability skips that capability and records it in a new
-  `CapabilityIndex.unknown` list, which every fetching command names with its reason. The posture is
-  unchanged where it matters — `validate.ts`'s enums stay frozen, and nothing unparseable is ever
-  selected, copied, enumerated by the install manifest, or written; a **structural** break (a missing
-  subtree) still hard-fails. `update` keeps a frozen capability's `pharn.config.json` entry (reported
-  as `KEPT`, never `REMOVED`) while excluding it from the manifest, and still bumps `skillsVersion`,
-  so a following `pharn add` is not wedged. `status` excludes it from the drift comparison, so
-  `--strict` cannot fail on drift no command can resolve. Named as `LIMITS.md` §3e.
-- **Optional `MIN_CLI` version handshake.** pharn-oss may ship a root `MIN_CLI` file declaring the
-  minimum CLI version its content requires; `init` / `add` / `update` refuse a too-old CLI **before
-  any write**, with an actionable upgrade message, and clean the clone up. Deliberately fail-open in
-  one direction: absent, unreadable, or malformed imposes **no** constraint (a warning at most), so
-  one upstream typo in a one-line file cannot become the fleet outage the handshake exists to
-  prevent. Only a well-formed value whose numeric core is greater refuses; a prerelease compares
-  equal to its release.
-
-- **`pharn/pharn-core/` is now installed.** The product `/pharn-build` command shipped by pharn-oss
-  cites `pharn/pharn-core/seam-resolver/seam-resolver.md` at three points, and `init` has always
-  written a `seam` block into `pharn.config.json` and installed `check-seam-config.mjs` with the
-  floor — so the seam gate validated GREEN and then pointed the model at a file no code path ever
-  copied. `init` and `update` now install `pharn/pharn-core/` (today the `seam-resolver` skill plus
-  its `evals/`) as a **fixed product surface**, copied whole and verbatim exactly the way
-  `pharn-contracts/` is: one layout path, one copy block guarded by `safeJoin` at both ends plus the
-  `isSymlink` root reject and the `noSymlinks` filter, and one entry in the install manifest — which
-  is what also gives it `status` drift coverage and `update`'s missing-file restore. It is **not**
-  modeled as a capability: its frontmatter declares `role: skill`, deliberately outside the CLI's
-  `ROLE_VALUES`, and the CLI never parses it — `pharn add`/`remove` cannot address it. The flat
-  layout has no counterpart upstream (the directory postdates the `pharn/` relocation), so a flat
-  clone copies nothing and a flat install is byte-for-byte unchanged.
-
-- **The `degit` clone's proxy handling is no longer invisible.** `degit` reads
-  `process.env.https_proxy` in its own constructor — unconditionally, with no option `pharn` could
-  pass — and only that **lowercase** spelling appears anywhere in its bundle. So a user who exported
-  `HTTPS_PROXY`, the spelling most tooling honors, was connecting **directly** on macOS and Linux with
-  no signal anywhere; a user who exported `https_proxy` was having the clone interposed by a host
-  `pharn` never mentioned. Both directions were silent. `init` / `add` / `update` / `status` now read
-  the environment before starting the clone and print the applicable line — that the variable will be
-  ignored (suppressed on Windows, where lookups are case-insensitive and it _is_ read), or that the
-  clone **may be routed** through the named proxy and that `no_proxy` exclusions do not apply to it,
-  since degit reads no such variable. The warning names whichever spelling you actually set, so a
-  `Https_Proxy` typo is caught too, and several variants resolve deterministically rather than by
-  environment order. Credentials in the value are redacted to `***`, an unparseable value degrades to
-  `(set)` rather than echoing raw bytes, and the value is **never** written to `pharn.config.json` —
-  it is git-committed, and proxy URLs routinely carry passwords.
-
-  **The confident wording is gated on a measured degit version.** `pharn` pins `degit@3.6.6` exactly,
-  but the published package ships no lockfile and marks degit external, so an `overrides` entry, a
-  monorepo hoist, or a non-npm resolver can still seat another version. Every published release from
-  `3.6.1` through `3.8.0` was therefore swept (nine in total) — deliberately wider than the pin — and
-  all read only the lowercase name; `pharn` reads the version at runtime and states the negative
-  assertion only for those. On any other version it hedges, naming both the measured range and what is
-  installed — so an unexpected degit makes the notice more cautious rather than wrong.
-
-  Deliberately **not** done: recording the proxy in the config or the install summary as a fact about
-  the connection. degit skips the download entirely when the tarball is already cached and falls back
-  to a spawned `git clone` on some failures, so "a proxy was in effect" is not derivable from the
-  environment — hence "may be routed", never "was routed". The notices remain **advisory**: they
-  report your environment against measured degit versions, never the transport that ran.
-  `docs/troubleshooting.md` gains a "Proxy environment variables" section.
-
-- **`pharn` now refuses argv it does not understand.** An unknown _command_ always exited 1, but an
-  unknown _option_ was parsed into the arg map and silently dropped, and extra positionals were
-  ignored outright. So `pharn status --sctrict` ran in the default exit-0 mode — a typo in a CI
-  pipeline permanently disarmed the drift gate while every run stayed green — `pharn update --froce`
-  ran un-forced, `pharn add a11y extra` dropped its third argument, and `pharn --hepl` fell through
-  to `argv._[0] ?? 'init'` and started a real install. Every unrecognised option and every positional
-  past a command's arity is now collected during parse and refused **before any command function
-  runs**, printing the offenders (`JSON.stringify`-escaped, so a control-char argument is echoed as
-  data — P2) and the usage text to **stderr** with exit 1. The same fail-closed shape
-  `lib/seam-config.ts` already applies to an unknown config key, now at the argv boundary. Two
-  consequences are deliberate and worth naming: a genuine `--help` / `--version` no longer excuses an
-  unknown sibling (`pharn --help --bogus` refuses rather than printing usage), and flags stay parsed
-  globally, so a flag belonging to another command still parses and is ignored (`pharn init --force`)
-  — only _unrecognised_ options are refused. No flag's semantics moved: `--archetype` is still a
-  parsing no-op, `--no-drift` still flips the drift default off, `update --yes` still skips only the
-  confirm, and `remove --yes` is still the passthrough its own finding owns.
-
-### Security
-
-- **`degit` is pinned to the exact version its guarantees were measured against.** `degit` is the one
-  dependency that fetches and tar-extracts untrusted remote content, so the extraction properties
-  `THREAT-MODEL.md` §2/§4b and `LIMITS.md` §3b state are degit’s behaviour, not pharn’s — written as
-  facts measured against `degit@3.6.6`. `package.json` nonetheless declared the caret range `^3.6.1`,
-  and because lockfiles are not published, that range is what a consumer actually resolves. The drift
-  was not hypothetical: the range had already floated this repo to `3.8.0` while every document still
-  said `3.6.6`. The declaration is now the exact version `3.6.6`, and a new `tests/degit-pin.test.ts`
-  ties it to `package-lock.json` and to every file stating a measured claim (`THREAT-MODEL.md`,
-  `LIMITS.md`, `src/lib/repo.ts`), so a bump — a Dependabot PR included — goes red until each claim has
-  been re-measured and re-written. The test proves those documents **name** the installed version; it
-  cannot prove the measured prose is still **true** of those bytes, and says so in its header.
-
-### Changed
-
-- **The dev/CI `degit` and a consumer's now resolve the same measured version.** `package.json` used to
-  declare `^3.6.1` and the published package ships no lockfile, so an install resolved the newest
-  matching release while this repo's gates exercised whatever its own lockfile held — the two drifted
-  apart, which is precisely how a claim about `degit` internals gets written against a version nobody
-  runs. Closed by narrowing the declaration instead of chasing the float: see the `### Security` entry
-  above. API compatibility across the span was verified — same callable default export, `.clone()` /
-  `.on()` intact, still no runtime dependencies, and `engines.node >=20.0.0` against pharn's `>=20`.
-  `src/lib/repo.ts`'s comments about degit's ref tiers, cache behavior, and warn sites name the pinned
-  `degit@3.6.6` and record that every claim was re-verified across the wider measured span
-  (3.6.1-3.8.0).
-
-### Docs
-
-- **The fetch boundary now tells the truth about `degit`.** `THREAT-MODEL.md` described the clone as an
-  opaque delegation, and `src/lib/repo.ts` claimed degit "resolves the ref via `git ls-remote`". Measured
-  against the installed `degit@3.6.6`: ref resolution is three tiers (pure-JS `listServerRefs`, then
-  `getRemoteInfo2`, then a spawned `git ls-remote`), the first two falling through on empty `catch {}`
-  while the third throws — so the git binary is a last resort rather than the mechanism, and its absence
-  is harmless only while the pure-JS tiers succeed. More consequentially, `cache: false` selects the hash
-  source and suppresses neither writing nor reuse — every fetch persists a SHA-named tarball into a
-  shared, cross-project cache directory and a later fetch reuses whatever file sits at that path, keyed by
-  **filename, not a verified digest**; a failed ref resolve then falls back to the commit hash stored in
-  that same cache, so a poisoned cache can decide which commit pharn believes it fetched. degit also reads
-  `process.env.https_proxy` on its own (lowercase only, so `HTTPS_PROXY` is ignored on POSIX but honored
-  on Windows), and warns on fallbacks that `fetchRepo` drops by registering no listener. §2 gains the
-  measured mechanics and §4b restates the residuals over them — including one claim made **upward** and
-  then bounded: the bundled node-tar genuinely contains traversal entries (an escaping path is skipped
-  with `TAR_ENTRY_ERROR`, absolute paths are stripped), but it does **not** reject malformed entries —
-  degit passes neither `strict` nor `onwarn`, so `TAR_ENTRY_INVALID` is recoverable and the entry is
-  silently dropped — and tripping the ratio cap degrades to `git clone` rather than halting the install.
-  `LIMITS.md §3a` and `docs/troubleshooting.md` are corrected to match.
-- **The trust map now matches the records era.** `LIMITS.md` and `THREAT-MODEL.md` still described the
-  deleted module/manifest subsystem and a world with no stored file hashes, both of which stopped being
-  true when `pharn.records.json` shipped. Three claims were corrected in place. `LIMITS.md §1d` said
-  `update`, `remove`, and `status` all reconstruct by reading a manifest from `@main` — there is no
-  manifest, and `remove` is fully offline, addressed from `pharn.config.json` alone; the section now
-  splits those two cases and names what each leaves behind. `THREAT-MODEL.md §4c` said pharn stores no
-  per-file content-hash; it does, and the honest residual is that the baseline covers only pharn-written
-  files at a matching stamp — so an absent or skewed store makes `update` **skip** present files while
-  still **restoring** absent ones. `LIMITS.md §1b` said the same thing one section earlier and now draws
-  the real distinction: the hashes pharn stores are drift baselines taken from the written file, which
-  authenticate nothing about upstream. No section numbers changed.
-
-### Removed
-
-- **Internal: the module-era symbols nothing calls are gone, and the security narration they left
-  behind is corrected.** Four unused validators (`MODULE_NAME_RE`, `INSTALL_PATH_RE`,
-  `WIZARD_VALUE_RE`, `PACKAGE_NAME_RE`), `shortDescription`, `toInstalledModules`, and all of
-  `lib/constitution.ts` were retained after their callers (`install-modules.ts`, `wizard.ts`) were
-  deleted; a fresh reference sweep found zero production callers for each. None is user-facing —
-  `package.json` exposes only `bin`/`files`, never a library entry point — so there is no API
-  change. The correction that does matter is documentation: `CLAUDE.md` and `docs/contributing.md`
-  both listed `INSTALL_PATH_RE` among the allowlists that validate untrusted remote input, and it
-  had validated nothing since the module install path was removed. Both now enumerate the
-  allowlists that are actually enforced. Path containment itself never depended on it and is
-  unchanged — `safeJoin` is the live gate. The four tests that pinned `assertSafeString`'s
-  reject/pass ladder used `MODULE_NAME_RE` only as a sample pattern; they were rewritten against
-  `CAPABILITY_NAME_RE` before the regex was deleted, so that function's coverage is intact.
-
-### Fixed
 
 - **`pharn update` no longer prescribes `--force` for skips `--force` cannot clear.** A destination
   that is not a readable regular file — a directory, a symlink, an unreadable file — is classified
@@ -952,50 +876,6 @@ update` never deletes — but they drop out of the tracked set, so they are now 
   absent, or hand-edited `layout`. Note that resolving such a same-version drift needs
   `pharn update --force`, as a plain `pharn update` returns early at a matching version.
 
-### Added
-
-- **`pharn update --yes` (`-y`) — a real flag, for CI and scripts.** It skips **the confirmation prompt
-  and nothing else**: the version note still prints, the same per-file decision table applies, files you
-  edited are still skipped rather than overwritten, the recorded version is still withheld when anything
-  was skipped, and every exit code is unchanged. It means _"do not ask"_, not _"non-interactive mode"_ —
-  so it works in a terminal too — and it composes with `--force` (`pharn update --yes --force` is the
-  full CI re-apply). `--force` does **not** imply `--yes`: overwriting your edits is the most destructive
-  thing `update` does, so it still asks. Because `--yes` is only consent, it is not a drift check — a run
-  that skips your edited files still exits 0; use `pharn status --strict` when CI should fail on drift.
-  The flag was previously parsed but consumed by nothing.
-
-  There is deliberately **no `--yes` for `pharn init`**: init's second prompt is the destructive overwrite
-  confirmation, and auto-confirming file overwrites in a pipeline is precisely the hazard that prompt
-  exists to prevent — so non-interactive `init` refuses rather than offering a bypass.
-
-- **`capabilities[].source` — selection provenance, so `pharn update` stops deleting what you added.**
-  Each entry in `pharn.config.json` now records how it got there: `auto` (selected for your archetypes
-  by `pharn init`) or `manual` (you asked for it by name with `pharn add`). The field is **optional** —
-  a config written by an older CLI omits it and still loads.
-
-- **`pharn list` shows provenance.** The human listing marks a hand-added capability `(manual)`;
-  `--json` gains a `source` field on each capability, **omitted** (never defaulted) when the config
-  does not record one. This is an additive JSON change — existing consumers are unaffected.
-
-### Changed
-
-- **The lint gate lost its soft tier and now covers the checked-in source surface.** `npm run lint`
-  runs ESLint over `src/`, `tests/`, and `scripts/` with `--max-warnings 0`, so **any** warning from
-  **any** rule now fails the gate, locally and in CI. Before this it linted `src/` only, and its one
-  custom rule sat at `warn` — a severity nothing could ever fail on — while `tests/` and `scripts/`
-  were typechecked but never linted. Closing it needed no code change: the tier was measurably empty.
-  The flat config also now declares the platform it actually runs on — `globals.nodeBuiltin`, Node
-  minus the CommonJS-only names, because this package is ESM — which is what let `scripts/` join the
-  gate without editing a single script: their `console`/`process` were never wrong, the config simply
-  declared no globals at all. Choosing `nodeBuiltin` over plain `node` keeps `__dirname`/`require` in
-  an `.mjs` a lint error, since those do not exist in ESM and would otherwise crash at runtime.
-  _Scope, honestly:_ the root config files (`eslint.config.mjs`, `vitest.config.ts`), `.dev/floor/`,
-  and `.claude/hooks/` are **not** linted. And `--max-warnings 0` counts warnings that are actually
-  **emitted** — it is not a defence against a rule set to `off`, a new `ignores` entry, or an inline
-  `eslint-disable` comment.
-
-### Fixed
-
 - **`pharn update` no longer silently deletes capabilities you added by hand, or silently resurrects
   ones you removed.** `update` re-resolves your `archetypes` against the latest index, and it used to
   overwrite `capabilities` with that result **wholesale**. Two things went wrong, both without a word:
@@ -1065,42 +945,6 @@ archetypes`, `REMOVED — no longer selected for your archetypes`, `REMOVED — 
   upstream push is recorded. **Limit:** there is no way to add a capability to a deliberately-pinned
   older install — `add` has no `--force`, and `pharn update` is the only resolution.
 
-## [0.4.0] — 2026-08-07
-
-### Changed
-
-- **`pharn update` is drift-safe by default — it no longer overwrites files you have edited.** Every
-  install now records a sha256 per written file in a new sidecar,
-  [`pharn.records.json`](docs/reference/pharn-records.md), and `update` compares each expected file
-  against it: a file that is exactly what `pharn` wrote is upgraded, a file that is already identical
-  to upstream is left alone, and anything it cannot prove is untouched is **skipped and listed** under
-  one of three labels — `modified` (you changed it), `unrecorded` (no record for that path), or
-  `unverifiable` (no usable record store, which is every install predating this release). Skips exit
-  `0`; `update` still never deletes. Full decision table in
-  [`docs/commands/update.md`](docs/commands/update.md).
-- **A run that skipped anything no longer advances `skillsVersion` / `commit`.** Those fields describe
-  the last _complete_ install, so `pharn status` keeps reporting the available update and the next
-  `pharn update` still has work to do, instead of the same-version early-return stranding the skipped
-  files permanently.
-- **`pharn update` now records the layout of the clone it copied from.** It previously wrote files at
-  the clone's layout while re-recording the stale `layout` from your config, so `status`, `remove`, and
-  `list` could address a tree the files were no longer in. A `flat → pharn/` migration leaves the old
-  top-level copies behind (update never deletes) and now warns about them.
-- **`pharn status`'s drift section renames "LOCALLY MODIFIED" to "DIFFERS FROM …@main"** and describes
-  the new behavior. The comparison is against upstream `HEAD`, so a file can differ because upstream
-  moved — only `update` (which reads the records) can tell that from an edit of yours.
-
-### Added
-
-- **`pharn update --force`** — overwrite the skipped files anyway. Each is copied, with its relative
-  path preserved, to `.pharn-backup/<YYYYMMDD-HHMMSS>/` **before** anything is overwritten; if any
-  backup write fails the run aborts with every original still intact, and a colliding timestamp
-  directory is uniquified rather than reused. The directory is never gitignored or pruned for you.
-  `--force` also bypasses the same-version early-return, so it works on an up-to-date install — which
-  is exactly what `pharn status` now tells you to do about locally-changed files.
-
-### Fixed
-
 - **`pharn update` no longer silently overwrites a hand-edited `CONSTITUTION.md`.** It always had,
   despite docs claiming the constitution was left untouched. `CONSTITUTION.md` is in the install
   manifest's trusted-doc set (`paths.docs` in `lib/install-manifest.ts`): `update` restores it when
@@ -1114,6 +958,132 @@ archetypes`, `REMOVED — no longer selected for your archetypes`, `REMOVED — 
   now drives writes, not just comparisons), and every per-file write and backup refuses a
   **symlinked destination** or parent directory — `safeJoin` is lexical and `copyFileSync` follows
   symlinks, so a dangling destination symlink could otherwise be written through.
+
+### Security
+
+- **A symlinked `features/` directory in a fetched repo can no longer copy files from outside the
+  clone into your project.** `features/README.md` is the first root-relative file the install copies
+  that has an intermediate directory, and the existing leaf-only symlink check does not see a
+  symlinked _parent_: `existsSync` returns true, the leaf is not itself a link, and the copy reads
+  straight through to wherever the directory points. The lexical path guard cannot catch this — it
+  never resolves links. The copy site now runs the same physical component walk the expected-file
+  manifest already ran, so both agree and neither writes such a file.
+
+  The **destination** is walked for the mirror-image reason: a project whose own `features/` is a
+  symlink to an external directory took the copy straight through it, creating or overwriting a
+  `README.md` outside the project root — and the pre-install overwrite prompt never warned, because
+  the check for an existing file returns false for an absent leaf inside that link. Both directions
+  are now measured and pinned by tests. No release shipped either unguarded copy; both holes were
+  found and closed in the same change that introduced the path.
+
+  A project that merely has a **regular file** named `features` is left alone rather than breaking the
+  install: the copy is skipped (a copy there would fail anyway), and the record-writing pass, which is
+  driven by what upstream ships rather than by what was written, now skips a path it cannot stat
+  instead of failing after every other file is already on disk.
+
+- **A `pharn`-layout install can now ship `THREAT-MODEL.md` and `LIMITS.md`.** The install placed only
+  `pharn/CONSTITUTION.md` and `pharn/ARCHITECTURE.md`, treating the other two trusted docs as
+  dev-only — while the same install shipped ten product commands, the floor checkers and the
+  contracts, and those cite `THREAT-MODEL.md` / `LIMITS.md` by path. Every one of those pointers
+  dangled in every install. Both docs are now part of the `pharn` trusted-doc set, so they are
+  installed at `pharn/THREAT-MODEL.md` and `pharn/LIMITS.md`, compared by `pharn status`, and
+  restored by `pharn update` under the same per-file rules as `CONSTITUTION.md` (missing → restore,
+  unchanged → upgrade, locally modified → skip). **Nothing changes for existing installs yet:**
+  upstream `pharn-dev/pharn-oss` does not ship those two paths at the time of writing, and every doc
+  copy is existence-guarded at both readers — so a clone without them installs exactly as before,
+  `status` reports nothing missing, and `update` restores nothing. This is the CLI half; the doc
+  content, the repointed citations, and the `protect-trusted-paths.cjs` hook that currently
+  write-protects `THREAT-MODEL.md` at the _user's_ project root are upstream changes still to land.
+
+- **`pharn.config.json` and `pharn.records.json` are now written atomically.** Both were written with
+  a plain `writeFile`, so a write torn by power loss or `SIGKILL` left truncated JSON on disk. For the
+  records store that fails closed — the reader names it invalid, every update decision degrades to
+  `unverifiable`, and the version bump is withheld. For the config it was worse: `readPharnConfig`
+  collapses malformed JSON to `null`, so every command reported **"No `pharn.config.json` found. Run
+  `pharn init` first."** — about a file that was right there — and the prescribed re-init resets
+  hand-edited `models`/`seam` blocks to defaults and re-stamps every capability `source: 'auto'`,
+  destroying the manual-add provenance only that file remembers. Both writes now go through one
+  helper that writes a sibling temp file and `rename`s it over the target, so the file is either
+  replaced whole or left exactly as it was. The bytes are unchanged, and so are the file's permission
+  bits — `rename` swaps in a new inode, so an existing regular file's mode is copied onto the temp
+  first, and a `0600` config stays `0600` instead of becoming whatever your umask gives. A
+  `pharn.config.json` that is a **symlink** is now replaced by a regular file rather than written
+  through, matching how the rest of the CLI treats symlinks. **What this does not do,** and
+  is not claimed anywhere: it does not make the two files a transaction (a crash between them still
+  leaves the stamp mismatch `recordsBaseline` already reports by name), it adds no lock and does not
+  serialize two concurrent `pharn` processes, and it does not `fsync` — surviving a power cut at the
+  block layer is a different guarantee from never observing a torn file, and only the second is made.
+
+- **One filename trust floor across both write paths.** `pharn init` hard-fails on a product-command
+  or `.cjs` hook basename from the fetched repo that violates the copy allowlist (lowercase words
+  joined by single hyphens, one of `.md`/`.cjs`/`.mjs`/`.json`, no control characters) — but
+  `pharn update` copied that same file in without a murmur, because the install manifest that now
+  drives its writes filtered only on shape (`endsWith` / `startsWith`). One clone, one repo, two
+  different trust floors: `init` refused it, `update` installed it. The manifest's product-command
+  and hook enumerations now run the same `assertSafeString` + `assertNoDotDot` pair, in the same
+  order (`keep` first, so a `README.md`, a `pharn-dev-*` command, or anything nested still never
+  reaches the validator). A clone carrying such a name is now refused by `update` — and by `status`,
+  which hard-fails on it exactly as it already did on every other fetch-boundary validation error,
+  rather than reporting it as drift. Deliberately **not** extended to capability directories,
+  `pharn-contracts/`, `pharn-core/`, `.dev/floor/`, or the trusted docs: those are copied verbatim
+  with no name check, so validating them in the mirror would break the manifest-to-installer mirror
+  and reject legitimate `evals/` fixtures. No such filename exists upstream today — this closes a
+  latent asymmetry, and no existing install changes meaning.
+
+- **A benign upstream filename no longer makes `pharn` declare its own `pharn.records.json` corrupt.**
+  The store's reader rejected any key containing `..` as a **substring** — including inside an
+  ordinary basename such as `migration..v2.md` — or a backslash anywhere. Its writer applied no such
+  rule: it records whatever paths the install manifest enumerated out of the fetched repo, whose
+  capability contents, contracts and floor files are copied verbatim with their basenames never
+  name-validated. So `pharn` could write a store its own next read called invalid, which is
+  fail-closed but for nothing: every present file that differed from upstream degraded to
+  `unverifiable` and was skipped, the `skillsVersion`/`commit` bump was withheld, and `pharn add` /
+  `pharn remove` silently stopped maintaining the store — recoverable only with `--force` or by hand-
+  editing the file. The reader now applies a path-**segment** rule: a key is invalid when it is empty,
+  absolute, or has a segment exactly equal to `..` or `.`. Traversal and absolute keys are rejected
+  exactly as before; a name that merely contains those characters is not. The key is validated on a
+  normalized copy and stored verbatim, so it still matches the manifest lookup it exists for. No
+  filename existed upstream that triggered this, so no installed store changes meaning — the accepted
+  set only widens for names the writer could already produce.
+
+- **A file under a symlinked parent directory is now classified `unreadable` — in `pharn update`'s
+  plan and in `pharn status`'s drift report alike.** `lstat` refuses to dereference only the FINAL
+  path component, so the disk classifier checked the leaf and resolved every ancestor: a project whose
+  `.claude/hooks` (or `.claude/commands`) is a symlink into a dotfiles repo had those files hashed
+  **through** the link. `status` then counted them ok — silently blessing bytes that live outside the
+  install — while `update` planned a write and hit the write-side symlink refusal mid-loop, aborting
+  with exit 1, partial writes, no config write, and the identical abort on every re-run. The
+  classifier now runs the same physical component walk the write side does, so such a path becomes the
+  per-file named skip it was always designed to be (exit 0, listed under `UNREADABLE` with the
+  offending component named, the `skillsVersion` bump withheld). The write-side refusal stays exactly
+  where it was, as the security backstop.
+
+- **`pharn update --force` now names the backup directory when the run aborts part-way.**
+  `createBackup` copies every about-to-be-overwritten file into `.pharn-backup/<timestamp>/` before a
+  single original is touched, but that path used to travel out only inside a **successful** run — so a
+  run that died after the backup (a file it could not write, a records or config write that threw)
+  printed the error, exited 1, and never said where the copies went. The user's originals were already
+  gone from the tree, the one pointer back to them was withheld at exactly the moment it was needed,
+  and earlier runs may have left other timestamped directories beside the new one. The path is now
+  carried out of the apply phase the instant the backup exists, so every exit reachable after it names
+  the directory — with a line saying the run stopped part-way and some originals may already have been
+  overwritten. It goes to **stderr** with the rest of the fatal output, so an operator redirecting
+  stderr to a log finds it there. The success path is unchanged and both paths now print through one
+  helper, so they cannot drift. Nothing is printed when no backup exists: a `createBackup` that itself
+  throws leaves the tree intact with nothing to point at, and a run without `--force` only ever writes
+  over files pharn wrote and proved pristine.
+
+- **`degit` is pinned to the exact version its guarantees were measured against.** `degit` is the one
+  dependency that fetches and tar-extracts untrusted remote content, so the extraction properties
+  `THREAT-MODEL.md` §2/§4b and `LIMITS.md` §3b state are degit’s behaviour, not pharn’s — written as
+  facts measured against `degit@3.6.6`. `package.json` nonetheless declared the caret range `^3.6.1`,
+  and because lockfiles are not published, that range is what a consumer actually resolves. The drift
+  was not hypothetical: the range had already floated this repo to `3.8.0` while every document still
+  said `3.6.6`. The declaration is now the exact version `3.6.6`, and a new `tests/degit-pin.test.ts`
+  ties it to `package-lock.json` and to every file stating a measured claim (`THREAT-MODEL.md`,
+  `LIMITS.md`, `src/lib/repo.ts`), so a bump — a Dependabot PR included — goes red until each claim has
+  been re-measured and re-written. The test proves those documents **name** the installed version; it
+  cannot prove the measured prose is still **true** of those bytes, and says so in its header.
 
 ## [0.3.2] — 2026-07-24
 
@@ -1304,7 +1274,8 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.3.0
