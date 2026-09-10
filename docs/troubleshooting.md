@@ -304,6 +304,13 @@ No pharn.config.json found. Run `pharn init` first.
 
 All non-`init` commands operate on an already-installed project. Run `pharn init` to create `pharn.config.json`.
 
+This message means the file is genuinely **not there** (or cannot be read at all). A
+`pharn.config.json` that exists but is broken never produces it — see
+[the corrupt-config case](#a-command-rejects-an-invalid-config-does-not-say-run-init) below. That
+distinction matters: `pharn init` **overwrites** the config, so being told to run it about a file
+that is sitting right there would cost you your recorded capabilities and manual `pharn add`
+provenance.
+
 ### Legacy (pre-archetype) config
 
 ```text
@@ -324,6 +331,37 @@ exit non-zero — they do **not** say to run `pharn init` (the file is there; re
 offer to clobber your edits). Fix the named field and re-run. The `models` / `seam` blocks reject an
 out-of-enum value, an unknown key (e.g. a typo'd `stgaes` / `haltOnUnknwon`), a duplicate
 `resolutionOrder` step, or a `modelConfidenceThreshold` with no `model` step to gate.
+
+### The config is not valid JSON
+
+```text
+/path/to/your/project/pharn.config.json is not valid JSON (line 4, column 1). The file exists — fix its syntax by hand. Do NOT run `pharn init` to clear it: init OVERWRITES this config, discarding your recorded capabilities, any manual `pharn add` provenance, and hand-edited models/seam blocks. If it is beyond repair, move it aside first (`mv pharn.config.json pharn.config.json.bak`), then run `pharn init`.
+```
+
+A syntax error — most often a trailing comma — is reported with the file's full path and, when the
+JSON parser supplies one, the **line and column** of the offending byte. Open the file at that
+position and fix it; nothing else is needed, and nothing has been written.
+
+**Do not reach for `pharn init` here.** It rewrites `pharn.config.json` wholesale: hand-edited
+`models` / `seam` blocks go back to defaults and every capability is re-stamped `source: "auto"`,
+which discards the record of which capabilities you added by hand with `pharn add`. That record
+lives nowhere else, and `pharn update` reads it to keep your manual additions across upgrades.
+
+If the file is genuinely beyond repair, move it out of the way first so you can still read it, then
+re-install:
+
+```bash
+mv pharn.config.json pharn.config.json.bak
+pharn init
+```
+
+You can then copy your `models` / `seam` blocks back out of the `.bak` file, and re-add anything you
+had installed manually with `pharn add <name>`.
+
+Two neighbouring cases are deliberately **not** reported this way, because the file is not readable
+in the first place: a config that is **absent**, or one that exists but cannot be read at all (a
+permissions problem, or a directory sitting at that path), still says
+[`No pharn.config.json found`](#add--update-say-to-run-init-first).
 
 ## Unknown command
 
