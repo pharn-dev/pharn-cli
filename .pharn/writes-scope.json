@@ -1,25 +1,7 @@
 {
   "scope": [
-    "src/lib/constants.ts",
-    "src/lib/layout.ts",
-    "src/lib/install-capabilities.ts",
-    "src/lib/install-manifest.ts",
-    "src/commands/update.ts",
-    "tests/install-capabilities.test.ts",
-    "tests/install-manifest.test.ts",
-    "tests/docs-install-tables.test.ts",
-    "tests/install-records.test.ts",
-    "README.md",
-    "docs/getting-started.md",
-    "docs/README.md",
-    "docs/commands/init.md",
-    "docs/commands/status.md",
-    "docs/troubleshooting.md",
-    "docs/roadmap.md",
-    "CLAUDE.md",
-    "package.json",
-    "CHANGELOG.md"
+    ".dev/features/features-readme-relocation/SHIP.md"
   ],
-  "set_by": ".dev/features/features-readme-relocation/PLAN.md",
-  "set_at": "2026-09-10T13:53:14.132Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-10T13:59:50.442Z"
 }
