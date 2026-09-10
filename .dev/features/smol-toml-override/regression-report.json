@@ -1,0 +1,45 @@
+{
+  "base": "a289d27b2785f1766aa4ae8805686854693c9683",
+  "inside": [
+    ".pharn/pharn-dev-regress/base-results.json",
+    ".pharn/pharn-dev-regress/head-results.json",
+    ".pharn/writes-scope.json",
+    "CHANGELOG.md",
+    "package-lock.json",
+    "package.json",
+    ".dev/features/smol-toml-override/GRILL.md",
+    ".dev/features/smol-toml-override/PLAN.md",
+    ".dev/features/smol-toml-override/REGRESSION.md",
+    ".dev/features/smol-toml-override/REVIEW.md",
+    ".dev/features/smol-toml-override/SHIP.md",
+    ".dev/features/smol-toml-override/VERIFY.md",
+    ".dev/features/smol-toml-override/regression-report.json",
+    ".dev/features/smol-toml-override/verify-report.json",
+    "tests/dependency-overrides.test.ts"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

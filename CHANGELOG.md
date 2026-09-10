@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`smol-toml` forced off the vulnerable range with an npm `overrides` entry.**
+  [GHSA-7w5x-hrqm-74c2](https://github.com/advisories/GHSA-7w5x-hrqm-74c2) / CVE-2026-85730 reports an
+  infinite loop in `smol-toml`'s `parse()` for versions `<= 1.7.0`: a value inside an array or inline
+  table followed by an unterminated comment resets the parser's cursor instead of ending the scan, and
+  `parse()` never returns. `package.json` now declares `overrides: { "smol-toml": "~1.7.1" }`, which
+  resolves to `1.7.2`.
+
+  There was **no upstream upgrade path**. `smol-toml` arrives transitively through
+  `markdownlint-cli2@0.23.2` — the latest release — which pins it to **exactly `1.7.0`**, so
+  `npm audit fix --force` proposed `markdownlint-cli2@0.21.0`: a downgrade across two minors of the
+  tool behind `npm run lint:md` and the required CI check `Markdown lint`. The override keeps
+  `markdownlint-cli2` at `0.23.2`. The range **permits** future `1.7.x` patches without a
+  `package.json` edit, but a range pins nothing: the committed lockfile still fixes `1.7.2` until
+  something regenerates it, which is a Dependabot pull request rather than a property of the
+  specifier.
+
+  **Scope, stated honestly.** `smol-toml` is a transitive **dev** dependency, and npm never installs a
+  published package's `devDependencies` for its consumers — `@pharn-dev/pharn` ships only `dist/`
+  (`files`). This clears the alert for **contributors' installs and CI**; it is not a fix to anything
+  users of the published CLI ever ran. This repo's markdownlint config is `.markdownlint-cli2.jsonc`,
+  so `parse()` was never invoked on any input here and the practical exposure was already nil — the
+  change removes a known-vulnerable version from the toolchain rather than closing a live path.
+
+- **The override is pinned by a test, because nothing else enforces it.** There is no `npm audit` step
+  in CI, so a `markdownlint-cli2` bump or a regenerated lockfile could drop back below the patch line
+  with every gate still green. `tests/dependency-overrides.test.ts` asserts the declared range cannot
+  admit a vulnerable version and that **every** `smol-toml` entry in the committed lockfile resolves at
+  or above `1.7.1`, reusing `compareVersionCore` (`src/lib/semver.ts`) rather than re-deriving a
+  comparator. Both checks are pure functions over a parsed lockfile, so the suite also plants a `1.7.0`
+  tree — including one nested under another package — and demonstrates the check **rejects** it; a
+  matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
+  leave every assertion green.
+
 ## [0.4.0] — 2026-09-10
 
 ### Added

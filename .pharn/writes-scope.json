@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/install-upstream-license/SHIP.md"
+    ".dev/features/smol-toml-override/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-08T16:57:51.192Z"
+  "set_at": "2026-09-10T13:22:00.162Z"
 }
