@@ -1,4 +1,13 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -31,6 +40,27 @@ function payload(dir: string): Record<string, unknown> {
     string,
     unknown
   >;
+}
+
+/**
+ * Everything sitting next to the lock under a `.pharn.lock.`-prefixed name.
+ *
+ * Deliberately looser than the production `CORPSE_RE`: "the break left nothing
+ * behind" has to fail on a stray with an UNEXPECTED name too, or the assertion
+ * only tests the names we already thought of.
+ */
+function lockSiblings(dir: string): string[] {
+  return readdirSync(dir)
+    .filter((n) => n !== LOCK_FILE && n.startsWith(`${LOCK_FILE}.`))
+    .sort();
+}
+
+/** A corpse-shaped file, aged so the sweep's age bound is the thing under test. */
+function plantCorpse(dir: string, name: string, ageMs: number): void {
+  const p = join(dir, name);
+  writeFileSync(p, 'corpse', 'utf8');
+  const when = new Date(Date.now() - ageMs);
+  utimesSync(p, when, when);
 }
 
 /** A lock file with an arbitrary payload, as a hand-edit or a crashed run leaves. */
@@ -235,5 +265,79 @@ describe('withProjectLock', () => {
       ).rejects.toThrow(ProjectLockedError);
     });
     expect(existsSync(lockPath(dir))).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // The break is now rename → re-verify → create, so it moves the corpse aside
+  // before replacing it. These are the consequences a user can SEE: nothing left
+  // in their project root, and a lock path that is not a file no longer wedges
+  // them. The interleave the rename exists to survive is driven from a
+  // renameSync seam in tests/project-lock-break.test.ts.
+  // -------------------------------------------------------------------------
+
+  it('leaves no corpse behind after breaking a stale lock', async () => {
+    const dir = tmp.path();
+    plantLock(dir, {
+      pid: 2147483646, // dead on this host → stale
+      host: hostname(),
+      command: 'update',
+      startedAt: new Date().toISOString(),
+    });
+
+    await withProjectLock(dir, 'add', () => undefined);
+
+    expect(lockSiblings(dir)).toEqual([]);
+    expect(existsSync(lockPath(dir))).toBe(false);
+  });
+
+  it('sweeps an AGED corpse, and leaves a fresh one and a non-matching neighbour', async () => {
+    const dir = tmp.path();
+    // A corpse from a run killed between its rename and its tidy — nothing else
+    // would ever remove this, which is why the break sweeps.
+    plantCorpse(dir, '.pharn.lock.4821.deadbeef', 48 * 60 * 60 * 1000);
+    // A corpse seconds old may belong to a breaker racing us RIGHT NOW, mid-verify.
+    plantCorpse(dir, '.pharn.lock.4822.cafef00d', 0);
+    // Prefixed, but not corpse-shaped: the sweep matches an allowlist, not a prefix.
+    writeFileSync(join(dir, '.pharn.lock.keepme'), 'mine', 'utf8');
+    plantLock(dir, 'not json at all'); // malformed → stale → break → sweep
+
+    await withProjectLock(dir, 'init', () => undefined);
+
+    expect(lockSiblings(dir)).toEqual([
+      '.pharn.lock.4822.cafef00d',
+      '.pharn.lock.keepme',
+    ]);
+  });
+
+  it('does NOT sweep on an uncontended acquire', async () => {
+    const dir = tmp.path();
+    plantCorpse(dir, '.pharn.lock.4821.deadbeef', 48 * 60 * 60 * 1000);
+
+    // No lock present, so tryCreate wins outright and the break path never runs.
+    // The uncontended acquire stays two syscalls: nobody pays a directory listing
+    // for a lock that was never contended.
+    await withProjectLock(dir, 'update', () => undefined);
+
+    expect(lockSiblings(dir)).toEqual(['.pharn.lock.4821.deadbeef']);
+  });
+
+  it('does not wedge when the lock path is a DIRECTORY', async () => {
+    const dir = tmp.path();
+    // A hand-made mistake the old rmSync(force) could never clear: force does not
+    // imply recursive, so the delete threw ERR_FS_EISDIR on every run and the
+    // project refused forever — hazard #1 (wedging) in this file's own header.
+    mkdirSync(lockPath(dir));
+
+    let ran = false;
+    await withProjectLock(dir, 'add', () => {
+      ran = true;
+    });
+
+    expect(ran).toBe(true);
+    // Moved aside under a corpse name, never recursively deleted: pharn does not
+    // remove a directory a user put there.
+    const left = lockSiblings(dir);
+    expect(left).toHaveLength(1);
+    expect(statSync(join(dir, left[0]!)).isDirectory()).toBe(true);
   });
 });

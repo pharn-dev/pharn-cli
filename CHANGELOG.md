@@ -183,6 +183,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/troubleshooting.md` documents the new diagnostic and the move-aside recovery, and its
   "run init first" section now states that it covers only a config that is absent or unreadable.
 
+- **Breaking a stale lock is now a single-winner operation.** The break deleted the lock file with
+  `rmSync(…, { force: true })` and never re-checked that the bytes it removed were the ones it had
+  just judged stale — so two runs that both found the same corpse could interleave
+  (`B: rm → B: create → C: rm → C: create`) and **both end up holding the lock**, with C's delete
+  landing on B's freshly-created, live one. That is the one path in the file that did not verify;
+  acquiring has always been an atomic `O_EXCL` create, and releasing already re-read before unlinking.
+
+  The break is now `rename` → re-verify → create. `rename(2)` hands the file to exactly one process
+  (the loser gets `ENOENT`), the moved bytes are compared against the ones that were judged, and only
+  then does the unchanged exclusive create take the lock — the rename decides who may *break*,
+  `O_EXCL` still decides who *holds*. A loser refuses with the usual named message and exit 1, never
+  retries; a process that finds it moved a **live** lock puts it back with `link(2)`, which is
+  create-or-fail and so can never clobber a lock a third process took in the gap.
+
+  Reaching the old defect needed a pre-existing stale lock plus two writers inside the window between
+  one process's delete and its create, so no released version is known to have hit it.
+
+  Two side effects worth naming. The renamed corpse is removed on every in-process path, and a later
+  break also sweeps corpses older than six hours, so a run killed mid-break cannot leave a growing
+  pile of `.pharn.lock.*` files in your project. And a `.pharn.lock` that is a **directory** no longer
+  wedges the project: `force` does not imply `recursive`, so the old delete threw on every run and
+  refused forever — it is now moved aside (never recursively deleted) and the run proceeds.
+
 - **The README no longer oversells the network floor.** Its Security section applied one fetch's caps —
   an 8s timeout and a 256KB body cap — to _all_ remote input. That pair belongs to the `SKILLS_VERSION`
   read alone: the commit-SHA resolve has no body cap, and the tarball uses a 60s timeout and a 32MB
