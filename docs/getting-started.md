@@ -4,20 +4,25 @@ PHARN does not scaffold your app. You create your project (e.g. with `create-nex
 
 ## Prerequisites
 
-| Requirement | How PHARN checks                              | When                                        |
-| ----------- | --------------------------------------------- | ------------------------------------------- |
-| Git         | A `.git` directory exists in the project root | Always — checked up front, before detection |
+| Requirement          | How PHARN checks                                      | When                                        |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------- |
+| Git                  | A `.git` directory exists in the project root         | Always — checked up front, before detection |
+| Interactive terminal | `process.stdin`/`stdout` are TTYs                     | Right after the git check, before any fetch |
+| Node                 | `engines.node` declares `>=20` (CI exercises Node 24) | By npm/npx when the package is resolved     |
 
-`.git` is required for every install. `pharn init` then detects your project's archetype(s) from
+`.git` is required for every install. So is a real terminal: `pharn init` **exits 1** rather than
+rendering a prompt into a dead stream, and there is deliberately no `--yes` for it — its second prompt
+is the destructive overwrite confirmation. (`pharn update` behaves the same way, and `update --yes` is
+the supported way through in CI.) `pharn init` then detects your project's archetype(s) from
 `package.json` dependency names plus a bounded file-tree scan — there is no stack-pack selection and no
 package prerequisite to satisfy. See [Troubleshooting](troubleshooting.md).
 
 PHARN installs **into your existing project**. Just before writing, `pharn init` checks which of its
 actual install targets (the selected capability dirs, the product commands/hooks, the contracts, core
-and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in
-your project. If any do, it lists them and asks you to confirm before overwriting — default **no**;
-if none do, there is no prompt at all. Your `.claude/settings.json` is never overwritten, so it is
-not part of the check.
+and floor dirs, all four trusted docs, pharn's `LICENSE` copy, the root `features/README.md`, and
+`pharn.config.json`) already exist in your project. If any do, it lists them and asks you to confirm
+before overwriting — default **no**; if none do, there is no prompt at all. Your
+`.claude/settings.json` is never overwritten, so it is not part of the check.
 
 ## Running the CLI
 
@@ -46,13 +51,19 @@ npx @pharn-dev/pharn init
 1. **Detect archetypes.** The CLI merges your `package.json` dependency names with a bounded,
    symlink-safe file-tree scan (names only, never file bodies) into an archetype set — `ssr`, `backend`,
    `spa`, `lib` (a project may match several, e.g. Next + Express → `ssr` + `backend`). It shows what it
-   detected.
+   detected. Detection is **JS/TS-shaped**: the signals are npm dependency names plus `next.config.*`,
+   `app/` route handlers, `.tsx`/`.jsx`, `migrations/` and `.sql`. A Python, Go or Rust project produces
+   no signal, resolves to `lib`, and receives the universal capabilities only — the correct outcome, not
+   a failure.
 2. **Fetch + resolve.** It downloads `pharn-dev/pharn-oss` as a tarball at a pinned SHA and selects the
    capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the rest
-   with a reason.
+   with a reason. If the SHA cannot be resolved (offline, rate-limited) the fetch floats `main` instead
+   and records `commit: null`. If the fetched version declares a `MIN_CLI` newer than your CLI, the run
+   stops here with a named error and writes nothing.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus
-   the fixed product surfaces (commands, hooks, contracts, `pharn-core`, floor checkers, and the
-   canonical constitution) into the mirrored layout and writes `pharn.config.json`.
+   the fixed product surfaces (commands, hooks, contracts, `pharn-core`, floor checkers, the four trusted
+   docs, upstream's `LICENSE` copy, and the root `features/README.md`) into the mirrored layout, then
+   writes `pharn.records.json` and `pharn.config.json`.
 
 To add a capability the detection didn't select — or remove one it did — use
 [`pharn add`](commands/add.md) / [`pharn remove`](commands/remove.md) afterward.
@@ -73,7 +84,7 @@ surfaces:
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched |
 | `features/README.md`                                                  | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                |
 | `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                             |
-| `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites                               |
+| `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites all but `unreadable`          |
 
 `.claude/*` is **layout-invariant** — commands, hooks and `settings.json` sit at those paths either
 way, and an existing `.claude/settings.json` is never overwritten. Everything else follows the fetched
@@ -96,9 +107,11 @@ your project's PHARN state.
 ## After init
 
 1. Open **Claude Code** in the project directory.
-2. Run **`/pharn-spec`** to capture your first feature's intent — it pins the scope and feeds `/pharn-plan`. That's the recommended first step; for a small, well-scoped change you can go straight to **`/pharn-plan`**.
+2. Run **`/pharn-spec`** to capture your first feature's intent — it pins the scope and feeds `/pharn-plan`. This is where every run begins: `/pharn-plan` gates on an **Approved**, un-drifted `SPEC.md` and halts without one, so there is no entry point further down the chain.
 
-The day-to-day loop: `/pharn-plan → /pharn-grill → /pharn-build → /pharn-regress → /pharn-verify → /pharn-review → /pharn-ship` (begin with `/pharn-spec` to capture intent — it feeds `/pharn-plan`).
+The pipeline is seven typed stages: `/pharn-spec → /pharn-plan → /pharn-grill → /pharn-build → /pharn-regress → /pharn-verify → /pharn-ship`. You rarely run them by hand — **`/pharn-ship`** is itself the seventh stage and orchestrates the six before it in one pass, and **`/pharn-loop`** runs the same chain but iterates build → regress → verify until green, an iteration cap, or a terminal failure. Both keep the two human gates: approve the spec before code is written, decide merge/fix/abandon after verification.
+
+Two of the ten installed commands sit outside the pipeline: **`/pharn-review`** runs the review lenses in parallel over any code and merges their findings (no stage invokes it), and **`/pharn-memory-promote`** promotes one lesson into `memory-bank/` through a gated provenance check.
 
 ## Next steps
 

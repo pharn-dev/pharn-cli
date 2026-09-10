@@ -9,6 +9,11 @@
 | Unknown command                                                                                         | 1         |
 | Unknown option, an option the command does not take, or an unexpected extra argument                    | 1         |
 | `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
+| `status --strict` found anything outdated, modified, missing or unreadable                              | 1         |
+| `init` or `update` run without an interactive terminal (and `add`/`remove` with no name)                | 1         |
+| Another `pharn` process holds the project lock (`.pharn.lock`)                                          | 1         |
+| The fetched version declares a `MIN_CLI` newer than the installed CLI                                   | 1         |
+| `add` refused on a skills-version or layout mismatch                                                    | 1         |
 | `update` completed but skipped files it could not verify                                                | 0         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
 | User cancel at summary, or overwrite declined                                                           | 0         |
@@ -31,16 +36,23 @@ half-written object or an error string.
 
 Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 
+**One exception.** The missing-`.git` prerequisite failure is rendered through the same cancel
+formatter as those success messages, so it prints on **stdout** while the process still exits 1. If
+you are gating on stderr alone, check the exit code too.
+
 ## `pharn update` skipped my files
 
 By default, `update` skips **present** PHARN-owned files it cannot prove are untouched (missing
-expected files are still restored). It prints each skipped file under one of three labels:
+expected files are still restored). It prints each skipped file under one of four labels:
 
 - **`modified`** — you edited it after `pharn` wrote it.
 - **`unrecorded`** — `pharn` has no record of writing that path.
 - **`unverifiable`** — there is no usable `pharn.records.json` (absent, malformed, stamp-mismatched,
   or from a newer schema), so present differences cannot be proven. Every install created before
   `pharn` 0.4.0 hits this once for differing files; **missing** files are still restored.
+- **`unreadable`** — something that is not a regular readable file sits at the expected path (a
+  symlink, a directory, an unreadable file, or a path under a symlinked parent). This is the one
+  bucket `--force` **cannot** clear; the run says so explicitly. Fix the path by hand.
 
 Exit code is **0** — this is the designed outcome, not a failure. To overwrite them anyway:
 
@@ -48,8 +60,9 @@ Exit code is **0** — this is the designed outcome, not a failure. To overwrite
 pharn update --force   # backs up each skipped file to .pharn-backup/<timestamp>/, then overwrites
 ```
 
-Files already byte-identical to upstream are left alone (`ok`) — `--force` only overwrites the skip
-buckets.
+Files already byte-identical to upstream are left alone (`ok`). `--force` overwrites the `modified`,
+`unrecorded` and `unverifiable` buckets only — `unreadable` paths are refused with
+`--force cannot clear the UNREADABLE paths above.` and must be fixed by hand.
 
 A run with skips deliberately leaves `skillsVersion` at the previous value, so `pharn status` keeps
 showing an update as available and the next `pharn update` still has work to do. See
@@ -69,11 +82,34 @@ overwritten**. Inspect `.pharn-backup` at your project root:
 A symlink in a source file's path (or one of its parent directories) is also rejected; the error names
 the component.
 
+### `add` writes backups too
+
+`.pharn-backup/<timestamp>/` is not only an `update --force` artefact. Before `pharn add` copies a
+capability, it compares each destination file against the clone and copies every one that **differs**
+into the same backup directory — so re-adding a capability whose files you edited never loses those
+edits. Byte-identical files are not drift and are not backed up. Everything in
+[`--force` aborted with a backup error](#--force-aborted-with-a-backup-error) applies to `add`
+verbatim, including the abort-with-nothing-touched contract.
+
+`add` also **refuses outright** — writing nothing, exit 1 — when a destination path crosses a
+symlinked directory, naming the offending component:
+
+```text
+⚠ Refusing to add a11y: `pharn/pharn-pipeline/grillers/a11y/evals` in your project is a symlink.
+```
+
+That is deliberate rather than defensive: the copy would write straight through the link and replace
+bytes outside your project, while the backup could not save them. Replace the symlink with a real
+directory (or move it aside) and re-run.
+
 ## Prerequisites failed
 
-`pharn init` has one prerequisite — a git repository. There is no stack-pack or package prerequisite:
-archetype detection reads `package.json` names and the file tree, and installs whatever capabilities
-apply.
+`pharn init` has three prerequisites — a git repository, an interactive terminal, and Node >= 20.
+There is no stack-pack or package prerequisite: archetype detection reads `package.json` names and the
+file tree, and installs whatever capabilities apply.
+
+Off a TTY, `init` and `update` **exit 1** rather than prompting into a dead stream; `update --yes` is
+the supported way through in CI, and `init` deliberately has no `--yes`.
 
 ### Git not found
 
@@ -87,15 +123,24 @@ The CLI message says "git not found" but the check is for a **`.git` directory**
 
 Exits with code **1**.
 
+### My Python / Go / Rust project detected as `lib`
+
+That is the correct outcome, not a failure. Archetype detection is **JS/TS-shaped**: the signals are
+`package.json` dependency names plus `next.config.*`, `app/` route handlers, `.tsx`/`.jsx`,
+`migrations/` and `.sql`. A repo with none of those produces no signal and resolves to `lib`, which
+installs the **universal** capabilities — the ones that apply to any codebase. Use
+[`pharn add`](commands/add.md) to install any others you want.
+
 ### Monorepos / workspaces
 
-`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there for archetype detection, and installs into that directory. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
+`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there and runs a bounded, symlink-safe file-tree scan from it for archetype detection, then installs into that directory. The scan skips heavy or generated trees (`node_modules`, `dist`, `build`, `.next`, `out`, `coverage`, framework caches), so in a workspace it still sees `apps/` and `packages/`. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
 
 ## Overwrite warnings
 
 Not an error. Just before installing, `pharn init` lists which of its actual write targets already
-exist in your project (capability dirs, product commands/hooks, contracts, floor checkers, the
-constitution, and `pharn.config.json`) and asks you to confirm before overwriting. Confirm to continue
+exist in your project (capability dirs, product commands/hooks, contracts, `pharn-core`, floor
+checkers, all four trusted docs, pharn's `LICENSE` copy, the root `features/README.md`, and
+`pharn.config.json`) and asks you to confirm before overwriting. Confirm to continue
 or cancel to exit cleanly (code 0); the default is **no**.
 
 - If **nothing** conflicts, there is no prompt at all.
@@ -110,7 +155,7 @@ Symptoms:
 - Message references `github.com/pharn-dev/pharn-oss`
 - Exit code 1
 
-`init` / `add` / `update` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the branch head via `api.github.com`); `update` and `status --no-drift` also fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com`. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy — see [Proxy environment variables](#proxy-environment-variables).
+`init` / `add` / `update` / `status` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the branch head via `api.github.com`) — default `status` clones too, and reads `SKILLS_VERSION` out of that clone. `update` and `status --no-drift` instead fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com` without cloning. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy — see [Proxy environment variables](#proxy-environment-variables).
 
 A failure to reach the host names it, and includes the underlying diagnosis rather than the runtime's
 bare `fetch failed`:
@@ -121,7 +166,7 @@ bare `fetch failed`:
 Re-run with PHARN_DEBUG=1 for full error output.
 ```
 
-A request that takes longer than 8 seconds is aborted and reported the same way. Failures that are
+The two metadata requests (the branch-head resolve and the `SKILLS_VERSION` fetch) abort after 8 seconds; the repo download has its own, longer cap of 60 seconds. An aborted request is reported the same way. Failures that are
 **not** transport failures keep their own wording — an HTTP status (`SKILLS_VERSION fetch failed
 (404) from …`), an oversized body (`SKILLS_VERSION too large (… bytes)`), or an unusable value
 (`SKILLS_VERSION has invalid format`) — so the message tells you which of the four happened.
@@ -171,7 +216,7 @@ Symptoms:
 - Spinner stops with "Failed to install capabilities"
 - Exit code 1
 
-Causes include a fetch failure (network/GitHub), an archive `pharn` refused to extract (see `THREAT-MODEL.md` §2 for what the extractor rejects), or a selected capability missing at its expected path (`<subtree>/<name>/<name>.md`) in the fetched repo. Set `PHARN_DEBUG=1` and re-run for the full stack trace:
+Causes include a fetch failure (network/GitHub), an archive `pharn` refused to extract (see `THREAT-MODEL.md` §2 for what the extractor rejects), or a selected capability directory missing at its expected path (`<subtree>/<name>`) in the fetched repo — the pre-flight checks the directory, and reports `Capability "<name>" (<role>) is missing at <subtree>/<name> in the fetched repo.` (A capability whose `<name>.md` is absent is refused earlier, during the index parse, under a different message.) Set `PHARN_DEBUG=1` and re-run for the full stack trace:
 
 ```bash
 PHARN_DEBUG=1 npx @pharn-dev/pharn init
@@ -192,7 +237,7 @@ non-interactive-terminal messages all name the one action that resolves them ins
 
 If any install targets already exist and you decline the overwrite prompt, the wizard cancels with exit 0 and **nothing is written into your project** (the temporary clone is cleaned up).
 
-Nothing is written outside your project either: the repo fetch runs first, but it downloads into a temporary directory that is removed on every path — success, cancel, and error alike. `pharn` keeps no download cache. (Earlier versions did, through `degit`; see [Proxy environment variables](#a-leftover-cache-you-may-want-to-delete) if you want to reclaim that space.)
+Nothing is written outside your project either: the repo fetch runs first, but it downloads into a temporary directory that is removed on every path — success, cancel, and error alike. `pharn` keeps no download cache. (Earlier versions did, through `degit`; see [A leftover cache you may want to delete](#a-leftover-cache-you-may-want-to-delete) if you want to reclaim that space.)
 
 ## Proxy environment variables
 
@@ -286,6 +331,11 @@ runnable in CI while an update is in flight.
 
 ### If the lock outlives its owner
 
+`init` is the one command that can hold the lock for a long time on purpose: it takes the lock after
+both of its prompts, but the picker and the overwrite confirmation are answered by a human, so a
+walked-away `init` can block other writers in that project until the six-hour staleness window
+expires. `add`'s picker holds it across the multi-select for the same reason.
+
 A run that is `SIGKILL`ed or loses power cannot release. `pharn` breaks such a lock by itself when
 any of these hold:
 
@@ -369,7 +419,7 @@ permissions problem, or a directory sitting at that path), still says
 Unknown command: ...
 ```
 
-Run `pharn --help`. Valid commands: `init`, `add`, `remove`, `update`, `list`, `status`.
+Run `pharn --help`. Valid commands: `init`, `add`, `remove` (alias `rm`), `update`, `list`, `status`.
 
 ## Unknown option, or an unexpected argument
 
