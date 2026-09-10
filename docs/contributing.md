@@ -11,20 +11,20 @@ npm install
 
 ## Scripts
 
-| Script                        | Purpose                                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------------------------- |
-| `npm run dev`                 | Run CLI via tsx, e.g. `npm run dev -- init`                                                       |
-| `npm run build`               | Compile `src/` to `dist/`                                                                         |
-| `npm run build:install-local` | Build and symlink `pharn` into every local `test-*/` app's `node_modules` (no-op if none exist)   |
-| `npm run test`                | Vitest (single run)                                                                               |
-| `npm run test:watch`          | Vitest watch mode                                                                                 |
-| `npm run test:coverage`       | Coverage report                                                                                   |
-| `npm run typecheck`           | `tsc` for src and tests                                                                           |
-| `npm run lint`                | ESLint on `src/`, `tests/`, `scripts/` — fails on any warning                                     |
-| `npm run format`              | Prettier write                                                                                    |
-| `npm run format:check`        | Prettier check (CI-friendly)                                                                      |
-| `npm run lint:md`             | markdownlint over `docs/**/*.md` and root `*.md`                                                  |
-| `npm run check`               | All of the above except `build`, without the coverage gate                                        |
+| Script                        | Purpose                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `npm run dev`                 | Run CLI via tsx, e.g. `npm run dev -- init`                                                     |
+| `npm run build`               | Compile `src/` to `dist/`                                                                       |
+| `npm run build:install-local` | Build and symlink `pharn` into every local `test-*/` app's `node_modules` (no-op if none exist) |
+| `npm run test`                | Vitest (single run)                                                                             |
+| `npm run test:watch`          | Vitest watch mode                                                                               |
+| `npm run test:coverage`       | Coverage report                                                                                 |
+| `npm run typecheck`           | `tsc` for src and tests                                                                         |
+| `npm run lint`                | ESLint on `src/`, `tests/`, `scripts/` — fails on any warning                                   |
+| `npm run format`              | Prettier write                                                                                  |
+| `npm run format:check`        | Prettier check (CI-friendly)                                                                    |
+| `npm run lint:md`             | markdownlint over `docs/**/*.md` and root `*.md`                                                |
+| `npm run check`               | All of the above except `build`, without the coverage gate                                      |
 
 From a `test-*/` directory (which needs its own `package.json`) after `build:install-local`:
 
@@ -36,7 +36,7 @@ Published package `@pharn-dev/pharn` exposes a single `pharn` bin (see `package.
 
 ## Quality gates
 
-CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs these gates on every push and PR — all must pass:
+CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs these gates on every pull request and on pushes to `main` — all must pass:
 
 ```bash
 npm run format:check   # job "Format check"
@@ -51,10 +51,10 @@ Each gate is a **separate job**, so it reports its own status check and a failur
 
 Gates run on **ubuntu-latest with Node 24 only**. Two support claims are therefore wider than what CI tests, and both are deliberate — stated here rather than quietly implied:
 
-| Claim | Tested | Notes |
-| ----- | ------ | ----- |
-| `engines.node: ">=20"` | Node 24 only | Node 20 and 22 are unexercised; verify locally if your change touches runtime-version-sensitive APIs |
-| No `os` field, so Windows is implied supported | ubuntu only | The `win32` branches of `toPosix` (`src/lib/validate.ts`) and the separator handling in `symlink-guard` never execute in CI — `tests/symlink-guard.test.ts` calls this out as PLATFORM-LATENT |
+| Claim                                          | Tested       | Notes                                                                                                                                                                                         |
+| ---------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `engines.node: ">=20"`                         | Node 24 only | Node 20 and 22 are unexercised; verify locally if your change touches runtime-version-sensitive APIs                                                                                          |
+| No `os` field, so Windows is implied supported | ubuntu only  | The `win32` branches of `toPosix` (`src/lib/validate.ts`) and the separator handling in `symlink-guard` never execute in CI — `tests/symlink-guard.test.ts` calls this out as PLATFORM-LATENT |
 
 **Do not close either gap by adding a `strategy.matrix` to one of the six existing jobs.** GitHub renders a matrixed job's context as `<name> (<value>)`, so `Test` would stop being reported and every PR would hang blocked on a required context nothing produces — the exact incident [`tests/ci-workflow.test.ts`](../tests/ci-workflow.test.ts) exists to prevent. A separate, additionally-named job (`Test (node 20)`, `Test (windows)`) leaves the six required contexts byte-identical and is the safe shape.
 
@@ -76,22 +76,23 @@ pharn-cli/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status
     steps/                init stages (prereqs, overwrite-check, archetype-summary, install-archetype)
-    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, layout, repo, diff, skills-version, pharn-config, install-records, update-decision, apply-update, backup, hash, validate, constants, banner, confirm, format
+    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-routing(-format), seam-config, install-records, update-decision, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, report-error, hash, validate, constants, banner, confirm, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
-  scripts/install-local.mjs
+  scripts/               build.mjs, install-local.mjs
 ```
 
 See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype install flow, capability resolution, and the security-sensitive libs).
 
 ## Security-sensitive files
 
-`lib/validate.ts` and `lib/install-capabilities.ts` handle all untrusted remote input (capability names, install paths, frontmatter). Preserve their invariants when editing:
+`lib/validate.ts` and `lib/install-capabilities.ts` handle the untrusted remote input that reaches the filesystem (capability names, install paths, frontmatter). They are not the whole boundary: `lib/tar-extract.ts` parses attacker-controlled archive headers, `lib/capability-index.ts` parses untrusted frontmatter, `lib/unknown-capabilities.ts` strips control characters from upstream text before display, and `lib/install-records.ts` and `lib/project-lock.ts` parse local-but-user-editable sidecars. Preserve their invariants when editing:
 
 - Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
 - Remote fetches (`lib/skills-version.ts`) use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
+- The repo download (`lib/repo.ts`) has its own, larger bounds: a 60s timeout, a 32MB archive cap, a 128MB extracted cap, and a 20,000-entry cap — enforced twice, including at `gunzipSync`.
 
 ### The fetch boundary
 
@@ -119,28 +120,42 @@ Two rules that are easy to get wrong:
 
 ## Test map
 
-| Test file                                                                | Behavior covered                                                                                              |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `detect-archetype.test.ts` / `archetype.test.ts`                         | Archetype detection from `package.json` names + file-tree signals                                             |
-| `capability-index.test.ts`                                               | Parse/validate the untrusted capability index (frontmatter → typed entries)                                   |
-| `resolve-capabilities.test.ts`                                           | Select capabilities by `applies` against detected archetypes                                                  |
-| `install-capabilities.test.ts`                                           | Copy capability dirs + fixed product surfaces; symlink + path-escape guards                                   |
-| `init.test.ts` / `init-archetype.test.ts`                                | The archetype init flow end to end                                                                            |
-| `add.test.ts` / `update.test.ts`                                         | `runAdd` (capability add + record merge) and `runUpdate` (drift-safe re-resolve, real-fs fixture)             |
-| `update-decision.test.ts` / `install-records.test.ts`                    | The pure update decision table + planner; the `pharn.records.json` store and its fail-closed validation       |
-| `backup.test.ts` / `apply-update.test.ts`                                | `.pharn-backup/` creation + abort-before-touch; the per-file writer and its symlink refusals                  |
-| `remove.test.ts`                                                         | `runRemove` capability deletion (flat + `pharn/` layouts)                                                     |
-| `list.test.ts` / `status.test.ts`                                        | Read-only inventory + version/drift audit                                                                     |
-| `diff.test.ts`                                                           | `diffInstalledCapabilities` expected-set derivation + byte compare                                            |
-| `layout.test.ts`                                                         | `detectLayout` / `configLayout` / `layoutPaths`                                                               |
-| `validate.test.ts`                                                       | Allowlists, `..`/control-char rejection, and `safeJoin` containment                                           |
-| `pharn-config.test.ts`                                                   | Round-trip `pharn.config.json`; `loadArchetypeConfigOrExit` legacy reject                                     |
-| `skills-version.test.ts`                                                 | Read/fetch + validate `SKILLS_VERSION`                                                                        |
-| `prereqs.test.ts`                                                        | `.git`-present gate                                                                                           |
-| `overwrite-check.test.ts` / `install-manifest.test.ts`                   | Pre-install write-target conflict check; the shared install manifest (mirror-pinned to `installCapabilities`) |
-| `model-routing.test.ts` / `seam-config.test.ts`                          | `models` / `seam` config validation                                                                           |
-| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts` | helpers; the codeload fetch boundary; banner; format                                                          |
-| `tar-extract.test.ts`                                                    | The ustar reader: strip-1, pax skip, prefix reassembly, and every rejection                                   |
+| Test file                                                                  | Behavior covered                                                                                              |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `detect-archetype.test.ts` / `archetype.test.ts`                           | Archetype detection from `package.json` names + file-tree signals                                             |
+| `capability-index.test.ts`                                                 | Parse/validate the untrusted capability index (frontmatter → typed entries)                                   |
+| `resolve-capabilities.test.ts`                                             | Select capabilities by `applies` against detected archetypes                                                  |
+| `install-capabilities.test.ts`                                             | Copy capability dirs + fixed product surfaces; symlink + path-escape guards                                   |
+| `init.test.ts` / `init-archetype.test.ts`                                  | The archetype init flow end to end                                                                            |
+| `add.test.ts` / `update.test.ts`                                           | `runAdd` (capability add + record merge) and `runUpdate` (drift-safe re-resolve, real-fs fixture)             |
+| `update-decision.test.ts` / `install-records.test.ts`                      | The pure update decision table + planner; the `pharn.records.json` store and its fail-closed validation       |
+| `backup.test.ts` / `apply-update.test.ts`                                  | `.pharn-backup/` creation + abort-before-touch; the per-file writer and its symlink refusals                  |
+| `remove.test.ts`                                                           | `runRemove` capability deletion (flat + `pharn/` layouts)                                                     |
+| `list.test.ts` / `status.test.ts`                                          | Read-only inventory + version/drift audit                                                                     |
+| `diff.test.ts`                                                             | `diffInstalledCapabilities` expected-set derivation + byte compare                                            |
+| `layout.test.ts`                                                           | `detectLayout` / `configLayout` / `layoutPaths`                                                               |
+| `validate.test.ts`                                                         | Allowlists, `..`/control-char rejection, and `safeJoin` containment                                           |
+| `pharn-config.test.ts`                                                     | Round-trip `pharn.config.json`; `loadArchetypeConfigOrExit` legacy reject                                     |
+| `skills-version.test.ts`                                                   | Read/fetch + validate `SKILLS_VERSION`                                                                        |
+| `prereqs.test.ts`                                                          | `.git`-present gate                                                                                           |
+| `overwrite-check.test.ts` / `install-manifest.test.ts`                     | Pre-install write-target conflict check; the shared install manifest (mirror-pinned to `installCapabilities`) |
+| `model-routing.test.ts` / `seam-config.test.ts`                            | `models` / `seam` config validation                                                                           |
+| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts`   | helpers; the codeload fetch boundary; banner; format                                                          |
+| `tar-extract.test.ts`                                                      | The ustar reader: strip-1, pax skip, prefix reassembly, and every rejection                                   |
+| `index.test.ts`                                                            | argv dispatch: the per-command option allowlist, the arity gate, and their exit codes                         |
+| `project-lock.test.ts` + `-break` + `-commands`                            | The single-writer lock: acquire/release, stale-break single-winner, and which commands take it                |
+| `min-cli-gate.test.ts` / `semver.test.ts`                                  | The `MIN_CLI` forward-compat gate and its version comparison                                                  |
+| `proxy-env.test.ts` / `proxy-env-format.test.ts`                           | Proxy detection and the warning's rendering + redaction                                                       |
+| `merge-capabilities.test.ts` / `dest-drift.test.ts`                        | The 9-row membership table; `add`'s destination-drift partition (drift vs unsafe)                             |
+| `capability-address.test.ts` / `capability-groups.test.ts`                 | `<role>:<name>` parsing; the grouped inventory rendering                                                      |
+| `capability-picker.test.ts` / `archetype-summary.test.ts`                  | The interactive picker and its TTY gate; the init summary step                                                |
+| `atomic-write.test.ts` / `report-error.test.ts`                            | Temp-then-rename writes; the error reporter and its `PHARN_DEBUG` split                                       |
+| `unknown-capabilities.test.ts` / `constants.test.ts`                       | Control-char stripping for refused upstream names; the path constants                                         |
+| `ci-workflow.test.ts` / `check-composition.test.ts`                        | The six CI job names + runner pair; `npm run check`'s composition                                             |
+| `docs-install-tables.test.ts` / `lint-gate.test.ts` / `dev-script.test.ts` | The README + getting-started install tables; the lint gate; the dev script                                    |
+| `repo-signals.test.ts` / `model-routing-format.test.ts`                    | Fetch abort/cleanup signals; the model-routing render                                                         |
+
+`lib/hash.ts` is the one module with no matching test file.
 
 When changing behavior, add or update tests before docs.
 
@@ -148,13 +163,15 @@ When changing behavior, add or update tests before docs.
 
 Keep [`docs/`](./README.md) aligned with code when you change:
 
-| Code change                                  | Update docs                                                                        |
-| -------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Install output or config shape               | [reference/pharn-config.md](./reference/pharn-config.md)                           |
-| Archetype detection or capability resolution | [commands/init.md](./commands/init.md), [getting-started.md](./getting-started.md) |
-| New validation or warning                    | [troubleshooting.md](./troubleshooting.md)                                         |
-| New command or behavior                      | `commands/*.md`, [roadmap.md](./roadmap.md)                                        |
-| CLI `--help` text                            | [commands/init.md](./commands/init.md), [README.md](../README.md)                  |
+| Code change                                  | Update docs                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Install output or config shape               | [reference/pharn-config.md](./reference/pharn-config.md)                                               |
+| Archetype detection or capability resolution | [commands/init.md](./commands/init.md), [getting-started.md](./getting-started.md)                     |
+| New validation or warning                    | [troubleshooting.md](./troubleshooting.md)                                                             |
+| New command or behavior                      | `commands/*.md`, [roadmap.md](./roadmap.md)                                                            |
+| CLI `--help` text                            | [commands/init.md](./commands/init.md), [README.md](../README.md)                                      |
+| Records store, lock, or backup behaviour     | [reference/pharn-records.md](./reference/pharn-records.md), [troubleshooting.md](./troubleshooting.md) |
+| Option allowlist or exit codes               | [troubleshooting.md](./troubleshooting.md), the affected `commands/*.md`                               |
 
 Do not document behavior that is not implemented without marking **Coming soon** or referencing [roadmap.md](./roadmap.md).
 

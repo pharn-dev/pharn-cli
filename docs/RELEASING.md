@@ -16,7 +16,7 @@ The canonical npm package is **`@pharn-dev/pharn`** (org-scoped) —
 > too similar to existing packages (`yarn`, `charm`, `sharp`), and a scoped name
 > sidesteps that similarity check — so `@pharn-dev/pharn` is canonical. An earlier
 > `@pharn-dev/pharn@0.2.0` was published then unpublished on 2026-07-22, so
-> `0.2.0` is permanently burned on this name; releases resume at `0.3.0`. The
+> `0.2.0` is permanently burned on this name; releases resumed at `0.3.0`. The
 > installed binary stays `pharn`.
 
 ## How publishing is authenticated
@@ -39,19 +39,28 @@ credential is stored or passed.
 1. **Bump the version.** Update `"version"` in `package.json` (SemVer).
 2. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries under a new
    `## [X.Y.Z] — YYYY-MM-DD` heading and refresh the compare links at the bottom.
-3. **Merge to `main`** via PR — the CI gates in
-   [`ci.yml`](../.github/workflows/ci.yml) must pass.
+3. **Merge to `main`** via PR. All nine required checks must pass: the six
+   [`ci.yml`](../.github/workflows/ci.yml) gates plus `floor`, `gitleaks` and
+   `Analyze (javascript-typescript)`.
 4. **Cut a GitHub Release.** Tag it **`vX.Y.Z`**, where `X.Y.Z` **exactly
    matches** `package.json` `version`. A guard step in `publish.yml` fails the
    run if the tag (minus its leading `v`) does not equal the package version.
 5. **Publishing the Release triggers `publish.yml`.** It runs on node 24, whose
    bundled npm already satisfies the npm >= 11.5.1 that Trusted Publishing
    needs — an **Assert npm floor** step enforces that and fails the run if it
-   ever stops being true, so nothing is installed at publish time. The run then
-   re-runs the full check suite and build (via the `prepublishOnly` + `prepack`
-   hooks), verifies the tag, and runs `npm publish --provenance --access
-   public`. The `--provenance` flag overrides `publishConfig.provenance: false`,
-   so the release carries a signed provenance attestation.
+   ever stops being true. It then installs dependencies (`npm ci`), **verifies
+   the tag** against `package.json` `version`, and runs `npm publish --provenance
+   --access public`. The full check suite and build run **inside** that publish,
+   via the `prepublishOnly` + `prepack` hooks — so they happen after the tag
+   guard, not before it. The `--provenance` flag overrides
+   `publishConfig.provenance: false`, so the release carries a signed provenance
+   attestation.
+
+   Note that `pharnVersion` (this package) and `skillsVersion` (upstream's
+   `SKILLS_VERSION`, which an install records separately) are independent
+   numbers. Releasing the CLI neither reads nor moves the content version. If a
+   release requires newer content, coordinate upstream's `MIN_CLI` file in the
+   same window — that is the handshake that refuses an under-versioned CLI.
 
 ## Verify the release
 

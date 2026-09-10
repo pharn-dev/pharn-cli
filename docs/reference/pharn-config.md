@@ -1,6 +1,6 @@
 # pharn.config.json
 
-Written to the project root on a successful `pharn init`, and updated by `pharn add` / `pharn update`.
+Written to the project root on a successful `pharn init`, and updated by `pharn add`, `pharn remove` and `pharn update`.
 Source: [`pharn-config.ts`](../../src/lib/pharn-config.ts) and
 [`install-archetype.ts`](../../src/steps/install-archetype.ts).
 
@@ -34,11 +34,11 @@ because it installs a single capability and cannot migrate the rest of your tree
 
 Each entry records **how it got there**, which decides who owns it on the next `pharn update`:
 
-| `source`   | Set by                                                            | What `pharn update` does with it                        |
-| ---------- | ----------------------------------------------------------------- | ------------------------------------------------------- |
-| `auto`     | `pharn init`, or `pharn update` when selected for your archetypes | Owns it — drops it if your archetypes stop selecting it |
-| `manual`   | `pharn add`, or `pharn update` when inferring legacy provenance   | **Preserves it**, selected or not                       |
-| _(absent)_ | a CLI older than this field                                       | Inferred once, on the next `pharn update` (see below)   |
+| `source`   | Set by                                                            | What `pharn update` does with it                                                 |
+| ---------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `auto`     | `pharn init`, or `pharn update` when selected for your archetypes | Owns it — drops it if your archetypes stop selecting it                          |
+| `manual`   | `pharn add`, or `pharn update` when inferring legacy provenance   | **Preserves it** while it still exists upstream; drops it (named) if it does not |
+| _(absent)_ | a CLI older than this field                                       | Inferred once, on the next `pharn update` (see below)                            |
 
 `source` is **optional** — a config written before the field existed simply omits it and still loads.
 Absence is never read as a default: it means _provenance unknown_, and only `pharn update` may resolve
@@ -74,8 +74,8 @@ skipped any file deliberately leaves them at their previous values (see [update]
 
 ```json
 {
-  "pharnVersion": "0.2.0",
-  "skillsVersion": "1.0.0",
+  "pharnVersion": "0.4.0",
+  "skillsVersion": "3.0.2",
   "repo": "pharn-dev/pharn-oss",
   "commit": "daa06788…",
   "installedAt": "2026-06-11T00:00:00.000Z",
@@ -85,8 +85,14 @@ skipped any file deliberately leaves them at their previous values (see [update]
     { "name": "security", "role": "griller", "source": "auto" },
     { "name": "n-plus-one", "role": "lens", "source": "manual" }
   ],
-  "layout": "flat",
-  "modules": []
+  "layout": "pharn",
+  "modules": [],
+  "models": { "stages": { "…": "…" } },
+  "seam": {
+    "resolutionOrder": ["official-skill", "pinned-docs", "model", "fetch", "ask"],
+    "modelConfidenceThreshold": "high",
+    "haltOnUnknown": true
+  }
 }
 ```
 
@@ -140,16 +146,51 @@ Valid `model` ids: `opus-4-8`, `sonnet-5`, `fable-5`, `haiku-4-5`. Valid `effort
 `high`, `max`. A hand-edit with an unknown model, effort, or stage key is rejected loudly on the next
 command — see [troubleshooting](../troubleshooting.md); `pharn` never silently falls back.
 
+## Seam resolution
+
+The `seam` block records how PHARN should resolve an unfamiliar integration point. Like `models`, it is
+**written on every fresh install** and **user-owned afterwards** — `pharn` never migrates it — and it is
+validated on every command, so a bad hand-edit fails loudly rather than being ignored. Source of truth:
+[`seam-config.ts`](../../src/lib/seam-config.ts).
+
+The installed default:
+
+```json
+{
+  "seam": {
+    "resolutionOrder": ["official-skill", "pinned-docs", "model", "fetch", "ask"],
+    "modelConfidenceThreshold": "high",
+    "haltOnUnknown": true
+  }
+}
+```
+
+| Field                      | Type    | Meaning                                                                       |
+| -------------------------- | ------- | ----------------------------------------------------------------------------- |
+| `resolutionOrder`          | array   | The steps to try, in order. Must end with `ask`.                              |
+| `modelConfidenceThreshold` | string  | How sure the model must be before its answer counts. Requires a `model` step. |
+| `haltOnUnknown`            | boolean | Stop rather than guess when nothing in the order resolves.                    |
+
+Five hand-edits are rejected by name: an unknown sibling key, an unknown step, a **duplicate** step, a
+`resolutionOrder` whose last entry is not `ask`, and a `modelConfidenceThreshold` set without a `model`
+step in the order.
+
 ## Legacy fields (pre-archetype configs still load)
 
 The schema is **additive** (P7): a `pharn.config.json` written by an older, module-based CLI still loads,
 and its now-unused fields are preserved on read.
+
+Two fields are nonetheless **load-bearing**, and deleting either makes the file unreadable: a config
+without a string `skillsVersion` or without a `modules` array is treated as absent, and every command
+answers _"No pharn.config.json found. Run `pharn init` first."_ `modules` is always `[]` on an archetype
+install, which makes it easy to mistake for removable — it is not.
 
 | Field             | Type   | Note                                                             |
 | ----------------- | ------ | ---------------------------------------------------------------- |
 | `constitution`    | string | Legacy constitution variant (`gdpr-strict`/`standard`/`minimal`) |
 | `installedSkills` | array  | Legacy per-technology skills, each `{ skill, from }`             |
 | `stackAnswers`    | object | Legacy wizard answers, `questionId → value`                      |
+| `isMultiTenant`   | bool   | Declared by the type but never written or read by any command    |
 
 The module/manifest install path itself has been **removed**, so `add` / `update` / `remove` / `list` /
 `status` no longer operate on a pre-archetype config — they exit with a message pointing you to re-run
@@ -172,8 +213,13 @@ When `pharn.config.json` is itself one of the conflicting paths, the prompt also
 That value is read from your local config only — never fetched — and if the file cannot be read or
 does not carry a plain version string, the clause is omitted and the prompt is otherwise unchanged.
 
+`init` reaches that prompt only in an interactive terminal: off a TTY it exits **1** before fetching
+anything, and it deliberately has no `--yes`.
+
 For the files PHARN installs (as opposed to this config), `update` never overwrites one you have
 edited unless you pass `--force` — see the [update decision table](../commands/update.md#the-decision-table).
+Both `update --force` and `pharn add` copy every file they are about to overwrite into
+`.pharn-backup/<timestamp>/` first, preserving its project-relative path.
 
 ## Related
 

@@ -18,12 +18,12 @@ missing ones; byte-identical files are no-ops and have their records refreshed.
 ```json
 {
   "schemaVersion": 1,
-  "skillsVersion": "1.2.0",
+  "skillsVersion": "3.0.2",
   "commit": "daa06788…",
   "files": {
-    "CONSTITUTION.md": "e3b0c44298fc1c149afbf4c8996fb924…",
+    "pharn/CONSTITUTION.md": "e3b0c44298fc1c149afbf4c8996fb924…",
     ".claude/hooks/set-writes-scope.cjs": "9f86d081884c7d659a2feaa0c55ad015…",
-    "pharn-review/n-plus-one/n-plus-one.md": "2c26b46b68ffc68ff99b453c1d304134…"
+    "pharn/pharn-review/n-plus-one/n-plus-one.md": "2c26b46b68ffc68ff99b453c1d304134…"
   }
 }
 ```
@@ -82,6 +82,12 @@ Two commands drop entries, and between them the store never describes bytes that
 are no longer part of your install — typically a file dropped upstream — are dropped rather than
 accumulating. Skipped files keep their previous entry, since it still describes what `pharn` wrote
 there.
+
+**Frozen capabilities are the deliberate exception.** When a capability's upstream definition becomes
+unreadable, `update` reports it as `kept-frozen`, leaves its files alone, and — because it is absent
+from the manifest that run applied — its records would otherwise be pruned. They are explicitly carried
+over instead. Dropping them would make every one of those files `unrecorded` on the next run, forcing a
+`--force` to touch a capability nothing was wrong with.
 
 [`remove`](../commands/remove.md) prunes the entries of the capability it removed, at the moment it
 removes it, rather than leaving them for the next `update`. It drops every key under that capability's
