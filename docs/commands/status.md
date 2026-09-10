@@ -22,14 +22,18 @@ which, and `status` cannot.
 ## Behavior
 
 1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
-   a hint to run `pharn init` first.
-2. By default, clones `pharn-dev/pharn-oss@main` once and reuses it for both sections below (the
+   a hint to run `pharn init` first. A config that is present but **invalid** gets its own named error
+   and exit 1, not the "run `pharn init`" hint.
+2. Warns if a proxy is configured. `pharn` uses Node's global `fetch`, which reads no proxy variable,
+   so the notice is emitted above **both** network paths — `--no-drift` skips the clone but still
+   fetches `SKILLS_VERSION` over the wire.
+3. By default, clones `pharn-dev/pharn-oss@main` once and reuses it for both sections below (the
    temporary clone is always cleaned up). `--no-drift` skips the clone and uses the lightweight
    `SKILLS_VERSION` fetch for the version section only.
-3. **Version** — compares your `skillsVersion` against the upstream `SKILLS_VERSION` and summarizes your
+4. **Version** — compares your `skillsVersion` against the upstream `SKILLS_VERSION` and summarizes your
    detected `archetypes` and installed capability count: either "up to date" or an update is available
    (run `pharn update`).
-4. **Drift** — derives the set of files your installed capabilities and the fixed product surfaces are
+5. **Drift** — derives the set of files your installed capabilities and the fixed product surfaces are
    expected to contribute (mirroring how `init` / `add` / `update` install them, at your recorded
    layout), then byte-compares each against your project:
    - **Differs from `pharn-dev/pharn-oss@main` (PHARN-owned)** — files present whose contents differ.
@@ -53,6 +57,11 @@ which, and `status` cannot.
      or at any parent directory below your project root: reading through one would report it as merely
      "differs" when its target has other bytes, or say nothing at all when its target happens to match.
    - If none of the three, reports **No drift**.
+6. **Models** — whenever `pharn.config.json` carries a `models` block, `status` prints it as a third
+   note on **both** paths (with and without `--drift`), each stage beside its configured model, under
+   the qualifier *"Recorded only — no installed stage reads this yet."* It is displayed so the
+   recorded intent stays legible; nothing resolves it for routing. See
+   [pharn.config.json](../reference/pharn-config.md#model-routing).
 
 The heading says "differs from", not "locally modified", on purpose: the comparison is against
 upstream `@main`, so a file can differ because **upstream moved**, not only because you edited it.
@@ -91,6 +100,16 @@ A **capability directory** whose name fails that allowlist is different — it i
 warns that the capability "could not be read and was SKIPPED", then reports on the rest: the same
 forward-compatibility posture it takes for a capability whose `role` or `applies` it does not
 recognise.
+
+Two argv refusals fire **before** `status` runs at all, so they precede every code path above: an
+option `status` does not take (``Unsupported option for `status`: "--json"`` — the flagship case, since
+`pharn status --json | jq` used to receive human-readable output and exit 0) and an unexpected extra
+argument. Both print the usage text to stderr and exit **1**. `pharn status --help` alone is
+unaffected, but `pharn status --help --json` is refused — a genuine `--help` does not license a
+misapplied sibling.
+
+`status` never takes the project lock and is never blocked by one, so `pharn status --strict` stays
+runnable in CI while an `update` holds it.
 
 Nothing is written on any of these paths — `status` still never writes, deletes, or overwrites.
 

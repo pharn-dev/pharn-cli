@@ -9,6 +9,11 @@ pharn update --force   # overwrite your edits too (each file is backed up first)
 pharn update --yes     # skip the confirmation prompt (for CI and scripts)
 ```
 
+`--force` and `--yes`/`-y` are `update`'s **only** options; they compose, and neither implies the
+other. Any other flag — `pharn update --json`, `--strict`, `--no-drift` — is refused with
+``Unsupported option for `update` `` on stderr and exit **1**, as is an extra positional. See
+[Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
+
 `update` compares every PHARN-owned file against the per-file hashes recorded when it was installed
 ([`pharn.records.json`](../reference/pharn-records.md)). A file whose bytes are exactly what `pharn`
 wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**, never overwritten.
@@ -16,16 +21,19 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 ## Behavior
 
 1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
-   a hint to run `pharn init` first.
-2. Fetches the latest `SKILLS_VERSION` from `pharn-dev/pharn-oss@main` (a lightweight check, no clone)
+   a hint to run `pharn init` first. A config that is present but **invalid** gets its own named error
+   and exit 1, not the "run `pharn init`" hint.
+2. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
+   update's fetches (the lightweight version check as well as the tarball).
+3. Fetches the latest `SKILLS_VERSION` from `pharn-dev/pharn-oss@main` (a lightweight check, no clone)
    and compares it to your recorded `skillsVersion`.
-3. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
+4. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
    re-applies upstream at the current version.
-4. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
+5. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
    unless you passed `--yes`, which skips that one prompt and nothing else.
-5. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
+6. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
    latest capability index, then **unions** that result with the capabilities you added by hand.
-6. Decides each expected file with the table below, backs up anything `--force` is about to
+7. Decides each expected file with the table below, backs up anything `--force` is about to
    overwrite, copies the files it may write, then updates `pharn.records.json` and
    `pharn.config.json`.
 
@@ -78,7 +86,7 @@ capability and says so**; it does not abort:
 
 ```text
 1 upstream capability could not be read and was SKIPPED — not installed:
-  griller:backwards-compat (pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
+  griller:backwards-compat (pharn/pharn-pipeline/grillers) — missing its markdown backwards-compat/backwards-compat.md.
 ```
 
 What `update` does with it:
@@ -172,7 +180,7 @@ surviving copy of your edits.
 To restore a file, copy it back:
 
 ```bash
-cp .pharn-backup/20260807-091500/CONSTITUTION.md CONSTITUTION.md
+cp .pharn-backup/20260807-091500/pharn/CONSTITUTION.md pharn/CONSTITUTION.md
 ```
 
 **Retention is yours.** `pharn` never prunes `.pharn-backup/` and never edits your `.gitignore` — so
@@ -187,7 +195,7 @@ can answer:
 
 ```console
 $ echo "" | pharn update
-▲ pharn update needs to confirm before it writes. Run it in an interactive terminal,
+■ pharn update needs to confirm before it writes. Run it in an interactive terminal,
   or pass --yes to confirm automatically (e.g. `pharn update --yes`).
 $ echo $?
 1
@@ -215,6 +223,18 @@ exits 0. Use [`pharn status --strict`](status.md) when you want CI to fail on dr
 does, so it still asks — `pharn update --force` in a pipe is refused exactly like a bare one.
 
 > [`pharn init`](init.md) has no `--yes` and is interactive-only — see its note for why.
+
+## Concurrency
+
+`update` takes the project lock (`.pharn.lock`) **after** the confirmation prompt and before the
+tarball fetch, holding it across the download and the write. A second `pharn` writer refuses with a
+named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never blocked, so
+`pharn status --strict` stays runnable in CI while an update is in flight.
+
+One precision worth carrying: a refused run is not a **no-network** run. The lightweight
+`SKILLS_VERSION` check happens before the lock is taken, so it has already gone over the wire by the
+time the refusal is reported. Closing that too would mean holding the lock across the confirm. See
+[Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
 
 ## The recorded version stays true
 
@@ -281,7 +301,7 @@ command addresses it any more, and the update prints its own warning naming it. 
 
 - `.claude/settings.json` — your Claude Code configuration. `init` writes it only when absent; `update`
   **never** touches it at all (not even with `--force` — it is not in the install manifest).
-- `CONSTITUTION.md` — protected like every other manifest path: if you have edited it, it is a `modified`
+- `pharn/CONSTITUTION.md` (flat: `CONSTITUTION.md`) — protected like every other manifest path: if you have edited it, it is a `modified`
   skip by default. `--force` overwrites it too, after copying the current bytes to `.pharn-backup/`.
   (Before 0.4.0 `update` silently overwrote a hand-edited constitution despite docs claiming otherwise —
   that is fixed.)
