@@ -31,7 +31,12 @@ import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { applyWrites, ApplyError, readDiskState } from '../lib/apply-update.js';
 import { createBackup, BACKUP_DIR } from '../lib/backup.js';
 import { sha256File } from '../lib/hash.js';
-import { configLayout, detectLayout, layoutPaths, resolveFeaturesReadme } from '../lib/layout.js';
+import {
+  configLayout,
+  detectLayout,
+  layoutPaths,
+  resolveFeaturesReadme,
+} from '../lib/layout.js';
 import {
   buildRecords,
   readRecords,

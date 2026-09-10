@@ -17,7 +17,12 @@ import {
   FLOOR_TEST_FIXTURES_DIR,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
-import { detectLayout, layoutPaths, resolveFeaturesReadme, type LayoutPaths } from './layout.js';
+import {
+  detectLayout,
+  layoutPaths,
+  resolveFeaturesReadme,
+  type LayoutPaths,
+} from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 

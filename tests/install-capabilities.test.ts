@@ -821,7 +821,9 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     write(join(repo, 'features/README.md'), 'LEGACY');
 
     installCapabilities(repo, proj, selection());
-    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe('LEGACY');
+    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
+      'LEGACY',
+    );
     expect(existsSync(join(proj, 'pharn/features/README.md'))).toBe(false);
   });
 
