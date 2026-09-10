@@ -190,7 +190,7 @@ install, which makes it easy to mistake for removable — it is not.
 | `constitution`    | string | Legacy constitution variant (`gdpr-strict`/`standard`/`minimal`) |
 | `installedSkills` | array  | Legacy per-technology skills, each `{ skill, from }`             |
 | `stackAnswers`    | object | Legacy wizard answers, `questionId → value`                      |
-| `isMultiTenant`   | bool   | Declared by the type but never written or read by any command    |
+| `isMultiTenant`   | bool   | Legacy multi-tenancy answer; nothing writes or reads it today    |
 
 The module/manifest install path itself has been **removed**, so `add` / `update` / `remove` / `list` /
 `status` no longer operate on a pre-archetype config — they exit with a message pointing you to re-run

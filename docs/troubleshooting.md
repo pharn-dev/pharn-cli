@@ -36,9 +36,9 @@ half-written object or an error string.
 
 Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 
-**One exception.** The missing-`.git` prerequisite failure is rendered through the same cancel
-formatter as those success messages, so it prints on **stdout** while the process still exits 1. If
-you are gating on stderr alone, check the exit code too.
+That holds for **every** fatal, the prerequisite failure included: it is reported as an error, on
+stderr, with exit 1. (Through `0.3.2` that one message was rendered through the cancel formatter and
+landed on stdout, so a run gated on stderr alone found an empty file.)
 
 ## `pharn update` skipped my files
 
@@ -116,12 +116,12 @@ the supported way through in CI, and `init` deliberately has no `--yes`.
 The CLI message says "git not found" but the check is for a **`.git` directory**, not the `git` binary:
 
 ```text
-✗ git not found.
+■ git not found.
   Run: git init && git add -A && git commit -m 'init'
   Then re-run: npx @pharn-dev/pharn init
 ```
 
-Exits with code **1**.
+Printed on **stderr**; exits with code **1**.
 
 ### My Python / Go / Rust project detected as `lib`
 
