@@ -7,25 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **The missing-repository prerequisite failure now prints on stderr, like every other fatal.** It was
-  rendered through `@clack/prompts`' `cancel()`, which writes to **stdout** — so the one error a
-  first-time user is most likely to hit exited `1` with an empty stderr, while every other fatal in the
-  CLI already went through the shared reporter. A run that captured the two streams separately, or
-  gated on stderr alone, saw no cause at all. It now uses `logError`, and `tests/prereqs.test.ts` pins
-  the stream rather than only the exit code.
-
-  The message also dropped its literal `✗`: `log.error` supplies its own glyph, so carrying one meant
-  rendering two in a row.
-
-- **`isMultiTenant`'s doc comment no longer describes behaviour that does not exist.** It claimed the
-  field was "written on every fresh install" and that Principle 2 was stripped from `CONSTITUTION.md`
-  when it was false. Both were true of the module/wizard flow, which has been removed — nothing in
-  `src/` has written or read the field since. The field stays declared so an older config carrying it
-  still type-checks on read (P7); the comment now says so, and warns against adding a reader without
-  restoring the writer.
-
 ## [0.4.0] — 2026-09-10
 
 ### Added
@@ -977,6 +958,22 @@ archetypes`, `REMOVED — no longer selected for your archetypes`, `REMOVED — 
   now drives writes, not just comparisons), and every per-file write and backup refuses a
   **symlinked destination** or parent directory — `safeJoin` is lexical and `copyFileSync` follows
   symlinks, so a dangling destination symlink could otherwise be written through.
+- **The missing-repository prerequisite failure now prints on stderr, like every other fatal.** It was
+  rendered through `@clack/prompts`' `cancel()`, which writes to **stdout** — so the one error a
+  first-time user is most likely to hit exited `1` with an empty stderr, while every other fatal in the
+  CLI already went through the shared reporter. A run that captured the two streams separately, or
+  gated on stderr alone, saw no cause at all. It now uses `logError`, and `tests/prereqs.test.ts` pins
+  the stream rather than only the exit code.
+
+  The message also dropped its literal `✗`: `log.error` supplies its own glyph, so carrying one meant
+  rendering two in a row.
+
+- **`isMultiTenant`'s doc comment no longer describes behaviour that does not exist.** It claimed the
+  field was "written on every fresh install" and that Principle 2 was stripped from `CONSTITUTION.md`
+  when it was false. Both were true of the module/wizard flow, which has been removed — nothing in
+  `src/` has written or read the field since. The field stays declared so an older config carrying it
+  still type-checks on read (P7); the comment now says so, and warns against adding a reader without
+  restoring the writer.
 
 ### Security
 
