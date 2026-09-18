@@ -50,7 +50,7 @@
     "prepublishOnly": "npm run check"
   },
   "dependencies": {
-    "@clack/prompts": "^1.7.0",
+    "@clack/prompts": "^1.8.0",
     "minimist": "^1.2.8",
     "picocolors": "^1.1.1"
   },

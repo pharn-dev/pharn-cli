@@ -64,5 +64,7 @@ export async function runArchetypeSummary(
   });
 
   if (isCancel(action)) return 'cancel';
-  return action;
+  // clack 1.8 types select as Value | symbol; isCancel only narrows
+  // typeof CANCEL_SYMBOL, so plain `return action` no longer typechecks.
+  return action === 'install' ? 'install' : 'cancel';
 }
