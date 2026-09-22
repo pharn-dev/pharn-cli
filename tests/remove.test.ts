@@ -247,7 +247,7 @@ describe('runRemove (archetype)', () => {
       archConfig([{ name: 'a11y', role: 'griller' }]),
     );
     setTTY(true, true);
-    vi.mocked(prompts.groupMultiselect).mockResolvedValue(CANCEL);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue(CANCEL as never);
 
     await expect(runRemove(undefined)).rejects.toMatchObject(
       new ProcessExit(0),
