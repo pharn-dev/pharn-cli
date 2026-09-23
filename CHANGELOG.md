@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-09-24
+
+### Changed
+
+- **`@clack/prompts` bumped from `^1.7.0` to `^1.8.1`.** This is a runtime dependency of every
+  interactive prompt (`init`, `add`, `remove`, `update`). The accompanying type narrowing in
+  `runArchetypeSummary` keeps the install/cancel return typed under clack 1.8's `Value | symbol`
+  select signature; prompt behavior is unchanged.
+
 ## [0.5.0] - 2026-09-10
 
 ### Changed — BREAKING
@@ -1332,7 +1341,8 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.1...v0.3.2
