@@ -1,4 +1,11 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+  readdirSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   archetypesFromSignals,
@@ -83,6 +90,16 @@ export const SKIP_DIRS: ReadonlySet<string> = new Set([
   '.cache', // generic tool cache (Parcel, Gatsby, …)
   '.parcel-cache', // Parcel cache
   'storybook-static', // Storybook static build
+  // Non-JS dependency/build trees that share a repo with a JS app. Same LOST-
+  // signal tradeoff as above: hand-authored source under e.g. `vendor/` goes
+  // dark (package.json still backstops it); a 50k-file `.venv` no longer
+  // exhausts MAX_ENTRIES before the walk reaches `src/`.
+  '.venv', // Python virtualenv
+  'venv', // Python virtualenv
+  '__pycache__', // Python bytecode cache
+  'vendor', // Go / PHP (Composer) / Ruby vendored dependencies
+  'target', // Rust / Maven build output
+  '.yarn', // Yarn Berry cache / PnP store
 ]);
 
 // Bounded walk. These caps are a DEFENSIVE bound on a pathological tree, NOT a
@@ -155,9 +172,58 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
   return acc;
 }
 
+// A package.json larger than this is not one pharn will read (real manifests
+// are a few KB; the largest public ones are well under 1 MiB). Past it the file
+// is "not usable", exactly like a parse error.
+export const MAX_PACKAGE_JSON_BYTES = 4 * 1024 * 1024;
+
+// O_NONBLOCK keeps the open of a FIFO from blocking forever (the descriptor's
+// type is then refused below). POSIX-only; absent on win32, where the flag is
+// simply not set. A symlinked package.json is deliberately still FOLLOWED — it
+// is the user's own project — and bounded by the regular-file check + the cap.
+const PKG_OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
+
+/**
+ * Read `<cwd>/package.json`'s text, or `null` when it is absent or unusable.
+ * ONE descriptor, opened once: its type is checked with `fstat` and the bytes
+ * are read from the same descriptor into a fixed buffer, so a FIFO, a device
+ * (a symlink to `/dev/zero`) or a huge file can neither hang nor exhaust memory.
+ * Never throws — detection must still proceed on file-tree signals.
+ */
+function readPackageJsonText(pkgPath: string): string | null {
+  let fd: number;
+  try {
+    fd = openSync(pkgPath, PKG_OPEN_FLAGS);
+  } catch {
+    return null;
+  }
+  try {
+    if (!fstatSync(fd).isFile()) return null;
+    const buf = Buffer.alloc(MAX_PACKAGE_JSON_BYTES + 1);
+    let total = 0;
+    while (total < buf.length) {
+      const n = readSync(fd, buf, total, buf.length - total, null);
+      if (n === 0) break;
+      total += n;
+    }
+    if (total > MAX_PACKAGE_JSON_BYTES) return null;
+    // A leading UTF-8 BOM (some Windows editors write one) is not JSON;
+    // `JSON.parse` would reject the whole manifest and misdetect the project.
+    return buf
+      .subarray(0, total)
+      .toString('utf8')
+      .replace(/^\uFEFF/, '');
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /**
  * Read `<cwd>/package.json` and reduce it to its raw ArchetypeSignals, reporting
- * whether a usable manifest was found. Missing file, parse error, or a non-object
+ * whether a usable manifest was found. Missing file, unusable file (not a
+ * regular file, over MAX_PACKAGE_JSON_BYTES), parse error, or a non-object
  * top-level value all yield the empty signal set with `packageJsonFound: false`;
  * a found, parseable object yields its signals with `true`.
  */
@@ -166,10 +232,10 @@ function readPackageSignals(cwd: string): {
   packageJsonFound: boolean;
 } {
   const empty = packageSignals({});
-  const pkgPath = resolve(cwd, 'package.json');
-  if (!existsSync(pkgPath)) return { pkgSig: empty, packageJsonFound: false };
+  const text = readPackageJsonText(resolve(cwd, 'package.json'));
+  if (text === null) return { pkgSig: empty, packageJsonFound: false };
   try {
-    const parsed: unknown = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    const parsed: unknown = JSON.parse(text);
     if (
       typeof parsed !== 'object' ||
       parsed === null ||

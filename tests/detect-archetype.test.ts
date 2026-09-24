@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_PACKAGE_JSON_BYTES,
   SKIP_DIRS,
   detectArchetypesFromProject,
   scanFileTreeSignals,
@@ -117,6 +119,85 @@ describe('detectArchetypesFromProject', () => {
       detectArchetypesFromProject(tmp.path()),
     );
   });
+});
+
+// PHARN-15: the package.json read is ONE bounded descriptor read. Every
+// unusable shape yields `packageJsonFound: false` and never throws or blocks.
+describe('detectArchetypesFromProject — package.json read hardening', () => {
+  const tmp = useTmpDir();
+
+  it('strips a UTF-8 BOM (a Next.js manifest still detects ssr)', () => {
+    writeFileSync(
+      join(tmp.path(), 'package.json'),
+      '\uFEFF' + JSON.stringify({ dependencies: { next: '15' } }),
+    );
+    const result = detectArchetypesFromProject(tmp.path());
+    expect(result.packageJsonFound).toBe(true);
+    expect(result.archetypes).toContain('ssr');
+  });
+
+  it('treats a manifest over the size cap as not found', () => {
+    const pad = ' '.repeat(MAX_PACKAGE_JSON_BYTES);
+    writeFileSync(
+      join(tmp.path(), 'package.json'),
+      `{"dependencies":{"next":"15"}}${pad}`,
+    );
+    expect(detectArchetypesFromProject(tmp.path()).packageJsonFound).toBe(
+      false,
+    );
+  });
+
+  it('treats a directory at package.json as not found', () => {
+    mkdirSync(join(tmp.path(), 'package.json'));
+    expect(detectArchetypesFromProject(tmp.path()).packageJsonFound).toBe(
+      false,
+    );
+  });
+
+  it("still follows a symlink to a regular manifest (the user's own project)", () => {
+    const real = join(tmp.path(), 'real-package.json');
+    writeFileSync(real, JSON.stringify({ dependencies: { next: '15' } }));
+    symlinkSync(real, join(tmp.path(), 'package.json'));
+    const result = detectArchetypesFromProject(tmp.path());
+    expect(result.packageJsonFound).toBe(true);
+    expect(result.archetypes).toContain('ssr');
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'does not block on a FIFO at package.json',
+    () => {
+      execFileSync('mkfifo', [join(tmp.path(), 'package.json')]);
+      const result = detectArchetypesFromProject(tmp.path());
+      expect(result.packageJsonFound).toBe(false);
+    },
+    5000,
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'does not read a device without bound (symlink to /dev/zero)',
+    () => {
+      symlinkSync('/dev/zero', join(tmp.path(), 'package.json'));
+      expect(detectArchetypesFromProject(tmp.path()).packageJsonFound).toBe(
+        false,
+      );
+    },
+    5000,
+  );
+});
+
+// PHARN-15: the uniform SKIP_DIRS pins below iterate the SHIPPED set, so they
+// cannot fail when a member is missing. These names are pinned explicitly: a
+// UI signal inside any of them is never seen.
+describe('SKIP_DIRS — non-JS dependency/build trees', () => {
+  const tmp = useTmpDir();
+
+  it.each(['.venv', 'venv', '__pycache__', 'vendor', 'target', '.yarn'])(
+    '%s/ is skipped',
+    (dir) => {
+      touch(tmp.path(), `${dir}/x/Page.tsx`);
+      expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+    },
+  );
 });
 
 describe('detectArchetypesFromProject — file-tree scanning', () => {
