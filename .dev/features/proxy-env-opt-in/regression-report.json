@@ -1,0 +1,23 @@
+{
+  "base": "8d1190624dae01810592cc1fcb716984bbd429c8",
+  "inside": [
+    "docs/troubleshooting.md",
+    "src/lib/proxy-env-format.ts",
+    "src/lib/proxy-env.ts",
+    "tests/proxy-env-format.test.ts",
+    "tests/proxy-env.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

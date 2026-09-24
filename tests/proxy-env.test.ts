@@ -28,8 +28,15 @@ describe('detectProxyNotice', () => {
     ['Https_Proxy', 'Https_Proxy'],
     ['HTTPS_proxy', 'HTTPS_proxy'],
   ])('reports %s — every spelling is equally unread', (name) => {
-    const notice = detectProxyNotice({ [name]: 'http://proxy:3128' });
-    expect(notice).toEqual({ name, value: 'http://proxy:3128' });
+    const notice = detectProxyNotice(
+      { [name]: 'http://proxy:3128' },
+      { supportsEnvProxy: false, execArgv: [] },
+    );
+    expect(notice).toEqual({
+      name,
+      value: 'http://proxy:3128',
+      envProxy: 'unsupported',
+    });
   });
 
   it('ignores unrelated variables', () => {
@@ -63,5 +70,51 @@ describe('detectProxyNotice', () => {
       https_proxy: 'http://real:1',
     });
     expect(notice?.name).toBe('https_proxy');
+  });
+});
+
+// PHARN-12: Node's fetch ignores proxy variables BY DEFAULT, but a Node that
+// knows --use-env-proxy honours them once NODE_USE_ENV_PROXY=1 / the flag is
+// set. The notice must say which of the three is true.
+describe('detectProxyNotice — env-proxy opt-in (PHARN-12)', () => {
+  const env = { HTTPS_PROXY: 'http://proxy:3128' };
+  const supported = { supportsEnvProxy: true, execArgv: [] as string[] };
+
+  it.each([
+    ['NODE_USE_ENV_PROXY=1', { ...env, NODE_USE_ENV_PROXY: '1' }, [], 'on'],
+    ['--use-env-proxy in execArgv', env, ['--use-env-proxy'], 'on'],
+    [
+      '--use-env-proxy in NODE_OPTIONS',
+      { ...env, NODE_OPTIONS: '--max-old-space-size=512 --use-env-proxy' },
+      [],
+      'on',
+    ],
+    ['nothing set', env, [], 'available'],
+    [
+      'NODE_USE_ENV_PROXY=0',
+      { ...env, NODE_USE_ENV_PROXY: '0' },
+      [],
+      'available',
+    ],
+    [
+      'a longer flag that merely starts the same (token, not substring)',
+      { ...env, NODE_OPTIONS: '--use-env-proxy-foo' },
+      [],
+      'available',
+    ],
+  ])('%s → %s', (_label, e, execArgv, expected) => {
+    expect(
+      detectProxyNotice(e as Record<string, string>, { ...supported, execArgv })
+        ?.envProxy,
+    ).toBe(expected);
+  });
+
+  it('a Node without the option is `unsupported` whatever is set', () => {
+    expect(
+      detectProxyNotice(
+        { ...env, NODE_USE_ENV_PROXY: '1', NODE_OPTIONS: '--use-env-proxy' },
+        { supportsEnvProxy: false, execArgv: ['--use-env-proxy'] },
+      )?.envProxy,
+    ).toBe('unsupported');
   });
 });

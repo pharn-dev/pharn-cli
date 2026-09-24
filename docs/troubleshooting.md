@@ -156,7 +156,7 @@ Symptoms:
 - Message references `github.com/pharn-dev/pharn-oss`
 - Exit code 1
 
-`init` / `add` / `update` / `status` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the branch head via `api.github.com`) — default `status` clones too, and reads `SKILLS_VERSION` out of that clone. `update` and `status --no-drift` instead fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com` without cloning. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy — see [Proxy environment variables](#proxy-environment-variables).
+`init` / `add` / `update` / `status` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the branch head via `api.github.com`) — default `status` clones too, and reads `SKILLS_VERSION` out of that clone. `update` and `status --no-drift` instead fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com` without cloning. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy unless you opt in with `NODE_USE_ENV_PROXY=1` — see [Proxy environment variables](#proxy-environment-variables).
 
 A failure to reach the host names it, and includes the underlying diagnosis rather than the runtime's
 bare `fetch failed`:
@@ -197,7 +197,7 @@ change. If you no longer want the capability, `pharn remove <name>`.
 Symptoms:
 
 - `⚠ This pharn is too old for the current github.com/pharn-dev/pharn-oss: it requires
-  @pharn-dev/pharn vX.Y.Z or newer …`
+@pharn-dev/pharn vX.Y.Z or newer …`
 - Exit code 1, nothing written, temporary clone cleaned up
 
 pharn-oss ships an optional root `MIN_CLI` file declaring the minimum CLI version its content needs.
@@ -242,20 +242,31 @@ Nothing is written outside your project either: the repo fetch runs first, but i
 
 ## Proxy environment variables
 
-**`pharn` does not use an HTTP proxy.** Every network call it makes — the commit-SHA resolve, the repo
-tarball, and `SKILLS_VERSION` for `update` / `status --no-drift` — goes through Node's global `fetch`,
-which reads **no** proxy environment variable: not `https_proxy`, not `HTTPS_PROXY`, not `no_proxy`,
-on any platform. There is no spelling that works and no flag that changes it.
+**By default, `pharn` does not use an HTTP proxy.** Every network call it makes — the commit-SHA
+resolve, the repo tarball, and `SKILLS_VERSION` for `update` / `status --no-drift` — goes through
+Node's global `fetch`, which by default reads **no** proxy environment variable: not `https_proxy`, not
+`HTTPS_PROXY`, not `no_proxy`.
 
-If a proxy variable is set, `pharn` says so **before** it fetches, so a network that blocks direct
-egress produces an explanation rather than an unexplained timeout:
+**Recent Node versions can opt in.** Run `pharn` with `NODE_USE_ENV_PROXY=1` set (or pass
+`--use-env-proxy` to Node, e.g. through `NODE_OPTIONS`) and Node's `fetch` routes through `HTTPS_PROXY`
+and honours `NO_PROXY`. Older Nodes — Node 20, for example — have no such option. `pharn` checks what
+the running Node supports (`process.allowedNodeEnvironmentFlags`) rather than guessing from a version
+number.
+
+If a proxy variable is set, `pharn` says which of the three cases applies **before** it fetches, so a
+network that blocks direct egress produces an explanation rather than an unexplained timeout. Without
+the opt-in, on a Node that supports it:
 
 ```text
 ⚠ HTTPS_PROXY is set (http://***@proxy.internal:3128), but pharn will not use it:
   its network calls go through Node's global fetch, which reads no proxy
-  environment variable on any platform. The download connects DIRECTLY, and
-  fails if direct egress is blocked (LIMITS.md §3a).
+  environment variable by default. The download connects DIRECTLY, and fails
+  if direct egress is blocked (LIMITS.md §3a). This Node can route fetch through
+  the proxy — re-run with NODE_USE_ENV_PROXY=1 set.
 ```
+
+With the opt-in on, the notice instead says the downloads go through that proxy. On a Node without
+the option it says so and that a newer Node release has it.
 
 Two details in that message are deliberate:
 
@@ -265,13 +276,14 @@ Two details in that message are deliberate:
   only printed; it is never written to `pharn.config.json`, which lives in your repository and is
   committed.
 
-If you are behind a mandatory proxy, there is no workaround inside `pharn` today — this is a named
-limit (`LIMITS.md` §3a), not a bug to report.
+If you are behind a mandatory proxy, set `NODE_USE_ENV_PROXY=1` on a Node that supports it (above). On a
+Node without it there is no workaround inside `pharn` — a named limit (`LIMITS.md` §3a), not a bug to
+report.
 
 ### This changed in the codeload release
 
 Earlier versions cloned through `degit`, which read `process.env.https_proxy` **itself**. If you had
-set exactly that lowercase spelling, your clone *was* proxied, and it no longer is. Your
+set exactly that lowercase spelling, your clone _was_ proxied, and it no longer is. Your
 `pharn update` and `status --no-drift` were already unproxied — those were always plain `fetch` — so
 this makes one boundary consistent rather than newly broken, but it does break a setup that worked.
 
@@ -284,7 +296,7 @@ fetch — and **nothing ever reclaimed them**.
 
 That is worth stating plainly, because the directory can be much larger than "one leftover download"
 suggests. `degit` does have a deletion path, but it fires only when an existing **ref's** mapped hash
-changes. `pharn` passed the resolved commit SHA *as* the ref, so every fetch wrote a self-mapped
+changes. `pharn` passed the resolved commit SHA _as_ the ref, so every fetch wrote a self-mapped
 `"<sha>": "<sha>"` entry under a **new key** — the previous hash for that key was always `undefined`,
 so the delete branch could never run. One tarball accumulated per distinct upstream commit you ever
 fetched, forever. A CI machine running `pharn status` on each upstream push could reach hundreds of
@@ -293,11 +305,11 @@ megabytes on an image nothing purges, and `pharn` printed nothing about it.
 Check what is there, then delete the whole directory — `pharn` will not do it for you, and nothing
 reads it any more:
 
-| Platform | Path |
-| -------- | ---- |
-| macOS | `~/Library/Caches/degit` |
-| Windows | `%LOCALAPPDATA%\degit` |
-| Other | `$XDG_CACHE_HOME/degit`, else `~/.cache/degit` |
+| Platform | Path                                           |
+| -------- | ---------------------------------------------- |
+| macOS    | `~/Library/Caches/degit`                       |
+| Windows  | `%LOCALAPPDATA%\degit`                         |
+| Other    | `$XDG_CACHE_HOME/degit`, else `~/.cache/degit` |
 
 ```bash
 du -sh ~/Library/Caches/degit          # macOS
@@ -464,18 +476,18 @@ Usage: ...
 
 Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
 
-| command                | options it accepts                    |
-| ---------------------- | ------------------------------------- |
-| `init`                 | `--archetype` (a deprecated no-op)    |
-| `add`                  | none                                  |
-| `remove` / `rm`        | none                                  |
-| `update`               | `--force`, `--yes` / `-y`             |
-| `list`                 | `--json`                              |
-| `status`               | `--strict`, `--no-drift`              |
-| *any*                  | `--help` / `-h`, `--version` / `-v`   |
+| command         | options it accepts                  |
+| --------------- | ----------------------------------- |
+| `init`          | `--archetype` (a deprecated no-op)  |
+| `add`           | none                                |
+| `remove` / `rm` | none                                |
+| `update`        | `--force`, `--yes` / `-y`           |
+| `list`          | `--json`                            |
+| `status`        | `--strict`, `--no-drift`            |
+| _any_           | `--help` / `-h`, `--version` / `-v` |
 
 The message goes to stderr with the usage text and exits **1**, exactly like `Unknown option` — the
-label differs only because the option is one `pharn` *knows*, so "unknown" would send you hunting for
+label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for
 a typo that is not there.
 
 Before this, such an option was parsed and silently dropped. That was worst in CI: `pharn status
@@ -483,7 +495,7 @@ Before this, such an option was parsed and silently dropped. That was worst in C
 `pharn list --strict` exited 0 no matter what it found. With no command word at all, `pharn --json`,
 `pharn --force` and `pharn --strict` each ran a **full `init`** while ignoring the option.
 
-Note that only the option *name* is checked. `pharn list --json=false` is still accepted (`--json` is
+Note that only the option _name_ is checked. `pharn list --json=false` is still accepted (`--json` is
 a `list` option) and still prints human-readable output — pass the bare `--json` for JSON.
 
 ## Local development issues

@@ -69,16 +69,24 @@ describe('proxyNoticeMessage', () => {
   // dependency version to gate the claim on.
 
   it('names the variable it found, so the user can see pharn read it', () => {
-    expect(proxyNoticeMessage({ name: 'HtTpS_PrOxY', value: PROXY })).toContain(
-      'HtTpS_PrOxY',
-    );
+    expect(
+      proxyNoticeMessage({
+        name: 'HtTpS_PrOxY',
+        value: PROXY,
+        envProxy: 'unsupported',
+      }),
+    ).toContain('HtTpS_PrOxY');
   });
 
   it('states the mechanism, not just the symptom', () => {
     // A user in a network that blocks direct egress otherwise sees only a
     // timeout. Naming fetch's behavior is what separates "known limitation"
     // from "outage".
-    const message = proxyNoticeMessage({ name: 'HTTPS_PROXY', value: PROXY });
+    const message = proxyNoticeMessage({
+      name: 'HTTPS_PROXY',
+      value: PROXY,
+      envProxy: 'unsupported',
+    });
 
     expect(message).toContain('fetch');
     expect(message).toContain('no proxy environment variable');
@@ -86,25 +94,62 @@ describe('proxyNoticeMessage', () => {
   });
 
   it('makes no claim that depends on a platform or a dependency version', () => {
-    const message = proxyNoticeMessage({ name: 'HTTPS_PROXY', value: PROXY });
+    const message = proxyNoticeMessage({
+      name: 'HTTPS_PROXY',
+      value: PROXY,
+      envProxy: 'unsupported',
+    });
 
     expect(message).not.toContain('degit');
-    expect(message).toContain('any platform');
+    // Honest since PHARN-12: fetch ignores proxy variables BY DEFAULT — not on
+    // "any platform" regardless of options.
+    expect(message).toContain('by default');
   });
 
   it('points at the documented limit rather than implying a bug', () => {
-    expect(proxyNoticeMessage({ name: 'HTTPS_PROXY', value: PROXY })).toContain(
-      'LIMITS.md',
-    );
+    expect(
+      proxyNoticeMessage({
+        name: 'HTTPS_PROXY',
+        value: PROXY,
+        envProxy: 'unsupported',
+      }),
+    ).toContain('LIMITS.md');
   });
 
   it('renders the value redacted', () => {
     const message = proxyNoticeMessage({
       name: 'https_proxy',
       value: 'http://user:s3cret@proxy.internal:3128',
+      envProxy: 'unsupported',
     });
 
     expect(message).toContain('***');
     expect(message).not.toContain('s3cret');
+  });
+});
+
+describe('proxyNoticeMessage — the three env-proxy states (PHARN-12)', () => {
+  const notice = (envProxy: 'on' | 'available' | 'unsupported') => ({
+    name: 'HTTPS_PROXY',
+    value: PROXY,
+    envProxy,
+  });
+
+  it('on: says the downloads DO go through the proxy, and never "will not use it"', () => {
+    const m = proxyNoticeMessage(notice('on'));
+    expect(m).toContain('go through that proxy');
+    expect(m).not.toContain('will not use it');
+  });
+
+  it('available: keeps the warning and names the opt-in', () => {
+    const m = proxyNoticeMessage(notice('available'));
+    expect(m).toContain('will not use it');
+    expect(m).toContain('NODE_USE_ENV_PROXY=1');
+  });
+
+  it('unsupported: says this Node cannot, and that a newer one can', () => {
+    const m = proxyNoticeMessage(notice('unsupported'));
+    expect(m).toContain('will not use it');
+    expect(m).toContain('no NODE_USE_ENV_PROXY support');
   });
 });
