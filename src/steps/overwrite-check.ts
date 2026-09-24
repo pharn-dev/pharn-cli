@@ -5,6 +5,8 @@ import {
   PHARN_CONFIG_FILE,
 } from '../lib/install-manifest.js';
 import { detectLayout } from '../lib/layout.js';
+import { scanDest } from '../lib/dest-drift.js';
+import { BACKUP_DIR } from '../lib/backup.js';
 import { safeJoin, VERSION_RE } from '../lib/validate.js';
 import type { Selection } from '../types.js';
 
@@ -103,10 +105,31 @@ export async function confirmWriteTargets(
   });
   if (conflicts.length === 0) return 'proceed'; // zero friction — nothing to overwrite
 
-  const shown = conflicts.slice(0, MAX_LISTED);
-  const more = conflicts.length - shown.length;
-  const list = shown.map((p) => `  • ${p}`).join('\n');
+  // Which of those differ from upstream — the user's EDITS. They are listed
+  // first (a 400-path list capped at 10 used to hide them) and named as backed
+  // up: runInstallArchetype copies them to .pharn-backup/ before the first
+  // write, re-scanning then rather than trusting this snapshot.
+  const drifted = new Set(
+    scanDest({
+      repoDir,
+      projectRoot: cwd,
+      rels: conflicts.filter((p) => p !== PHARN_CONFIG_FILE),
+    }).drifted,
+  );
+  const ordered = [
+    ...conflicts.filter((p) => drifted.has(p)),
+    ...conflicts.filter((p) => !drifted.has(p)),
+  ];
+  const shown = ordered.slice(0, MAX_LISTED);
+  const more = ordered.length - shown.length;
+  const list = shown
+    .map((p) => (drifted.has(p) ? `  • ${p} (edited)` : `  • ${p}`))
+    .join('\n');
   const tail = more > 0 ? `\n  …and ${more} more` : '';
+  const editsLine =
+    drifted.size > 0
+      ? `\n${drifted.size} of them differ from upstream (your edits) and will be copied to ${BACKUP_DIR}/ before being overwritten.`
+      : '';
   // Only when the config itself is at risk — i.e. a re-install over an existing
   // one — and only AFTER the zero-conflict return above, so a conflict-free
   // project still reaches none of this (P5: the branch stays `conflicts.length
@@ -122,7 +145,7 @@ export async function confirmWriteTargets(
   // steps/archetype-summary.ts: every helper there ends in cancelAndExit, and
   // this stage's whole contract is that it does not exit.
   log.warn(
-    `${intro} These paths already exist and may be overwritten:\n${list}${tail}`,
+    `${intro} These paths already exist and may be overwritten:\n${list}${tail}${editsLine}`,
   );
   const result = await confirm({
     message: 'Continue and overwrite?',

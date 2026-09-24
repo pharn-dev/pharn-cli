@@ -1,0 +1,26 @@
+{
+  "base": "770adad9a9213f43ced51c8e5b7ec3f22a2598e2",
+  "inside": [
+    "CLAUDE.md",
+    "docs/commands/init.md",
+    "src/commands/init.ts",
+    "src/steps/install-archetype.ts",
+    "src/steps/overwrite-check.ts",
+    "tests/init-archetype.test.ts",
+    "tests/init.test.ts",
+    "tests/overwrite-check.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

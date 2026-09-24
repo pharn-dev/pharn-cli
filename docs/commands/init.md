@@ -128,7 +128,15 @@ Lists the **selected** capabilities (name, role, and why — `universal` or the 
 | Yes, install | Copy the capabilities + product surfaces and write config |
 | Cancel       | Exit 0; nothing written                                   |
 
-After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs` hooks, `pharn/features/README.md`, the contracts, core and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. When `pharn.config.json` is one of them, the warning also names the `skillsVersion` your existing config records, so you can see which version you are about to replace (read locally, never fetched; the clause is simply omitted if that file cannot be read). If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs` hooks, `pharn/features/README.md`, the contracts, core and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. When `pharn.config.json` is one of them, the warning also names the `skillsVersion` your existing config records, so you can see which version you are about to replace (read locally, never fetched; the clause is simply omitted if that file cannot be read). If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check.
+
+**Re-running `init` over an existing install.** Existing files whose bytes **differ from upstream** — your
+edits — are listed **first** and marked `(edited)`, and the prompt says how many there are. If you
+continue, `init` copies each of them to `.pharn-backup/<timestamp>/` **before** the first write and prints
+that directory as soon as it is created (byte-identical files are not edits and are not backed up).
+Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.config.json`) are **kept**:
+`init` installs them again and records them as `manual`, as long as upstream still ships them. An
+unreadable or invalid existing config never blocks `init` — nothing is carried over from it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 ### 7. Install
 
