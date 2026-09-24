@@ -43,18 +43,30 @@ credential is stored or passed.
    [`ci.yml`](../.github/workflows/ci.yml) gates plus `floor`, `gitleaks` and
    `Analyze (javascript-typescript)`.
 4. **Cut a GitHub Release.** Tag it **`vX.Y.Z`**, where `X.Y.Z` **exactly
-   matches** `package.json` `version`. A guard step in `publish.yml` fails the
-   run if the tag (minus its leading `v`) does not equal the package version.
-5. **Publishing the Release triggers `publish.yml`.** It runs on node 24, whose
-   bundled npm already satisfies the npm >= 11.5.1 that Trusted Publishing
-   needs — an **Assert npm floor** step enforces that and fails the run if it
-   ever stops being true. It then installs dependencies (`npm ci`), **verifies
-   the tag** against `package.json` `version`, and runs `npm publish --provenance
-   --access public`. The full check suite and build run **inside** that publish,
-   via the `prepublishOnly` + `prepack` hooks — so they happen after the tag
-   guard, not before it. The `--provenance` flag overrides
-   `publishConfig.provenance: false`, so the release carries a signed provenance
-   attestation.
+   matches** `package.json` `version`. The tag must be plain `vX.Y.Z` — a
+   prerelease tag (`v1.2.0-rc.1`) or a tag without the `v` is refused — and it
+   must point at a commit that is on `main`.
+5. **Publishing the Release triggers `publish.yml`**, in two jobs:
+   - **`build`** holds no publish rights (`id-token` is not granted to it). Before
+     installing anything it checks the tag format, that the tag equals
+     `package.json` `version`, and that the tagged commit is contained in `main`.
+     It then runs `npm ci`, `npm run check` and `npm run test:coverage`, packs
+     the tarball (`npm pack`, whose `prepack` builds it), installs that tarball
+     into a scratch directory and runs `pharn --version`, and uploads it as an
+     artifact.
+   - **`publish`** is the only job with `id-token: write` and the `npm-publish`
+     environment. It checks out nothing and installs nothing: on node 24, whose
+     bundled npm already satisfies the npm >= 11.5.1 Trusted Publishing needs (an
+     **Assert npm floor** step enforces that), it downloads the tarball and runs
+     `npm publish <tarball> --provenance --access public --ignore-scripts`. The
+     `--provenance` flag overrides `publishConfig.provenance: false`, so the
+     release carries a signed provenance attestation.
+
+   Why the split: every step of a job that holds `id-token: write` can request
+   the token npm trades for publish rights. Keeping the dev toolchain (install
+   scripts, linters, tests, bundler) out of that job means a compromised dev
+   dependency can no longer publish on its own. It can still influence the
+   tarball's content in `build` — the residual this does not close.
 
    Note that `pharnVersion` (this package) and `skillsVersion` (upstream's
    `SKILLS_VERSION`, which an install records separately) are independent

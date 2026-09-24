@@ -8,26 +8,92 @@ name: publish
 # secrets or tokens appear anywhere in this workflow. The local FIRST publish
 # stays manual (`npm publish`, run once by a maintainer to create the package
 # before the Trusted Publisher can take over).
+#
+# TWO JOBS, and the split is the point (PHARN-07). Any step in a job that holds
+# `id-token: write` can request the OIDC token npm trades for publish rights.
+# The old single job ran `npm ci` (install scripts of ~280 dev dependencies) and
+# `npm publish`, whose prepublishOnly/prepack ran prettier, eslint, markdownlint,
+# tsc, vitest and esbuild — all with the token requestable, so one compromised
+# dev dependency could publish a malicious version WITH a valid provenance
+# attestation. Now:
+#   - `build` has NO id-token. It refuses anything but a strict vX.Y.Z tag on a
+#     commit contained in main (before `npm ci`), runs the gates, packs the
+#     tarball, smoke-installs it, and uploads it as an artifact.
+#   - `publish` is the ONLY job with id-token + the `npm-publish` environment. It
+#     checks out nothing, installs nothing, and publishes the prebuilt tarball
+#     with --ignore-scripts.
+# Residual, named: the tarball is produced in `build`, so a compromised dev
+# dependency there can still alter its CONTENT; it can no longer mint a token or
+# publish on its own.
 on:
   release:
     types: [published]
 
 permissions:
   contents: read
-  id-token: write # required for OIDC: npm Trusted Publishing + provenance attestation
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
-    environment: npm-publish
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0 # the main-ancestry check below needs history
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
+      # Before `npm ci`, so a bad tag costs no dependency install. Strict: a
+      # prerelease or `v`-less tag is refused rather than half-published.
+      - name: Verify tag
+        id: tag
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag $GITHUB_REF_NAME is not vX.Y.Z"; exit 1; }
+          PKG="$(node -p "require('./package.json').version")"
+          [ "${GITHUB_REF_NAME#v}" = "$PKG" ] || { echo "tag $GITHUB_REF_NAME != package.json $PKG"; exit 1; }
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "$GITHUB_SHA is not on main"; exit 1; }
+          echo "version=$PKG" >> "$GITHUB_OUTPUT"
+      - name: Install
+        run: npm ci
+      - name: Gates
+        run: |
+          npm run check
+          npm run test:coverage
+      # `npm pack` runs prepack (the build) here, in the unprivileged job.
+      - name: Pack
+        run: npm pack --pack-destination "$RUNNER_TEMP/pkg"
+      - name: Smoke the packed CLI
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir smoke && cd smoke
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund ../pkg/pharn-dev-pharn-*.tgz
+          ./node_modules/.bin/pharn --version
+      # Unverified from the authoring environment (no GitHub access outside this
+      # repo): these two SHAs are the upstream v4.6.2 / v4.3.0 tags as known at
+      # authoring time. A wrong SHA fails this workflow before anything publishes.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/pkg/pharn-dev-pharn-${{ steps.tag.outputs.version }}.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # OIDC: npm Trusted Publishing + provenance — THIS job only
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
           registry-url: https://registry.npmjs.org
       # Trusted Publishing requires npm >= 11.5.1 (npm's own docs; it also requires
       # node >= 22.14.0). node 24 already BUNDLES a satisfying npm — 11.17.0 at the
@@ -64,16 +130,14 @@ jobs:
             }
             console.log(`npm floor OK: npm ${found.trim()} >= ${floor}`);
           ' "$(npm --version)" 11.5.1
-      - name: Install
-        run: npm ci
-      - name: Verify tag matches package.json version
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG="$(node -p "require('./package.json').version")"
-          [ "$TAG" = "$PKG" ] || { echo "tag v$TAG != package.json $PKG"; exit 1; }
-      # `npm publish` runs prepublishOnly (npm run check) + prepack (build) first,
-      # so a failing gate blocks the release. `--provenance` emits a signed
-      # attestation via the same OIDC id-token used for Trusted Publishing
-      # (needs id-token: write). Auth itself is OIDC — no token or secret.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball
+          path: pkg
+      # Exactly the tarball of the verified version, by name; --ignore-scripts so
+      # nothing from the package runs here. `--provenance` emits a signed
+      # attestation via the same OIDC id-token used for Trusted Publishing.
       - name: Publish
-        run: npm publish --provenance --access public
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: npm publish "pkg/pharn-dev-pharn-${VERSION}.tgz" --provenance --access public --ignore-scripts
