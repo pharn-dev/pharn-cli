@@ -1,0 +1,22 @@
+{
+  "base": "c3e347337b6867af8726cfbd6f5f9dcb57692526",
+  "inside": [
+    "src/commands/update.ts",
+    "src/lib/project-lock.ts",
+    "tests/project-lock.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

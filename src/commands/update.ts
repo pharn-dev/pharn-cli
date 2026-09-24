@@ -333,6 +333,10 @@ async function runArchetypeUpdate(
           force,
           (backup) => {
             backupRef.current = backup;
+            // Named the moment it exists (as `add` does): everything after the
+            // backup can throw or be interrupted, and this pointer is the
+            // user's only route back to the pre-overwrite bytes.
+            printBackupNotice(backup, { aborted: false });
           },
         );
         s2.stop(
@@ -630,7 +634,7 @@ const FORCEABLE_SKIPS = new Set<UpdateLabel | 'unreadable'>([
 // failure — but they are never silent: each bucket is listed with the one action
 // that resolves it.
 function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
-  const { plan, backup, recordsNote, versionWithheld } = outcome;
+  const { plan, recordsNote, versionWithheld } = outcome;
   const { counts } = plan;
 
   if (recordsNote) log.warn(`⚠ ${recordsNote}`);
@@ -681,7 +685,7 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
     note(lines.join('\n'), 'SKIPPED');
   }
 
-  if (backup) printBackupNotice(backup, { aborted: false });
+  // The backup pointer was printed when the backup was created (onBackup).
 
   // Both directions are named. `abandonedLayout` has always been computed
   // direction-agnostically (see its assignment above), but only 'flat' used to be

@@ -391,3 +391,37 @@ describe('withProjectLock — a lock being written is live (PHARN-03)', () => {
     expect(existsSync(lockPath(dir))).toBe(false);
   });
 });
+
+// PHARN-10: while a spinner is up, @clack/core turns Ctrl-C into
+// process.exit(0), which runs no `finally`. Holding the lock at that moment used
+// to report success over a half-written project and strand .pharn.lock.
+describe('withProjectLock — process.exit while held (PHARN-10)', () => {
+  const tmp = useTmpDir();
+
+  it('exits 130, says so on stderr, and releases the lock', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const lockModule = fileURLToPath(
+      new URL('../src/lib/project-lock.ts', import.meta.url),
+    );
+    const dir = tmp.path();
+    const child = `
+      const { withProjectLock } = await import(${JSON.stringify(lockModule)});
+      await withProjectLock(process.argv[1], 'update', () => { process.exit(0); });
+    `;
+    const r = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', child, dir],
+      { encoding: 'utf8' },
+    );
+    expect(r.status).toBe(130);
+    expect(r.stderr).toContain('pharn update was interrupted while writing');
+    expect(existsSync(lockPath(dir))).toBe(false);
+  }, 30_000);
+
+  it('removes its exit listener once the lock is released normally', async () => {
+    const before = process.listenerCount('exit');
+    await withProjectLock(tmp.path(), 'add', () => undefined);
+    expect(process.listenerCount('exit')).toBe(before);
+  });
+});
