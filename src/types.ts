@@ -243,12 +243,14 @@ export interface CapabilityIndex {
   unknown: UnknownCapability[];
 }
 
-// A capability chosen for install. `matched` is why: 'universal', or the
-// detected archetypes that intersected its `applies` set.
+// A capability chosen for install. `matched` is why: 'universal', the detected
+// archetypes that intersected its `applies` set, or 'manual' — a re-run `init`
+// carrying over a capability the user added by hand (`pharn add`) that the
+// archetypes did not select.
 export interface SelectedCapability {
   name: string;
   role: 'griller' | 'lens';
-  matched: 'universal' | Archetype[];
+  matched: 'universal' | 'manual' | Archetype[];
 }
 
 // A capability left out, with a deterministic, human-readable reason.

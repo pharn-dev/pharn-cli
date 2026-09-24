@@ -139,6 +139,35 @@ describe('runInit (archetype default)', () => {
       vi.mocked(process.cwd).mockRestore();
     });
 
+    // What runInstallArchetype received: the selection it installs and the
+    // carry-over it records.
+    const installed = () => {
+      const call = runInstallArchetype.mock.calls[0] as unknown as [
+        unknown,
+        unknown,
+        unknown,
+        {
+          selected: { name: string; role: string; matched: unknown }[];
+          skipped: { name: string; role: string }[];
+        },
+        unknown,
+        {
+          manualKeys: Set<string>;
+          kept: { name: string; role: string; source?: string }[];
+          previousStamp: {
+            skillsVersion: string;
+            commit: string | null;
+          } | null;
+        },
+      ];
+      return { selection: call[3], carry: call[5] };
+    };
+    const warned = (): string =>
+      vi
+        .mocked(log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+
     it('installs and flags a manual entry that the index still has', async () => {
       const dir = tmp.path();
       vi.spyOn(process, 'cwd').mockReturnValue(dir);
@@ -153,21 +182,126 @@ describe('runInit (archetype default)', () => {
 
       await runInit();
 
-      const [, , , selection, , manualKeys] = runInstallArchetype.mock
-        .calls[0] as unknown as [
-        unknown,
-        unknown,
-        unknown,
-        { selected: { name: string }[] },
-        unknown,
-        Set<string>,
-      ];
+      const { selection, carry } = installed();
       expect(selection.selected.map((c) => c.name)).toEqual([
         'a11y',
         'path-traversal',
       ]);
-      expect([...manualKeys]).toEqual(['lens:path-traversal']);
+      expect(selection.selected[1]!.matched).toBe('manual');
+      expect([...carry.manualKeys]).toEqual(['lens:path-traversal']);
       expect(informed()).toContain('lens:path-traversal');
+      // Row 7: gone upstream → dropped, but NAMED (never silently).
+      expect(warned()).toContain('lens:gone-now');
+      expect(carry.kept).toEqual([]);
+    });
+
+    // update's merge row 3: sticky manual. This used to be recorded `auto`, so a
+    // later archetype change let `update` drop what the user asked for by name.
+    it('keeps a manual entry manual when the archetypes ALSO select it', async () => {
+      const dir = tmp.path();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      writeConfig(dir, {
+        ...baseConfig,
+        capabilities: [{ name: 'a11y', role: 'griller', source: 'manual' }],
+      });
+
+      await runInit();
+
+      const { selection, carry } = installed();
+      expect([...carry.manualKeys]).toEqual(['griller:a11y']);
+      // Installed once, as the archetypes selected it — not appended again.
+      expect(selection.selected.map((c) => c.name)).toEqual(['a11y']);
+      expect(informed()).not.toContain('you added by hand');
+    });
+
+    it('lists a carried entry once: selected as added by hand, no longer skipped', async () => {
+      const dir = tmp.path();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      resolveCapabilities.mockReturnValue({
+        selected: [{ name: 'a11y', role: 'griller', matched: 'universal' }],
+        skipped: [
+          {
+            name: 'path-traversal',
+            role: 'lens',
+            reason: 'applies to [backend]; detected [ssr]',
+          },
+        ],
+      } as never);
+      writeConfig(dir, {
+        ...baseConfig,
+        capabilities: [
+          { name: 'path-traversal', role: 'lens', source: 'manual' },
+        ],
+      });
+
+      await runInit();
+
+      const { selection } = installed();
+      expect(selection.selected).toContainEqual({
+        name: 'path-traversal',
+        role: 'lens',
+        matched: 'manual',
+      });
+      expect(selection.skipped).toEqual([]);
+    });
+
+    // update's merge row 0: a capability the fetch could not PARSE is kept
+    // verbatim, whoever added it — it used to be dropped and its files orphaned.
+    it('keeps an entry upstream ships but this CLI cannot parse — manual AND auto — verbatim', async () => {
+      const dir = tmp.path();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      parseCapabilityIndex.mockReturnValue({
+        capabilities: [{ name: 'a11y', role: 'griller', applies: 'universal' }],
+        unknown: [
+          {
+            name: 'perf',
+            role: 'lens',
+            subtree: 'pharn-review',
+            reason: 'unknown applies token',
+          },
+          {
+            name: 'old-auto',
+            role: 'griller',
+            subtree: 'pharn-pipeline/grillers',
+            reason: 'unknown applies token',
+          },
+          {
+            name: 'legacy',
+            role: 'griller',
+            subtree: 'pharn-pipeline/grillers',
+            reason: 'unknown applies token',
+          },
+        ],
+      });
+      writeConfig(dir, {
+        ...baseConfig,
+        commit: 'sha000',
+        capabilities: [
+          { name: 'perf', role: 'lens', source: 'manual' },
+          { name: 'old-auto', role: 'griller', source: 'auto' },
+          { name: 'legacy', role: 'griller' },
+        ],
+      });
+
+      await runInit();
+
+      const { selection, carry } = installed();
+      expect(carry.kept).toEqual([
+        { name: 'perf', role: 'lens', source: 'manual' },
+        { name: 'old-auto', role: 'griller', source: 'auto' },
+        { name: 'legacy', role: 'griller' },
+      ]);
+      expect(carry.previousStamp).toEqual({
+        skillsVersion: '1.0.0',
+        commit: 'sha000',
+      });
+      // Kept, not installed: nothing of theirs is in the selection.
+      expect(selection.selected.map((c) => c.name)).toEqual(['a11y']);
+      expect(informed()).toContain('lens:perf');
+      expect(informed()).toContain('griller:old-auto');
+      // Named as unreadable upstream (the unknown-capability warning), never as
+      // dropped.
+      expect(warned()).not.toContain('Not keeping');
     });
 
     it('a corrupt existing config never blocks init — nothing is carried over', async () => {
@@ -178,9 +312,61 @@ describe('runInit (archetype default)', () => {
       await runInit();
 
       expect(runInstallArchetype).toHaveBeenCalledTimes(1);
-      const manualKeys = runInstallArchetype.mock.calls[0]![5 as never] as
-        Set<string> | undefined;
-      expect([...(manualKeys ?? [])]).toEqual([]);
+      const { carry } = installed();
+      expect([...carry.manualKeys]).toEqual([]);
+      expect(carry.kept).toEqual([]);
+      expect(carry.previousStamp).toBeNull();
+    });
+
+    // PHARN-03's re-check, extended to init: the carry-over was computed before
+    // both prompts, so a pharn run that wrote the config meanwhile must refuse
+    // the install rather than be silently overwritten by it.
+    describe('the config changed while the prompts were open', () => {
+      const concurrentAdd = (dir: string, before: unknown) => {
+        confirmWriteTargets.mockImplementationOnce(async () => {
+          writeConfig(dir, before);
+          return 'proceed';
+        });
+      };
+
+      it('refuses — exit 1, nothing installed — when another run rewrote it', async () => {
+        const dir = tmp.path();
+        vi.spyOn(process, 'cwd').mockReturnValue(dir);
+        const config = {
+          ...baseConfig,
+          capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],
+        };
+        writeConfig(dir, config);
+        concurrentAdd(dir, {
+          ...config,
+          capabilities: [
+            ...config.capabilities,
+            { name: 'path-traversal', role: 'lens', source: 'manual' },
+          ],
+        });
+
+        await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+        expect(runInstallArchetype).not.toHaveBeenCalled();
+        expect(cleanup).toHaveBeenCalledTimes(1);
+        expect(String(vi.mocked(log.error).mock.calls.at(-1)![0])).toContain(
+          'pharn.config.json changed while `pharn init` was running',
+        );
+        // The concurrent write survives untouched.
+        expect(
+          JSON.parse(readFileSync(join(dir, 'pharn.config.json'), 'utf8'))
+            .capabilities,
+        ).toHaveLength(2);
+      });
+
+      it('refuses when a config APPEARED where there was none', async () => {
+        const dir = tmp.path();
+        vi.spyOn(process, 'cwd').mockReturnValue(dir);
+        concurrentAdd(dir, { ...baseConfig, capabilities: [] });
+
+        await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+        expect(runInstallArchetype).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -211,7 +397,12 @@ describe('runInit (archetype default)', () => {
       ['ssr'],
       { selected: [], skipped: [] },
       'sha123',
-      new Set(),
+      // No previous config → nothing carried over.
+      expect.objectContaining({
+        manualKeys: new Set(),
+        kept: [],
+        previousStamp: null,
+      }),
     );
     expect(cleanup).toHaveBeenCalledTimes(1);
   });

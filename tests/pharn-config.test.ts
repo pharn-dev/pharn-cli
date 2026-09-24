@@ -11,7 +11,9 @@ import { log } from '@clack/prompts';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import { ProjectChangedError } from '../src/lib/project-lock.js';
 import {
+  assertConfigFingerprintUnchanged,
   assertConfigUnchanged,
+  configFingerprint,
   readPharnConfig,
   loadConfigOrExit,
   loadArchetypeConfigOrExit,
@@ -785,6 +787,55 @@ describe('assertConfigUnchanged', () => {
     expect(() => assertConfigUnchanged(tmp.path(), snapshot, 'add')).toThrow(
       ProjectChangedError,
     );
+  });
+});
+
+// init-manual-carry: init reads the config it replaces TOLERANTLY, so its
+// under-the-lock re-check compares a fingerprint that also covers absent and
+// unreadable files — never a parse.
+describe('configFingerprint / assertConfigFingerprintUnchanged', () => {
+  const tmp = useTmpDir();
+  const file = (): string => join(tmp.path(), 'pharn.config.json');
+
+  it('is `absent` for no file, a sha256 of the bytes for a file, `unreadable:*` otherwise', () => {
+    expect(configFingerprint(tmp.path())).toBe('absent');
+    writeFileSync(file(), '{ not json');
+    const corrupt = configFingerprint(tmp.path());
+    expect(corrupt).toMatch(/^sha256:[0-9a-f]{64}$/);
+    writeFileSync(file(), '{ not json ');
+    expect(configFingerprint(tmp.path())).not.toBe(corrupt);
+    rmSync(file());
+    mkdirSync(file());
+    expect(configFingerprint(tmp.path())).toBe('unreadable:EISDIR');
+  });
+
+  it('passes while nothing changed — absent, corrupt or valid alike', () => {
+    const absent = configFingerprint(tmp.path());
+    expect(() =>
+      assertConfigFingerprintUnchanged(tmp.path(), absent, 'init'),
+    ).not.toThrow();
+    writeFileSync(file(), '{ not json');
+    const corrupt = configFingerprint(tmp.path());
+    expect(() =>
+      assertConfigFingerprintUnchanged(tmp.path(), corrupt, 'init'),
+    ).not.toThrow();
+  });
+
+  it('refuses with ProjectChangedError on any change — including absent → present', () => {
+    const absent = configFingerprint(tmp.path());
+    writeFileSync(file(), '{}');
+    expect(() =>
+      assertConfigFingerprintUnchanged(tmp.path(), absent, 'init'),
+    ).toThrow(ProjectChangedError);
+    const present = configFingerprint(tmp.path());
+    writeFileSync(file(), '{ }');
+    expect(() =>
+      assertConfigFingerprintUnchanged(tmp.path(), present, 'init'),
+    ).toThrow(/pharn\.config\.json changed while `pharn init` was running/);
+    rmSync(file());
+    expect(() =>
+      assertConfigFingerprintUnchanged(tmp.path(), present, 'init'),
+    ).toThrow(ProjectChangedError);
   });
 });
 

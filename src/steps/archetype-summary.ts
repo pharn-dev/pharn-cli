@@ -13,8 +13,12 @@ import type { Archetype, Selection } from '../types.js';
 
 export type ArchetypeSummaryAction = 'install' | 'cancel';
 
-function describeMatched(matched: 'universal' | Archetype[]): string {
-  return matched === 'universal' ? 'universal' : matched.join(', ');
+function describeMatched(
+  matched: 'universal' | 'manual' | Archetype[],
+): string {
+  if (matched === 'universal') return 'universal';
+  if (matched === 'manual') return 'added by hand';
+  return matched.join(', ');
 }
 
 export async function runArchetypeSummary(

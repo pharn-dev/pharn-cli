@@ -135,12 +135,18 @@ edits — are listed **first** and marked `(edited)`, and the prompt says how ma
 continue, `init` copies each of them to `.pharn-backup/<timestamp>/` **before** the first write and prints
 that directory as soon as it is created (byte-identical files are not edits and are not backed up).
 Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.config.json`) are **kept**:
-`init` installs them again and records them as `manual`, as long as upstream still ships them. Top-level
-keys in `pharn.config.json` that pharn does not own, such as upstream's `testResults` and `ship`, are
-copied across unchanged — see [Keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own).
-An unreadable or invalid existing config never blocks `init`. Manual capabilities are carried over
-only from a config the other commands would accept, and your own keys from any config that parses as
-a JSON object; a config that is not valid JSON carries nothing over. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+`init` installs them again and records them as `manual` — also when your archetypes now select them
+too — as long as upstream still ships them. The summary lists them as "added by hand". One that upstream
+no longer ships is dropped from `pharn.config.json` and named (its files stay on disk). A capability
+upstream still ships but this pharn [cannot read](update.md#when-pharn-cannot-read-a-capability-upstream)
+is **left as it is**, however it was added: its config entry, files and records are untouched, and it is
+listed in `frozenCapabilities` so the next [`pharn update`](update.md) re-checks it. Top-level keys in
+`pharn.config.json` that pharn does not own, such as upstream's `testResults` and `ship`, are copied
+across unchanged — see [Keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own).
+An unreadable or invalid existing config never blocks `init`. Capabilities are carried over only from a
+config the other commands would accept, and your own keys from any config that parses as a JSON object;
+a config that is not valid JSON carries nothing over. If `pharn.config.json` changes while `init` waits at
+its prompts (another `pharn` command wrote it), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 ### 7. Install
 
@@ -151,7 +157,7 @@ a JSON object; a config that is not valid JSON carries nothing over. The target 
 | Preserve settings          | An existing `.claude/settings.json` is **never** overwritten (a note tells you to wire the hooks by hand if needed)                                                                                                                                                |
 | Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
-| Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from the repo's `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (each stamped `source: "auto"` — only `pharn add` writes `manual`), `layout`, `models`, `seam`, `modules: []`                    |
+| Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `seam`, `modules: []`, `frozenCapabilities` (see above)       |
 | Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
