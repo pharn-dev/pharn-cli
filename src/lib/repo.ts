@@ -1,3 +1,4 @@
+import { withDeadline } from './deadline.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -178,37 +179,53 @@ export async function fetchRepo(): Promise<FetchedRepo> {
  */
 async function downloadArchive(ref: string): Promise<Buffer> {
   const url = `${CODELOAD}/${REPO}/tar.gz/${ref}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CLONE_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      redirect: 'error',
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`Failed to download ${url}: HTTP ${res.status}`);
-    }
-    if (!res.body) {
-      throw new Error(`Failed to download ${url}: empty response body`);
-    }
-    // codeload sends no content-length, so the cap is a running count over the
-    // stream rather than a header check.
-    const chunks: Buffer[] = [];
-    let total = 0;
-    for await (const chunk of res.body) {
-      const buf = Buffer.from(chunk as Uint8Array);
-      total += buf.byteLength;
-      if (total > MAX_ARCHIVE_BYTES) {
+  // withDeadline, not a bare abort timer: on Node 20/22 the abort may never
+  // reach the body stream (lib/deadline.ts), and this read is multi-megabyte.
+  return withDeadline(
+    CLONE_TIMEOUT_MS,
+    () =>
+      new Error(
+        `Timed out downloading ${url} after ${CLONE_TIMEOUT_MS / 1000}s.`,
+      ),
+    async (signal) => {
+      const res = await fetch(url, { redirect: 'error', signal });
+      if (!res.ok) {
+        throw new Error(`Failed to download ${url}: HTTP ${res.status}`);
+      }
+      if (!res.body) {
+        throw new Error(`Failed to download ${url}: empty response body`);
+      }
+      // An explicit reader, cancelled by OUR listener on OUR signal, so the
+      // socket is released at the deadline even when undici drops the abort.
+      const reader = res.body.getReader();
+      signal.addEventListener('abort', () => {
+        reader.cancel().catch(() => undefined);
+      });
+      // codeload sends no content-length, so the cap is a running count over
+      // the stream rather than a header check.
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const buf = Buffer.from(value);
+        total += buf.byteLength;
+        if (total > MAX_ARCHIVE_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          throw new Error(
+            `Refusing ${url}: archive exceeds ${MAX_ARCHIVE_BYTES} bytes.`,
+          );
+        }
+        chunks.push(buf);
+      }
+      if (signal.aborted) {
         throw new Error(
-          `Refusing ${url}: archive exceeds ${MAX_ARCHIVE_BYTES} bytes.`,
+          `Timed out downloading ${url} after ${CLONE_TIMEOUT_MS / 1000}s.`,
         );
       }
-      chunks.push(buf);
-    }
-    return Buffer.concat(chunks);
-  } finally {
-    clearTimeout(timer);
-  }
+      return Buffer.concat(chunks);
+    },
+  );
 }
 
 /**
@@ -221,23 +238,27 @@ async function downloadArchive(ref: string): Promise<Buffer> {
  */
 export async function fetchCommitSha(): Promise<string | null> {
   const url = `${API}/repos/${REPO}/commits/${REPO_BRANCH}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
-      redirect: 'error',
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
+    // Same hard deadline as the download (lib/deadline.ts); a timeout is just
+    // one more failure that degrades to `null`.
+    return await withDeadline(
+      FETCH_TIMEOUT_MS,
+      () => new Error(`Timed out resolving ${url}`),
+      async (signal) => {
+        const res = await fetch(url, {
+          redirect: 'error',
+          signal,
+          headers: {
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        });
+        if (!res.ok) return null;
+        const body = (await res.json()) as { sha?: unknown };
+        return typeof body.sha === 'string' ? body.sha : null;
       },
-    });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { sha?: unknown };
-    return typeof body.sha === 'string' ? body.sha : null;
+    );
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }

@@ -1,0 +1,25 @@
+{
+  "base": "dd165c837e536d8321d4013b5006e95a7de7dbf9",
+  "inside": [
+    "src/lib/deadline.ts",
+    "src/lib/repo.ts",
+    "src/lib/skills-version.ts",
+    "tests/deadline.test.ts",
+    "tests/repo-signals.test.ts",
+    "tests/repo.test.ts",
+    "tests/skills-version.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

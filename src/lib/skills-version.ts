@@ -1,3 +1,4 @@
+import { withDeadline } from './deadline.js';
 import {
   closeSync,
   existsSync,
@@ -193,46 +194,50 @@ function rethrowUnreachable(url: string): (err: unknown) => never {
 export async function fetchRemoteSkillsVersion(): Promise<string> {
   const url = `${RAW}/${REPO}/${REPO_BRANCH}/${SKILLS_VERSION_FILE}`;
   const unreachable = rethrowUnreachable(url);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  // ONE try around the fetch AND the body read — the timer shape `fetchCommitSha`
-  // already uses (`lib/repo.ts`). `fetch()` resolves as soon as HEADERS arrive, so
-  // a `finally` that closes before the body is consumed disarms the abort exactly
-  // where it is needed: a server that dribbles bytes then runs until undici's
-  // 300s inter-chunk bodyTimeout with no pharn timer armed at all.
+  // ONE deadline around the fetch AND the body read. `fetch()` resolves as soon
+  // as HEADERS arrive, so a timer that stops before the body is consumed is
+  // disarmed exactly where it is needed. withDeadline (lib/deadline.ts) also
+  // rejects on its own at the deadline, because on Node 20/22 the abort may
+  // never reach the body stream after a GC. The timeout keeps the
+  // "Could not reach <url>" shape every other transport failure here has.
   //
-  // Only the SHAPE is mirrored. `fetchCommitSha` swallows every failure to `null`
-  // (best-effort provenance, LIMITS.md §1b/§3b); this function must keep throwing.
-  try {
-    // `.catch` on the EXPRESSION, not a `try` around the block: the wrap must
-    // cover this rejection and nothing thrown after it resolves, or the three
-    // deliberate throws below (non-ok status, the two cap refusals,
-    // assertSafeString) get re-labelled as transport failures.
-    const res = await fetch(url, {
-      redirect: 'error',
-      signal: controller.signal,
-    }).catch(unreachable);
-    if (!res.ok) {
-      throw new Error(
-        `SKILLS_VERSION fetch failed (${res.status}) from ${url}`,
+  // Only the SHAPE is shared with `fetchCommitSha` (lib/repo.ts), which swallows
+  // every failure to `null` (best-effort provenance, LIMITS.md §1b/§3b); this
+  // function must keep throwing.
+  return withDeadline(
+    FETCH_TIMEOUT_MS,
+    () =>
+      new Error(
+        `Could not reach ${url}: This operation was aborted (timed out after ${FETCH_TIMEOUT_MS / 1000}s)`,
+      ),
+    async (signal) => {
+      // `.catch` on the EXPRESSION, not a `try` around the block: the wrap must
+      // cover this rejection and nothing thrown after it resolves, or the three
+      // deliberate throws below (non-ok status, the two cap refusals,
+      // assertSafeString) get re-labelled as transport failures.
+      const res = await fetch(url, { redirect: 'error', signal }).catch(
+        unreachable,
       );
-    }
-    // ADVISORY (P0), and backstopped below — never the guard itself.
-    // `content-length` is the remote's own claim: a chunked response omits it
-    // entirely (`Number(null)` is `0`, which sails through this compare), and a
-    // hostile server is free to declare a small lie. It buys exactly one thing —
-    // an HONESTLY declared oversize is refused before a single byte is read.
-    const declared = Number(res.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-      throw new Error(
-        `SKILLS_VERSION too large (${declared} bytes) from ${url}`,
-      );
-    }
-    const text = await readCappedBody(res, url, unreachable);
-    return assertSafeString(text.trim(), SKILLS_VERSION_FILE, VERSION_RE);
-  } finally {
-    clearTimeout(timer);
-  }
+      if (!res.ok) {
+        throw new Error(
+          `SKILLS_VERSION fetch failed (${res.status}) from ${url}`,
+        );
+      }
+      // ADVISORY (P0), and backstopped below — never the guard itself.
+      // `content-length` is the remote's own claim: a chunked response omits it
+      // entirely (`Number(null)` is `0`, which sails through this compare), and
+      // a hostile server is free to declare a small lie. It buys exactly one
+      // thing — an HONESTLY declared oversize is refused before a byte is read.
+      const declared = Number(res.headers.get('content-length'));
+      if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+        throw new Error(
+          `SKILLS_VERSION too large (${declared} bytes) from ${url}`,
+        );
+      }
+      const text = await readCappedBody(res, url, unreachable, signal);
+      return assertSafeString(text.trim(), SKILLS_VERSION_FILE, VERSION_RE);
+    },
+  );
 }
 
 /**
@@ -252,11 +257,17 @@ async function readCappedBody(
   res: Response,
   url: string,
   unreachable: (err: unknown) => never,
+  signal: AbortSignal,
 ): Promise<string> {
   // A bodyless response (a 204, or `new Response(null)`) reads as empty text and
   // then fails VERSION_RE downstream — the same outcome `res.text()` produced.
   if (!res.body) return '';
   const reader = res.body.getReader();
+  // Our own listener on our own signal: at the deadline the stream is cancelled
+  // (socket released) even when undici does not forward the abort.
+  signal.addEventListener('abort', () => {
+    reader.cancel().catch(() => undefined);
+  });
   const chunks: Uint8Array[] = [];
   let total = 0;
   // FABLE 4.6: the wrap covers this read, not just the fetch call — since the
