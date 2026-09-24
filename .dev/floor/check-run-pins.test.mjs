@@ -463,6 +463,122 @@ test("★★ mutating the live publish.yml back to `npm install -g npm@latest` I
 });
 
 // ---------------------------------------------------------------------------
+// Pack destinations (publish-pack-destination). `npm pack --pack-destination <dir>`
+// does NOT create <dir> — it fails with ENOENT (measured on npm 10.9.7 and 11.20.0) —
+// and publish.yml once packed into a `$RUNNER_TEMP/pkg` nothing had made, so every
+// Release run died at Pack and never reached `publish`. publish.yml only runs on a
+// published Release, so no PR gate would ever have seen it; this live pin is that gate.
+//
+// A destination other than the runner temp root itself must be made by a `mkdir -p`
+// EARLIER IN THE SAME JOB: each job runs on its own runner, so a mkdir in another job
+// creates nothing where the pack runs. A different axis from the run-line pin checker
+// this file tests; it sits beside PHARN-07's other live publish.yml pins by precedent.
+
+// One shell word: a quoted string, or a run of non-space characters in which a
+// `${{ … }}` expression (spaces and all — Actions substitutes it before the shell runs)
+// counts as part of the word.
+const WORD = String.raw`("[^"]*"|'[^']*'|(?:\$\{\{[^}]*\}\}|\S)+)`;
+const MKDIR_RE = new RegExp(String.raw`\bmkdir\s+-p\s+` + WORD, "g");
+const PACK_DEST_RE = new RegExp(String.raw`--pack-destination(?:=|\s+)` + WORD, "g");
+
+// One shell word naming a directory, normalized: quotes dropped, the runner temp dir's
+// spellings folded onto `$RUNNER_TEMP`, a trailing slash dropped.
+function normDir(word) {
+  return word
+    .replace(/^["']|["']$/g, "")
+    .replace(/\$\{\{\s*runner\.temp\s*\}\}|\$\{RUNNER_TEMP\}/g, "$RUNNER_TEMP")
+    .replace(/\/+$/, "");
+}
+
+// Scan one workflow's text. `seen` counts pack destinations (so a live assertion over
+// zero of them cannot pass vacuously); `uncreated` lists `<job>: <dir>` for each one
+// that is neither the runner temp root nor made earlier in its own job.
+function packDestinations(text) {
+  let job = null;
+  let made = new Set();
+  let inJobs = false;
+  let seen = 0;
+  const uncreated = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/(^|\s)#.*$/, ""); // a YAML comment is never executed
+    if (/^jobs:\s*$/.test(line)) {
+      inJobs = true;
+      continue;
+    }
+    if (inJobs && /^\S/.test(line)) inJobs = false; // the next top-level key ends `jobs:`
+    const header = inJobs ? /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line) : null;
+    if (header) {
+      job = header[1];
+      made = new Set();
+      continue;
+    }
+    for (const m of line.matchAll(MKDIR_RE)) made.add(normDir(m[1]));
+    for (const m of line.matchAll(PACK_DEST_RE)) {
+      seen += 1;
+      const dir = normDir(m[1]);
+      if (dir !== "$RUNNER_TEMP" && !made.has(dir)) uncreated.push(`${job}: ${dir}`);
+    }
+  }
+  return { seen, uncreated };
+}
+
+function workflowJobs(steps) {
+  return `name: t\non: push\njobs:\n${steps}\n`;
+}
+
+test("pack destinations: a mkdir in ANOTHER job, or after the pack, does not count", () => {
+  const otherJob = workflowJobs(
+    '  prep:\n    steps:\n      - run: mkdir -p "$RUNNER_TEMP/pkg"\n' +
+      '  build:\n    steps:\n      - run: npm pack --pack-destination "$RUNNER_TEMP/pkg"',
+  );
+  assert.deepEqual(packDestinations(otherJob).uncreated, ["build: $RUNNER_TEMP/pkg"]);
+
+  const afterwards = workflowJobs(
+    '  build:\n    steps:\n      - run: npm pack --pack-destination "$RUNNER_TEMP/pkg"\n' +
+      '      - run: mkdir -p "$RUNNER_TEMP/pkg"',
+  );
+  assert.deepEqual(packDestinations(afterwards).uncreated, ["build: $RUNNER_TEMP/pkg"]);
+});
+
+test("pack destinations: runner-temp spellings and quoting are one directory", () => {
+  const spelled = workflowJobs(
+    "  build:\n    steps:\n      - run: |\n          mkdir -p ${{ runner.temp }}/pkg/\n" +
+      "          npm pack --pack-destination=\"${RUNNER_TEMP}/pkg\"",
+  );
+  assert.deepEqual(packDestinations(spelled), { seen: 1, uncreated: [] });
+});
+
+test("pack destinations: the runner temp root needs no mkdir; a comment is not a command", () => {
+  const root = workflowJobs(
+    '  smoke:\n    steps:\n      # npm pack --pack-destination "$RUNNER_TEMP/elsewhere"\n' +
+      '      - run: npm pack --pack-destination "$RUNNER_TEMP"',
+  );
+  assert.deepEqual(packDestinations(root), { seen: 1, uncreated: [] });
+});
+
+test("★ every live workflow creates its pack destination, in the packing job, before packing", () => {
+  const dir = join(REPO, ".github", "workflows");
+  let seen = 0;
+  const uncreated = [];
+  for (const f of readdirSync(dir).filter((n) => /\.ya?ml$/i.test(n)).sort()) {
+    const scan = packDestinations(readFileSync(join(dir, f), "utf8"));
+    seen += scan.seen;
+    uncreated.push(...scan.uncreated.map((u) => `${f} ${u}`));
+  }
+  assert.deepEqual(uncreated, []);
+  // publish.yml's build job and node-floor.yml's smoke both pack; zero would mean the
+  // scan read nothing, which is also what a passing assertion above looks like.
+  assert.ok(seen >= 2, `expected at least two pack destinations in the live workflows, saw ${seen}`);
+});
+
+test("★★ the live publish.yml without its mkdir IS flagged", () => {
+  const live = readFileSync(join(REPO, ".github", "workflows", "publish.yml"), "utf8");
+  const mutated = live.replace(/^\s*mkdir -p "\$RUNNER_TEMP\/pkg"\n/m, "");
+  assert.notEqual(mutated, live, "the mkdir line was not found — this control is not exercising anything");
+  assert.deepEqual(packDestinations(mutated).uncreated, ["build: $RUNNER_TEMP/pkg"]);
+});
+
+// ---------------------------------------------------------------------------
 // R2 backstop — the two duplicated walkers must not drift apart silently
 
 test("★ this gate and check-action-pins enumerate the SAME files for the live repo", () => {
