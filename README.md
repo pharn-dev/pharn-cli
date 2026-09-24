@@ -249,7 +249,9 @@ Three behaviours matter if you script the CLI:
 
 PHARN is intentionally conservative about writes:
 
-- `init` checks for existing install targets and asks before overwriting them.
+- `init` checks for existing install targets and asks before overwriting them,
+  and refuses the whole install — writing nothing — when a destination path
+  crosses a symlinked directory.
 - `update` uses `pharn.records.json` to skip files it cannot prove are
   untouched.
 - `update --force` backs up overwritten files under `.pharn-backup/<timestamp>/`
@@ -259,7 +261,7 @@ PHARN is intentionally conservative about writes:
 - `status` and `list` are read-only.
 - `remove` deletes only the selected capability directory and prunes its records;
   it never touches `CONSTITUTION.md`, `memory-bank/`, or your detected
-  archetypes.
+  archetypes, and refuses when that directory's path crosses a symlink.
 
 PHARN can also refuse to install at all: if upstream declares a minimum CLI
 version newer than yours, `init`/`add`/`update` stop with a named error before

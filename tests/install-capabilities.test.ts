@@ -2,12 +2,13 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
@@ -372,6 +373,8 @@ describe('installCapabilities', () => {
   // through it, writing outside the project root — and the pre-install overwrite
   // check never warns, because existsSync on the absent leaf inside that link is
   // false. safeJoin is lexical and cannot see it.
+  // Since PHARN-02 a symlinked destination component refuses the WHOLE install
+  // (the pre-flight), rather than silently skipping this one surface.
   it('does NOT write through a symlinked features/ in the PROJECT (no escape)', () => {
     const repo = join(tmp.path(), 'destlink-repo');
     const proj = join(tmp.path(), 'destlink-proj');
@@ -381,9 +384,12 @@ describe('installCapabilities', () => {
     scaffoldRepo(repo);
     symlinkSync(outside, join(proj, 'features'));
 
-    installCapabilities(repo, proj, selection());
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /Refusing to install: features is a symbolic link/,
+    );
 
     expect(existsSync(join(outside, 'README.md'))).toBe(false);
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
   });
 
   // ORDER: the file is OPTIONAL, so a clone without it must never reach the
@@ -909,5 +915,134 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
       existsSync(join(proj, '.claude/hooks/set-writes-scope.test.cjs')),
     ).toBe(false);
     expect(existsSync(join(proj, '.claude/settings.json'))).toBe(true);
+  });
+});
+
+// PHARN-02: every install destination crossing a symlinked project directory is
+// refused BEFORE the first write — `safeJoin` is lexical and `cpSync` follows a
+// link, so without this a symlinked `.claude/commands` or `pharn/` received the
+// install outside the project.
+describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', () => {
+  const tmp = useTmpDir();
+
+  function tree(root: string): string[] {
+    if (!existsSync(root)) return [];
+    const out: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        out.push(relative(root, p));
+        if (e.isDirectory()) walk(p);
+      }
+    };
+    walk(root);
+    return out.sort();
+  }
+
+  it.each([
+    ['.claude'],
+    ['.claude/commands'],
+    ['.claude/hooks'],
+    ['pharn-review'],
+    ['pharn-pipeline/grillers/a11y'],
+    ['pharn-contracts'],
+    ['.dev/floor'],
+  ])(
+    'refuses when %s is a symlink out of the project; nothing written anywhere',
+    (link) => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      const outside = join(tmp.path(), 'outside');
+      scaffoldRepo(repo);
+      write(join(outside, 'mine.md'), 'USER FILE');
+      mkdirSync(join(proj, link, '..'), { recursive: true });
+      symlinkSync(outside, join(proj, link));
+      const outsideBefore = tree(outside);
+      const projBefore = tree(proj);
+
+      expect(() => installCapabilities(repo, proj, selection())).toThrow(
+        new RegExp(
+          `Refusing to install: ${link.replace(/\./g, '\\.')} is a symbolic link`,
+        ),
+      );
+
+      expect(tree(outside)).toEqual(outsideBefore);
+      expect(readFileSync(join(outside, 'mine.md'), 'utf8')).toBe('USER FILE');
+      expect(tree(proj)).toEqual(projBefore);
+    },
+  );
+
+  it('refuses a symlinked .claude/settings.json leaf (dangling link would be written through)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(join(proj, '.claude'), { recursive: true });
+    symlinkSync(
+      join(outside, 'settings.json'),
+      join(proj, '.claude/settings.json'),
+    );
+
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /\.claude\/settings\.json is a symbolic link/,
+    );
+    expect(existsSync(join(outside, 'settings.json'))).toBe(false);
+  });
+
+  it('names every symlinked component, sorted', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    mkdirSync(join(outside, 'a'), { recursive: true });
+    mkdirSync(join(outside, 'b'), { recursive: true });
+    mkdirSync(join(proj, '.claude'), { recursive: true });
+    symlinkSync(join(outside, 'a'), join(proj, 'pharn-review'));
+    symlinkSync(join(outside, 'b'), join(proj, '.claude/hooks'));
+
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /\.claude\/hooks, pharn-review are symbolic links/,
+    );
+  });
+
+  it('refuses a symlinked pharn/ root in a pharn-layout install', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'shared');
+    write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a11y');
+    write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'), 'npo');
+    write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
+    write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
+    write(join(outside, 'pharn-pipeline/grillers/a11y/a11y.md'), 'TEAM COPY');
+    mkdirSync(proj, { recursive: true });
+    symlinkSync(outside, join(proj, 'pharn'));
+    const before = tree(outside);
+
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /Refusing to install: pharn is a symbolic link/,
+    );
+    expect(tree(outside)).toEqual(before);
+    expect(
+      readFileSync(
+        join(outside, 'pharn-pipeline/grillers/a11y/a11y.md'),
+        'utf8',
+      ),
+    ).toBe('TEAM COPY');
+  });
+
+  it('a project with real (non-symlink) directories installs as before', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    mkdirSync(join(proj, '.claude/commands'), { recursive: true });
+    mkdirSync(join(proj, 'pharn-review'), { recursive: true });
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(true);
+    expect(
+      existsSync(join(proj, 'pharn-review/n-plus-one/n-plus-one.md')),
+    ).toBe(true);
   });
 });
