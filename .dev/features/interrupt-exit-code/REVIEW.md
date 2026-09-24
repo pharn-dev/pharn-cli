@@ -16,6 +16,14 @@ None.
 - **L-trust (P2):** no input change.
 - **L-axis (P3):** the listener lives with the lock it releases; `update` only moves an existing print.
 
+## CI follow-up (floor, acted on)
+
+CI's `Test` job (`test:coverage`) failed the repo-wide 97% statement gate at **96.79%**: the new exit
+listener only ran in a child process, which coverage does not see, on top of uncovered error branches
+left by PHARN-04. Fixed with two in-process listener tests (0 → 130; non-zero untouched) and two
+`hook-wiring` error-branch tests → **97.10%** locally (non-root, node 22). The local gate script now runs
+`test:coverage`, not `npm test`, so this class of miss is caught before a push.
+
 ## Advisory findings
 
 ```yaml

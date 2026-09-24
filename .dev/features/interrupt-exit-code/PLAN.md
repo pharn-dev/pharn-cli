@@ -34,6 +34,11 @@ after the lock. `update.ts` prints the backup via `onBackup` only at the end / o
 - `tests/update.test.ts` — with `--force`, the backup pointer is printed before the records/config
   writes (ordering against a write that fails), and exactly once on success
 
+- `tests/hook-wiring.test.ts` — two error-branch cases (`.claude` is a regular file; `settings.json` is a
+  directory). Not this finding's behavior: CI's repo-wide 97% statement-coverage gate failed on this PR
+  (96.79%) because the exit listener only runs in a child process, and these uncovered branches from
+  PHARN-04 are the cheapest honest way back over the line
+
 ## Contracts satisfied
 
 - `docs/commands/update.md` "The directory is printed when it is created" — now true.
