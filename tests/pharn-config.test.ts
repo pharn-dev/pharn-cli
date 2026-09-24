@@ -824,3 +824,50 @@ describe('pendingSkillsVersion ingest', () => {
     );
   });
 });
+
+// PHARN-13: the additive frozenCapabilities round-trips when every element is a
+// `role:name` key and is dropped WHOLE otherwise, so a hand-edit fails safe.
+describe('frozenCapabilities ingest', () => {
+  const tmp = useTmpDir();
+  const base = {
+    pharnVersion: '0.5.0',
+    skillsVersion: '1.0.0',
+    repo: 'pharn-dev/pharn-oss',
+    commit: null,
+    modules: [],
+    installedAt: '2026-09-24T00:00:00.000Z',
+    archetypes: ['ssr'],
+    capabilities: [],
+  };
+  const put = (v: unknown): void =>
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(v));
+
+  it('round-trips role:name keys', () => {
+    const keys = ['griller:backwards-compat', 'lens:n-plus-one'];
+    put({ ...base, frozenCapabilities: keys });
+    expect(readPharnConfig(tmp.path())!.frozenCapabilities).toEqual(keys);
+  });
+
+  it.each([
+    ['not-an-array'],
+    [[7]],
+    [['no-colon']],
+    [['auditor:x']],
+    [['griller:Bad_Name']],
+    [['griller:../..']],
+    [['griller:a\u0007b']],
+    [['griller:ok', 'broken']],
+  ])('drops %j whole', (v) => {
+    put({ ...base, frozenCapabilities: v });
+    expect(readPharnConfig(tmp.path())).not.toHaveProperty(
+      'frozenCapabilities',
+    );
+  });
+
+  it('absent is legal (P7)', () => {
+    put(base);
+    expect(readPharnConfig(tmp.path())).not.toHaveProperty(
+      'frozenCapabilities',
+    );
+  });
+});

@@ -200,8 +200,12 @@ async function runArchetypeUpdate(
   // my tree match upstream, overwriting my edits", which is a request the user
   // can legitimately make at the current version — and it is what `pharn status`
   // tells them to do about locally-changed files.
+  // A capability the last run KEPT unparsed (`frozenCapabilities`) re-opens the
+  // gate: without the fetch it is never re-checked, so the KEPT report would not
+  // repeat and its bytes would stay stale after a pharn upgrade that can parse it.
   const current = config.skillsVersion === latest;
-  if (current && !force) {
+  const recheckFrozen = (config.frozenCapabilities ?? []).length > 0;
+  if (current && !force && !recheckFrozen) {
     outro(`Already up to date (skills v${config.skillsVersion}).`);
     return;
   }
@@ -577,12 +581,23 @@ async function applyUpdate(
       ...buildRecords(cwd, written),
     },
   });
-  const { pendingSkillsVersion: _previousPending, ...rest } = config;
+  // Only KEPT entries count: an unparseable capability this project never had
+  // must not pin every future run to a re-fetch.
+  const frozenCapabilities = configCapabilities
+    .map((cap) => `${cap.role}:${cap.name}`)
+    .filter((key) => frozen.has(key))
+    .sort();
+  const {
+    pendingSkillsVersion: _previousPending,
+    frozenCapabilities: _previousFrozen,
+    ...rest
+  } = config;
   await writePharnConfig(cwd, {
     ...rest,
     skillsVersion: nextSkillsVersion,
     commit: nextCommit,
     ...(pendingSkillsVersion !== undefined ? { pendingSkillsVersion } : {}),
+    ...(frozenCapabilities.length > 0 ? { frozenCapabilities } : {}),
     capabilities: configCapabilities,
     layout,
     installedAt: new Date().toISOString(),

@@ -291,7 +291,34 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   ) {
     delete config.pendingSkillsVersion;
   }
+  // Additive `frozenCapabilities` (types.ts): kept only when EVERY element is a
+  // `role:name` key (role enum + the anchored CAPABILITY_NAME_RE, which admits no control
+  // character); any malformed element drops
+  // the whole field, so a garbage hand-edit fails safe — `update`'s same-version
+  // early return then applies as it would without the field.
+  if (
+    config.frozenCapabilities !== undefined &&
+    !isFrozenKeyList(config.frozenCapabilities)
+  ) {
+    delete config.frozenCapabilities;
+  }
   return config;
+}
+
+function isFrozenKeyList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every((key) => {
+      if (typeof key !== 'string') return false;
+      const sep = key.indexOf(':');
+      if (sep === -1) return false;
+      const role = key.slice(0, sep);
+      const name = key.slice(sep + 1);
+      return (
+        ROLE_VALUES.some((r) => r === role) && CAPABILITY_NAME_RE.test(name)
+      );
+    })
+  );
 }
 
 /**

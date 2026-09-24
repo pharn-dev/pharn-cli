@@ -98,9 +98,11 @@ upstream this run`. A capability you have is not dropped because one fetch could
 - **Everything else updates normally**, including the skills version — so the next
   [`pharn add`](add.md) is not blocked.
 
-The message repeats on every run while the situation lasts, because the situation lasts. It usually
-clears by itself when upstream finishes the change, or when you upgrade pharn
-(`npm install -g @pharn-dev/pharn@latest`). If you no longer want the capability at all, remove it
+pharn records the kept capability in `frozenCapabilities` in `pharn.config.json`. While that
+field is set, `update` does not stop at "Already up to date": every run fetches again and re-checks
+it, so the message repeats while the situation lasts. Once the capability can be read (upstream
+finishes the change, or you upgrade pharn with `npm install -g @pharn-dev/pharn@latest`), that run
+updates its files as usual and clears the field. If you no longer want the capability at all, remove it
 with [`pharn remove`](remove.md).
 
 ## `pharn is too old for the current pharn-oss`

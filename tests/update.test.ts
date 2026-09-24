@@ -1449,6 +1449,103 @@ describe('runUpdate (drift-safe)', () => {
         .join('\n');
       expect(warned).not.toContain('still recorded as skills');
     });
+
+    // PHARN-13: the bump above must not END the re-checking. Without a record of
+    // what was kept, the next run at the same version returns "Already up to
+    // date" before fetching, so the KEPT report never repeats and the bytes stay
+    // stale even once a newer pharn can parse the capability.
+    it('records the KEPT key — and only KEPT ones — in frozenCapabilities', async () => {
+      await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
+      frozenUpstream();
+      // A second unparseable capability this project never had.
+      parseCapabilityIndex.mockReturnValue({
+        capabilities: [],
+        unknown: [
+          ...parseCapabilityIndex().unknown,
+          {
+            name: 'never-installed',
+            role: 'lens',
+            subtree: 'pharn-pipeline/lenses',
+            reason: 'bad frontmatter',
+          },
+        ],
+      });
+
+      await runUpdate();
+
+      expect(readPharnConfig(proj)!.frozenCapabilities).toEqual([
+        'griller:backwards-compat',
+      ]);
+    });
+
+    it('re-fetches and re-reports KEPT at the same version while one is frozen', async () => {
+      await installed({
+        skillsVersion: '1.1.0',
+        capabilities: [CAP, { ...FROZEN, source: 'auto' }],
+        frozenCapabilities: ['griller:backwards-compat'],
+      });
+      frozenUpstream();
+
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      const outros = vi
+        .mocked(prompts.outro)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(outros).not.toContain('Already up to date');
+      expect(capNote()).toContain('KEPT');
+      // Still frozen → still recorded.
+      expect(readPharnConfig(proj)!.frozenCapabilities).toEqual([
+        'griller:backwards-compat',
+      ]);
+    });
+
+    it('refreshes its files and clears the field once it parses again', async () => {
+      await installed({
+        skillsVersion: '1.1.0',
+        capabilities: [CAP, { ...FROZEN, source: 'auto' }],
+        frozenCapabilities: ['griller:backwards-compat'],
+      });
+      // Installed at v1 and recorded, so a clean upstream copy is an upgrade.
+      write(join(proj, FROZEN_FILE), 'installed at v1');
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+      await writeRecords(proj, {
+        skillsVersion: '1.1.0',
+        commit: null,
+        files: {
+          ...read.store.files,
+          [FROZEN_FILE]: sha256File(join(proj, FROZEN_FILE)),
+        },
+      });
+      // Upstream now parses (e.g. after a pharn upgrade).
+      write(join(repo, FROZEN_FILE), 'parsed upstream content');
+      resolveCapabilities.mockReturnValue({
+        selected: [
+          { ...CAP, matched: ['ssr'] },
+          { ...FROZEN, matched: ['ssr'] },
+        ],
+        skipped: [],
+      });
+
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(body(FROZEN_FILE)).toBe('parsed upstream content');
+      expect(readPharnConfig(proj)!.frozenCapabilities).toBeUndefined();
+    });
+
+    it('still returns early at the same version when nothing is frozen', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+
+      await runUpdate();
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(vi.mocked(prompts.outro)).toHaveBeenCalledWith(
+        expect.stringContaining('Already up to date'),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

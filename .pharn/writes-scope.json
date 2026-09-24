@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/proxy-env-opt-in/SHIP.md"
+    ".dev/features/frozen-capability-recheck/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T09:34:10.397Z"
+  "set_at": "2026-09-24T09:52:10.070Z"
 }

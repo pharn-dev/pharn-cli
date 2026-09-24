@@ -1,0 +1,25 @@
+{
+  "base": "b49f41f029def06de471ce931cc8266b99fe7675",
+  "inside": [
+    "docs/commands/update.md",
+    "docs/reference/pharn-config.md",
+    "src/commands/update.ts",
+    "src/lib/pharn-config.ts",
+    "src/types.ts",
+    "tests/pharn-config.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
