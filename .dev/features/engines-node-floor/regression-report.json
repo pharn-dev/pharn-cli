@@ -1,0 +1,30 @@
+{
+  "base": "28397171eba488bf6a31961808f9dbecba18da48",
+  "inside": [
+    ".dev/floor/check-run-pins.test.mjs",
+    ".github/workflows/ci.yml",
+    ".github/workflows/node-floor.yml",
+    "CLAUDE.md",
+    "README.md",
+    "SECURITY.md",
+    "docs/contributing.md",
+    "docs/getting-started.md",
+    "docs/troubleshooting.md",
+    "package-lock.json",
+    "package.json",
+    "tests/engines.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

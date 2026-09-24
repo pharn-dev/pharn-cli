@@ -51,10 +51,10 @@ Each gate is a **separate job**, so it reports its own status check and a failur
 
 Gates run on **ubuntu-latest with Node 24 only**. Two support claims are therefore wider than what CI tests, and both are deliberate — stated here rather than quietly implied:
 
-| Claim                                          | Tested       | Notes                                                                                                                                                                                         |
-| ---------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `engines.node: ">=20"`                         | Node 24 only | Node 20 and 22 are unexercised; verify locally if your change touches runtime-version-sensitive APIs                                                                                          |
-| No `os` field, so Windows is implied supported | ubuntu only  | The `win32` branches of `toPosix` (`src/lib/validate.ts`) and the separator handling in `symlink-guard` never execute in CI — `tests/symlink-guard.test.ts` calls this out as PLATFORM-LATENT |
+| Claim                                          | Tested                           | Notes                                                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `engines.node: ">=20.12.0"`                    | Node 24 + a smoke job on 20.12.0 | The separate `Smoke (node 20.12.0)` workflow (`.github/workflows/node-floor.yml`, not a required check) installs the packed CLI on exactly the floor and runs `--version`/`--help`; the test suite itself runs on Node 24 only. `tests/engines.test.ts` fails if a runtime dependency declares a higher floor |
+| No `os` field, so Windows is implied supported | ubuntu only                      | The `win32` branches of `toPosix` (`src/lib/validate.ts`) and the separator handling in `symlink-guard` never execute in CI — `tests/symlink-guard.test.ts` calls this out as PLATFORM-LATENT                                                                                                                 |
 
 **Do not close either gap by adding a `strategy.matrix` to one of the six existing jobs.** GitHub renders a matrixed job's context as `<name> (<value>)`, so `Test` would stop being reported and every PR would hang blocked on a required context nothing produces — the exact incident [`tests/ci-workflow.test.ts`](../tests/ci-workflow.test.ts) exists to prevent. A separate, additionally-named job (`Test (node 20)`, `Test (windows)`) leaves the six required contexts byte-identical and is the safe shape.
 
@@ -99,8 +99,8 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 `pharn` has **no dependency that fetches or unpacks remote content**. `src/lib/repo.ts` resolves the
 branch head over the GitHub REST API and downloads that exact commit's tarball from
 `codeload.github.com`; `src/lib/tar-extract.ts` unpacks it. Both are pharn's own code, and that is the
-point: when the download and extraction were delegated, `THREAT-MODEL.md` had to state *measured
-properties of a dependency*, which a version bump could move without any pharn test noticing.
+point: when the download and extraction were delegated, `THREAT-MODEL.md` had to state _measured
+properties of a dependency_, which a version bump could move without any pharn test noticing.
 
 If you change either file, the guarantees they carry are the ones `THREAT-MODEL.md` §2/§4b and
 `LIMITS.md` §3a state — timeout, streamed-byte cap, decompressed-size cap, `redirect: 'error'`,

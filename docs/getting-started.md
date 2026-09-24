@@ -4,11 +4,11 @@ PHARN does not scaffold your app. You create your project (e.g. with `create-nex
 
 ## Prerequisites
 
-| Requirement          | How PHARN checks                                      | When                                        |
-| -------------------- | ----------------------------------------------------- | ------------------------------------------- |
-| Git                  | A `.git` directory exists in the project root         | Always — checked up front, before detection |
-| Interactive terminal | `process.stdin`/`stdout` are TTYs                     | Right after the git check, before any fetch |
-| Node                 | `engines.node` declares `>=20` (CI exercises Node 24) | By npm/npx when the package is resolved     |
+| Requirement          | How PHARN checks                                                                                  | When                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Git                  | A `.git` directory exists in the project root                                                     | Always — checked up front, before detection |
+| Interactive terminal | `process.stdin`/`stdout` are TTYs                                                                 | Right after the git check, before any fetch |
+| Node                 | `engines.node` declares `>=20.12.0` (CI exercises Node 24; a smoke job starts the CLI on 20.12.0) | By npm/npx when the package is resolved     |
 
 `.git` is required for every install. So is a real terminal: `pharn init` **exits 1** rather than
 rendering a prompt into a dead stream, and there is deliberately no `--yes` for it — its second prompt
