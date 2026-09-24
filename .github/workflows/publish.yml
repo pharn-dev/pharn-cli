@@ -63,9 +63,12 @@ jobs:
         run: |
           npm run check
           npm run test:coverage
-      # `npm pack` runs prepack (the build) here, in the unprivileged job.
+      # `npm pack` runs prepack (the build) here, in the unprivileged job. npm does
+      # NOT create --pack-destination (ENOENT on npm 10 and 11), so make it first.
       - name: Pack
-        run: npm pack --pack-destination "$RUNNER_TEMP/pkg"
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkg"
+          npm pack --pack-destination "$RUNNER_TEMP/pkg"
       - name: Smoke the packed CLI
         working-directory: ${{ runner.temp }}
         run: |

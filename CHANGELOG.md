@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Releases could not publish: the `Pack` step wrote into a directory nothing had created.** Since the release workflow was split into an unprivileged `build` job and a `publish` job, `build` ran `npm pack --pack-destination "$RUNNER_TEMP/pkg"` without creating `pkg/`, and npm does not create it (`ENOENT` on npm 10 and 11). Every Release run would have failed at `Pack` and never reached `publish`. The step now runs `mkdir -p` first, and a live test pins that every workflow's pack destination is created earlier in the job that packs.
+
 ## [0.5.0] - 2026-09-10
 
 ### Changed — BREAKING

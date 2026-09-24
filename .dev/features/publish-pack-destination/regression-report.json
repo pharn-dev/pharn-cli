@@ -1,0 +1,21 @@
+{
+  "base": "0ca29b7ea8ce03d352bc6103fc35c42cf3149e47",
+  "inside": [
+    ".github/workflows/publish.yml",
+    ".dev/floor/check-run-pins.test.mjs",
+    "CHANGELOG.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
