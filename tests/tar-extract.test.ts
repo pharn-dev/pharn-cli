@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
@@ -588,6 +588,137 @@ describe('extractTar', () => {
       tmp.path(),
       LIMITS,
     );
+  });
+
+  // tar-entry-names. The check used to judge a DIFFERENT string than the one
+  // written — the UTF-8 decoding of latin1-read bytes, against the latin1 string
+  // itself — so a raw C1 byte passed as U+FFFD and landed on disk as U+009B, and
+  // every non-ASCII name landed garbled. Names are now decoded once, strictly,
+  // and the check, the path rules and the write share that one string. Asserted
+  // on the BYTES the filesystem returns, not on a decoded string.
+  const onDisk = (dir: string): Buffer[] =>
+    readdirSync(dir, { encoding: 'buffer' });
+
+  it('writes a non-ASCII name as exactly the archive bytes', () => {
+    const dest = tmp.path();
+    extractTar(
+      githubArchive([
+        { name: utf8AsLatin1('pharn-oss-abc1234/a—b.md'), data: 'ok' },
+      ]),
+      dest,
+      LIMITS,
+    );
+    expect(onDisk(dest)).toEqual([Buffer.from('a—b.md', 'utf8')]);
+  });
+
+  it.each([
+    ['a raw C1 byte', 'pharn-oss-abc1234/evil-\x9b2J.md'],
+    ['a truncated UTF-8 sequence', 'pharn-oss-abc1234/bad-\xe2\x80.md'],
+    ['an overlong encoding of "/"', 'pharn-oss-abc1234/slash-\xc0\xaf.md'],
+  ])(
+    'refuses a name holding %s — not valid UTF-8 — writing nothing',
+    (_label, name) => {
+      const dest = tmp.path();
+      let message = '';
+      try {
+        extractTar(githubArchive([{ name, data: 'x' }]), dest, LIMITS);
+      } catch (err) {
+        expect(err).toBeInstanceOf(TarExtractError);
+        message = (err as Error).message;
+      }
+      expect(message).toMatch(/not valid UTF-8/);
+      expect(hasUnsafeChars(message)).toBe(false);
+      expect(onDisk(dest)).toEqual([]);
+    },
+  );
+
+  it('refuses invalid UTF-8 in the ustar prefix too', () => {
+    expect(() =>
+      extractTar(
+        githubArchive([{ name: 'f.md', prefix: 'pharn-oss-abc1234/d\x9b' }]),
+        tmp.path(),
+        LIMITS,
+      ),
+    ).toThrow(/not valid UTF-8/);
+  });
+
+  // A decoder's DEFAULT drops a leading byte-order mark: the name would be
+  // written under a different name than the archive holds instead of refused.
+  it('refuses a name field that starts with a byte-order mark, never strips it', () => {
+    const dest = tmp.path();
+    expect(() =>
+      extractTar(
+        githubArchive([
+          {
+            name: utf8AsLatin1('﻿f.md'),
+            prefix: 'pharn-oss-abc1234',
+            data: 'x',
+          },
+        ]),
+        dest,
+        LIMITS,
+      ),
+    ).toThrow(/control or format character/);
+    expect(onDisk(dest)).toEqual([]);
+  });
+
+  // PHARN-18 capped one pax payload, not their number: 2030 global headers of
+  // 64 KiB each still cost seconds of CPU. The budget is per ARCHIVE now, and
+  // every header counts toward the entry cap.
+  it('refuses global headers each under the pax cap but over it together', () => {
+    const g: EntryInit = {
+      name: 'pax_global_header',
+      type: 'g',
+      data: paxRecord('comment', 'x'.repeat(40 * 1024)),
+    };
+    expect(() =>
+      extractTar(
+        tar([g, g, { name: 'pharn-oss-abc1234/', type: '5' }]),
+        tmp.path(),
+        LIMITS,
+      ),
+    ).toThrow(/pax global headers total \d+ bytes, over the 65536-byte limit/);
+  });
+
+  it('counts every pax global header toward the entry cap', () => {
+    const empty: EntryInit = { name: 'pax_global_header', type: 'g', data: '' };
+    expect(() =>
+      extractTar(
+        tar([
+          empty,
+          empty,
+          empty,
+          empty,
+          { name: 'pharn-oss-abc1234/', type: '5' },
+        ]),
+        tmp.path(),
+        { maxEntries: 3, maxTotalBytes: 1024 },
+      ),
+    ).toThrow(/more than 3 entries/);
+  });
+
+  it('names a malformed numeric field escaped — no raw newline reaches the message', () => {
+    const bad = header({ name: 'pharn-oss-abc1234/f.txt' });
+    bad.fill(0, 124, 136); // the size field
+    bad.write('1\n Done', 124, 12, 'latin1');
+    bad.write('        ', 148, 8, 'latin1'); // re-checksum over the forged field
+    let sum = 0;
+    for (const byte of bad) sum += byte;
+    bad.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 8, 'latin1');
+
+    let message = '';
+    try {
+      extractTar(
+        Buffer.concat([bad, Buffer.alloc(BLOCK * 2)]),
+        tmp.path(),
+        LIMITS,
+      );
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/non-octal numeric field/);
+    expect(message).not.toContain('\n');
+    expect(message).toContain('1\\x0a Done');
   });
 
   // PHARN-18: strict framing and bounded pax parsing. Each case was ACCEPTED

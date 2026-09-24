@@ -104,6 +104,45 @@ function readString(block: Buffer, offset: number, length: number): string {
 }
 
 /**
+ * Header bytes for a message, and only for a message: printable ASCII is kept,
+ * every other byte becomes `\xNN`, and the result is capped. Total over bytes,
+ * so no header byte (a newline, an ESC, a C1 control) reaches a terminal raw.
+ */
+function describeBytes(bytes: Buffer, max = 200): string {
+  let out = '';
+  for (const byte of bytes.subarray(0, max)) {
+    out +=
+      byte >= 0x20 && byte <= 0x7e && byte !== 0x5c // printable, not `\`
+        ? String.fromCharCode(byte)
+        : `\\x${byte.toString(16).padStart(2, '0')}`;
+  }
+  return bytes.length > max ? `${out}…` : out;
+}
+
+/**
+ * Entry-path fields are decoded ONCE, and the check and the write both use the
+ * result. `fatal`: bytes that are not valid UTF-8 are a refusal, never a
+ * replacement character. `ignoreBOM`: a leading U+FEFF stays IN the string —
+ * the default strips it silently — so the format-character check below sees,
+ * and refuses, exactly the name that would otherwise be written.
+ */
+const PATH_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+/** A NUL-terminated (or field-filling) entry-path field, as strict UTF-8. */
+function readPathField(block: Buffer, offset: number, length: number): string {
+  const raw = block.subarray(offset, offset + length);
+  const end = raw.indexOf(0);
+  const bytes = raw.subarray(0, end === -1 ? raw.length : end);
+  try {
+    return PATH_DECODER.decode(bytes);
+  } catch {
+    throw new TarExtractError(
+      `tar entry path is not valid UTF-8: "${describeBytes(bytes)}"`,
+    );
+  }
+}
+
+/**
  * A ustar numeric field: octal digits, space- or NUL-terminated. GNU's base-256
  * extension (high bit set on the first byte) is REJECTED rather than
  * misparsed — this archive's largest file is far under the 8 GB octal ceiling,
@@ -120,7 +159,10 @@ function readOctal(block: Buffer, offset: number, length: number): number {
   if (text === '') return 0;
   if (!/^[0-7]+$/.test(text)) {
     throw new TarExtractError(
-      `tar header has a non-octal numeric field: ${text}`,
+      `tar header has a non-octal numeric field: "${describeBytes(
+        Buffer.from(text, 'latin1'),
+        32,
+      )}"`,
     );
   }
   return parseInt(text, 8);
@@ -196,20 +238,19 @@ function describeKeywords(keywords: string[] | null): string {
 
 /**
  * Refuse an entry path holding a control character or a Unicode format
- * character (U+202E, U+200B, …). Such a name would be printed later — by an
- * error here, or by `status`/`update` listing installed files — and a terminal
- * interprets those characters. Names are read as latin1 (one char per byte), so
- * the check runs on the UTF-8 decoding of the same bytes: that is where a
- * multi-byte U+202E becomes visible, while an ordinary non-ASCII name (`é`,
- * `—`) decodes to printable text and passes. pharn-oss ships no such name.
+ * character (U+202E, U+200B, U+FEFF, …). Such a name would be printed later —
+ * by an error here, or by `status`/`update` listing installed files — and a
+ * terminal interprets those characters. `fullPath` is the strict UTF-8 decoding
+ * (`readPathField`) that the path rules and the write also use, so what is
+ * judged here is exactly the name passed to the filesystem: an ordinary
+ * non-ASCII name (`é`, `—`) passes and is written as those same bytes, while a
+ * C1 byte never survives the decode. pharn-oss ships no non-ASCII name today.
  */
 function assertDisplayablePath(fullPath: string): void {
-  if (hasUnsafeChars(Buffer.from(fullPath, 'latin1').toString('utf8'))) {
+  if (hasUnsafeChars(fullPath)) {
     throw new TarExtractError(
       `tar entry path contains a control or format character: ${JSON.stringify(
-        terminalSafe(Buffer.from(fullPath, 'latin1').toString('utf8'), {
-          max: 200,
-        }),
+        terminalSafe(fullPath, { max: 200 }),
       )}`,
     );
   }
@@ -355,6 +396,10 @@ export function extractTar(
   let offset = 0;
   let entries = 0;
   let totalBytes = 0;
+  // Pax payload bytes parsed so far, across EVERY global header. The per-header
+  // cap alone bounded one payload, not their number: 2030 headers of 64 KiB each
+  // still cost seconds of CPU. A real archive carries one, of ~52 bytes.
+  let paxBytes = 0;
   let expectedRoot: string | null = null;
 
   while (offset + BLOCK <= tar.length) {
@@ -419,6 +464,20 @@ export function extractTar(
     // what is judged, because a global record is a default for every entry that
     // follows it.
     if (typeflag === 'g') {
+      // Every header counts toward the entry cap, a global one included, and the
+      // payload toward the per-archive pax budget — both before any parse.
+      entries += 1;
+      if (entries > limits.maxEntries) {
+        throw new TarExtractError(
+          `tar archive has more than ${limits.maxEntries} entries.`,
+        );
+      }
+      paxBytes += size;
+      if (paxBytes > MAX_PAX_BYTES) {
+        throw new TarExtractError(
+          `tar archive's pax global headers total ${paxBytes} bytes, over the ${MAX_PAX_BYTES}-byte limit pharn accepts.`,
+        );
+      }
       const keywords = readPaxKeywords(tar.subarray(dataStart, dataEnd));
       if (keywords === null) {
         throw new TarExtractError(
@@ -439,9 +498,10 @@ export function extractTar(
     }
 
     // The FULL path (prefix + name) is judged before any other entry rule, so
-    // no later message can interpolate a control or format character from it.
-    const name = readString(header, OFF_NAME, LEN_NAME);
-    const prefix = readString(header, OFF_PREFIX, LEN_PREFIX);
+    // no later message can interpolate a control or format character from it —
+    // and it is the same decoded string the path rules and the write use.
+    const name = readPathField(header, OFF_NAME, LEN_NAME);
+    const prefix = readPathField(header, OFF_PREFIX, LEN_PREFIX);
     const fullPath = prefix === '' ? name : `${prefix}/${name}`;
     assertDisplayablePath(fullPath);
 

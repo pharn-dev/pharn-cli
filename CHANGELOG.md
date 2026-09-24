@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A re-run `pharn init` dropped the `pharn.config.json` keys you added by hand.** Upstream PHARN reads top-level keys that users add themselves: `testResults` (without it `/pharn-loop` stops with `blocked: no-test-runner`) and `ship.requireAttestation`. `add`, `update` and `remove` kept them, but `init` rebuilt the config from its own fields alone. It now copies every top-level key pharn does not own across from the config it replaces, unchanged. It does so from any file that parses as a JSON object, including one the other commands refuse. Keys pharn owns are still written fresh.
 - **`pharn update` could stop re-checking a capability whose files were still out of date.** When pharn cannot read a capability upstream, `update` keeps it, skips its files, and moves the skills version on. Once pharn could read it again, the next run removed it from `frozenCapabilities` even if one of its files had to be skipped, for example because you edited it. Every later run then said "Already up to date", and that file stayed at the old version even after you resolved your edit. The capability now stays listed until none of its files are skipped, so each run checks it again. `update` also no longer writes a `pendingSkillsVersion` equal to the recorded `skillsVersion`.
 
+### Security
+
+- **The extractor's name check now judges the name it writes.** It checked one decoding of a tar entry's name and wrote another. A raw C1 byte (such as `0x9B`, the terminal CSI) passed the control-character check and landed on disk as that control character, where `pharn status` and `pharn update` then printed it raw. Every non-ASCII name was also written garbled. Entry names are now decoded once, as strict UTF-8, and the check, the path rules and the write all use that one string. A name that is not valid UTF-8, or that starts with a byte-order mark, is refused.
+- **Pax parsing is bounded per archive.** The 64 KiB cap applied to each global header, not to their number, so many headers each under the cap still cost seconds of CPU. The cap now covers all global headers in the archive together, and every header counts toward the entry limit.
+- **A malformed numeric header field no longer reaches the error output raw.** It is shown with non-printable bytes escaped, so an archive cannot add a line of its own to the fatal message.
+
 ## [0.5.0] - 2026-09-10
 
 ### Changed — BREAKING
