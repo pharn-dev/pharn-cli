@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/fetch-hard-deadline/SHIP.md"
+    ".dev/features/interrupt-exit-code/REVIEW.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T08:51:54.189Z"
+  "set_by": ".claude/commands/pharn-dev-review.md",
+  "set_at": "2026-09-24T08:58:56.214Z"
 }

@@ -1648,6 +1648,42 @@ describe('runUpdate (drift-safe)', () => {
       expect(printedLines()).toContain(`${BACKUP_DIR}/${dirs[0]!}`);
     });
 
+    // PHARN-10: the pointer is printed the moment the backup EXISTS (as `add`
+    // does, and as docs/commands/update.md promises) — an interrupt after it
+    // (clack's Ctrl-C → process.exit, which runs no catch) must not hide it.
+    it('prints the backup pointer at creation, before a later write fails', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+      rmSync(join(proj, 'pharn.config.json'), { force: true });
+      mkdirSync(join(proj, 'pharn.config.json'), { recursive: true });
+
+      await expect(runUpdate({ force: true })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      const atCreation = vi
+        .mocked(prompts.log.info)
+        .mock.calls.filter(
+          (c) =>
+            String(c[0]).startsWith('Backed up') &&
+            (c[1] as { output?: unknown } | undefined)?.output ===
+              process.stdout,
+        );
+      expect(atCreation).toHaveLength(1);
+    });
+
+    it('names the backup exactly once on a successful --force run', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+
+      await runUpdate({ force: true });
+
+      const named = vi
+        .mocked(prompts.log.info)
+        .mock.calls.filter((c) => String(c[0]).startsWith('Backed up'));
+      expect(named).toHaveLength(1);
+    });
+
     it('aborts without touching any original when the backup cannot be written', async () => {
       await installed();
       write(join(proj, DOC), 'MY LOCAL EDIT');

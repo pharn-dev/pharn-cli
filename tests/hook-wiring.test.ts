@@ -147,6 +147,28 @@ describe('diffHookWiring', () => {
     },
   );
 
+  it('a project whose .claude is a regular file → unreadable, not a throw', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(join(repo, '.claude'), { recursive: true });
+    writeFileSync(join(repo, '.claude/settings.json'), JSON.stringify(NEW));
+    mkdirSync(proj, { recursive: true });
+    writeFileSync(join(proj, '.claude'), 'not a directory');
+    expect(diffHookWiring(repo, proj)).toMatchObject({
+      status: 'unreadable',
+      reason: 'a path component is not a directory',
+    });
+  });
+
+  it('a project settings.json that is a directory → unreadable', () => {
+    const { repo, proj } = setup(NEW, undefined);
+    mkdirSync(join(proj, '.claude/settings.json'));
+    expect(diffHookWiring(repo, proj)).toMatchObject({
+      status: 'unreadable',
+      reason: 'it is not a regular file',
+    });
+  });
+
   it('refuses to follow a symlinked project settings.json', () => {
     const { repo, proj } = setup(NEW, undefined);
     const outside = join(tmp.path(), 'outside.json');

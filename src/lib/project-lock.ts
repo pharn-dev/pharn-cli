@@ -488,9 +488,35 @@ export async function withProjectLock<T>(
       throw new ProjectLockedError(refusal(held));
     breakStaleLock(cwd, command, observedRaw);
   }
+  // While the lock is held, an `exit` listener is the only code that runs on a
+  // `process.exit` — `finally` does not. The one exit(0) that reaches here is
+  // @clack/core's block(): during a spinner, stdin is raw and Ctrl-C arrives as a
+  // KEYPRESS, on which clack calls process.exit(0) (see lib/repo.ts). That used
+  // to report success over a half-written project and strand this lock. So:
+  // release synchronously, and turn a 0 into 130 with one honest line.
+  //
+  // PREMISE, stated so the next edit sees it: no lock callback shows a prompt
+  // whose graceful cancel exits 0 — `update`'s and the `remove` picker's
+  // confirms run before the lock, and the `add` picker returns `cancelled` and
+  // exits after it. A new prompt inside a lock must keep that shape.
+  const onExit = (code: number): void => {
+    release(cwd);
+    if (code === 0) {
+      process.exitCode = 130;
+      try {
+        process.stderr.write(
+          `pharn ${command} was interrupted while writing to this project — it may be partially updated. Re-run \`pharn ${command}\`.\n`,
+        );
+      } catch {
+        /* the exit code already tells the truth */
+      }
+    }
+  };
+  process.on('exit', onExit);
   try {
     return await fn();
   } finally {
+    process.off('exit', onExit);
     release(cwd);
   }
 }

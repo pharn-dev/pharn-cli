@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   LOCK_FILE,
@@ -389,5 +389,76 @@ describe('withProjectLock — a lock being written is live (PHARN-03)', () => {
     });
     expect(ran).toBe(true);
     expect(existsSync(lockPath(dir))).toBe(false);
+  });
+});
+
+// PHARN-10: while a spinner is up, @clack/core turns Ctrl-C into
+// process.exit(0), which runs no `finally`. Holding the lock at that moment used
+// to report success over a half-written project and strand .pharn.lock.
+describe('withProjectLock — process.exit while held (PHARN-10)', () => {
+  const tmp = useTmpDir();
+
+  it('exits 130, says so on stderr, and releases the lock', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const lockModule = fileURLToPath(
+      new URL('../src/lib/project-lock.ts', import.meta.url),
+    );
+    const dir = tmp.path();
+    const child = `
+      const { withProjectLock } = await import(${JSON.stringify(lockModule)});
+      await withProjectLock(process.argv[1], 'update', () => { process.exit(0); });
+    `;
+    const r = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', child, dir],
+      { encoding: 'utf8' },
+    );
+    expect(r.status).toBe(130);
+    expect(r.stderr).toContain('pharn update was interrupted while writing');
+    expect(existsSync(lockPath(dir))).toBe(false);
+  }, 30_000);
+
+  // The same listener, exercised IN-PROCESS (coverage cannot see the child
+  // above): emitting `exit` while the lock is held is what process.exit does.
+  it('in-process: the held-lock exit listener releases the lock and maps 0 → 130', async () => {
+    const dir = tmp.path();
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const before = process.exitCode;
+    try {
+      await withProjectLock(dir, 'remove', () => {
+        expect(existsSync(lockPath(dir))).toBe(true);
+        process.emit('exit', 0);
+        expect(existsSync(lockPath(dir))).toBe(false);
+        expect(process.exitCode).toBe(130);
+      });
+      expect(String(write.mock.calls[0]?.[0])).toContain(
+        'pharn remove was interrupted while writing',
+      );
+    } finally {
+      process.exitCode = before;
+      write.mockRestore();
+    }
+  });
+
+  it('in-process: a non-zero exit code is left alone', async () => {
+    const dir = tmp.path();
+    const before = process.exitCode;
+    try {
+      await withProjectLock(dir, 'add', () => {
+        process.exitCode = undefined;
+        process.emit('exit', 1);
+        expect(process.exitCode).toBeUndefined();
+        expect(existsSync(lockPath(dir))).toBe(false);
+      });
+    } finally {
+      process.exitCode = before;
+    }
+  });
+
+  it('removes its exit listener once the lock is released normally', async () => {
+    const before = process.listenerCount('exit');
+    await withProjectLock(tmp.path(), 'add', () => undefined);
+    expect(process.listenerCount('exit')).toBe(before);
   });
 });
