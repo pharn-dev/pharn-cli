@@ -77,6 +77,7 @@ const LEN_SIZE = 12;
 const OFF_CHKSUM = 148;
 const LEN_CHKSUM = 8;
 const OFF_TYPEFLAG = 156;
+const OFF_MAGIC = 257;
 const OFF_PREFIX = 345;
 const LEN_PREFIX = 155;
 
@@ -221,6 +222,20 @@ function describeTypeflag(typeflag: string): string {
     : `'${typeflag}'`;
 }
 
+/** The largest pax (`g`/`x`) payload whose records are parsed at all. */
+const MAX_PAX_BYTES = 64 * 1024;
+
+/** Refuse any non-zero byte from `from` to the end (after the end marker). */
+function assertZeroTail(tar: Buffer, from: number): void {
+  for (let i = from; i < tar.length; i += 1) {
+    if (tar[i] !== 0) {
+      throw new TarExtractError(
+        'tar archive has data after its end-of-archive marker.',
+      );
+    }
+  }
+}
+
 /** True when the block is 512 NUL bytes — the end-of-archive marker. */
 function isZeroBlock(block: Buffer): boolean {
   for (const byte of block) if (byte !== 0) return false;
@@ -292,6 +307,13 @@ function resolveEntryPath(
     );
   }
   const rest = segments.slice(1);
+  // Below the root, every segment must name something: `a//b` and `a/./b` are
+  // refused here rather than left to safeJoin's lexical backstop.
+  if (rest.some((segment) => segment === '' || segment === '.')) {
+    throw new TarExtractError(
+      `tar entry has an empty or "." path segment: ${fullPath}`,
+    );
+  }
   if (rest.length === 0) {
     // The root directory entry itself: nothing to write, not a failure.
     if (isDirectory) return { rel: null, root };
@@ -337,10 +359,23 @@ export function extractTar(
 
   while (offset + BLOCK <= tar.length) {
     const header = tar.subarray(offset, offset + BLOCK);
-    if (isZeroBlock(header)) break;
+    // The end-of-archive marker. Everything after it must be zero padding: a
+    // zero block followed by more entries used to end the walk there and drop
+    // the rest of the tree in silence, and trailing garbage was accepted.
+    if (isZeroBlock(header)) {
+      assertZeroTail(tar, offset + BLOCK);
+      return;
+    }
     if (!checksumOk(header)) {
       throw new TarExtractError(
         'tar header failed its checksum — the archive is corrupt or truncated.',
+      );
+    }
+    // Every header git archive writes is ustar (`ustar\0`); old GNU writes
+    // `ustar ` — the 5-byte prefix admits both and nothing else.
+    if (header.toString('latin1', OFF_MAGIC, OFF_MAGIC + 5) !== 'ustar') {
+      throw new TarExtractError(
+        'tar header is not a ustar header (missing "ustar" magic).',
       );
     }
 
@@ -354,6 +389,16 @@ export function extractTar(
     }
     const next = dataStart + Math.ceil(size / BLOCK) * BLOCK;
     const typeflag = String.fromCharCode(header[OFF_TYPEFLAG]!);
+
+    // A pax header's records are parsed (below) only when its payload is small:
+    // git archive writes one `comment=<sha>` record (~52 bytes), while a payload
+    // inflated to the decompression cap cost seconds of CPU and a gigabyte of
+    // memory to parse. Refused on the size field alone, before any parse.
+    if ((typeflag === 'x' || typeflag === 'g') && size > MAX_PAX_BYTES) {
+      throw new TarExtractError(
+        `tar archive has a pax header of ${size} bytes, over the ${MAX_PAX_BYTES}-byte limit pharn accepts.`,
+      );
+    }
 
     // REJECT — a per-file pax extended header. The decision is the typeflag
     // ALONE; the payload is read only afterwards, to name what was seen. (The
@@ -438,4 +483,9 @@ export function extractTar(
 
     offset = next;
   }
+  // The walk ran out of bytes without meeting a zero block: the archive was cut
+  // short (every real tar ends with at least one).
+  throw new TarExtractError(
+    'tar archive has no end-of-archive marker — truncated.',
+  );
 }
