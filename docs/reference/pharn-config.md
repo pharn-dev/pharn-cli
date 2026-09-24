@@ -84,8 +84,10 @@ value that is not a `x.y.z` version is ignored.
 
 `frozenCapabilities` lists (`role:name`, sorted) the installed capabilities the last `pharn update`
 (or re-run `pharn init`) kept because it could not read them upstream. While it is non-empty, `pharn update` re-fetches even
-at the same skills version, so they are re-checked on every run; the field is removed once none are
-left. If you `pharn remove` one, the next update drops it from the list. A value that is not a list of
+at the same skills version, so they are re-checked on every run. A capability that can be read again
+stays listed while any of its files had to be skipped (one you edited, say), so the next run checks it
+again; the field is removed once none are left. If you `pharn remove` one, the next update drops it
+from the list. A value that is not a list of
 `role:name` keys is ignored.
 
 ## Example

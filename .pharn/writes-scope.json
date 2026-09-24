@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/init-manual-carry/SHIP.md"
+    ".dev/features/update-frozen-recheck/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T19:16:48.445Z"
+  "set_at": "2026-09-24T19:24:04.227Z"
 }
