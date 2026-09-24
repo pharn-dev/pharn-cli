@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -249,6 +250,55 @@ describe('parseCapabilityIndex', () => {
     expect(index.unknown).toHaveLength(1);
     expect(index.unknown[0]!.name).toBe('bad_name');
   });
+
+  // PHARN-08: `<name>/<name>.md` present but NOT a regular file. existsSync
+  // said yes, readFileSync threw EISDIR (not a ManifestValidationError), and the
+  // whole index — init/add/update/status for every deployed CLI — died.
+  it('skips and reports a DIRECTORY named <name>.md instead of aborting the index', () => {
+    const repo = tmp.path();
+    scaffold(repo);
+    mkdirSync(join(repo, LENSES, 'newcap', 'newcap.md'), { recursive: true });
+    writeCap(repo, LENSES, 'n-plus-one', fm('lens', '["universal"]'));
+
+    const index = parseCapabilityIndex(repo);
+    expect(index.capabilities.map((c) => c.name)).toEqual(['n-plus-one']);
+    expect(index.unknown).toEqual([
+      {
+        name: 'newcap',
+        role: 'lens',
+        subtree: LENSES,
+        reason: expect.stringMatching(
+          /newcap\/newcap\.md is not a regular file/,
+        ) as unknown as string,
+      },
+    ]);
+  });
+
+  it('never follows a SYMLINKED <name>.md (it could point outside the clone)', () => {
+    const repo = join(tmp.path(), 'repo');
+    scaffold(repo);
+    const outside = join(tmp.path(), 'outside-cap.md');
+    writeFileSync(outside, fm('griller', '["universal"]'));
+    mkdirSync(join(repo, GRILLERS, 'linked'), { recursive: true });
+    symlinkSync(outside, join(repo, GRILLERS, 'linked', 'linked.md'));
+
+    const index = parseCapabilityIndex(repo);
+    expect(index.capabilities).toEqual([]);
+    expect(index.unknown.map((u) => u.name)).toEqual(['linked']);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses a FIFO <name>.md without reading it (a read would block forever)',
+    () => {
+      const repo = tmp.path();
+      scaffold(repo);
+      mkdirSync(join(repo, GRILLERS, 'piped'), { recursive: true });
+      execFileSync('mkfifo', [join(repo, GRILLERS, 'piped', 'piped.md')]);
+
+      const index = parseCapabilityIndex(repo);
+      expect(index.unknown.map((u) => u.name)).toEqual(['piped']);
+    },
+  );
 
   it('skips and reports a directory with no capability markdown (the live repro)', () => {
     const repo = tmp.path();

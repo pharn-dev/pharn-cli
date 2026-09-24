@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { detectLayout, layoutPaths } from './layout.js';
 import {
   assertAppliesToken,
@@ -116,9 +116,22 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
         assertNoDotDot(name, `capability "${name}"`);
 
         const capFile = safeJoin(subtreeDir, `${name}/${name}.md`);
-        if (!existsSync(capFile)) {
+        // lstat, not exists: `existsSync` is true for a DIRECTORY at this path,
+        // and `readFileSync` then threw EISDIR — not a ManifestValidationError,
+        // so the catch below re-threw it and one oddly-shaped capability
+        // aborted the whole index for every deployed CLI. A wrong-TYPE path is
+        // a shape problem of THIS capability, so it is refused like one: a
+        // directory, a symlink (never followed — it could point outside the
+        // clone) or a FIFO (a read would block forever) becomes `unknown`.
+        const capStat = lstatSync(capFile, { throwIfNoEntry: false });
+        if (capStat === undefined) {
           throw new ManifestValidationError(
             `Capability "${name}" in ${subtree.dir} is missing its markdown ${name}/${name}.md.`,
+          );
+        }
+        if (!capStat.isFile()) {
+          throw new ManifestValidationError(
+            `Capability "${name}" in ${subtree.dir}: ${name}/${name}.md is not a regular file.`,
           );
         }
 
