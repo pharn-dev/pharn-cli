@@ -419,8 +419,9 @@ JSON parser supplies one, the **line and column** of the offending byte. Open th
 position and fix it; nothing else is needed, and nothing has been written.
 
 **Do not reach for `pharn init` here.** It rewrites `pharn.config.json` wholesale: hand-edited
-`models` / `seam` blocks go back to defaults and every capability is re-stamped `source: "auto"`,
-which discards the record of which capabilities you added by hand with `pharn add`. That record
+`models` / `seam` blocks go back to defaults, keys of your own such as `testResults` are not carried
+over, and every capability is re-stamped `source: "auto"`, which discards the record of which
+capabilities you added by hand with `pharn add`. That record
 lives nowhere else, and `pharn update` reads it to keep your manual additions across upgrades.
 
 If the file is genuinely beyond repair, move it out of the way first so you can still read it, then

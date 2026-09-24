@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Releases could not publish: the `Pack` step wrote into a directory nothing had created.** Since the release workflow was split into an unprivileged `build` job and a `publish` job, `build` ran `npm pack --pack-destination "$RUNNER_TEMP/pkg"` without creating `pkg/`, and npm does not create it (`ENOENT` on npm 10 and 11). Every Release run would have failed at `Pack` and never reached `publish`. The step now runs `mkdir -p` first, and a live test pins that every workflow's pack destination is created earlier in the job that packs.
+- **A re-run `pharn init` dropped the `pharn.config.json` keys you added by hand.** Upstream PHARN reads top-level keys that users add themselves: `testResults` (without it `/pharn-loop` stops with `blocked: no-test-runner`) and `ship.requireAttestation`. `add`, `update` and `remove` kept them, but `init` rebuilt the config from its own fields alone. It now copies every top-level key pharn does not own across from the config it replaces, unchanged. It does so from any file that parses as a JSON object, including one the other commands refuse. Keys pharn owns are still written fresh.
 
 ## [0.5.0] - 2026-09-10
 
