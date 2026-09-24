@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   LOCK_FILE,
+  MALFORMED_GRACE_MS,
   ProjectLockedError,
   withProjectLock,
 } from '../src/lib/project-lock.js';
@@ -63,13 +64,24 @@ function plantCorpse(dir: string, name: string, ageMs: number): void {
   utimesSync(p, when, when);
 }
 
-/** A lock file with an arbitrary payload, as a hand-edit or a crashed run leaves. */
-function plantLock(dir: string, data: unknown): void {
+/**
+ * A lock file with an arbitrary payload, as a hand-edit or a crashed run leaves.
+ * Backdated past MALFORMED_GRACE_MS by default, because that is what a leftover
+ * is: a malformed lock with a FRESH mtime is presumed to be a live holder
+ * mid-write (see the PHARN-03 cases below), which is not what these tests plant.
+ */
+function plantLock(
+  dir: string,
+  data: unknown,
+  ageMs = MALFORMED_GRACE_MS + 60_000,
+): void {
   writeFileSync(
     lockPath(dir),
     typeof data === 'string' ? data : JSON.stringify(data),
     'utf8',
   );
+  const when = new Date(Date.now() - ageMs);
+  utimesSync(lockPath(dir), when, when);
 }
 
 describe('withProjectLock', () => {
@@ -327,6 +339,8 @@ describe('withProjectLock', () => {
     // imply recursive, so the delete threw ERR_FS_EISDIR on every run and the
     // project refused forever — hazard #1 (wedging) in this file's own header.
     mkdirSync(lockPath(dir));
+    const when = new Date(Date.now() - MALFORMED_GRACE_MS - 60_000);
+    utimesSync(lockPath(dir), when, when);
 
     let ran = false;
     await withProjectLock(dir, 'add', () => {
@@ -339,5 +353,41 @@ describe('withProjectLock', () => {
     const left = lockSiblings(dir);
     expect(left).toHaveLength(1);
     expect(statSync(join(dir, left[0]!)).isDirectory()).toBe(true);
+  });
+});
+
+// PHARN-03 (b): `tryCreate` opens with O_EXCL and writes the payload in a
+// second syscall, so a LIVE lock is briefly empty. Reading that as stale let a
+// concurrent acquire break it — measured: 2–5 simultaneous holders in 15 of 150
+// rounds with 8 processes started together.
+describe('withProjectLock — a lock being written is live (PHARN-03)', () => {
+  const tmp = useTmpDir();
+
+  it.each([[''], ['{"pid":']])(
+    'refuses on a FRESH unparseable lock %j, without running fn or touching the file',
+    async (raw) => {
+      const dir = tmp.path();
+      plantLock(dir, raw, 0);
+      let ran = false;
+      await expect(
+        withProjectLock(dir, 'update', () => {
+          ran = true;
+        }),
+      ).rejects.toBeInstanceOf(ProjectLockedError);
+      expect(ran).toBe(false);
+      expect(readFileSync(lockPath(dir), 'utf8')).toBe(raw);
+      expect(lockSiblings(dir)).toEqual([]);
+    },
+  );
+
+  it('still breaks an unparseable lock once it is older than the grace window', async () => {
+    const dir = tmp.path();
+    plantLock(dir, '', MALFORMED_GRACE_MS + 1_000);
+    let ran = false;
+    await withProjectLock(dir, 'update', () => {
+      ran = true;
+    });
+    expect(ran).toBe(true);
+    expect(existsSync(lockPath(dir))).toBe(false);
   });
 });

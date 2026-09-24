@@ -1,0 +1,31 @@
+{
+  "base": "31f15cedcad80465396e2532f617f8afb60b3012",
+  "inside": [
+    "CLAUDE.md",
+    "README.md",
+    "src/commands/add.ts",
+    "src/commands/remove.ts",
+    "src/commands/update.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/project-lock.ts",
+    "tests/add.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/project-lock-commands.test.ts",
+    "tests/project-lock.test.ts",
+    "tests/remove.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

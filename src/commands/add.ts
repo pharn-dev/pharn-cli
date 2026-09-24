@@ -42,6 +42,7 @@ import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
+  assertConfigUnchanged,
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
@@ -172,6 +173,7 @@ async function runArchetypeAdd(
     // resolve against. Every error decidable WITHOUT the clone (a legacy config,
     // a malformed address) still wins.
     result = await withProjectLock(cwd, 'add', async () => {
+      assertConfigUnchanged(cwd, config, 'add');
       // What a configured proxy means here (nothing: fetch never uses one) —
       // emitted before the spinner so it survives the frame and precedes a
       // proxy-caused failure (see src/commands/init.ts for the full rationale).
@@ -295,6 +297,7 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     // already unbounded — a change of degree, not of kind. `init` is the case where
     // it WOULD be a change of kind, which is why init's lock stays where it is.
     outcome = await withProjectLock(cwd, 'add', async () => {
+      assertConfigUnchanged(cwd, config, 'add');
       // What a configured proxy means here (nothing: fetch never uses one) —
       // emitted before the spinner so it survives the frame and precedes a
       // proxy-caused failure (see src/commands/init.ts for the full rationale).

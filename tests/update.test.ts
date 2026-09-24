@@ -51,11 +51,12 @@ const resolveCapabilities = vi.fn();
 vi.mock('../src/lib/resolve-capabilities.js', () => ({ resolveCapabilities }));
 
 const loadArchetypeConfigOrExit = vi.fn();
+const assertConfigUnchanged = vi.fn();
 vi.mock('../src/lib/pharn-config.js', async () => {
   const actual = await vi.importActual<
     typeof import('../src/lib/pharn-config.js')
   >('../src/lib/pharn-config.js');
-  return { ...actual, loadArchetypeConfigOrExit };
+  return { ...actual, assertConfigUnchanged, loadArchetypeConfigOrExit };
 });
 
 const { runUpdate } = await import('../src/commands/update.js');

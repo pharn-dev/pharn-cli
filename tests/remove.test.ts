@@ -30,7 +30,9 @@ vi.mock('@clack/prompts', () => ({
 
 const loadArchetypeConfigOrExit = vi.fn();
 const writePharnConfig = vi.fn();
+const assertConfigUnchanged = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
+  assertConfigUnchanged,
   loadArchetypeConfigOrExit,
   writePharnConfig,
 }));

@@ -1,9 +1,17 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { log } from '@clack/prompts';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import { ProjectChangedError } from '../src/lib/project-lock.js';
 import {
+  assertConfigUnchanged,
   readPharnConfig,
   loadConfigOrExit,
   loadArchetypeConfigOrExit,
@@ -721,5 +729,61 @@ describe('writePharnConfig — atomic replacement', () => {
     // The whole point: the old config is still THERE and still parses, so no
     // command mistakes it for absent and prescribes a destructive re-init.
     expect(readPharnConfig(tmp.path())?.skillsVersion).toBe('0.68.0');
+  });
+});
+
+// PHARN-03 (a): a command re-reads the config under the lock and refuses when
+// it no longer matches what it planned against.
+describe('assertConfigUnchanged', () => {
+  const tmp = useTmpDir();
+  const cfg = (caps: { name: string; role: 'griller' | 'lens' }[]) => ({
+    pharnVersion: '0.5.0',
+    skillsVersion: '1.0.0',
+    repo: 'pharn-dev/pharn-oss',
+    commit: null,
+    modules: [],
+    installedAt: '2026-09-24T00:00:00.000Z',
+    archetypes: ['ssr'],
+    capabilities: caps,
+  });
+  const put = (v: unknown): void =>
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(v));
+
+  it('passes when the file still parses to the snapshot', () => {
+    put(cfg([{ name: 'a11y', role: 'lens' }]));
+    const snapshot = readPharnConfig(tmp.path())!;
+    expect(() =>
+      assertConfigUnchanged(tmp.path(), snapshot, 'remove'),
+    ).not.toThrow();
+  });
+
+  it('refuses with ProjectChangedError when another run rewrote it', () => {
+    put(cfg([{ name: 'a11y', role: 'lens' }]));
+    const snapshot = readPharnConfig(tmp.path())!;
+    put(
+      cfg([
+        { name: 'a11y', role: 'lens' },
+        { name: 'n-plus-one', role: 'lens' },
+      ]),
+    );
+    expect(() => assertConfigUnchanged(tmp.path(), snapshot, 'remove')).toThrow(
+      ProjectChangedError,
+    );
+    expect(() => assertConfigUnchanged(tmp.path(), snapshot, 'remove')).toThrow(
+      /pharn\.config\.json changed while `pharn remove` was running/,
+    );
+  });
+
+  it('refuses when the file is gone or no longer valid', () => {
+    put(cfg([{ name: 'a11y', role: 'lens' }]));
+    const snapshot = readPharnConfig(tmp.path())!;
+    put('{ not json');
+    expect(() => assertConfigUnchanged(tmp.path(), snapshot, 'add')).toThrow(
+      ProjectChangedError,
+    );
+    rmSync(join(tmp.path(), 'pharn.config.json'));
+    expect(() => assertConfigUnchanged(tmp.path(), snapshot, 'add')).toThrow(
+      ProjectChangedError,
+    );
   });
 });

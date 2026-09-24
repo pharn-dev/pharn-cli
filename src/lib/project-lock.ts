@@ -83,11 +83,36 @@ const CORPSE_RE = /^\.pharn\.lock\.[0-9]+\.[0-9a-f]{8}$/;
  */
 export const STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+/**
+ * How long a lock file that exists but does not parse is presumed LIVE.
+ *
+ * `tryCreate` creates the file (O_EXCL) and writes its payload in a second
+ * syscall, so for an instant a live lock is EMPTY. Reading that as stale let a
+ * concurrent acquire break a lock whose owner was mid-write, and 8 processes
+ * started together measured 2–5 simultaneous holders in 15 of 150 rounds. An
+ * unparseable lock is therefore stale only once its mtime is older than this;
+ * a genuinely corrupt one still cannot wedge the project for longer.
+ */
+export const MALFORMED_GRACE_MS = 10 * 1000;
+
 /** Raised when another pharn process holds the lock. Exit 1, with a named reason. */
 export class ProjectLockedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ProjectLockedError';
+  }
+}
+
+/**
+ * Raised under the lock when the project state a command planned against has
+ * changed since it was read — another writer landed while this command was
+ * prompting or fetching. A subclass so every existing `ProjectLockedError`
+ * catch site reports it the same way: a named refusal, exit 1, nothing written.
+ */
+export class ProjectChangedError extends ProjectLockedError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProjectChangedError';
   }
 }
 
@@ -177,8 +202,19 @@ function isDead(held: LockPayload): boolean {
   }
 }
 
-function isStale(held: LockPayload | null): boolean {
-  if (held === null) return true; // malformed or unreadable — never wedge on it
+/** The lock file's age in ms, or `null` when it cannot be stat'ed. */
+function lockAgeMs(cwd: string): number | null {
+  try {
+    return Date.now() - statSync(lockPath(cwd)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function isStale(held: LockPayload | null, ageMs: number | null): boolean {
+  // Malformed or unreadable. Young → presumed a holder mid-`tryCreate` (see
+  // MALFORMED_GRACE_MS); old, or not stat-able → stale, so it never wedges.
+  if (held === null) return ageMs === null || ageMs >= MALFORMED_GRACE_MS;
   if (Date.now() - Date.parse(held.startedAt) > STALE_MS) return true;
   return isDead(held);
 }
@@ -448,7 +484,8 @@ export async function withProjectLock<T>(
     // is exactly the unchecked delete it replaced.
     const observedRaw = readRawAt(lockPath(cwd));
     const held = observedRaw === null ? null : parsePayload(observedRaw);
-    if (!isStale(held)) throw new ProjectLockedError(refusal(held));
+    if (!isStale(held, lockAgeMs(cwd)))
+      throw new ProjectLockedError(refusal(held));
     breakStaleLock(cwd, command, observedRaw);
   }
   try {

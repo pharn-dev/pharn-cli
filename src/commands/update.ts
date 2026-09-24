@@ -59,6 +59,7 @@ import {
 } from '../lib/skills-version.js';
 import { row } from '../lib/format.js';
 import {
+  assertConfigUnchanged,
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
@@ -290,6 +291,9 @@ async function runArchetypeUpdate(
     // would have been stranded in the project root on every offline /
     // rate-limited / DNS failure, the most common failure this command has.
     outcome = await withProjectLock(cwd, 'update', async () => {
+      // First, before the spinner: the config this run planned (and confirmed)
+      // against was read before the lock; refuse if another run rewrote it.
+      assertConfigUnchanged(cwd, config, 'update');
       const s2 = spinner();
       spinnerRef.current = s2;
       s2.start(`Updating from ${REPO_URL}`);
