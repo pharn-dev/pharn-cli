@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/bounded-package-json/SHIP.md"
+    ".dev/features/init-dest-type-preflight/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T10:22:32.356Z"
+  "set_at": "2026-09-24T10:53:06.579Z"
 }

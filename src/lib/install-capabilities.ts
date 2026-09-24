@@ -24,7 +24,7 @@ import {
   type LayoutPaths,
 } from './layout.js';
 import { collectExpectedInstallPaths } from './install-manifest.js';
-import { findSymlinkComponent } from './symlink-guard.js';
+import { findSymlinkComponent, findTypeCollision } from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -160,6 +160,16 @@ export function installCapabilities(
   // Destination pre-flight, before the FIRST write: nothing below may follow a
   // symlinked project directory out of the project (see assertDestinationsInProject).
   assertDestinationsInProject(repoDir, projectRoot, selection.selected, paths);
+  // ...and nothing may start writing into a tree whose TYPES it cannot write:
+  // a collision found by `cpSync` part-way leaves a half-installed project with
+  // no config and no records (see assertDestinationTypes).
+  assertDestinationTypes(
+    repoDir,
+    projectRoot,
+    selection.selected,
+    paths,
+    featuresRel,
+  );
 
   // Copy the selected capability dirs (pre-flighted; no partial installs).
   const capabilities = installCapabilityDirs(
@@ -369,6 +379,48 @@ function assertDestinationsInProject(
 const MAX_LINKED_SHOWN = 5;
 
 /**
+ * Refuse the whole install when any path it would write collides by TYPE with
+ * what is already in the project: an existing component on the way that is not
+ * a directory, or an existing leaf that is not a regular file. Without this,
+ * `cpSync` meets the collision part-way (ENOTDIR / ERR_FS_CP_NON_DIR_TO_DIR)
+ * and the project is left with hundreds of new files but no `pharn.config.json`
+ * and no records. Runs AFTER assertDestinationsInProject, so a symlink is still
+ * reported as a symlink.
+ *
+ * Out of the walk: `.claude/settings.json` (never overwritten — `existsSync`
+ * skips it) and the optional features README (`destAcceptsWrite` skips it on a
+ * collision, by contract). Each path's walk stops at its FIRST non-directory
+ * component: nothing below it can be lstat-ed.
+ */
+function assertDestinationTypes(
+  repoDir: string,
+  projectRoot: string,
+  capabilities: InstalledCapability[],
+  paths: LayoutPaths,
+  featuresRel: string,
+): void {
+  const colliding = new Set<string>();
+  for (const rel of collectExpectedInstallPaths({
+    repoDir,
+    capabilities,
+    layout: paths.layout,
+  }).keys()) {
+    if (rel === featuresRel) continue;
+    const hit = findTypeCollision(projectRoot, rel);
+    if (hit !== null) colliding.add(hit);
+  }
+  if (colliding.size === 0) return;
+  const shown = [...colliding].sort();
+  const list =
+    shown.length > MAX_LINKED_SHOWN
+      ? `${shown.slice(0, MAX_LINKED_SHOWN).join(', ')} and ${shown.length - MAX_LINKED_SHOWN} more`
+      : shown.join(', ');
+  throw new ManifestValidationError(
+    `Refusing to install: ${list} ${shown.length === 1 ? 'is in the way' : 'are in the way'} — pharn needs a file where you have a directory, or a directory where you have a file. Nothing was written. Move or rename ${shown.length === 1 ? 'it' : 'them'} and re-run \`pharn init\`.`,
+  );
+}
+
+/**
  * May the install write `rel` under `projectRoot`? False when any component
  * below the root is a symlink — following one writes OUTSIDE the project, which
  * `safeJoin` cannot see (it is lexical) and the pre-install overwrite prompt
@@ -384,7 +436,10 @@ const MAX_LINKED_SHOWN = 5;
  */
 function destAcceptsWrite(projectRoot: string, rel: string): boolean {
   try {
-    return findSymlinkComponent(projectRoot, rel) === null;
+    return (
+      findSymlinkComponent(projectRoot, rel) === null &&
+      findTypeCollision(projectRoot, rel) === null
+    );
   } catch {
     return false;
   }

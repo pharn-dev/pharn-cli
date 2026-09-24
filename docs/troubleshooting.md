@@ -223,6 +223,19 @@ Causes include a fetch failure (network/GitHub), an archive `pharn` refused to e
 PHARN_DEBUG=1 npx @pharn-dev/pharn init
 ```
 
+### Something in your project is in the way
+
+```text
+Refusing to install: .claude/commands/pharn-plan.md is in the way — pharn needs a file where you have
+a directory, or a directory where you have a file. Nothing was written.
+```
+
+Before its first write, `init` checks every path it is about to install. If one of them exists in your
+project as the wrong kind of entry (a directory where pharn writes a file, or a file where it needs a
+directory), `init` stops and names each one (up to five, then a count). Your project is left exactly as
+it was. Move or rename the named entries and re-run `pharn init`. The optional `features/README.md` is
+the one exception: a collision there is skipped rather than refused.
+
 ### When the `PHARN_DEBUG` hint appears
 
 Every fatal error that came from an **exception** ends with
