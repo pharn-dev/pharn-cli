@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/reinit-preserve-edits/SHIP.md"
+    ".dev/features/proxy-env-opt-in/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T09:28:29.312Z"
+  "set_at": "2026-09-24T09:34:10.397Z"
 }

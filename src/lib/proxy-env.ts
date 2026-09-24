@@ -43,6 +43,54 @@ const UPPER = 'HTTPS_PROXY';
 export interface ProxyNotice {
   name: string;
   value: string;
+  /**
+   * Whether Node's fetch will actually use the proxy (PHARN-12). Node's fetch
+   * reads no proxy variable BY DEFAULT, but recent Node versions route it
+   * through the proxy when `NODE_USE_ENV_PROXY=1` or `--use-env-proxy` is set:
+   * - `on`          — supported and turned on: pharn's downloads use the proxy;
+   * - `available`   — supported but off: setting `NODE_USE_ENV_PROXY=1` would;
+   * - `unsupported` — this Node has no such option (e.g. Node 20).
+   */
+  envProxy: 'on' | 'available' | 'unsupported';
+}
+
+/** What the running Node supports and was started with — injectable for tests. */
+export interface ProxyRuntime {
+  /** Does this Node know `--use-env-proxy`? */
+  supportsEnvProxy: boolean;
+  /** Node's own flags (`process.execArgv`). */
+  execArgv: readonly string[];
+}
+
+const ENV_PROXY_FLAG = '--use-env-proxy';
+
+/** The running process, read once per call. */
+export function currentProxyRuntime(): ProxyRuntime {
+  return {
+    // A membership test the runtime answers itself: Node lists every option it
+    // accepts, so there is no version table to keep up to date (P5).
+    supportsEnvProxy: process.allowedNodeEnvironmentFlags.has(ENV_PROXY_FLAG),
+    execArgv: process.execArgv,
+  };
+}
+
+/** `--use-env-proxy` as a whole token (bare or `=value`), never a substring. */
+function hasFlagToken(tokens: readonly string[]): boolean {
+  return tokens.some(
+    (t) => t === ENV_PROXY_FLAG || t.startsWith(`${ENV_PROXY_FLAG}=`),
+  );
+}
+
+function envProxyState(
+  env: Record<string, string | undefined>,
+  runtime: ProxyRuntime,
+): ProxyNotice['envProxy'] {
+  if (!runtime.supportsEnvProxy) return 'unsupported';
+  const on =
+    env.NODE_USE_ENV_PROXY === '1' ||
+    hasFlagToken(runtime.execArgv) ||
+    hasFlagToken((env.NODE_OPTIONS ?? '').split(/\s+/));
+  return on ? 'on' : 'available';
 }
 
 /** Present AND non-empty. An empty string is not a proxy setting. */
@@ -81,9 +129,12 @@ function proxyVariantKeys(env: Record<string, string | undefined>): string[] {
  */
 export function detectProxyNotice(
   env: Record<string, string | undefined>,
+  runtime: ProxyRuntime = currentProxyRuntime(),
 ): ProxyNotice | null {
   const name = proxyVariantKeys(env)[0];
   if (name === undefined) return null;
   const value = env[name];
-  return isSet(value) ? { name, value } : null;
+  return isSet(value)
+    ? { name, value, envProxy: envProxyState(env, runtime) }
+    : null;
 }

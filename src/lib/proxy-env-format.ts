@@ -42,14 +42,20 @@ export function redactProxyUrl(value: string): string {
 }
 
 /**
- * One message, because there is now one situation: a proxy is configured and
- * pharn's network calls will not use it.
- *
- * It states the mechanism (Node's fetch reads no proxy environment variable)
- * rather than only the symptom, so a user in a network that blocks direct egress
- * can tell this apart from an outage — and it names the variable it found, so
- * they can see pharn read the environment correctly and still cannot use it.
+ * The notice for a configured proxy, in one of three TRUE forms (PHARN-12).
+ * Node's fetch ignores proxy variables by default — which the old single
+ * message stated as absolute ("pharn will not use it") — but recent Node
+ * versions honour them when `NODE_USE_ENV_PROXY=1` / `--use-env-proxy` is set,
+ * so that message was false for users who had opted in and hid the one
+ * workaround from users who had not.
  */
 export function proxyNoticeMessage(notice: ProxyNotice): string {
-  return `${notice.name} is set (${redactProxyUrl(notice.value)}), but pharn will not use it: its network calls go through Node's global fetch, which reads no proxy environment variable on any platform. The download connects DIRECTLY, and fails if direct egress is blocked (LIMITS.md §3a).`;
+  const shown = `${notice.name} is set (${redactProxyUrl(notice.value)})`;
+  if (notice.envProxy === 'on') {
+    return `${shown} and NODE_USE_ENV_PROXY / --use-env-proxy is on, so pharn's downloads go through that proxy (Node's fetch then also honours NO_PROXY).`;
+  }
+  const base = `${shown}, but pharn will not use it: its network calls go through Node's global fetch, which reads no proxy environment variable by default. The download connects DIRECTLY, and fails if direct egress is blocked (LIMITS.md §3a).`;
+  return notice.envProxy === 'available'
+    ? `${base} This Node can route fetch through the proxy — re-run with NODE_USE_ENV_PROXY=1 set.`
+    : `${base} This Node (${process.version}) has no NODE_USE_ENV_PROXY support; a newer Node release does.`;
 }
