@@ -57,6 +57,20 @@ describe('report-error', () => {
     );
   });
 
+  // PHARN-17: a fatal message can carry archive-derived text (an extractor
+  // refusal naming an entry). The sink is the one place every fatal path shares,
+  // so nothing a terminal would interpret gets past it — newlines stay.
+  it('strips control and format characters before the message leaves', () => {
+    logError('bad entry: x\u001b[2K\r\u001b[32mOK\u202e\nsecond line');
+    const sent = vi.mocked(log.error).mock.calls[0]![0];
+    expect(sent).toBe('bad entry: x[2K[32mOK\nsecond line');
+  });
+
+  it('reportFatal goes through the same sink', () => {
+    reportFatal('x\u009b31my', { err: new Error('e') });
+    expect(vi.mocked(log.error).mock.calls[0]![0]).toBe('⚠ x31my');
+  });
+
   // --- the hint axis (FABLE 4.6) --------------------------------------------
   //
   // Passing the error is the SINGLE axis that marks "this came from an

@@ -1,0 +1,26 @@
+{
+  "base": "1c4b10737729faddaf7deb5ef4d1c06471d3d94d",
+  "inside": [
+    "src/lib/report-error.ts",
+    "src/lib/tar-extract.ts",
+    "src/lib/terminal-safe.ts",
+    "src/lib/unknown-capabilities.ts",
+    "tests/report-error.test.ts",
+    "tests/tar-extract.test.ts",
+    "tests/terminal-safe.test.ts",
+    "tests/unknown-capabilities.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

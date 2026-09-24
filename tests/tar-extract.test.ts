@@ -8,6 +8,7 @@ import {
   extractTarGz,
   TarExtractError,
 } from '../src/lib/tar-extract.js';
+import { hasUnsafeChars } from '../src/lib/terminal-safe.js';
 
 // Fixtures are built here, byte by byte, rather than shelled out to `tar`.
 // That is the whole point: the entries worth testing are the ones a system tar
@@ -516,6 +517,77 @@ describe('extractTar', () => {
         LIMITS,
       ),
     ).toThrow(/unsupported type/);
+  });
+
+  // PHARN-17: a name a terminal would interpret is refused before any other
+  // entry rule, so it is neither installed (and later listed by status/update)
+  // nor echoed raw by a refusal message. Names are latin1 in the header, so a
+  // UTF-8 U+202E is written as its three bytes.
+  const utf8AsLatin1 = (s: string): string =>
+    Buffer.from(s, 'utf8').toString('latin1');
+
+  it.each([
+    [
+      'an ESC sequence in the name',
+      { name: `pharn-oss-abc1234/n${ESC}[2K\r${ESC}[32mOK` },
+    ],
+    [
+      'a right-to-left override',
+      { name: utf8AsLatin1('pharn-oss-abc1234/evil\u202egnp.md') },
+    ],
+    [
+      'a zero-width space',
+      { name: utf8AsLatin1('pharn-oss-abc1234/se\u200bcurity.md') },
+    ],
+    [
+      'a control byte in the ustar prefix',
+      { name: 'f.md', prefix: `pharn-oss-abc1234/d${ESC}x` },
+    ],
+  ])('refuses %s, naming it without the raw character', (_label, entry) => {
+    let message = '';
+    try {
+      extractTar(githubArchive([entry]), tmp.path(), LIMITS);
+    } catch (err) {
+      expect(err).toBeInstanceOf(TarExtractError);
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/control or format character/);
+    expect(hasUnsafeChars(message)).toBe(false);
+  });
+
+  it('refuses an unsafe name even on an unsupported-type entry (path judged first)', () => {
+    expect(() =>
+      extractTar(
+        githubArchive([{ name: `pharn-oss-abc1234/n${ESC}[32mOK`, type: '2' }]),
+        tmp.path(),
+        LIMITS,
+      ),
+    ).toThrow(/control or format character/);
+  });
+
+  it('renders an unprintable typeflag as its code, not the raw byte', () => {
+    let message = '';
+    try {
+      extractTar(
+        githubArchive([{ name: 'pharn-oss-abc1234/x', type: ESC }]),
+        tmp.path(),
+        LIMITS,
+      );
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain('unsupported type 0x1b');
+    expect(message).not.toContain(ESC);
+  });
+
+  it('still extracts an ordinary non-ASCII name', () => {
+    extractTar(
+      githubArchive([
+        { name: utf8AsLatin1('pharn-oss-abc1234/café.md'), data: 'ok' },
+      ]),
+      tmp.path(),
+      LIMITS,
+    );
   });
 
   it('enforces the entry-count cap', () => {

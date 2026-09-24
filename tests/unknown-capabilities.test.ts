@@ -70,6 +70,17 @@ describe('unknownCapabilitiesWarning', () => {
     expect(out).toContain('badreason');
   });
 
+  // PHARN-17: Unicode format characters were not in the stripped set, so a
+  // right-to-left override could make a listed name read as something else.
+  it('strips Unicode format characters (U+202E, U+200B) too', () => {
+    const out = unknownCapabilitiesWarning([
+      unk({ name: 'evil\u202egnp', reason: 'r\u200beason' }),
+    ])!;
+    expect(out).not.toMatch(/[\u202e\u200b]/);
+    expect(out).toContain('evilgnp');
+    expect(out).toContain('reason');
+  });
+
   it('caps each rendered field so one huge upstream string cannot flood the terminal', () => {
     const out = unknownCapabilitiesWarning([
       unk({ reason: 'x'.repeat(5000) }),

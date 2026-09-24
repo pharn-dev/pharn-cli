@@ -1,6 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { hasUnsafeChars, terminalSafe } from './terminal-safe.js';
 import { safeJoin } from './validate.js';
 
 /**
@@ -192,6 +193,34 @@ function describeKeywords(keywords: string[] | null): string {
   return `records ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}`;
 }
 
+/**
+ * Refuse an entry path holding a control character or a Unicode format
+ * character (U+202E, U+200B, …). Such a name would be printed later — by an
+ * error here, or by `status`/`update` listing installed files — and a terminal
+ * interprets those characters. Names are read as latin1 (one char per byte), so
+ * the check runs on the UTF-8 decoding of the same bytes: that is where a
+ * multi-byte U+202E becomes visible, while an ordinary non-ASCII name (`é`,
+ * `—`) decodes to printable text and passes. pharn-oss ships no such name.
+ */
+function assertDisplayablePath(fullPath: string): void {
+  if (hasUnsafeChars(Buffer.from(fullPath, 'latin1').toString('utf8'))) {
+    throw new TarExtractError(
+      `tar entry path contains a control or format character: ${JSON.stringify(
+        terminalSafe(Buffer.from(fullPath, 'latin1').toString('utf8'), {
+          max: 200,
+        }),
+      )}`,
+    );
+  }
+}
+
+/** A typeflag for a message: the character if printable, else its code. */
+function describeTypeflag(typeflag: string): string {
+  return hasUnsafeChars(typeflag)
+    ? `0x${typeflag.charCodeAt(0).toString(16).padStart(2, '0')}`
+    : `'${typeflag}'`;
+}
+
 /** True when the block is 512 NUL bytes — the end-of-archive marker. */
 function isZeroBlock(block: Buffer): boolean {
   for (const byte of block) if (byte !== 0) return false;
@@ -364,17 +393,21 @@ export function extractTar(
       continue;
     }
 
+    // The FULL path (prefix + name) is judged before any other entry rule, so
+    // no later message can interpolate a control or format character from it.
+    const name = readString(header, OFF_NAME, LEN_NAME);
+    const prefix = readString(header, OFF_PREFIX, LEN_PREFIX);
+    const fullPath = prefix === '' ? name : `${prefix}/${name}`;
+    assertDisplayablePath(fullPath);
+
     const isFile = typeflag === '0' || typeflag === '\0';
     const isDirectory = typeflag === '5';
     if (!isFile && !isDirectory) {
       throw new TarExtractError(
-        `tar entry has an unsupported type '${typeflag}': ${readString(header, OFF_NAME, LEN_NAME)}`,
+        `tar entry has an unsupported type ${describeTypeflag(typeflag)}: ${fullPath}`,
       );
     }
 
-    const name = readString(header, OFF_NAME, LEN_NAME);
-    const prefix = readString(header, OFF_PREFIX, LEN_PREFIX);
-    const fullPath = prefix === '' ? name : `${prefix}/${name}`;
     const { rel, root } = resolveEntryPath(fullPath, isDirectory, expectedRoot);
     expectedRoot = root;
 
