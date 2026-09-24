@@ -53,7 +53,7 @@ review, repeat, and maintain. It gives Claude Code a structured path from
 feature intent to implementation review:
 
 ```text
-spec -> plan -> grill -> build -> regress -> verify -> ship
+spec -> plan -> grill -> test -> build -> regress -> verify -> ship
 ```
 
 The npm package, `@pharn-dev/pharn`, is the installer. It does not scaffold your
@@ -115,6 +115,17 @@ already exists, so there is no entry point further down the chain. The exact
 command files come from the `pharn-dev/pharn-oss` version installed into your
 repo.
 
+**Your project needs a test runner with per-test results.** The `test` stage
+writes each acceptance criterion's test before any code exists and requires it
+to fail, so it needs a `test` script (plus `test:e2e` or `e2e` for end-to-end
+criteria) whose reporter writes per-test JSON, named under `testResults` in
+`pharn.config.json`. Without one, `/pharn-test` stops and asks, and
+`/pharn-loop` ends with `blocked: no-test-runner`. A fresh app like the
+`create-next-app` one above has no `test` script, so set the runner up first,
+as its own increment (a SPEC with `spec_kind: test-infra`). Setup is in
+upstream's
+[Per-test results](https://github.com/pharn-dev/pharn-oss#per-test-results).
+
 ## How it works
 
 `pharn init` is archetype-driven. There is no stack questionnaire and no module
@@ -151,9 +162,12 @@ An existing `.claude/settings.json` is preserved. PHARN may create it when
 absent, but it never overwrites your Claude Code settings.
 
 As you run the workflow, PHARN writes one directory per increment —
-`pharn/features/<name>/` — holding that increment's `SPEC.md`, `PLAN.md`, `GRILL.md`,
-`BUILD.md`, `REGRESSION.md`, `VERIFY.md` and `SHIP.md`. Those are the durable
-record; commit them. `.pharn/` (runtime scratch), `.pharn-backup/` (see
+`pharn/features/<name>/` — holding that increment's `SPEC.md`, `PLAN.md`,
+`AC-TESTS.md`, `GRILL.md`, `BUILD.md`, `REGRESSION.md`, `VERIFY.md`, then
+`SHIP.md` + `BRIEFING.md` (`/pharn-ship`) or `LOOP.md` (`/pharn-loop`), a
+`RUN-REPORT.md`, and the machine-readable records beside them
+(`AC-TESTS.lock.json`, `cost.json`, the `*-report.json` files). Those are the
+durable record; commit them. `.pharn/` (runtime scratch), `.pharn-backup/` (see
 [Safety model](#safety-model)) and `.pharn.lock` are not — add them to your
 `.gitignore`. PHARN never edits `.gitignore` for you.
 
@@ -165,7 +179,7 @@ are keyed to the latter.
 
 ## After install
 
-Two things about the installed hooks are worth knowing on day one.
+Three things about the installed hooks are worth knowing on day one.
 
 **Hooks enforce only once they are registered in `.claude/settings.json`.** If
 your project already had that file, PHARN preserved it and printed a warning
@@ -180,7 +194,16 @@ intended posture — a stage sets the scope from the concrete paths your
 outside a PHARN run. Clearing the scope returns to this default; it does not
 re-open your source.
 
-Writes issued through Bash bypass both hooks entirely.
+Writes issued through Bash bypass both write guards entirely.
+
+**`/pharn-loop` has a `Stop` guard too.** `require-loop-record.cjs` is not a
+write guard: while an unattended `/pharn-loop` run has written no `LOOP.md`, it
+refuses to let the turn end, a bounded number of times, and it fails open. It
+also does nothing until registered — under `Stop`, with no matcher. The
+`settings.json` upstream ships has registered it since pharn-oss 6.12.0, but a
+file PHARN preserved, or one created by an earlier install, lacks the entry:
+copy it across by hand. `pharn update` never edits `.claude/settings.json`;
+`pharn status` and `pharn update` name the missing entry in a `HOOKS` note.
 
 The full set of bounds lives in upstream's
 [`LIMITS.md`](https://github.com/pharn-dev/pharn-oss/blob/main/LIMITS.md) and
@@ -189,23 +212,31 @@ The full set of bounds lives in upstream's
 ## Day-to-day workflow
 
 Once PHARN is installed, use the slash commands from Claude Code. The pipeline
-is seven typed stages, each reading what the previous one produced:
+is eight typed stages, each reading what the previous one produced:
 
 | Stage | Command | Purpose |
 | ----- | ------- | ------- |
 | Spec | `/pharn-spec` | Capture feature intent and scope. Stops for your approval. |
-| Plan | `/pharn-plan` | Turn the approved spec into an implementation plan. |
+| Plan | `/pharn-plan` | Turn the approved spec into an implementation plan, mapping each acceptance criterion to a test (`AC-TESTS.md`). |
 | Grill | `/pharn-grill` | Challenge the plan before code is written. |
+| Test | `/pharn-test` | Write each acceptance criterion's test before the build, run it, and require it to fail. `/pharn-build` refuses to start without that evidence. |
 | Build | `/pharn-build` | Implement an approved increment. |
 | Regress | `/pharn-regress` | Look for regressions outside the just-built feature. |
-| Verify | `/pharn-verify` | Verify behavior and PHARN floor requirements. |
-| Ship | `/pharn-ship` | Run stages 1-6 in order, then stop at the merge/fix/abandon gate. |
+| Verify | `/pharn-verify` | Verify behavior and PHARN floor requirements, including that every acceptance criterion's test now passes. |
+| Ship | `/pharn-ship` | Run stages 1-7 in order, then stop at the merge/fix/abandon gate. |
 
-`/pharn-ship` is itself the seventh stage: it orchestrates the six before it in
-one pass, so you rarely run them by hand. `/pharn-loop` runs that same chain but
-iterates build -> regress -> verify until green, an iteration cap, or a terminal
-failure. Both preserve the two human gates — approve the spec before code is
-written, decide merge/fix/abandon after verification.
+`/pharn-ship` is itself the eighth stage: it orchestrates the seven before it in
+one pass, so you rarely run them by hand, and it keeps both human gates —
+approve the spec before code is written, decide merge/fix/abandon after
+verification. `/pharn-loop` runs that same chain unattended: the model approves
+the spec, iterates build -> regress -> verify until green, an iteration cap, or
+a terminal failure, commits a green result to a new local branch (never pushed
+or merged), and leaves the merge/fix/abandon decision to you after the run.
+
+`/pharn-spec` fills PHARN's default SPEC template, or your own if you put one at
+`pharn.spec-template.md` in the project root. The write guard denies Claude
+Code's edit tools on that path, so edit it yourself; see upstream's
+[Your own SPEC template](https://github.com/pharn-dev/pharn-oss#your-own-spec-template).
 
 Two commands sit outside the pipeline:
 

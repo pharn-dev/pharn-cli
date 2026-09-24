@@ -11,6 +11,9 @@ pharn-dev-ship"; open question answered "Leave it alone") → `/pharn-dev-grill`
 | `/pharn-dev-regress` | `regression-report.json` `.verdict` = `no-regressions` |
 | `/pharn-dev-verify`  | `verify-report.json` `.verdict` = `PASS`               |
 
+- `origin/main` (#214, #215) was merged into the PR branch after the chain ran; `/pharn-dev-regress` and
+  `/pharn-dev-verify` were re-run on the merged tree and the verdicts above are from that re-run (base
+  `f9b1bbb`). The merge resolution is recorded in `REVIEW.md`.
 - Review: [`REVIEW.md`](REVIEW.md) · Grill (advisory): [`GRILL.md`](GRILL.md)
 - Run ended at **GATE 2**. The human's standing instruction for this batch: after each increment, open a
   pull request and merge it once its checks are green, then start the next plan.

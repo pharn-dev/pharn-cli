@@ -140,10 +140,13 @@ too — as long as upstream still ships them. The summary lists them as "added b
 no longer ships is dropped from `pharn.config.json` and named (its files stay on disk). A capability
 upstream still ships but this pharn [cannot read](update.md#when-pharn-cannot-read-a-capability-upstream)
 is **left as it is**, however it was added: its config entry, files and records are untouched, and it is
-listed in `frozenCapabilities` so the next [`pharn update`](update.md) re-checks it. An unreadable or
-invalid existing config never blocks `init` — nothing is carried over from it. If `pharn.config.json`
-changes while `init` waits at its prompts (another `pharn` command wrote it), `init` refuses and writes
-nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+listed in `frozenCapabilities` so the next [`pharn update`](update.md) re-checks it. Top-level keys in
+`pharn.config.json` that pharn does not own, such as upstream's `testResults` and `ship`, are copied
+across unchanged — see [Keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own).
+An unreadable or invalid existing config never blocks `init`. Capabilities are carried over only from a
+config the other commands would accept, and your own keys from any config that parses as a JSON object;
+a config that is not valid JSON carries nothing over. If `pharn.config.json` changes while `init` waits at
+its prompts (another `pharn` command wrote it), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 ### 7. Install
 

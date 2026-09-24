@@ -25,6 +25,9 @@ archetypes/capabilities and the pinned commit).
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 
+Any top-level key **not** on this page is yours, and every command keeps it — see
+[Keys pharn does not own](#keys-pharn-does-not-own).
+
 `layout` is written only by `pharn init` and `pharn update`, each recording the layout of the clone it
 actually copied from. `pharn add` never writes the field — it
 [refuses](../commands/add.md#layout-mismatch) a clone whose layout disagrees with the recorded one,
@@ -55,12 +58,13 @@ A `source` present but outside `{auto, manual}` is a hand-edit error: `pharn` re
 (`capabilities[2].source`) and exits, rather than falling back to "run `pharn init`". Deleting the
 field is a valid fix — the next update sets it.
 
-> Re-running `pharn init` on an existing project rebuilds `capabilities` from your archetypes, with
-> two things carried over by `pharn update`'s own rules: a `manual` entry upstream still ships stays
-> `manual` (and is installed again), and an entry of any `source` whose capability upstream ships but
-> this pharn cannot read is kept exactly as it was (and listed in `frozenCapabilities`). A `manual`
-> entry upstream no longer ships is dropped and named. An entry with **no** `source` is not carried —
-> it is re-resolved from the archetypes like an `auto` one. `init` warns before overwriting
+> Re-running `pharn init` on an existing project **rewrites this file** from its own fields, and
+> carries over what `pharn update` would keep. A `manual` entry upstream still ships is installed
+> again and stays `manual`. An entry of any `source` whose capability upstream ships but this pharn
+> cannot read is kept exactly as it was (and listed in `frozenCapabilities`). A `manual` entry
+> upstream no longer ships is dropped and named; an entry with **no** `source` is re-resolved from
+> the archetypes like an `auto` one. [Keys pharn does not own](#keys-pharn-does-not-own) are copied
+> across. Everything else pharn owns is written fresh. `init` warns before overwriting
 > `pharn.config.json` and defaults to **No**. Use `pharn update` to refresh an existing install;
 > `init` is for installing one.
 
@@ -189,10 +193,52 @@ Five hand-edits are rejected by name: an unknown sibling key, an unknown step, a
 `resolutionOrder` whose last entry is not `ask`, and a `modelConfidenceThreshold` set without a `model`
 step in the order.
 
+## Keys pharn does not own
+
+Every field on this page is **pharn's**, including the [legacy fields](#legacy-fields-pre-archetype-configs-still-load)
+it no longer writes. Any **other** top-level key is **yours**: `pharn` does not interpret or validate it,
+and every command that writes this file keeps it. Upstream PHARN documents two that you add by hand:
+
+| Key           | Read by                                                        | What it sets                                                 |
+| ------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
+| `testResults` | `/pharn-test`, and `/pharn-verify`'s acceptance-criteria check | The JSON report format of each test gate                     |
+| `ship`        | `/pharn-ship` (`ship.requireAttestation`)                      | `true`: the ship stage asks for a named person's attestation |
+
+```json
+{
+  "testResults": { "test": "vitest-json", "test:e2e": "playwright-json" },
+  "ship": { "requireAttestation": false }
+}
+```
+
+Without `testResults`, `/pharn-loop` stops with `blocked: no-test-runner`. The shape of both keys is
+upstream's to define — see the pharn-oss README,
+[Per-test results](https://github.com/pharn-dev/pharn-oss#per-test-results). Because `pharn` does not
+own these keys it does not check them, so a typo in one is not reported by any `pharn` command.
+
+How each command keeps them:
+
+- `pharn add`, `pharn remove` and `pharn update` edit this file in place, so a key they do not write
+  stays where it is.
+- `pharn init` writes the file afresh from its own fields, then **copies every key pharn does not own
+  across from the config it replaces**, unchanged, after its own. It does this for any file that
+  parses as a JSON object, including one the other commands refuse: a config missing its `modules`
+  array (the case where they tell you to run `pharn init`), or one with an invalid `models` or `seam`
+  block. A file that is **not valid JSON** carries nothing over. Move it aside first
+  ([troubleshooting](../troubleshooting.md#the-config-is-not-valid-json)), then copy your keys back.
+
+`init` **never** carries over a key pharn owns. It writes `pharnVersion`, `skillsVersion`, `repo`,
+`commit`, `installedAt`, `archetypes`, `capabilities`, `layout` and `modules` fresh. `models` and
+`seam` go back to their defaults, so a hand-edit there does not survive a re-run `init`.
+`pendingSkillsVersion`, `frozenCapabilities` and the legacy fields below are dropped. (`capabilities`
+is rewritten too, but the entries you added with `pharn add` are kept as `manual` — see the
+[init command](../commands/init.md#6-summary).)
+
 ## Legacy fields (pre-archetype configs still load)
 
 The schema is **additive** (P7): a `pharn.config.json` written by an older, module-based CLI still loads,
-and its now-unused fields are preserved on read.
+and its now-unused fields are preserved on read. They are still pharn's fields, though, so a re-run
+`pharn init` drops them rather than [carrying them over](#keys-pharn-does-not-own).
 
 Two fields are nonetheless **load-bearing**, and deleting either makes the file unreadable: a config
 without a string `skillsVersion` or without a `modules` array is treated as absent, and every command

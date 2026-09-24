@@ -16,7 +16,8 @@ CI-equivalent of this root sandbox.
 | `typecheck`    | 0    |
 | `validate`     | 0    |
 
-`test` is vitest (1486 tests), which collects this increment's own tests (`tests/init.test.ts`,
+Re-run after `origin/main` (#214, #215) was merged into this branch: every gate still exit 0.
+`test` is vitest (1495 tests), which collects this increment's own tests (`tests/init.test.ts`,
 `tests/init-archetype.test.ts`, `tests/archetype-summary.test.ts`, `tests/pharn-config.test.ts`).
 `test:floor` is floor.yml's `node --test` run (754 tests), kept in the map for parity with the previous
 increment. No `structural:*` gate — the increment ships no eval-actual pair.

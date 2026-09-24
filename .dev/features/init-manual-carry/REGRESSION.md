@@ -4,8 +4,9 @@ The verdict below is computed by `.dev/floor/check-regress.mjs`, not by this sta
 
 ## Base and partition
 
-- **base:** `5cf6ce3451697f83589d057bc3783ea364b08b94` (`HEAD` — `origin/main` after #213; the build is an
-  uncommitted working tree on top of it).
+- **base:** `f9b1bbb397ec7b659b99a8e7bfc0847ebe9976d5` (`origin/main` after #214 and #215, merged into this
+  branch while its PR was open). Re-run after that merge; the first run, against `5cf6ce3` (`origin/main`
+  after #213), gave the same verdict.
 - **inside** (each declared in `PLAN.md` `## Files`): `src/commands/init.ts`, `src/lib/pharn-config.ts`,
   `src/steps/install-archetype.ts`, `src/steps/archetype-summary.ts`, `src/types.ts`, `tests/init.test.ts`,
   `tests/init-archetype.test.ts`, `tests/archetype-summary.test.ts`, `tests/pharn-config.test.ts`,

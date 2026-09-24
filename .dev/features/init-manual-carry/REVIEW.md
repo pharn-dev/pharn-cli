@@ -68,6 +68,17 @@ None.
   commits after PHARN-03 (71bc375, #197) set the contract for `add`/`update`/`remove`; found by the
   18-commit review on 2026-09-24; closed by this diff (`src/commands/init.ts:224`).
 
+## After merging `origin/main` (#214, #215) into the PR branch
+
+PR #215 landed on `main` while this PR was open and touched the same files: init now also copies the config
+keys pharn does not own (`testResults`, `ship`) across a re-run. The conflicts were resolved without
+changing either behavior: both helpers are kept (`keptRecords`, `readCarriedEntries`), and the three doc
+passages and the CHANGELOG now describe both carry-overs. Two of #215's comments were updated: one cited
+the removed `carriedManualCapabilities`, the other said a key edited while a prompt is open is carried
+(under init that edit now makes init refuse first, so the key is still not lost). One test was added:
+kept entries and user-owned keys both survive one re-run. Floor re-run on the merged tree: `npm run check`
+exit 0 (1495 tests), regress `no-regressions` against `f9b1bbb`, verify `PASS`.
+
 ## Verdict
 
 **GREEN — 0 floor-gate findings, 3 advisory (minor).** The standing decision is the human's (GATE 2).

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A hand-added capability upstream no longer ships is still dropped, but now named.
   - Carried entries show as "added by hand" in the install summary, not also under SKIPPED.
 - **`pharn init` no longer overwrites a config another `pharn` command wrote while its prompts were open.** It now re-checks `pharn.config.json` under its lock, like `add`, `update` and `remove`. If the file changed after `init` read it, `init` refuses and writes nothing.
+- **A re-run `pharn init` dropped the `pharn.config.json` keys you added by hand.** Upstream PHARN reads top-level keys that users add themselves: `testResults` (without it `/pharn-loop` stops with `blocked: no-test-runner`) and `ship.requireAttestation`. `add`, `update` and `remove` kept them, but `init` rebuilt the config from its own fields alone. It now copies every top-level key pharn does not own across from the config it replaces, unchanged. It does so from any file that parses as a JSON object, including one the other commands refuse. Keys pharn owns are still written fresh.
 
 ## [0.5.0] - 2026-09-10
 

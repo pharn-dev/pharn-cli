@@ -113,6 +113,12 @@ export interface SeamConfig {
   haltOnUnknown?: boolean;
 }
 
+// Every key declared here is pharn-OWNED: `pharn init` rewrites it from scratch
+// (CLI_OWNED_KEYS in src/lib/pharn-config.ts must list it — the typecheck
+// enforces that). Keys the user adds that are NOT declared — upstream pharn-oss's
+// `testResults` and `ship` — are user-owned and survive every command, init
+// included (userOwnedConfigEntries). So declaring an upstream key here is not a
+// harmless typing convenience: it would make init start dropping it.
 export interface PharnConfig {
   pharnVersion: string;
   skillsVersion: string;

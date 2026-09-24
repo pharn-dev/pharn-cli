@@ -608,5 +608,241 @@ describe('re-running init over an existing install (PHARN-11)', () => {
 
       expect(readPharnConfig(proj)!).not.toHaveProperty('frozenCapabilities');
     });
+
+    // The two carry-overs meet in one config write: pharn-owned kept entries
+    // (this block) and the keys pharn does not own (the block below).
+    it('keeps the entries AND the keys pharn does not own through one re-run', async () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      const { archetypes, selection } = await withPerfInstalled(repo, proj);
+      const configFile = join(proj, 'pharn.config.json');
+      const raw = JSON.parse(readFileSync(configFile, 'utf8')) as object;
+      const testResults = { test: 'vitest-json' };
+      writeFileSync(configFile, JSON.stringify({ ...raw, testResults }));
+
+      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+        manualKeys: new Set(),
+        kept,
+        previousStamp: { skillsVersion: '1.0.0', commit: 'sha123' },
+      });
+
+      const written = readPharnConfig(proj)! as unknown as Record<
+        string,
+        unknown
+      >;
+      expect(written.frozenCapabilities).toEqual([
+        'griller:legacy',
+        'lens:perf',
+      ]);
+      expect(written.capabilities).toContainEqual(kept[0]);
+      expect(written.testResults).toEqual(testResults);
+    });
+  });
+});
+
+// Upstream pharn-oss (6.15.0+) reads top-level keys this CLI does not own and
+// users add by hand: `testResults` (the per-test results runners `/pharn-test`
+// and `/pharn-verify` read — without it `/pharn-loop` stops `blocked:
+// no-test-runner`) and `ship.requireAttestation`. add/update/remove keep them
+// (readPharnConfig's spread); a re-run init rebuilt the config from its own
+// fields alone and dropped them.
+describe('re-running init keeps the config keys pharn does not own', () => {
+  const tmp = useTmpDir();
+
+  const testResults = { test: 'vitest-json', 'test:e2e': 'playwright-json' };
+  const ship = { requireAttestation: true };
+
+  async function install(repo: string, proj: string): Promise<void> {
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const selection = resolveCapabilities(
+      archetypes,
+      parseCapabilityIndex(repo),
+    );
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+  }
+
+  async function firstInstall(repo: string, proj: string): Promise<void> {
+    scaffoldRepo(repo);
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+    await install(repo, proj);
+  }
+
+  const configFile = (proj: string): string => join(proj, 'pharn.config.json');
+  const readRaw = (proj: string): Record<string, unknown> =>
+    JSON.parse(readFileSync(configFile(proj), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+  // Hand-edit the installed config, the way upstream's README says to.
+  const handEdit = (
+    proj: string,
+    edit: (config: Record<string, unknown>) => void,
+  ): void => {
+    const config = readRaw(proj);
+    edit(config);
+    writeFileSync(configFile(proj), JSON.stringify(config, null, 2));
+  };
+
+  it('keeps a valid testResults block (and ship) from the config it replaces', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    await firstInstall(repo, proj);
+    const cliKeys = Object.keys(readRaw(proj));
+    handEdit(proj, (c) => {
+      c.testResults = testResults;
+      c.ship = ship;
+    });
+
+    await install(repo, proj);
+
+    const written = readRaw(proj);
+    expect(written.testResults).toEqual(testResults);
+    expect(written.ship).toEqual(ship);
+    // Verbatim, and nothing else: the fresh install's own keys plus exactly the
+    // two the user wrote.
+    expect(Object.keys(written).sort()).toEqual(
+      [...cliKeys, 'ship', 'testResults'].sort(),
+    );
+    // Still a config every other command loads, carried keys included.
+    expect(readPharnConfig(proj)).toMatchObject({ testResults, ship });
+  });
+
+  it('never carries a key pharn owns — init rewrites every one of them', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    await firstInstall(repo, proj);
+    const fresh = readRaw(proj);
+    handEdit(proj, (c) => {
+      c.testResults = testResults;
+      // State an earlier run recorded, stale the moment init reinstalls.
+      c.pharnVersion = '0.0.1';
+      c.skillsVersion = '0.0.1';
+      c.repo = 'someone/else';
+      c.commit = 'stale-sha';
+      c.pendingSkillsVersion = '0.0.2';
+      c.frozenCapabilities = ['lens:path-traversal'];
+      c.layout = 'pharn';
+      c.archetypes = ['backend'];
+      c.capabilities = [
+        { name: 'path-traversal', role: 'lens', source: 'auto' },
+      ];
+      c.models = {
+        default: { model: 'haiku-4-5', effort: 'low' },
+        stages: {},
+      };
+      c.seam = { resolutionOrder: ['ask'] };
+      // Module-era fields: nothing writes them any more, but they are still
+      // pharn's, not the user's.
+      c.modules = [{ name: 'core', version: '1.0.0' }];
+      c.constitution = 'minimal';
+      c.isMultiTenant = true;
+      c.stackAnswers = { db: 'postgres' };
+      c.installedSkills = [{ skill: 'x', from: 'y' }];
+    });
+
+    await install(repo, proj);
+
+    // Exactly what a fresh install writes, plus the one key pharn does not own.
+    expect({ ...readRaw(proj), installedAt: null }).toEqual({
+      ...fresh,
+      installedAt: null,
+      testResults,
+    });
+  });
+
+  // The recovery path pharn itself prescribes: a config with no `modules` array
+  // is answered by every other command with "No pharn.config.json found. Run
+  // `pharn init` first." Taking that advice must not cost the user their keys —
+  // nor may a bad hand-edit of a block pharn owns.
+  it.each<[string, (config: Record<string, unknown>) => void]>([
+    [
+      'has no `modules` array ("run `pharn init`")',
+      (c) => {
+        delete c.modules;
+      },
+    ],
+    [
+      'has an invalid `seam` block (a named hand-edit error)',
+      (c) => {
+        c.seam = { resolutionOrder: ['model'] };
+      },
+    ],
+  ])(
+    'keeps them from a config that every other command refuses: it %s',
+    async (_label, damage) => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      await firstInstall(repo, proj);
+      handEdit(proj, (c) => {
+        c.testResults = testResults;
+        damage(c);
+      });
+      // The premise: the command-side reader will not use this config.
+      let usable: boolean;
+      try {
+        usable = readPharnConfig(proj) !== null;
+      } catch {
+        usable = false;
+      }
+      expect(usable).toBe(false);
+
+      await install(repo, proj);
+
+      expect(readRaw(proj).testResults).toEqual(testResults);
+      expect(readPharnConfig(proj)).not.toBeNull();
+    },
+  );
+
+  it.each([
+    ['not JSON', '{ "testResults": '],
+    ['a JSON array', '[{ "testResults": {} }]'],
+    ['a JSON scalar', '"testResults"'],
+  ])(
+    'carries nothing, and still installs, when the replaced config is %s',
+    async (_label, text) => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      await firstInstall(repo, proj);
+      writeFileSync(configFile(proj), text);
+
+      await install(repo, proj);
+
+      const written = readRaw(proj);
+      expect(written).not.toHaveProperty('testResults');
+      expect(written.skillsVersion).toBe('1.0.0');
+    },
+  );
+
+  // Carried as DATA. Keys named like Object.prototype members are the user's
+  // keys like any other (an `in` test against a plain object would read them as
+  // pharn's), and `__proto__` — an OWN key after JSON.parse — must round-trip as
+  // a key, never become the written object's prototype.
+  it('carries keys named like Object.prototype members as plain data', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    await firstInstall(repo, proj);
+    writeFileSync(
+      configFile(proj),
+      readFileSync(configFile(proj), 'utf8').replace(
+        /^\{/,
+        '{\n  "__proto__": { "polluted": true },\n  "constructor": "mine",\n  "toString": 1,',
+      ),
+    );
+
+    await install(repo, proj);
+
+    const written = readRaw(proj);
+    expect(
+      Object.getOwnPropertyDescriptor(written, '__proto__')?.value,
+    ).toEqual({ polluted: true });
+    expect(Object.getPrototypeOf(written)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(written, 'constructor')?.value).toBe(
+      'mine',
+    );
+    expect(Object.getOwnPropertyDescriptor(written, 'toString')?.value).toBe(1);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 });
