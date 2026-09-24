@@ -17,6 +17,7 @@ import {
   interactiveAllowed,
 } from '../lib/capability-picker.js';
 import { safeChildJoin, safeJoin } from '../lib/validate.js';
+import { findSymlinkComponent } from '../lib/symlink-guard.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
   loadArchetypeConfigOrExit,
@@ -98,6 +99,36 @@ function deleteCapabilityDir(
   const existed = existsSync(dir);
   if (existed) rmSync(dir, { recursive: true, force: true });
   return existed;
+}
+
+// Refuse (exit 1, nothing deleted) when any target's directory path crosses a
+// symlinked component below the project root. `rmSync` on `pharn/pharn-review/x`
+// resolves every ancestor, so with `pharn -> ../shared` it deletes
+// `../shared/pharn-review/x` — outside the project — and `safeJoin` cannot see
+// it (lexical). Checked for the WHOLE selection before the first delete (and,
+// on the picker path, before the confirm), with no lock held, so the exit
+// leaves nothing behind. The same physical walk `update`/`add` use. ENOTDIR (a
+// component below a regular file) is not a link: that dir does not exist, and
+// the delete's own existsSync already treats it as gone.
+function refuseSymlinkedTargets(
+  cwd: string,
+  paths: LayoutPaths,
+  targets: InstalledCapability[],
+): void {
+  for (const target of targets) {
+    let linked: string | null;
+    try {
+      linked = findSymlinkComponent(cwd, capabilityRelDir(paths, target));
+    } catch {
+      linked = null;
+    }
+    if (linked !== null) {
+      logError(
+        `Refusing to remove ${target.name} (${target.role}): ${linked} is a symbolic link, so deleting through it would delete files OUTSIDE the project. Nothing was removed. Delete the directory yourself if that is what you want.`,
+      );
+      process.exit(1);
+    }
+  }
 }
 
 // One source for the role→dir mapping. The delete addresses the filesystem and
@@ -236,6 +267,7 @@ async function removeNamed(
 
   const target = matches[0]!;
   const paths = layoutPaths(configLayout(config));
+  refuseSymlinkedTargets(cwd, paths, [target]);
   // The single-writer lock spans delete → prune → config: the three writes are
   // individually atomic but the sequence is not, so another process must not
   // land between them. `remove` has no prompt on this path and no network, so
@@ -328,6 +360,11 @@ async function runRemovePicker(
     if (target) targets.push(target);
   }
 
+  const paths = layoutPaths(configLayout(config));
+  // Before the confirm: a selection that would be refused must not be asked
+  // about first.
+  refuseSymlinkedTargets(cwd, paths, targets);
+
   // ONE confirm listing what will be removed (default No — destructive).
   const ok = await confirm({
     message: `Remove ${targets.length} ${plural(targets.length)}: ${targets
@@ -337,7 +374,6 @@ async function runRemovePicker(
   });
   if (isCancel(ok) || ok !== true) cancelAndExit();
 
-  const paths = layoutPaths(configLayout(config));
   // Taken AFTER the confirm — holding it across an unanswered destructive
   // prompt would block an agent hook for as long as a human takes to answer —
   // and spanning the whole selection, not one lock per capability.

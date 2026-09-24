@@ -23,6 +23,7 @@ import {
   resolveFeaturesReadme,
   type LayoutPaths,
 } from './layout.js';
+import { collectExpectedInstallPaths } from './install-manifest.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
@@ -155,6 +156,10 @@ export function installCapabilities(
   // the CLI never rewrites copied file contents (lib/layout.ts).
   const paths = layoutPaths(detectLayout(repoDir));
   const featuresRel = resolveFeaturesReadme(repoDir, paths.layout);
+
+  // Destination pre-flight, before the FIRST write: nothing below may follow a
+  // symlinked project directory out of the project (see assertDestinationsInProject).
+  assertDestinationsInProject(repoDir, projectRoot, selection.selected, paths);
 
   // Copy the selected capability dirs (pre-flighted; no partial installs).
   const capabilities = installCapabilityDirs(
@@ -308,6 +313,60 @@ export function installCapabilities(
     docs: written,
   };
 }
+
+/**
+ * Refuse the whole install when any path it would write crosses a symlinked
+ * component below `projectRoot`. Every copy here is `safeJoin`-contained, but
+ * that check is LEXICAL: measured, a project whose `.claude/commands` or `pharn/`
+ * is a symlink to an external directory takes `cpSync` straight THROUGH it,
+ * creating and overwriting files outside the project with no prompt (the
+ * overwrite check's `existsSync` sees no conflict inside an empty target). This
+ * is the posture `update` (apply-update.ts) and `add` (dest-drift.ts) already
+ * take, applied once to the full write set: every file the install manifest
+ * says this install writes, plus the user-owned `.claude/settings.json`.
+ *
+ * ENOTDIR from the walk (a component below a REGULAR file) is not a symlink and
+ * is left to the copy itself, which fails on that tree as before.
+ *
+ * Residual (advisory): a link created between this walk and the copy (TOCTOU)
+ * is not covered — the same residual `update` names.
+ */
+function assertDestinationsInProject(
+  repoDir: string,
+  projectRoot: string,
+  capabilities: InstalledCapability[],
+  paths: LayoutPaths,
+): void {
+  const rels = [
+    ...collectExpectedInstallPaths({
+      repoDir,
+      capabilities,
+      layout: paths.layout,
+    }).keys(),
+    CLAUDE_SETTINGS_FILE,
+  ];
+  const linked = new Set<string>();
+  for (const rel of rels) {
+    let hit: string | null;
+    try {
+      hit = findSymlinkComponent(projectRoot, rel);
+    } catch {
+      hit = null;
+    }
+    if (hit !== null) linked.add(hit);
+  }
+  if (linked.size === 0) return;
+  const shown = [...linked].sort();
+  const list =
+    shown.length > MAX_LINKED_SHOWN
+      ? `${shown.slice(0, MAX_LINKED_SHOWN).join(', ')} and ${shown.length - MAX_LINKED_SHOWN} more`
+      : shown.join(', ');
+  throw new ManifestValidationError(
+    `Refusing to install: ${list} ${shown.length === 1 ? 'is a symbolic link' : 'are symbolic links'} inside the project, so writing through ${shown.length === 1 ? 'it' : 'them'} would put files OUTSIDE the project. Nothing was written. Replace ${shown.length === 1 ? 'it' : 'each'} with a real directory (or remove ${shown.length === 1 ? 'it' : 'them'}) and re-run \`pharn init\`.`,
+  );
+}
+
+const MAX_LINKED_SHOWN = 5;
 
 /**
  * May the install write `rel` under `projectRoot`? False when any component

@@ -1,7 +1,12 @@
 {
   "scope": [
-    ".dev/features/config-capability-name-validation/SHIP.md"
+    "src/lib/install-capabilities.ts",
+    "src/commands/remove.ts",
+    "tests/install-capabilities.test.ts",
+    "tests/remove.test.ts",
+    "README.md",
+    "CLAUDE.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T07:36:53.788Z"
+  "set_by": ".dev/features/dest-symlink-guard-init-remove/PLAN.md",
+  "set_at": "2026-09-24T07:58:14.028Z"
 }

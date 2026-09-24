@@ -4,6 +4,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -291,6 +292,62 @@ describe('runRemove (archetype)', () => {
     ).toBe(true);
     expect(existsSync(join(proj, 'src/index.ts'))).toBe(true);
     expect(existsSync(join(proj, '.git/HEAD'))).toBe(true);
+  });
+
+  // --- PHARN-02: never delete through a symlinked project directory -----------
+
+  it.each([['pharn'], ['pharn/pharn-review'], ['pharn/pharn-review/a11y']])(
+    'refuses (exit 1) when %s is a symlink out of the project; outside files survive',
+    async (link) => {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([{ name: 'a11y', role: 'lens' }], { layout: 'pharn' }),
+      );
+      const shared = join(tmp.path(), 'shared');
+      // The shared tree mirrors what `link` points at.
+      const target = join(shared, 'x');
+      const rest = relative(link, 'pharn/pharn-review/a11y');
+      write(join(target, rest, 'NOTES.md'), 'USER NOTES');
+      mkdirSync(join(proj, link, '..'), { recursive: true });
+      symlinkSync(target, join(proj, link));
+      const before = snapshot(shared);
+
+      await expect(runRemove('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(snapshot(shared)).toEqual(before);
+      expect(writePharnConfig).not.toHaveBeenCalled();
+      expect(
+        vi.mocked(prompts.log.error).mock.calls.map(String).join(),
+      ).toContain(`${link} is a symbolic link`);
+    },
+  );
+
+  it('picker: one unsafe pick refuses the WHOLE selection before the confirm', async () => {
+    setTTY(true, true);
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([
+        { name: 'a11y', role: 'lens' },
+        { name: 'a11y', role: 'griller' },
+      ]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'SAFE');
+    const shared = join(tmp.path(), 'shared');
+    write(join(shared, 'a11y/NOTES.md'), 'USER NOTES');
+    symlinkSync(shared, join(proj, 'pharn-review'));
+    vi.mocked(prompts.groupMultiselect).mockResolvedValueOnce([
+      'griller:a11y',
+      'lens:a11y',
+    ]);
+
+    await expect(runRemove(undefined)).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
+      true,
+    );
+    expect(existsSync(join(shared, 'a11y/NOTES.md'))).toBe(true);
+    expect(writePharnConfig).not.toHaveBeenCalled();
   });
 
   // --- bare `pharn remove` (no arg): multi-select picker / non-TTY guard -------
