@@ -10,6 +10,7 @@ import {
   assertRole,
   assertAppliesToken,
   isPlainObject,
+  safeChildJoin,
   safeJoin,
   toPosix,
 } from '../src/lib/validate.js';
@@ -194,6 +195,32 @@ describe('safeJoin (path containment)', () => {
     // but is NOT under base/ — the `root + sep` check must still reject it.
     expect(() => safeJoin(base, '../pharn-base-evil')).toThrow(/escape/);
   });
+});
+
+// The strict-child form `remove` deletes through (PHARN-01): safeJoin allows the
+// base itself, which is how `${subtree}/../..` resolved to the project root.
+describe('safeChildJoin (strict single-segment child)', () => {
+  const base = resolve('/tmp/pharn-base/pharn-review');
+
+  it('returns base/<name> for one plain segment', () => {
+    expect(safeChildJoin(base, 'a11y')).toBe(resolve(base, 'a11y'));
+  });
+
+  it.each([
+    ['..'],
+    ['.'],
+    [''],
+    ['../..'],
+    ['../x'],
+    ['a/b'],
+    ['a/..'],
+    ['/abs'],
+  ])(
+    'refuses %j (the base itself, a parent, a grandchild, or elsewhere)',
+    (name) => {
+      expect(() => safeChildJoin(base, name)).toThrow(ManifestValidationError);
+    },
+  );
 });
 
 // toPosix is the other LEXICAL primitive here (relocated from install-manifest.ts

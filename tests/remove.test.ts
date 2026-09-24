@@ -1,11 +1,12 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CANCEL,
@@ -187,6 +188,109 @@ describe('runRemove (archetype)', () => {
       new ProcessExit(1),
     );
     expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  // --- PHARN-01: a hand-edited capability name must never steer the delete ------
+
+  // Every path under the project, so "nothing was deleted" is a whole-tree claim.
+  function snapshot(root: string): string[] {
+    const out: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        out.push(relative(root, p));
+        if (e.isDirectory()) walk(p);
+      }
+    };
+    walk(root);
+    return out.sort();
+  }
+
+  function seedProject(): void {
+    write(join(proj, '.git/HEAD'), 'ref: refs/heads/main');
+    write(join(proj, 'src/index.ts'), 'code');
+    write(join(proj, 'pharn/pharn-review/a11y/a11y.md'), 'A');
+    write(join(proj, 'pharn/pharn-review/a11y-extended/x.md'), 'X');
+  }
+
+  it.each([['../..'], ['../../src'], ['..'], ['.']])(
+    'the REAL config loader refuses name %j: exit 1, tree unchanged, no writes',
+    async (name) => {
+      const actual = await vi.importActual<
+        typeof import('../src/lib/pharn-config.js')
+      >('../src/lib/pharn-config.js');
+      loadArchetypeConfigOrExit.mockImplementationOnce(
+        actual.loadArchetypeConfigOrExit,
+      );
+      seedProject();
+      writeFileSync(
+        join(proj, 'pharn.config.json'),
+        JSON.stringify(
+          archConfig([{ name, role: 'lens' }], { layout: 'pharn' }),
+        ),
+      );
+      const before = snapshot(proj);
+
+      await expect(runRemove(name)).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(snapshot(proj)).toEqual(before);
+      expect(writePharnConfig).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([['../..'], ['../../src'], ['..'], ['.']])(
+    'the delete itself refuses name %j even if ingest were bypassed (defense in depth)',
+    async (name) => {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([{ name, role: 'lens' }], { layout: 'pharn' }),
+      );
+      seedProject();
+      const before = snapshot(proj);
+
+      await expect(runRemove(name)).rejects.toThrow(/Refusing path/);
+
+      expect(snapshot(proj)).toEqual(before);
+      expect(writePharnConfig).not.toHaveBeenCalled();
+    },
+  );
+
+  it('the defense-in-depth refusal also holds on the picker path', async () => {
+    setTTY(true, true);
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: '../..', role: 'lens' }], { layout: 'pharn' }),
+    );
+    seedProject();
+    const before = snapshot(proj);
+    vi.mocked(prompts.groupMultiselect).mockResolvedValueOnce(['lens:../..']);
+    vi.mocked(prompts.confirm).mockResolvedValueOnce(true);
+
+    await expect(runRemove(undefined)).rejects.toThrow(/Refusing path/);
+
+    expect(prompts.confirm).toHaveBeenCalledTimes(1);
+    expect(snapshot(proj)).toEqual(before);
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('a valid name still deletes only <subtree>/<name> (prefix sibling intact)', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig(
+        [
+          { name: 'a11y', role: 'lens' },
+          { name: 'a11y-extended', role: 'lens' },
+        ],
+        { layout: 'pharn' },
+      ),
+    );
+    seedProject();
+
+    await runRemove('a11y');
+
+    expect(existsSync(join(proj, 'pharn/pharn-review/a11y'))).toBe(false);
+    expect(
+      existsSync(join(proj, 'pharn/pharn-review/a11y-extended/x.md')),
+    ).toBe(true);
+    expect(existsSync(join(proj, 'src/index.ts'))).toBe(true);
+    expect(existsSync(join(proj, '.git/HEAD'))).toBe(true);
   });
 
   // --- bare `pharn remove` (no arg): multi-select picker / non-TTY guard -------

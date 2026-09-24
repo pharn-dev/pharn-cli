@@ -12,6 +12,7 @@ import {
   isArchetypeConfig,
   configPath,
   LEGACY_CONFIG_MESSAGE,
+  CapabilityEntryError,
   CapabilitySourceError,
   ConfigParseError,
 } from '../src/lib/pharn-config.js';
@@ -198,7 +199,7 @@ describe('pharn-config', () => {
 
   // -------------------------------------------------------------------------
   // capabilities[].source — the FIRST capabilities-entry check this config has.
-  // Validates `source` ONLY; name/role stay unvalidated (a separate axis, P7).
+  // Validates `source` ONLY; name/role are the `CapabilityEntryError` block below.
   // -------------------------------------------------------------------------
   describe('capabilities[].source ingest', () => {
     stubProcessExit();
@@ -266,6 +267,110 @@ describe('pharn-config', () => {
       expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
       expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
         'capabilities[0].source',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // capabilities[].name / .role (PHARN-01). `name` is path-joined by `remove`'s
+  // recursive delete, so `{"name":"../.."}` used to delete the project root.
+  // -------------------------------------------------------------------------
+  describe('capabilities[].name / .role ingest', () => {
+    stubProcessExit();
+    const withCaps = (caps: unknown[]) => ({
+      pharnVersion: '0.4.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: null,
+      modules: [],
+      installedAt: '2026-08-07T00:00:00.000Z',
+      archetypes: ['ssr'],
+      capabilities: caps,
+    });
+    const writeRaw = (value: unknown): void => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify(value, null, 2),
+      );
+    };
+
+    it.each([
+      ['../..'],
+      ['../../src'],
+      ['..'],
+      ['.'],
+      [''],
+      ['a/b'],
+      ['a\\b'],
+      ['/abs'],
+      ['A11y'],
+      ['a\u001b[2J'],
+      [7],
+      [null],
+    ])('THROWS a named error for name %j, naming the offender', (name) => {
+      writeRaw(
+        withCaps([
+          { name: 'a11y', role: 'griller' },
+          { name, role: 'lens' },
+        ]),
+      );
+      expect(() => readPharnConfig(tmp.path())).toThrow(CapabilityEntryError);
+      expect(() => readPharnConfig(tmp.path())).toThrow(
+        /capabilities\[1\]\.name/,
+      );
+    });
+
+    it('never echoes a control character from the offending name', () => {
+      writeRaw(withCaps([{ name: 'x\u001b]0;pwned\u0007', role: 'lens' }]));
+      let message = '';
+      try {
+        readPharnConfig(tmp.path());
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).toMatch(/control characters/);
+      // eslint-disable-next-line no-control-regex
+      expect(message).not.toMatch(/[\x00-\x1f]/);
+    });
+
+    it.each([['bogus'], [undefined], [1]])(
+      'THROWS a named error for role %j',
+      (role) => {
+        writeRaw(withCaps([{ name: 'a11y', role }]));
+        expect(() => readPharnConfig(tmp.path())).toThrow(CapabilityEntryError);
+        expect(() => readPharnConfig(tmp.path())).toThrow(
+          /capabilities\[0\]\.role/,
+        );
+      },
+    );
+
+    it.each([['a11y'], [null], [['a11y']]])(
+      'THROWS a named error for a non-object entry %j',
+      (entry) => {
+        writeRaw(withCaps([entry]));
+        expect(() => readPharnConfig(tmp.path())).toThrow(CapabilityEntryError);
+        expect(() => readPharnConfig(tmp.path())).toThrow(/capabilities\[0\]/);
+      },
+    );
+
+    it('still loads every config shape this CLI writes (P7)', () => {
+      const caps = [
+        { name: 'a11y', role: 'griller', source: 'auto' },
+        { name: 'n-plus-one', role: 'lens' },
+      ];
+      writeRaw(withCaps(caps));
+      expect(readPharnConfig(tmp.path())?.capabilities).toEqual(caps);
+      writeRaw(withCaps([]));
+      expect(readPharnConfig(tmp.path())?.capabilities).toEqual([]);
+    });
+
+    it('joins isConfigValidationError, so every loader reports it and exits 1', () => {
+      expect(isConfigValidationError(new CapabilityEntryError('x'))).toBe(true);
+      writeRaw(withCaps([{ name: '../..', role: 'lens' }]));
+      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
+        'capabilities[0].name',
       );
     });
   });
