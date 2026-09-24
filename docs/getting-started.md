@@ -109,9 +109,11 @@ your project's PHARN state.
 1. Open **Claude Code** in the project directory.
 2. Run **`/pharn-spec`** to capture your first feature's intent — it pins the scope and feeds `/pharn-plan`. This is where every run begins: `/pharn-plan` gates on an **Approved**, un-drifted `SPEC.md` and halts without one, so there is no entry point further down the chain.
 
-The pipeline is seven typed stages: `/pharn-spec → /pharn-plan → /pharn-grill → /pharn-build → /pharn-regress → /pharn-verify → /pharn-ship`. You rarely run them by hand — **`/pharn-ship`** is itself the seventh stage and orchestrates the six before it in one pass, and **`/pharn-loop`** runs the same chain but iterates build → regress → verify until green, an iteration cap, or a terminal failure. Both keep the two human gates: approve the spec before code is written, decide merge/fix/abandon after verification.
+The pipeline is eight typed stages: `/pharn-spec → /pharn-plan → /pharn-grill → /pharn-test → /pharn-build → /pharn-regress → /pharn-verify → /pharn-ship`. You rarely run them by hand — **`/pharn-ship`** is itself the eighth stage and orchestrates the seven before it in one pass, keeping both human gates: approve the spec before code is written, decide merge/fix/abandon after verification. **`/pharn-loop`** runs the same chain unattended — the model approves the spec and iterates build → regress → verify until green, an iteration cap, or a terminal failure — and leaves the merge/fix/abandon decision to you after the run.
 
-Two of the ten installed commands sit outside the pipeline: **`/pharn-review`** runs the review lenses in parallel over any code and merges their findings (no stage invokes it), and **`/pharn-memory-promote`** promotes one lesson into `memory-bank/` through a gated provenance check.
+**Set up a test runner before your first feature.** `/pharn-test` writes each acceptance criterion's test before the build and requires it to fail, so it needs a `test` script (plus `test:e2e` or `e2e` for end-to-end criteria) whose reporter writes per-test JSON, named under `testResults` in `pharn.config.json`. Without one, `/pharn-test` stops and asks, and `/pharn-loop` ends with `blocked: no-test-runner`. Set the runner up as its own increment (a SPEC with `spec_kind: test-infra`); the reporter setup is in upstream's [Per-test results](https://github.com/pharn-dev/pharn-oss#per-test-results).
+
+Two of the eleven installed commands sit outside the pipeline: **`/pharn-review`** runs the review lenses in parallel over any code and merges their findings (no stage invokes it), and **`/pharn-memory-promote`** promotes one lesson into `memory-bank/` through a gated provenance check.
 
 ## Next steps
 
