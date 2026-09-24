@@ -269,6 +269,26 @@ describe('fetchRemoteSkillsVersion', () => {
     }
   });
 
+  // PHARN-09: the same read, but the abort is NOT wired into the body — what
+  // undici 6 (Node 20/22) leaves after a GC drops its WeakRef to the signal.
+  // The deadline must still answer, naming the host.
+  it('rejects at 8s even when the abort never reaches the body stream', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(
+        async () => new Response(new ReadableStream<Uint8Array>({})),
+      );
+      const pending = fetchRemoteSkillsVersion();
+      const rejects = expect(pending).rejects.toThrow(
+        /Could not reach .*SKILLS_VERSION.*abort/i,
+      );
+      await vi.advanceTimersByTimeAsync(8000);
+      await rejects;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // -------------------------------------------------------------------------
   // FABLE 4.6 - transport failures name the host they could not reach.
   //

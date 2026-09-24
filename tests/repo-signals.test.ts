@@ -50,9 +50,14 @@ function tarResponse(bytes: Buffer): unknown {
   return {
     ok: true,
     status: 200,
-    body: (async function* () {
-      yield bytes;
-    })(),
+    // A web ReadableStream — the shape `fetch` returns; the download reads it
+    // through getReader().
+    body: new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new Uint8Array(bytes));
+        c.close();
+      },
+    }),
   };
 }
 
@@ -186,7 +191,7 @@ globalThis.fetch = (async (url) => {
   return {
     ok: true,
     status: 200,
-    body: (async function* () { yield bytes; })(),
+    body: new ReadableStream({ start(c) { c.enqueue(new Uint8Array(bytes)); c.close(); } }),
   };
 }) as unknown as typeof fetch;
 

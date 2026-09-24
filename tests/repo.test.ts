@@ -75,11 +75,15 @@ function tarResponse(bytes: Buffer, chunkSize = 64): unknown {
   return {
     ok: true,
     status: 200,
-    body: (async function* () {
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        yield bytes.subarray(i, i + chunkSize);
-      }
-    })(),
+    // A web ReadableStream, the shape `fetch` really returns — the download is
+    // read through `getReader()` so it can be cancelled on its own signal.
+    body: ReadableStream.from(
+      (async function* () {
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          yield new Uint8Array(bytes.subarray(i, i + chunkSize));
+        }
+      })(),
+    ),
   };
 }
 
@@ -147,6 +151,30 @@ describe('fetchRepo', () => {
     vi.stubGlobal('fetch', mock);
     return mock;
   }
+
+  // PHARN-09: a body stream the abort NEVER reaches — the shape undici 6 (Node
+  // 20/22) leaves after a GC drops its WeakRef to the caller's signal. The old
+  // abort-only timer then left the download hanging indefinitely.
+  it('gives up at CLONE_TIMEOUT_MS even when the abort never reaches the body', async () => {
+    vi.useFakeTimers();
+    try {
+      stubFetches(VALID_SHA, {
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(new Uint8Array([0x1f])); // one byte, then silence
+          },
+        }),
+      });
+      const pending = fetchRepo();
+      const rejects = expect(pending).rejects.toThrow(/Timed out downloading/);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await rejects;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('downloads the tarball at the resolved SHA and records it (recorded == fetched)', async () => {
     const mock = stubFetches(VALID_SHA);
@@ -242,5 +270,21 @@ describe('fetchCommitSha', () => {
       throw new Error('offline');
     });
     expect(await fetchCommitSha()).toBeNull();
+  });
+
+  // PHARN-09: headers arrived, the JSON body never does and ignores the abort.
+  it('returns null at the 8s deadline even when the abort never reaches the body', async () => {
+    vi.useFakeTimers();
+    try {
+      stubFetch(() => ({
+        ok: true,
+        json: () => new Promise<never>(() => undefined),
+      }));
+      const pending = fetchCommitSha();
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(await pending).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
