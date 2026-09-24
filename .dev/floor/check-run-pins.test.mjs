@@ -371,12 +371,13 @@ test("★ the live repo has NO floating install in any workflow run: line", () =
   // `npm ci` in ci.yml and publish.yml — asserted EXACTLY, so an exemption can never become a
   // silent hole. If this number changes, a lockfile install was added or removed on purpose.
   //
-  // 9 = six in ci.yml (one per gate job — each required status check installs for itself), one
-  // in publish.yml, and two in node-floor.yml (its `npm ci` build step, and the install of the
-  // locally packed tarball by PATH — `../pharn-dev-pharn-*.tgz` — onto the floor Node). It was 2
-  // while ci.yml ran a single `check` job, 7 until the node-floor smoke job was added; each step is
-  // a deliberate change this count records.
-  assert.equal(d.skipped, 9);
+  // 10 = six in ci.yml (one per gate job — each required status check installs for itself), two
+  // in publish.yml's unprivileged `build` job (`npm ci`, and the PATH install of the packed tarball
+  // for its smoke — the privileged `publish` job installs nothing), and two in node-floor.yml (its
+  // `npm ci` build step, and the PATH install of the packed tarball onto the floor Node). It was 2
+  // while ci.yml ran a single `check` job, 7 until the node-floor smoke job, 9 until publish.yml was
+  // split; each step is a deliberate change this count records.
+  assert.equal(d.skipped, 10);
 
   // Independent recount of the enumerated workflow files, case-insensitively — exit 0 is also what
   // a checker returns when it opened nothing.
@@ -420,6 +421,27 @@ test("★ publish.yml still ENFORCES the npm floor — the assert step and its f
 // ---------------------------------------------------------------------------
 // ★★ POSITIVE CONTROL — prove the scanner fires on THIS repo's own file shape.
 // The live assertions above pass with `checked: 0`, which is also what a broken scanner reports.
+
+// PHARN-07: `id-token: write` lets EVERY step of its job request the OIDC token npm trades for
+// publish rights, so it may appear only on publish.yml's `publish` job — never top-level, never on
+// the job that runs `npm ci` and the dev toolchain. A text-level pin (no YAML parser in the floor):
+// the grant appears exactly once, after the `publish:` job header, and that job runs no install.
+test("★ publish.yml grants id-token ONLY to the publish job, which installs nothing", () => {
+  const text = readFileSync(join(REPO, ".github", "workflows", "publish.yml"), "utf8");
+  const code = text
+    .split(/\r\n|\r|\n/)
+    .filter((l) => !l.trimStart().startsWith("#"))
+    .join("\n");
+  const grants = code.match(/^\s*id-token:\s*write\b/gm) ?? [];
+  assert.equal(grants.length, 1, "id-token: write must appear exactly once");
+  const publishAt = code.search(/^  publish:\s*$/m);
+  assert.ok(publishAt > 0, "the `publish` job header was not found");
+  const publishJob = code.slice(publishAt);
+  assert.match(publishJob, /^\s*id-token:\s*write\b/m, "the grant is not inside the publish job");
+  assert.ok(!/npm (ci|install|i)\b/.test(publishJob), "the privileged publish job installs packages");
+  assert.ok(!/actions\/checkout@/.test(publishJob), "the privileged publish job checks out the repo");
+  assert.match(publishJob, /--ignore-scripts/, "the privileged publish must not run lifecycle scripts");
+});
 
 test("★★ mutating the live publish.yml back to `npm install -g npm@latest` IS caught", () => {
   const root = scratch();
