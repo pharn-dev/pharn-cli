@@ -55,10 +55,14 @@ A `source` present but outside `{auto, manual}` is a hand-edit error: `pharn` re
 (`capabilities[2].source`) and exits, rather than falling back to "run `pharn init`". Deleting the
 field is a valid fix — the next update sets it.
 
-> Re-running `pharn init` on an existing project is an explicit **start-over**: it rewrites
-> `capabilities` from scratch, so every entry becomes `auto` and previous `manual` tags are lost.
-> `init` warns before overwriting `pharn.config.json` and defaults to **No**. Use `pharn update` to
-> refresh an existing install; `init` is for installing one.
+> Re-running `pharn init` on an existing project rebuilds `capabilities` from your archetypes, with
+> two things carried over by `pharn update`'s own rules: a `manual` entry upstream still ships stays
+> `manual` (and is installed again), and an entry of any `source` whose capability upstream ships but
+> this pharn cannot read is kept exactly as it was (and listed in `frozenCapabilities`). A `manual`
+> entry upstream no longer ships is dropped and named. An entry with **no** `source` is not carried —
+> it is re-resolved from the archetypes like an `auto` one. `init` warns before overwriting
+> `pharn.config.json` and defaults to **No**. Use `pharn update` to refresh an existing install;
+> `init` is for installing one.
 
 A sibling file, [`pharn.records.json`](pharn-records.md), holds a sha256 per installed file. It is
 written by the same operations that write this config and is **stamped** with this file's
@@ -75,7 +79,7 @@ When the only skipped files were ones you edited (`modified` / `unrecorded`), it
 value that is not a `x.y.z` version is ignored.
 
 `frozenCapabilities` lists (`role:name`, sorted) the installed capabilities the last `pharn update`
-kept because it could not read them upstream. While it is non-empty, `pharn update` re-fetches even
+(or re-run `pharn init`) kept because it could not read them upstream. While it is non-empty, `pharn update` re-fetches even
 at the same skills version, so they are re-checked on every run; the field is removed once none are
 left. If you `pharn remove` one, the next update drops it from the list. A value that is not a list of
 `role:name` keys is ignored.

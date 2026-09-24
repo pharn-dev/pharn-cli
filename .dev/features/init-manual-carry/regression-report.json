@@ -1,0 +1,30 @@
+{
+  "base": "5cf6ce3451697f83589d057bc3783ea364b08b94",
+  "inside": [
+    "CHANGELOG.md",
+    "docs/commands/init.md",
+    "docs/reference/pharn-config.md",
+    "src/commands/init.ts",
+    "src/lib/pharn-config.ts",
+    "src/steps/archetype-summary.ts",
+    "src/steps/install-archetype.ts",
+    "src/types.ts",
+    "tests/archetype-summary.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/init.test.ts",
+    "tests/pharn-config.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

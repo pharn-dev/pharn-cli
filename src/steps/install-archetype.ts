@@ -6,7 +6,14 @@ import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { scanDest } from '../lib/dest-drift.js';
 import { createBackup } from '../lib/backup.js';
-import { buildRecords, writeRecords } from '../lib/install-records.js';
+import {
+  buildRecords,
+  readRecords,
+  recordsBaseline,
+  recordsUnderCapabilities,
+  writeRecords,
+  type FileRecords,
+} from '../lib/install-records.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { formatModelRoutingLines } from '../lib/model-routing-format.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
@@ -21,6 +28,33 @@ import type {
   Selection,
 } from '../types.js';
 
+/**
+ * What a re-run `init` carries over from the config it replaces (built by
+ * commands/init.ts, which reads that config tolerantly). Empty for a first
+ * install.
+ */
+export interface InstallCarry {
+  // `role:name` of every capability the user added by hand (`pharn add` →
+  // `source: 'manual'`) that the fetched index still has — selected by the
+  // archetypes or not. Recorded `manual`, so `pharn update` keeps them (its merge
+  // table, rows 3 and 6); every other installed entry is `auto`.
+  manualKeys: ReadonlySet<string>;
+  // Previous entries, of ANY source, whose capability upstream still ships but
+  // this CLI could not PARSE (`index.unknown`) — `update`'s row 0. Nothing is
+  // copied for them: each is written back VERBATIM, listed in
+  // `frozenCapabilities` so `update` re-checks it, and keeps its records.
+  kept: readonly InstalledCapability[];
+  // The (skillsVersion, commit) of the config being replaced — the stamp the
+  // records store must carry for a kept entry's records to be trusted.
+  previousStamp: { skillsVersion: string; commit: string | null } | null;
+}
+
+const NO_CARRY: InstallCarry = {
+  manualKeys: new Set(),
+  kept: [],
+  previousStamp: null,
+};
+
 // The archetype-install apply stage (pharn init --archetype). Copies the
 // resolved capabilities + product surfaces from the already-fetched `repoDir`,
 // then writes pharn.config.json. Network-free (the commit SHA is passed in by
@@ -32,10 +66,7 @@ export async function runInstallArchetype(
   archetypes: Archetype[],
   selection: Selection,
   commit: string | null,
-  // `role:name` keys of capabilities the user added by hand in the config this
-  // install replaces (commands/init.ts carries them over). Recorded `manual`,
-  // so `pharn update` keeps them — every other entry is `auto`.
-  manualKeys: ReadonlySet<string> = new Set(),
+  carry: InstallCarry = NO_CARRY,
 ): Promise<void> {
   const startedAt = Date.now();
 
@@ -112,6 +143,9 @@ export async function runInstallArchetype(
     );
   }
 
+  const frozenCapabilities = [
+    ...new Set(carry.kept.map((c) => `${c.role}:${c.name}`)),
+  ].sort();
   const config: PharnConfig = {
     pharnVersion: PHARN_VERSION,
     skillsVersion,
@@ -129,18 +163,26 @@ export async function runInstallArchetype(
     // An entry from archetype resolution is `auto` — `pharn update` owns it and
     // may drop it when the archetypes stop selecting it. `manual` is what
     // `pharn add` writes, and what a re-run init carries over from the config it
-    // replaces (`manualKeys`), so a hand-added capability survives. Tagged at
+    // replaces (`carry.manualKeys` — sticky even when the archetypes ALSO select
+    // it, as in update's merge), so a hand-added capability survives. Tagged at
     // the WRITE site so lib/install-capabilities.ts (the copy routine) stays
-    // unaware of provenance, which is not its axis (P3).
-    capabilities: capabilities.map((c) => ({
-      ...c,
-      source: manualKeys.has(`${c.role}:${c.name}`)
-        ? ('manual' as const)
-        : ('auto' as const),
-    })),
+    // unaware of provenance, which is not its axis (P3). Kept (frozen) entries
+    // follow VERBATIM — a parse failure upstream is not evidence of provenance.
+    capabilities: [
+      ...capabilities.map((c) => ({
+        ...c,
+        source: carry.manualKeys.has(`${c.role}:${c.name}`)
+          ? ('manual' as const)
+          : ('auto' as const),
+      })),
+      ...carry.kept.map((c) => ({ ...c })),
+    ],
     // The layout mirrored from the fetched clone (flat OR pharn/) — status/remove
     // read this back to address the project the same way (lib/layout.ts).
     layout,
+    // While non-empty, `pharn update` re-fetches even at the same skills version,
+    // so a kept capability is re-checked once this CLI can read it (types.ts).
+    ...(frozenCapabilities.length > 0 ? { frozenCapabilities } : {}),
   };
   // Record sha256 of every file this install just wrote (hashed at the DEST, so
   // the record cannot disagree with what landed) BEFORE the config, and stamped
@@ -150,10 +192,13 @@ export async function runInstallArchetype(
   await writeRecords(cwd, {
     skillsVersion,
     commit,
-    files: buildRecords(
-      cwd,
-      collectExpectedInstallPaths({ repoDir, capabilities, layout }).keys(),
-    ),
+    files: {
+      ...keptRecords(cwd, carry, layout),
+      ...buildRecords(
+        cwd,
+        collectExpectedInstallPaths({ repoDir, capabilities, layout }).keys(),
+      ),
+    },
   });
   await writePharnConfig(cwd, config);
 
@@ -197,4 +242,26 @@ export async function runInstallArchetype(
       `  ${pc.cyan('2.')}  ${pc.bold(FIRST_FEATURE_COMMAND)}       ${pc.dim("capture your first feature's intent")}`,
     ].join('\n'),
   );
+}
+
+/**
+ * The records of every kept (frozen) capability, carried from the store this
+ * install replaces — the pair `update` uses for its frozen entries
+ * (`recordsBaseline` + `recordsUnderCapabilities`). A store that is absent,
+ * unreadable, or stamped for a different install state carries NOTHING: never
+ * minted, never blessed. Nothing under a kept capability was touched, so the
+ * hashes it does carry are still true; dropping them would make the next
+ * `update` read those files as `unrecorded` and skip them. Keyed at the clone's
+ * layout, as in `update`.
+ */
+function keptRecords(
+  cwd: string,
+  carry: InstallCarry,
+  layout: Layout,
+): FileRecords {
+  if (carry.kept.length === 0 || carry.previousStamp === null) return {};
+  const { records } = recordsBaseline(readRecords(cwd), carry.previousStamp);
+  return records === null
+    ? {}
+    : recordsUnderCapabilities(records, layoutPaths(layout), carry.kept);
 }

@@ -59,6 +59,16 @@ describe('runArchetypeSummary', () => {
     expect(note).toContain('migrations (griller)');
   });
 
+  it('says why a carried-over capability is selected: added by hand', async () => {
+    vi.mocked(prompts.select).mockResolvedValue('install');
+    await runArchetypeSummary(archetypes, {
+      selected: [{ name: 'perf', role: 'lens', matched: 'manual' }],
+      skipped: [],
+    });
+    const note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
+    expect(note).toMatch(/perf \(lens\)\s+added by hand/);
+  });
+
   it('omits the skipped block when nothing was skipped', async () => {
     vi.mocked(prompts.select).mockResolvedValue('install');
     await runArchetypeSummary(archetypes, {

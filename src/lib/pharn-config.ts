@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { writeJsonAtomic } from './atomic-write.js';
 import { resolve } from 'node:path';
@@ -381,9 +382,50 @@ export function assertConfigUnchanged(
   }
   if (current !== null && JSON.stringify(current) === JSON.stringify(snapshot))
     return;
-  throw new ProjectChangedError(
+  throw configChangedError(command);
+}
+
+function configChangedError(command: string): ProjectChangedError {
+  return new ProjectChangedError(
     `${CONFIG_FILENAME} changed while \`pharn ${command}\` was running — another pharn process (or an edit) wrote it after this command read it. Nothing was written. Re-run \`pharn ${command}\` to act on the current state.`,
   );
+}
+
+/**
+ * What `pharn.config.json` is on disk right now, as one comparable string:
+ * `absent`, `unreadable:<errno code>`, or `sha256:<hex>` of the raw bytes.
+ * Never throws.
+ *
+ * `assertConfigUnchanged` compares two PARSES and counts an unreadable file as
+ * changed, which is right for `add`/`update`/`remove` (they refuse an unreadable
+ * config up front). `init` is the one command that reads the config it replaces
+ * TOLERANTLY — absent, corrupt and unreadable all mean "carry nothing over" — so
+ * "what init read" must be expressible for every one of those states, and a
+ * content hash of the bytes is (P0: content-hash, `ARCHITECTURE.md §2`).
+ */
+export function configFingerprint(cwd: string): string {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(configPath(cwd));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' ? 'absent' : `unreadable:${code ?? 'unknown'}`;
+  }
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+/**
+ * `init`'s under-the-lock re-check: refuse, with the same `ProjectChangedError`
+ * the other writers raise, when `pharn.config.json` is no longer what init saw
+ * before its prompts (`configFingerprint`, taken BEFORE the tolerant parse, so a
+ * change between the two reads fails closed rather than being blessed).
+ */
+export function assertConfigFingerprintUnchanged(
+  cwd: string,
+  fingerprint: string,
+  command: string,
+): void {
+  if (configFingerprint(cwd) !== fingerprint) throw configChangedError(command);
 }
 
 /**

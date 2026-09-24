@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Releases could not publish: the `Pack` step wrote into a directory nothing had created.** Since the release workflow was split into an unprivileged `build` job and a `publish` job, `build` ran `npm pack --pack-destination "$RUNNER_TEMP/pkg"` without creating `pkg/`, and npm does not create it (`ENOENT` on npm 10 and 11). Every Release run would have failed at `Pack` and never reached `publish`. The step now runs `mkdir -p` first, and a live test pins that every workflow's pack destination is created earlier in the job that packs.
+- **A re-run `pharn init` no longer loses what `pharn update` would keep.** It applies `update`'s own rules to the config it replaces:
+  - A capability you added by hand stays `manual` even when your archetypes now select it too. It used to be recorded `auto`, so a later archetype change let `update` drop it.
+  - A capability upstream still ships but this pharn cannot read is left as it is, however it was added. Its config entry, files and records are untouched, and it is listed in `frozenCapabilities`. It used to be dropped from the config and its files orphaned.
+  - A hand-added capability upstream no longer ships is still dropped, but now named.
+  - Carried entries show as "added by hand" in the install summary, not also under SKIPPED.
+- **`pharn init` no longer overwrites a config another `pharn` command wrote while its prompts were open.** It now re-checks `pharn.config.json` under its lock, like `add`, `update` and `remove`. If the file changed after `init` read it, `init` refuses and writes nothing.
 
 ## [0.5.0] - 2026-09-10
 

@@ -27,7 +27,8 @@ const { runInstallArchetype } =
   await import('../src/steps/install-archetype.js');
 const { readPharnConfig } = await import('../src/lib/pharn-config.js');
 const { DEFAULT_MODEL_ROUTING } = await import('../src/lib/model-routing.js');
-const { readRecords } = await import('../src/lib/install-records.js');
+const { readRecords, writeRecords } =
+  await import('../src/lib/install-records.js');
 const { collectExpectedInstallPaths } =
   await import('../src/lib/install-manifest.js');
 const { sha256File } = await import('../src/lib/hash.js');
@@ -458,18 +459,19 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       ...selection,
       selected: [
         ...selection.selected,
-        { name: 'path-traversal', role: 'lens' as const, matched: [] },
+        {
+          name: 'path-traversal',
+          role: 'lens' as const,
+          matched: 'manual' as const,
+        },
       ],
     };
 
-    await runInstallArchetype(
-      repo,
-      proj,
-      archetypes,
-      withManual,
-      'sha123',
-      new Set(['lens:path-traversal']),
-    );
+    await runInstallArchetype(repo, proj, archetypes, withManual, 'sha123', {
+      manualKeys: new Set(['lens:path-traversal']),
+      kept: [],
+      previousStamp: null,
+    });
 
     const caps = readPharnConfig(proj)!.capabilities!;
     expect(caps).toContainEqual({
@@ -481,5 +483,130 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     expect(
       existsSync(join(proj, 'pharn-review/path-traversal/path-traversal.md')),
     ).toBe(true);
+  });
+
+  // update's merge row 3 (sticky manual): an entry the user asked for by name
+  // stays manual while the archetypes ALSO select it, so a later archetype
+  // change cannot quietly drop it.
+  it('keeps a manual capability `manual` when the archetypes also select it', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const { archetypes, selection } = await firstInstall(repo, proj);
+
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123', {
+      manualKeys: new Set(['griller:a11y']),
+      kept: [],
+      previousStamp: null,
+    });
+
+    const caps = readPharnConfig(proj)!.capabilities!;
+    expect(caps.filter((c) => c.name === 'a11y')).toEqual([
+      { name: 'a11y', role: 'griller', source: 'manual' },
+    ]);
+    expect(caps.filter((c) => c.source === 'manual')).toHaveLength(1);
+  });
+
+  describe('a kept capability — upstream ships it, this CLI cannot parse it', () => {
+    const PERF_FILE = 'pharn-review/perf/perf.md';
+    const kept = [
+      { name: 'perf', role: 'lens' as const, source: 'manual' as const },
+      // No `source` at all: kept VERBATIM, never re-tagged.
+      { name: 'legacy', role: 'griller' as const },
+    ];
+
+    // A first install, plus perf's file on disk and in the store — as if added
+    // by `pharn add` at the same install state.
+    async function withPerfInstalled(repo: string, proj: string) {
+      const first = await firstInstall(repo, proj);
+      write(join(proj, PERF_FILE), 'perf as installed');
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+      await writeRecords(proj, {
+        ...read.store,
+        files: {
+          ...read.store.files,
+          [PERF_FILE]: sha256File(join(proj, PERF_FILE)),
+        },
+      });
+      return first;
+    }
+
+    it('writes the entries back verbatim, lists them in frozenCapabilities, and carries their records', async () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      const { archetypes, selection } = await withPerfInstalled(repo, proj);
+      const perfHash = sha256File(join(proj, PERF_FILE));
+
+      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+        manualKeys: new Set(),
+        kept,
+        previousStamp: { skillsVersion: '1.0.0', commit: 'sha123' },
+      });
+
+      const config = readPharnConfig(proj)!;
+      expect(config.capabilities).toContainEqual(kept[0]);
+      expect(config.capabilities).toContainEqual(kept[1]);
+      expect(
+        config.capabilities!.find((c) => c.name === 'legacy'),
+      ).not.toHaveProperty('source');
+      expect(config.frozenCapabilities).toEqual([
+        'griller:legacy',
+        'lens:perf',
+      ]);
+      // Nothing under it was touched, so its record is still true — and kept.
+      expect(readFileSync(join(proj, PERF_FILE), 'utf8')).toBe(
+        'perf as installed',
+      );
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('records unreadable');
+      expect(read.store.commit).toBe('sha456');
+      expect(read.store.files[PERF_FILE]).toBe(perfHash);
+    });
+
+    it('carries NO record from a store stamped for a different install state', async () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      const { archetypes, selection } = await withPerfInstalled(repo, proj);
+
+      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+        manualKeys: new Set(),
+        kept,
+        previousStamp: { skillsVersion: '0.9.0', commit: 'older' },
+      });
+
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('records unreadable');
+      expect(read.store.files).not.toHaveProperty([PERF_FILE]);
+      // The entry itself is still kept — only the unverifiable record is not.
+      expect(readPharnConfig(proj)!.frozenCapabilities).toEqual([
+        'griller:legacy',
+        'lens:perf',
+      ]);
+    });
+
+    it('never mints a record for it when there was no store', async () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      const { archetypes, selection } = await withPerfInstalled(repo, proj);
+      rmSync(join(proj, 'pharn.records.json'));
+
+      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+        manualKeys: new Set(),
+        kept,
+        previousStamp: { skillsVersion: '1.0.0', commit: 'sha123' },
+      });
+
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('records unreadable');
+      expect(read.store.files).not.toHaveProperty([PERF_FILE]);
+    });
+
+    it('writes no frozenCapabilities when nothing is kept', async () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      await firstInstall(repo, proj);
+
+      expect(readPharnConfig(proj)!).not.toHaveProperty('frozenCapabilities');
+    });
   });
 });

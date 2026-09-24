@@ -22,11 +22,19 @@ import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { runGitPrereq } from '../steps/prereqs.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
-import { runInstallArchetype } from '../steps/install-archetype.js';
-import { readPharnConfig } from '../lib/pharn-config.js';
+import {
+  runInstallArchetype,
+  type InstallCarry,
+} from '../steps/install-archetype.js';
+import {
+  assertConfigFingerprintUnchanged,
+  configFingerprint,
+  readPharnConfig,
+} from '../lib/pharn-config.js';
 import type {
   CapabilityIndex,
   InstalledCapability,
+  PharnConfig,
   Selection,
 } from '../types.js';
 
@@ -131,29 +139,43 @@ async function runInitArchetype(): Promise<void> {
       const unknownWarning = unknownCapabilitiesWarning(index.unknown);
       if (unknownWarning) log.warn(unknownWarning);
       const resolved = resolveCapabilities(archetypes, index);
-      // A re-run init must not silently drop what the user added by hand
-      // (`pharn add` → `source: 'manual'`): carry those entries over, install
-      // them with the rest, and keep their provenance.
-      const manual = carriedManualCapabilities(cwd, index, resolved);
-      if (manual.length) {
+      // A re-run init must not silently drop what the user added by hand, nor
+      // what this CLI merely could not READ upstream: the config it replaces is
+      // carried over by `update`'s own merge rules (carryOver, below).
+      const previous = readPreviousConfig(cwd);
+      const carry = carryOver(previous.config, index, resolved);
+      if (carry.extra.length) {
         log.info(
-          `Keeping ${manual.length} capabilit${manual.length === 1 ? 'y' : 'ies'} you added by hand: ${manual.map((c) => `${c.role}:${c.name}`).join(', ')}.`,
+          `Keeping ${carry.extra.length} capabilit${carry.extra.length === 1 ? 'y' : 'ies'} you added by hand: ${carry.extra.map(capabilityKey).join(', ')}.`,
         );
       }
-      const selection: Selection = manual.length
+      if (carry.kept.length) {
+        log.info(
+          `Keeping ${carry.kept.length} capabilit${carry.kept.length === 1 ? 'y' : 'ies'} as installed — upstream still ships ${carry.kept.length === 1 ? 'it' : 'them'} but this pharn cannot read ${carry.kept.length === 1 ? 'it' : 'them'} (see above): ${carry.kept.map(capabilityKey).join(', ')}. Files and config entries are left as they are; \`pharn update\` re-checks them.`,
+        );
+      }
+      if (carry.gone.length) {
+        log.warn(
+          `Not keeping ${carry.gone.length} capabilit${carry.gone.length === 1 ? 'y' : 'ies'} you added by hand that upstream no longer ships: ${carry.gone.map(capabilityKey).join(', ')}. ${carry.gone.length === 1 ? 'It is' : 'They are'} dropped from pharn.config.json; the files stay on disk.`,
+        );
+      }
+      const extraKeys = new Set(carry.extra.map(capabilityKey));
+      const selection: Selection = carry.extra.length
         ? {
-            ...resolved,
             selected: [
               ...resolved.selected,
-              ...manual.map((c) => ({
+              ...carry.extra.map((c) => ({
                 name: c.name,
                 role: c.role,
-                matched: [],
+                matched: 'manual' as const,
               })),
             ],
+            // Installed now, so no longer "skipped" by the archetypes.
+            skipped: resolved.skipped.filter(
+              (s) => !extraKeys.has(capabilityKey(s)),
+            ),
           }
         : resolved;
-      const manualKeys = new Set(manual.map((c) => `${c.role}:${c.name}`));
 
       const action = await runArchetypeSummary(archetypes, selection);
       // Both prompts return a VALUE and neither exits, so `outcome` stays
@@ -194,16 +216,21 @@ async function runInitArchetype(): Promise<void> {
         // still pays the full download before being refused. Accepted — init is
         // the bootstrap command, run once, interactively, and it is where a
         // concurrent-writer collision is least likely.
-        await withProjectLock(cwd, 'init', () =>
-          runInstallArchetype(
+        await withProjectLock(cwd, 'init', () => {
+          // PHARN-03's re-check, for init. The carry-over was computed from the
+          // config as it was BEFORE both prompts; a pharn run that wrote it since
+          // (a concurrent `pharn add`) would be silently overwritten. Refuse
+          // instead — before the first write, the backup included.
+          assertConfigFingerprintUnchanged(cwd, previous.fingerprint, 'init');
+          return runInstallArchetype(
             repo.dir,
             cwd,
             archetypes,
             selection,
             commit,
-            manualKeys,
-          ),
-        );
+            carry,
+          );
+        });
         outcome = 'installed';
       }
     }
@@ -230,38 +257,93 @@ async function runInitArchetype(): Promise<void> {
   if (outcome === 'cancelled') cancelAndExit();
 }
 
+/** A capability's identity everywhere in this CLI: the `role:name` pair. */
+function capabilityKey(cap: { name: string; role: string }): string {
+  return `${cap.role}:${cap.name}`;
+}
+
 /**
- * The `source: 'manual'` capabilities of the config a re-run init is about to
- * replace that the fetched index still has and archetype resolution did not
- * already select. Read TOLERANTLY: init is the command every other one points
- * at for recovery, so an absent, unreadable, invalid or pre-archetype config
- * simply means "nothing to carry over" — never a refusal. A manual entry the
- * index no longer has is not resurrected (the `dropped-gone` rule `update`
- * applies in lib/merge-capabilities.ts).
+ * The config a re-run init is about to replace, read TOLERANTLY: init is the
+ * command every other one points at for recovery, so an absent, unreadable,
+ * invalid or pre-archetype config simply means "nothing to carry over" — never
+ * a refusal. The fingerprint is taken FIRST, so a write that lands between the
+ * two reads fails the under-lock check (closed) instead of being blessed by it.
  */
-function carriedManualCapabilities(
-  cwd: string,
+function readPreviousConfig(cwd: string): {
+  fingerprint: string;
+  config: PharnConfig | null;
+} {
+  const fingerprint = configFingerprint(cwd);
+  let config: PharnConfig | null;
+  try {
+    config = readPharnConfig(cwd);
+  } catch {
+    config = null;
+  }
+  return { fingerprint, config };
+}
+
+interface Carry extends InstallCarry {
+  // Manual entries the index has but the archetypes did not select — added to
+  // the selection so they are installed again (row 6).
+  extra: InstalledCapability[];
+  // Manual entries upstream no longer ships — dropped and NAMED (row 7).
+  gone: InstalledCapability[];
+}
+
+/**
+ * What a re-run init carries over from the previous config, by `update`'s own
+ * membership table (lib/merge-capabilities.ts — cited, not restated, P4). Pure:
+ * every branch is a `role:name` set lookup or an exact `source` compare (P5).
+ *
+ * - Row 0: an entry of ANY source whose capability the fetch could not PARSE
+ *   (`index.unknown`) is KEPT verbatim — a parse failure is evidence about
+ *   upstream's bytes, not about who asked for it.
+ * - Rows 3 and 6: a `manual` entry the index still has stays `manual`, whether
+ *   or not the archetypes also select it (sticky).
+ * - Row 7: a `manual` entry the index no longer has is dropped — and named.
+ * - Everything else (`auto`, or a legacy entry with no `source`) is simply
+ *   re-resolved from the archetypes: init starts over. Resolving an ABSENT
+ *   source is the merge's job alone, so it is not inferred here.
+ *
+ * The first entry wins for a duplicated key, as in the merge.
+ */
+function carryOver(
+  previous: PharnConfig | null,
   index: CapabilityIndex,
   resolved: Selection,
-): InstalledCapability[] {
-  let previous: InstalledCapability[];
-  try {
-    previous = readPharnConfig(cwd)?.capabilities ?? [];
-  } catch {
-    return [];
-  }
-  const key = (c: { name: string; role: string }): string =>
-    `${c.role}:${c.name}`;
-  const inIndex = new Set(index.capabilities.map(key));
-  const selected = new Set(resolved.selected.map(key));
+): Carry {
+  const inIndex = new Set(index.capabilities.map(capabilityKey));
+  const frozen = new Set(index.unknown.map(capabilityKey));
+  const selected = new Set(resolved.selected.map(capabilityKey));
+  const manualKeys = new Set<string>();
+  const kept: InstalledCapability[] = [];
+  const extra: InstalledCapability[] = [];
+  const gone: InstalledCapability[] = [];
   const seen = new Set<string>();
-  return previous.filter((c) => {
-    const k = key(c);
-    if (c.source !== 'manual' || !inIndex.has(k) || selected.has(k)) {
-      return false;
-    }
-    if (seen.has(k)) return false;
+  for (const cap of previous?.capabilities ?? []) {
+    const k = capabilityKey(cap);
+    if (seen.has(k)) continue;
     seen.add(k);
-    return true;
-  });
+    if (frozen.has(k)) {
+      kept.push({ ...cap });
+      continue;
+    }
+    if (cap.source !== 'manual') continue;
+    if (!inIndex.has(k)) {
+      gone.push(cap);
+      continue;
+    }
+    manualKeys.add(k);
+    if (!selected.has(k)) extra.push(cap);
+  }
+  return {
+    manualKeys,
+    kept,
+    extra,
+    gone,
+    previousStamp: previous
+      ? { skillsVersion: previous.skillsVersion, commit: previous.commit }
+      : null,
+  };
 }
