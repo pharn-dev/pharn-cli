@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/publish-split-oidc/SHIP.md"
+    ".dev/features/capability-index-nonfile-md/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T08:38:52.408Z"
+  "set_at": "2026-09-24T08:43:14.331Z"
 }

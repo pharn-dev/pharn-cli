@@ -1,4 +1,12 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+} from 'node:fs';
 import { detectLayout, layoutPaths } from './layout.js';
 import {
   assertAppliesToken,
@@ -116,14 +124,8 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
         assertNoDotDot(name, `capability "${name}"`);
 
         const capFile = safeJoin(subtreeDir, `${name}/${name}.md`);
-        if (!existsSync(capFile)) {
-          throw new ManifestValidationError(
-            `Capability "${name}" in ${subtree.dir} is missing its markdown ${name}/${name}.md.`,
-          );
-        }
-
         const frontmatter = extractFrontmatter(
-          readFileSync(capFile, 'utf8'),
+          readCapabilityMarkdown(capFile, name, subtree.dir),
           name,
         );
         // Cross-check the declared role against the authoritative subtree role.
@@ -160,6 +162,60 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
   }
 
   return { capabilities, unknown };
+}
+
+// O_NOFOLLOW refuses a symlinked final component (ELOOP) and O_NONBLOCK keeps
+// the open of a FIFO from blocking forever. Both are POSIX; where a platform
+// lacks one (win32) the constant is absent and the flag is simply not set.
+const OPEN_FLAGS =
+  fsConstants.O_RDONLY |
+  (fsConstants.O_NOFOLLOW ?? 0) |
+  (fsConstants.O_NONBLOCK ?? 0);
+
+/**
+ * Read one capability's markdown, refusing anything that is not a regular file
+ * with a ManifestValidationError — the error the per-capability loop tolerates.
+ *
+ * `existsSync` + `readFileSync` let a DIRECTORY at this path through the check
+ * and then threw EISDIR, which is NOT a validation error, so one oddly-shaped
+ * upstream capability aborted the whole index for every deployed CLI. The
+ * type check is made on the OPENED descriptor and the read goes through that
+ * same descriptor, so nothing can swap the path between the check and the read.
+ * A directory, a symlink (never followed — it could point outside the clone)
+ * or a FIFO becomes `unknown`. Other I/O failures still propagate.
+ */
+function readCapabilityMarkdown(
+  capFile: string,
+  name: string,
+  subtreeDir: string,
+): string {
+  let fd: number;
+  try {
+    fd = openSync(capFile, OPEN_FLAGS);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      throw new ManifestValidationError(
+        `Capability "${name}" in ${subtreeDir} is missing its markdown ${name}/${name}.md.`,
+      );
+    }
+    if (code === 'ELOOP' || code === 'EISDIR') {
+      throw new ManifestValidationError(
+        `Capability "${name}" in ${subtreeDir}: ${name}/${name}.md is not a regular file.`,
+      );
+    }
+    throw err;
+  }
+  try {
+    if (!fstatSync(fd).isFile()) {
+      throw new ManifestValidationError(
+        `Capability "${name}" in ${subtreeDir}: ${name}/${name}.md is not a regular file.`,
+      );
+    }
+    return readFileSync(fd, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
