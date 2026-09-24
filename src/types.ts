@@ -121,6 +121,11 @@ export interface PharnConfig {
   // edits (`modified` / `unrecorded` skips): every other file is at this
   // version. `add` accepts a clone at it; the next complete update clears it.
   pendingSkillsVersion?: string;
+  // Additive (P7). `role:name` of every installed capability the last
+  // `pharn update` KEPT because it could not parse it upstream ("frozen"),
+  // sorted; omitted when none. While non-empty, `update` skips its same-version
+  // early return, so each run re-fetches and re-checks them.
+  frozenCapabilities?: string[];
   repo: string;
   commit: string | null;
   // Legacy (module/wizard) installs record the chosen constitution variant.

@@ -74,6 +74,12 @@ When the only skipped files were ones you edited (`modified` / `unrecorded`), it
 [`pharn add`](../commands/add.md) run at that version; the next complete `pharn update` removes it. A
 value that is not a `x.y.z` version is ignored.
 
+`frozenCapabilities` lists (`role:name`, sorted) the installed capabilities the last `pharn update`
+kept because it could not read them upstream. While it is non-empty, `pharn update` re-fetches even
+at the same skills version, so they are re-checked on every run; the field is removed once none are
+left. If you `pharn remove` one, the next update drops it from the list. A value that is not a list of
+`role:name` keys is ignored.
+
 ## Example
 
 ```json
