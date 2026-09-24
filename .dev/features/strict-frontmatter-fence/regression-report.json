@@ -1,0 +1,20 @@
+{
+  "base": "aec6d3e7e8c49bf18f2e7e7bca66a01596076367",
+  "inside": [
+    "src/lib/capability-index.ts",
+    "tests/capability-index.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

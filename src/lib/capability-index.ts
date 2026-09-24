@@ -223,31 +223,45 @@ function readCapabilityMarkdown(
  * file. Only this block is parsed — a field-looking line in the prose body is
  * never read. Hard-fails (naming the capability) when no frontmatter fence is
  * present (P5).
+ *
+ * Line-based, not a lazy regex: the block opens on a first line that is exactly
+ * `---` and ends at the NEXT line that is `---` (trailing blanks allowed). A
+ * regex capture (`^---\n([\s\S]*?)\n---`) skips an empty block (`---\n---`)
+ * and reads the document BODY as frontmatter, up to the next `---`.
  */
 function extractFrontmatter(content: string, name: string): string {
-  const match = /^---\n([\s\S]*?)\n---/.exec(content);
-  if (!match) {
+  const lines = content.split('\n');
+  const close = lines.findIndex((line, i) => i > 0 && /^---[ \t]*$/.test(line));
+  if (lines[0] !== '---' || close === -1) {
     throw new ManifestValidationError(
       `Capability "${name}" is missing a "---"-fenced frontmatter block.`,
     );
   }
-  return match[1]!;
+  return lines.slice(1, close).join('\n');
 }
 
 /**
  * Read a single required scalar field from the frontmatter block, returning its
  * raw (quote-stripped) value. Hard-fails (naming the capability + field) when
- * the field is absent (P5). A strict per-field regex — not a YAML parser.
+ * the field is absent OR appears more than once (P5): pharn-oss's validator
+ * keeps the LAST occurrence while a first-match reader keeps the FIRST, so a
+ * duplicate is the one shape where the two could install different values. A
+ * strict per-field regex — not a YAML parser.
  */
 function readField(frontmatter: string, field: string, name: string): string {
-  const re = new RegExp(`^${field}:[ \\t]*(.+?)[ \\t]*$`, 'm');
-  const match = re.exec(frontmatter);
-  if (!match) {
+  const re = new RegExp(`^${field}:[ \\t]*(.+?)[ \\t]*$`, 'gm');
+  const matches = [...frontmatter.matchAll(re)];
+  if (matches.length === 0) {
     throw new ManifestValidationError(
       `Capability "${name}" is missing the "${field}" frontmatter field.`,
     );
   }
-  return stripQuotes(match[1]!);
+  if (matches.length > 1) {
+    throw new ManifestValidationError(
+      `Capability "${name}" declares the "${field}" frontmatter field ${matches.length} times.`,
+    );
+  }
+  return stripQuotes(matches[0]![1]!);
 }
 
 function stripQuotes(value: string): string {

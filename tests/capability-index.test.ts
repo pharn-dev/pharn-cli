@@ -143,6 +143,22 @@ describe('parseCapabilityIndex', () => {
     expect(entry!.applies).toEqual(['ssr']);
   });
 
+  it('accepts a closing fence with trailing blanks, and ignores look-alike keys', () => {
+    const repo = tmp.path();
+    scaffold(repo);
+    writeCap(
+      repo,
+      GRILLERS,
+      'spaced',
+      '---\nrole: griller\nroles: lens\n  applies: ["ssr"]\napplies: ["universal"]\n--- \t\n# x\n',
+    );
+    const index = parseCapabilityIndex(repo);
+    expect(index.unknown).toEqual([]);
+    expect(index.capabilities).toEqual([
+      { name: 'spaced', role: 'griller', applies: 'universal' },
+    ]);
+  });
+
   it('reports an empty unknown list for a fully-parseable clone (P5: zero noise)', () => {
     const repo = tmp.path();
     scaffold(repo);
@@ -209,6 +225,30 @@ describe('parseCapabilityIndex', () => {
       label: 'a missing role field',
       body: '---\nname: x\napplies: ["universal"]\n---\n# x\n',
       reason: /missing the "role"/,
+    }, // PHARN-14: a lazy-regex fence read an EMPTY block's following BODY as
+    // frontmatter. The body carries a VALID role/applies on purpose, so the base
+    // source installs it (the wrong reason cannot make this pass).
+    {
+      label: 'an empty frontmatter block (fields only in the body)',
+      body: '---\n---\nrole: griller\napplies: ["universal"]\n---\n# x\n',
+      reason: /missing the "role"/,
+    },
+    {
+      label: 'an unterminated frontmatter fence',
+      body: '---\nrole: griller\napplies: ["universal"]\n# x\n',
+      reason: /frontmatter block/,
+    },
+    // PHARN-14: upstream's validator keeps the LAST duplicate, a first-match
+    // reader the FIRST — so a duplicate is refused rather than guessed.
+    {
+      label: 'a duplicated applies field',
+      body: '---\nrole: griller\napplies: ["ssr"]\napplies: ["universal"]\n---\n# x\n',
+      reason: /"applies" frontmatter field 2 times/,
+    },
+    {
+      label: 'a duplicated role field',
+      body: '---\nrole: griller\nrole: griller\napplies: ["universal"]\n---\n# x\n',
+      reason: /"role" frontmatter field 2 times/,
     },
   ];
 

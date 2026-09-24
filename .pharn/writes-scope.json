@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/frozen-capability-recheck/SHIP.md"
+    ".dev/features/strict-frontmatter-fence/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-24T09:52:10.070Z"
+  "set_at": "2026-09-24T09:55:43.509Z"
 }
