@@ -2,7 +2,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { writeJsonAtomic } from './atomic-write.js';
 import { resolve } from 'node:path';
 import { errorMessage, logError } from './report-error.js';
-import { isPlainObject } from './validate.js';
+import {
+  assertSafeString,
+  CAPABILITY_NAME_RE,
+  isPlainObject,
+  ROLE_VALUES,
+} from './validate.js';
 import { validateModelRouting, ModelRoutingError } from './model-routing.js';
 import { validateSeamConfig, SeamConfigError } from './seam-config.js';
 import type { PharnConfig } from '../types.js';
@@ -19,15 +24,61 @@ const CAPABILITY_SOURCES = ['auto', 'manual'];
  * `ModelRoutingError`/`SeamConfigError` pattern, so a hand-edit is reported as
  * the hand-edit it is and never collapsed into the "run `pharn init`" lie.
  *
- * Deliberately narrow (P7): it validates `source` ONLY. `name` and `role` are
- * still passed through unvalidated — hardening those is a separate axis, and
- * widening it here would change what a legacy config is allowed to hold.
+ * It validates `source` ONLY; an entry's `name` and `role` are the separate
+ * `CapabilityEntryError` below.
  */
 export class CapabilitySourceError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CapabilitySourceError';
   }
+}
+
+/**
+ * A `capabilities[]` entry whose `name` or `role` is not something this CLI
+ * could ever have written. The config is committed and hand-editable, so these
+ * are untrusted local input (P2) — and `name` is path-joined: `pharn remove`
+ * deletes `<subtree>/<name>` recursively, so `{"name": "../.."}` used to delete
+ * the project root. Every name this CLI writes comes from the index, already
+ * `CAPABILITY_NAME_RE`-validated, and every role from `assertRole`, so no config
+ * it wrote is newly rejected (P7); pre-archetype configs carry no
+ * `capabilities` and never reach this check.
+ */
+export class CapabilityEntryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CapabilityEntryError';
+  }
+}
+
+/**
+ * Reject any `capabilities[]` entry that is not an object with a
+ * `CAPABILITY_NAME_RE` `name` (no control characters) and a `role` in
+ * `ROLE_VALUES` (enum membership, P5). A non-array `capabilities` is left to the
+ * existing shape handling (`isArchetypeConfig`).
+ */
+function validateCapabilityEntries(raw: unknown): void {
+  if (!Array.isArray(raw)) return;
+  raw.forEach((entry, i) => {
+    const at = `${CONFIG_FILENAME}: capabilities[${i}]`;
+    if (!isPlainObject(entry)) {
+      throw new CapabilityEntryError(
+        `${at} must be an object with "name" and "role" (found ${JSON.stringify(entry)}). Fix it by hand.`,
+      );
+    }
+    try {
+      assertSafeString(entry.name, `${at}.name`, CAPABILITY_NAME_RE);
+    } catch (err) {
+      throw new CapabilityEntryError(
+        `${errorMessage(err)}. A capability name is one lowercase, hyphen-separated segment (e.g. "a11y", "n-plus-one"). Fix it by hand.`,
+      );
+    }
+    if (!ROLE_VALUES.some((r) => r === entry.role)) {
+      throw new CapabilityEntryError(
+        `${at}.role must be ${ROLE_VALUES.map((r) => `"${r}"`).join(' or ')} (found ${JSON.stringify(entry.role)}). Fix it by hand.`,
+      );
+    }
+  });
 }
 
 /**
@@ -155,7 +206,8 @@ export function configPath(cwd: string): string {
  * something this CLI will not act on, and each throws its own NAMED error that
  * PROPAGATES rather than collapsing into the "run init" lie: `ConfigParseError`
  * (not JSON at all), and — validated OUTSIDE the null-returning try —
- * `ModelRoutingError`/`SeamConfigError`/`CapabilitySourceError` (BUG 1).
+ * `ModelRoutingError`/`SeamConfigError`/`CapabilityEntryError`/
+ * `CapabilitySourceError` (BUG 1).
  *
  * The parse split is the point. "File absent" and "file corrupt" used to be the
  * same `null`, so a stray comma was reported as a MISSING file and answered with
@@ -213,6 +265,7 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // throws NAMED here rather than flowing into the merge. Entries are otherwise
   // passed through the spread unreconstructed, so `source` round-trips with no
   // load-mechanics change at all.
+  validateCapabilityEntries(raw.capabilities);
   validateCapabilitySources(raw.capabilities);
   const config: PharnConfig = {
     ...(raw as unknown as PharnConfig),
@@ -263,7 +316,8 @@ export function loadConfigOrExit(cwd: string): PharnConfig {
 /**
  * Is `err` a present-but-invalid-config error — a file that IS there and that
  * the user has to fix (unparseable JSON, a hand-edited `models`/`seam` block, or
- * a `capabilities[].source` outside its enum) — as opposed to a programming bug?
+ * a `capabilities[]` entry with an invalid `name`/`role`/`source`) — as opposed
+ * to a programming bug?
  *
  * The single definition of "config error" — used by `loadConfigOrExit` and by
  * `list`'s own `--json`-aware error path, so neither re-encodes the class
@@ -277,11 +331,13 @@ export function isConfigValidationError(
   | ConfigParseError
   | ModelRoutingError
   | SeamConfigError
+  | CapabilityEntryError
   | CapabilitySourceError {
   return (
     err instanceof ConfigParseError ||
     err instanceof ModelRoutingError ||
     err instanceof SeamConfigError ||
+    err instanceof CapabilityEntryError ||
     err instanceof CapabilitySourceError
   );
 }

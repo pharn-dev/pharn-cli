@@ -1,4 +1,4 @@
-import { resolve, sep } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 
 export class ManifestValidationError extends Error {
   constructor(message: string) {
@@ -118,6 +118,22 @@ export function safeJoin(base: string, rel: string): string {
   if (target !== root && !target.startsWith(root + sep)) {
     throw new ManifestValidationError(
       `Refusing path escape: ${rel} resolves outside ${base}`,
+    );
+  }
+  return target;
+}
+
+// The STRICT-child form of safeJoin, for a destructive op addressed by one
+// name: the result is always exactly one segment below `base` — never `base`
+// itself (which safeJoin allows, so `${subtree}/../..` resolved to the project
+// root and `pharn remove` deleted it) and never a grandchild (`a/b`). Lexical,
+// like safeJoin; the symlink-aware walk stays a separate, physical check.
+export function safeChildJoin(base: string, name: string): string {
+  const root = resolve(base);
+  const target = resolve(root, name);
+  if (target === root || dirname(target) !== root) {
+    throw new ManifestValidationError(
+      `Refusing path: ${JSON.stringify(name)} is not a single directory entry directly under ${base}`,
     );
   }
   return target;

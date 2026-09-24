@@ -16,7 +16,7 @@ import {
   buildRemoveSelection,
   interactiveAllowed,
 } from '../lib/capability-picker.js';
-import { safeJoin } from '../lib/validate.js';
+import { safeChildJoin, safeJoin } from '../lib/validate.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
   loadArchetypeConfigOrExit,
@@ -83,13 +83,18 @@ async function removeCapability(
 // Delete one capability's isolated dir at the project's recorded layout (flat OR
 // pharn/), returning whether the dir existed. The shared per-name delete path —
 // the named remove and the picker loop both call it, so the two never diverge.
-// Every delete is safeJoin-contained.
+// The target must be a STRICT child of the role subtree (safeChildJoin), not
+// merely inside the project (safeJoin): names are already validated at config
+// ingest, and this is the second, independent floor under a recursive delete.
 function deleteCapabilityDir(
   cwd: string,
   paths: LayoutPaths,
   target: InstalledCapability,
 ): boolean {
-  const dir = safeJoin(cwd, capabilityRelDir(paths, target));
+  const dir = safeChildJoin(
+    safeJoin(cwd, capabilitySubtree(paths, target)),
+    target.name,
+  );
   const existed = existsSync(dir);
   if (existed) rmSync(dir, { recursive: true, force: true });
   return existed;
@@ -103,8 +108,14 @@ function capabilityRelDir(
   paths: LayoutPaths,
   capability: InstalledCapability,
 ): string {
-  const subtree = capability.role === 'griller' ? paths.grillers : paths.lenses;
-  return `${subtree}/${capability.name}`;
+  return `${capabilitySubtree(paths, capability)}/${capability.name}`;
+}
+
+function capabilitySubtree(
+  paths: LayoutPaths,
+  capability: InstalledCapability,
+): string {
+  return capability.role === 'griller' ? paths.grillers : paths.lenses;
 }
 
 // Drop the removed capabilities' entries from `pharn.records.json`, so `remove`
