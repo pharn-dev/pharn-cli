@@ -1044,3 +1044,78 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     ).toBe(true);
   });
 });
+
+// PHARN-16: a TYPE collision (a directory where the install writes a file, or a
+// file where it needs a directory) used to surface from cpSync part-way,
+// leaving ~300 new files with no config and no records. It is now refused
+// before the first write, and the whole tree is left byte-identical.
+describe('installCapabilities — destination type pre-flight (PHARN-16)', () => {
+  const tmp = useTmpDir();
+
+  function tree(root: string): string[] {
+    if (!existsSync(root)) return [];
+    return (readdirSync(root, { recursive: true }) as string[])
+      .map((p) => p.split('\\').join('/'))
+      .sort();
+  }
+
+  it.each([
+    ['a directory at a file target', '.claude/commands/pharn-plan.md', 'dir'],
+    [
+      'a directory at a capability file',
+      'pharn-pipeline/grillers/a11y/a11y.md',
+      'dir',
+    ],
+    ['a file at a directory component', 'pharn-contracts', 'file'],
+    ['a file at a capability dir', 'pharn-review/n-plus-one', 'file'],
+  ])('refuses %s; nothing written anywhere', (_label, rel, kind) => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    if (kind === 'dir') {
+      write(join(proj, rel, 'keep.txt'), 'USER');
+    } else {
+      write(join(proj, rel), 'USER FILE');
+    }
+    const before = tree(proj);
+
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      `Refusing to install: ${rel} is in the way`,
+    );
+    expect(tree(proj)).toEqual(before);
+  });
+
+  it('names every colliding path once, sorted', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(proj, 'pharn-review'), 'a file where lenses go');
+    write(join(proj, 'LIMITS.md/inner.txt'), 'a dir where a doc goes');
+
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /Refusing to install: LIMITS\.md, pharn-review are in the way/,
+    );
+  });
+
+  it('still re-installs over existing regular files', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    installCapabilities(repo, proj, selection());
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+  });
+
+  it('skips (does not refuse) a directory at the optional features/README.md', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(proj, 'features/README.md/keep.txt'), 'USER');
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    expect(
+      readFileSync(join(proj, 'features/README.md/keep.txt'), 'utf8'),
+    ).toBe('USER');
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+  });
+});

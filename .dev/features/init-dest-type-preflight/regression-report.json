@@ -1,0 +1,22 @@
+{
+  "base": "6920b79be17ff0f6e65bcbce9a7ab48d68550400",
+  "inside": [
+    "docs/troubleshooting.md",
+    "src/lib/install-capabilities.ts",
+    "src/lib/symlink-guard.ts",
+    "tests/install-capabilities.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

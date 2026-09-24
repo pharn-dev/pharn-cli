@@ -14,7 +14,8 @@ import { safeJoin, toPosix } from './validate.js';
 // safeJoin-contained, and the returned value is DATA (a path string a caller
 // interpolates into a message or tests for null).
 //
-// One axis (P3): detecting a symlinked path component.
+// One axis (P3): walking a path's components on disk — a symlinked component
+// (findSymlinkComponent) or one whose type blocks a write (findTypeCollision).
 // ---------------------------------------------------------------------------
 
 /**
@@ -62,6 +63,29 @@ export function findSymlinkComponent(base: string, rel: string): string | null {
     ) {
       return current;
     }
+  }
+  return null;
+}
+
+/**
+ * The first component of `rel` below `base` whose existing type blocks
+ * the write, or `null`. Intermediate components must be directories; the leaf
+ * must be a regular file (or absent). Components that do not exist pass —
+ * the copy creates them. The walk stops at the first offender, so a path below
+ * a regular file is never lstat-ed (no ENOTDIR). Used by `init`'s destination
+ * pre-flight (install-capabilities.ts), which owns the failure shape.
+ */
+export function findTypeCollision(base: string, rel: string): string | null {
+  const segments = toPosix(rel).split('/').filter(Boolean);
+  let current = '';
+  for (const [i, segment] of segments.entries()) {
+    current = current ? `${current}/${segment}` : segment;
+    const stat = lstatSync(safeJoin(base, current), {
+      throwIfNoEntry: false,
+    });
+    if (stat === undefined) return null;
+    const isLeaf = i === segments.length - 1;
+    if (isLeaf ? !stat.isFile() : !stat.isDirectory()) return current;
   }
   return null;
 }
