@@ -590,6 +590,94 @@ describe('extractTar', () => {
     );
   });
 
+  // PHARN-18: strict framing and bounded pax parsing. Each case was ACCEPTED
+  // by the base source (or, for the pax payload, parsed at full size).
+  const refusal = (archive: Buffer): string => {
+    try {
+      extractTar(archive, tmp.path(), LIMITS);
+    } catch (err) {
+      expect(err).toBeInstanceOf(TarExtractError);
+      return (err as Error).message;
+    }
+    return 'accepted';
+  };
+
+  it('refuses a pax global header over the payload cap, before parsing it', () => {
+    // Well-formed records, so the base source parsed every one and accepted.
+    const record = paxRecord('comment', 'x'.repeat(100));
+    const big = record.repeat(Math.ceil((64 * 1024 + 1) / record.length));
+    expect(
+      refusal(
+        tar([
+          { name: 'pax_global_header', type: 'g', data: big },
+          { name: 'pharn-oss-abc1234/', type: '5' },
+        ]),
+      ),
+    ).toMatch(/pax header of \d+ bytes, over the 65536-byte limit/);
+  });
+
+  it('refuses entries hidden after a zero block mid-archive', () => {
+    const archive = Buffer.concat([
+      tar([GLOBAL_HEADER, { name: 'pharn-oss-abc1234/', type: '5' }]).subarray(
+        0,
+        -BLOCK, // keep ONE zero block, then keep going
+      ),
+      tar([{ name: 'pharn-oss-abc1234/hidden.md', data: 'x' }]),
+    ]);
+    expect(refusal(archive)).toMatch(/data after its end-of-archive marker/);
+  });
+
+  it('refuses trailing garbage after the end marker', () => {
+    const archive = Buffer.concat([githubArchive([]), Buffer.from('garbage')]);
+    expect(refusal(archive)).toMatch(/data after its end-of-archive marker/);
+  });
+
+  it('refuses an archive with no end-of-archive marker', () => {
+    const archive = githubArchive([
+      { name: 'pharn-oss-abc1234/a.md', data: 'x' },
+    ]).subarray(0, -2 * BLOCK);
+    expect(refusal(archive)).toMatch(/no end-of-archive marker/);
+  });
+
+  it('refuses a header without the ustar magic', () => {
+    const archive = githubArchive([
+      { name: 'pharn-oss-abc1234/a.md', data: 'x' },
+    ]);
+    // Blank the magic of the third header and re-seal its checksum, so the
+    // magic check — not the checksum — is what refuses it.
+    const at = 2 * BLOCK;
+    archive.fill(0, at + 257, at + 263);
+    archive.write('        ', at + 148, 8, 'latin1');
+    let sum = 0;
+    for (const byte of archive.subarray(at, at + BLOCK)) sum += byte;
+    archive.write(
+      sum.toString(8).padStart(6, '0') + '\0 ',
+      at + 148,
+      8,
+      'latin1',
+    );
+    expect(refusal(archive)).toMatch(/missing "ustar" magic/);
+  });
+
+  it.each([['pharn-oss-abc1234/a//b.md'], ['pharn-oss-abc1234/a/./b.md']])(
+    'refuses the empty or "." segment in %s',
+    (name) => {
+      expect(refusal(githubArchive([{ name, data: 'x' }]))).toMatch(
+        /empty or "\." path segment/,
+      );
+    },
+  );
+
+  it('still extracts the codeload shape (one small global header, zero tail)', () => {
+    expect(
+      refusal(
+        githubArchive([
+          { name: 'pharn-oss-abc1234/SKILLS_VERSION', data: '1\n' },
+        ]),
+      ),
+    ).toBe('accepted');
+  });
+
   it('enforces the entry-count cap', () => {
     const many = Array.from({ length: 5 }, (_, i) => ({
       name: `pharn-oss-abc1234/f${i}.txt`,
