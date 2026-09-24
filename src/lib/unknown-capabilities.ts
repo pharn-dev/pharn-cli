@@ -1,3 +1,4 @@
+import { terminalSafe } from './terminal-safe.js';
 import type { UnknownCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -18,8 +19,6 @@ import type { UnknownCapability } from '../types.js';
 // construction.
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/g;
 // Long enough that a real validation message survives intact (the longest one
 // this repo produces is ~120 chars), short enough that a hostile 5MB dir name
 // cannot flood a terminal.
@@ -27,11 +26,10 @@ const MAX_FIELD = 200;
 // A hard cap on how many are listed; the count line always states the true total.
 const MAX_LISTED = 10;
 
+// Control AND Unicode format characters (U+202E, U+200B, …) are stripped — the
+// shared display sanitizer (lib/terminal-safe.ts).
 function safe(value: string): string {
-  const stripped = value.replace(CONTROL_CHARS_RE, '');
-  return stripped.length > MAX_FIELD
-    ? `${stripped.slice(0, MAX_FIELD)}…`
-    : stripped;
+  return terminalSafe(value, { max: MAX_FIELD });
 }
 
 /**

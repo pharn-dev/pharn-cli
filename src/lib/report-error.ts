@@ -1,4 +1,5 @@
 import { log } from '@clack/prompts';
+import { terminalSafe } from './terminal-safe.js';
 
 // The ONE place the CLI turns a failure into user-visible output. Two axes, one
 // file (P3): WHICH STREAM the line goes to, and WHETHER the failure came from an
@@ -48,11 +49,16 @@ export function errorMessage(err: unknown): string {
  * exited 1 with 0 bytes on stderr, leaving the operator grepping an empty file.
  * Exit codes were always correct — this is the stream contract, not correctness.
  *
- * The message is passed through verbatim. Callers own their wording; this owns
- * the stream.
+ * Callers own their wording; this owns the stream — and what the terminal is
+ * allowed to INTERPRET. A fatal message can carry text from the fetched archive
+ * (an extractor refusal naming an entry), so control and Unicode format
+ * characters are stripped here, at the one sink every fatal path shares; `\n`
+ * and `\t` are kept for multi-line messages. No caller passes styled text.
  */
 export function logError(message: string): void {
-  log.error(message, { output: process.stderr });
+  log.error(terminalSafe(message, { keepNewlines: true }), {
+    output: process.stderr,
+  });
 }
 
 /**
