@@ -116,6 +116,11 @@ export interface SeamConfig {
 export interface PharnConfig {
   pharnVersion: string;
   skillsVersion: string;
+  // Additive (P7). The upstream version a `pharn update` APPLIED while
+  // withholding the `skillsVersion` bump solely because of the user's own kept
+  // edits (`modified` / `unrecorded` skips): every other file is at this
+  // version. `add` accepts a clone at it; the next complete update clears it.
+  pendingSkillsVersion?: string;
   repo: string;
   commit: string | null;
   // Legacy (module/wizard) installs record the chosen constitution variant.

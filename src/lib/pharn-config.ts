@@ -7,6 +7,7 @@ import {
   CAPABILITY_NAME_RE,
   isPlainObject,
   ROLE_VALUES,
+  VERSION_RE,
 } from './validate.js';
 import { ProjectChangedError } from './project-lock.js';
 import { validateModelRouting, ModelRoutingError } from './model-routing.js';
@@ -279,6 +280,16 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // 'flat' survive verbatim, so the field round-trips.
   if (config.layout !== 'pharn' && config.layout !== 'flat') {
     delete config.layout;
+  }
+  // Additive `pendingSkillsVersion` (types.ts): only a VERSION_RE-shaped string
+  // survives; anything else is dropped, so a garbage hand-edit fails closed —
+  // `add`'s version gate then compares against `skillsVersion` alone.
+  if (
+    config.pendingSkillsVersion !== undefined &&
+    (typeof config.pendingSkillsVersion !== 'string' ||
+      !VERSION_RE.test(config.pendingSkillsVersion))
+  ) {
+    delete config.pendingSkillsVersion;
   }
   return config;
 }

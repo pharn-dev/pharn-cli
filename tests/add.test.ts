@@ -822,6 +822,45 @@ describe('runAdd — pharn.records.json', () => {
     });
   });
 
+  // PHARN-05: after an update withheld ONLY by the user's kept edits, the clone
+  // is at `pendingSkillsVersion`. `add` proceeds — and keeps the config's own
+  // (skillsVersion, commit) pair, so the store stamp stays consistent and the
+  // withheld state is not papered over with a version the edits never got.
+  it('adds at a pendingSkillsVersion without advancing skillsVersion or commit', async () => {
+    await seedStore();
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...config(),
+      pendingSkillsVersion: '1.1.0',
+    });
+    readSkillsVersion.mockReturnValue('1.1.0');
+
+    await runAdd('a11y');
+
+    const [, written] = writePharnConfig.mock.calls.at(-1)!;
+    expect((written as PharnConfig).skillsVersion).toBe('1.0.0');
+    expect((written as PharnConfig).commit).toBeNull();
+    expect((written as PharnConfig).pendingSkillsVersion).toBe('1.1.0');
+    expect(store()!.skillsVersion).toBe('1.0.0');
+    expect(store()!.commit).toBeNull();
+    expect(store()!.files[CAP_FILE]).toBe(sha256File(join(proj, CAP_FILE)));
+  });
+
+  it('still refuses a clone at a THIRD version, naming the real ways out', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...config(),
+      pendingSkillsVersion: '1.1.0',
+    });
+    readSkillsVersion.mockReturnValue('1.2.0');
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    const msg = vi.mocked(prompts.log.error).mock.calls.at(-1)![0] as string;
+    expect(msg).toContain('v1.2.0');
+    expect(msg).toContain('pharn update --force');
+    expect(msg).toContain('revert');
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
   it('re-stamps the store to match the config written beside it', async () => {
     await seedStore();
     await runAdd('a11y');

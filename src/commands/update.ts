@@ -500,6 +500,15 @@ async function applyUpdate(
     ? config.skillsVersion
     : installedVersion;
   const nextCommit = versionWithheld ? config.commit : sha;
+  // Withheld ONLY by the user's own kept edits → every other file IS at
+  // `installedVersion`, so record that as pending (types.ts) and let `add`
+  // install at it. Any other skip (`unverifiable`, `unreadable`) can leave most
+  // of the tree at the old version, so nothing is recorded; a complete run
+  // clears it. Exact label membership, not "forceable" (P5).
+  const pendingSkillsVersion =
+    versionWithheld && plan.skipped.every((g) => USER_EDIT_SKIPS.has(g.label))
+      ? installedVersion
+      : undefined;
 
   let written: string[];
   try {
@@ -564,10 +573,12 @@ async function applyUpdate(
       ...buildRecords(cwd, written),
     },
   });
+  const { pendingSkillsVersion: _previousPending, ...rest } = config;
   await writePharnConfig(cwd, {
-    ...config,
+    ...rest,
     skillsVersion: nextSkillsVersion,
     commit: nextCommit,
+    ...(pendingSkillsVersion !== undefined ? { pendingSkillsVersion } : {}),
     capabilities: configCapabilities,
     layout,
     installedAt: new Date().toISOString(),
@@ -602,6 +613,13 @@ async function applyUpdate(
 // check (there is no shared enum and no test pinning the two lists): a new skip
 // label has to be added HERE as well as there, or the heading will say UNREADABLE
 // while the advice offers `--force`.
+// The skips that are the user's own kept edits — the only ones that may leave
+// a `pendingSkillsVersion` behind (applyUpdate).
+const USER_EDIT_SKIPS = new Set<UpdateLabel | 'unreadable'>([
+  'modified',
+  'unrecorded',
+]);
+
 const FORCEABLE_SKIPS = new Set<UpdateLabel | 'unreadable'>([
   'modified',
   'unrecorded',

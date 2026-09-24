@@ -787,3 +787,40 @@ describe('assertConfigUnchanged', () => {
     );
   });
 });
+
+// PHARN-05: the additive pendingSkillsVersion round-trips when well-formed and is
+// dropped otherwise, so a hand-edit can only fail closed.
+describe('pendingSkillsVersion ingest', () => {
+  const tmp = useTmpDir();
+  const base = {
+    pharnVersion: '0.5.0',
+    skillsVersion: '1.0.0',
+    repo: 'pharn-dev/pharn-oss',
+    commit: null,
+    modules: [],
+    installedAt: '2026-09-24T00:00:00.000Z',
+    archetypes: ['ssr'],
+    capabilities: [],
+  };
+  const put = (v: unknown): void =>
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(v));
+
+  it('round-trips a VERSION_RE-shaped value', () => {
+    put({ ...base, pendingSkillsVersion: '1.1.0' });
+    expect(readPharnConfig(tmp.path())!.pendingSkillsVersion).toBe('1.1.0');
+  });
+
+  it.each([['latest'], [''], [7], ['1.1']])('drops %j', (v) => {
+    put({ ...base, pendingSkillsVersion: v });
+    expect(readPharnConfig(tmp.path())).not.toHaveProperty(
+      'pendingSkillsVersion',
+    );
+  });
+
+  it('absent is legal (P7)', () => {
+    put(base);
+    expect(readPharnConfig(tmp.path())).not.toHaveProperty(
+      'pendingSkillsVersion',
+    );
+  });
+});

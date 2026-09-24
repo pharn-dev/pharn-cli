@@ -872,6 +872,42 @@ describe('runUpdate (drift-safe)', () => {
     ).toBe(false);
   });
 
+  // PHARN-05: a bump withheld ONLY by the user's own kept edits records the
+  // version it did apply, so `pharn add` is not dead-ended by one kept edit.
+  it("records pendingSkillsVersion when only the user's edits were skipped", async () => {
+    await installed();
+    write(join(proj, DOC), 'MY LOCAL EDIT');
+
+    await runUpdate();
+
+    const config = readPharnConfig(proj)!;
+    expect(config.skillsVersion).toBe('1.0.0');
+    expect(config.pendingSkillsVersion).toBe('1.1.0');
+    expect(body(CAP_FILE)).toBe('a11y v2');
+  });
+
+  it('records NO pendingSkillsVersion when a skip is not a user edit (no usable records)', async () => {
+    await installed();
+    rmSync(join(proj, RECORDS_FILE));
+    write(join(proj, DOC), 'MY LOCAL EDIT');
+
+    await runUpdate();
+
+    const config = readPharnConfig(proj)!;
+    expect(config.skillsVersion).toBe('1.0.0');
+    expect(config.pendingSkillsVersion).toBeUndefined();
+  });
+
+  it('a complete run clears a previous pendingSkillsVersion', async () => {
+    await installed({ pendingSkillsVersion: '1.0.5' });
+
+    await runUpdate();
+
+    const config = readPharnConfig(proj)!;
+    expect(config.skillsVersion).toBe('1.1.0');
+    expect(config.pendingSkillsVersion).toBeUndefined();
+  });
+
   it('re-resolves the RECORDED archetypes against the fresh index, and UNIONS the result with the manual entries', async () => {
     // This test used to pin only the re-resolve call — which was true of the
     // wholesale-replace bug too. The re-resolve still happens; what it now also
