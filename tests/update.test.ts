@@ -819,6 +819,59 @@ describe('runUpdate (drift-safe)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  // PHARN-04: new upstream hook wiring is REPORTED, and settings.json is never
+  // written — the old silence let the 6.1.0 / 6.12.0 re-wiring go unnoticed.
+  it('reports upstream hooks missing from settings.json and leaves the file byte-identical', async () => {
+    await installed();
+    const oldSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Write',
+            hooks: [{ type: 'command', command: 'node .claude/hooks/x.cjs' }],
+          },
+        ],
+      },
+    });
+    write(join(proj, '.claude/settings.json'), oldSettings);
+    write(
+      join(repo, '.claude/settings.json'),
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'node',
+                  args: ['.claude/hooks/require-loop-record.cjs'],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+    await runUpdate();
+
+    const hooksNote = vi
+      .mocked(prompts.note)
+      .mock.calls.find((c) => c[1] === 'HOOKS');
+    expect(String(hooksNote?.[0])).toContain(
+      'Stop: node .claude/hooks/require-loop-record.cjs',
+    );
+    expect(body('.claude/settings.json')).toBe(oldSettings);
+  });
+
+  it('prints no HOOKS note when upstream ships no settings.json', async () => {
+    await installed();
+    await runUpdate();
+    expect(
+      vi.mocked(prompts.note).mock.calls.some((c) => c[1] === 'HOOKS'),
+    ).toBe(false);
+  });
+
   it('re-resolves the RECORDED archetypes against the fresh index, and UNIONS the result with the manual entries', async () => {
     // This test used to pin only the re-resolve call — which was true of the
     // wholesale-replace bug too. The re-resolve still happens; what it now also

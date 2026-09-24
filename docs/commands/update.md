@@ -300,7 +300,10 @@ command addresses it any more, and the update prints its own warning naming it. 
 ## What is protected by default
 
 - `.claude/settings.json` — your Claude Code configuration. `init` writes it only when absent; `update`
-  **never** touches it at all (not even with `--force` — it is not in the install manifest).
+  **never** touches it at all (not even with `--force` — it is not in the install manifest). It does
+  compare the file's `hooks` block with the fetched upstream one and prints a `HOOKS` note naming every
+  hook upstream wires that yours does not (matching is textual, so an equivalent hook you wrote
+  differently is listed too); merge those by hand.
 - `pharn/CONSTITUTION.md` (flat: `CONSTITUTION.md`) — protected like every other manifest path: if you have edited it, it is a `modified`
   skip by default. `--force` overwrites it too, after copying the current bytes to `.pharn-backup/`.
   (Before 0.4.0 `update` silently overwrote a hand-edited constitution despite docs claiming otherwise —

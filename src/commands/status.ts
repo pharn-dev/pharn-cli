@@ -1,3 +1,4 @@
+import { diffHookWiring, hookWiringLines } from '../lib/hook-wiring.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { REPO, REPO_BRANCH } from '../lib/constants.js';
@@ -30,7 +31,8 @@ const REF = `${REPO}@${REPO_BRANCH}`;
  *
  * Default clones the repo once and reuses it for both sections. `--no-drift`
  * skips the clone and only checks the version (via the lightweight SKILLS_VERSION
- * fetch). `--strict` exits 1 when anything is outdated, modified, or missing.
+ * fetch). `--strict` exits 1 when anything is outdated, modified, or missing,
+ * or when a hook upstream wires is not wired in `.claude/settings.json`.
  */
 export async function runStatus(
   opts: { strict?: boolean; drift?: boolean } = {},
@@ -130,12 +132,18 @@ async function runArchetypeStatus(
       layout: configLayout(config),
     });
     printDriftSection(result);
+    // HOOKS: settings.json is user-owned and never compared as a file above;
+    // what IS checked is whether every hook upstream wires is wired here.
+    const hooks = diffHookWiring(repo.dir, cwd);
+    const hookLines = hookWiringLines(hooks);
+    if (hookLines) note(hookLines.join('\n'), 'HOOKS');
     if (
       strict &&
       (outdated ||
         result.modified.length ||
         result.missing.length ||
-        result.unreadable.length)
+        result.unreadable.length ||
+        hookLines !== null)
     ) {
       exitCode = 1;
     }

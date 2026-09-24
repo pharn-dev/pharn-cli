@@ -1,4 +1,9 @@
 import {
+  diffHookWiring,
+  hookWiringLines,
+  type HookWiringDiff,
+} from '../lib/hook-wiring.js';
+import {
   confirm,
   intro,
   isCancel,
@@ -136,6 +141,9 @@ interface UpdateOutcome {
   versionWithheld: boolean;
   abandonedLayout: Layout | null;
   featuresReadmeRelocation: boolean;
+  // Upstream hooks the project's settings.json does not wire. Reported only —
+  // update never writes settings.json. Absent on paths that never saw a clone.
+  hookWiring?: HookWiringDiff;
 }
 
 async function runArchetypeUpdate(
@@ -332,7 +340,7 @@ async function runArchetypeUpdate(
             ? 'Capabilities updated'
             : 'Nothing to write',
         );
-        return applied;
+        return { ...applied, hookWiring: diffHookWiring(repo.dir, cwd) };
       } finally {
         repo.cleanup();
       }
@@ -610,6 +618,11 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   if (recordsNote) log.warn(`⚠ ${recordsNote}`);
 
   reportCapabilityChanges(outcome.capabilityChanges);
+
+  const hookLines = outcome.hookWiring
+    ? hookWiringLines(outcome.hookWiring)
+    : null;
+  if (hookLines) note(hookLines.join('\n'), 'HOOKS');
 
   // An unhashable destination is skipped BEFORE the decision table and `force`
   // is not an input to that branch (lib/update-decision.ts) — deliberately, since

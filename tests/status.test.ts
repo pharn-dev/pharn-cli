@@ -1,5 +1,7 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProcessExit, stubProcessExit } from './helpers.js';
+import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import type { CapabilityIndex, PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -656,5 +658,72 @@ describe('runStatus — frozen capabilities', () => {
 
     expect(parseCapabilityIndex).not.toHaveBeenCalled();
     expect(fetchRepo).not.toHaveBeenCalled();
+  });
+});
+
+// PHARN-04: settings.json is never compared as a file, but whether every hook
+// upstream wires is wired in the project IS checked — and fails --strict.
+describe('runStatus — HOOKS (PHARN-04)', () => {
+  stubProcessExit();
+  const tmp = useTmpDir();
+  let repo = '';
+  let proj = '';
+  const oldWiring = {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Write|Edit',
+          hooks: [{ type: 'command', command: 'node .claude/hooks/a.cjs' }],
+        },
+      ],
+    },
+  };
+  const newWiring = {
+    hooks: {
+      ...oldWiring.hooks,
+      Stop: [
+        {
+          hooks: [
+            { type: 'command', command: 'node', args: ['.claude/hooks/b.cjs'] },
+          ],
+        },
+      ],
+    },
+  };
+  const put = (dir: string, v: unknown) => {
+    mkdirSync(join(dir, '.claude'), { recursive: true });
+    writeFileSync(join(dir, '.claude/settings.json'), JSON.stringify(v));
+  };
+
+  beforeEach(() => {
+    repo = join(tmp.path(), 'repo');
+    proj = join(tmp.path(), 'proj');
+    put(repo, newWiring);
+    vi.spyOn(process, 'cwd').mockReturnValue(proj);
+    loadArchetypeConfigOrExit.mockReturnValue(config());
+    fetchRepo.mockResolvedValue({ dir: repo, cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(CLEAN);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('names an upstream hook the project does not wire, and exits 0 without --strict', async () => {
+    put(proj, oldWiring);
+    await runStatus({});
+    expect(noteBody('HOOKS')).toContain('Stop: node .claude/hooks/b.cjs');
+    expect(noteBody('DRIFT')).toContain('No drift');
+  });
+
+  it('--strict exits 1 when an upstream hook is not wired', async () => {
+    put(proj, oldWiring);
+    await expect(runStatus({ strict: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+  });
+
+  it('--strict exits 0 and prints no HOOKS note when the wiring matches', async () => {
+    put(proj, newWiring);
+    await runStatus({ strict: true });
+    expect(noteBody('HOOKS')).toBe('');
   });
 });
