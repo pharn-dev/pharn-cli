@@ -6,7 +6,7 @@ from upstream?
 ```bash
 pharn status
 pharn status --no-drift   # version check only (skips the clone)
-pharn status --strict     # exit 1 if outdated, differing, missing, or unreadable (for CI)
+pharn status --strict     # exit 1 if outdated, differing, missing, unreadable, or a hook is unwired (for CI)
 ```
 
 `status` is the read side of [`update`](update.md): it reports PHARN-owned files at your **recorded**
@@ -74,8 +74,10 @@ a whole tree to relocate.
 
 ## What is intentionally excluded
 
-`.claude/settings.json` is **never** flagged — it is your Claude Code configuration, which the install
-preserves (never overwrites). The copied-verbatim trusted docs, `.cjs` hooks, `pharn/features/README.md`,
+`.claude/settings.json` is **never** flagged as a differing file — it is your Claude Code
+configuration, which the install preserves (never overwrites). Its `hooks` block is checked separately:
+a `HOOKS` section names every hook the upstream `settings.json` wires that yours does not (extra hooks
+of your own never count; matching is textual), and `--strict` exits `1` while any is missing. The copied-verbatim trusted docs, `.cjs` hooks, `pharn/features/README.md`,
 pharn's `LICENSE` copy, and the contracts, `pharn-core` and floor dirs at your recorded layout
 (`pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`, or `pharn-contracts/`, `pharn-core/`,
 `.dev/floor/` when it is flat) **are** compared, so an edit to any of those surfaces shows up as
@@ -86,7 +88,7 @@ never compared.
 
 Exits `0` by default, even when drift or an available update is found (it is a report) — including when
 a path is unreadable. Pass `--strict` to exit `1` whenever anything is outdated, differing, missing, or
-unreadable — useful as a CI gate.
+unreadable, or an upstream hook is not wired in `.claude/settings.json` — useful as a CI gate.
 
 `--strict` governs **findings**, not failures. `status` still exits `1` without it when it cannot
 produce a report at all: no `pharn.config.json` (or a pre-archetype one), a clone it cannot fetch, or
