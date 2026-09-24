@@ -371,10 +371,12 @@ test("★ the live repo has NO floating install in any workflow run: line", () =
   // `npm ci` in ci.yml and publish.yml — asserted EXACTLY, so an exemption can never become a
   // silent hole. If this number changes, a lockfile install was added or removed on purpose.
   //
-  // 7 = six in ci.yml (one per gate job — each required status check installs for itself) plus one
-  // in publish.yml. It was 2 while ci.yml ran a single `check` job; splitting that job into six is
-  // the deliberate change this count now records.
-  assert.equal(d.skipped, 7);
+  // 9 = six in ci.yml (one per gate job — each required status check installs for itself), one
+  // in publish.yml, and two in node-floor.yml (its `npm ci` build step, and the install of the
+  // locally packed tarball by PATH — `../pharn-dev-pharn-*.tgz` — onto the floor Node). It was 2
+  // while ci.yml ran a single `check` job, 7 until the node-floor smoke job was added; each step is
+  // a deliberate change this count records.
+  assert.equal(d.skipped, 9);
 
   // Independent recount of the enumerated workflow files, case-insensitively — exit 0 is also what
   // a checker returns when it opened nothing.

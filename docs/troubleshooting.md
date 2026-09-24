@@ -104,7 +104,8 @@ directory (or move it aside) and re-run.
 
 ## Prerequisites failed
 
-`pharn init` has three prerequisites — a git repository, an interactive terminal, and Node >= 20.
+`pharn init` has three prerequisites — a git repository, an interactive terminal, and Node >= 20.12.0. On an older Node 20 even
+`pharn --version` fails at load time with `does not provide an export named 'styleText'` — upgrade Node.
 There is no stack-pack or package prerequisite: archetype detection reads `package.json` names and the
 file tree, and installs whatever capabilities apply.
 
