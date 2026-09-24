@@ -135,8 +135,12 @@ edits — are listed **first** and marked `(edited)`, and the prompt says how ma
 continue, `init` copies each of them to `.pharn-backup/<timestamp>/` **before** the first write and prints
 that directory as soon as it is created (byte-identical files are not edits and are not backed up).
 Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.config.json`) are **kept**:
-`init` installs them again and records them as `manual`, as long as upstream still ships them. An
-unreadable or invalid existing config never blocks `init` — nothing is carried over from it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+`init` installs them again and records them as `manual`, as long as upstream still ships them. Top-level
+keys in `pharn.config.json` that pharn does not own, such as upstream's `testResults` and `ship`, are
+copied across unchanged — see [Keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own).
+An unreadable or invalid existing config never blocks `init`. Manual capabilities are carried over
+only from a config the other commands would accept, and your own keys from any config that parses as
+a JSON object; a config that is not valid JSON carries nothing over. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 ### 7. Install
 

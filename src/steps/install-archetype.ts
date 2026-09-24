@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
@@ -10,8 +11,13 @@ import { buildRecords, writeRecords } from '../lib/install-records.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { formatModelRoutingLines } from '../lib/model-routing-format.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
-import { writePharnConfig } from '../lib/pharn-config.js';
+import {
+  configPath,
+  userOwnedConfigEntries,
+  writePharnConfig,
+} from '../lib/pharn-config.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
+import { isPlainObject } from '../lib/validate.js';
 import { PHARN_VERSION } from '../version.js';
 import type {
   Archetype,
@@ -155,7 +161,16 @@ export async function runInstallArchetype(
       collectExpectedInstallPaths({ repoDir, capabilities, layout }).keys(),
     ),
   });
-  await writePharnConfig(cwd, config);
+  // The config this install replaces may hold keys pharn does not own —
+  // upstream's `testResults` / `ship`, which users add by hand — and the object
+  // above is built from pharn's own fields alone. Carry them over (why every
+  // such key: userOwnedConfigEntries). Read HERE, inside init's project lock and
+  // immediately before the write, for the reason the backup scan above is taken
+  // late: a key edited while a prompt was open must not be lost. Appended AFTER
+  // pharn's own keys: the two sets are disjoint by construction, and this keeps
+  // the user's keys where they most likely added them, so the committed file's
+  // diff is only what init actually changed.
+  await writePharnConfig(cwd, { ...config, ...readCarriedEntries(cwd) });
 
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
   const check = pc.green('✔');
@@ -197,4 +212,30 @@ export async function runInstallArchetype(
       `  ${pc.cyan('2.')}  ${pc.bold(FIRST_FEATURE_COMMAND)}       ${pc.dim("capture your first feature's intent")}`,
     ].join('\n'),
   );
+}
+
+/**
+ * The user-owned top-level entries (`userOwnedConfigEntries`) of the
+ * pharn.config.json this install is about to replace — `{}` on ANY failure.
+ * Read TOLERANTLY, like init's carriedManualCapabilities: init is the command
+ * every other one points at for recovery, so an absent, unreadable or
+ * unparseable config means "nothing to carry over", never a refusal.
+ *
+ * Deliberately NOT readPharnConfig, whose verdict is about the keys pharn OWNS:
+ * it returns null for a config with no `modules` array — which every other
+ * command answers with "Run `pharn init` first" — and throws on a bad
+ * `models`/`seam` hand-edit. Neither says anything about the user's own keys,
+ * and reading through it would drop `testResults` on exactly the recovery path
+ * pharn prescribes. So the one requirement is a JSON object at top level — the
+ * same shape-only read steps/overwrite-check.ts makes for its one display
+ * scalar, and file-local for the same reason: a total-catch reader must not be
+ * importable from the module whose point is that it throws.
+ */
+function readCarriedEntries(cwd: string): Record<string, unknown> {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(configPath(cwd), 'utf8'));
+    return isPlainObject(raw) ? userOwnedConfigEntries(raw) : {};
+  } catch {
+    return {};
+  }
 }

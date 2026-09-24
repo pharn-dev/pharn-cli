@@ -200,6 +200,79 @@ export function configPath(cwd: string): string {
 }
 
 /**
+ * Every top-level key this CLI OWNS: exactly the keys `PharnConfig` declares —
+ * the ones it writes and validates, plus the module-era fields it no longer
+ * writes but that are still its own (`constitution`, `stackAnswers`, …).
+ *
+ * `satisfies Record<keyof PharnConfig, true>` makes the list exhaustive BY
+ * CONSTRUCTION: declaring a field on `PharnConfig` without listing it here (or
+ * listing one it does not declare) fails the typecheck. That is what keeps
+ * `userOwnedConfigEntries` honest — a new pharn-owned field can never be read
+ * as the user's and carried stale across a re-run init.
+ *
+ * A `Set` of the keys, never an `in` test against the literal: `in` walks the
+ * prototype chain, so a user key named `constructor` or `toString` would read
+ * as pharn's.
+ */
+const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
+  Object.keys({
+    pharnVersion: true,
+    skillsVersion: true,
+    pendingSkillsVersion: true,
+    frozenCapabilities: true,
+    repo: true,
+    commit: true,
+    constitution: true,
+    isMultiTenant: true,
+    modules: true,
+    installedAt: true,
+    models: true,
+    seam: true,
+    stackAnswers: true,
+    installedSkills: true,
+    archetypes: true,
+    capabilities: true,
+    layout: true,
+  } satisfies Record<keyof PharnConfig, true>),
+);
+
+/**
+ * The top-level entries of a parsed `pharn.config.json` that this CLI does NOT
+ * own (`CLI_OWNED_KEYS`): keys the user put there, most of them for upstream
+ * pharn-oss to read — `testResults` (the per-test results runners `/pharn-test`
+ * and `/pharn-verify` need) and `ship.requireAttestation`. Returned verbatim and
+ * never validated: pharn does not own their schema, so it has no business
+ * judging them. Pure. `pharn init` is the caller — it rebuilds the config from
+ * its own fields and carries these over (steps/install-archetype.ts).
+ *
+ * EVERY such key, not an allowlist of the two known today — deliberately:
+ * - It is the contract the other writers already keep. `readPharnConfig` passes
+ *   unknown top-level keys through (P7, additive) and `add`/`update`/`remove`
+ *   write that object back, so every other command already answers "does my key
+ *   survive?" with yes. An allowlist would make `init` the one command whose
+ *   answer depends on whether this CLI release has heard of the key.
+ * - Upstream outpaces CLI releases. A released CLI installs pharn-oss `main`
+ *   HEAD, which added `testResults` in 6.15 and `ship` after it; an allowlist
+ *   would re-arm this exact drop for the next key, in every deployed CLI, until
+ *   a new release shipped.
+ * - The owned side is the closed, known set, so it is the side to enumerate:
+ *   `CLI_OWNED_KEYS` is exhaustive by construction, while a list of foreign keys
+ *   could only ever be complete by luck.
+ * The cost, accepted: a key nobody reads (a typo, another tool's leftover)
+ * survives a re-init too — exactly as it already survives `add`/`update`/`remove`.
+ *
+ * `Object.fromEntries` defines OWN data properties, so a `__proto__` key (an own
+ * key after `JSON.parse`) round-trips as a key and never becomes a prototype.
+ */
+export function userOwnedConfigEntries(
+  raw: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(raw).filter(([key]) => !CLI_OWNED_KEYS.has(key)),
+  );
+}
+
+/**
  * Read + validate pharn.config.json.
  *
  * Returns `null` ONLY for "there is no config to read": an absent file, an
@@ -220,7 +293,8 @@ export function configPath(cwd: string): string {
  * On success the validated, typed `models`/`seam` (the validators' stripped
  * return) replace the raw sub-blocks (BUG 3), while unknown TOP-LEVEL keys still
  * pass through so a legacy config carrying a since-removed field still loads
- * (P7, additive).
+ * (P7, additive) — and so a key the user owns (`userOwnedConfigEntries`) survives
+ * every command that writes this object back.
  */
 export function readPharnConfig(cwd: string): PharnConfig | null {
   const path = configPath(cwd);
