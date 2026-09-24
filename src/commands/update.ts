@@ -513,8 +513,13 @@ async function applyUpdate(
   // install at it. Any other skip (`unverifiable`, `unreadable`) can leave most
   // of the tree at the old version, so nothing is recorded; a complete run
   // clears it. Exact label membership, not "forceable" (P5).
+  // A pending version equal to the withheld one (a same-version run, e.g. the
+  // re-check of a formerly-frozen capability) tells `add` nothing it does not
+  // already accept, so it is not written.
   const pendingSkillsVersion =
-    versionWithheld && plan.skipped.every((g) => USER_EDIT_SKIPS.has(g.label))
+    versionWithheld &&
+    installedVersion !== nextSkillsVersion &&
+    plan.skipped.every((g) => USER_EDIT_SKIPS.has(g.label))
       ? installedVersion
       : undefined;
 
@@ -582,11 +587,34 @@ async function applyUpdate(
     },
   });
   // Only KEPT entries count: an unparseable capability this project never had
-  // must not pin every future run to a re-fetch.
-  const frozenCapabilities = configCapabilities
-    .map((cap) => `${cap.role}:${cap.name}`)
-    .filter((key) => frozen.has(key))
-    .sort();
+  // must not pin every future run to a re-fetch. And one the LAST run listed
+  // that parses again stays listed while any of ITS files was skipped this run:
+  // the version bump already happened on the run that froze it, so here a skip
+  // withholds nothing — this list is the only thing that makes the next run
+  // re-check those files instead of returning "Already up to date". Drawn from
+  // the MERGED capabilities, so an entry the merge dropped cannot linger.
+  const previouslyFrozen = new Set(config.frozenCapabilities ?? []);
+  const skippedRels = plan.skipped.flatMap((group) => group.rels);
+  const paths = layoutPaths(layout);
+  const hasSkippedFile = (cap: InstalledCapability): boolean => {
+    // The same `<subtree>/<name>/` prefix recordsUnderCapabilities keys on.
+    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
+    const prefix = `${subtree}/${cap.name}/`;
+    return skippedRels.some((rel) => rel.startsWith(prefix));
+  };
+  const frozenCapabilities = [
+    ...new Set(
+      configCapabilities
+        .filter((cap) => {
+          const key = `${cap.role}:${cap.name}`;
+          return (
+            frozen.has(key) ||
+            (previouslyFrozen.has(key) && hasSkippedFile(cap))
+          );
+        })
+        .map((cap) => `${cap.role}:${cap.name}`),
+    ),
+  ].sort();
   const {
     pendingSkillsVersion: _previousPending,
     frozenCapabilities: _previousFrozen,

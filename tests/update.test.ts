@@ -1536,6 +1536,105 @@ describe('runUpdate (drift-safe)', () => {
       expect(readPharnConfig(proj)!.frozenCapabilities).toBeUndefined();
     });
 
+    // update-frozen-recheck. The bump already happened on the run that froze the
+    // capability, so on the re-check run a skip withholds nothing: only the list
+    // keeps the next run from returning "Already up to date" over stale files.
+    describe('a formerly-frozen capability that parses again', () => {
+      // Installed at v1 and recorded at the (already bumped) 1.1.0 stamp, exactly
+      // what the run that froze it leaves behind; upstream now parses.
+      async function reCheckable(): Promise<void> {
+        await installed({
+          skillsVersion: '1.1.0',
+          capabilities: [CAP, { ...FROZEN, source: 'auto' }],
+          frozenCapabilities: ['griller:backwards-compat'],
+        });
+        write(join(proj, FROZEN_FILE), 'installed at v1');
+        const read = readRecords(proj);
+        if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+        await writeRecords(proj, {
+          skillsVersion: '1.1.0',
+          commit: null,
+          files: {
+            ...read.store.files,
+            [FROZEN_FILE]: sha256File(join(proj, FROZEN_FILE)),
+          },
+        });
+        write(join(repo, FROZEN_FILE), 'parsed upstream content');
+        resolveCapabilities.mockReturnValue({
+          selected: [
+            { ...CAP, matched: ['ssr'] },
+            { ...FROZEN, matched: ['ssr'] },
+          ],
+          skipped: [],
+        });
+      }
+      // The next run reads the config the last one wrote.
+      const reload = (): void => {
+        loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
+        vi.mocked(fetchRepo).mockClear();
+      };
+
+      it('stays listed while a file of its own is skipped — and is re-checked until that file lands', async () => {
+        await reCheckable();
+        write(join(proj, FROZEN_FILE), 'my local edit');
+
+        await runUpdate();
+
+        // Skipped as the user's edit — and the key survives.
+        expect(body(FROZEN_FILE)).toBe('my local edit');
+        let config = readPharnConfig(proj)!;
+        expect(config.frozenCapabilities).toEqual(['griller:backwards-compat']);
+        // Same-version run: a pending version equal to the recorded one says
+        // nothing `add` does not already accept.
+        expect(config.skillsVersion).toBe('1.1.0');
+        expect(config.pendingSkillsVersion).toBeUndefined();
+
+        // The next run fetches again instead of "Already up to date".
+        reload();
+        await runUpdate();
+        expect(fetchRepo).toHaveBeenCalledTimes(1);
+        expect(readPharnConfig(proj)!.frozenCapabilities).toEqual([
+          'griller:backwards-compat',
+        ]);
+
+        // The user resolves the edit as advised → the file finally lands.
+        write(join(proj, FROZEN_FILE), 'installed at v1');
+        reload();
+        await runUpdate();
+        expect(body(FROZEN_FILE)).toBe('parsed upstream content');
+        config = readPharnConfig(proj)!;
+        expect(config.frozenCapabilities).toBeUndefined();
+      });
+
+      it('a skip under ANOTHER path does not keep it listed', async () => {
+        await reCheckable();
+        write(join(proj, DOC), 'my edit of the constitution');
+
+        await runUpdate();
+
+        expect(body(DOC)).toBe('my edit of the constitution');
+        expect(body(FROZEN_FILE)).toBe('parsed upstream content');
+        expect(readPharnConfig(proj)!.frozenCapabilities).toBeUndefined();
+      });
+
+      it('leaves the list when the merge drops the entry', async () => {
+        await reCheckable();
+        write(join(proj, FROZEN_FILE), 'my local edit');
+        // Parses again, but the archetypes no longer select it: an `auto`
+        // entry is dropped (merge row 5), so nothing may keep it listed.
+        resolveCapabilities.mockReturnValue({
+          selected: [{ ...CAP, matched: ['ssr'] }],
+          skipped: [{ ...FROZEN, reason: 'applies to [backend]' }],
+        });
+
+        await runUpdate();
+
+        const config = readPharnConfig(proj)!;
+        expect(config.capabilities!.map((c) => c.name)).toEqual(['a11y']);
+        expect(config.frozenCapabilities).toBeUndefined();
+      });
+    });
+
     it('still returns early at the same version when nothing is frozen', async () => {
       await installed({ skillsVersion: '1.1.0' });
 

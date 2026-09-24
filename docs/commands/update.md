@@ -101,9 +101,11 @@ upstream this run`. A capability you have is not dropped because one fetch could
 pharn records the kept capability in `frozenCapabilities` in `pharn.config.json`. While that
 field is set, `update` does not stop at "Already up to date": every run fetches again and re-checks
 it, so the message repeats while the situation lasts. Once the capability can be read (upstream
-finishes the change, or you upgrade pharn with `npm install -g @pharn-dev/pharn@latest`), that run
-updates its files as usual and clears the field. If you no longer want the capability at all, remove it
-with [`pharn remove`](remove.md).
+finishes the change, or you upgrade pharn with `npm install -g @pharn-dev/pharn@latest`), `update`
+brings its files up to date as usual and clears the field — but only once none of that capability's
+files had to be skipped. A file of it you edited is skipped as usual, and the capability stays listed,
+so every later run checks it again until you resolve the edit or pass `--force`. If you no longer want
+the capability at all, remove it with [`pharn remove`](remove.md).
 
 ## `pharn is too old for the current pharn-oss`
 
