@@ -961,9 +961,7 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
       const projBefore = tree(proj);
 
       expect(() => installCapabilities(repo, proj, selection())).toThrow(
-        new RegExp(
-          `Refusing to install: ${link.replace(/\./g, '\\.')} is a symbolic link`,
-        ),
+        `Refusing to install: ${link} is a symbolic link`,
       );
 
       expect(tree(outside)).toEqual(outsideBefore);
