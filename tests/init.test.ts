@@ -1,8 +1,14 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProcessExit, restoreTTY, setTTY, stubProcessExit } from './helpers.js';
+import {
+  ProcessExit,
+  restoreTTY,
+  setTTY,
+  stubProcessExit,
+  useTmpDir,
+} from './helpers.js';
 import type { CapabilityIndex } from '../src/types.js';
 
 // Archetype is now the DEFAULT (and only) init flow. runInit() drives it with no
@@ -95,6 +101,89 @@ describe('runInit (archetype default)', () => {
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
 
+  // PHARN-11: a re-run init carries the user's hand-added capabilities over
+  // (still in the index, not already selected) instead of dropping them.
+  describe('carrying manual capabilities over', () => {
+    const tmp = useTmpDir();
+    const writeConfig = (dir: string, value: unknown) =>
+      writeFileSync(join(dir, 'pharn.config.json'), JSON.stringify(value));
+    const baseConfig = {
+      pharnVersion: '0.5.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: null,
+      modules: [],
+      installedAt: '2026-09-24T00:00:00.000Z',
+      archetypes: ['ssr'],
+    };
+
+    beforeEach(() => {
+      runArchetypeSummary.mockResolvedValue('install');
+      confirmWriteTargets.mockResolvedValue('proceed');
+      parseCapabilityIndex.mockReturnValue({
+        capabilities: [
+          { name: 'a11y', role: 'griller', applies: 'universal' },
+          { name: 'path-traversal', role: 'lens', applies: ['backend'] },
+        ],
+        unknown: [],
+      });
+      resolveCapabilities.mockReturnValue({
+        selected: [{ name: 'a11y', role: 'griller', matched: 'universal' }],
+        skipped: [],
+      } as never);
+    });
+    afterEach(() => {
+      // Implementations survive vi.clearAllMocks — reset what this block set so
+      // the rest of the file sees its defaults.
+      resolveCapabilities.mockReturnValue({ selected: [], skipped: [] });
+      vi.mocked(process.cwd).mockRestore();
+    });
+
+    it('installs and flags a manual entry that the index still has', async () => {
+      const dir = tmp.path();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      writeConfig(dir, {
+        ...baseConfig,
+        capabilities: [
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'path-traversal', role: 'lens', source: 'manual' },
+          { name: 'gone-now', role: 'lens', source: 'manual' },
+        ],
+      });
+
+      await runInit();
+
+      const [, , , selection, , manualKeys] = runInstallArchetype.mock
+        .calls[0] as unknown as [
+        unknown,
+        unknown,
+        unknown,
+        { selected: { name: string }[] },
+        unknown,
+        Set<string>,
+      ];
+      expect(selection.selected.map((c) => c.name)).toEqual([
+        'a11y',
+        'path-traversal',
+      ]);
+      expect([...manualKeys]).toEqual(['lens:path-traversal']);
+      expect(informed()).toContain('lens:path-traversal');
+    });
+
+    it('a corrupt existing config never blocks init — nothing is carried over', async () => {
+      const dir = tmp.path();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      writeFileSync(join(dir, 'pharn.config.json'), '{ not json');
+
+      await runInit();
+
+      expect(runInstallArchetype).toHaveBeenCalledTimes(1);
+      const manualKeys = runInstallArchetype.mock.calls[0]![5 as never] as
+        Set<string> | undefined;
+      expect([...(manualKeys ?? [])]).toEqual([]);
+    });
+  });
+
   it('drives the archetype flow and installs — no module/manifest fetch', async () => {
     runArchetypeSummary.mockResolvedValue('install');
     confirmWriteTargets.mockResolvedValue('proceed');
@@ -122,6 +211,7 @@ describe('runInit (archetype default)', () => {
       ['ssr'],
       { selected: [], skipped: [] },
       'sha123',
+      new Set(),
     );
     expect(cleanup).toHaveBeenCalledTimes(1);
   });

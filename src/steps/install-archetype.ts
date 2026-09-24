@@ -3,7 +3,9 @@ import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
 import { installCapabilities } from '../lib/install-capabilities.js';
 import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
-import { layoutPaths } from '../lib/layout.js';
+import { detectLayout, layoutPaths } from '../lib/layout.js';
+import { scanDest } from '../lib/dest-drift.js';
+import { createBackup } from '../lib/backup.js';
 import { buildRecords, writeRecords } from '../lib/install-records.js';
 import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
 import { formatModelRoutingLines } from '../lib/model-routing-format.js';
@@ -30,8 +32,38 @@ export async function runInstallArchetype(
   archetypes: Archetype[],
   selection: Selection,
   commit: string | null,
+  // `role:name` keys of capabilities the user added by hand in the config this
+  // install replaces (commands/init.ts carries them over). Recorded `manual`,
+  // so `pharn update` keeps them — every other entry is `auto`.
+  manualKeys: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   const startedAt = Date.now();
+
+  // Back up every existing file this install is about to overwrite whose bytes
+  // DIFFER from upstream — a re-run `init` used to discard local edits with no
+  // copy anywhere. The same scan + backup `pharn add` uses (lib/dest-drift.ts,
+  // lib/backup.ts), taken HERE, immediately before the copy, not at the prompt:
+  // an edit made while the prompt was open must be covered too. Byte-identical
+  // files are not edits. A path through a symlinked directory is left out — the
+  // install's own pre-flight refuses the whole run over it (install-capabilities.ts).
+  const scan = scanDest({
+    repoDir,
+    projectRoot: cwd,
+    rels: [
+      ...collectExpectedInstallPaths({
+        repoDir,
+        capabilities: selection.selected,
+        layout: detectLayout(repoDir),
+      }).keys(),
+    ],
+  });
+  if (scan.drifted.length > 0 && scan.unsafe.length === 0) {
+    const backupDir = createBackup(cwd, scan.drifted);
+    // Named at creation, so the pointer survives anything that fails after it.
+    log.info(
+      `Backed up ${scan.drifted.length} edited file(s) to ${backupDir} before overwriting.`,
+    );
+  }
 
   const s = spinner();
   s.start('Installing capabilities');
@@ -94,12 +126,18 @@ export async function runInstallArchetype(
     // Seam-resolution policy, written on every fresh install (P7 — additive).
     seam: DEFAULT_SEAM_CONFIG,
     archetypes,
-    // Every entry a fresh install writes came from archetype resolution, so it is
-    // `auto` — `pharn update` owns it and may drop it when the archetypes stop
-    // selecting it. `pharn add` is the only thing that writes `manual`. Tagged at
+    // An entry from archetype resolution is `auto` — `pharn update` owns it and
+    // may drop it when the archetypes stop selecting it. `manual` is what
+    // `pharn add` writes, and what a re-run init carries over from the config it
+    // replaces (`manualKeys`), so a hand-added capability survives. Tagged at
     // the WRITE site so lib/install-capabilities.ts (the copy routine) stays
     // unaware of provenance, which is not its axis (P3).
-    capabilities: capabilities.map((c) => ({ ...c, source: 'auto' as const })),
+    capabilities: capabilities.map((c) => ({
+      ...c,
+      source: manualKeys.has(`${c.role}:${c.name}`)
+        ? ('manual' as const)
+        : ('auto' as const),
+    })),
     // The layout mirrored from the fetched clone (flat OR pharn/) — status/remove
     // read this back to address the project the same way (lib/layout.ts).
     layout,

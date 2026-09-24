@@ -266,3 +266,53 @@ describe('confirmWriteTargets', () => {
     expect(lastWarning()).not.toContain('skills v');
   });
 });
+
+// PHARN-11: with hundreds of existing paths capped at MAX_LISTED, the user's
+// EDITS were buried in "…and N more". They are listed first, marked, and the
+// prompt says they will be backed up before being overwritten.
+describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
+  const tmp = useTmpDir();
+  const sel: Selection = {
+    selected: [
+      { name: 'a11y', role: 'griller', matched: ['ssr'] },
+      { name: 'n-plus-one', role: 'lens', matched: ['ssr'] },
+    ],
+    skipped: [],
+  };
+
+  it('lists the edited file first, marked, and announces the backup', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    // Everything already installed, byte-identical…
+    installCapabilities(repo, proj, sel);
+    // …except one file the user edited. `z…` would sort LAST alphabetically.
+    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'MY EDIT');
+    vi.mocked(prompts.confirm).mockResolvedValueOnce(false);
+
+    await confirmWriteTargets(repo, proj, sel);
+
+    const warning = lastWarning();
+    const firstListed = warning
+      .split('\n')
+      .find((l) => l.trimStart().startsWith('•'));
+    expect(firstListed).toContain(
+      'pharn-review/n-plus-one/n-plus-one.md (edited)',
+    );
+    expect(warning).toContain('1 of them differ from upstream (your edits)');
+    expect(warning).toContain('.pharn-backup/');
+  });
+
+  it('calls nothing an edit when every existing file is byte-identical', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    installCapabilities(repo, proj, sel);
+    vi.mocked(prompts.confirm).mockResolvedValueOnce(false);
+
+    await confirmWriteTargets(repo, proj, sel);
+
+    expect(lastWarning()).not.toContain('(edited)');
+    expect(lastWarning()).not.toContain('your edits');
+  });
+});

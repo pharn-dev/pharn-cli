@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -385,5 +386,100 @@ describe('archetype install (fixture e2e)', () => {
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
     expect(warned).not.toContain('not installed');
+  });
+});
+
+// PHARN-11: re-running `init` over an existing install used to overwrite local
+// edits with no copy anywhere, and rewrote the config from archetype
+// resolution alone — dropping every capability the user had added by hand.
+describe('re-running init over an existing install (PHARN-11)', () => {
+  const tmp = useTmpDir();
+
+  async function firstInstall(repo: string, proj: string) {
+    scaffoldRepo(repo);
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const index = parseCapabilityIndex(repo);
+    const selection = resolveCapabilities(archetypes, index);
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    return { archetypes, selection };
+  }
+
+  it('copies an edited file to .pharn-backup/ before overwriting it, and names the directory', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const { archetypes, selection } = await firstInstall(repo, proj);
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'MY LOCAL EDIT');
+    vi.mocked(prompts.log.info).mockClear();
+
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    const backups = readdirSync(join(proj, '.pharn-backup'));
+    expect(backups).toHaveLength(1);
+    expect(
+      readFileSync(
+        join(
+          proj,
+          '.pharn-backup',
+          backups[0]!,
+          '.claude/commands/pharn-plan.md',
+        ),
+        'utf8',
+      ),
+    ).toBe('MY LOCAL EDIT');
+    expect(
+      readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
+    ).toBe('plan');
+    const info = vi
+      .mocked(prompts.log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(info).toContain(`.pharn-backup/${backups[0]!}`);
+  });
+
+  it('makes NO backup when nothing was edited (byte-identical is not an edit)', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const { archetypes, selection } = await firstInstall(repo, proj);
+
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+  });
+
+  it('records the carried-over manual capabilities as `manual`', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const { archetypes, selection } = await firstInstall(repo, proj);
+    const withManual = {
+      ...selection,
+      selected: [
+        ...selection.selected,
+        { name: 'path-traversal', role: 'lens' as const, matched: [] },
+      ],
+    };
+
+    await runInstallArchetype(
+      repo,
+      proj,
+      archetypes,
+      withManual,
+      'sha123',
+      new Set(['lens:path-traversal']),
+    );
+
+    const caps = readPharnConfig(proj)!.capabilities!;
+    expect(caps).toContainEqual({
+      name: 'path-traversal',
+      role: 'lens',
+      source: 'manual',
+    });
+    expect(caps.filter((c) => c.source === 'manual')).toHaveLength(1);
+    expect(
+      existsSync(join(proj, 'pharn-review/path-traversal/path-traversal.md')),
+    ).toBe(true);
   });
 });

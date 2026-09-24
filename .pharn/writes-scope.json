@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/interrupt-exit-code/REVIEW.md"
+    ".dev/features/reinit-preserve-edits/SHIP.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-review.md",
-  "set_at": "2026-09-24T08:58:56.214Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-24T09:28:29.312Z"
 }

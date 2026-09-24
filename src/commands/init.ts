@@ -23,6 +23,12 @@ import { runGitPrereq } from '../steps/prereqs.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
 import { runInstallArchetype } from '../steps/install-archetype.js';
+import { readPharnConfig } from '../lib/pharn-config.js';
+import type {
+  CapabilityIndex,
+  InstalledCapability,
+  Selection,
+} from '../types.js';
 
 export async function runInit(): Promise<void> {
   showBanner();
@@ -124,7 +130,30 @@ async function runInitArchetype(): Promise<void> {
       // immediately after the parse and BEFORE the summary the user acts on.
       const unknownWarning = unknownCapabilitiesWarning(index.unknown);
       if (unknownWarning) log.warn(unknownWarning);
-      const selection = resolveCapabilities(archetypes, index);
+      const resolved = resolveCapabilities(archetypes, index);
+      // A re-run init must not silently drop what the user added by hand
+      // (`pharn add` → `source: 'manual'`): carry those entries over, install
+      // them with the rest, and keep their provenance.
+      const manual = carriedManualCapabilities(cwd, index, resolved);
+      if (manual.length) {
+        log.info(
+          `Keeping ${manual.length} capabilit${manual.length === 1 ? 'y' : 'ies'} you added by hand: ${manual.map((c) => `${c.role}:${c.name}`).join(', ')}.`,
+        );
+      }
+      const selection: Selection = manual.length
+        ? {
+            ...resolved,
+            selected: [
+              ...resolved.selected,
+              ...manual.map((c) => ({
+                name: c.name,
+                role: c.role,
+                matched: [],
+              })),
+            ],
+          }
+        : resolved;
+      const manualKeys = new Set(manual.map((c) => `${c.role}:${c.name}`));
 
       const action = await runArchetypeSummary(archetypes, selection);
       // Both prompts return a VALUE and neither exits, so `outcome` stays
@@ -166,7 +195,14 @@ async function runInitArchetype(): Promise<void> {
         // the bootstrap command, run once, interactively, and it is where a
         // concurrent-writer collision is least likely.
         await withProjectLock(cwd, 'init', () =>
-          runInstallArchetype(repo.dir, cwd, archetypes, selection, commit),
+          runInstallArchetype(
+            repo.dir,
+            cwd,
+            archetypes,
+            selection,
+            commit,
+            manualKeys,
+          ),
         );
         outcome = 'installed';
       }
@@ -192,4 +228,40 @@ async function runInitArchetype(): Promise<void> {
     process.exit(1);
   }
   if (outcome === 'cancelled') cancelAndExit();
+}
+
+/**
+ * The `source: 'manual'` capabilities of the config a re-run init is about to
+ * replace that the fetched index still has and archetype resolution did not
+ * already select. Read TOLERANTLY: init is the command every other one points
+ * at for recovery, so an absent, unreadable, invalid or pre-archetype config
+ * simply means "nothing to carry over" — never a refusal. A manual entry the
+ * index no longer has is not resurrected (the `dropped-gone` rule `update`
+ * applies in lib/merge-capabilities.ts).
+ */
+function carriedManualCapabilities(
+  cwd: string,
+  index: CapabilityIndex,
+  resolved: Selection,
+): InstalledCapability[] {
+  let previous: InstalledCapability[];
+  try {
+    previous = readPharnConfig(cwd)?.capabilities ?? [];
+  } catch {
+    return [];
+  }
+  const key = (c: { name: string; role: string }): string =>
+    `${c.role}:${c.name}`;
+  const inIndex = new Set(index.capabilities.map(key));
+  const selected = new Set(resolved.selected.map(key));
+  const seen = new Set<string>();
+  return previous.filter((c) => {
+    const k = key(c);
+    if (c.source !== 'manual' || !inIndex.has(k) || selected.has(k)) {
+      return false;
+    }
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
