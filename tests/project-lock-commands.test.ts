@@ -34,7 +34,9 @@ vi.mock('@clack/prompts', () => ({
 
 const loadArchetypeConfigOrExit = vi.fn();
 const writePharnConfig = vi.fn();
+const assertConfigUnchanged = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
+  assertConfigUnchanged,
   loadArchetypeConfigOrExit,
   writePharnConfig,
 }));
@@ -321,5 +323,96 @@ describe('a failed download under the lock strands nothing', () => {
     expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
     const [msg] = vi.mocked(prompts.log.error).mock.calls.at(-1)!;
     expect(msg).toContain('offline');
+  });
+});
+
+// PHARN-03 (a): each writer re-reads pharn.config.json as the first step under
+// the lock. Here the real check runs against a real file that "another run"
+// rewrote after this command loaded its snapshot — the measured case was a
+// `remove` picker confirmed after a concurrent `add`, which dropped the added
+// capability from the config while its files and records stayed.
+describe('a config rewritten before the lock refuses a writing command', () => {
+  const tmp = useTmpDir();
+  stubProcessExit();
+  let proj = '';
+
+  const withAdd = () => ({
+    ...archetypeConfig(),
+    capabilities: [
+      { name: 'a11y', role: 'griller' },
+      { name: 'n-plus-one', role: 'lens', source: 'manual' },
+    ],
+  });
+  const configFile = () => join(proj, 'pharn.config.json');
+
+  beforeEach(async () => {
+    proj = tmp.path();
+    vi.spyOn(process, 'cwd').mockReturnValue(proj);
+    writePharnConfig.mockReset();
+    fetchRepo.mockReset();
+    fetchRemoteSkillsVersion.mockReset();
+    fetchRemoteSkillsVersion.mockResolvedValue('2.0.0');
+    const actual = await vi.importActual<
+      typeof import('../src/lib/pharn-config.js')
+    >('../src/lib/pharn-config.js');
+    assertConfigUnchanged.mockImplementation(actual.assertConfigUnchanged);
+    // What this command loaded and planned against…
+    loadArchetypeConfigOrExit.mockReturnValue(archetypeConfig());
+    // …and what is on disk by the time it takes the lock.
+    writeFileSync(configFile(), JSON.stringify(withAdd()));
+  });
+  afterEach(() => {
+    assertConfigUnchanged.mockReset();
+    restoreTTY();
+  });
+
+  it('`remove` (picker, after its confirm) refuses: nothing deleted, the concurrent add survives', async () => {
+    setTTY(true, true);
+    mkdirSync(join(proj, 'pharn-pipeline/grillers/a11y'), { recursive: true });
+    writeFileSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'CAP');
+    vi.mocked(prompts.groupMultiselect).mockResolvedValueOnce(['griller:a11y']);
+
+    await expect(runRemove(undefined)).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+
+    expect(
+      readFileSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'utf8'),
+    ).toBe('CAP');
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(JSON.parse(readFileSync(configFile(), 'utf8'))).toEqual(withAdd());
+    expect(vi.mocked(prompts.log.error).mock.calls.map(String).join()).toMatch(
+      /pharn\.config\.json changed while `pharn remove` was running/,
+    );
+    expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
+  });
+
+  it('`remove` (named) refuses too', async () => {
+    await expect(runRemove('a11y')).rejects.toMatchObject(new ProcessExit(1));
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('`update` refuses before fetching or writing', async () => {
+    await expect(runUpdate({ yes: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
+  });
+
+  it('`add` refuses before fetching or writing', async () => {
+    await expect(runAdd('n-plus-one')).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('an unchanged config lets the command through (control)', async () => {
+    writeFileSync(configFile(), JSON.stringify(archetypeConfig()));
+    mkdirSync(join(proj, 'pharn-pipeline/grillers/a11y'), { recursive: true });
+    await runRemove('a11y');
+    expect(writePharnConfig).toHaveBeenCalledTimes(1);
   });
 });

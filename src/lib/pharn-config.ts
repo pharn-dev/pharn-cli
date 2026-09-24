@@ -8,6 +8,7 @@ import {
   isPlainObject,
   ROLE_VALUES,
 } from './validate.js';
+import { ProjectChangedError } from './project-lock.js';
 import { validateModelRouting, ModelRoutingError } from './model-routing.js';
 import { validateSeamConfig, SeamConfigError } from './seam-config.js';
 import type { PharnConfig } from '../types.js';
@@ -311,6 +312,40 @@ export function loadConfigOrExit(cwd: string): PharnConfig {
   // this line may never again describe a file that is sitting right there.
   logError('No pharn.config.json found. Run `pharn init` first.');
   process.exit(1);
+}
+
+/**
+ * Refuse, under the project lock, when `pharn.config.json` no longer matches
+ * the `snapshot` this command loaded — and planned against — before it took the
+ * lock. Between that load and the lock sit a confirm prompt (`update`, the
+ * `remove` picker) or a fetch, and another pharn run can land in that window:
+ * measured, a `remove` picker confirmed after a concurrent `add` rewrote its
+ * stale snapshot, silently dropping the added capability while its files and
+ * records stayed. The lock alone cannot see this — it only serializes writers
+ * that are already inside it.
+ *
+ * Exact comparison of two parses through the same `readPharnConfig`, so it is
+ * deterministic (P5); it must run before `snapshot` is mutated. A config that
+ * is now absent, unparseable or invalid also counts as changed. Throws
+ * `ProjectChangedError` (a `ProjectLockedError`), which every lock caller
+ * already reports as a named refusal + exit 1, with nothing written.
+ */
+export function assertConfigUnchanged(
+  cwd: string,
+  snapshot: PharnConfig,
+  command: string,
+): void {
+  let current: PharnConfig | null;
+  try {
+    current = readPharnConfig(cwd);
+  } catch {
+    current = null;
+  }
+  if (current !== null && JSON.stringify(current) === JSON.stringify(snapshot))
+    return;
+  throw new ProjectChangedError(
+    `${CONFIG_FILENAME} changed while \`pharn ${command}\` was running — another pharn process (or an edit) wrote it after this command read it. Nothing was written. Re-run \`pharn ${command}\` to act on the current state.`,
+  );
 }
 
 /**

@@ -242,6 +242,9 @@ Three behaviours matter if you script the CLI:
   destructive overwrite confirmation.
 - **One writer at a time.** `init`, `add`, `remove` and `update` take an
   advisory lock at `.pharn.lock`; a second run refuses rather than queueing.
+  `add`, `remove` and `update` also re-read `pharn.config.json` once they hold
+  the lock, and refuse — writing nothing — if another run changed it after they
+  read it (for example while a confirm prompt was open).
   `list` and `status` never take it and are never blocked by one, so
   `pharn status --strict` stays runnable in CI while an update is in flight.
 

@@ -74,7 +74,9 @@ vi.mock('../src/lib/skills-version.js', () => ({
 
 const loadArchetypeConfigOrExit = vi.fn();
 const writePharnConfig = vi.fn();
+const assertConfigUnchanged = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({
+  assertConfigUnchanged,
   loadArchetypeConfigOrExit,
   writePharnConfig,
 }));

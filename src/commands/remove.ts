@@ -20,6 +20,7 @@ import { safeChildJoin, safeJoin } from '../lib/validate.js';
 import { findSymlinkComponent } from '../lib/symlink-guard.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
+  assertConfigUnchanged,
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
@@ -273,6 +274,7 @@ async function removeNamed(
   // land between them. `remove` has no prompt on this path and no network, so
   // the held window is the write itself.
   const note = await withProjectLock(cwd, 'remove', async () => {
+    assertConfigUnchanged(cwd, config, 'remove');
     const existed = deleteCapabilityDir(cwd, paths, target);
 
     // Order: delete → prune records → write config (mirroring `add`'s
@@ -378,6 +380,7 @@ async function runRemovePicker(
   // prompt would block an agent hook for as long as a human takes to answer —
   // and spanning the whole selection, not one lock per capability.
   await withProjectLock(cwd, 'remove', async () => {
+    assertConfigUnchanged(cwd, config, 'remove');
     for (const target of targets) deleteCapabilityDir(cwd, paths, target);
 
     // One prune for the whole selection — the same delete → prune → config
