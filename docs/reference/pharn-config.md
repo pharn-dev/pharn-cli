@@ -69,6 +69,10 @@ The hash map lives there rather than here so this file stays small and hand-edit
 
 Note that `skillsVersion` / `commit` describe the last **complete** install: a `pharn update` that
 skipped any file deliberately leaves them at their previous values (see [update](../commands/update.md)).
+When the only skipped files were ones you edited (`modified` / `unrecorded`), it also writes
+`pendingSkillsVersion` — the version it applied to everything else — which lets
+[`pharn add`](../commands/add.md) run at that version; the next complete `pharn update` removes it. A
+value that is not a `x.y.z` version is ignored.
 
 ## Example
 

@@ -86,6 +86,13 @@ itself has already been fetched by then — that is where the version being comp
 
 Run [`pharn update`](update.md) to bring your install to the current version, then re-run `pharn add`.
 
+**Kept local edits.** If `pharn update` skipped files **only because you edited them**
+(`modified` / `unrecorded`), it leaves `skillsVersion` at the old value but records the version it
+applied as `pendingSkillsVersion` in `pharn.config.json` — every other file is already at that version.
+`add` accepts a clone at that version too, and still does not advance `skillsVersion` or `commit`. If
+upstream has moved on again, the refusal names the ways out: run `pharn update`, and if it keeps
+skipping your edits, revert them or run `pharn update --force` (which backs them up first).
+
 **Known limit.** There is no way to add a capability to a deliberately-pinned older install — `add`
 has no `--force`, and `pharn update` is the only resolution. Matching versions is the condition under
 which `add` can promise anything about the tree it is adding to.

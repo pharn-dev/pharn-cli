@@ -90,10 +90,35 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
 // INSIDE each path's existing try — not after fetchRepo — because readSkillsVersion
 // throws on a missing/invalid SKILLS_VERSION, and only inside the try does that
 // throw still reach the finally that cleans the clone up (P0: cleanup before exit).
+//
+// A `pendingSkillsVersion` (types.ts) also passes: `update` records it only when
+// the bump was withheld SOLELY by the user's kept edits, so every other file is
+// at that version. Without it, one kept edit dead-ended `add` for good — `update`
+// could never finish while the edit stayed, and this message sent the user back
+// to `update` in a loop.
 function versionGate(repoDir: string, config: PharnConfig): string | null {
   const fetched = readSkillsVersion(repoDir);
   if (fetched === config.skillsVersion) return null;
-  return `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on — run \`pharn update\` first, then re-run \`pharn add\`.`;
+  if (fetched === config.pendingSkillsVersion) return null;
+  const base = `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on`;
+  return config.pendingSkillsVersion === undefined
+    ? `${base} — run \`pharn update\` first, then re-run \`pharn add\`.`
+    : `${base} (v${config.pendingSkillsVersion} apart from files you edited). Run \`pharn update\` first; if it keeps skipping your edited files, either revert those edits or run \`pharn update --force\` (it backs them up to .pharn-backup/ first), then re-run \`pharn add\`.`;
+}
+
+// The (skillsVersion, commit) pair `add` writes to the config and stamps the
+// records with. Normally the clone's — equal to the recorded version by the gate.
+// At a PENDING version the pair must stay the config's own: the records store is
+// stamped with it, and writing the newer version would claim a complete upgrade
+// the kept edits never received (`update` would early-return "up to date").
+function addStamp(
+  config: PharnConfig,
+  version: string,
+  sha: string | null,
+): { skillsVersion: string; commit: string | null } {
+  return version === config.skillsVersion
+    ? { skillsVersion: version, commit: sha }
+    : { skillsVersion: config.skillsVersion, commit: config.commit };
 }
 
 // THE LAYOUT GATE — the sibling of versionGate, and the same shape for the same
@@ -440,8 +465,7 @@ async function resolveAddPicker(
       // the next pick's stamp check fail and silently drop its records.)
       cfg = {
         ...cfg,
-        skillsVersion: result.version,
-        commit: sha,
+        ...result.stamp,
         // Mirrors the entry resolveArchetypeAdd just persisted — INCLUDING its
         // `source: 'manual'`. This is the second entry-construction site, and it
         // must not diverge: the next pick spreads THIS array into its own config
@@ -471,7 +495,12 @@ function plural(n: number): string {
 }
 
 type AddResult =
-  | { kind: 'added'; name: string; version: string }
+  | {
+      kind: 'added';
+      name: string;
+      version: string;
+      stamp: { skillsVersion: string; commit: string | null };
+    }
   | { kind: 'noop'; name: string }
   // See PickerAddOutcome: `cause` present ⇔ this came from an exception.
   | { kind: 'error'; message: string; cause?: FatalCause };
@@ -588,8 +617,9 @@ async function resolveArchetypeAdd(
   installCapabilityDirs(repoDir, cwd, [{ name: cap.name, role: cap.role }]);
   const version = readSkillsVersion(repoDir);
   // The SHA the tree was pinned to (recorded == fetched, or null when the branch
-  // was floated — LIMITS.md §3b); threaded from fetchRepo, no separate fetch.
-  const commit = sha;
+  // was floated — LIMITS.md §3b); threaded from fetchRepo, no separate fetch —
+  // unless the clone is at a pending version (see addStamp).
+  const stamp = addStamp(config, version, sha);
   // `source: 'manual'` — the user asked for this capability BY NAME, so it is
   // theirs, not archetype resolution's. `pharn update` reads that tag and
   // PRESERVES the entry instead of replacing it with the re-resolved auto set
@@ -611,15 +641,20 @@ async function resolveArchetypeAdd(
   // shipped a file at that path, record==dest would make `update` read the user's
   // file as cleanly upgradeable instead of `modified`. The hashes are still taken
   // at the DEST (buildRecords), so a record can never disagree with what landed.
-  await mergeCapabilityRecords(cwd, config, cloneRels, version, commit);
+  await mergeCapabilityRecords(
+    cwd,
+    config,
+    cloneRels,
+    stamp.skillsVersion,
+    stamp.commit,
+  );
   await writePharnConfig(cwd, {
     ...config,
-    skillsVersion: version,
-    commit,
+    ...stamp,
     capabilities,
     installedAt: new Date().toISOString(),
   });
-  return { kind: 'added', name: cap.name, version };
+  return { kind: 'added', name: cap.name, version, stamp };
 }
 
 // Extend `pharn.records.json` with one just-installed capability's files. The
