@@ -37,6 +37,7 @@ import { applyWrites, ApplyError, readDiskState } from '../lib/apply-update.js';
 import { createBackup, BACKUP_DIR } from '../lib/backup.js';
 import { sha256File } from '../lib/hash.js';
 import {
+  capabilitySubtree,
   configLayout,
   detectLayout,
   layoutPaths,
@@ -340,10 +341,21 @@ async function runArchetypeUpdate(
             // Named the moment it exists (as `add` does): everything after the
             // backup can throw or be interrupted, and this pointer is the
             // user's only route back to the pre-overwrite bytes.
+            //
+            // With NO spinner running: clack's spinner owns the line it
+            // animates, so a line logged under it is glued to its frame, and
+            // below ~50 columns its `stop` erases that line. So the spinner is
+            // stopped first — with a neutral phrase, the notice says the rest —
+            // and a new one is started for the writes (`spinnerRef` follows it,
+            // so every failure path stops the one actually running).
+            s2.stop('Backup written');
             printBackupNotice(backup, { aborted: false });
+            const s3 = spinner();
+            spinnerRef.current = s3;
+            s3.start('Writing files');
           },
         );
-        s2.stop(
+        spinnerRef.current.stop(
           applied.plan.writes.length
             ? 'Capabilities updated'
             : 'Nothing to write',
@@ -598,7 +610,7 @@ async function applyUpdate(
   const paths = layoutPaths(layout);
   const hasSkippedFile = (cap: InstalledCapability): boolean => {
     // The same `<subtree>/<name>/` prefix recordsUnderCapabilities keys on.
-    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
+    const subtree = capabilitySubtree(paths, cap.role);
     const prefix = `${subtree}/${cap.name}/`;
     return skippedRels.some((rel) => rel.startsWith(prefix));
   };
@@ -797,10 +809,14 @@ function printBackupNotice(backup: Backup, opts: { aborted: boolean }): void {
     `Backed up ${backup.count} file(s) to ${backup.dir} before overwriting.`,
     { output },
   );
-  log.info(
-    `${BACKUP_DIR}/ is not gitignored — add it to .gitignore or delete it once you are happy.`,
-    { output },
-  );
+  // Advice, not a pointer: said once, when the backup is made. On an abort the
+  // pointer above is repeated on stderr (what `2> err.log` keeps); this is not.
+  if (!opts.aborted) {
+    log.info(
+      `${BACKUP_DIR}/ is not gitignored — add it to .gitignore or delete it once you are happy.`,
+      { output },
+    );
+  }
 }
 
 // The order change groups are reported in — additions first, then departures,

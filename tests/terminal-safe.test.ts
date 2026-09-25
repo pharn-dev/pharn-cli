@@ -5,8 +5,8 @@ import { hasUnsafeChars, terminalSafe } from '../src/lib/terminal-safe.js';
 const ESC = '\u001b';
 const BEL = '\u0007';
 const CSI_C1 = '\u009b';
-const RLO = '‮';
-const ZWSP = '​';
+const RLO = '\u202e';
+const ZWSP = '\u200b';
 
 describe('terminalSafe (PHARN-17)', () => {
   it.each([

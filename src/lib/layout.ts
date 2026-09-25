@@ -19,7 +19,7 @@ import {
   TRUSTED_DOCS,
   UPSTREAM_LICENSE,
 } from './constants.js';
-import type { Layout, PharnConfig } from '../types.js';
+import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Layout resolver — the ONE place that knows the two install layouts pharn-oss
@@ -109,6 +109,18 @@ export function layoutPaths(layout: Layout): LayoutPaths {
     featuresReadme: FEATURES_README,
     license: { from: UPSTREAM_LICENSE, to: FLAT_LICENSE_DEST },
   };
+}
+
+/**
+ * The subtree holding a capability of `role` at this layout — the ONE role →
+ * directory mapping (grillers or lenses). Every reader and writer that
+ * addresses a capability dir goes through it, so no two can disagree.
+ */
+export function capabilitySubtree(
+  paths: LayoutPaths,
+  role: InstalledCapability['role'],
+): string {
+  return role === 'griller' ? paths.grillers : paths.lenses;
 }
 
 // The layout an installed project was recorded with. Enum-safe membership (P5):

@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/init-reinstall-safety/SHIP.md"
+    ".dev/features/review-cleanups/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-25T12:41:05.339Z"
+  "set_at": "2026-09-25T13:05:36.351Z"
 }

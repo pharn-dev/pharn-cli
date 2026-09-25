@@ -9,7 +9,12 @@ import {
 } from '@clack/prompts';
 import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
-import { configLayout, layoutPaths, type LayoutPaths } from '../lib/layout.js';
+import {
+  capabilitySubtree,
+  configLayout,
+  layoutPaths,
+  type LayoutPaths,
+} from '../lib/layout.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { logError } from '../lib/report-error.js';
 import {
@@ -94,7 +99,7 @@ function deleteCapabilityDir(
   target: InstalledCapability,
 ): boolean {
   const dir = safeChildJoin(
-    safeJoin(cwd, capabilitySubtree(paths, target)),
+    safeJoin(cwd, capabilitySubtree(paths, target.role)),
     target.name,
   );
   const existed = existsSync(dir);
@@ -132,22 +137,16 @@ function refuseSymlinkedTargets(
   }
 }
 
-// One source for the role→dir mapping. The delete addresses the filesystem and
+// One source for the capability dir. The delete addresses the filesystem and
 // the prune addresses the record store; they MUST name the same directory, and
-// sharing the ternary makes that true by construction rather than by two copies
+// sharing this (and, through it, layout.ts's capabilitySubtree — the one role →
+// subtree mapping) makes that true by construction rather than by two copies
 // staying in sync.
 function capabilityRelDir(
   paths: LayoutPaths,
   capability: InstalledCapability,
 ): string {
-  return `${capabilitySubtree(paths, capability)}/${capability.name}`;
-}
-
-function capabilitySubtree(
-  paths: LayoutPaths,
-  capability: InstalledCapability,
-): string {
-  return capability.role === 'griller' ? paths.grillers : paths.lenses;
+  return `${capabilitySubtree(paths, capability.role)}/${capability.name}`;
 }
 
 // Drop the removed capabilities' entries from `pharn.records.json`, so `remove`

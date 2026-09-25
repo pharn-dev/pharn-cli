@@ -2,6 +2,7 @@ import {
   closeSync,
   constants,
   fstatSync,
+  lstatSync,
   openSync,
   readSync,
   readdirSync,
@@ -90,17 +91,66 @@ export const SKIP_DIRS: ReadonlySet<string> = new Set([
   '.cache', // generic tool cache (Parcel, Gatsby, …)
   '.parcel-cache', // Parcel cache
   'storybook-static', // Storybook static build
-  // Non-JS dependency/build trees that share a repo with a JS app. Same LOST-
-  // signal tradeoff as above: hand-authored source under e.g. `vendor/` goes
-  // dark (package.json still backstops it); a 50k-file `.venv` no longer
-  // exhausts MAX_ENTRIES before the walk reaches `src/`.
-  '.venv', // Python virtualenv
-  'venv', // Python virtualenv
+  // Non-JS trees that are never hand-authored JS source, whatever sits beside
+  // them. The ones that ARE ordinary folder names elsewhere (`target`, `vendor`,
+  // `venv`) are in ECOSYSTEM_DIRS below instead.
   '__pycache__', // Python bytecode cache
-  'vendor', // Go / PHP (Composer) / Ruby vendored dependencies
-  'target', // Rust / Maven build output
   '.yarn', // Yarn Berry cache / PnP store
 ]);
+
+/** How to tell that a directory is its ecosystem's tree. */
+export type EcosystemMarker =
+  // A regular file with one of these exact names beside the directory.
+  | { siblings: readonly string[] }
+  // A regular file with this exact name inside the directory.
+  | { inside: string };
+
+// Non-JS dependency/build trees that share a repo with a JS app — skipped, at
+// zero budget, like SKIP_DIRS, but ONLY where they are that ecosystem's tree.
+// Their names are ordinary folder names in a JS project too, and the backend
+// signal is STRUCTURAL (`app/**/route.ts`), so no package.json dependency
+// backstops it: skipping every `target/` sent a Next.js route at
+// app/target/route.ts dark, and `[ssr, backend]` detected as `[ssr]`.
+//
+// The test is a membership check over the parent's already-read entries (the
+// sibling build file), or one `lstat` (a virtualenv's pyvenv.cfg), so a real
+// 50k-file tree still costs one check and zero budget — the protection PHARN-15
+// added, kept at any depth (a nested Maven module, a PHP `vendor/`). The dir
+// name matches case-insensitively, as SKIP_DIRS does; each marker matches
+// exactly as its tool writes it, and only as a regular file.
+//
+// Exported read-only for the same reason as SKIP_DIRS: the tests pin every
+// member's behavior and its classification neutrality against this map.
+export const ECOSYSTEM_DIRS: ReadonlyMap<string, EcosystemMarker> = new Map<
+  string,
+  EcosystemMarker
+>([
+  ['target', { siblings: ['Cargo.toml', 'pom.xml', 'build.sbt'] }], // Rust / Maven / sbt output
+  ['vendor', { siblings: ['go.mod', 'composer.json', 'Gemfile'] }], // Go / PHP / Ruby deps
+  ['venv', { inside: 'pyvenv.cfg' }], // Python virtualenv
+  ['.venv', { inside: 'pyvenv.cfg' }], // Python virtualenv
+]);
+
+/**
+ * Is `name` (a directory inside `dir`) its ecosystem's tree? `siblingFiles` is
+ * the set of regular-file names in `dir`, from the entries already read.
+ */
+function isEcosystemTree(
+  dir: string,
+  name: string,
+  siblingFiles: ReadonlySet<string>,
+): boolean {
+  const marker = ECOSYSTEM_DIRS.get(name.toLowerCase());
+  if (marker === undefined) return false;
+  if ('siblings' in marker) {
+    return marker.siblings.some((file) => siblingFiles.has(file));
+  }
+  return (
+    lstatSync(join(dir, name, marker.inside), {
+      throwIfNoEntry: false,
+    })?.isFile() === true
+  );
+}
 
 // Bounded walk. These caps are a DEFENSIVE bound on a pathological tree, NOT a
 // perf-only knob: a signal that lies past a cap is silently UNDETECTED (a
@@ -148,6 +198,9 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
     const entries = readEntries(dir).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
     );
+    const siblingFiles = new Set(
+      entries.filter((e) => e.isFile()).map((e) => e.name),
+    );
     for (const entry of entries) {
       if (budget <= 0 || allFound()) return;
       const name = entry.name;
@@ -155,6 +208,7 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
       if (entry.isSymbolicLink()) continue;
       const isDir = entry.isDirectory();
       if (isDir && SKIP_DIRS.has(name.toLowerCase())) continue;
+      if (isDir && isEcosystemTree(dir, name, siblingFiles)) continue;
       if (!isDir && name.toLowerCase().startsWith('.env')) continue;
       if (!isDir && !entry.isFile()) continue; // sockets/fifos/etc.: not signals
       budget -= 1;

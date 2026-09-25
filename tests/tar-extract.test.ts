@@ -650,7 +650,7 @@ describe('extractTar', () => {
       extractTar(
         githubArchive([
           {
-            name: utf8AsLatin1('﻿f.md'),
+            name: utf8AsLatin1('\ufeff' + 'f.md'), // BOM, then `f.md`
             prefix: 'pharn-oss-abc1234',
             data: 'x',
           },

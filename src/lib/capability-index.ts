@@ -224,20 +224,28 @@ function readCapabilityMarkdown(
  * never read. Hard-fails (naming the capability) when no frontmatter fence is
  * present (P5).
  *
- * Line-based, not a lazy regex: the block opens on a first line that is exactly
- * `---` and ends at the NEXT line that is `---` (trailing blanks allowed). A
- * regex capture (`^---\n([\s\S]*?)\n---`) skips an empty block (`---\n---`)
- * and reads the document BODY as frontmatter, up to the next `---`.
+ * The fence is UPSTREAM'S rule, ported literally from pharn-oss's own validator
+ * (this repo's copy: .dev/floor/validate.mjs → parseFrontmatter), so a
+ * capability upstream's CI passes is never skipped here for its fence (P4):
+ *   - the file must START with `---`;
+ *   - the block is everything from the fourth character up to the first newline
+ *     followed by `---` — so it closes at the next line that STARTS with `---`
+ *     (`---`, `----`, `--- note`), and the rest of the opening line belongs to
+ *     the block;
+ *   - the block is trimmed, as upstream trims it.
+ * An empty block (`---` then `---`) is '' — every field is missing, and both
+ * parsers refuse it rather than reading the BODY as frontmatter (PHARN-14).
+ * tests/capability-index.test.ts runs every fence shape through the validator's
+ * own function and requires the same verdict.
  */
 function extractFrontmatter(content: string, name: string): string {
-  const lines = content.split('\n');
-  const close = lines.findIndex((line, i) => i > 0 && /^---[ \t]*$/.test(line));
-  if (lines[0] !== '---' || close === -1) {
+  const end = content.startsWith('---') ? content.indexOf('\n---', 3) : -1;
+  if (end === -1) {
     throw new ManifestValidationError(
       `Capability "${name}" is missing a "---"-fenced frontmatter block.`,
     );
   }
-  return lines.slice(1, close).join('\n');
+  return content.slice(3, end).trim();
 }
 
 /**
