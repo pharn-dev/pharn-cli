@@ -3,6 +3,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  ECOSYSTEM_DIRS,
   MAX_PACKAGE_JSON_BYTES,
   SKIP_DIRS,
   detectArchetypesFromProject,
@@ -191,13 +192,95 @@ describe('detectArchetypesFromProject — package.json read hardening', () => {
 describe('SKIP_DIRS — non-JS dependency/build trees', () => {
   const tmp = useTmpDir();
 
-  it.each(['.venv', 'venv', '__pycache__', 'vendor', 'target', '.yarn'])(
-    '%s/ is skipped',
+  it.each(['__pycache__', '.yarn'])('%s/ is skipped', (dir) => {
+    touch(tmp.path(), `${dir}/x/Page.tsx`);
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+  });
+});
+
+// `target`, `vendor`, `venv` and `.venv` are ORDINARY folder names in a JS
+// project too — a Next.js route at app/target/route.ts is real source — so each
+// is skipped only where it is that ecosystem's tree: beside the build file that
+// owns it, or (a virtualenv) holding its pyvenv.cfg. The budget protection
+// PHARN-15 added stays for the real trees; a hand-authored folder is scanned.
+describe("ECOSYSTEM_DIRS — skipped only where they are that ecosystem's tree", () => {
+  const tmp = useTmpDir();
+
+  it.each([
+    ['target', 'Cargo.toml'],
+    ['target', 'pom.xml'],
+    ['target', 'build.sbt'],
+    ['vendor', 'go.mod'],
+    ['vendor', 'composer.json'],
+    ['vendor', 'Gemfile'],
+  ])('%s/ beside %s is skipped', (dir, marker) => {
+    touch(tmp.path(), marker);
+    touch(tmp.path(), `${dir}/x/Page.tsx`);
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+  });
+
+  it.each(['venv', '.venv'])('%s/ holding pyvenv.cfg is skipped', (dir) => {
+    touch(tmp.path(), `${dir}/pyvenv.cfg`);
+    touch(tmp.path(), `${dir}/x/Page.tsx`);
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+  });
+
+  it.each(['target', 'vendor', 'venv', '.venv'])(
+    '%s/ with no marker is scanned like any folder',
     (dir) => {
       touch(tmp.path(), `${dir}/x/Page.tsx`);
-      expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+      expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(true);
     },
   );
+
+  // THE REPRODUCTION. A Next.js App-Router route under a folder named `target`
+  // or `vendor`: the backend signal is structural (`app/**/route.ts`), so no
+  // package.json dependency can stand in for it. It went dark.
+  it.each(['target', 'vendor'])(
+    'detects the route at app/%s/route.ts as backend',
+    (dir) => {
+      writePkg(tmp.path(), { dependencies: { next: '15' } });
+      touch(tmp.path(), `app/${dir}/route.ts`);
+      expect(detectArchetypesFromProject(tmp.path()).archetypes).toEqual([
+        'ssr',
+        'backend',
+      ]);
+    },
+  );
+
+  it('matches the dir name case-insensitively and the marker exactly', () => {
+    touch(tmp.path(), 'Cargo.toml');
+    touch(tmp.path(), 'TARGET/x/Page.tsx');
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+  });
+
+  it('does not take a differently-cased marker, or a directory, as the marker', () => {
+    touch(tmp.path(), 'cargo.toml');
+    touch(tmp.path(), 'go.mod/keep');
+    touch(tmp.path(), 'target/x/Page.tsx');
+    touch(tmp.path(), 'vendor/y/Other.tsx');
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(true);
+  });
+
+  it('checks the marker in the SAME directory, at any depth', () => {
+    // A nested Rust crate keeps its skip; a sibling marker one level up does
+    // not reach into a subfolder.
+    touch(tmp.path(), 'crates/core/Cargo.toml');
+    touch(tmp.path(), 'crates/core/target/x/Page.tsx');
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(false);
+    touch(tmp.path(), 'Cargo.toml');
+    touch(tmp.path(), 'web/target/Page.tsx');
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(true);
+  });
+
+  it('a marked ecosystem tree costs ZERO budget, like any skipped dir', () => {
+    touch(tmp.path(), 'Cargo.toml');
+    for (let i = 0; i < 200; i += 1) {
+      touch(tmp.path(), `target/debug/f${i}.rlib`);
+    }
+    touch(tmp.path(), 'src/Page.tsx');
+    expect(scanFileTreeSignals(tmp.path()).clientUi).toBe(true);
+  });
 });
 
 describe('detectArchetypesFromProject — file-tree scanning', () => {
@@ -675,7 +758,7 @@ describe('SKIP_DIRS — classification neutrality (classifyEntry)', () => {
     ['under db/ (a SQL_HOST_DIRS ancestor — the migrations trigger)', ['db']],
   ];
 
-  describe.each([...SKIP_DIRS])('%s', (dir) => {
+  describe.each([...SKIP_DIRS, ...ECOSYSTEM_DIRS.keys()])('%s', (dir) => {
     it.each(CONTEXTS)('produces no signal %s', (_label, segments) => {
       expect(classifyEntry(dir, true, segments)).toEqual(NO_SIGNAL);
     });

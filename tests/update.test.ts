@@ -23,14 +23,35 @@ import {
 import { LOCK_FILE } from '../src/lib/project-lock.js';
 import type { PharnConfig } from '../src/types.js';
 
+// One ordered record of what a run showed — spinner starts/stops and info/warn
+// lines together — so a test can assert ORDER: a line logged while a clack
+// spinner animates is glued to its frame, and below ~50 columns the spinner's
+// stop erases it. Hoisted, because the mock factory can run before this file's
+// own top-level code. Emptied after every test with the mocks' calls.
+const { shown } = vi.hoisted(() => ({ shown: [] as string[] }));
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
   isCancel: (v: unknown) => v === CANCEL,
   confirm: vi.fn(),
   note: vi.fn(),
-  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  log: {
+    info: vi.fn((m: unknown) => {
+      shown.push(`info: ${String(m)}`);
+    }),
+    warn: vi.fn((m: unknown) => {
+      shown.push(`warn: ${String(m)}`);
+    }),
+    error: vi.fn(),
+  },
   outro: vi.fn(),
-  spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
+  spinner: () => ({
+    start: vi.fn((m?: string) => {
+      shown.push(`start: ${m ?? ''}`);
+    }),
+    stop: vi.fn((m?: string) => {
+      shown.push(`stop: ${m ?? ''}`);
+    }),
+  }),
 }));
 
 const fetchRepo = vi.fn();
@@ -167,6 +188,7 @@ describe('runUpdate (drift-safe)', () => {
   });
   afterEach(() => {
     vi.clearAllMocks();
+    shown.length = 0;
     restoreTTY();
   });
 
@@ -1764,6 +1786,31 @@ describe('runUpdate (drift-safe)', () => {
       expect(backupDirs()).toHaveLength(1);
     });
 
+    // F21: the notice used to print while the apply's spinner still animated
+    // — glued to its frame, and erased by its stop in a narrow terminal. The
+    // spinner is stopped first, the notice printed, and a new one started for
+    // the writes.
+    it('prints the backup notice with no spinner running', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+
+      await runUpdate({ force: true });
+
+      const notice = shown.findIndex((l) => l.startsWith('info: Backed up'));
+      expect(notice).toBeGreaterThan(-1);
+      const before = shown
+        .slice(0, notice)
+        .filter((l) => l.startsWith('start:') || l.startsWith('stop:'));
+      // The last spinner event before the notice STOPPED a spinner…
+      expect(before.at(-1)).toMatch(/^stop: /);
+      // …without repeating what the notice says next.
+      expect(before.at(-1)).not.toContain('Backed up');
+      // …and the writes run under a spinner started AFTER it.
+      const after = shown.slice(notice);
+      expect(after.findIndex((l) => l.startsWith('start:'))).toBeGreaterThan(0);
+      expect(after.at(-1)).toBe('stop: Capabilities updated');
+    });
+
     // --- the pointer on the FAILURE path --------------------------------
     //
     // createBackup runs BEFORE the first original is touched, but its path used
@@ -1809,6 +1856,26 @@ describe('runUpdate (drift-safe)', () => {
       expect(printedLines()).toContain('Backed up 2 file(s)');
       // The abort is named too: some originals are already gone from the tree.
       expect(printedLines()).toContain('stopped part-way');
+    });
+
+    // F21: the abort used to repeat the whole notice. The pointer is printed
+    // once per stream (the stderr copy is what `2> err.log` keeps), and the
+    // .gitignore hint only once — it is advice, not a pointer.
+    it('prints the .gitignore hint once, and the backup dir once per stream', async () => {
+      await abortedForcedRun();
+
+      const infos = vi.mocked(prompts.log.info).mock.calls;
+      expect(
+        infos.filter((c) => String(c[0]).includes('not gitignored')),
+      ).toHaveLength(1);
+      const dir = backupDirs()[0]!;
+      const pointers = infos.filter((c) =>
+        String(c[0]).includes(`${BACKUP_DIR}/${dir}`),
+      );
+      expect(pointers.map((c) => c[1])).toEqual([
+        { output: process.stdout },
+        { output: process.stderr },
+      ]);
     });
 
     it('sends the aborted-run notice to stderr, with the rest of the failure', async () => {

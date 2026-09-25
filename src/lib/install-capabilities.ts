@@ -18,6 +18,7 @@ import {
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import {
+  capabilitySubtree,
   detectLayout,
   layoutPaths,
   resolveFeaturesReadme,
@@ -126,7 +127,7 @@ export function installCapabilityDirs(
   const planned = capabilities.map((cap) => {
     assertSafeString(cap.name, `capability "${cap.name}"`, CAPABILITY_NAME_RE);
     assertNoDotDot(cap.name, `capability "${cap.name}"`);
-    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
+    const subtree = capabilitySubtree(paths, cap.role);
     const from = safeJoin(repoDir, `${subtree}/${cap.name}`);
     if (!existsSync(from)) {
       throw new ManifestValidationError(

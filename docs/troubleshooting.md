@@ -138,7 +138,7 @@ installs the **universal** capabilities — the ones that apply to any codebase.
 
 ### Monorepos / workspaces
 
-`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there and runs a bounded, symlink-safe file-tree scan from it for archetype detection, then installs into that directory. The scan skips heavy or generated trees (`node_modules`, `dist`, `build`, `.next`, `out`, `coverage`, framework caches, and non-JS trees such as `.venv`, `vendor` and `target`), so in a workspace it still sees `apps/` and `packages/`. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
+`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there and runs a bounded, symlink-safe file-tree scan from it for archetype detection, then installs into that directory. The scan skips heavy or generated trees (`node_modules`, `dist`, `build`, `.next`, `out`, `coverage`, framework caches, and non-JS trees such as a Python virtualenv, or `vendor`/`target` beside the build file that owns them — a `target/` or `vendor/` folder of your own is scanned), so in a workspace it still sees `apps/` and `packages/`. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
 
 ## Overwrite warnings
 

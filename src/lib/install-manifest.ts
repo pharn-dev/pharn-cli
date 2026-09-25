@@ -8,6 +8,7 @@ import {
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import {
+  capabilitySubtree,
   layoutPaths,
   resolveFeaturesReadme,
   type LayoutPaths,
@@ -139,7 +140,7 @@ export function collectExpectedInstallPaths(params: {
 
   // Selected capabilities (whole dir, incl. evals) at the layout's subtree.
   for (const cap of capabilities) {
-    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
+    const subtree = capabilitySubtree(paths, cap.role);
     addDir(`${subtree}/${cap.name}`);
   }
   // Product commands: top-level non-dev pharn-*.md.
@@ -282,7 +283,7 @@ export function capabilityCloneFiles(
   paths: LayoutPaths,
   capability: InstalledCapability,
 ): string[] {
-  const subtree = capability.role === 'griller' ? paths.grillers : paths.lenses;
+  const subtree = capabilitySubtree(paths, capability.role);
   const relDir = `${subtree}/${capability.name}`;
   if (findSymlinkComponent(repoDir, relDir) !== null) return [];
   const from = safeJoin(repoDir, relDir);

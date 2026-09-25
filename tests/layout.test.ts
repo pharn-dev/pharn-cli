@@ -2,7 +2,12 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
-import { configLayout, detectLayout, layoutPaths } from '../src/lib/layout.js';
+import {
+  capabilitySubtree,
+  configLayout,
+  detectLayout,
+  layoutPaths,
+} from '../src/lib/layout.js';
 import type { PharnConfig } from '../src/types.js';
 
 describe('detectLayout', () => {
@@ -109,5 +114,19 @@ describe('configLayout', () => {
 
   it('defaults to flat when absent (legacy config, P7)', () => {
     expect(configLayout(base)).toBe('flat');
+  });
+});
+
+// The ONE role → subtree mapping. Six call sites carried their own ternary
+// (install-records, install-manifest ×2, install-capabilities, update, remove);
+// they all route through this now, so they cannot disagree.
+describe('capabilitySubtree', () => {
+  it.each([
+    ['flat', 'griller', 'pharn-pipeline/grillers'],
+    ['flat', 'lens', 'pharn-review'],
+    ['pharn', 'griller', 'pharn/pharn-pipeline/grillers'],
+    ['pharn', 'lens', 'pharn/pharn-review'],
+  ] as const)('%s layout, %s → %s', (layout, role, subtree) => {
+    expect(capabilitySubtree(layoutPaths(layout), role)).toBe(subtree);
   });
 });

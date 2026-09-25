@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
@@ -425,5 +425,111 @@ describe('parseCapabilityIndex', () => {
     // pharn-review exists but is empty.
     const index = parseCapabilityIndex(repo);
     expect(index.capabilities.map((c) => c.name)).toEqual(['security']);
+  });
+});
+
+// F23: the fence is upstream's own rule. pharn-oss's validator (this repo's copy:
+// .dev/floor/validate.mjs → parseFrontmatter) opens on a file that STARTS with
+// `---` and closes at the first newline followed by `---` — any line that
+// starts with it (`----`, `--- note`). A capability upstream's CI passes must
+// never be skipped here for its fence.
+describe("parseCapabilityIndex — the frontmatter fence is upstream's", () => {
+  const tmp = useTmpDir();
+  const FIELDS = 'role: griller\napplies: ["universal"]';
+
+  // Installs `body` as the one griller and reports whether it was ACCEPTED.
+  function accepted(body: string): boolean {
+    const repo = tmp.path();
+    scaffold(repo);
+    writeCap(repo, GRILLERS, 'probe', body);
+    const index = parseCapabilityIndex(repo);
+    return index.capabilities.some((c) => c.name === 'probe');
+  }
+
+  it('accepts a closing ---- line', () => {
+    expect(accepted(`---\n${FIELDS}\n----\n# x\n`)).toBe(true);
+  });
+
+  it('accepts a closing "--- note" line', () => {
+    expect(accepted(`---\n${FIELDS}\n--- note\n# x\n`)).toBe(true);
+  });
+
+  it('closes at the FIRST such line — a later horizontal rule in the body is prose', () => {
+    expect(
+      accepted(`---\n${FIELDS}\n---\n# x\n\n---\n\nrole: lens\napplies: []\n`),
+    ).toBe(true);
+  });
+
+  it('still refuses an empty block whose fields sit only in the body', () => {
+    expect(accepted(`---\n---\n${FIELDS}\n---\n# x\n`)).toBe(false);
+  });
+
+  // The upstream parser is read out of this repo's copy of the validator, so
+  // there is no second copy to drift: the day its rule changes, this test runs
+  // the new one. The file runs its checks on import (it exits the process), so
+  // the one function is extracted by name and built on its own.
+  function upstreamParseFrontmatter(): (text: string) => {
+    fm: Record<string, unknown> | null;
+  } {
+    const src = readFileSync(
+      join(import.meta.dirname, '..', '.dev', 'floor', 'validate.mjs'),
+      'utf8',
+    );
+    const found = src.match(
+      /^function parseFrontmatter\(text\) \{\n[\s\S]*?\n\}\n/gm,
+    );
+    expect(found).toHaveLength(1);
+    return new Function(`${found![0]}; return parseFrontmatter;`)() as (
+      text: string,
+    ) => { fm: Record<string, unknown> | null };
+  }
+
+  // Upstream's verdict for the two fields this CLI reads: a block exists and
+  // carries a role and a non-empty applies.
+  function upstreamAccepts(body: string): boolean {
+    const { fm } = upstreamParseFrontmatter()(body);
+    return (
+      fm !== null &&
+      typeof fm.role === 'string' &&
+      fm.role !== '' &&
+      Array.isArray(fm.applies) &&
+      fm.applies.length > 0
+    );
+  }
+
+  const BOM = String.fromCharCode(0xfeff);
+  const SHAPES: [string, string][] = [
+    ['the plain fence', `---\n${FIELDS}\n---\n# x\n`],
+    ['a closing fence with trailing blanks', `---\n${FIELDS}\n--- \t\n# x\n`],
+    ['a closing ----', `---\n${FIELDS}\n----\n# x\n`],
+    ['a closing "--- note"', `---\n${FIELDS}\n--- note\n# x\n`],
+    ['an opening ----', `----\n${FIELDS}\n---\n# x\n`],
+    ['an opening "--- note"', `--- note\n${FIELDS}\n---\n# x\n`],
+    [
+      'a field on the opening line',
+      `--- role: griller\napplies: ["universal"]\n---\n`,
+    ],
+    ['a body rule after the close', `---\n${FIELDS}\n---\n# x\n\n---\n`],
+    ['an empty block', `---\n---\n${FIELDS}\n---\n`],
+    ['an unterminated block', `---\n${FIELDS}\n# x\n`],
+    ['no fence at all', `# x\n${FIELDS}\n`],
+    ['a blank line before the fence', `\n---\n${FIELDS}\n---\n`],
+    ['a byte-order mark before the fence', `${BOM}---\n${FIELDS}\n---\n`],
+    ['a fence that is not at column 0', ` ---\n${FIELDS}\n---\n`],
+  ];
+
+  it.each(SHAPES)("gives upstream's verdict for %s", (_label, body) => {
+    expect(accepted(body)).toBe(upstreamAccepts(body));
+  });
+
+  // The one named difference, and its direction. Upstream reads each line with
+  // `(.*)$` and no multiline flag, so a line ending in CR yields no field and
+  // its validator refuses the file — upstream never ships one. This CLI reads
+  // fields with a multiline pattern, where `$` also matches before a CR, so it
+  // reads them. More lenient, never less: nothing upstream ships is refused.
+  it('is more lenient than upstream on CRLF, never less', () => {
+    const crlf = `---\r\nrole: griller\r\napplies: ["universal"]\r\n---\r\n# x\r\n`;
+    expect(upstreamAccepts(crlf)).toBe(false);
+    expect(accepted(crlf)).toBe(true);
   });
 });

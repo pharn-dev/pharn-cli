@@ -3,7 +3,7 @@ import { writeJsonAtomic } from './atomic-write.js';
 import { resolve } from 'node:path';
 import { sha256File } from './hash.js';
 import { isPlainObject, safeJoin, toPosix } from './validate.js';
-import type { LayoutPaths } from './layout.js';
+import { capabilitySubtree, type LayoutPaths } from './layout.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -366,7 +366,7 @@ export function recordsUnderCapabilities(
   capabilities: readonly InstalledCapability[],
 ): FileRecords {
   const prefixes = capabilities.map((cap) => {
-    const subtree = cap.role === 'griller' ? paths.grillers : paths.lenses;
+    const subtree = capabilitySubtree(paths, cap.role);
     return `${subtree}/${cap.name}/`;
   });
   if (prefixes.length === 0) return {};
