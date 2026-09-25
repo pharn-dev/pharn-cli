@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/init-preflight-first/SHIP.md"
+    ".dev/features/release-0-6-0/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-25T13:42:47.768Z"
+  "set_at": "2026-09-25T14:32:21.445Z"
 }
