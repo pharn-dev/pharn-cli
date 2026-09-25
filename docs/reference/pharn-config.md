@@ -20,7 +20,7 @@ archetypes/capabilities and the pinned commit).
 | `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below             |                                                                     |
 | `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)          |                                                                     |
 | `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)        |                                                                     |
-| `models`        | object         | Per-stage routing — recorded, not yet read ([Coming soon](../roadmap.md))      |                                                                     |
+| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                   |                                                                     |
 | `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |                                                                     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
@@ -116,61 +116,93 @@ from the list. A value that is not a list of
 }
 ```
 
-## Model routing
+## Models
 
-> **Coming soon** — see the [roadmap](../roadmap.md).
->
-> The `models` block is **written, validated and displayed today — and consumed by nothing.** No
-> stage `pharn init` installs reads it to pick a model, so editing it does **not** change which model
-> a stage runs; it records the routing you want for when the consumer lands. The block _is_ read for
-> two things that are not routing: `pharn init` and `pharn status` render it back to you, and
-> `pharn` validates it on every command (a bad hand-edit still fails loudly).
+The `models` block is **pharn-oss's**, not this CLI's: pharn-oss owns its schema and its defaults —
+every other field on this page is pharn's. It declares a model and an effort for each PHARN product
+stage, and it is the **source of truth** that each `/pharn-*` command's static `model:` / `effort:`
+frontmatter is held to.
 
-The block records a per-stage model + effort. It is **written on every fresh install** and is
-**user-owned afterwards** — `pharn` never migrates it. Source of truth:
-[`model-routing.ts`](../../src/lib/model-routing.ts).
+> **What applies a model is the command frontmatter, not this block.** Claude Code runs each
+> `/pharn-*` command on the `model:` / `effort:` in that command's own frontmatter; nothing reads this
+> block to pick one. pharn-oss's checker, installed with PHARN, holds the two equal:
+> `node pharn/floor/check-model-config.mjs agreement` (`.dev/floor/` in the legacy flat layout). So
+> editing the block is half a change: update the command frontmatter too, or the checker tells you. A
+> green check means two files agree, never that a stage ran on that model — pharn-oss states the
+> bounds in its `LIMITS.md` §8.
 
-The block is a required `default` plus per-stage overrides under `stages`. `default` is the fallback
-for every stage without its own entry (`grill`, `build`, `regress`, `verify`, `ship`); a stage with no
-entry — including an empty `stages` — resolves to `default`.
-
-Defaults written at install:
-
-| Stage     | Model      | Effort |
-| --------- | ---------- | ------ |
-| `default` | `sonnet-5` | `high` |
-| `plan`    | `opus-4-8` | `max`  |
-| `review`  | `opus-4-8` | `high` |
-
-**Why `review` is `opus-4-8`/`high`, not `fable-5`/`max`.** Review is the fan-out stage — a backend
-install ships ~22 lenses, so its cost multiplies per lens; a premium model at `max` effort across that
-fan-out is the worst-case token multiplier, and it would apply silently. `opus-4-8`/`high` is the
-spend-safe default. Cross-model review on `fable-5`/`max` has proven catch value, so recording it for
-release audits is the intent the block exists to capture — set it explicitly under
-`models.stages.review`. Until the consumer lands this changes nothing about the model your review
-actually runs on; it is a note to your future self, and to whoever reads the config:
+pharn-oss's block, as of pharn-oss 6.22.0:
 
 ```json
 {
   "models": {
-    "default": { "model": "sonnet-5", "effort": "high" },
     "stages": {
-      "plan": { "model": "opus-4-8", "effort": "max" },
-      "review": { "model": "fable-5", "effort": "max" }
+      "default": { "model": "sonnet", "effort": "high" },
+      "spec": { "model": "opus", "effort": "high" },
+      "plan": { "model": "opus", "effort": "high" },
+      "grill": { "model": "opus", "effort": "high" },
+      "build": { "model": "sonnet", "effort": "high" },
+      "regress": { "model": "sonnet", "effort": "high" },
+      "verify": { "model": "sonnet", "effort": "high" },
+      "ship": { "model": "sonnet", "effort": "high" },
+      "loop": { "model": "sonnet", "effort": "high" },
+      "review": { "model": "opus", "effort": "high" },
+      "memory-promote": { "model": "opus", "effort": "high" },
+      "ac-test": { "model": "opus", "effort": "high" }
     }
   }
 }
 ```
 
-Valid `model` ids: `opus-4-8`, `sonnet-5`, `fable-5`, `haiku-4-5`. Valid `effort` levels: `low`,
-`high`, `max`. A hand-edit with an unknown model, effort, or stage key is rejected loudly on the next
-command — see [troubleshooting](../troubleshooting.md); `pharn` never silently falls back.
+The rules are those of pharn-oss's checker (`check-model-config.mjs validate`):
+
+| Rule        | What pharn-oss accepts                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shape       | `models.stages` maps a stage name to `{ "model": …, "effort": … }`                                                                          |
+| `default`   | Required, **inside** `stages` — what every stage without its own entry resolves to                                                          |
+| Stage names | `default`, or a product stage: `spec`, `plan`, `grill`, `build`, `regress`, `verify`, `ship`, `loop`, `review`, `memory-promote`, `ac-test` |
+| `model`     | An alias — `sonnet`, `opus`, `haiku`, `fable`, `inherit` — or a full id matching `claude-[a-z0-9][a-z0-9-]*`                                |
+| `effort`    | `low`, `medium`, `high`, `xhigh` or `max`                                                                                                   |
+
+A config with no `models` block, or a block with no `stages`, declares nothing, and pharn-oss's
+checker passes it by design.
+
+### What each command does with it
+
+- **`pharn init`** copies pharn-oss's block **verbatim** from the root `pharn.config.json` of the
+  commit it installs, and prints it resolved per stage. If pharn-oss ships no block, `init` writes
+  **none** — it never invents one. If pharn-oss ships a block this pharn cannot accept, `init` writes
+  none and says why (see below). A re-run `init` replaces your block with pharn-oss's, as it rewrites
+  every other key pharn writes.
+- **`pharn update`** treats the block like a file: pharn-oss's block replaces one pharn wrote, and one
+  you changed is kept. It also converts the format earlier releases wrote. See
+  [update](../commands/update.md#the-models-block).
+- **`pharn status`** prints every product stage beside the model and effort it resolves to — marked
+  `(default)` when the stage has no entry of its own — under the label above, and lists by name
+  anything pharn-oss's rules reject. See [status](../commands/status.md).
+- **`add`, `remove` and `list`** leave the block exactly as it is.
+
+No command refuses to run over this block: `pharn` does not validate it when it loads the config,
+because it is not `pharn`'s schema. `pharn` checks it where it copies, converts or shows it, with a
+**copy** of pharn-oss's rules. A test in the pharn repository runs pharn-oss's checker beside that
+copy over a corpus of cases and fails on any difference. If pharn-oss's rules move ahead of the copy in your pharn
+(a new stage, a new alias), `pharn` does not apply the newer block, names what it could not accept, and
+upgrading `pharn` fixes it. pharn-oss can also require the upgrade with `MIN_CLI` (see
+[`pharn is too old for the current pharn-oss`](../commands/update.md#pharn-is-too-old-for-the-current-pharn-oss)).
+
+### The format `pharn` wrote before 0.7.0
+
+Releases up to 0.6.0 wrote a block of their own: a top-level `default`, and model ids — `opus-4-8`,
+`sonnet-5`, `fable-5`, `haiku-4-5` — that neither Claude Code nor pharn-oss's checker accepts. The
+first `pharn update` with 0.7.0 or later fixes it, even when your skills version is current: an
+unedited block is replaced with pharn-oss's, and an edited one is converted and kept. See
+[update](../commands/update.md#the-models-block).
 
 ## Seam resolution
 
-The `seam` block records how PHARN should resolve an unfamiliar integration point. Like `models`, it is
-**written on every fresh install** and **user-owned afterwards** — `pharn` never migrates it — and it is
-validated on every command, so a bad hand-edit fails loudly rather than being ignored. Source of truth:
+The `seam` block records how PHARN should resolve an unfamiliar integration point. It is **written on
+every fresh install** and **user-owned afterwards** — `pharn` never migrates it — and it is validated
+on every command, so a bad hand-edit fails loudly rather than being ignored. Source of truth:
 [`seam-config.ts`](../../src/lib/seam-config.ts).
 
 The installed default:
@@ -197,9 +229,11 @@ step in the order.
 
 ## Keys pharn does not own
 
-Every field on this page is **pharn's**, including the [legacy fields](#legacy-fields-pre-archetype-configs-still-load)
-it no longer writes. Any **other** top-level key is **yours**: `pharn` does not interpret or validate it,
-and every command that writes this file keeps it. Upstream PHARN documents two that you add by hand:
+Every field on this page is **pharn's** to write, including the
+[legacy fields](#legacy-fields-pre-archetype-configs-still-load) it no longer writes — `models` too,
+though pharn-oss defines what goes inside it. Any **other** top-level key is **yours**: `pharn` does not
+interpret or validate it, and every command that writes this file keeps it. Upstream PHARN documents
+two that you add by hand:
 
 | Key           | Read by                                                        | What it sets                                                 |
 | ------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -225,13 +259,15 @@ How each command keeps them:
 - `pharn init` writes the file afresh from its own fields, then **copies every key pharn does not own
   across from the config it replaces**, unchanged, after its own. It does this for any file that
   parses as a JSON object, including one the other commands refuse: a config missing its `modules`
-  array (the case where they tell you to run `pharn init`), or one with an invalid `models` or `seam`
-  block. A file that is **not valid JSON** carries nothing over. Move it aside first
+  array (the case where they tell you to run `pharn init`), or one with an invalid `seam` block. A
+  file that is **not valid JSON** carries nothing over. Move it aside first
   ([troubleshooting](../troubleshooting.md#the-config-is-not-valid-json)), then copy your keys back.
 
 `init` **never** carries over a key pharn owns. It writes `pharnVersion`, `skillsVersion`, `repo`,
-`commit`, `installedAt`, `archetypes`, `capabilities`, `layout` and `modules` fresh. `models` and
-`seam` go back to their defaults, so a hand-edit there does not survive a re-run `init`.
+`commit`, `installedAt`, `archetypes`, `capabilities`, `layout` and `modules` fresh. `models` becomes
+pharn-oss's block again (or is left out, when pharn-oss ships none) and `seam` goes back to its
+default, so a hand-edit in either does not survive a re-run `init` — unlike `pharn update`, which
+keeps an edited `models` block.
 `pendingSkillsVersion`, `frozenCapabilities` and the legacy fields below are dropped. (`capabilities`
 is rewritten too, but the entries you added with `pharn add` are kept as `manual` — see the
 [init command](../commands/init.md#6-summary).)

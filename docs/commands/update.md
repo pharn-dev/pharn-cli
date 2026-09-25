@@ -28,14 +28,15 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 3. Fetches the latest `SKILLS_VERSION` from `pharn-dev/pharn-oss@main` (a lightweight check, no clone)
    and compares it to your recorded `skillsVersion`.
 4. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
-   re-applies upstream at the current version.
+   re-applies upstream at the current version, or your `models` block is still in the format `pharn`
+   wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)).
 5. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
    unless you passed `--yes`, which skips that one prompt and nothing else.
 6. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
    latest capability index, then **unions** that result with the capabilities you added by hand.
-7. Decides each expected file with the table below, backs up anything `--force` is about to
-   overwrite, copies the files it may write, then updates `pharn.records.json` and
-   `pharn.config.json`.
+7. Decides each expected file with the table below — and your `models` block the same way — backs up
+   anything `--force` is about to overwrite, copies the files it may write, then updates
+   `pharn.records.json` and `pharn.config.json`.
 
 Because `update` re-resolves your archetypes against the latest index, a capability upstream added for
 one of your archetypes since your last install is picked up, and one it removed is dropped — your
@@ -190,6 +191,49 @@ cp .pharn-backup/20260807-091500/pharn/CONSTITUTION.md pharn/CONSTITUTION.md
 **Retention is yours.** `pharn` never prunes `.pharn-backup/` and never edits your `.gitignore` — so
 backups accumulate and are committable by accident. Delete them once you are happy, or add
 `.pharn-backup/` to your `.gitignore`.
+
+## The `models` block
+
+`models` in `pharn.config.json` is **pharn-oss's** block: the source of truth each `/pharn-*`
+command's `model:` / `effort:` frontmatter is held to (see
+[pharn.config.json](../reference/pharn-config.md#models)). `update` decides it with the table above,
+using the block's hash where a file would use its bytes, and prints a `MODELS` note for every outcome
+except "already identical":
+
+| Your block                                                                        | Default                   | With `--force`                               |
+| --------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------- |
+| absent                                                                            | pharn-oss's is written    | same                                         |
+| identical to pharn-oss's                                                          | nothing to do             | same                                         |
+| still what `pharn` wrote — its recorded hash, or a default an earlier pharn wrote | replaced with pharn-oss's | same                                         |
+| changed since `pharn` wrote it, never recorded, or no usable records file         | **kept**                  | `pharn.config.json` backed up, then replaced |
+
+"What `pharn` wrote" is compared as `pharn` writes it: re-indenting the file is not an edit, but
+reordering the block's keys is — so a reordered default counts as yours and is kept, never replaced.
+The block's record lives in [`pharn.records.json`](../reference/pharn-records.md#the-models-block).
+
+**The format `pharn` wrote before 0.7.0.** Earlier releases wrote a block of their own — a top-level
+`default`, and model ids that neither Claude Code nor pharn-oss's checker accepts. A block that is
+exactly one of those defaults is replaced with pharn-oss's. An edited one is **converted, not reset**:
+
+- a top-level `default` moves into `stages.default`;
+- `opus-4-8` becomes `opus`, `sonnet-5` becomes `sonnet`, `fable-5` becomes `fable`, and `haiku-4-5`
+  becomes `haiku`;
+- everything else is kept exactly as it is.
+
+What pharn-oss's rules still reject after that — a model with no mapping, a stage that does not exist,
+a `default` that could not move because `stages.default` is already set — is listed by name for you to
+fix by hand. Nothing is dropped, and nothing is guessed. This conversion runs even when your skills
+version is current: it is the one case where `update` goes past "Already up to date". Once your block
+is converted it no longer does.
+
+A kept block never holds back the skills version, unlike a skipped file: your `models` block is
+configuration, and a block you tuned is a steady state, not an unfinished upgrade. Keep in mind what
+the block is for, though — if your values differ from the installed commands' frontmatter,
+`node pharn/floor/check-model-config.mjs agreement` lists where.
+
+If pharn-oss ships no block, yours is left alone (converted, if it is in the old format). If pharn-oss
+ships one this `pharn` cannot accept — pharn-oss's rules can move ahead of the copy of them in your
+`pharn` — the block is not applied, the reasons are listed, and upgrading `pharn` fixes it.
 
 ## Non-interactive use (CI, scripts, pipes)
 

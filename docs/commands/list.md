@@ -20,7 +20,7 @@ the human-readable output, not JSON. Pass `--json` bare.
 
 ## Behavior
 
-1. Reads `pharn.config.json`. A config that is present but **invalid** (a malformed `models`/`seam`
+1. Reads `pharn.config.json`. A config that is present but **invalid** (a malformed `seam`
    block, an out-of-enum `capabilities[].source`, unparseable JSON) gets its own named error and exit
    1 — under `--json` it is written as plain text to stderr, so no clack chrome reaches a `2>&1`
    consumer. If none exists — or it is a pre-archetype (module) config — it exits with

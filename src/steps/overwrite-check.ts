@@ -45,7 +45,7 @@ export const MAX_LISTED = 10;
 // there is not one worth showing. Cosmetic input, cosmetic failure.
 //
 // DELIBERATELY NOT readPharnConfig (lib/pharn-config.ts). That reader lets
-// ModelRoutingError / SeamConfigError / CapabilitySourceError PROPAGATE so a bad
+// SeamConfigError / CapabilityEntryError / CapabilitySourceError PROPAGATE so a bad
 // hand-edit is never collapsed into the "run init" lie — correct for every
 // command that must not act on a config it failed to understand. But `init` IS
 // the command you run to REPAIR a broken config, and it has no recovery around

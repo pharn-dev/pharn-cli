@@ -1,0 +1,60 @@
+{
+  "base": "c40a40c48555d6bce378e42567551f5b3ae26525",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/add.md",
+    "docs/commands/init.md",
+    "docs/commands/list.md",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "docs/contributing.md",
+    "docs/reference/pharn-config.md",
+    "docs/reference/pharn-records.md",
+    "docs/roadmap.md",
+    "docs/troubleshooting.md",
+    "src/commands/list.ts",
+    "src/commands/status.ts",
+    "src/commands/update.ts",
+    "src/lib/install-records.ts",
+    "src/lib/model-config-format.ts",
+    "src/lib/model-config.ts",
+    "src/lib/model-routing-format.ts",
+    "src/lib/model-routing.ts",
+    "src/lib/models-update.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/proxy-env.ts",
+    "src/lib/upstream-models.ts",
+    "src/steps/install-archetype.ts",
+    "src/steps/overwrite-check.ts",
+    "src/types.ts",
+    "tests/fixtures/pharn-oss/check-model-config.mjs",
+    "tests/init-archetype.test.ts",
+    "tests/install-records.test.ts",
+    "tests/list.test.ts",
+    "tests/model-config-format.test.ts",
+    "tests/model-config-parity.test.ts",
+    "tests/model-config.test.ts",
+    "tests/model-routing-format.test.ts",
+    "tests/model-routing.test.ts",
+    "tests/models-update.test.ts",
+    "tests/overwrite-check.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/status.test.ts",
+    "tests/update.test.ts",
+    "tests/upstream-models.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The `models` block in `pharn.config.json` now belongs to pharn-oss — its schema and its defaults.** `pharn init` copies pharn-oss's own block, verbatim, from the root `pharn.config.json` of the commit it installs, instead of writing a default of its own. When pharn-oss ships no block, `init` writes none. The CLI's own model ids, effort levels and stage list are gone. The block is checked against pharn-oss's rules instead, through a copy of pharn-oss's checker (`pharn/floor/check-model-config.mjs`) that a test runs against the real one:
+  - a `model` is an alias (`sonnet`, `opus`, `haiku`, `fable`, `inherit`) or a full `claude-*` id;
+  - an `effort` is `low`, `medium`, `high`, `xhigh` or `max`;
+  - `default` sits inside `stages`, beside pharn-oss's eleven product stages.
+
+  No command refuses to run over the block any more; `pharn status` lists what pharn-oss's rules reject instead. If pharn-oss's rules move ahead of the copy in your `pharn`, the newer block is not applied, the reason is named, and upgrading `pharn` fixes it.
+- **`pharn status` and `pharn init` show the block for what it is.** They list every product stage with the model and effort it resolves to, marking the stages that fall back to `default`. The label under the list says that Claude Code applies each `/pharn-*` command's own `model:`/`effort:` frontmatter, that the block is the source of truth that frontmatter is held to, and that `node pharn/floor/check-model-config.mjs agreement` checks the two. The block is no longer presented as routing.
+- **`pharn update` manages the `models` block like a file.** pharn-oss's block replaces one `pharn` wrote, tracked by a new `pharn.config.json#/models` entry in `pharn.records.json`, and a block you changed is kept. `--force` replaces yours after backing up `pharn.config.json` to `.pharn-backup/`. A kept block never holds back the skills version, and a `MODELS` note says what happened.
+
+### Fixed
+
+- **The `models` block `pharn init` wrote was rejected by everything that reads it.** pharn-oss's checker, installed as `pharn/floor/check-model-config.mjs`, failed it three times: no `default` inside `stages`, and `opus-4-8` is not a model it accepts. `claude --model sonnet-5` fails with `unrecognized_model`. And its values disagreed with the installed commands' frontmatter (`plan` as `opus-4-8 · max` where the command says `opus`/`high`). The first `pharn update` with this release fixes an existing install, even at a current skills version:
+  - a block still exactly as an earlier `pharn` wrote it is replaced with pharn-oss's;
+  - a block you edited is converted with your values kept: `default` moves into `stages.default`, and `opus-4-8`, `sonnet-5`, `fable-5` and `haiku-4-5` become `opus`, `sonnet`, `fable` and `haiku`;
+  - anything that cannot be converted is listed by name and left as it is.
+
 ## [0.6.0] — 2026-09-25
 
 ### Added

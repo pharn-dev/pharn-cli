@@ -12,14 +12,21 @@ import { createBackup } from '../lib/backup.js';
 import { readBoundedFile } from '../lib/bounded-read.js';
 import {
   buildRecords,
+  MODELS_RECORD_KEY,
+  modelsRecordHash,
   readRecords,
   recordsBaseline,
   recordsUnderCapabilities,
   writeRecords,
   type FileRecords,
 } from '../lib/install-records.js';
-import { DEFAULT_MODEL_ROUTING } from '../lib/model-routing.js';
-import { formatModelRoutingLines } from '../lib/model-routing-format.js';
+import { checkModelsBlock } from '../lib/model-config.js';
+import {
+  modelsLabelLines,
+  resolvedStageLines,
+} from '../lib/model-config-format.js';
+import { readUpstreamModels } from '../lib/upstream-models.js';
+import { terminalSafe } from '../lib/terminal-safe.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import {
   configPath,
@@ -194,6 +201,28 @@ export async function runInstallArchetype(
     );
   }
 
+  // The `models` block is pharn-oss's: copied VERBATIM from its root
+  // pharn.config.json, checked on the way in (lib/upstream-models.ts). None
+  // upstream → none written, never an invented one. One this CLI will not
+  // apply → none written, and each reason named: pharn-oss may have widened its
+  // rules past this CLI's copy of them (LIMITS.md §3e), which an upgrade fixes
+  // — `pharn update` then writes it (the block's `restored` row).
+  const upstreamModels = readUpstreamModels(repoDir);
+  if (upstreamModels.kind === 'invalid') {
+    log.warn(
+      [
+        "pharn-oss's models block was not written; this pharn rejects it:",
+        ...upstreamModels.reasons.map(
+          (reason) => `  ${terminalSafe(reason, { max: 300 })}`,
+        ),
+        'If pharn-oss changed its models format, upgrade pharn',
+        '(npm i -g @pharn-dev/pharn@latest) and run `pharn update`.',
+      ].join('\n'),
+    );
+  }
+  const models =
+    upstreamModels.kind === 'ok' ? upstreamModels.block : undefined;
+
   // Which trusted docs the fetched repo did NOT ship at their expected path. A
   // set difference over two CLI-owned string arrays — the expected list from the
   // layout resolver, the written list from the copy routine itself, so a doc can
@@ -225,8 +254,8 @@ export async function runInstallArchetype(
     // CONSTITUTION.md verbatim. No modules: capabilities are the install unit.
     modules: [],
     installedAt: new Date().toISOString(),
-    // Per-stage model routing, written on every fresh install (P7 — additive).
-    models: DEFAULT_MODEL_ROUTING,
+    // pharn-oss's `models` block, or no key at all (`undefined` is not written).
+    models,
     // Seam-resolution policy, written on every fresh install (P7 — additive).
     seam: DEFAULT_SEAM_CONFIG,
     archetypes,
@@ -268,6 +297,10 @@ export async function runInstallArchetype(
     files: {
       ...keptRecords(baseline, carry, layout),
       ...buildRecords(cwd, prepared.manifest.keys()),
+      // The block pharn just wrote, so `pharn update` can tell it from an edit.
+      ...(models !== undefined
+        ? { [MODELS_RECORD_KEY]: modelsRecordHash(models) }
+        : {}),
     },
   });
   // The config this install replaces may hold keys pharn does not own —
@@ -288,18 +321,24 @@ export async function runInstallArchetype(
   const check = pc.green('✔');
   const grillers = capabilities.filter((c) => c.role === 'griller').length;
   const lenses = capabilities.filter((c) => c.role === 'lens').length;
-  // Render the per-stage routing from the config just written (not a second
-  // hardcoded copy), so the recorded intent is legible right after install.
-  // config.models is set on every fresh install; the guard narrows its optional
-  // type (P7 legacy). The hint below says plainly that no installed STAGE
-  // consumes the block yet: it is written, validated and displayed — this line
-  // and status's MODELS note are two of its readers — but nothing reads it to
-  // PICK a model (docs/roadmap.md carries the Planned row). Claiming an edit
-  // here changes a stage's model would document unimplemented behavior
-  // (CLAUDE.md).
-  const modelLines = config.models
-    ? formatModelRoutingLines(config.models)
-    : [];
+  // The block just written, resolved per stage, under the label that says what
+  // it is: the source of truth each /pharn-* command's frontmatter is held to.
+  // Claude Code applies that frontmatter; nothing reads this block to pick a
+  // model, and the outro must not read as routing that happens. No block (or
+  // one that declares no stages) → no section.
+  const modelsCheck = checkModelsBlock(models);
+  const modelsSection =
+    modelsCheck.kind === 'valid'
+      ? [
+          '',
+          pc.bold('Declared model per stage') +
+            ` ${pc.dim('(pharn.config.json → models, from pharn-oss)')}`,
+          ...resolvedStageLines(modelsCheck.stages).map((line) => `  ${line}`),
+          ...modelsLabelLines(layoutPaths(layout).floor).map(
+            (line) => `  ${pc.dim(line)}`,
+          ),
+        ]
+      : [];
   // Report the docs that LANDED, by name — never a count and never the expected
   // list. A count would hide exactly the silence this line exists to end, and
   // the names are what let a user see at a glance that (say) LIMITS.md is not
@@ -314,10 +353,7 @@ export async function runInstallArchetype(
       docsLine,
       `${check} pharn.config.json written ${pc.dim(`(skills v${skillsVersion}, archetypes: ${archetypes.join(', ')})`)}`,
       `${pc.dim(`Done in ${elapsed}s`)}`,
-      '',
-      pc.bold('Models per stage'),
-      ...modelLines.map((line) => `  ${line}`),
-      `  ${pc.dim('Recorded in pharn.config.json → models.stages — no installed stage reads it yet')}`,
+      ...modelsSection,
       '',
       pc.bold('Next steps'),
       `  ${pc.cyan('1.')}  ${pc.bold('claude')}            ${pc.dim('open Claude Code')}`,
@@ -382,8 +418,8 @@ function keptRecords(
  *
  * Deliberately NOT readPharnConfig, whose verdict is about the keys pharn OWNS:
  * it returns null for a config with no `modules` array — which every other
- * command answers with "Run `pharn init` first" — and throws on a bad
- * `models`/`seam` hand-edit. Neither says anything about the user's own keys,
+ * command answers with "Run `pharn init` first" — and throws on a bad `seam`
+ * hand-edit. Neither says anything about the user's own keys,
  * and reading through it would drop `testResults` on exactly the recovery path
  * pharn prescribes. So the one requirement is a JSON object at top level — the
  * same shape-only read steps/overwrite-check.ts makes for its one display

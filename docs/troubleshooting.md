@@ -449,15 +449,18 @@ If your `pharn.config.json` predates the archetype model (it has `modules` but n
 ## A command rejects an invalid config (does NOT say "run init")
 
 ```text
-models.default has invalid model "gpt-4" (expected one of opus-4-8, sonnet-5, fable-5, haiku-4-5)
+seam.resolutionOrder[1] has invalid step "guess" (expected one of official-skill, pinned-docs, fetch, model, ask)
 ```
 
 If `pharn.config.json` **exists but was hand-edited into an invalid state**, `add` / `status` /
 `update` / `remove` / `list` print the loud, specific error above (naming the offending field) and
 exit non-zero — they do **not** say to run `pharn init` (the file is there; re-running init would
-offer to clobber your edits). Fix the named field and re-run. The `models` / `seam` blocks reject an
-out-of-enum value, an unknown key (e.g. a typo'd `stgaes` / `haltOnUnknwon`), a duplicate
-`resolutionOrder` step, or a `modelConfidenceThreshold` with no `model` step to gate.
+offer to clobber your edits). Fix the named field and re-run. The `seam` block rejects an out-of-enum
+value, an unknown key (e.g. a typo'd `haltOnUnknwon`), a duplicate `resolutionOrder` step, or a
+`modelConfidenceThreshold` with no `model` step to gate.
+
+The `models` block is **not** checked here: it is pharn-oss's, and no command refuses to run over it.
+See [`pharn status` lists a problem with `models`](#pharn-status-lists-a-problem-with-models).
 
 ### The config is not valid JSON
 
@@ -469,8 +472,9 @@ A syntax error — most often a trailing comma — is reported with the file's f
 JSON parser supplies one, the **line and column** of the offending byte. Open the file at that
 position and fix it; nothing else is needed, and nothing has been written.
 
-**Do not reach for `pharn init` here.** It rewrites `pharn.config.json` wholesale: hand-edited
-`models` / `seam` blocks go back to defaults, keys of your own such as `testResults` are not carried
+**Do not reach for `pharn init` here.** It rewrites `pharn.config.json` wholesale: a hand-edited
+`models` block becomes pharn-oss's again, `seam` goes back to its default, keys of your own such as
+`testResults` are not carried
 over, and every capability is re-stamped `source: "auto"`, which discards the record of which
 capabilities you added by hand with `pharn add`. That record
 lives nowhere else, and `pharn update` reads it to keep your manual additions across upgrades.
@@ -491,6 +495,30 @@ in the first place: a config that is **absent**, or one that exists but cannot b
 permissions problem, a directory, a FIFO or a device sitting at that path, or a file over 16 MiB),
 still says
 [`No pharn.config.json found`](#add--update-say-to-run-init-first).
+
+## `pharn status` lists a problem with `models`
+
+```text
+pharn-oss's rules reject this block:
+  stage "plan" model "gpt-4" is not an alias {sonnet, opus, haiku, fable, inherit} nor a claude-* id
+```
+
+The `models` block in `pharn.config.json` is pharn-oss's (see
+[Models](reference/pharn-config.md#models)), so no `pharn` command refuses to run over it. `status`
+lists what pharn-oss's rules reject, and you fix it by hand. The checker installed with PHARN says the
+same: `node pharn/floor/check-model-config.mjs validate` (`.dev/floor/` in the legacy flat layout).
+
+- **"In the format pharn wrote before 0.7.0"** — run `pharn update`. An unedited block is replaced
+  with pharn-oss's; an edited one is converted to pharn-oss's format, keeping your values. Anything it
+  cannot convert is listed for you to fix.
+- **A stage, alias or effort pharn-oss added after your `pharn` was released** — upgrade `pharn`: the
+  copy of pharn-oss's rules it checks with predates the change.
+- **Your values differ from the installed commands' frontmatter** — not an error here.
+  `node pharn/floor/check-model-config.mjs agreement` lists each difference. Claude Code applies the
+  frontmatter, not the block, so change both or neither.
+
+`pharn update` lists the same problems when it keeps your block, and `pharn init` names them when
+pharn-oss's own block fails — it writes none then.
 
 ## Unknown command
 

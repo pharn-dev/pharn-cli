@@ -14,6 +14,8 @@ import { useTmpDir } from './helpers.js';
 import {
   buildRecords,
   mergeRecords,
+  MODELS_RECORD_KEY,
+  modelsRecordHash,
   readRecords,
   recordsBaseline,
   RECORDS_FILE,
@@ -266,6 +268,35 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
     expect(read.kind === 'ok' && read.store.files).toEqual({
       [key]: sha('bytes'),
     });
+  });
+
+  // The one key that is not a file: the models block pharn wrote into
+  // pharn.config.json. The reader must accept it, or every store holding it
+  // would read as corrupt and degrade update to `unverifiable`.
+  it('round-trips the models record key', async () => {
+    const proj = tmp.path();
+    const hash = modelsRecordHash({ stages: {} });
+    await writeRecords(proj, {
+      ...STAMP,
+      files: { 'a.md': sha('a'), [MODELS_RECORD_KEY]: hash },
+    });
+    const read = readRecords(proj);
+    expect(read.kind).toBe('ok');
+    expect(read.kind === 'ok' && read.store.files[MODELS_RECORD_KEY]).toBe(
+      hash,
+    );
+  });
+
+  it('hashes a models block as pharn serializes it: whitespace no, key order yes', () => {
+    const block = { stages: { default: { model: 'opus', effort: 'low' } } };
+    const reread: unknown = JSON.parse(JSON.stringify(block, null, 4));
+    expect(modelsRecordHash(reread)).toBe(modelsRecordHash(block));
+    expect(modelsRecordHash(block)).toBe(sha(JSON.stringify(block)));
+    expect(
+      modelsRecordHash({
+        stages: { default: { effort: 'low', model: 'opus' } },
+      }),
+    ).not.toBe(modelsRecordHash(block));
   });
 
   it('a non-string stamp invalidates the store', () => {

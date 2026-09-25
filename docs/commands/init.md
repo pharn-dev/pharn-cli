@@ -189,6 +189,7 @@ settings file — and is refused only when its target does not exist. See
 | Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
 | Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `seam`, `modules: []`, `frozenCapabilities` (see above)       |
+| Copy the `models` block    | pharn-oss's own, verbatim, from its root `pharn.config.json`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                                |
 | Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
@@ -198,7 +199,7 @@ publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
 
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 
-On success, the CLI reports the capability count and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.
+On success, the CLI reports the capability count, prints the `models` block it copied resolved per stage — under the label that Claude Code applies each command's own frontmatter, which the block is the source of truth for — and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.
 
 ## Concurrency
 
@@ -217,9 +218,9 @@ the lock across an unanswered human prompt. And because both prompts sit inside 
 
 `init` always writes an **archetype** config, and every command is archetype-only. A pre-archetype **module**-based `pharn.config.json` (one with `modules[]` but no `capabilities[]`, from a much older release) is no longer supported: `add`, `remove`, `list`, `update`, and `status` detect it up front and exit with a message to re-run `pharn init` — there is **no** module/manifest fallback (live pharn-oss ships no `manifest.json`). The config schema is additive, so a legacy config's now-unused fields (`modules`, `constitution`, `stackAnswers`, `installedSkills`) still parse; only the absence of `capabilities[]` triggers the rejection.
 
-A config that is present but **invalid** — a malformed `models`/`seam` block, an out-of-enum
+A config that is present but **invalid** — a malformed `seam` block, an out-of-enum
 `capabilities[].source`, or JSON that does not parse — is a different case with its own named error and
-exit 1. It deliberately does **not** say "run `pharn init`", because that would tell you to overwrite
+exit 1. (A `models` block is never one: it is pharn-oss's, and no command refuses to run over it.) It deliberately does **not** say "run `pharn init`", because that would tell you to overwrite
 the file you need to repair. See
 [A command rejects an invalid config](../troubleshooting.md#a-command-rejects-an-invalid-config-does-not-say-run-init).
 

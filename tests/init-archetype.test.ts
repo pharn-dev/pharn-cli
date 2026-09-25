@@ -6,6 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -59,8 +60,7 @@ const { resolveCapabilities } =
 const { runInstallArchetype } =
   await import('../src/steps/install-archetype.js');
 const { readPharnConfig } = await import('../src/lib/pharn-config.js');
-const { DEFAULT_MODEL_ROUTING } = await import('../src/lib/model-routing.js');
-const { readRecords, writeRecords } =
+const { MODELS_RECORD_KEY, modelsRecordHash, readRecords, writeRecords } =
   await import('../src/lib/install-records.js');
 const { collectExpectedInstallPaths } =
   await import('../src/lib/install-manifest.js');
@@ -85,9 +85,20 @@ function cap(role: string, applies: string): string {
   return `---\nname: c\nrole: ${role}\napplies: ${applies}\n---\n# c\n`;
 }
 
+// pharn-oss's own `models` block, as its root pharn.config.json carries it.
+const UPSTREAM_MODELS = {
+  stages: {
+    default: { model: 'sonnet', effort: 'high' },
+    plan: { model: 'opus', effort: 'high' },
+    review: { model: 'opus', effort: 'high' },
+  },
+};
+
 // A fake fetched pharn-oss clone: two grillers, two lenses (one backend-only, so
-// it is skipped for an ssr project), the product + dev surfaces, and the root
-// SKILLS_VERSION the archetype flow reads in place of a manifest.
+// it is skipped for an ssr project), the product + dev surfaces, the root
+// SKILLS_VERSION the archetype flow reads in place of a manifest, and
+// pharn-oss's root pharn.config.json — whose `models` block init copies, and
+// whose other keys it must not.
 function scaffoldRepo(repo: string): void {
   write(
     join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'),
@@ -114,6 +125,14 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, '.dev/floor/validate.mjs'), 'floor');
   write(join(repo, '.dev/features/x/PLAN.md'), 'DEVPLAN');
   write(join(repo, 'SKILLS_VERSION'), '1.0.0\n');
+  write(
+    join(repo, 'pharn.config.json'),
+    JSON.stringify({
+      _models_stages_note: "pharn-oss's own note — not copied",
+      models: UPSTREAM_MODELS,
+      ship: { requireAttestation: true },
+    }),
+  );
 }
 
 describe('archetype install (fixture e2e)', () => {
@@ -170,23 +189,29 @@ describe('archetype install (fixture e2e)', () => {
     expect(config!.commit).toBe('sha123');
     expect(config!.modules).toEqual([]);
     expect(config!.constitution).toBeUndefined();
-    // Model routing written on every fresh install (archetype path too).
-    expect(config!.models).toEqual(DEFAULT_MODEL_ROUTING);
-    // The spend-safe default: review resolves to opus-4-8/high, not fable-5/max.
-    expect(config!.models?.stages.review).toEqual({
-      model: 'opus-4-8',
-      effort: 'high',
-    });
-    // The outro still RENDERS the routing it just wrote...
+    // pharn-oss's `models` block, copied verbatim — and nothing else from its
+    // root config (its note and its `ship` are pharn-oss's, not the user's).
+    expect(config!.models).toEqual(UPSTREAM_MODELS);
+    const raw = JSON.parse(
+      readFileSync(join(proj, 'pharn.config.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(raw._models_stages_note).toBeUndefined();
+    expect(raw.ship).toBeUndefined();
+    // The outro shows the block resolved per stage, under a label that says
+    // what it is: Claude Code applies each command's own frontmatter, and the
+    // block is the source of truth that frontmatter is held to. Both
+    // directions are pinned — the old claims gone AND the honest label present.
     const outro = outroBody();
-    expect(outro).toContain('Models per stage');
-    expect(outro).toContain('review');
-    // ...but no longer invites an edit that would change which model a stage
-    // runs: nothing installed reads models.stages yet. Both directions are
-    // pinned — the old promise gone AND the honest replacement present — so a
-    // later copy edit cannot quietly re-promise the effect with the test green.
+    expect(outro).toContain('Declared model per stage');
+    expect(outro).toContain('plan             opus · high');
+    expect(outro).toContain('ship             sonnet · high  (default)');
+    expect(outro).toContain(
+      "Claude Code applies each /pharn-* command's own model:/effort:",
+    );
+    expect(outro).toContain('node .dev/floor/check-model-config.mjs agreement');
+    expect(outro).not.toContain('Models per stage');
     expect(outro).not.toContain('Change per-stage routing anytime');
-    expect(outro).toContain('no installed stage reads it yet');
+    expect(outro).not.toMatch(/rout/i);
     // Everything a fresh install writes came from archetype resolution, so it is
     // `auto` — update owns it. Only `pharn add` writes `manual`.
     expect(config!.capabilities).toEqual([
@@ -220,7 +245,8 @@ describe('archetype install (fixture e2e)', () => {
     expect(read.kind).toBe('ok');
     if (read.kind !== 'ok') return;
 
-    // Exactly the install manifest — nothing missing, nothing invented.
+    // Exactly the install manifest, plus the models block it wrote into the
+    // config — nothing missing, nothing invented.
     const expected = collectExpectedInstallPaths({
       repoDir: repo,
       capabilities: selection.selected.map((c) => ({
@@ -230,7 +256,11 @@ describe('archetype install (fixture e2e)', () => {
       layout: 'flat',
     });
     expect(Object.keys(read.store.files).sort()).toEqual(
-      [...expected.keys()].sort(),
+      [...expected.keys(), MODELS_RECORD_KEY].sort(),
+    );
+    // The block's record is the block as written — read back from the config.
+    expect(read.store.files[MODELS_RECORD_KEY]).toBe(
+      modelsRecordHash(readPharnConfig(proj)!.models),
     );
 
     // Each hash describes the bytes that actually LANDED (the dest), which is
@@ -244,6 +274,103 @@ describe('archetype install (fixture e2e)', () => {
     const config = readPharnConfig(proj)!;
     expect(read.store.skillsVersion).toBe(config.skillsVersion);
     expect(read.store.commit).toBe(config.commit);
+  });
+
+  // pharn-oss owns the `models` block. init copies pharn-oss's — and never
+  // invents one, never writes one pharn-oss's rules reject.
+  describe('the models block', () => {
+    async function installWith(rootConfig: string | null): Promise<string> {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      scaffoldRepo(repo);
+      if (rootConfig === null) rmSync(join(repo, 'pharn.config.json'));
+      else write(join(repo, 'pharn.config.json'), rootConfig);
+      write(join(proj, 'package.json'), '{}');
+      const { archetypes } = detectArchetypesFromProject(proj);
+      const selection = resolveCapabilities(
+        archetypes,
+        parseCapabilityIndex(repo),
+      );
+      await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+      return proj;
+    }
+    const rawConfig = (proj: string): Record<string, unknown> =>
+      JSON.parse(readFileSync(join(proj, 'pharn.config.json'), 'utf8'));
+    const recordKeys = (proj: string): string[] => {
+      const read = readRecords(proj);
+      return read.kind === 'ok' ? Object.keys(read.store.files) : [];
+    };
+
+    // Pre-check P2: pharn-oss's own checker RED-failed the block init used to
+    // write, three times. The block init writes now passes it.
+    it("writes a block pharn-oss's own checker passes", async () => {
+      const proj = await installWith(
+        JSON.stringify({ models: UPSTREAM_MODELS }),
+      );
+      const checker = join(
+        import.meta.dirname,
+        'fixtures/pharn-oss/check-model-config.mjs',
+      );
+      const r = spawnSync(
+        process.execPath,
+        [checker, 'validate', '--config', join(proj, 'pharn.config.json')],
+        { encoding: 'utf8' },
+      );
+      expect(r.stdout).toMatch(/^GREEN/);
+      expect(r.status).toBe(0);
+    });
+
+    it('writes no models key when pharn-oss ships no block — never invents one', async () => {
+      for (const root of [null, '{"ship":{}}', '{"models":null}']) {
+        vi.mocked(prompts.outro).mockClear();
+        const proj = await installWith(root);
+        expect('models' in rawConfig(proj)).toBe(false);
+        expect(recordKeys(proj)).not.toContain(MODELS_RECORD_KEY);
+        expect(outroBody()).not.toContain('Declared model per stage');
+        rmSync(join(tmp.path(), 'proj'), { recursive: true, force: true });
+      }
+    });
+
+    // Review finding (REVIEW.md, P2): a block too deep to serialize used to
+    // throw after the files were copied, leaving no config at all.
+    it('finishes the install, with no models key, over a block too deep to copy', async () => {
+      const depth = 100_000;
+      const proj = await installWith(
+        `{"models":{"stages":{"default":{"model":"opus","effort":"high"}},"deep":${'['.repeat(depth)}${']'.repeat(depth)}}}`,
+      );
+      expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
+      expect('models' in rawConfig(proj)).toBe(false);
+      expect(recordKeys(proj)).not.toContain(MODELS_RECORD_KEY);
+    });
+
+    it("writes none, and says why, when pharn-oss's block fails its rules", async () => {
+      const RLO = String.fromCharCode(0x202e);
+      vi.mocked(prompts.log.warn).mockClear();
+      const proj = await installWith(
+        JSON.stringify({
+          models: {
+            stages: {
+              default: { model: 'sonnet', effort: 'high' },
+              triage: { model: 'opus', effort: 'high' },
+              plan: { model: `${RLO}opus`, effort: 'high' },
+            },
+          },
+        }),
+      );
+      expect('models' in rawConfig(proj)).toBe(false);
+      expect(recordKeys(proj)).not.toContain(MODELS_RECORD_KEY);
+      const warning = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .find((m) => m.includes('models block'));
+      expect(warning).toContain(
+        "pharn-oss's models block was not written; this pharn rejects it:",
+      );
+      expect(warning).toContain('stage "triage" is not a product stage');
+      expect(warning).toContain('stage "plan" model "opus" is not an alias');
+      expect(warning).toContain('upgrade pharn');
+      expect(warning).not.toContain(RLO);
+    });
   });
 
   it('does not record the user-owned .claude/settings.json', async () => {

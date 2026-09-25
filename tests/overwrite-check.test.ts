@@ -18,7 +18,7 @@ const { installCapabilities } =
   await import('../src/lib/install-capabilities.js');
 type Selection = import('../src/types.js').Selection;
 const { readPharnConfig } = await import('../src/lib/pharn-config.js');
-const { ModelRoutingError } = await import('../src/lib/model-routing.js');
+const { SeamConfigError } = await import('../src/lib/seam-config.js');
 const { sha256File } = await import('../src/lib/hash.js');
 
 // ESC built from its code point, so no literal control character lives in this
@@ -29,10 +29,10 @@ const ESC = String.fromCharCode(27);
 // are raw strings so they are exactly what a hand-edit leaves behind.
 const CONFIG_2_3_4 = '{"skillsVersion":"2.3.4","modules":[]}';
 const CONFIG_TRUNCATED = '{"skillsVersion":';
-// readPharnConfig THROWS ModelRoutingError on this one (unknown model id) — the
-// exact class of config `init` has to stay able to repair.
-const CONFIG_BAD_MODELS =
-  '{"skillsVersion":"2.3.4","modules":[],"models":{"default":{"model":"gpt-9","effort":"high"}}}';
+// readPharnConfig THROWS SeamConfigError on this one (unknown step) — the exact
+// class of config `init` has to stay able to repair.
+const CONFIG_BAD_SEAM =
+  '{"skillsVersion":"2.3.4","modules":[],"seam":{"resolutionOrder":["guess","ask"]}}';
 // Valid JSON (stringify escapes the ESC), so JSON.parse SUCCEEDS and it is
 // VERSION_RE, not the parse guard, that drops the value.
 const CONFIG_ESCAPED_VERSION = JSON.stringify({
@@ -234,13 +234,13 @@ describe('confirmWriteTargets', () => {
 
   it('survives a config readPharnConfig would REJECT — init is the repair command', async () => {
     const { repo, proj } = dirs(scaffoldRepo);
-    write(join(proj, 'pharn.config.json'), CONFIG_BAD_MODELS);
+    write(join(proj, 'pharn.config.json'), CONFIG_BAD_SEAM);
     // Two-sided on purpose: prove the fixture really IS the dangerous class
     // before claiming the stage survives it. readPharnConfig lets
-    // ModelRoutingError PROPAGATE by design (lib/pharn-config.ts), and init has
+    // SeamConfigError PROPAGATE by design (lib/pharn-config.ts), and init has
     // no recovery around this stage — so an unguarded read here would make the
     // one command that repairs a broken config abort on it instead.
-    expect(() => readPharnConfig(proj)).toThrow(ModelRoutingError);
+    expect(() => readPharnConfig(proj)).toThrow(SeamConfigError);
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
       'proceed',

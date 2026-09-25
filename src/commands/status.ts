@@ -13,9 +13,16 @@ import { diffInstalledCapabilities } from '../lib/diff.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import type { InstallDiff } from '../lib/diff.js';
-import { configLayout } from '../lib/layout.js';
+import { configLayout, layoutPaths } from '../lib/layout.js';
 import { row } from '../lib/format.js';
-import { formatModelRoutingLines } from '../lib/model-routing-format.js';
+import { checkModelsBlock } from '../lib/model-config.js';
+import {
+  modelsCheckerCommand,
+  modelsLabelLines,
+  resolvedStageLines,
+} from '../lib/model-config-format.js';
+import { needsModelsConversion } from '../lib/models-update.js';
+import { terminalSafe } from '../lib/terminal-safe.js';
 import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
 import { errorMessage, reportFatal } from '../lib/report-error.js';
 import {
@@ -95,7 +102,7 @@ async function runArchetypeStatus(
       process.exit(1);
     }
     const outdated = printArchetypeVersion(config, latest);
-    printModelRouting(config);
+    printModels(config);
     if (strict && outdated) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
     return;
@@ -116,7 +123,7 @@ async function runArchetypeStatus(
   let exitCode = 0;
   try {
     const outdated = printArchetypeVersion(config, readSkillsVersion(repo.dir));
-    printModelRouting(config);
+    printModels(config);
     // Exclude FROZEN capabilities — the ones the fetch boundary could not parse
     // in this clone. `update` deliberately keeps their config entry but never
     // writes their files, so comparing them here would report drift that no
@@ -183,23 +190,48 @@ function printArchetypeVersion(config: PharnConfig, latest: string): boolean {
   return outdated;
 }
 
-// MODELS note: the per-stage routing recorded in pharn.config.json, rendered
-// from the same config via formatModelRoutingLines (the init summary's "Models
-// per stage" block, mirrored here). Omitted when `models` is absent — a
-// pre-`models` archetype config (P7 additive/legacy). Read-only: display only —
-// and the trailing qualifier keeps it honest: the block is written, validated
-// and shown, but NO installed command reads it, so these lines report a
-// recorded intent, not the model a stage will run (docs/roadmap.md, Planned).
-function printModelRouting(config: PharnConfig): void {
+// MODELS note: the `models` block, resolved per product stage — a declaration,
+// labeled as one. Claude Code applies each /pharn-* command's own frontmatter;
+// the block is the source of truth that frontmatter is held to, and pharn-oss's
+// checker (installed under the floor dir) is what compares the two. Omitted
+// when `models` is absent (P7 additive/legacy). Read-only, local (no clone),
+// and NOT a `--strict` input: the block's verdict is pharn-oss's checker's to
+// give — this note reports it, through this CLI's pinned copy of its rules.
+function printModels(config: PharnConfig): void {
   if (config.models === undefined) return;
-  note(
-    [
-      ...formatModelRoutingLines(config.models),
-      '',
-      pc.dim('Recorded only — no installed stage reads this yet.'),
-    ].join('\n'),
-    'MODELS',
-  );
+  const floor = layoutPaths(configLayout(config)).floor;
+  note(modelsNoteLines(config.models, floor).join('\n'), 'MODELS');
+}
+
+function modelsNoteLines(block: unknown, floor: string): string[] {
+  if (needsModelsConversion(block)) {
+    return [
+      'In the format pharn wrote before 0.7.0: a top-level `default` and',
+      "model ids such as `opus-4-8`, which Claude Code and pharn-oss's",
+      'checker reject.',
+      pc.dim('`pharn update` converts it: a block pharn wrote and you never'),
+      pc.dim("changed becomes pharn-oss's; an edited one keeps your values."),
+    ];
+  }
+  const check = checkModelsBlock(block);
+  if (check.kind === 'invalid') {
+    return [
+      "pharn-oss's rules reject this block:",
+      ...check.reds.map((red) => `  ${terminalSafe(red.detail, { max: 300 })}`),
+      pc.dim('Fix it by hand. The checker installed with PHARN says the same:'),
+      pc.dim(modelsCheckerCommand(floor, 'validate')),
+    ];
+  }
+  if (check.kind === 'no-stages') {
+    return [
+      "Declares no stages: pharn-oss's checker reads that as none declared.",
+    ];
+  }
+  return [
+    ...resolvedStageLines(check.stages),
+    '',
+    ...modelsLabelLines(floor).map((line) => pc.dim(line)),
+  ];
 }
 
 // DRIFT note: differing, missing and unreadable PHARN-owned files, or a clean

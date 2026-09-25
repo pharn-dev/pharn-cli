@@ -5,7 +5,9 @@ A CLI-owned sidecar written next to [`pharn.config.json`](pharn-config.md) at yo
 capabilities collected by `runInstallArchetype` (`collectExpectedInstallPaths`), not every file `pharn`
 writes. [`pharn update`](../commands/update.md) compares against it to tell pharn's bytes from your
 edits and refuse to destroy the latter. `pharn.config.json`, this file, and `.claude/settings.json`
-are excluded from the map.
+are excluded from the map — with one exception that is not a file: `pharn.config.json#/models` records
+the `models` block `pharn` wrote **inside** `pharn.config.json` (see
+[The `models` block](#the-models-block)).
 
 Source: [`install-records.ts`](../../src/lib/install-records.ts).
 
@@ -42,13 +44,24 @@ disagree with what is actually on disk. Keys are sorted, so the committed file h
 
 | Command  | Effect                                                                                                 |
 | -------- | ------------------------------------------------------------------------------------------------------ |
-| `init`   | Writes the full store — every file the install wrote                                                   |
+| `init`   | Writes the full store — every file the install wrote, and the `models` block when it wrote one         |
 | `add`    | Merges the added capability's files in. Only extends an **already readable** store; it never mints one |
-| `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning))                           |
+| `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record  |
 | `remove` | Prunes the removed capability's entries. Only edits an **already readable** store; it never mints one  |
 
 `.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
 absent.
+
+## The `models` block
+
+`pharn.config.json#/models` holds the sha256 of the `models` block `pharn` last wrote into
+`pharn.config.json` — the block as `pharn` serializes it (`JSON.stringify`: keys in order, no
+whitespace). So re-indenting your config is not an edit, while reordering the block's keys is.
+`init` writes it with the block; `update` rewrites it when it writes pharn-oss's block, and carries it
+unchanged when it keeps yours; `add` and `remove` carry it untouched. `update` compares your block
+against it exactly as it compares a file against its record — see
+[update](../commands/update.md#the-models-block). Like every key here, it is only compared, never used
+as a path, and a store without it reads the block as `unrecorded`.
 
 ## When the store is ignored (fail-closed)
 

@@ -40,9 +40,9 @@ export async function runList(opts: { json?: boolean } = {}): Promise<void> {
   try {
     config = readPharnConfig(cwd);
   } catch (e) {
-    // A present-but-invalid models/seam block: surface the loud, named error
-    // (json-aware, to stderr) + exit — never the "run init" lie (BUG 1). A
-    // non-config error is a bug: rethrow, never swallow.
+    // A present-but-invalid seam block or capabilities entry: surface the
+    // loud, named error (json-aware, to stderr) + exit — never the "run init"
+    // lie (BUG 1). A non-config error is a bug: rethrow, never swallow.
     if (isConfigValidationError(e)) {
       emitError(e.message, json);
       process.exit(1);
