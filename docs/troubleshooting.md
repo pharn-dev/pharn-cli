@@ -366,8 +366,16 @@ both of its prompts, but the picker and the overwrite confirmation are answered 
 walked-away `init` can block other writers in that project until the six-hour staleness window
 expires. `add`'s picker holds it across the multi-select for the same reason.
 
-A run that is `SIGKILL`ed or loses power cannot release. `pharn` breaks such a lock by itself when
-any of these hold:
+An interrupted run releases the lock on its way out. That covers Ctrl-C, and a `timeout` or
+`docker stop`, which arrive as `SIGINT` and `SIGTERM`. The run still exits 130 or 143 and prints
+that the project may be partially updated. Three things cannot release the lock:
+
+- a run that is `SIGKILL`ed;
+- one that loses power;
+- one ended by a hangup (`SIGHUP`, a closed terminal).
+
+The hangup case is deliberate: listening for it would override `nohup`, and a `nohup pharn update`
+would then stop mid-write. `pharn` breaks such a lock by itself when any of these hold:
 
 - the file is missing, unreadable, or not a well-formed lock payload;
 - it is more than six hours old;

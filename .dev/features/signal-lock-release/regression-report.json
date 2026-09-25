@@ -1,0 +1,27 @@
+{
+  "base": "cf6582e92eaae15e3dd431824107101da741b9b8",
+  "inside": [
+    "CHANGELOG.md",
+    "docs/troubleshooting.md",
+    "src/lib/fatal-signal.ts",
+    "src/lib/project-lock.ts",
+    "src/lib/repo.ts",
+    "tests/fatal-signal.test.ts",
+    "tests/project-lock.test.ts",
+    "tests/repo-signals.test.ts",
+    "tests/repo.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/engines-styletext-floor/REVIEW.md"
+    ".dev/features/signal-lock-release/SHIP.md"
   ],
-  "set_by": ".claude/commands/pharn-dev-review.md",
-  "set_at": "2026-09-25T05:06:19.849Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-09-25T05:22:33.736Z"
 }
