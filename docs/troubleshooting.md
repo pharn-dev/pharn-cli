@@ -264,15 +264,30 @@ resolve, the repo tarball, and `SKILLS_VERSION` for `update` / `status --no-drif
 Node's global `fetch`, which by default reads **no** proxy environment variable: not `https_proxy`, not
 `HTTPS_PROXY`, not `no_proxy`.
 
-**Recent Node versions can opt in.** Run `pharn` with `NODE_USE_ENV_PROXY=1` set (or pass
-`--use-env-proxy` to Node, e.g. through `NODE_OPTIONS`) and Node's `fetch` routes through `HTTPS_PROXY`
-and honours `NO_PROXY`. Older Nodes — Node 20, for example — have no such option. `pharn` checks what
-the running Node supports (`process.allowedNodeEnvironmentFlags`) rather than guessing from a version
-number.
+**Recent Node versions can opt in.** On Node 22.21+ and 24.5+, run `pharn` with
+`NODE_USE_ENV_PROXY=1` set, or pass `--use-env-proxy` to Node (for example through `NODE_OPTIONS`).
+Node's `fetch` then routes through the proxy and honours `NO_PROXY`. The details, measured on each
+release line:
 
-If a proxy variable is set, `pharn` says which of the three cases applies **before** it fetches, so a
-network that blocks direct egress produces an explanation rather than an unexplained timeout. Without
-the opt-in, on a Node that supports it:
+- **Only `NODE_USE_ENV_PROXY=1` counts** on those versions — `true` or `0` do not.
+- **The flag wins over the variable, and the last flag wins.** `--no-use-env-proxy` turns the opt-in
+  off even when the variable is set; the command line is read after `NODE_OPTIONS`. Either `-` or `_`
+  works in the flag's name.
+- **Node 24.0–24.4 have no flag yet**, but there **any** non-empty `NODE_USE_ENV_PROXY` turns it on.
+- **Node 20, 21, 22.0–22.20 and 23 have no opt-in at all.**
+
+Which variable Node reads, for the https URLs `pharn` fetches:
+
+- **`https_proxy`, then `HTTPS_PROXY`**, and if neither gives a proxy, **`http_proxy`, then
+  `HTTP_PROXY`**. Lowercase wins when both cases are set.
+- **An empty `https_proxy` hides `HTTPS_PROXY`**: Node stops at the first variable that is present
+  at all, and then falls through to the `http_proxy` pair.
+- **Only those four exact spellings are read** (on Linux and macOS). A `Https_Proxy` is never used.
+  On Windows, environment names are case-insensitive, so any spelling works there.
+
+If a proxy variable is set, `pharn` says which case applies **before** it fetches, so a network that
+blocks direct egress produces an explanation rather than an unexplained timeout. Without the
+opt-in, on a Node that supports it:
 
 ```text
 ⚠ HTTPS_PROXY is set (http://***@proxy.internal:3128), but pharn will not use it:
@@ -282,13 +297,14 @@ the opt-in, on a Node that supports it:
   the proxy — re-run with NODE_USE_ENV_PROXY=1 set.
 ```
 
-With the opt-in on, the notice instead says the downloads go through that proxy. On a Node without
-the option it says so and that a newer Node release has it.
+With the opt-in on, the notice instead says the downloads go through that proxy. After a
+`--no-use-env-proxy`, it names that flag as what turned the proxy off. On a Node without the opt-in,
+it says so and names the Node versions that have one.
 
 Two details in that message are deliberate:
 
-- **It names the variable you actually set**, so a `Https_Proxy` typo shows up as read-and-still-unused
-  rather than as "pharn did not see it".
+- **It names the variable Node would use**, and a spelling Node never reads (`Https_Proxy`) gets its
+  own notice, saying it is ignored and naming the four spellings that work — rather than silence.
 - **Credentials are redacted.** Any `user:password@` in the value is replaced with `***`. The value is
   only printed; it is never written to `pharn.config.json`, which lives in your repository and is
   committed.

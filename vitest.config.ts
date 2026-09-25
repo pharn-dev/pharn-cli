@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Clears the host's proxy variables before every test file, so no result
+    // depends on the environment of the machine running the suite.
+    setupFiles: ['tests/setup/hermetic-env.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

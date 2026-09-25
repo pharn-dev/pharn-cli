@@ -147,9 +147,47 @@ describe('proxyNoticeMessage — the three env-proxy states (PHARN-12)', () => {
     expect(m).toContain('NODE_USE_ENV_PROXY=1');
   });
 
-  it('unsupported: says this Node cannot, and that a newer one can', () => {
+  it('unsupported: says this Node cannot, and names the Nodes that can', () => {
     const m = proxyNoticeMessage(notice('unsupported'));
     expect(m).toContain('will not use it');
-    expect(m).toContain('no NODE_USE_ENV_PROXY support');
+    expect(m).toContain('cannot route fetch through a proxy');
+    // Measured: 22.21+ and every 24 release honour NODE_USE_ENV_PROXY.
+    expect(m).toContain('22.21');
+    expect(m).toContain('24');
+  });
+
+  // The user set NODE_USE_ENV_PROXY=1 and a --no-use-env-proxy wins over it:
+  // telling them to set the variable they already set would send them in a
+  // circle. The notice names the flag that turned it off instead.
+  it('available after an opt-out: names --no-use-env-proxy instead of the variable', () => {
+    const m = proxyNoticeMessage({ ...notice('available'), optedOut: true });
+    expect(m).toContain('will not use it');
+    expect(m).toContain('--no-use-env-proxy');
+    expect(m).not.toContain('re-run with NODE_USE_ENV_PROXY=1');
+  });
+});
+
+describe('proxyNoticeMessage — a spelling Node never reads', () => {
+  const m = proxyNoticeMessage({
+    name: 'Https_Proxy',
+    value: PROXY,
+    envProxy: 'ignored-spelling',
+  });
+
+  it('says it is not used and that the download goes direct', () => {
+    expect(m).toContain('Https_Proxy');
+    expect(m).toContain('will not use it');
+    expect(m).toContain('DIRECTLY');
+    expect(m).not.toContain('go through that proxy');
+  });
+
+  it('names the spellings Node does read', () => {
+    for (const name of [
+      'https_proxy',
+      'HTTPS_PROXY',
+      'http_proxy',
+      'HTTP_PROXY',
+    ])
+      expect(m).toContain(name);
   });
 });

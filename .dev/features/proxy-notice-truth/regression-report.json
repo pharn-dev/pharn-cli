@@ -1,0 +1,26 @@
+{
+  "base": "f1e8b92cfba1c59c19b1743cde23e77c54ac64bb",
+  "inside": [
+    "CHANGELOG.md",
+    "docs/troubleshooting.md",
+    "src/lib/proxy-env-format.ts",
+    "src/lib/proxy-env.ts",
+    "tests/proxy-env-format.test.ts",
+    "tests/proxy-env.test.ts",
+    "tests/setup/hermetic-env.ts",
+    "vitest.config.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
