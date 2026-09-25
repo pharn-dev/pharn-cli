@@ -140,7 +140,9 @@ jobs:
       # Exactly the tarball of the verified version, by name; --ignore-scripts so
       # nothing from the package runs here. `--provenance` emits a signed
       # attestation via the same OIDC id-token used for Trusted Publishing.
+      # The leading `./` is load-bearing: a bare `pkg/x.tgz` matches npm's GitHub
+      # `owner/repo` shorthand and is resolved as a git repo, not the file.
       - name: Publish
         env:
           VERSION: ${{ needs.build.outputs.version }}
-        run: npm publish "pkg/pharn-dev-pharn-${VERSION}.tgz" --provenance --access public --ignore-scripts
+        run: npm publish "./pkg/pharn-dev-pharn-${VERSION}.tgz" --provenance --access public --ignore-scripts
