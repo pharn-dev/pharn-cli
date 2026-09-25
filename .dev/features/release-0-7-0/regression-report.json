@@ -1,0 +1,21 @@
+{
+  "base": "9bd4e3052e4a998dfa8b5815801219fd4df5561d",
+  "inside": [
+    "CHANGELOG.md",
+    "package-lock.json",
+    "package.json"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

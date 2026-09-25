@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/models-pharn-oss-owned/SHIP.md"
+    ".dev/features/release-0-7-0/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-25T22:41:27.905Z"
+  "set_at": "2026-09-25T22:46:34.573Z"
 }

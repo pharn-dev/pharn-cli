@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-09-26
+
 ### Changed
 
 - **The `models` block in `pharn.config.json` now belongs to pharn-oss — its schema and its defaults.** `pharn init` copies pharn-oss's own block, verbatim, from the root `pharn.config.json` of the commit it installs, instead of writing a default of its own. When pharn-oss ships no block, `init` writes none. The CLI's own model ids, effort levels and stage list are gone. The block is checked against pharn-oss's rules instead, through a copy of pharn-oss's checker (`pharn/floor/check-model-config.mjs`) that a test runs against the real one:
@@ -1413,7 +1415,8 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.2...v0.4.0
