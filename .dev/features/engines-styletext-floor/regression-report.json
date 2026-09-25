@@ -1,0 +1,30 @@
+{
+  "base": "abb274acbef59967d26068baa38676f1033ff182",
+  "inside": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/node-floor.yml",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "SECURITY.md",
+    "docs/contributing.md",
+    "docs/getting-started.md",
+    "docs/troubleshooting.md",
+    "package-lock.json",
+    "package.json",
+    "tests/engines.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

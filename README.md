@@ -17,7 +17,7 @@ chat window.
 [![CI](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/pharn-dev/pharn-cli/actions/workflows/codeql.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/codeql.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20.12.0-brightgreen)](./package.json)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.13.0-brightgreen)](./package.json)
 
 ```bash
 npx @pharn-dev/pharn@latest init
@@ -312,9 +312,9 @@ PHARN is intentionally scoped:
 
 - It targets **Claude Code today**. Codex and Cursor support are planned, not
   shipped.
-- It requires a git-initialized project and Node >= 20.12.0 (the floor its
+- It requires a git-initialized project and Node >= 20.13.0 (the floor its
   prompt library needs). CI runs on Node 24, and a smoke job starts the packed
-  CLI on exactly Node 20.12.0.
+  CLI on exactly Node 20.13.0.
 - **Archetype detection is JS/TS-shaped.** The signals are `package.json`
   dependency names plus `next.config.*`, `app/` route handlers, `.tsx`/`.jsx`,
   `migrations/` and `.sql`. A Python, Go or Rust repo produces no signal,
