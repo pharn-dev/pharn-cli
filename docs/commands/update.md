@@ -305,9 +305,11 @@ command addresses it any more, and the update prints its own warning naming it. 
 
 - `.claude/settings.json` — your Claude Code configuration. `init` writes it only when absent; `update`
   **never** touches it at all (not even with `--force` — it is not in the install manifest). It does
-  compare the file's `hooks` block with the fetched upstream one and prints a `HOOKS` note naming every
-  hook upstream wires that yours does not (matching is textual, so an equivalent hook you wrote
-  differently is listed too); merge those by hand.
+  compare the hooks of that file and `.claude/settings.local.json` with the fetched upstream ones. It
+  prints a `HOOKS` note naming every hook upstream wires that neither file does. Matching is textual,
+  so an equivalent hook you wrote differently is listed too. Each line is the hook as JSON, ready to
+  merge by hand. The note also names hooks wired only in `settings.local.json`, which run for you but
+  not for your teammates. See [status](status.md#what-is-intentionally-excluded) for the full rules.
 - `pharn/CONSTITUTION.md` (flat: `CONSTITUTION.md`) — protected like every other manifest path: if you have edited it, it is a `modified`
   skip by default. `--force` overwrites it too, after copying the current bytes to `.pharn-backup/`.
   (Before 0.4.0 `update` silently overwrote a hand-edited constitution despite docs claiming otherwise —

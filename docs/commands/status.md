@@ -75,9 +75,23 @@ a whole tree to relocate.
 ## What is intentionally excluded
 
 `.claude/settings.json` is **never** flagged as a differing file — it is your Claude Code
-configuration, which the install preserves (never overwrites). Its `hooks` block is checked separately:
-a `HOOKS` section names every hook the upstream `settings.json` wires that yours does not (extra hooks
-of your own never count; matching is textual), and `--strict` exits `1` while any is missing. The copied-verbatim trusted docs, `.cjs` hooks, `pharn/features/README.md`,
+configuration, which the install preserves (never overwrites). Its `hooks` block is checked separately.
+Claude Code merges the hooks of `.claude/settings.json` and your per-user `.claude/settings.local.json`,
+so `status` reads both. It never reads user-level `~/.claude/settings.json`: the check is about the
+project. The `HOOKS` section works like this:
+
+- **Missing.** It names every hook the upstream `settings.json` wires that neither project file does.
+  Extra hooks of your own never count, and matching is textual. `--strict` exits `1` while any is
+  missing, or while a project settings file cannot be read.
+- **Paste-ready.** Each line is `Event [matcher]: <the hook as JSON>`, so you can paste it into your
+  settings under that event. An exec-form hook (`command` plus `args`) prints its `args`, so it no
+  longer reads like a shell command. Characters that could move or hide text are shown as `\uXXXX`
+  JSON escapes, and a line is capped at 300 characters.
+- **Local only.** A hook wired **only** in `settings.local.json` counts as wired, since it runs for
+  you, and `--strict` passes. The section still names it, because it reaches neither your teammates
+  nor CI (where that file does not exist).
+- **Symlinks.** A symlinked `settings.json` file is read through, as Claude Code does. A symlinked
+  `.claude/` directory is refused. The copied-verbatim trusted docs, `.cjs` hooks, `pharn/features/README.md`,
 pharn's `LICENSE` copy, and the contracts, `pharn-core` and floor dirs at your recorded layout
 (`pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`, or `pharn-contracts/`, `pharn-core/`,
 `.dev/floor/` when it is flat) **are** compared, so an edit to any of those surfaces shows up as
@@ -88,7 +102,8 @@ never compared.
 
 Exits `0` by default, even when drift or an available update is found (it is a report) — including when
 a path is unreadable. Pass `--strict` to exit `1` whenever anything is outdated, differing, missing, or
-unreadable, or an upstream hook is not wired in `.claude/settings.json` — useful as a CI gate.
+unreadable, or an upstream hook is wired in neither `.claude/settings.json` nor
+`.claude/settings.local.json` — useful as a CI gate.
 
 `--strict` governs **findings**, not failures. `status` still exits `1` without it when it cannot
 produce a report at all: no `pharn.config.json` (or a pre-archetype one), a clone it cannot fetch, or

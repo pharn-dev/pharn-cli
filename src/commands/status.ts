@@ -1,4 +1,8 @@
-import { diffHookWiring, hookWiringLines } from '../lib/hook-wiring.js';
+import {
+  diffHookWiring,
+  hookWiringFails,
+  hookWiringLines,
+} from '../lib/hook-wiring.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { REPO, REPO_BRANCH } from '../lib/constants.js';
@@ -143,7 +147,9 @@ async function runArchetypeStatus(
         result.modified.length ||
         result.missing.length ||
         result.unreadable.length ||
-        hookLines !== null)
+        // The diff's STATUS, not the note's presence: a hook wired only in
+        // settings.local.json is noted, and is still wired.
+        hookWiringFails(hooks))
     ) {
       exitCode = 1;
     }

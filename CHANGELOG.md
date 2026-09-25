@@ -34,9 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Only the notice changes; the network behaviour is Node's and is unchanged.
 - **The test suite no longer depends on the proxy settings of the machine running it.** With `NODE_USE_ENV_PROXY=1` set, 15 tests failed that pass in CI. With `HTTPS_PROXY` exported, 1 did. A setup file now clears the proxy variables before every test file.
+- **`pharn status` and `pharn update` read the hooks Claude Code actually runs.**
+  - They now read both `.claude/settings.json` and your per-user `.claude/settings.local.json`, and compare their union with upstream. Hooks wired locally used to be reported missing, `status --strict` failed, and with no `settings.json` the note claimed "no PHARN hook is wired". A hook wired only in `settings.local.json` counts as wired: `--strict` passes, and the note says it reaches neither teammates nor CI.
+  - A symlinked `settings.json` file, managed from dotfiles for example, is now read through, as Claude Code does. It used to be treated as unreadable. A symlinked `.claude/` directory is still refused.
+  - A FIFO at a settings path no longer blocks `status` or `update` forever.
+- **Each missing hook in the `HOOKS` note is now printed as the hook itself, in JSON, so you can paste it.** An exec-form hook (`command` with `args`) used to print as one shell-style line, and pasting that line in did not satisfy the check.
 
 ### Security
 
+- **The `HOOKS` note no longer prints upstream text raw.** Hook commands from upstream's `settings.json` went through a control-character filter that let Unicode format characters through. A right-to-left override could make a path in the note read reversed, in a note that asks you to copy it by hand. Such characters, and the two Unicode line separators, are now shown as `\u` escapes. Each line is capped at 300 characters.
 - **The extractor's name check now judges the name it writes.** It checked one decoding of a tar entry's name and wrote another. A raw C1 byte (such as `0x9B`, the terminal CSI) passed the control-character check and landed on disk as that control character, where `pharn status` and `pharn update` then printed it raw. Every non-ASCII name was also written garbled. Entry names are now decoded once, as strict UTF-8, and the check, the path rules and the write all use that one string. A name that is not valid UTF-8, or that starts with a byte-order mark, is refused.
 - **Pax parsing is bounded per archive.** The 64 KiB cap applied to each global header, not to their number, so many headers each under the cap still cost seconds of CPU. The cap now covers all global headers in the archive together, and every header counts toward the entry limit.
 - **A malformed numeric header field no longer reaches the error output raw.** It is shown with non-printable bytes escaped, so an archive cannot add a line of its own to the fatal message.

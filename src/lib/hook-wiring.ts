@@ -1,11 +1,12 @@
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { isPlainObject, safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
 // Hook-wiring drift: which hooks upstream's `.claude/settings.json` wires that
-// the project's does not.
+// the project does not.
 //
 // `settings.json` is user-owned — `init` writes it only when absent and nothing
 // ever overwrites it (install-capabilities.ts). That stays. What was wrong was
@@ -15,16 +16,31 @@ import { isPlainObject, safeJoin } from './validate.js';
 // project kept the old wiring with `status --strict` green. This module is the
 // report: a pure set difference, never a write.
 //
-// Trust (P2): upstream's file is untrusted remote content and the project's is
-// local user content. Both are read as DATA — size-capped, symlink-refused,
-// JSON-parsed, never executed — and only the command strings reach a terminal,
-// with control characters replaced (`displayHook`).
+// WHAT "WIRED" MEANS is what Claude Code runs: it merges the hooks of the
+// project's `.claude/settings.json` and the per-user, gitignored
+// `.claude/settings.local.json`, so both are read and their union is compared.
+// A hook found ONLY in the local file is wired for this user alone, which the
+// report says (`local-only`) without calling it missing. User-level
+// `~/.claude/settings.json` is deliberately NOT read: this is a report about
+// the project.
+//
+// Trust (P2): upstream's file is untrusted remote content and the project's are
+// local user content. All are read as DATA — size-capped, opened non-blocking
+// (a FIFO is refused, not waited on), regular files only, JSON-parsed, never
+// executed. Upstream's may not be a symlink at any component. A project file
+// may be a symlinked FILE (a dotfiles-managed settings.json — Claude Code reads
+// through it too); a symlinked `.claude/` directory is still refused. Project
+// content is never printed: only UPSTREAM entries reach a terminal, escaped and
+// capped by `displayHook`.
 //
 // Determinism (P5): an entry is `Event · matcher · command · args` compared as
 // an exact string. Equality is TEXTUAL — a user's equivalent rewrite of a hook
 // reads as missing; the message says so, and the human decides (advisory).
 // Extra hooks the user added never count.
 // ---------------------------------------------------------------------------
+
+/** The per-user settings file Claude Code merges over `settings.json`. */
+const LOCAL_SETTINGS_FILE = '.claude/settings.local.json';
 
 /** A single wired hook, normalized. */
 export interface HookEntry {
@@ -35,21 +51,26 @@ export interface HookEntry {
 }
 
 export type HookWiringStatus =
-  /** Every upstream hook is wired in the project (extra user hooks allowed). */
+  /** Every upstream hook is wired in `settings.json` (extra user hooks allowed). */
   | 'match'
-  /** At least one upstream hook is not wired in the project. */
+  /** Every upstream hook is wired, some only in `settings.local.json`. */
+  | 'local-only'
+  /** At least one upstream hook is wired in neither project file. */
   | 'missing'
   /** Upstream ships no readable settings.json / hooks block — nothing to compare. */
   | 'no-upstream'
-  /** The project has no settings.json at all. */
+  /** Neither project settings file exists. */
   | 'project-absent'
-  /** The project's settings.json exists but cannot be read as JSON hooks. */
+  /** A project settings file exists but cannot be read as JSON hooks. */
   | 'unreadable';
 
 export interface HookWiringDiff {
   status: HookWiringStatus;
   missing: HookEntry[];
-  /** Why the project file is unreadable (only for `unreadable`). */
+  /** Upstream hooks wired only in `settings.local.json` (when there are any). */
+  localOnly?: HookEntry[];
+  /** Which project file is unreadable, and why (only for `unreadable`). */
+  file?: string;
   reason?: string;
 }
 
@@ -60,10 +81,24 @@ type ReadResult =
   | { kind: 'absent' }
   | { kind: 'unreadable'; reason: string };
 
-function readSettings(base: string): ReadResult {
+// O_NONBLOCK keeps open(2) on a FIFO from blocking forever — the PHARN-14/15
+// rule for every reader of a path it does not control. POSIX-only constants are
+// simply absent on win32, where the flag is not set.
+const PROJECT_OPEN = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
+const UPSTREAM_OPEN = PROJECT_OPEN | (constants.O_NOFOLLOW ?? 0);
+
+/**
+ * Read one settings file under `base`. `followLeaf` is the project side: a
+ * symlinked FILE is followed, a symlinked directory on the way is not.
+ */
+function readSettings(
+  base: string,
+  rel: string,
+  followLeaf: boolean,
+): ReadResult {
   let linked: string | null;
   try {
-    linked = findSymlinkComponent(base, CLAUDE_SETTINGS_FILE);
+    linked = findSymlinkComponent(base, followLeaf ? dirname(rel) : rel);
   } catch {
     return {
       kind: 'unreadable',
@@ -74,11 +109,21 @@ function readSettings(base: string): ReadResult {
     return { kind: 'unreadable', reason: `${linked} is a symbolic link` };
   let fd: number;
   try {
-    fd = openSync(safeJoin(base, CLAUDE_SETTINGS_FILE), 'r');
+    fd = openSync(
+      safeJoin(base, rel),
+      followLeaf ? PROJECT_OPEN : UPSTREAM_OPEN,
+    );
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT'
-      ? { kind: 'absent' }
-      : { kind: 'unreadable', reason: 'it cannot be opened' };
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return { kind: 'absent' };
+    // Only the project side reaches this with a non-directory component (the
+    // upstream walk above covers every component): `.claude` is a file.
+    if (code === 'ENOTDIR')
+      return {
+        kind: 'unreadable',
+        reason: 'a path component is not a directory',
+      };
+    return { kind: 'unreadable', reason: 'it cannot be opened' };
   }
   try {
     const st = fstatSync(fd);
@@ -137,40 +182,112 @@ function entryKey(e: HookEntry): string {
   return JSON.stringify([e.event, e.matcher, e.command, e.args]);
 }
 
+/** The entry keys a project file wires; an absent file wires nothing. */
+function wiredKeys(
+  result: ReadResult & { kind: 'ok' | 'absent' },
+): Set<string> {
+  return new Set(
+    result.kind === 'ok' ? (hookEntries(result.value) ?? []).map(entryKey) : [],
+  );
+}
+
 /** Compare the project's hook wiring with the fetched upstream clone's. */
 export function diffHookWiring(
   repoDir: string,
   projectRoot: string,
 ): HookWiringDiff {
-  const upstream = readSettings(repoDir);
+  const upstream = readSettings(repoDir, CLAUDE_SETTINGS_FILE, false);
   const upstreamEntries =
     upstream.kind === 'ok' ? hookEntries(upstream.value) : null;
   if (upstreamEntries === null || upstreamEntries.length === 0)
     return { status: 'no-upstream', missing: [] };
 
-  const project = readSettings(projectRoot);
-  if (project.kind === 'absent')
+  const shared = readSettings(projectRoot, CLAUDE_SETTINGS_FILE, true);
+  const local = readSettings(projectRoot, LOCAL_SETTINGS_FILE, true);
+  // An unreadable file could wire anything: the answer is "unknown", never a
+  // guess from the other file.
+  for (const [file, result] of [
+    [CLAUDE_SETTINGS_FILE, shared],
+    [LOCAL_SETTINGS_FILE, local],
+  ] as const) {
+    if (result.kind === 'unreadable')
+      return {
+        status: 'unreadable',
+        missing: upstreamEntries,
+        file,
+        reason: result.reason,
+      };
+  }
+  if (shared.kind === 'absent' && local.kind === 'absent')
     return { status: 'project-absent', missing: upstreamEntries };
-  if (project.kind === 'unreadable')
-    return {
-      status: 'unreadable',
-      missing: upstreamEntries,
-      reason: project.reason,
-    };
-  const have = new Set((hookEntries(project.value) ?? []).map(entryKey));
-  const missing = upstreamEntries.filter((e) => !have.has(entryKey(e)));
-  return { status: missing.length ? 'missing' : 'match', missing };
+
+  const inShared = wiredKeys(shared as ReadResult & { kind: 'ok' | 'absent' });
+  const inLocal = wiredKeys(local as ReadResult & { kind: 'ok' | 'absent' });
+  const missing = upstreamEntries.filter(
+    (e) => !inShared.has(entryKey(e)) && !inLocal.has(entryKey(e)),
+  );
+  const localOnly = upstreamEntries.filter(
+    (e) => !inShared.has(entryKey(e)) && inLocal.has(entryKey(e)),
+  );
+  if (missing.length) return { status: 'missing', missing };
+  if (localOnly.length) return { status: 'local-only', missing, localOnly };
+  return { status: 'match', missing };
 }
 
-// eslint-disable-next-line no-control-regex
-const CONTROL_RE = /[\x00-\x1f\x7f-\x9f]/g;
+/**
+ * Does this diff fail `status --strict`? A hook wired only locally IS wired
+ * (it runs for this user), so `local-only` passes; in CI the local file does
+ * not exist, so CI's answer is the same as before.
+ */
+export function hookWiringFails(diff: HookWiringDiff): boolean {
+  return (
+    diff.status === 'missing' ||
+    diff.status === 'unreadable' ||
+    diff.status === 'project-absent'
+  );
+}
 
-/** One display line for an entry, with control characters replaced. */
+// What never reaches a terminal raw: the shared sanitizer's set (C0, DEL, C1,
+// Unicode format characters — lib/terminal-safe.ts) plus the two Unicode line
+// separators, which are not format characters but still move text. Built from
+// code points so no such character sits in this source file.
+const ESCAPED = new RegExp(
+  `[\\x00-\\x1f\\x7f-\\x9f\\p{Cf}${String.fromCodePoint(0x2028, 0x2029)}]`,
+  'gu',
+);
+/** Longest line the note prints for one hook. */
+const MAX_LINE = 300;
+
+/**
+ * Each UTF-16 unit of each unsafe character as `\uXXXX`. Inside a JSON string
+ * these are JSON escapes, so the printed object parses back to the EXACT
+ * upstream string; outside one they are just visible text.
+ */
+function escapeUnsafe(text: string): string {
+  return text.replace(ESCAPED, (ch) =>
+    [...Array(ch.length).keys()]
+      .map((i) => `\\u${ch.charCodeAt(i).toString(16).padStart(4, '0')}`)
+      .join(''),
+  );
+}
+
+/**
+ * One display line: `Event [matcher]: <the hook as JSON>`. The JSON is the hook
+ * itself — `args` only when present — so an exec-form hook and a shell-form one
+ * print differently, and a printed line pasted into a settings file satisfies
+ * the check. Escaped (see above) and capped at MAX_LINE characters.
+ */
 export function displayHook(e: HookEntry): string {
-  const cmd = [e.command, ...e.args].join(' ');
+  const hook =
+    e.args.length > 0
+      ? { type: 'command', command: e.command, args: e.args }
+      : { type: 'command', command: e.command };
   const where = e.matcher ? `${e.event} [${e.matcher}]` : e.event;
-  return `${where}: ${cmd}`.replace(CONTROL_RE, '?');
+  const line = `${escapeUnsafe(where)}: ${escapeUnsafe(JSON.stringify(hook))}`;
+  return line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}…` : line;
 }
+
+const FILES = `${CLAUDE_SETTINGS_FILE} or ${LOCAL_SETTINGS_FILE}`;
 
 /**
  * The note body both `update` and `status` print, or `null` when there is
@@ -178,18 +295,26 @@ export function displayHook(e: HookEntry): string {
  */
 export function hookWiringLines(diff: HookWiringDiff): string[] | null {
   if (diff.status === 'match' || diff.status === 'no-upstream') return null;
+  if (diff.status === 'local-only') {
+    const only = diff.localOnly ?? [];
+    return [
+      `  Every hook upstream wires is wired — ${only.length} of them only in ${LOCAL_SETTINGS_FILE}.`,
+      '  They run for you, not for teammates or CI:',
+      ...only.map((e) => `  ${displayHook(e)}`),
+    ];
+  }
   const head =
     diff.status === 'project-absent'
-      ? `  ${CLAUDE_SETTINGS_FILE} is absent — no PHARN hook is wired. Upstream wires:`
+      ? `  Neither ${FILES} exists. Upstream wires:`
       : diff.status === 'unreadable'
-        ? `  ${CLAUDE_SETTINGS_FILE} could not be read (${diff.reason ?? 'unknown'}). Upstream wires:`
-        : `  Upstream wires ${diff.missing.length} hook(s) your ${CLAUDE_SETTINGS_FILE} does not:`;
+        ? `  ${diff.file ?? CLAUDE_SETTINGS_FILE} could not be read (${diff.reason ?? 'unknown'}). Upstream wires:`
+        : `  Upstream wires ${diff.missing.length} hook(s) that neither ${FILES} does:`;
   return [
     head,
     ...diff.missing.map((e) => `  ${displayHook(e)}`),
     '',
-    `  pharn never writes ${CLAUDE_SETTINGS_FILE} after init — merge these by hand`,
-    '  (compare with pharn-oss .claude/settings.json). Matching is textual: an',
-    '  equivalent hook you wrote differently is listed too.',
+    `  pharn never writes ${CLAUDE_SETTINGS_FILE} after init — merge these by hand:`,
+    '  each line is one hook, as JSON, under its event [matcher]. Matching is',
+    '  textual: an equivalent hook you wrote differently is listed too.',
   ];
 }

@@ -859,7 +859,7 @@ describe('runUpdate (drift-safe)', () => {
       .mocked(prompts.note)
       .mock.calls.find((c) => c[1] === 'HOOKS');
     expect(String(hooksNote?.[0])).toContain(
-      'Stop: node .claude/hooks/require-loop-record.cjs',
+      'Stop: {"type":"command","command":"node","args":[".claude/hooks/require-loop-record.cjs"]}',
     );
     expect(body('.claude/settings.json')).toBe(oldSettings);
   });
