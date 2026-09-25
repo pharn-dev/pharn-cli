@@ -23,6 +23,8 @@ import { runGitPrereq } from '../steps/prereqs.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
 import {
+  installManifest,
+  reinstallBaseline,
   runInstallArchetype,
   type InstallCarry,
 } from '../steps/install-archetype.js';
@@ -183,11 +185,24 @@ async function runInitArchetype(): Promise<void> {
       // that disposes of the clone. 'decline' and 'cancel' are indistinguishable
       // to the user here — same message, same exit 0 — but only one of them used
       // to leak the clone.
+      //
+      // The install manifest — every file this install writes, dest → source —
+      // computed ONCE, here, and handed to the prompt and to the install (its
+      // pre-flight, backup scan, copy and records). It depends only on the
+      // clone, the selection and the clone's layout, and none of those change
+      // during the run; it used to be rebuilt five times. Only the HASHING is
+      // repeated, deliberately: the install re-scans under the lock, so an edit
+      // made while the prompt was open is still backed up.
+      const manifest =
+        action === 'install' ? installManifest(repo.dir, selection) : null;
       const overwrite =
-        action === 'install'
-          ? await confirmWriteTargets(repo.dir, cwd, selection)
+        manifest !== null
+          ? await confirmWriteTargets(repo.dir, cwd, selection, {
+              manifest,
+              records: reinstallBaseline(cwd, carry.previousStamp),
+            })
           : 'cancel';
-      if (overwrite === 'proceed') {
+      if (manifest !== null && overwrite === 'proceed') {
         // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
         // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
         const commit = repo.sha;
@@ -229,6 +244,7 @@ async function runInitArchetype(): Promise<void> {
             selection,
             commit,
             carry,
+            manifest,
           );
         });
         outcome = 'installed';

@@ -1,12 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { confirm, isCancel, log } from '@clack/prompts';
 import {
+  collectExpectedInstallPaths,
   conflictingWriteTargets,
   PHARN_CONFIG_FILE,
 } from '../lib/install-manifest.js';
 import { detectLayout } from '../lib/layout.js';
-import { scanDest } from '../lib/dest-drift.js';
+import {
+  manifestSources,
+  scanDest,
+  type DriftLabel,
+} from '../lib/dest-drift.js';
 import { BACKUP_DIR } from '../lib/backup.js';
+import type { FileRecords } from '../lib/install-records.js';
 import { safeJoin, VERSION_RE } from '../lib/validate.js';
 import type { Selection } from '../types.js';
 
@@ -90,45 +96,114 @@ function recordedSkillsVersion(cwd: string): string | null {
  */
 export type WriteTargetsAction = 'proceed' | 'decline' | 'cancel';
 
+// How each backed-up file is marked in the list, and in what order the groups
+// come — update's skip order, most actionable first (lib/update-decision.ts).
+const MARKERS: Record<DriftLabel, string> = {
+  modified: '(edited)',
+  unrecorded: '(no pharn record)',
+  unverifiable: '(differs from upstream)',
+};
+const LABEL_ORDER: readonly DriftLabel[] = [
+  'modified',
+  'unrecorded',
+  'unverifiable',
+];
+
+// One line per group: WHY these files are backed up. "Your edits" is claimed
+// only where pharn can show it — a file that changed since pharn recorded
+// writing it; without a usable records store the line says so instead.
+function labelLine(label: DriftLabel, n: number): string {
+  const one = n === 1;
+  switch (label) {
+    case 'modified':
+      return `${n} of them changed since pharn wrote ${one ? 'it' : 'them'} (your edits).`;
+    case 'unrecorded':
+      return `${n} of them ${one ? 'differs' : 'differ'} from upstream, and pharn has no record of ${one ? 'it' : 'them'}.`;
+    case 'unverifiable':
+      return `${n} of them ${one ? 'differs' : 'differ'} from upstream — pharn has no record to tell your edits from upstream changes.`;
+  }
+}
+
+/**
+ * What init already knows when it asks: the install manifest it computed once
+ * for this run (commands/init.ts), and the records baseline of the install it
+ * replaces (steps/install-archetype.ts → reinstallBaseline). Each is optional:
+ * no manifest → computed here; no records → every differing file is
+ * `unverifiable`.
+ */
+export interface WriteTargetsContext {
+  manifest?: ReadonlyMap<string, string>;
+  records?: FileRecords | null;
+}
+
 // 'proceed' when there is nothing to overwrite or the user confirmed;
 // 'decline' on a No; 'cancel' on Ctrl+C. Never exits.
 export async function confirmWriteTargets(
   repoDir: string,
   cwd: string,
   selection: Selection,
+  context: WriteTargetsContext = {},
 ): Promise<WriteTargetsAction> {
+  const layout = detectLayout(repoDir);
+  const manifest =
+    context.manifest ??
+    collectExpectedInstallPaths({
+      repoDir,
+      capabilities: selection.selected,
+      layout,
+    });
   const conflicts = conflictingWriteTargets({
     repoDir,
     projectRoot: cwd,
     capabilities: selection.selected,
-    layout: detectLayout(repoDir),
+    layout,
+    expected: manifest,
   });
   if (conflicts.length === 0) return 'proceed'; // zero friction — nothing to overwrite
 
-  // Which of those differ from upstream — the user's EDITS. They are listed
-  // first (a 400-path list capped at 10 used to hide them) and named as backed
-  // up: runInstallArchetype copies them to .pharn-backup/ before the first
-  // write, re-scanning then rather than trusting this snapshot.
-  const drifted = new Set(
-    scanDest({
-      repoDir,
-      projectRoot: cwd,
-      rels: conflicts.filter((p) => p !== PHARN_CONFIG_FILE),
-    }).drifted,
-  );
-  const ordered = [
-    ...conflicts.filter((p) => drifted.has(p)),
-    ...conflicts.filter((p) => !drifted.has(p)),
-  ];
+  // Which of those the install will back up — the files `update` would have
+  // SKIPPED (lib/dest-drift.ts, through update's own table): changed since
+  // pharn wrote them, not recorded, or not verifiable. A file still at the hash
+  // pharn recorded is pharn's own bytes, merely outdated: not marked, not
+  // backed up. Each is compared with its real source (the mapped LICENSE).
+  // They are listed first (a 400-path list capped at 10 used to hide them).
+  //
+  // ADVISORY: runInstallArchetype re-scans under the lock, immediately before
+  // the copy, and that scan is the one that backs files up — this snapshot
+  // only labels the list. `pharn.config.json` is outside the manifest (init
+  // regenerates it), so it is never scanned.
+  const { labels } = scanDest({
+    repoDir,
+    projectRoot: cwd,
+    rels: conflicts.filter((p) => manifest.has(p)),
+    sources: manifestSources(repoDir, manifest),
+    records: context.records ?? null,
+  });
+  const rank = (p: string): number => {
+    const label = labels.get(p);
+    return label === undefined
+      ? LABEL_ORDER.length
+      : LABEL_ORDER.indexOf(label);
+  };
+  // A stable sort over the already-sorted conflicts: grouped by label, then by
+  // path within a group (P5 — deterministic output).
+  const ordered = [...conflicts].sort((a, b) => rank(a) - rank(b));
   const shown = ordered.slice(0, MAX_LISTED);
   const more = ordered.length - shown.length;
   const list = shown
-    .map((p) => (drifted.has(p) ? `  • ${p} (edited)` : `  • ${p}`))
+    .map((p) => {
+      const label = labels.get(p);
+      return label === undefined ? `  • ${p}` : `  • ${p} ${MARKERS[label]}`;
+    })
     .join('\n');
   const tail = more > 0 ? `\n  …and ${more} more` : '';
+  const counts = LABEL_ORDER.map(
+    (label) =>
+      [label, [...labels.values()].filter((l) => l === label).length] as const,
+  ).filter(([, n]) => n > 0);
   const editsLine =
-    drifted.size > 0
-      ? `\n${drifted.size} of them differ from upstream (your edits) and will be copied to ${BACKUP_DIR}/ before being overwritten.`
+    labels.size > 0
+      ? `\n${counts.map(([label, n]) => labelLine(label, n)).join('\n')}\n${labels.size === 1 ? 'It' : `All ${labels.size}`} will be copied to ${BACKUP_DIR}/ before being overwritten.`
       : '';
   // Only when the config itself is at risk — i.e. a re-install over an existing
   // one — and only AFTER the zero-conflict return above, so a conflict-free

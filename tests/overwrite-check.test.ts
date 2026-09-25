@@ -19,6 +19,7 @@ const { installCapabilities } =
 type Selection = import('../src/types.js').Selection;
 const { readPharnConfig } = await import('../src/lib/pharn-config.js');
 const { ModelRoutingError } = await import('../src/lib/model-routing.js');
+const { sha256File } = await import('../src/lib/hash.js');
 
 // ESC built from its code point, so no literal control character lives in this
 // file and no editor can silently eat it.
@@ -270,6 +271,11 @@ describe('confirmWriteTargets', () => {
 // PHARN-11: with hundreds of existing paths capped at MAX_LISTED, the user's
 // EDITS were buried in "…and N more". They are listed first, marked, and the
 // prompt says they will be backed up before being overwritten.
+//
+// What counts as backed up is `update`'s definition (lib/dest-drift.ts): only
+// "your edits" when the records show the file changed since pharn wrote it; a
+// file still at its recorded hash is a clean upgrade and is not marked at all;
+// with no usable records the prompt says it cannot tell.
 describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
   const tmp = useTmpDir();
   const sel: Selection = {
@@ -279,40 +285,143 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     ],
     skipped: [],
   };
+  const NPO = 'pharn-review/n-plus-one/n-plus-one.md';
 
-  it('lists the edited file first, marked, and announces the backup', async () => {
+  function firstListed(warning: string): string | undefined {
+    return warning.split('\n').find((l) => l.trimStart().startsWith('•'));
+  }
+
+  // Everything installed from `repo` into `proj`, and the records a real
+  // install would have written for it (every file at its installed hash).
+  function installed(): {
+    repo: string;
+    proj: string;
+    records: Record<string, string>;
+  } {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
-    // Everything already installed, byte-identical…
     installCapabilities(repo, proj, sel);
-    // …except one file the user edited. `z…` would sort LAST alphabetically.
-    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'MY EDIT');
+    const records: Record<string, string> = {};
+    for (const rel of [
+      NPO,
+      'pharn-pipeline/grillers/a11y/a11y.md',
+      'CONSTITUTION.md',
+    ]) {
+      records[rel] = sha256File(join(proj, rel));
+    }
     vi.mocked(prompts.confirm).mockResolvedValueOnce(false);
+    return { repo, proj, records };
+  }
+
+  it('with NO records: lists the differing file first and says it cannot tell whose change it is', async () => {
+    const { repo, proj } = installed();
+    // `z…` would sort LAST alphabetically.
+    write(join(proj, NPO), 'MY EDIT');
 
     await confirmWriteTargets(repo, proj, sel);
 
     const warning = lastWarning();
-    const firstListed = warning
-      .split('\n')
-      .find((l) => l.trimStart().startsWith('•'));
-    expect(firstListed).toContain(
-      'pharn-review/n-plus-one/n-plus-one.md (edited)',
+    expect(firstListed(warning)).toContain(`${NPO} (differs from upstream)`);
+    expect(warning).toContain(
+      '1 of them differs from upstream — pharn has no record to tell your edits from upstream changes.',
     );
-    expect(warning).toContain('1 of them differ from upstream (your edits)');
-    expect(warning).toContain('.pharn-backup/');
+    expect(warning).toContain('It will be copied to .pharn-backup/');
+    expect(warning).not.toContain('(edited)');
+  });
+
+  it('with records: a file changed since pharn wrote it is "(edited)"', async () => {
+    const { repo, proj, records } = installed();
+    write(join(proj, NPO), 'MY EDIT');
+
+    await confirmWriteTargets(repo, proj, sel, { records });
+
+    const warning = lastWarning();
+    expect(firstListed(warning)).toContain(`${NPO} (edited)`);
+    expect(warning).toContain(
+      '1 of them changed since pharn wrote it (your edits).',
+    );
+  });
+
+  it('with records: a differing file with no record is "(no pharn record)"', async () => {
+    const { repo, proj, records } = installed();
+    write(join(proj, 'CONSTITUTION.md'), 'SOMEONE ELSES CONSTITUTION');
+    const { 'CONSTITUTION.md': _dropped, ...withoutIt } = records;
+
+    await confirmWriteTargets(repo, proj, sel, { records: withoutIt });
+
+    const warning = lastWarning();
+    expect(firstListed(warning)).toContain('CONSTITUTION.md (no pharn record)');
+    expect(warning).toContain(
+      '1 of them differs from upstream, and pharn has no record of it.',
+    );
+  });
+
+  it('with records: an upstream change to a file still at its record is a clean upgrade — not marked, no backup line', async () => {
+    const { repo, proj, records } = installed();
+    // Upstream moved on; the project still holds exactly what pharn wrote.
+    write(join(repo, NPO), 'upstream v2');
+
+    await confirmWriteTargets(repo, proj, sel, { records });
+
+    // NPO differs from upstream, so any label would put it FIRST, marked.
+    const warning = lastWarning();
+    expect(firstListed(warning)).not.toContain(NPO);
+    expect(warning).not.toContain('(edited)');
+    expect(warning).not.toContain('(differs from upstream)');
+    expect(warning).not.toContain('.pharn-backup/');
+  });
+
+  it("groups the labels in update's order and counts every backed-up file", async () => {
+    const { repo, proj, records } = installed();
+    write(join(proj, NPO), 'MY EDIT');
+    write(join(proj, 'CONSTITUTION.md'), 'SOMEONE ELSES CONSTITUTION');
+    const { 'CONSTITUTION.md': _dropped, ...withoutIt } = records;
+
+    await confirmWriteTargets(repo, proj, sel, { records: withoutIt });
+
+    const warning = lastWarning();
+    const bullets = warning
+      .split('\n')
+      .filter((l) => l.trimStart().startsWith('•'));
+    expect(bullets[0]).toContain(`${NPO} (edited)`);
+    expect(bullets[1]).toContain('CONSTITUTION.md (no pharn record)');
+    expect(warning).toContain('All 2 will be copied to .pharn-backup/');
+  });
+
+  it("compares the mapped PHARN-LICENSE with the clone's LICENSE", async () => {
+    const { repo, proj } = installed();
+    write(join(repo, 'LICENSE'), 'APACHE-2.0');
+    write(join(proj, 'PHARN-LICENSE'), 'MY EDITED LICENSE');
+
+    await confirmWriteTargets(repo, proj, sel);
+
+    expect(firstListed(lastWarning())).toContain(
+      'PHARN-LICENSE (differs from upstream)',
+    );
+  });
+
+  it('uses the manifest it is GIVEN instead of building its own', async () => {
+    const { repo, proj } = installed();
+    // Only the given map names `extra.md`, so only a prompt over THAT map
+    // lists it.
+    write(join(proj, 'extra.md'), 'MINE');
+    const manifest = new Map([['extra.md', join(repo, 'CONSTITUTION.md')]]);
+
+    await confirmWriteTargets(repo, proj, sel, { manifest });
+
+    const warning = lastWarning();
+    expect(firstListed(warning)).toContain('extra.md (differs from upstream)');
+    expect(warning).not.toContain(NPO);
   });
 
   it('calls nothing an edit when every existing file is byte-identical', async () => {
-    const repo = join(tmp.path(), 'repo');
-    const proj = join(tmp.path(), 'proj');
-    scaffoldRepo(repo);
-    installCapabilities(repo, proj, sel);
-    vi.mocked(prompts.confirm).mockResolvedValueOnce(false);
+    const { repo, proj } = installed();
 
     await confirmWriteTargets(repo, proj, sel);
 
     expect(lastWarning()).not.toContain('(edited)');
-    expect(lastWarning()).not.toContain('your edits');
+    expect(lastWarning()).not.toContain('(differs from upstream)');
+    expect(lastWarning()).not.toContain('.pharn-backup/');
   });
 });

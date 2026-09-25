@@ -150,7 +150,11 @@ or cancel to exit cleanly (code 0); the default is **no**.
 
 - If **nothing** conflicts, there is no prompt at all.
 - `.claude/settings.json` is never overwritten, so it never triggers the warning.
-- On a re-install the list is long, so it is capped (first 10 shown, then "…and N more").
+- On a re-install the list is long, so it is capped (first 10 shown, then "…and N more"). The files
+  `init` backs up before overwriting are listed first, marked `(edited)`, `(no pharn record)` or
+  `(differs from upstream)` — see [Re-running `init`](commands/init.md#6-summary) for what each
+  means. With a usable `pharn.records.json`, a file pharn wrote that upstream has since changed is
+  not marked: overwriting it loses nothing.
 
 ## Capabilities could not be fetched
 
@@ -236,9 +240,27 @@ a directory, or a directory where you have a file. Nothing was written.
 
 Before its first write, `init` checks every path it is about to install. If one of them exists in your
 project as the wrong kind of entry (a directory where pharn writes a file, or a file where it needs a
-directory), `init` stops and names each one (up to five, then a count). Your project is left exactly as
-it was. Move or rename the named entries and re-run `pharn init`. The optional `features/README.md` is
-the one exception: a collision there is skipped rather than refused.
+directory), `init` stops and names each one (up to five, then a count). That includes a **directory**
+named `pharn.config.json` or `pharn.records.json`, the two files `init` writes beside the copy. Your
+project is left exactly as it was — no backup directory either. Move or rename the named entries and
+re-run `pharn init`. The optional `features/README.md` is the one exception: a collision there is
+skipped rather than refused.
+
+```text
+Refusing to install: pharn-review is a symbolic link inside the project, so writing through it would
+put files OUTSIDE the project. Replace it with a real directory (or remove it). Nothing was written; …
+```
+
+A **symbolic link** on the way is refused the same way, before anything is written:
+
+- A linked **directory** (`.claude/`, `.claude/commands`, `pharn/`, a capability directory, …): the
+  copy would follow it and write outside your project. Replace it with a real directory.
+- A linked **file** that pharn writes (`… is a symbolic link where pharn writes a file`): the copy
+  would replace your link with pharn's file. Replace it with a regular file, or remove it.
+- `.claude/settings.json` as a link is **fine** while it points at an existing file — `init` never
+  writes over an existing settings file, so a settings file kept in a dotfiles repository is left alone.
+  It is refused only when the link points at nothing, because `init` would then create the file in the
+  link's place. Create the target, or remove the link, and re-run.
 
 ### When the `PHARN_DEBUG` hint appears
 

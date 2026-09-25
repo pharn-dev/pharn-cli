@@ -23,7 +23,11 @@ import {
   resolveFeaturesReadme,
   type LayoutPaths,
 } from './layout.js';
-import { collectExpectedInstallPaths } from './install-manifest.js';
+import {
+  collectExpectedInstallPaths,
+  PHARN_CONFIG_FILE,
+} from './install-manifest.js';
+import { RECORDS_FILE } from './install-records.js';
 import { findSymlinkComponent, findTypeCollision } from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
@@ -146,29 +150,73 @@ export function installCapabilityDirs(
   return installed;
 }
 
-export function installCapabilities(
+/** What the destination pre-flight checked, for the copy that follows it. */
+export interface PreparedInstall {
+  // The layout mirrored from the clone (flat OR pharn/).
+  paths: LayoutPaths;
+  // Where this clone keeps the optional features README (resolveFeaturesReadme).
+  featuresRel: string;
+  // Every file the install writes, dest → source (collectExpectedInstallPaths).
+  manifest: ReadonlyMap<string, string>;
+}
+
+/**
+ * The install's destination pre-flight: refuse, before anything is written,
+ * every project the copy could not finish in — a path through a symlink (see
+ * assertDestinationsInProject) or a type in the way (see assertDestinationTypes).
+ * Read-only; throws ManifestValidationError, or returns what it checked.
+ *
+ * Exported so `init` can run it BEFORE its backup (steps/install-archetype.ts):
+ * a refused install then writes nothing at all — no `.pharn-backup/` either.
+ * `installCapabilities` still runs it itself, so no caller can copy without it.
+ *
+ * `manifest` is the install manifest for these capabilities at the clone's
+ * layout, when the caller already computed it (init does, once per run);
+ * absent → computed here.
+ */
+export function prepareInstall(
   repoDir: string,
   projectRoot: string,
-  selection: Selection,
-): InstallCapabilitiesResult {
+  capabilities: InstalledCapability[],
+  manifest?: ReadonlyMap<string, string>,
+): PreparedInstall {
   // Mirror whichever layout the fetched clone has (flat OR the relocated pharn/).
   // The resolved relative paths are the clone SOURCE and the project DEST at once —
   // the CLI never rewrites copied file contents (lib/layout.ts).
   const paths = layoutPaths(detectLayout(repoDir));
   const featuresRel = resolveFeaturesReadme(repoDir, paths.layout);
+  const expected =
+    manifest ??
+    collectExpectedInstallPaths({
+      repoDir,
+      capabilities,
+      layout: paths.layout,
+    });
 
-  // Destination pre-flight, before the FIRST write: nothing below may follow a
-  // symlinked project directory out of the project (see assertDestinationsInProject).
-  assertDestinationsInProject(repoDir, projectRoot, selection.selected, paths);
+  // Nothing below may follow a symlinked project directory out of the project
+  // (see assertDestinationsInProject)...
+  assertDestinationsInProject(projectRoot, expected);
   // ...and nothing may start writing into a tree whose TYPES it cannot write:
   // a collision found by `cpSync` part-way leaves a half-installed project with
   // no config and no records (see assertDestinationTypes).
-  assertDestinationTypes(
+  assertDestinationTypes(projectRoot, expected, featuresRel);
+
+  return { paths, featuresRel, manifest: expected };
+}
+
+export function installCapabilities(
+  repoDir: string,
+  projectRoot: string,
+  selection: Selection,
+  // The install manifest, when the caller already computed it (see
+  // prepareInstall). The pre-flight runs here either way, before the first write.
+  manifest?: ReadonlyMap<string, string>,
+): InstallCapabilitiesResult {
+  const { paths, featuresRel } = prepareInstall(
     repoDir,
     projectRoot,
     selection.selected,
-    paths,
-    featuresRel,
+    manifest,
   );
 
   // Copy the selected capability dirs (pre-flighted; no partial installs).
@@ -193,6 +241,8 @@ export function installCapabilities(
   });
 
   // --- settings.json: NEVER overwrite the user's existing one (grill F1) -----
+  // `existsSync` FOLLOWS a symlink, so a live link here counts as existing and
+  // is never written; a dangling one was refused by the pre-flight.
   const settingsFrom = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
   const settingsTo = safeJoin(projectRoot, CLAUDE_SETTINGS_FILE);
   const settingsPreserved = existsSync(settingsTo);
@@ -335,48 +385,88 @@ export function installCapabilities(
  * take, applied once to the full write set: every file the install manifest
  * says this install writes, plus the user-owned `.claude/settings.json`.
  *
+ * A symlinked LEAF is refused too, for a different reason, and the message says
+ * which: `cpSync` does not follow a link at the file it writes — measured on
+ * Node 20.13, 22 and 24, it REPLACES the link with a regular file, so nothing
+ * lands outside the project, but the user's link is gone without a word.
+ *
+ * `.claude/settings.json` is the one leaf exempt while its link is LIVE:
+ * `installCapabilities` never writes an existing settings file (`existsSync`
+ * follows the link), so there is nothing to refuse. A DANGLING link there does
+ * not exist to `existsSync`, so the install would write upstream's settings in
+ * its place — replacing the link — and is refused like any other leaf. A
+ * symlinked `.claude/` is an intermediate component, refused as ever.
+ *
  * ENOTDIR from the walk (a component below a REGULAR file) is not a symlink and
- * is left to the copy itself, which fails on that tree as before.
+ * is left to assertDestinationTypes, which names it.
  *
  * Residual (advisory): a link created between this walk and the copy (TOCTOU)
  * is not covered — the same residual `update` names.
  */
 function assertDestinationsInProject(
-  repoDir: string,
   projectRoot: string,
-  capabilities: InstalledCapability[],
-  paths: LayoutPaths,
+  manifest: ReadonlyMap<string, string>,
 ): void {
-  const rels = [
-    ...collectExpectedInstallPaths({
-      repoDir,
-      capabilities,
-      layout: paths.layout,
-    }).keys(),
-    CLAUDE_SETTINGS_FILE,
-  ];
-  const linked = new Set<string>();
-  for (const rel of rels) {
-    let hit: string | null;
-    try {
-      hit = findSymlinkComponent(projectRoot, rel);
-    } catch {
-      hit = null;
-    }
-    if (hit !== null) linked.add(hit);
+  const dirs = new Set<string>();
+  const files = new Set<string>();
+  for (const rel of manifest.keys()) {
+    const hit = symlinkedComponent(projectRoot, rel);
+    if (hit !== null) (hit === rel ? files : dirs).add(hit);
   }
-  if (linked.size === 0) return;
-  const shown = [...linked].sort();
-  const list =
-    shown.length > MAX_LINKED_SHOWN
-      ? `${shown.slice(0, MAX_LINKED_SHOWN).join(', ')} and ${shown.length - MAX_LINKED_SHOWN} more`
-      : shown.join(', ');
+  const settingsHit = symlinkedComponent(projectRoot, CLAUDE_SETTINGS_FILE);
+  if (settingsHit === CLAUDE_SETTINGS_FILE) {
+    if (!existsSync(safeJoin(projectRoot, CLAUDE_SETTINGS_FILE))) {
+      files.add(settingsHit);
+    }
+  } else if (settingsHit !== null) {
+    dirs.add(settingsHit);
+  }
+  if (dirs.size === 0 && files.size === 0) return;
+
+  const sentences: string[] = [];
+  if (dirs.size > 0) {
+    const one = dirs.size === 1;
+    sentences.push(
+      `${shownList(dirs)} ${one ? 'is a symbolic link' : 'are symbolic links'} inside the project, so writing through ${one ? 'it' : 'them'} would put files OUTSIDE the project. Replace ${one ? 'it' : 'each'} with a real directory (or remove ${one ? 'it' : 'them'}).`,
+    );
+  }
+  if (files.size > 0) {
+    const one = files.size === 1;
+    sentences.push(
+      `${shownList(files)} ${one ? 'is a symbolic link' : 'are symbolic links'} where pharn writes a file, so the install would replace ${one ? 'it' : 'them'} with pharn's copy and the link would be lost. Replace ${one ? 'it' : 'each'} with a regular file (or remove ${one ? 'it' : 'them'}).`,
+    );
+    if (files.has(CLAUDE_SETTINGS_FILE)) {
+      sentences.push(
+        `A link at ${CLAUDE_SETTINGS_FILE} is fine while it points at an existing file — pharn never writes over an existing one — but this one points at nothing.`,
+      );
+    }
+  }
   throw new ManifestValidationError(
-    `Refusing to install: ${list} ${shown.length === 1 ? 'is a symbolic link' : 'are symbolic links'} inside the project, so writing through ${shown.length === 1 ? 'it' : 'them'} would put files OUTSIDE the project. Nothing was written. Replace ${shown.length === 1 ? 'it' : 'each'} with a real directory (or remove ${shown.length === 1 ? 'it' : 'them'}) and re-run \`pharn init\`.`,
+    `Refusing to install: ${sentences.join(' ')} Nothing was written; re-run \`pharn init\` once that is done.`,
   );
 }
 
+/**
+ * `findSymlinkComponent`, with its ENOTDIR (a component below a regular file)
+ * read as "no symlink here" — assertDestinationTypes reports that path.
+ */
+function symlinkedComponent(projectRoot: string, rel: string): string | null {
+  try {
+    return findSymlinkComponent(projectRoot, rel);
+  } catch {
+    return null;
+  }
+}
+
 const MAX_LINKED_SHOWN = 5;
+
+/** A sorted, capped, comma-joined list of project paths for a refusal. */
+function shownList(items: ReadonlySet<string>): string {
+  const shown = [...items].sort();
+  return shown.length > MAX_LINKED_SHOWN
+    ? `${shown.slice(0, MAX_LINKED_SHOWN).join(', ')} and ${shown.length - MAX_LINKED_SHOWN} more`
+    : shown.join(', ');
+}
 
 /**
  * Refuse the whole install when any path it would write collides by TYPE with
@@ -387,36 +477,39 @@ const MAX_LINKED_SHOWN = 5;
  * and no records. Runs AFTER assertDestinationsInProject, so a symlink is still
  * reported as a symlink.
  *
+ * The two files `init` writes BESIDE the copy are walked too: a DIRECTORY at
+ * `pharn.config.json` or `pharn.records.json` passed every check before, so the
+ * whole tree was copied and then the atomic write's `rename` failed (EISDIR),
+ * leaving no records and no config. Only a directory blocks that rename — it
+ * replaces a file, a FIFO or a symlink (even one to a directory) in place — so
+ * a directory is the one type refused there.
+ *
  * Out of the walk: `.claude/settings.json` (never overwritten — `existsSync`
  * skips it) and the optional features README (`destAcceptsWrite` skips it on a
  * collision, by contract). Each path's walk stops at its FIRST non-directory
  * component: nothing below it can be lstat-ed.
  */
 function assertDestinationTypes(
-  repoDir: string,
   projectRoot: string,
-  capabilities: InstalledCapability[],
-  paths: LayoutPaths,
+  manifest: ReadonlyMap<string, string>,
   featuresRel: string,
 ): void {
   const colliding = new Set<string>();
-  for (const rel of collectExpectedInstallPaths({
-    repoDir,
-    capabilities,
-    layout: paths.layout,
-  }).keys()) {
+  for (const rel of manifest.keys()) {
     if (rel === featuresRel) continue;
     const hit = findTypeCollision(projectRoot, rel);
     if (hit !== null) colliding.add(hit);
   }
+  for (const rel of [PHARN_CONFIG_FILE, RECORDS_FILE]) {
+    const stat = lstatSync(safeJoin(projectRoot, rel), {
+      throwIfNoEntry: false,
+    });
+    if (stat?.isDirectory()) colliding.add(rel);
+  }
   if (colliding.size === 0) return;
-  const shown = [...colliding].sort();
-  const list =
-    shown.length > MAX_LINKED_SHOWN
-      ? `${shown.slice(0, MAX_LINKED_SHOWN).join(', ')} and ${shown.length - MAX_LINKED_SHOWN} more`
-      : shown.join(', ');
+  const one = colliding.size === 1;
   throw new ManifestValidationError(
-    `Refusing to install: ${list} ${shown.length === 1 ? 'is in the way' : 'are in the way'} — pharn needs a file where you have a directory, or a directory where you have a file. Nothing was written. Move or rename ${shown.length === 1 ? 'it' : 'them'} and re-run \`pharn init\`.`,
+    `Refusing to install: ${shownList(colliding)} ${one ? 'is in the way' : 'are in the way'} — pharn needs a file where you have a directory, or a directory where you have a file. Nothing was written. Move or rename ${one ? 'it' : 'them'} and re-run \`pharn init\`.`,
   );
 }
 

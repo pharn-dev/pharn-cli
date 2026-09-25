@@ -2,7 +2,8 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
-import { scanDest } from '../src/lib/dest-drift.js';
+import { manifestSources, scanDest } from '../src/lib/dest-drift.js';
+import { sha256File } from '../src/lib/hash.js';
 
 // ---------------------------------------------------------------------------
 // The destination-drift set — the files `pharn add`'s copy is about to overwrite
@@ -244,7 +245,198 @@ describe('scanDest', () => {
     const { repo, proj } = trees();
     expect(scanDest({ repoDir: repo, projectRoot: proj, rels: [] })).toEqual({
       drifted: [],
+      labels: new Map(),
       unsafe: [],
     });
+  });
+
+  it('labels every drifted file `unverifiable` when there are no records', () => {
+    // `add`'s case, and a first install's: nothing to tell pharn's bytes from
+    // the user's, so every difference is backed up — the set is unchanged.
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'upstream');
+    write(join(proj, REL), 'MY EDIT');
+
+    const scan = scanDest({ repoDir: repo, projectRoot: proj, rels: [REL] });
+    expect(scan.drifted).toEqual([REL]);
+    expect(scan.labels).toEqual(new Map([[REL, 'unverifiable']]));
+  });
+});
+
+// A re-run `init` overwrites every file it installs, so "what must be backed up
+// first" is exactly what `update` would have SKIPPED — its own decision table,
+// read through the records baseline. A file still at the hash pharn recorded is
+// pharn's bytes, merely outdated: a clean upgrade, not the user's edit.
+describe("scanDest — the records baseline (update's table)", () => {
+  const tmp = useTmpDir();
+  const REL = 'pharn-review/a11y/a11y.md';
+
+  function trees(): { repo: string; proj: string } {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(repo, { recursive: true });
+    mkdirSync(proj, { recursive: true });
+    return { repo, proj };
+  }
+
+  function hashOf(content: string): string {
+    const p = join(tmp.path(), 'hash-me');
+    writeFileSync(p, content);
+    return sha256File(p);
+  }
+
+  it('does NOT report a file still at its recorded hash — an upstream bump is not an edit', () => {
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'upstream v2');
+    write(join(proj, REL), 'upstream v1');
+
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: [REL],
+      records: { [REL]: hashOf('upstream v1') },
+    });
+    expect(scan.drifted).toEqual([]);
+    expect(scan.labels.size).toBe(0);
+  });
+
+  it('reports a file that changed since pharn wrote it as `modified`', () => {
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'upstream v2');
+    write(join(proj, REL), 'MY EDIT');
+
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: [REL],
+      records: { [REL]: hashOf('upstream v1') },
+    });
+    expect(scan.drifted).toEqual([REL]);
+    expect(scan.labels.get(REL)).toBe('modified');
+  });
+
+  it('reports a differing file the records do not cover as `unrecorded`', () => {
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'upstream');
+    write(join(proj, REL), 'somebody put this here');
+
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: [REL],
+      records: {},
+    });
+    expect(scan.drifted).toEqual([REL]);
+    expect(scan.labels.get(REL)).toBe('unrecorded');
+  });
+
+  it('never reports a byte-identical file, whatever the record says', () => {
+    // Row 2 precedes every record row: identical is never a skip.
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'same');
+    write(join(proj, REL), 'same');
+
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: [REL],
+      records: { [REL]: hashOf('something else entirely') },
+    });
+    expect(scan.drifted).toEqual([]);
+  });
+
+  it("reads a record only as the file's OWN key (no prototype lookups)", () => {
+    const { repo, proj } = trees();
+    write(join(repo, 'constructor'), 'upstream');
+    write(join(proj, 'constructor'), 'MY EDIT');
+
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: ['constructor'],
+      records: {},
+    });
+    expect(scan.labels.get('constructor')).toBe('unrecorded');
+  });
+});
+
+// The install manifest maps ONE dest to a different clone path: upstream's
+// `LICENSE` lands at `PHARN-LICENSE` (flat) / `pharn/LICENSE` (pharn layout).
+// Scanning the dest path on both sides found no `PHARN-LICENSE` in the clone,
+// so an edited copy was never compared, never backed up, and overwritten.
+describe('scanDest — a dest compared with its REAL source', () => {
+  const tmp = useTmpDir();
+
+  function trees(): { repo: string; proj: string } {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(repo, { recursive: true });
+    mkdirSync(proj, { recursive: true });
+    return { repo, proj };
+  }
+
+  it.each(['PHARN-LICENSE', 'pharn/LICENSE'])(
+    "reports an edited %s against the clone's LICENSE",
+    (dest) => {
+      const { repo, proj } = trees();
+      write(join(repo, 'LICENSE'), 'Apache-2.0');
+      write(join(proj, dest), 'MY EDITED LICENSE');
+
+      const scan = scanDest({
+        repoDir: repo,
+        projectRoot: proj,
+        rels: [dest],
+        sources: new Map([[dest, 'LICENSE']]),
+      });
+      expect(scan.drifted).toEqual([dest]);
+    },
+  );
+
+  it('does not report the mapped dest when it matches its source', () => {
+    const { repo, proj } = trees();
+    write(join(repo, 'LICENSE'), 'Apache-2.0');
+    write(join(proj, 'PHARN-LICENSE'), 'Apache-2.0');
+
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: ['PHARN-LICENSE'],
+      sources: new Map([['PHARN-LICENSE', 'LICENSE']]),
+    });
+    expect(scan.drifted).toEqual([]);
+  });
+
+  it('refuses a source that escapes the clone (safeJoin containment)', () => {
+    const { repo, proj } = trees();
+    write(join(proj, 'PHARN-LICENSE'), 'x');
+    expect(() =>
+      scanDest({
+        repoDir: repo,
+        projectRoot: proj,
+        rels: ['PHARN-LICENSE'],
+        sources: new Map([['PHARN-LICENSE', '../outside']]),
+      }),
+    ).toThrow();
+  });
+
+  it("manifestSources turns the manifest's absolute sources into clone paths", () => {
+    const { repo } = trees();
+    expect(
+      manifestSources(
+        repo,
+        new Map([
+          ['PHARN-LICENSE', join(repo, 'LICENSE')],
+          [
+            'pharn-review/a11y/a11y.md',
+            join(repo, 'pharn-review/a11y/a11y.md'),
+          ],
+        ]),
+      ),
+    ).toEqual(
+      new Map([
+        ['PHARN-LICENSE', 'LICENSE'],
+        ['pharn-review/a11y/a11y.md', 'pharn-review/a11y/a11y.md'],
+      ]),
+    );
   });
 });

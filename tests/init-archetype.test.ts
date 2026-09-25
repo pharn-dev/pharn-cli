@@ -7,16 +7,43 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { useTmpDir } from './helpers.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { restoreTTY, setTTY, stubProcessExit, useTmpDir } from './helpers.js';
 
 // runInstallArchetype uses clack for progress UI only — mock it so the fixture
 // e2e exercises the copy + config-write apply path without a real terminal.
+// The prompt members serve the whole-`init` cases at the end of the file: the
+// summary answers "install" and the overwrite confirm answers yes.
 vi.mock('@clack/prompts', () => ({
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
   outro: vi.fn(),
+  intro: vi.fn(),
+  note: vi.fn(),
+  cancel: vi.fn(),
+  select: vi.fn(async () => 'install'),
+  confirm: vi.fn(async () => true),
+  isCancel: () => false,
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
+
+// The whole-`init` cases run the REAL steps; only what leaves the machine or
+// the test is stubbed: the network fetch (a fixture clone stands in) and the
+// banner.
+const fetchRepo = vi.fn();
+vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
+vi.mock('../src/lib/banner.js', () => ({ showBanner: vi.fn() }));
+
+// A pass-through spy on the manifest builder, so a run can COUNT how often it
+// is computed. A module mock sees only calls that cross a module boundary —
+// every caller of it after this fix does.
+vi.mock('../src/lib/install-manifest.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../src/lib/install-manifest.js')>();
+  return {
+    ...actual,
+    collectExpectedInstallPaths: vi.fn(actual.collectExpectedInstallPaths),
+  };
+});
 
 const { detectArchetypesFromProject } =
   await import('../src/lib/detect-archetype.js');
@@ -32,6 +59,7 @@ const { readRecords, writeRecords } =
 const { collectExpectedInstallPaths } =
   await import('../src/lib/install-manifest.js');
 const { sha256File } = await import('../src/lib/hash.js');
+const { runInit } = await import('../src/commands/init.js');
 const prompts = await import('@clack/prompts');
 
 // The single string runInstallArchetype passed to outro() — the same
@@ -844,5 +872,394 @@ describe('re-running init keeps the config keys pharn does not own', () => {
     );
     expect(Object.getOwnPropertyDescriptor(written, 'toString')?.value).toBe(1);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+// Every file under the ONE backup directory a run created, relative to it —
+// what the user can get back.
+function backedUp(proj: string): string[] {
+  const root = join(proj, '.pharn-backup');
+  if (!existsSync(root)) return [];
+  const dirs = readdirSync(root);
+  expect(dirs).toHaveLength(1);
+  const dir = join(root, dirs[0]!);
+  return (
+    readdirSync(dir, { recursive: true, withFileTypes: true }) as {
+      isFile(): boolean;
+      name: string;
+      parentPath: string;
+    }[]
+  )
+    .filter((e) => e.isFile())
+    .map((e) =>
+      join(e.parentPath, e.name)
+        .slice(dir.length + 1)
+        .split('\\')
+        .join('/'),
+    )
+    .sort();
+}
+
+// A pharn-layout clone (pharn-oss >= 5): capabilities, contracts and the
+// constitution under pharn/, the LICENSE still at the root.
+function scaffoldPharnRepo(repo: string): void {
+  write(
+    join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'),
+    cap('griller', '["ssr"]'),
+  );
+  write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
+  write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
+  write(join(repo, '.claude/commands/pharn-plan.md'), 'plan');
+  write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
+  write(join(repo, 'LICENSE'), 'Apache-2.0');
+  write(join(repo, 'SKILLS_VERSION'), '1.0.0\n');
+}
+
+// A re-run `init` overwrites every file it installs. What it backs up first is
+// what `update` would have SKIPPED — its own table, through the records the
+// previous install wrote — so an upstream bump alone is not "your edits".
+describe('re-running init after an upstream bump — the records decide what is yours', () => {
+  const tmp = useTmpDir();
+  // The stamp of the config a re-run replaces: the first install's.
+  const STAMP = { skillsVersion: '1.0.0', commit: 'sha123' };
+  const carry = (
+    previousStamp: { skillsVersion: string; commit: string | null } | null,
+  ) => ({ manualKeys: new Set<string>(), kept: [], previousStamp });
+
+  async function installed() {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(repo, 'LICENSE'), 'Apache-2.0');
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const selection = resolveCapabilities(
+      archetypes,
+      parseCapabilityIndex(repo),
+    );
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    vi.mocked(prompts.log.info).mockClear();
+    return { repo, proj, archetypes, selection };
+  }
+
+  // Upstream moves on: two installed files change, and the version with them.
+  function bumpUpstream(repo: string): void {
+    write(join(repo, '.claude/commands/pharn-plan.md'), 'plan v2');
+    write(join(repo, 'CONSTITUTION.md'), 'C v2');
+    write(join(repo, 'SKILLS_VERSION'), '1.1.0\n');
+  }
+
+  const informed = (): string =>
+    vi
+      .mocked(prompts.log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+
+  it("backs up NOTHING after an upstream bump alone — pharn's own bytes are a clean upgrade", async () => {
+    const { repo, proj, archetypes, selection } = await installed();
+    bumpUpstream(repo);
+
+    await runInstallArchetype(
+      repo,
+      proj,
+      archetypes,
+      selection,
+      'sha456',
+      carry(STAMP),
+    );
+
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(informed()).not.toContain('Backed up');
+    expect(
+      readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
+    ).toBe('plan v2');
+  });
+
+  it('backs up exactly the ONE file the user changed', async () => {
+    const { repo, proj, archetypes, selection } = await installed();
+    bumpUpstream(repo);
+    write(join(proj, 'CONSTITUTION.md'), 'MY CONSTITUTION');
+
+    await runInstallArchetype(
+      repo,
+      proj,
+      archetypes,
+      selection,
+      'sha456',
+      carry(STAMP),
+    );
+
+    expect(backedUp(proj)).toEqual(['CONSTITUTION.md']);
+    const [dir] = readdirSync(join(proj, '.pharn-backup'));
+    expect(
+      readFileSync(
+        join(proj, '.pharn-backup', dir!, 'CONSTITUTION.md'),
+        'utf8',
+      ),
+    ).toBe('MY CONSTITUTION');
+    expect(readFileSync(join(proj, 'CONSTITUTION.md'), 'utf8')).toBe('C v2');
+  });
+
+  it.each<[string, { skillsVersion: string; commit: string | null } | null]>([
+    ['there is no previous config', null],
+    [
+      'the store was stamped for another install state',
+      {
+        skillsVersion: '0.9.0',
+        commit: 'other',
+      },
+    ],
+  ])(
+    'backs up EVERY differing file when %s — conservative, never a guess',
+    async (_label, stamp) => {
+      const { repo, proj, archetypes, selection } = await installed();
+      bumpUpstream(repo);
+
+      await runInstallArchetype(
+        repo,
+        proj,
+        archetypes,
+        selection,
+        'sha456',
+        carry(stamp),
+      );
+
+      expect(backedUp(proj)).toEqual([
+        '.claude/commands/pharn-plan.md',
+        'CONSTITUTION.md',
+      ]);
+    },
+  );
+
+  it("backs up an edited PHARN-LICENSE, compared with upstream's LICENSE (flat layout)", async () => {
+    const { repo, proj, archetypes, selection } = await installed();
+    write(join(proj, 'PHARN-LICENSE'), 'MY LICENSE NOTES');
+
+    await runInstallArchetype(
+      repo,
+      proj,
+      archetypes,
+      selection,
+      'sha123',
+      carry(STAMP),
+    );
+
+    expect(backedUp(proj)).toEqual(['PHARN-LICENSE']);
+    expect(readFileSync(join(proj, 'PHARN-LICENSE'), 'utf8')).toBe(
+      'Apache-2.0',
+    );
+  });
+
+  it('backs up an edited pharn/LICENSE (pharn layout)', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldPharnRepo(repo);
+    mkdirSync(proj, { recursive: true });
+    const selection = {
+      selected: [
+        { name: 'a11y', role: 'griller' as const, matched: ['ssr' as const] },
+      ],
+      skipped: [],
+    };
+    await runInstallArchetype(repo, proj, ['ssr'], selection, 'sha123');
+    expect(readFileSync(join(proj, 'pharn/LICENSE'), 'utf8')).toBe(
+      'Apache-2.0',
+    );
+    write(join(proj, 'pharn/LICENSE'), 'MY LICENSE NOTES');
+
+    await runInstallArchetype(
+      repo,
+      proj,
+      ['ssr'],
+      selection,
+      'sha123',
+      carry(STAMP),
+    );
+
+    expect(backedUp(proj)).toEqual(['pharn/LICENSE']);
+  });
+
+  // The records are keyed by PATH. A layout change (flat → pharn/) writes to
+  // new paths, which a flat project does not have yet, and leaves the old files
+  // where they are (init never deletes) — so it backs up nothing extra. Only a
+  // file of the user's own already sitting at one of the new paths has no
+  // record there, and that one IS backed up.
+  it('a layout change (flat → pharn/) backs up only a file of yours at a new path', async () => {
+    const flat = join(tmp.path(), 'flat');
+    const relocated = join(tmp.path(), 'relocated');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(flat);
+    write(join(flat, 'LICENSE'), 'Apache-2.0');
+    scaffoldPharnRepo(relocated);
+    mkdirSync(proj, { recursive: true });
+    const selection = {
+      selected: [
+        { name: 'a11y', role: 'griller' as const, matched: ['ssr' as const] },
+      ],
+      skipped: [],
+    };
+    await runInstallArchetype(flat, proj, ['ssr'], selection, 'sha123');
+    write(join(proj, 'pharn/LICENSE'), 'MY OWN NOTES');
+
+    await runInstallArchetype(
+      relocated,
+      proj,
+      ['ssr'],
+      selection,
+      'sha456',
+      carry(STAMP),
+    );
+
+    expect(backedUp(proj)).toEqual(['pharn/LICENSE']);
+    expect(readFileSync(join(proj, 'pharn/CONSTITUTION.md'), 'utf8')).toBe('C');
+    // The flat copies are left in place — init never deletes.
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+    expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(true);
+  });
+
+  it('refuses a project it cannot install into BEFORE backing anything up', async () => {
+    // An edit (which would be backed up) AND a type collision (which the
+    // install refuses). The refusal used to come after the backup: the user
+    // read "Backed up…", nothing was installed, and every retry added another
+    // .pharn-backup/ directory.
+    const { proj, repo, archetypes, selection } = await installed();
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'MY EDIT');
+    rmSync(join(proj, 'pharn-contracts'), { recursive: true, force: true });
+    write(join(proj, 'pharn-contracts'), 'a FILE where a directory goes');
+
+    await expect(
+      runInstallArchetype(
+        repo,
+        proj,
+        archetypes,
+        selection,
+        'sha123',
+        carry(STAMP),
+      ),
+    ).rejects.toThrow(/Refusing to install: pharn-contracts is in the way/);
+
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(informed()).not.toContain('Backed up');
+    expect(
+      readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
+    ).toBe('MY EDIT');
+  });
+
+  it('refuses a directory at pharn.records.json before copying anything — no half-install', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(proj, 'package.json'), '{}');
+    mkdirSync(join(proj, 'pharn.records.json'));
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const selection = resolveCapabilities(
+      archetypes,
+      parseCapabilityIndex(repo),
+    );
+
+    await expect(
+      runInstallArchetype(repo, proj, archetypes, selection, 'sha123'),
+    ).rejects.toThrow(
+      /Refusing to install: pharn\.records\.json is in the way/,
+    );
+
+    expect(existsSync(join(proj, '.claude'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn.config.json'))).toBe(false);
+  });
+});
+
+// The same guarantees through `runInit` itself — detect, fetch (a fixture
+// clone), both prompts, the lock and the install — so the prompt and the
+// backup are seen to agree, and the manifest builder can be counted across the
+// whole run rather than inside one step.
+describe('`pharn init` run twice, through the real steps', () => {
+  const tmp = useTmpDir();
+  stubProcessExit();
+  beforeEach(() => setTTY(true, true));
+  afterEach(() => restoreTTY());
+
+  function fixture(): { repo: string; proj: string } {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(repo, 'LICENSE'), 'Apache-2.0');
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+    mkdirSync(join(proj, '.git'));
+    return { repo, proj };
+  }
+
+  async function init(repo: string, proj: string, sha: string): Promise<void> {
+    fetchRepo.mockResolvedValue({ dir: repo, sha, cleanup: vi.fn() });
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(proj);
+    try {
+      await runInit();
+    } finally {
+      cwd.mockRestore();
+    }
+  }
+
+  function bumpUpstream(repo: string): void {
+    write(join(repo, '.claude/commands/pharn-plan.md'), 'plan v2');
+    write(join(repo, 'CONSTITUTION.md'), 'C v2');
+    write(join(repo, 'SKILLS_VERSION'), '1.1.0\n');
+  }
+
+  // The overwrite prompt's warning (the only one that lists paths).
+  function overwriteWarning(): string {
+    return (
+      vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .find((w) => w.includes('already exist and may be overwritten')) ?? ''
+    );
+  }
+
+  it('computes the install manifest ONCE per run, and marks and backs up nothing after an upstream bump alone', async () => {
+    const { repo, proj } = fixture();
+    await init(repo, proj, 'sha123');
+    bumpUpstream(repo);
+    vi.mocked(collectExpectedInstallPaths).mockClear();
+    vi.mocked(prompts.log.warn).mockClear();
+
+    await init(repo, proj, 'sha456');
+
+    // Prompt, pre-flight (twice), backup scan, copy and records all share it.
+    expect(collectExpectedInstallPaths).toHaveBeenCalledTimes(1);
+    const warning = overwriteWarning();
+    expect(warning).toContain('.claude/commands/pharn-plan.md');
+    expect(warning).not.toContain('(edited)');
+    expect(warning).not.toContain('(differs from upstream)');
+    expect(warning).not.toContain('.pharn-backup/');
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    const config = readPharnConfig(proj)!;
+    expect(config.skillsVersion).toBe('1.1.0');
+    expect(config.commit).toBe('sha456');
+  });
+
+  it('marks exactly the file the user changed, and backs up exactly that file', async () => {
+    const { repo, proj } = fixture();
+    await init(repo, proj, 'sha123');
+    bumpUpstream(repo);
+    write(join(proj, 'CONSTITUTION.md'), 'MY CONSTITUTION');
+    vi.mocked(prompts.log.warn).mockClear();
+
+    await init(repo, proj, 'sha456');
+
+    const warning = overwriteWarning();
+    const bullets = warning
+      .split('\n')
+      .filter((l) => l.trimStart().startsWith('•'));
+    expect(bullets[0]).toContain('CONSTITUTION.md (edited)');
+    expect(bullets.filter((b) => b.includes('('))).toHaveLength(1);
+    expect(warning).toContain(
+      '1 of them changed since pharn wrote it (your edits).',
+    );
+    expect(backedUp(proj)).toEqual(['CONSTITUTION.md']);
   });
 });

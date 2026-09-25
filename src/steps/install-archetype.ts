@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs';
 import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
-import { installCapabilities } from '../lib/install-capabilities.js';
+import {
+  installCapabilities,
+  prepareInstall,
+} from '../lib/install-capabilities.js';
 import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
-import { scanDest } from '../lib/dest-drift.js';
+import { manifestSources, scanDest } from '../lib/dest-drift.js';
 import { createBackup } from '../lib/backup.js';
 import {
   buildRecords,
@@ -55,6 +58,23 @@ export interface InstallCarry {
   previousStamp: { skillsVersion: string; commit: string | null } | null;
 }
 
+/**
+ * Every file installing `selection` from `repoDir` writes, dest → source, at
+ * the clone's own layout (lib/install-manifest.ts). init computes it ONCE per
+ * run, before its overwrite prompt, and passes the same map to the prompt and
+ * to runInstallArchetype.
+ */
+export function installManifest(
+  repoDir: string,
+  selection: Selection,
+): Map<string, string> {
+  return collectExpectedInstallPaths({
+    repoDir,
+    capabilities: selection.selected,
+    layout: detectLayout(repoDir),
+  });
+}
+
 const NO_CARRY: InstallCarry = {
   manualKeys: new Set(),
   kept: [],
@@ -73,32 +93,49 @@ export async function runInstallArchetype(
   selection: Selection,
   commit: string | null,
   carry: InstallCarry = NO_CARRY,
+  // The install manifest for this selection, when the caller already computed
+  // it — init computes it ONCE per run and passes the same map to its prompt
+  // and here. Absent → computed by the pre-flight below.
+  manifest?: ReadonlyMap<string, string>,
 ): Promise<void> {
   const startedAt = Date.now();
 
-  // Back up every existing file this install is about to overwrite whose bytes
-  // DIFFER from upstream — a re-run `init` used to discard local edits with no
-  // copy anywhere. The same scan + backup `pharn add` uses (lib/dest-drift.ts,
-  // lib/backup.ts), taken HERE, immediately before the copy, not at the prompt:
-  // an edit made while the prompt was open must be covered too. Byte-identical
-  // files are not edits. A path through a symlinked directory is left out — the
-  // install's own pre-flight refuses the whole run over it (install-capabilities.ts).
+  // 1. The destination pre-flight, FIRST: a project the copy cannot finish in
+  // (a symlink on the way, a type in the way) is refused before anything is
+  // written — the backup below included, so a refused re-install leaves no
+  // `.pharn-backup/` behind and prints no "Backed up" line for a copy that
+  // never happens. installCapabilities repeats it immediately before copying.
+  const prepared = prepareInstall(repoDir, cwd, selection.selected, manifest);
+
+  // 2. Back up every existing file this install is about to overwrite that
+  // `update` would have SKIPPED — a re-run `init` used to discard local edits
+  // with no copy anywhere, then over-corrected into backing up every file that
+  // differed from upstream, calling pharn's own outdated bytes "your edits".
+  // The records baseline decides (lib/dest-drift.ts, through update's own
+  // table): a file still at the hash pharn recorded writing is a clean upgrade;
+  // one that changed since, or that pharn has no record of, is backed up; with
+  // no usable store every differing file is. Each file is compared with its
+  // REAL source, so the mapped LICENSE is covered.
+  //
+  // Taken HERE, under init's lock and immediately before the copy, not at the
+  // prompt: an edit made while the prompt was open must be covered too, so this
+  // scan is the authoritative one — the prompt's labels are advisory.
+  const baseline = reinstallBaseline(cwd, carry.previousStamp);
   const scan = scanDest({
     repoDir,
     projectRoot: cwd,
-    rels: [
-      ...collectExpectedInstallPaths({
-        repoDir,
-        capabilities: selection.selected,
-        layout: detectLayout(repoDir),
-      }).keys(),
-    ],
+    rels: [...prepared.manifest.keys()],
+    sources: manifestSources(repoDir, prepared.manifest),
+    records: baseline,
   });
+  // `unsafe` is empty after a passing pre-flight; non-empty means a link
+  // appeared since, and installCapabilities' own pre-flight refuses the run —
+  // so no backup is made for a copy that will not happen.
   if (scan.drifted.length > 0 && scan.unsafe.length === 0) {
     const backupDir = createBackup(cwd, scan.drifted);
     // Named at creation, so the pointer survives anything that fails after it.
     log.info(
-      `Backed up ${scan.drifted.length} edited file(s) to ${backupDir} before overwriting.`,
+      `Backed up ${scan.drifted.length} file(s) to ${backupDir} before overwriting.`,
     );
   }
 
@@ -110,7 +147,12 @@ export async function runInstallArchetype(
   let layout: Layout;
   let docsWritten: string[];
   try {
-    const result = installCapabilities(repoDir, cwd, selection);
+    const result = installCapabilities(
+      repoDir,
+      cwd,
+      selection,
+      prepared.manifest,
+    );
     capabilities = result.capabilities;
     settingsPreserved = result.settingsPreserved;
     layout = result.layout;
@@ -195,15 +237,15 @@ export async function runInstallArchetype(
   // with the config values written beside it. This is the baseline `pharn update`
   // compares against so it can tell pharn's bytes from the user's edits
   // (lib/install-records.ts). Without it every later update is degraded.
+  //
+  // Keyed by the SAME manifest the copy just applied — it depends only on the
+  // clone, the selection and the layout, none of which change during a run.
   await writeRecords(cwd, {
     skillsVersion,
     commit,
     files: {
-      ...keptRecords(cwd, carry, layout),
-      ...buildRecords(
-        cwd,
-        collectExpectedInstallPaths({ repoDir, capabilities, layout }).keys(),
-      ),
+      ...keptRecords(baseline, carry, layout),
+      ...buildRecords(cwd, prepared.manifest.keys()),
     },
   });
   // The config this install replaces may hold keys pharn does not own —
@@ -263,6 +305,33 @@ export async function runInstallArchetype(
 }
 
 /**
+ * The records a re-install tells pharn's bytes from the user's by: the store
+ * the install replaces, through `update`'s own gate (`recordsBaseline`) against
+ * the stamp of the config it replaces. `null` — a first install, or a store
+ * that is absent, corrupt or stamped for another install state — means every
+ * file that differs from upstream is `unverifiable`, and so backed up: never
+ * minted, never blessed, never guessed about.
+ *
+ * Keyed by PATH, at the layout of the install that wrote it. A re-install
+ * whose clone changed layout (flat → pharn/) writes to new paths, which the
+ * project does not have yet, and leaves the old files in place (init never
+ * deletes) — so it backs up nothing extra. Only a file of the user's own
+ * already at one of the new paths has no record there, and is backed up
+ * (`unrecorded`). Pinned by tests/init-archetype.test.ts.
+ *
+ * Exported for init's prompt (commands/init.ts), which labels the same files
+ * before the lock; the scan above, under the lock, is the one that acts.
+ */
+export function reinstallBaseline(
+  cwd: string,
+  previousStamp: InstallCarry['previousStamp'],
+): FileRecords | null {
+  return previousStamp === null
+    ? null
+    : recordsBaseline(readRecords(cwd), previousStamp).records;
+}
+
+/**
  * The records of every kept (frozen) capability, carried from the store this
  * install replaces — the pair `update` uses for its frozen entries
  * (`recordsBaseline` + `recordsUnderCapabilities`). A store that is absent,
@@ -270,18 +339,16 @@ export async function runInstallArchetype(
  * minted, never blessed. Nothing under a kept capability was touched, so the
  * hashes it does carry are still true; dropping them would make the next
  * `update` read those files as `unrecorded` and skip them. Keyed at the clone's
- * layout, as in `update`.
+ * layout, as in `update`. `baseline` is reinstallBaseline's, read before the
+ * copy — the store exactly as this install found it.
  */
 function keptRecords(
-  cwd: string,
+  baseline: FileRecords | null,
   carry: InstallCarry,
   layout: Layout,
 ): FileRecords {
-  if (carry.kept.length === 0 || carry.previousStamp === null) return {};
-  const { records } = recordsBaseline(readRecords(cwd), carry.previousStamp);
-  return records === null
-    ? {}
-    : recordsUnderCapabilities(records, layoutPaths(layout), carry.kept);
+  if (carry.kept.length === 0 || baseline === null) return {};
+  return recordsUnderCapabilities(baseline, layoutPaths(layout), carry.kept);
 }
 
 /**
