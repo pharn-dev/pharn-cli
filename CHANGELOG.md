@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-09-25
+
 ### Added
 
 - **`pharn status` and `pharn update` report the PHARN hooks upstream wires and your project does not.** Upstream re-wired its hooks twice (6.1.0 and 6.12.0). `update` installs the hook scripts but never writes `.claude/settings.json`, so an existing install could keep dead or broken wiring with no signal. `status` now prints a `HOOKS` section, and `status --strict` exits 1 while an upstream hook is unwired; `update` prints the same note and still never writes the file. Hooks you added yourself never count against you. The check reads what Claude Code reads:
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `(differs from upstream)`: there is no usable records file, so every difference counts.
 
   A file still exactly as pharn wrote it is a clean upgrade: not marked, not backed up. `PHARN-LICENSE` / `pharn/LICENSE` is compared with upstream's `LICENSE`, like every other file with its source.
+
 - **A re-run `pharn init` keeps what you added by hand.** It used to rebuild `capabilities` from your archetypes alone, dropping every capability you added with `pharn add` while its files stayed. It now applies `update`'s own rules to the config it replaces:
   - A capability you added by hand is installed again and stays `manual`, even when your archetypes now select it too.
   - A capability upstream still ships but this pharn cannot read is left as it is, however it was added. Its config entry, files and records are untouched, and it is listed in `frozenCapabilities`.
@@ -53,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `HTTP_PROXY` alone carries https requests once the opt-in is on.
 
   Only the notice changes; the network behaviour is Node's.
+
 - **The test suite no longer depends on the proxy settings of the machine running it.** With `NODE_USE_ENV_PROXY=1` set, 15 tests failed that pass in CI. With `HTTPS_PROXY` exported, 1 did. A setup file now clears the proxy variables before every test file.
 
 ### Security
@@ -1391,7 +1395,8 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.1...v0.3.2
