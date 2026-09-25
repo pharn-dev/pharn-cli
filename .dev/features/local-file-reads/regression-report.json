@@ -1,0 +1,32 @@
+{
+  "base": "9d2d574f4e22df1f796ad02e9c4209b9f088e7ff",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/reference/pharn-records.md",
+    "docs/troubleshooting.md",
+    "src/lib/bounded-read.ts",
+    "src/lib/install-records.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/project-lock.ts",
+    "src/steps/install-archetype.ts",
+    "src/steps/overwrite-check.ts",
+    "tests/bounded-read.test.ts",
+    "tests/install-records.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/project-lock.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

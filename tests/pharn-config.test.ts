@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   mkdirSync,
   readFileSync,
@@ -6,6 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { log } from '@clack/prompts';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
@@ -921,4 +923,37 @@ describe('frozenCapabilities ingest', () => {
       'frozenCapabilities',
     );
   });
+});
+
+// Every command reads pharn.config.json, so a FIFO there used to hang all of
+// them in open(2). It is now an unreadable config: `readPharnConfig` gives the
+// same `null` an unreadable file always gave, and the fingerprint names it.
+// Run in a child with a hard timeout — a regression would hang the worker.
+describe('pharn.config.json that is not a regular file', () => {
+  const tmp = useTmpDir();
+
+  it('reads a FIFO as unreadable instead of waiting on it', () => {
+    execFileSync('mkfifo', [join(tmp.path(), 'pharn.config.json')]);
+    const mod = fileURLToPath(
+      new URL('../src/lib/pharn-config.ts', import.meta.url),
+    );
+    const script = `
+      const m = await import(${JSON.stringify(mod)});
+      const dir = process.argv[1];
+      console.log(JSON.stringify({
+        config: m.readPharnConfig(dir),
+        fingerprint: m.configFingerprint(dir),
+      }));
+    `;
+    const r = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script, tmp.path()],
+      { encoding: 'utf8', timeout: 15_000 },
+    );
+    expect(r.signal, 'the read hung and was killed').toBeNull();
+    expect(JSON.parse(r.stdout)).toEqual({
+      config: null,
+      fingerprint: 'unreadable:not-a-file',
+    });
+  }, 30_000);
 });

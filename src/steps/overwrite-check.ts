@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { confirm, isCancel, log } from '@clack/prompts';
 import {
   collectExpectedInstallPaths,
@@ -12,6 +11,7 @@ import {
   type DriftLabel,
 } from '../lib/dest-drift.js';
 import { BACKUP_DIR } from '../lib/backup.js';
+import { readBoundedFile } from '../lib/bounded-read.js';
 import type { FileRecords } from '../lib/install-records.js';
 import { safeJoin, VERSION_RE } from '../lib/validate.js';
 import type { Selection } from '../types.js';
@@ -66,9 +66,12 @@ export const MAX_LISTED = 10;
 // even though PHARN_CONFIG_FILE is a compile-time constant. Zero network: this
 // is the local config's number, never upstream's.
 function recordedSkillsVersion(cwd: string): string | null {
+  // Bounded and non-blocking (lib/bounded-read.ts): a FIFO here must not hang
+  // the prompt it only decorates.
+  const read = readBoundedFile(safeJoin(cwd, PHARN_CONFIG_FILE));
+  if (read.kind !== 'ok') return null;
   try {
-    const raw = readFileSync(safeJoin(cwd, PHARN_CONFIG_FILE), 'utf8');
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(read.bytes.toString('utf8'));
     if (typeof parsed !== 'object' || parsed === null) return null;
     const version = (parsed as { skillsVersion?: unknown }).skillsVersion;
     return typeof version === 'string' && VERSION_RE.test(version)

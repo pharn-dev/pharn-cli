@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -10,6 +11,7 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
@@ -633,4 +635,51 @@ describe('withProjectLock — a fatal signal while held', () => {
     expect(existsSync(lockPath(dir))).toBe(true);
     expect(r.stderr).not.toContain('interrupted while writing');
   }, 40_000);
+});
+
+// A FIFO at .pharn.lock used to hang every writer in open(2), reading the
+// payload of a lock that could never be written. It now follows the rule for
+// any lock whose payload cannot be read: presumed live while younger than
+// MALFORMED_GRACE_MS (a holder mid-create looks the same), broken once older.
+// In a child with a hard timeout — a regression would hang the worker.
+describe('withProjectLock — a FIFO at the lock path', () => {
+  const tmp = useTmpDir();
+
+  function acquireInChild(dir: string): { signal: string | null; out: string } {
+    const mod = fileURLToPath(
+      new URL('../src/lib/project-lock.ts', import.meta.url),
+    );
+    const script = `
+      const { withProjectLock } = await import(${JSON.stringify(mod)});
+      try {
+        await withProjectLock(process.argv[1], 'update', async () => undefined);
+        console.log('ran');
+      } catch (err) {
+        console.log(err.name);
+      }
+    `;
+    const r = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script, dir],
+      { encoding: 'utf8', timeout: 15_000 },
+    );
+    return { signal: r.signal, out: r.stdout.trim() };
+  }
+
+  it('refuses while the FIFO is young, as for any unreadable lock', () => {
+    execFileSync('mkfifo', [lockPath(tmp.path())]);
+    const { signal, out } = acquireInChild(tmp.path());
+    expect(signal, 'the read hung and was killed').toBeNull();
+    expect(out).toBe('ProjectLockedError');
+  }, 30_000);
+
+  it('breaks it once it is older than the grace window, and runs', () => {
+    execFileSync('mkfifo', [lockPath(tmp.path())]);
+    const old = (Date.now() - MALFORMED_GRACE_MS - 60_000) / 1000;
+    utimesSync(lockPath(tmp.path()), old, old);
+    const { signal, out } = acquireInChild(tmp.path());
+    expect(signal, 'the read hung and was killed').toBeNull();
+    expect(out).toBe('ran');
+    expect(existsSync(lockPath(tmp.path()))).toBe(false);
+  }, 30_000);
 });

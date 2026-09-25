@@ -1,5 +1,6 @@
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { writeJsonAtomic } from './atomic-write.js';
+import { readBoundedFile } from './bounded-read.js';
 import { resolve } from 'node:path';
 import { sha256File } from './hash.js';
 import { isPlainObject, safeJoin, toPosix } from './validate.js';
@@ -123,12 +124,17 @@ export function recordsPath(cwd: string): string {
  * safe terminal (P5).
  */
 export function readRecords(cwd: string): ReadRecordsResult {
-  const path = recordsPath(cwd);
-  if (!existsSync(path)) return { kind: 'absent' };
+  // Through the bounded, non-blocking reader (lib/bounded-read.ts): a FIFO, a
+  // device or a directory at this path is a named `invalid`, never a hang.
+  const read = readBoundedFile(recordsPath(cwd));
+  if (read.kind === 'absent') return { kind: 'absent' };
+  if (read.kind === 'unusable') {
+    return { kind: 'invalid', message: `${RECORDS_FILE} ${read.reason}` };
+  }
 
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(path, 'utf8'));
+    raw = JSON.parse(read.bytes.toString('utf8'));
   } catch {
     return { kind: 'invalid', message: `${RECORDS_FILE} is not valid JSON` };
   }
