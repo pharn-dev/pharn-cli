@@ -130,10 +130,28 @@ Lists the **selected** capabilities (name, role, and why — `universal` or the 
 
 After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs` hooks, `pharn/features/README.md`, the contracts, core and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. When `pharn.config.json` is one of them, the warning also names the `skillsVersion` your existing config records, so you can see which version you are about to replace (read locally, never fetched; the clause is simply omitted if that file cannot be read). If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check.
 
-**Re-running `init` over an existing install.** Existing files whose bytes **differ from upstream** — your
-edits — are listed **first** and marked `(edited)`, and the prompt says how many there are. If you
-continue, `init` copies each of them to `.pharn-backup/<timestamp>/` **before** the first write and prints
-that directory as soon as it is created (byte-identical files are not edits and are not backed up).
+**Re-running `init` over an existing install.** `init` overwrites every file it installs, so before it
+does, it copies the ones you could lose to `.pharn-backup/<timestamp>/` and prints that directory as soon
+as it is created. Which files those are is decided the way [`pharn update`](update.md) decides what to
+skip: against the hashes in `pharn.records.json` that the previous install wrote. The prompt lists these
+files **first**, marked, and says how many there are of each kind:
+
+| Marked                    | Meaning                                                                                                                                    | Backed up |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| `(edited)`                | The file changed since pharn wrote it — your edit                                                                                          | Yes       |
+| `(no pharn record)`       | It differs from upstream and the records have no entry for it                                                                              | Yes       |
+| `(differs from upstream)` | It differs from upstream, and there is no usable `pharn.records.json` to tell your edits from upstream changes, so every difference counts | Yes       |
+| _(not marked)_            | Byte-identical to upstream, or still exactly what pharn wrote (upstream simply moved on) — a clean upgrade                                 | No        |
+
+`pharn.records.json` counts as usable only when it matches the `skillsVersion` and `commit` of the
+config being replaced, as for `update`. Records are kept by path, so a file of yours at a path the
+previous install did not write — for example your own file at a path a newer pharn now installs to —
+has no record and is backed up, marked `(no pharn record)`. A change of layout (flat → `pharn/`)
+installs to new paths and leaves the old copies where they are (`init` never deletes), so it backs up
+nothing extra. pharn's own `LICENSE` copy (`PHARN-LICENSE` / `pharn/LICENSE`) is compared with
+upstream's `LICENSE`, like every other file with its source. The marks are a preview: `init` checks again just before it copies,
+under the project lock, and that check decides what is backed up — so an edit you make while the prompt
+is open is still saved.
 Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.config.json`) are **kept**:
 `init` installs them again and records them as `manual` — also when your archetypes now select them
 too — as long as upstream still ships them. The summary lists them as "added by hand". One that upstream
@@ -147,6 +165,16 @@ An unreadable or invalid existing config never blocks `init`. Capabilities are c
 config the other commands would accept, and your own keys from any config that parses as a JSON object;
 a config that is not valid JSON carries nothing over. If `pharn.config.json` changes while `init` waits at
 its prompts (another `pharn` command wrote it), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+
+**When `init` refuses to install.** Before anything is written — the backup included — `init` checks
+every path it is about to write and stops, naming each problem, if the copy could not finish: a
+symbolic link on the way (writing through a linked directory would put files outside your project, and
+a linked file would be replaced by pharn's copy), or an entry of the wrong kind (a directory where
+pharn writes a file, or a file where it needs a directory — `pharn.config.json` and
+`pharn.records.json` included). A refused install writes nothing: no files, no config, no records and
+no `.pharn-backup/`. A symbolic link at `.claude/settings.json` is fine while it points at an existing
+file — `init` never writes an existing settings file — and is refused only when its target does not
+exist. See [Something in your project is in the way](../troubleshooting.md#something-in-your-project-is-in-the-way).
 
 ### 7. Install
 

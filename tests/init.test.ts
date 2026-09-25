@@ -67,7 +67,15 @@ const runArchetypeSummary = vi.fn(
 vi.mock('../src/steps/archetype-summary.js', () => ({ runArchetypeSummary }));
 
 const runInstallArchetype = vi.fn(async () => undefined);
-vi.mock('../src/steps/install-archetype.js', () => ({ runInstallArchetype }));
+// The install manifest init computes ONCE per run and hands to both the prompt
+// and the install; the records baseline the prompt labels files by.
+const installManifest = vi.fn(() => new Map<string, string>());
+const reinstallBaseline = vi.fn(() => null);
+vi.mock('../src/steps/install-archetype.js', () => ({
+  runInstallArchetype,
+  installManifest,
+  reinstallBaseline,
+}));
 
 // The pre-install write-target conflict check (steps/overwrite-check.ts). Default:
 // no conflicts → true → install proceeds; overridden per-test to exercise decline.
@@ -383,12 +391,29 @@ describe('runInit (archetype default)', () => {
     expect(parseCapabilityIndex).toHaveBeenCalledWith('/fake/repo');
     expect(resolveCapabilities).toHaveBeenCalledTimes(1);
     expect(runArchetypeSummary).toHaveBeenCalledTimes(1);
-    // The write-target conflict check gates the install (repo dir, cwd, selection).
+    // The manifest is built ONCE, and that same map reaches the prompt and the
+    // install — neither rebuilds it.
+    expect(installManifest).toHaveBeenCalledTimes(1);
+    expect(installManifest).toHaveBeenCalledWith('/fake/repo', {
+      selected: [],
+      skipped: [],
+    });
+    const manifest = installManifest.mock.results[0]!.value as Map<
+      string,
+      string
+    >;
+    // The write-target conflict check gates the install (repo dir, cwd,
+    // selection, and what init already knows: the manifest + the records).
     expect(confirmWriteTargets).toHaveBeenCalledWith(
       '/fake/repo',
       expect.any(String),
       { selected: [], skipped: [] },
+      { manifest, records: null },
     );
+    const promptContext = (
+      confirmWriteTargets.mock.calls[0] as unknown as unknown[]
+    )[3] as { manifest: unknown };
+    expect(promptContext.manifest).toBe(manifest);
     // Install ran with the pinned SHA; the temp clone was cleaned up.
     expect(runInstallArchetype).toHaveBeenCalledTimes(1);
     expect(runInstallArchetype).toHaveBeenCalledWith(
@@ -403,8 +428,22 @@ describe('runInit (archetype default)', () => {
         kept: [],
         previousStamp: null,
       }),
+      manifest,
+    );
+    expect((runInstallArchetype.mock.calls[0] as unknown as unknown[])[6]).toBe(
+      manifest,
     );
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds no manifest and reads no records when the summary is cancelled', async () => {
+    runArchetypeSummary.mockResolvedValue('cancel');
+
+    await expect(runInit()).rejects.toMatchObject(new ProcessExit(0));
+
+    expect(installManifest).not.toHaveBeenCalled();
+    expect(reinstallBaseline).not.toHaveBeenCalled();
+    expect(confirmWriteTargets).not.toHaveBeenCalled();
   });
 
   it('cancels from the summary without installing', async () => {

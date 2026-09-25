@@ -14,6 +14,7 @@ import { useTmpDir } from './helpers.js';
 import {
   installCapabilities,
   installCapabilityDirs,
+  prepareInstall,
 } from '../src/lib/install-capabilities.js';
 import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
@@ -970,7 +971,11 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     },
   );
 
-  it('refuses a symlinked .claude/settings.json leaf (dangling link would be written through)', () => {
+  // A DANGLING link does not exist to `existsSync`, so the install would write
+  // upstream's settings there. Measured on Node 20.13, 22 and 24: cpSync then
+  // REPLACES the link with a regular file (nothing lands outside the project),
+  // so the user's link would be lost without a word. Refused, link untouched.
+  it('refuses a DANGLING .claude/settings.json link, leaving the link as it was', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     const outside = join(tmp.path(), 'outside');
@@ -983,9 +988,85 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     );
 
     expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      /\.claude\/settings\.json is a symbolic link/,
+      /\.claude\/settings\.json is a symbolic link where pharn writes a file.*points at nothing/,
     );
     expect(existsSync(join(outside, 'settings.json'))).toBe(false);
+    expect(
+      lstatSync(join(proj, '.claude/settings.json')).isSymbolicLink(),
+    ).toBe(true);
+    expect(existsSync(join(proj, '.claude/commands'))).toBe(false);
+  });
+
+  // A LIVE link: the install never writes an existing settings.json (it is
+  // preserved), so there is nothing to refuse — refusing sent users who keep
+  // their Claude settings in a dotfiles repo away with wrong advice.
+  it('installs through a LIVE .claude/settings.json link and leaves its target alone', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const dotfiles = join(tmp.path(), 'dotfiles');
+    scaffoldRepo(repo);
+    write(join(dotfiles, 'settings.json'), '{"mine":true}');
+    mkdirSync(join(proj, '.claude'), { recursive: true });
+    symlinkSync(
+      join(dotfiles, 'settings.json'),
+      join(proj, '.claude/settings.json'),
+    );
+
+    const result = installCapabilities(repo, proj, selection());
+
+    expect(result.settingsPreserved).toBe(true);
+    expect(readFileSync(join(dotfiles, 'settings.json'), 'utf8')).toBe(
+      '{"mine":true}',
+    );
+    expect(
+      lstatSync(join(proj, '.claude/settings.json')).isSymbolicLink(),
+    ).toBe(true);
+    expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(true);
+  });
+
+  it('says "regular file", not "real directory", for a symlinked file it would write', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    write(join(outside, 'plan.md'), 'MY PLAN');
+    mkdirSync(join(proj, '.claude/commands'), { recursive: true });
+    symlinkSync(
+      join(outside, 'plan.md'),
+      join(proj, '.claude/commands/pharn-plan.md'),
+    );
+
+    let message = '';
+    try {
+      installCapabilities(repo, proj, selection());
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain(
+      '.claude/commands/pharn-plan.md is a symbolic link where pharn writes a file',
+    );
+    expect(message).toContain('Replace it with a regular file');
+    expect(message).not.toContain('real directory');
+    expect(readFileSync(join(outside, 'plan.md'), 'utf8')).toBe('MY PLAN');
+  });
+
+  it('names directory links and file links apart in one refusal', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    mkdirSync(join(outside, 'lenses'), { recursive: true });
+    write(join(outside, 'plan.md'), 'MY PLAN');
+    mkdirSync(join(proj, '.claude/commands'), { recursive: true });
+    symlinkSync(join(outside, 'lenses'), join(proj, 'pharn-review'));
+    symlinkSync(
+      join(outside, 'plan.md'),
+      join(proj, '.claude/commands/pharn-plan.md'),
+    );
+
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /pharn-review is a symbolic link inside the project.*real directory.*\.claude\/commands\/pharn-plan\.md is a symbolic link where pharn writes a file/,
+    );
   });
 
   it('names every symlinked component, sorted', () => {
@@ -1106,6 +1187,36 @@ describe('installCapabilities — destination type pre-flight (PHARN-16)', () =>
     expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
   });
 
+  // The two files init writes BESIDE the copy. A directory at either passed
+  // every check, so the whole tree was copied and then the atomic write's
+  // rename failed (EISDIR): no records, no config — the half-install this
+  // pre-flight exists to prevent.
+  it.each(['pharn.config.json', 'pharn.records.json'])(
+    'refuses a directory at %s before the first write',
+    (rel) => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      scaffoldRepo(repo);
+      write(join(proj, rel, 'keep.txt'), 'USER');
+      const before = tree(proj);
+
+      expect(() => installCapabilities(repo, proj, selection())).toThrow(
+        `Refusing to install: ${rel} is in the way`,
+      );
+      expect(tree(proj)).toEqual(before);
+    },
+  );
+
+  it('accepts a regular file at pharn.config.json and pharn.records.json', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(proj, 'pharn.config.json'), '{}');
+    write(join(proj, 'pharn.records.json'), '{}');
+
+    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+  });
+
   it('skips (does not refuse) a directory at the optional features/README.md', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -1117,5 +1228,54 @@ describe('installCapabilities — destination type pre-flight (PHARN-16)', () =>
       readFileSync(join(proj, 'features/README.md/keep.txt'), 'utf8'),
     ).toBe('USER');
     expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+  });
+});
+
+// init runs the pre-flight BEFORE its backup (steps/install-archetype.ts), over
+// the manifest it computed once for the run.
+describe('prepareInstall', () => {
+  const tmp = useTmpDir();
+
+  it('writes nothing and returns what it checked', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    mkdirSync(proj, { recursive: true });
+
+    const prepared = prepareInstall(repo, proj, selection().selected);
+
+    expect(readdirSync(proj)).toEqual([]);
+    expect(prepared.paths.layout).toBe('flat');
+    expect(prepared.featuresRel).toBe('features/README.md');
+    expect([...prepared.manifest.keys()].sort()).toEqual(
+      [
+        ...collectExpectedInstallPaths({
+          repoDir: repo,
+          capabilities: selection().selected,
+          layout: 'flat',
+        }).keys(),
+      ].sort(),
+    );
+  });
+
+  it('checks the manifest it is GIVEN — the same map, not a rebuilt one', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(proj, { recursive: true });
+    // Only the given map names `extra/`, so only a pre-flight over THAT map
+    // can see its symlink.
+    symlinkSync(outside, join(proj, 'extra'));
+    const given = new Map([['extra/file.md', join(repo, 'CONSTITUTION.md')]]);
+
+    expect(() =>
+      prepareInstall(repo, proj, selection().selected, given),
+    ).toThrow(/Refusing to install: extra is a symbolic link/);
+    const ok = new Map([['CONSTITUTION.md', join(repo, 'CONSTITUTION.md')]]);
+    expect(prepareInstall(repo, proj, selection().selected, ok).manifest).toBe(
+      ok,
+    );
   });
 });

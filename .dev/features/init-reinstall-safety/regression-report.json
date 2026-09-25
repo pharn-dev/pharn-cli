@@ -1,0 +1,33 @@
+{
+  "base": "5b63e313ed74c5d875039685227c68ea76c1ea67",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/init.md",
+    "docs/troubleshooting.md",
+    "src/commands/init.ts",
+    "src/lib/dest-drift.ts",
+    "src/lib/install-capabilities.ts",
+    "src/lib/install-manifest.ts",
+    "src/steps/install-archetype.ts",
+    "src/steps/overwrite-check.ts",
+    "tests/dest-drift.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/init.test.ts",
+    "tests/install-capabilities.test.ts",
+    "tests/overwrite-check.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

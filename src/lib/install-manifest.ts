@@ -237,13 +237,19 @@ export function conflictingWriteTargets(params: {
   projectRoot: string;
   capabilities: InstalledCapability[];
   layout: Layout;
+  // The manifest for exactly these inputs, when the caller already has it:
+  // `init` computes it ONCE per run and hands the same map to this prompt and
+  // to the install (commands/init.ts). Absent → computed here.
+  expected?: ReadonlyMap<string, string>;
 }): string[] {
   const { repoDir, projectRoot, capabilities, layout } = params;
-  const expected = collectExpectedInstallPaths({
-    repoDir,
-    capabilities,
-    layout,
-  });
+  const expected =
+    params.expected ??
+    collectExpectedInstallPaths({
+      repoDir,
+      capabilities,
+      layout,
+    });
   const candidates = new Set<string>(expected.keys());
   candidates.add(PHARN_CONFIG_FILE);
   const conflicts: string[] = [];
