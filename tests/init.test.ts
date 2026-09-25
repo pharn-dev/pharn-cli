@@ -10,6 +10,7 @@ import {
   useTmpDir,
 } from './helpers.js';
 import type { CapabilityIndex } from '../src/types.js';
+import { ManifestValidationError } from '../src/lib/validate.js';
 
 // Archetype is now the DEFAULT (and only) init flow. runInit() drives it with no
 // module catalog / manifest fetch. These are command-level control-flow tests
@@ -71,10 +72,14 @@ const runInstallArchetype = vi.fn(async () => undefined);
 // and the install; the records baseline the prompt labels files by.
 const installManifest = vi.fn(() => new Map<string, string>());
 const reinstallBaseline = vi.fn(() => null);
+// The destination pre-flight, run over that manifest BEFORE the overwrite
+// prompt. Default: passes. A refusal is a throw.
+const preflightInstall = vi.fn((): void => undefined);
 vi.mock('../src/steps/install-archetype.js', () => ({
   runInstallArchetype,
   installManifest,
   reinstallBaseline,
+  preflightInstall,
 }));
 
 // The pre-install write-target conflict check (steps/overwrite-check.ts). Default:
@@ -414,6 +419,22 @@ describe('runInit (archetype default)', () => {
       confirmWriteTargets.mock.calls[0] as unknown as unknown[]
     )[3] as { manifest: unknown };
     expect(promptContext.manifest).toBe(manifest);
+    // The destination pre-flight runs over that same manifest BEFORE the
+    // prompt, so a project the install cannot finish in is refused without
+    // being asked to overwrite anything.
+    expect(preflightInstall).toHaveBeenCalledTimes(1);
+    expect(preflightInstall).toHaveBeenCalledWith(
+      '/fake/repo',
+      expect.any(String),
+      { selected: [], skipped: [] },
+      manifest,
+    );
+    expect((preflightInstall.mock.calls[0] as unknown as unknown[])[3]).toBe(
+      manifest,
+    );
+    expect(preflightInstall.mock.invocationCallOrder[0]!).toBeLessThan(
+      confirmWriteTargets.mock.invocationCallOrder[0]!,
+    );
     // Install ran with the pinned SHA; the temp clone was cleaned up.
     expect(runInstallArchetype).toHaveBeenCalledTimes(1);
     expect(runInstallArchetype).toHaveBeenCalledWith(
@@ -442,6 +463,7 @@ describe('runInit (archetype default)', () => {
     await expect(runInit()).rejects.toMatchObject(new ProcessExit(0));
 
     expect(installManifest).not.toHaveBeenCalled();
+    expect(preflightInstall).not.toHaveBeenCalled();
     expect(reinstallBaseline).not.toHaveBeenCalled();
     expect(confirmWriteTargets).not.toHaveBeenCalled();
   });
@@ -604,6 +626,30 @@ describe('runInit (archetype default)', () => {
       expect(runInstallArchetype).toHaveBeenCalledTimes(1);
       expect(cleanup).toHaveBeenCalledTimes(1);
       expect(cleanupRanBeforeTheReport()).toBe(true);
+    });
+
+    // The destination pre-flight runs BEFORE the overwrite prompt, so a project
+    // the install cannot finish in is refused without first being asked
+    // "Continue and overwrite?" — a question whose yes could not be honoured.
+    // Same report, exit code and cleanup as the lock-time pre-flight's refusal.
+    it('refuses before the overwrite prompt when the pre-flight rejects the project', async () => {
+      preflightInstall.mockImplementationOnce(() => {
+        throw new ManifestValidationError(
+          'Refusing to install: pharn-contracts is in the way',
+        );
+      });
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(confirmWriteTargets).not.toHaveBeenCalled();
+      expect(runInstallArchetype).not.toHaveBeenCalled();
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(cleanupRanBeforeTheReport()).toBe(true);
+      const [msg, opts] = vi.mocked(log.error).mock.calls.at(-1)!;
+      expect(String(msg)).toContain(
+        'Refusing to install: pharn-contracts is in the way',
+      );
+      expect(opts).toEqual({ output: process.stderr });
     });
 
     // The BOX (failure: FatalCause | null), not the bare value. `throw undefined`

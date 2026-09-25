@@ -75,6 +75,28 @@ export function installManifest(
   });
 }
 
+/**
+ * The install's destination pre-flight (lib/install-capabilities.ts →
+ * prepareInstall) over the manifest init built, run BEFORE init's overwrite
+ * prompt: a project the install cannot finish in is refused without first
+ * being asked "Continue and overwrite?". Read-only; throws
+ * ManifestValidationError.
+ *
+ * The EARLY answer, not the authoritative one — the tree can change while the
+ * prompt is open. runInstallArchetype runs the same checks again under the
+ * lock, before its backup, and installCapabilities once more before the copy,
+ * so that no caller can copy without them. Keep all three: each is a read-only
+ * walk (an lstat per path component) over the manifest.
+ */
+export function preflightInstall(
+  repoDir: string,
+  cwd: string,
+  selection: Selection,
+  manifest: ReadonlyMap<string, string>,
+): void {
+  prepareInstall(repoDir, cwd, selection.selected, manifest);
+}
+
 const NO_CARRY: InstallCarry = {
   manualKeys: new Set(),
   kept: [],

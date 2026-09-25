@@ -8,7 +8,13 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { restoreTTY, setTTY, stubProcessExit, useTmpDir } from './helpers.js';
+import {
+  ProcessExit,
+  restoreTTY,
+  setTTY,
+  stubProcessExit,
+  useTmpDir,
+} from './helpers.js';
 
 // runInstallArchetype uses clack for progress UI only — mock it so the fixture
 // e2e exercises the copy + config-write apply path without a real terminal.
@@ -1229,7 +1235,8 @@ describe('`pharn init` run twice, through the real steps', () => {
 
     await init(repo, proj, 'sha456');
 
-    // Prompt, pre-flight (twice), backup scan, copy and records all share it.
+    // Pre-flight (three times), prompt, backup scan, copy and records all
+    // share it.
     expect(collectExpectedInstallPaths).toHaveBeenCalledTimes(1);
     const warning = overwriteWarning();
     expect(warning).toContain('.claude/commands/pharn-plan.md');
@@ -1261,5 +1268,36 @@ describe('`pharn init` run twice, through the real steps', () => {
       '1 of them changed since pharn wrote it (your edits).',
     );
     expect(backedUp(proj)).toEqual(['CONSTITUTION.md']);
+  });
+
+  it('refuses a project it cannot install into BEFORE asking to overwrite anything', async () => {
+    // A re-install (so the overwrite prompt has files to list), an edit, and a
+    // type collision the install refuses. The refusal used to come only after
+    // the user had answered yes to "Continue and overwrite?".
+    const { repo, proj } = fixture();
+    await init(repo, proj, 'sha123');
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'MY EDIT');
+    rmSync(join(proj, 'pharn-contracts'), { recursive: true, force: true });
+    write(join(proj, 'pharn-contracts'), 'a FILE where a directory goes');
+    vi.mocked(prompts.confirm).mockClear();
+    vi.mocked(prompts.log.warn).mockClear();
+    vi.mocked(prompts.log.error).mockClear();
+
+    await expect(init(repo, proj, 'sha456')).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+
+    // Never asked: neither the overwrite warning nor its confirm was shown.
+    expect(overwriteWarning()).toBe('');
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(String(vi.mocked(prompts.log.error).mock.calls.at(-1)?.[0])).toMatch(
+      /Refusing to install: pharn-contracts is in the way/,
+    );
+    // And nothing written: no backup, the edit and the config as they were.
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(
+      readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
+    ).toBe('MY EDIT');
+    expect(readPharnConfig(proj)!.commit).toBe('sha123');
   });
 });
