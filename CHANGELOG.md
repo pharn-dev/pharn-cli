@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pharn update` could stop re-checking a capability whose files were still out of date.** When pharn cannot read a capability upstream, `update` keeps it, skips its files, and moves the skills version on. Once pharn could read it again, the next run removed it from `frozenCapabilities` even if one of its files had to be skipped, for example because you edited it. Every later run then said "Already up to date", and that file stayed at the old version even after you resolved your edit. The capability now stays listed until none of its files are skipped, so each run checks it again. `update` also no longer writes a `pendingSkillsVersion` equal to the recorded `skillsVersion`.
 - **An interrupted run no longer leaves `.pharn.lock` behind.** The lock was released only on a normal return or a `process.exit`. A real signal ends the process without either, so `pharn update --yes` cancelled in CI, or stopped by `timeout` or `docker stop`, exited 130/143 with the lock still in the project. On the same machine the next run reclaimed it. A machine sharing the directory (a container bind mount) had to wait out the six-hour staleness window. `SIGINT` and `SIGTERM` now release the lock and remove the temp download first, print that the project may be partially updated, and still exit 130 or 143. A hangup (`SIGHUP`) is deliberately not handled: listening for it would override `nohup`, so a `nohup pharn update` would stop mid-write.
 - **A slow or failed GitHub API response no longer keeps `pharn` running after it has finished.** When the commit-SHA lookup got an error response (for example a 403 rate limit), or a success whose body was still arriving at the 8-second limit, the command carried on without the SHA as designed, but it left that response unread. The open connection kept the process alive until the server finished sending. It was measured at 30 seconds after `pharn status` had printed its last line. Such responses are now released at once.
+- **The proxy notice now says what Node's `fetch` actually does.** It was wrong in several cases, each now measured on the Node releases that matter:
+  - On Node 24.0–24.4, `NODE_USE_ENV_PROXY` works but the notice said this Node had no support.
+  - `--use_env_proxy` (underscores) was not recognised.
+  - `--no-use-env-proxy` did not count as turning the opt-in off.
+  - A mixed-case name such as `Https_Proxy`, which Node never reads, was reported as the proxy in use.
+  - When both cases were set, the notice named `HTTPS_PROXY`, although Node uses `https_proxy`.
+  - With only `HTTP_PROXY` set, pharn said nothing, although Node sends https requests through it once the opt-in is on.
+
+  Only the notice changes; the network behaviour is Node's and is unchanged.
+- **The test suite no longer depends on the proxy settings of the machine running it.** With `NODE_USE_ENV_PROXY=1` set, 15 tests failed that pass in CI. With `HTTPS_PROXY` exported, 1 did. A setup file now clears the proxy variables before every test file.
 
 ### Security
 

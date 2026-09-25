@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/signal-lock-release/SHIP.md"
+    ".dev/features/proxy-notice-truth/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-25T05:22:33.736Z"
+  "set_at": "2026-09-25T05:32:54.033Z"
 }
