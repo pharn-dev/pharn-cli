@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import type { CapabilityIndex, PharnConfig } from '../src/types.js';
@@ -576,7 +577,8 @@ describe('runStatus (archetype)', () => {
     const models = noteBody('MODELS');
     expect(models).toContain('In the format pharn wrote before 0.7.0');
     expect(models).toContain('`pharn update` converts it');
-    for (const line of models.split('\n')) {
+    // Visible columns: CI turns color codes on (picocolors reads CI).
+    for (const line of stripVTControlCharacters(models).split('\n')) {
       expect(line.length).toBeLessThanOrEqual(70);
     }
     expect(models).not.toContain('sonnet-5 · high');

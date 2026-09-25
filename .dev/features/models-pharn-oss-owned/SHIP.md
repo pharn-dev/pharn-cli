@@ -41,6 +41,13 @@ under that delegation, never as human approvals"). Every decision below was made
 `.regressions[]`, `.pre_existing[]` and `.failing_gates[]` are empty; `verifiers.registered` is `0`.
 `/pharn-dev-review` has no structural verdict and none was invented; it is read at GATE 2.
 
+## After the PR opened
+
+CI's `Test` job failed once: two new tests measured a note's line width with the color codes CI turns
+on (picocolors reads `CI`), so a 62-column line counted as 71. The product was unaffected; the tests
+now measure visible columns (`stripVTControlCharacters`). The whole suite was re-run locally under
+`CI=1` (1818 passed) with `npm run check` and the coverage ratchet green, then pushed.
+
 ## Stage models
 
 The maintainer asked that each stage run on the model this repo's `pharn.config.json` `models` block

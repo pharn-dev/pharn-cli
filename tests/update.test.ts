@@ -11,6 +11,7 @@ import {
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CANCEL,
@@ -2368,8 +2369,9 @@ describe('runUpdate (drift-safe)', () => {
       expect(note).toContain('stage "review" model "fable-5" → "fable"');
       expect(note).toContain("--force replaces it with pharn-oss's");
       // The note's own lines (not the quoted, indented details) stay within
-      // 70 columns: an 80-column note box never wraps one mid-sentence.
-      for (const line of note.split('\n')) {
+      // 70 VISIBLE columns: an 80-column note box never wraps one mid-sentence.
+      // Measured without color codes, which CI turns on (picocolors reads CI).
+      for (const line of stripVTControlCharacters(note).split('\n')) {
         if (!line.startsWith('  ')) expect(line.length).toBeLessThanOrEqual(70);
       }
       // A kept block is configuration, not unfinished work.
