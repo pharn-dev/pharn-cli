@@ -97,25 +97,31 @@ floor.
 
 State these honestly; do not pretend they are free.
 
-### 3a. Network — and no proxy support
+### 3a. Network — and proxy support only through Node's opt-in
 
 `init` / `add` / `update` require a network. They require **no `git` binary at all**: pharn resolves
 the branch head over the GitHub REST API and downloads the repo tarball from `codeload.github.com`,
 extracting it itself (`src/lib/tar-extract.ts`). Nothing is spawned. There is no offline or
 air-gapped install path today.
 
-**pharn does not use an HTTP proxy.** Every network call goes through Node's global `fetch`, which
-reads **no** proxy environment variable — not `https_proxy`, not `HTTPS_PROXY`, not `no_proxy`, on
-any platform. In a network where direct egress is blocked, `pharn` cannot fetch, and setting a proxy
-variable will not change that.
+**pharn has no proxy support of its own.** Every network call goes through Node's global `fetch`,
+which by default reads **no** proxy environment variable — not `https_proxy`, not `HTTPS_PROXY`, not
+`no_proxy`. Node 22.21+ and 24+ can opt in with `NODE_USE_ENV_PROXY=1` (22.21+ and 24.5+ also accept
+`--use-env-proxy`, for example through `NODE_OPTIONS`); Node's `fetch` then reads `https_proxy`,
+`HTTPS_PROXY`, `http_proxy`, `HTTP_PROXY`, in that order, and honours `NO_PROXY`. Node 20, 21,
+22.0–22.20 and 23 have no opt-in: there, in a network where direct egress is blocked, `pharn` cannot
+fetch, and setting a proxy variable will not change that. The exact rules are in
+`docs/troubleshooting.md` → "Proxy environment variables".
 
 This is a **regression for one group of users**, and it is named here rather than left to be
 discovered: the previous clone path went through `degit`, which read `process.env.https_proxy`
 itself, so a user who had set exactly that lowercase spelling was proxied for the clone. They were
 already unproxied for `pharn update`'s and `status --no-drift`'s version checks, which were always
 plain `fetch` — so this makes one boundary consistent rather than newly broken, but it does break a
-working setup. Every network-bearing command warns before fetching when it finds a proxy variable
-set, so the failure is explained rather than silent.
+working setup.
+On a Node with the opt-in, turning it on restores proxying for every download, the clone included.
+Every network-bearing command says, before it fetches, whether this Node will use the proxy it found
+set, and if not, what would make it, so the failure is explained rather than silent.
 
 ### 3b. GitHub API rate limits
 

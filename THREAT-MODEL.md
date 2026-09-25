@@ -118,13 +118,15 @@ a test.
   ~2.4 MB tarball per distinct upstream commit, retained forever, each one an entry reusable by
   filename. Caches already on disk are inert but **not** removed — pharn deletes nothing outside the
   user's project; `docs/troubleshooting.md` says where they live and how to size them.
-- **No proxy support, stated as a limit.** Node's global `fetch` reads **no** proxy environment
-  variable, on any platform. The previous dependency read `process.env.https_proxy` itself — only
-  that lowercase spelling, and never `no_proxy`. So a user behind a corporate proxy who succeeded
-  before will now fail; `pharn update` and `status --no-drift` already failed for the same reason,
-  since those were always plain `fetch`. This makes one boundary consistent rather than newly broken,
-  and it is a named limit (`LIMITS.md` §3a), warned about before the fetch rather than surfacing as
-  an unexplained timeout.
+- **No proxy support of pharn's own, stated as a limit.** Node's global `fetch` reads **no** proxy
+  environment variable by default. Node 22.21+ and 24+ read them once the user opts in
+  (`NODE_USE_ENV_PROXY=1`; `--use-env-proxy` on 22.21+ and 24.5+), and then honour `NO_PROXY`; Node
+  20, 21, 22.0–22.20 and 23 have no opt-in. The previous dependency read `process.env.https_proxy`
+  itself — only that lowercase spelling, and never `no_proxy`. So a user behind a corporate proxy
+  who succeeded before now fails unless they opt in, and on a Node without the opt-in they cannot;
+  `pharn update` and `status --no-drift` already behaved the same, since those were always plain
+  `fetch`. It is a named limit (`LIMITS.md` §3a), and every network-bearing command says which case
+  applies before the fetch rather than letting it surface as an unexplained timeout.
 - **No silent transport change.** The previous path could fall back from an HTTP tarball to a spawned
   `git clone`, or take the commit hash from cache, emitting `warn` events that `fetchRepo` registered
   no listener for — so the silence was pharn's. There are no fallbacks now: the download either
@@ -199,9 +201,10 @@ a named per-field sanitizer, not a "the source repo is ours" assumption (P0).
     content. Extraction is also **not transactional** — a mid-extract rejection leaves a partial tree,
     which is why `fetchRepo` removes the temp dir on the error path rather than returning it.
   - **A named regression, not a hidden one.** Node's global `fetch` reads no proxy environment
-    variable, so a user behind a corporate proxy who succeeded via the old dependency's own
-    `https_proxy` read now fails. `LIMITS.md` §3a carries it, and every network-bearing command warns
-    before the fetch when a proxy is configured.
+    variable by default, so a user behind a corporate proxy who succeeded via the old dependency's
+    own `https_proxy` read now fails unless they opt in (`NODE_USE_ENV_PROXY=1`, Node 22.21+ and
+    24+; no opt-in exists on Node 20, 21, 22.0–22.20 or 23). `LIMITS.md` §3a carries it, and every
+    network-bearing command says which case applies before the fetch.
 
 - **4c. The stored content-hashes cover only what pharn wrote, at the matching stamp.** pharn does keep
   a per-file sha256 baseline — [`pharn.records.json`](docs/reference/pharn-records.md), stamped with the
