@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Node 20.13.0 or newer is now required (`engines.node: ">=20.13.0"`).** On Node 20.12.x, cancelling a `pharn` confirmation (Esc or Ctrl-C), or a picker after selecting something, crashed with `ERR_INVALID_ARG_VALUE`, exit 1 and a stack trace, instead of "Cancelled" and exit 0. The prompt library passes `util.styleText` an array of formats, which Node accepts only from 20.13.0, although the library itself declares `>= 20.12.0`. No project was ever changed at that point, but 20.12.x never worked properly, so this drops no working setup. `tests/engines.test.ts` now also scans the runtime dependencies' shipped code for known version-gated Node APIs, rather than trusting their declared floor. The smoke job that starts the packed CLI on the floor Node is now named `Smoke (node floor)`.
+
 ### Fixed
 
 - **Releases could not publish: the `Pack` step wrote into a directory nothing had created.** Since the release workflow was split into an unprivileged `build` job and a `publish` job, `build` ran `npm pack --pack-destination "$RUNNER_TEMP/pkg"` without creating `pkg/`, and npm does not create it (`ENOENT` on npm 10 and 11). Every Release run would have failed at `Pack` and never reached `publish`. The step now runs `mkdir -p` first, and a live test pins that every workflow's pack destination is created earlier in the job that packs.

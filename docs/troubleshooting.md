@@ -104,8 +104,12 @@ directory (or move it aside) and re-run.
 
 ## Prerequisites failed
 
-`pharn init` has three prerequisites — a git repository, an interactive terminal, and Node >= 20.12.0. On an older Node 20 even
-`pharn --version` fails at load time with `does not provide an export named 'styleText'` — upgrade Node.
+`pharn init` has three prerequisites — a git repository, an interactive terminal, and Node >= 20.13.0. On an older Node 20 even
+`pharn --version` fails at load time with `does not provide an export named 'styleText'` — upgrade Node. On
+Node 20.12.x the CLI starts, but cancelling a confirmation (Esc or Ctrl-C), or a picker after selecting something, crashes with
+`ERR_INVALID_ARG_VALUE … Received [ 'strikethrough', 'dim' ]` and a stack trace instead of exiting cleanly: the
+prompt library passes `styleText` an array of formats, which Node accepts only from 20.13.0. Nothing was
+written at that point — upgrade Node.
 There is no stack-pack or package prerequisite: archetype detection reads `package.json` names and the
 file tree, and installs whatever capabilities apply.
 

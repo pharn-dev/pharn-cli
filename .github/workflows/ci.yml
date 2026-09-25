@@ -16,9 +16,9 @@ name: ci
 #
 # Coverage is deliberately one platform, one Node version (see
 # `.dev/features/ci-matrix-required-checks/PLAN.md`). Note that `package.json`
-# declares `engines.node: ">=20.12.0"` while these gates run node 24 — the lower
+# declares `engines.node: ">=20.13.0"` while these gates run node 24 — the lower
 # end of that published range is exercised only by the separate, non-required
-# `Smoke (node 20.12.0)` job in `node-floor.yml`, never by these gates.
+# `Smoke (node floor)` job in `node-floor.yml`, never by these gates.
 
 on:
   pull_request:
