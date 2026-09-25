@@ -166,15 +166,18 @@ config the other commands would accept, and your own keys from any config that p
 a config that is not valid JSON carries nothing over. If `pharn.config.json` changes while `init` waits at
 its prompts (another `pharn` command wrote it), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
-**When `init` refuses to install.** Before anything is written — the backup included — `init` checks
-every path it is about to write and stops, naming each problem, if the copy could not finish: a
-symbolic link on the way (writing through a linked directory would put files outside your project, and
-a linked file would be replaced by pharn's copy), or an entry of the wrong kind (a directory where
-pharn writes a file, or a file where it needs a directory — `pharn.config.json` and
-`pharn.records.json` included). A refused install writes nothing: no files, no config, no records and
-no `.pharn-backup/`. A symbolic link at `.claude/settings.json` is fine while it points at an existing
-file — `init` never writes an existing settings file — and is refused only when its target does not
-exist. See [Something in your project is in the way](../troubleshooting.md#something-in-your-project-is-in-the-way).
+**When `init` refuses to install.** After you choose **install**, and before it asks to overwrite
+anything, `init` checks every path it is about to write and stops, naming each problem, if the copy
+could not finish: a symbolic link on the way (writing through a linked directory would put files
+outside your project, and a linked file would be replaced by pharn's copy), or an entry of the wrong
+kind (a directory where pharn writes a file, or a file where it needs a directory — `pharn.config.json`
+and `pharn.records.json` included). So you are never asked **Continue and overwrite?** for an install
+that could not finish. The same check runs again under the project lock, before anything is written —
+the backup included — so a problem that appears while the prompt is open is still refused. A refused
+install writes nothing: no files, no config, no records and no `.pharn-backup/`. A symbolic link at
+`.claude/settings.json` is fine while it points at an existing file — `init` never writes an existing
+settings file — and is refused only when its target does not exist. See
+[Something in your project is in the way](../troubleshooting.md#something-in-your-project-is-in-the-way).
 
 ### 7. Install
 

@@ -24,6 +24,7 @@ import { confirmWriteTargets } from '../steps/overwrite-check.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
 import {
   installManifest,
+  preflightInstall,
   reinstallBaseline,
   runInstallArchetype,
   type InstallCarry,
@@ -187,14 +188,24 @@ async function runInitArchetype(): Promise<void> {
       // to leak the clone.
       //
       // The install manifest — every file this install writes, dest → source —
-      // computed ONCE, here, and handed to the prompt and to the install (its
-      // pre-flight, backup scan, copy and records). It depends only on the
-      // clone, the selection and the clone's layout, and none of those change
-      // during the run; it used to be rebuilt five times. Only the HASHING is
-      // repeated, deliberately: the install re-scans under the lock, so an edit
-      // made while the prompt was open is still backed up.
+      // computed ONCE, here, and handed to the early pre-flight, the prompt and
+      // the install (its pre-flight, backup scan, copy and records). It depends
+      // only on the clone, the selection and the clone's layout, and none of
+      // those change during the run; it used to be rebuilt five times. Only the
+      // HASHING is repeated, deliberately: the install re-scans under the lock,
+      // so an edit made while the prompt was open is still backed up.
       const manifest =
         action === 'install' ? installManifest(repo.dir, selection) : null;
+      // The destination pre-flight, BEFORE the overwrite prompt: a project the
+      // install cannot finish in (a symlink on the way, a type in the way) is
+      // refused here — exit 1 through the catch below, the clone cleaned up
+      // first — rather than after the user has answered yes to a question whose
+      // yes could not be honoured. The early answer only: the tree can change
+      // while the prompt is open, so the same checks run again under the lock
+      // (runInstallArchetype, before its backup), and those are authoritative.
+      if (manifest !== null) {
+        preflightInstall(repo.dir, cwd, selection, manifest);
+      }
       const overwrite =
         manifest !== null
           ? await confirmWriteTargets(repo.dir, cwd, selection, {

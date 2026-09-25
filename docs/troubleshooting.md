@@ -238,20 +238,21 @@ Refusing to install: .claude/commands/pharn-plan.md is in the way — pharn need
 a directory, or a directory where you have a file. Nothing was written.
 ```
 
-Before its first write, `init` checks every path it is about to install. If one of them exists in your
-project as the wrong kind of entry (a directory where pharn writes a file, or a file where it needs a
-directory), `init` stops and names each one (up to five, then a count). That includes a **directory**
-named `pharn.config.json` or `pharn.records.json`, the two files `init` writes beside the copy. Your
-project is left exactly as it was — no backup directory either. Move or rename the named entries and
-re-run `pharn init`. The optional `features/README.md` is the one exception: a collision there is
-skipped rather than refused.
+Before it asks to overwrite anything, `init` checks every path it is about to install, and it checks
+again just before its first write. If one of them exists in your project as the wrong kind of entry
+(a directory where pharn writes a file, or a file where it needs a directory), `init` stops and names
+each one (up to five, then a count). That includes a **directory** named `pharn.config.json` or
+`pharn.records.json`, the two files `init` writes beside the copy. Your project is left exactly as it
+was — no backup directory either. Move or rename the named entries and re-run `pharn init`. The
+optional `features/README.md` is the one exception: a collision there is skipped rather than refused.
 
 ```text
 Refusing to install: pharn-review is a symbolic link inside the project, so writing through it would
 put files OUTSIDE the project. Replace it with a real directory (or remove it). Nothing was written; …
 ```
 
-A **symbolic link** on the way is refused the same way, before anything is written:
+A **symbolic link** on the way is refused the same way, before the overwrite prompt and before
+anything is written:
 
 - A linked **directory** (`.claude/`, `.claude/commands`, `pharn/`, a capability directory, …): the
   copy would follow it and write outside your project. Replace it with a real directory.

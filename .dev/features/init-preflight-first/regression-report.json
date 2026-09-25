@@ -1,0 +1,26 @@
+{
+  "base": "33861f1883f2189bdfbcaa32e7a9868fcefe61ea",
+  "inside": [
+    "src/steps/install-archetype.ts",
+    "src/commands/init.ts",
+    "tests/init.test.ts",
+    "tests/init-archetype.test.ts",
+    "docs/commands/init.md",
+    "docs/troubleshooting.md",
+    "CLAUDE.md",
+    "CHANGELOG.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
