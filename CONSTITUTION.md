@@ -74,8 +74,11 @@ A file changes for exactly **one** reason. `index.ts` dispatches; each file in `
 verb (`init`/`add`/`remove`/`update`/`list`/`status`); each file in `steps/` owns one init stage;
 shared logic lives in `lib/` and is reached from commands/steps — **never** command→command or
 step→step (see `ARCHITECTURE.md §4`). Ownership boundaries are also axes: **this CLI owns the
-`pharn.config.json` schema; pharn-oss owns the module/manifest schemas** — those never merge into
-one file.
+`pharn.config.json` schema — every key except `models`, whose schema and defaults pharn-oss owns —
+and pharn-oss owns the module/manifest schemas** — those never merge into one file. pharn-oss's
+`models` rules live apart from the CLI's own config schema (`src/lib/model-config.ts`, a copy pinned
+to pharn-oss's checker by `tests/model-config-parity.test.ts`; `src/lib/pharn-config.ts` is the
+CLI's).
 
 VIOLATION: two change-reasons in one file, or a leaf importing a sibling leaf → STOP. Split, or
 route the shared thing through `lib/`.

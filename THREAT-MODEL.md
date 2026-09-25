@@ -148,6 +148,7 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 | redirect to attacker host | `redirect: 'error'` on every pharn `fetch()` call, the tarball included | `fetchRemoteSkillsVersion`, `fetchCommitSha`, `downloadArchive` |
 | malformed / hostile archive entry | typeflag allowlist (files + dirs only; symlinks, hardlinks, devices and fifos **rejected**), `prefix`+`name` reassembly, `..`/absolute rejection, single-root check, `safeJoin` on every write, header-checksum verification | `extractTar` (`src/lib/tar-extract.ts`) |
 | poisoned tarball cache | **not applicable — pharn keeps no cache.** Every fetch downloads into a fresh temp dir | `fetchRepo` (`src/lib/repo.ts`) |
+| malformed / hostile upstream `models` block | bounded (1 MiB), non-blocking read; checked against pharn-oss's rules through the pinned copy; an unserializable block is refused; a failing block is **not written** and each reason is printed through `terminalSafe`; never executed | `readUpstreamModels` (`src/lib/upstream-models.ts`), `checkModelsBlock` (`src/lib/model-config.ts`) |
 | consent bypass / silent overwrite | install summary confirm (`runArchetypeSummary`); overwrite-conflict list derived from `collectExpectedInstallPaths` + default **No** (`confirmWriteTargets` in `src/steps/overwrite-check.ts`) | consent gate |
 | copied methodology (Surface A) | validated for placement only; content trust is provenance + user review (`LIMITS.md §1`) | (labeled limit) |
 | stale / renamed upstream | drift derived live; a missing expected path is **reported**, never guessed | `diffInstalledCapabilities` (`src/lib/diff.ts`) |
@@ -159,18 +160,24 @@ own. `writePharnConfig` (`src/lib/pharn-config.ts`) serializes the config with
 `JSON.stringify` to a **fixed, non-attacker-influenced path** — `configPath(cwd)` =
 `resolve(cwd, 'pharn.config.json')` — so the sink location is never derived from
 remote input. The record mixes local-origin fields (`pharnVersion`, `repo`,
-`installedAt`, `modules`, the `models`/`seam` defaults) with three network-derived
-ones, and **each network-derived field is validated at its ingest boundary before
-it can reach this write** (P0/P2): `skillsVersion` against `VERSION_RE`
+`installedAt`, `modules`, the `seam` default) with four network-derived ones, and
+**each network-derived field is validated at its ingest boundary before it can
+reach this write** (P0/P2): `skillsVersion` against `VERSION_RE`
 (`readSkillsVersion`, `src/lib/skills-version.ts`); every `capabilities[]` name
 against `CAPABILITY_NAME_RE` (`parseCapabilityIndex` / `installCapabilityDirs`,
-`src/lib/capability-index.ts` + `src/lib/install-capabilities.ts`); and the `commit`
+`src/lib/capability-index.ts` + `src/lib/install-capabilities.ts`); the `commit`
 SHA against `COMMIT_RE` — a full 40-hex sha — at the fetch boundary in `fetchRepo`
-(`src/lib/repo.ts`), with `null` the documented degraded mode (§4, `LIMITS.md §3b`).
-`JSON.stringify` neutralizes structural injection into the file, and the three
-boundary validators keep unvalidated remote bytes from being recorded as
-provenance — closing the CodeQL `js/http-to-file-access` flow (network → file) with
-a named per-field sanitizer, not a "the source repo is ours" assumption (P0).
+(`src/lib/repo.ts`), with `null` the documented degraded mode (§4, `LIMITS.md §3b`);
+and the `models` block, copied from pharn-oss's root `pharn.config.json`, against
+pharn-oss's own rules — `checkModelsBlock` (`src/lib/model-config.ts`, a copy pinned
+to pharn-oss's checker) applied by `readUpstreamModels`
+(`src/lib/upstream-models.ts`), which bounds the read to 1 MiB and refuses a block
+it cannot serialize. A block that fails is not written; keys the checker does not
+read are carried verbatim and nothing reads them. `JSON.stringify` neutralizes
+structural injection into the file, and the four boundary validators keep
+unvalidated remote bytes from being recorded as provenance — closing the CodeQL
+`js/http-to-file-access` flow (network → file) with a named per-field sanitizer,
+not a "the source repo is ours" assumption (P0).
 
 ---
 
