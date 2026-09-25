@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
-import { ModelRoutingError } from '../src/lib/model-routing.js';
 import { SeamConfigError } from '../src/lib/seam-config.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -21,8 +20,7 @@ vi.mock('../src/lib/pharn-config.js', () => ({
   readPharnConfig,
   // Real discriminators so list's branches are exercised faithfully.
   isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
-  isConfigValidationError: (e: unknown) =>
-    e instanceof ModelRoutingError || e instanceof SeamConfigError,
+  isConfigValidationError: (e: unknown) => e instanceof SeamConfigError,
   LEGACY_CONFIG_MESSAGE: LEGACY,
 }));
 
@@ -205,13 +203,15 @@ describe('runList --json', () => {
 
   it('emits the loud validator error to stderr (stdout clean) when config is invalid (BUG 1)', async () => {
     readPharnConfig.mockImplementationOnce(() => {
-      throw new ModelRoutingError('models.default has invalid model "gpt-4"');
+      throw new SeamConfigError(
+        'seam.resolutionOrder has unknown step "guess"',
+      );
     });
     await expect(runList({ json: true })).rejects.toMatchObject(
       new ProcessExit(1),
     );
     expect(logSpy).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalled();
-    expect(String(errSpy.mock.calls[0]![0])).toMatch(/gpt-4/);
+    expect(String(errSpy.mock.calls[0]![0])).toMatch(/guess/);
   });
 });

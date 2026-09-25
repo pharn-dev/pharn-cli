@@ -505,12 +505,20 @@ describe('runStatus (archetype)', () => {
     expect(noteBody('DRIFT')).not.toContain('UNREADABLE');
   });
 
-  it('MODELS note renders the per-stage routing from config.models', async () => {
+  // The MODELS note shows pharn-oss's block resolved per product stage, under
+  // a label that says what it is: Claude Code applies each command's own
+  // frontmatter, and the block is the source of truth that frontmatter is held
+  // to. Never presented as routing that happens.
+  it('MODELS note resolves every product stage, labeled truthfully', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(
       config({
+        layout: 'pharn',
         models: {
-          default: { model: 'sonnet-5', effort: 'high' },
-          stages: { review: { model: 'opus-4-8', effort: 'high' } },
+          stages: {
+            default: { model: 'sonnet', effort: 'high' },
+            plan: { model: 'opus', effort: 'high' },
+            review: { model: 'claude-opus-4-8', effort: 'xhigh' },
+          },
         },
       }),
     );
@@ -519,12 +527,95 @@ describe('runStatus (archetype)', () => {
     await runStatus({ drift: false });
 
     const models = noteBody('MODELS');
-    expect(models).toContain('default   sonnet-5 · high');
-    expect(models).toContain('review    opus-4-8 · high');
-    // The note reports what the config RECORDS, and says so: no installed
-    // command reads models.stages yet, so a reader must not take these lines
-    // as the model a stage will actually run.
-    expect(models).toContain('no installed stage reads this yet');
+    expect(models).toContain('default          sonnet · high');
+    expect(models).toContain('plan             opus · high');
+    expect(models).toContain('review           claude-opus-4-8 · xhigh');
+    // A stage with no entry of its own shows the default it resolves to.
+    expect(models).toContain('memory-promote   sonnet · high  (default)');
+    expect(models).toContain('ac-test          sonnet · high  (default)');
+    expect(models).toContain(
+      "Claude Code applies each /pharn-* command's own model:/effort:",
+    );
+    expect(models).toContain(
+      'frontmatter, not this block. The block is the source of truth',
+    );
+    expect(models).toContain(
+      'node pharn/floor/check-model-config.mjs agreement',
+    );
+    expect(models).not.toMatch(/rout/i);
+    expect(models).not.toContain('no installed stage reads');
+  });
+
+  it('points a flat install at the checker under .dev/floor', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({
+        models: { stages: { default: { model: 'opus', effort: 'low' } } },
+      }),
+    );
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+    await runStatus({ drift: false });
+    expect(noteBody('MODELS')).toContain(
+      'node .dev/floor/check-model-config.mjs agreement',
+    );
+  });
+
+  it('says a block in the old pharn format is converted by `pharn update`', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({
+        models: {
+          default: { model: 'sonnet-5', effort: 'high' },
+          stages: {
+            plan: { model: 'opus-4-8', effort: 'max' },
+            review: { model: 'opus-4-8', effort: 'high' },
+          },
+        },
+      }),
+    );
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+    await runStatus({ drift: false });
+    const models = noteBody('MODELS');
+    expect(models).toContain('In the format pharn wrote before 0.7.0');
+    expect(models).toContain('`pharn update` converts it');
+    for (const line of models.split('\n')) {
+      expect(line.length).toBeLessThanOrEqual(70);
+    }
+    expect(models).not.toContain('sonnet-5 · high');
+  });
+
+  it("lists what pharn-oss's rules reject — terminal-safe — and does not fail --strict", async () => {
+    const ESC = String.fromCharCode(27);
+    const RLO = String.fromCharCode(0x202e);
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({
+        models: {
+          stages: {
+            default: { model: 'sonnet', effort: 'high' },
+            [`pl${ESC}[2Kan`]: { model: 'opus', effort: 'high' },
+            review: { model: `${RLO}opus`, effort: 'high' },
+          },
+        },
+      }),
+    );
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+    // --strict gates on the install, not on this block: pharn-oss's checker
+    // owns that verdict. Current version + no drift checked → no exit.
+    await runStatus({ strict: true, drift: false });
+
+    const models = noteBody('MODELS');
+    expect(models).toContain("pharn-oss's rules reject this block:");
+    expect(models).toContain('is not a product stage');
+    expect(models).toContain('is not an alias');
+    expect(models).toContain('node .dev/floor/check-model-config.mjs validate');
+    expect(models).not.toContain(RLO);
+    expect(models).not.toContain(`${ESC}[2K`);
+  });
+
+  it('says so when the block declares no stages', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(config({ models: {} }));
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+    await runStatus({ drift: false });
+    expect(noteBody('MODELS')).toContain('Declares no stages');
   });
 
   it('omits the MODELS note when config.models is absent (legacy archetype config)', async () => {

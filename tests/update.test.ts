@@ -82,11 +82,17 @@ vi.mock('../src/lib/pharn-config.js', async () => {
 
 const { runUpdate } = await import('../src/commands/update.js');
 const prompts = await import('@clack/prompts');
-const { readRecords, writeRecords, RECORDS_FILE } =
-  await import('../src/lib/install-records.js');
+const {
+  MODELS_RECORD_KEY,
+  modelsRecordHash,
+  readRecords,
+  writeRecords,
+  RECORDS_FILE,
+} = await import('../src/lib/install-records.js');
 const { sha256File } = await import('../src/lib/hash.js');
 const { BACKUP_DIR } = await import('../src/lib/backup.js');
-const { readPharnConfig } = await import('../src/lib/pharn-config.js');
+const { readPharnConfig, writePharnConfig } =
+  await import('../src/lib/pharn-config.js');
 
 // ---------------------------------------------------------------------------
 // Real-filesystem fixture: a fake clone + a real project root. The command's
@@ -2259,6 +2265,376 @@ describe('runUpdate (drift-safe)', () => {
 
     expect(records()?.[DOC]).toBe(sha256File(join(proj, DOC)));
     expect(cleanup).toHaveBeenCalled();
+  });
+
+  // The `models` block is pharn-oss's. `update` moves a block pharn wrote to
+  // pharn-oss's current one and keeps one the user edited — the per-file rows,
+  // over the block (lib/models-update.ts) — and converts the format pharn
+  // wrote before 0.7.0.
+  describe('the models block', () => {
+    const UPSTREAM = {
+      stages: {
+        default: { model: 'sonnet', effort: 'high' },
+        plan: { model: 'opus', effort: 'high' },
+        review: { model: 'opus', effort: 'high' },
+      },
+    };
+    // The default every published pharn through 0.6.0 wrote.
+    const OLD_DEFAULT = {
+      default: { model: 'sonnet-5', effort: 'high' },
+      stages: {
+        plan: { model: 'opus-4-8', effort: 'max' },
+        review: { model: 'opus-4-8', effort: 'high' },
+      },
+    };
+    const models = () => readPharnConfig(proj)!.models;
+    const needsConversionAfter = () =>
+      JSON.stringify(models()).includes('opus-4-8');
+    const modelsNote = () =>
+      (vi
+        .mocked(prompts.note)
+        .mock.calls.find((c) => c[1] === 'MODELS')?.[0] as
+        string | undefined) ?? '';
+    // The config on disk too: `--force` backs it up, and the position test
+    // reads it raw.
+    async function installedWith(
+      block: unknown,
+      recorded?: unknown,
+    ): Promise<PharnConfig> {
+      const config = await installed(
+        block === undefined ? {} : { models: block },
+      );
+      await writePharnConfig(proj, config);
+      if (recorded !== undefined) {
+        const read = readRecords(proj);
+        if (read.kind !== 'ok') throw new Error('no records');
+        await writeRecords(proj, {
+          skillsVersion: config.skillsVersion,
+          commit: config.commit,
+          files: {
+            ...read.store.files,
+            [MODELS_RECORD_KEY]: modelsRecordHash(recorded),
+          },
+        });
+      }
+      return config;
+    }
+
+    beforeEach(() => {
+      write(
+        join(repo, 'pharn.config.json'),
+        JSON.stringify({ models: UPSTREAM, ship: {} }),
+      );
+    });
+
+    it("replaces the default an earlier pharn wrote with pharn-oss's block", async () => {
+      await installedWith(OLD_DEFAULT);
+
+      await runUpdate();
+
+      expect(models()).toEqual(UPSTREAM);
+      expect(records()?.[MODELS_RECORD_KEY]).toBe(modelsRecordHash(UPSTREAM));
+      expect(modelsNote()).toContain(
+        "Replaced the models block an earlier pharn wrote with pharn-oss's.",
+      );
+      expect(modelsNote()).toContain(
+        'node .dev/floor/check-model-config.mjs agreement',
+      );
+    });
+
+    it('converts an edited block in the old format and keeps its values — and the version still advances', async () => {
+      await installedWith({
+        default: { model: 'haiku-4-5', effort: 'low' },
+        stages: { review: { model: 'fable-5', effort: 'max' } },
+      });
+
+      await runUpdate();
+
+      expect(models()).toEqual({
+        stages: {
+          default: { model: 'haiku', effort: 'low' },
+          review: { model: 'fable', effort: 'max' },
+        },
+      });
+      // Converted by pharn, still the user's: no record claims it.
+      expect(records()?.[MODELS_RECORD_KEY]).toBeUndefined();
+      const note = modelsNote();
+      expect(note).toContain(
+        'Kept your models block — pharn has no record of writing it.',
+      );
+      expect(note).toContain(
+        'Converted your models block from the format pharn wrote before 0.7.0,',
+      );
+      expect(note).toContain('stage "review" model "fable-5" → "fable"');
+      expect(note).toContain("--force replaces it with pharn-oss's");
+      // The note's own lines (not the quoted, indented details) stay within
+      // 70 columns: an 80-column note box never wraps one mid-sentence.
+      for (const line of note.split('\n')) {
+        if (!line.startsWith('  ')) expect(line.length).toBeLessThanOrEqual(70);
+      }
+      // A kept block is configuration, not unfinished work.
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+    });
+
+    it('names what cannot be converted and leaves it as it is', async () => {
+      await installedWith({
+        default: { model: 'gpt-4', effort: 'high' },
+        stages: { plan: { model: 'opus-4-8', effort: 'max' } },
+      });
+
+      await runUpdate();
+
+      expect(models()).toEqual({
+        stages: {
+          default: { model: 'gpt-4', effort: 'high' },
+          plan: { model: 'opus', effort: 'max' },
+        },
+      });
+      expect(modelsNote()).toContain(
+        "pharn-oss's rules still reject your models block — left as is,",
+      );
+      expect(modelsNote()).toContain('stage "default" model "gpt-4"');
+    });
+
+    // The conversion is this CLI's job, so it must reach an install that is
+    // already current — and must not keep re-opening the gate once done.
+    it('migrates at the same skills version, then is up to date', async () => {
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+      write(join(repo, 'SKILLS_VERSION'), '1.0.0\n');
+      await installedWith(OLD_DEFAULT);
+
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(models()).toEqual(UPSTREAM);
+      // The confirm note said why a current install is being re-applied.
+      expect(String(vi.mocked(prompts.note).mock.calls[0]?.[0])).toContain(
+        'Your models block is in the format pharn wrote before 0.7.0 — this run converts it.',
+      );
+
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj));
+      vi.mocked(prompts.outro).mockClear();
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0]).toBe(
+        'Already up to date (skills v1.0.0).',
+      );
+    });
+
+    // Review finding (REVIEW.md, P5): the gate must close even when what update
+    // wrote is itself convertible — here a block pharn-oss might ship with a
+    // top-level `default`, which its checker ignores.
+    it('closes the gate once it has written the block, even a convertible one', async () => {
+      const shaped = {
+        default: { model: 'sonnet', effort: 'high' },
+        stages: UPSTREAM.stages,
+      };
+      write(
+        join(repo, 'pharn.config.json'),
+        JSON.stringify({ models: shaped }),
+      );
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+      write(join(repo, 'SKILLS_VERSION'), '1.0.0\n');
+      await installedWith(OLD_DEFAULT);
+
+      await runUpdate();
+      expect(models()).toEqual(shaped);
+
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj));
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0]).toBe(
+        'Already up to date (skills v1.0.0).',
+      );
+    });
+
+    // Review finding (REVIEW.md, P5), end to end: an old default converted
+    // while pharn-oss's block was unusable is still pharn's afterwards.
+    it('replaces an old default it had to convert, once pharn-oss’s block is usable', async () => {
+      write(
+        join(repo, 'pharn.config.json'),
+        JSON.stringify({ models: { stages: { triage: {} } } }),
+      );
+      await installedWith(OLD_DEFAULT);
+
+      await runUpdate();
+      expect(needsConversionAfter()).toBe(false);
+
+      // pharn-oss fixes its block in its next release.
+      write(
+        join(repo, 'pharn.config.json'),
+        JSON.stringify({ models: UPSTREAM }),
+      );
+      write(join(repo, 'SKILLS_VERSION'), '1.2.0\n');
+      fetchRemoteSkillsVersion.mockResolvedValue('1.2.0');
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj));
+      vi.mocked(prompts.note).mockClear();
+      await runUpdate();
+
+      expect(models()).toEqual(UPSTREAM);
+      expect(modelsNote()).toContain(
+        "Moved your models block to pharn-oss's current one: you had",
+      );
+    });
+
+    it("restores a missing block with pharn-oss's", async () => {
+      await installedWith(undefined);
+
+      await runUpdate();
+
+      expect(models()).toEqual(UPSTREAM);
+      expect(records()?.[MODELS_RECORD_KEY]).toBe(modelsRecordHash(UPSTREAM));
+      expect(modelsNote()).toContain(
+        "Your config had no models block — wrote pharn-oss's.",
+      );
+    });
+
+    it('moves a block still at its recorded hash to the current one', async () => {
+      const previous = {
+        stages: { default: { model: 'opus', effort: 'low' } },
+      };
+      await installedWith(previous, previous);
+
+      await runUpdate();
+
+      expect(models()).toEqual(UPSTREAM);
+      expect(modelsNote()).toContain(
+        "Moved your models block to pharn-oss's current one: you had",
+      );
+    });
+
+    it('keeps a block the user changed, in place, with its record carried', async () => {
+      const edited = {
+        stages: {
+          default: { model: 'haiku', effort: 'low' },
+          review: { model: 'fable', effort: 'max' },
+        },
+      };
+      await installedWith(edited, { stages: {} });
+      const keysBefore = Object.keys(
+        JSON.parse(readFileSync(join(proj, 'pharn.config.json'), 'utf8')),
+      );
+
+      await runUpdate();
+
+      expect(models()).toEqual(edited);
+      expect(records()?.[MODELS_RECORD_KEY]).toBe(
+        modelsRecordHash({ stages: {} }),
+      );
+      expect(modelsNote()).toContain(
+        'Kept your models block — you changed it since pharn wrote it.',
+      );
+      // The key keeps its place in the file.
+      const keysAfter = Object.keys(
+        JSON.parse(readFileSync(join(proj, 'pharn.config.json'), 'utf8')),
+      );
+      expect(keysAfter.indexOf('models')).toBe(keysBefore.indexOf('models'));
+    });
+
+    it('--force replaces a block the user changed, after backing up the config', async () => {
+      const edited = {
+        stages: { default: { model: 'haiku', effort: 'low' } },
+      };
+      await installedWith(edited, { stages: {} });
+
+      await runUpdate({ force: true });
+
+      expect(models()).toEqual(UPSTREAM);
+      const dirs = backupDirs();
+      expect(dirs).toHaveLength(1);
+      const saved = JSON.parse(
+        readFileSync(
+          join(proj, BACKUP_DIR, dirs[0]!, 'pharn.config.json'),
+          'utf8',
+        ),
+      ) as { models: unknown };
+      expect(saved.models).toEqual(edited);
+      expect(modelsNote()).toContain(
+        "Replaced your models block with pharn-oss's (--force).",
+      );
+      expect(modelsNote()).toContain(`${BACKUP_DIR}/${dirs[0]!}`);
+    });
+
+    it("says nothing about a block that is already pharn-oss's", async () => {
+      await installedWith(structuredClone(UPSTREAM));
+
+      await runUpdate();
+
+      expect(modelsNote()).toBe('');
+      expect(records()?.[MODELS_RECORD_KEY]).toBe(modelsRecordHash(UPSTREAM));
+    });
+
+    it('with no usable records file, keeps a block it cannot prove is pharn’s', async () => {
+      const edited = { stages: { default: { model: 'haiku', effort: 'low' } } };
+      await installedWith(edited);
+      rmSync(join(proj, RECORDS_FILE));
+
+      await runUpdate();
+
+      expect(models()).toEqual(edited);
+      expect(modelsNote()).toContain(
+        `Kept your models block — no usable ${RECORDS_FILE} to check it.`,
+      );
+    });
+
+    it('when pharn-oss ships no block, still converts yours from the old format', async () => {
+      rmSync(join(repo, 'pharn.config.json'));
+      await installedWith(OLD_DEFAULT);
+
+      await runUpdate();
+
+      expect(models()).toEqual({
+        stages: {
+          default: { model: 'sonnet', effort: 'high' },
+          plan: { model: 'opus', effort: 'max' },
+          review: { model: 'opus', effort: 'high' },
+        },
+      });
+      const note = modelsNote();
+      expect(note).toContain(
+        'pharn-oss ships no models block, so yours is kept.',
+      );
+      expect(note).toContain('Converted your models block');
+    });
+
+    it('when pharn-oss ships no block and yours needs nothing, says nothing', async () => {
+      rmSync(join(repo, 'pharn.config.json'));
+      await installedWith(structuredClone(UPSTREAM));
+
+      await runUpdate();
+
+      expect(models()).toEqual(UPSTREAM);
+      expect(modelsNote()).toBe('');
+    });
+
+    it("does not apply a block pharn-oss's rules reject, and names why", async () => {
+      write(
+        join(repo, 'pharn.config.json'),
+        JSON.stringify({
+          models: { stages: { default: UPSTREAM.stages.default, triage: {} } },
+        }),
+      );
+      await installedWith(OLD_DEFAULT);
+
+      await runUpdate();
+
+      // Yours stays — converted, since the old format is rejected regardless.
+      expect(models()).toEqual({
+        stages: {
+          default: { model: 'sonnet', effort: 'high' },
+          plan: { model: 'opus', effort: 'max' },
+          review: { model: 'opus', effort: 'high' },
+        },
+      });
+      const note = modelsNote();
+      expect(note).toContain(
+        "pharn-oss's models block was not applied; this pharn rejects it:",
+      );
+      expect(note).toContain('stage "triage" is not a product stage');
+      expect(note).toContain('upgrade pharn');
+    });
   });
 
   describe('layout migration (the (d) fix)', () => {

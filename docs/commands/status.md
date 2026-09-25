@@ -57,11 +57,16 @@ which, and `status` cannot.
      or at any parent directory below your project root: reading through one would report it as merely
      "differs" when its target has other bytes, or say nothing at all when its target happens to match.
    - If none of the three, reports **No drift**.
-6. **Models** — whenever `pharn.config.json` carries a `models` block, `status` prints it as a third
-   note on **both** paths (with and without `--drift`), each stage beside its configured model, under
-   the qualifier *"Recorded only — no installed stage reads this yet."* It is displayed so the
-   recorded intent stays legible; nothing resolves it for routing. See
-   [pharn.config.json](../reference/pharn-config.md#model-routing).
+6. **Models** — whenever `pharn.config.json` carries a `models` block, `status` prints a `MODELS` note
+   on **both** paths (with and without `--drift`): every product stage beside the model and effort it
+   resolves to — its own entry, or `default`, marked `(default)`. Under the rows, the label that says
+   what they are: Claude Code applies each `/pharn-*` command's own `model:` / `effort:` frontmatter,
+   not this block; the block is the source of truth that frontmatter is held to, and
+   `node pharn/floor/check-model-config.mjs agreement` checks the two agree. A block still in the format
+   `pharn` wrote before 0.7.0 is reported as such (`pharn update` converts it), and a block pharn-oss's
+   rules reject has each problem listed by name. The note is read-only and needs no download, and it
+   is **not** a `--strict` input: the block is pharn-oss's, and so is the verdict on it. See
+   [pharn.config.json](../reference/pharn-config.md#models).
 
 The heading says "differs from", not "locally modified", on purpose: the comparison is against
 upstream `@main`, so a file can differ because **upstream moved**, not only because you edited it.

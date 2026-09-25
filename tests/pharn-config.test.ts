@@ -31,10 +31,6 @@ import {
 import { tmpPathFor } from '../src/lib/atomic-write.js';
 import type { PharnConfig } from '../src/types.js';
 import {
-  DEFAULT_MODEL_ROUTING,
-  ModelRoutingError,
-} from '../src/lib/model-routing.js';
-import {
   DEFAULT_SEAM_CONFIG,
   SeamConfigError,
 } from '../src/lib/seam-config.js';
@@ -119,26 +115,39 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toBeNull();
   });
 
-  it('round-trips a config with a valid models block', async () => {
+  it("round-trips pharn-oss's models block", async () => {
     const withModels: PharnConfig = {
       ...sample,
-      models: DEFAULT_MODEL_ROUTING,
+      models: {
+        stages: {
+          default: { model: 'sonnet', effort: 'high' },
+          plan: { model: 'opus', effort: 'high' },
+        },
+      },
     };
     await writePharnConfig(tmp.path(), withModels);
     expect(readPharnConfig(tmp.path())).toEqual(withModels);
   });
 
-  it('THROWS (naming the offender), not null, when the models block is invalid (BUG 1)', () => {
-    writeFileSync(
-      join(tmp.path(), 'pharn.config.json'),
-      JSON.stringify({
-        skillsVersion: '0.1.0',
-        modules: [],
-        models: { default: { model: 'gpt-4', effort: 'high' } },
-      }),
-    );
-    expect(() => readPharnConfig(tmp.path())).toThrow(ModelRoutingError);
-    expect(() => readPharnConfig(tmp.path())).toThrow(/gpt-4/);
+  // `models` is pharn-oss's schema, not this CLI's: it is carried VERBATIM, so
+  // the old format (which `update` must load to migrate), a block pharn-oss's
+  // rules reject, and a format newer than this CLI all load, unvalidated —
+  // and no command refuses to run over a block it does not own.
+  it.each([
+    [
+      'the format pharn wrote before 0.7.0',
+      {
+        default: { model: 'sonnet-5', effort: 'high' },
+        stages: { plan: { model: 'opus-4-8', effort: 'max' } },
+      },
+    ],
+    ['a block pharn-oss rejects', { default: { model: 'gpt-4', effort: 'x' } }],
+    ['a newer format', { stages: { triage: {} }, profiles: ['fast'] }],
+    ['not even an object', 'opus'],
+  ])('loads %s verbatim, without validating it', (_label, models) => {
+    const raw = { skillsVersion: '0.1.0', modules: [], models };
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(raw));
+    expect(readPharnConfig(tmp.path())).toEqual(raw);
   });
 
   it('round-trips a config with a valid seam block', async () => {
@@ -569,13 +578,13 @@ describe('loadConfigOrExit', () => {
   stubProcessExit();
   afterEach(() => vi.mocked(log.error).mockClear());
 
-  it('exits(1) with the offender-naming message (NOT "run init") on invalid models (BUG 1)', () => {
+  it('exits(1) with the offender-naming message (NOT "run init") on an invalid seam block (BUG 1)', () => {
     writeFileSync(
       join(tmp.path(), 'pharn.config.json'),
       JSON.stringify({
         skillsVersion: '0.1.0',
         modules: [],
-        models: { default: { model: 'gpt-4', effort: 'high' } },
+        seam: { resolutionOrder: ['model', 'guess'] },
       }),
     );
     expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
@@ -583,8 +592,19 @@ describe('loadConfigOrExit', () => {
       .mocked(log.error)
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
-    expect(msg).toMatch(/gpt-4/);
+    expect(msg).toMatch(/guess/);
     expect(msg).not.toMatch(/pharn init/);
+  });
+
+  it('loads a config whose models block pharn-oss would reject — not this CLI’s to refuse', () => {
+    const raw = {
+      skillsVersion: '0.1.0',
+      modules: [],
+      models: { default: { model: 'gpt-4', effort: 'high' } },
+    };
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(raw));
+    expect(loadConfigOrExit(tmp.path())).toEqual(raw);
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   // The end-to-end shape of audit finding P-7, at the surface a user sees: a
@@ -635,8 +655,10 @@ describe('loadConfigOrExit', () => {
 
 describe('isConfigValidationError', () => {
   it('is true for the named validator errors, false for a plain Error (the config-vs-bug boundary)', () => {
-    expect(isConfigValidationError(new ModelRoutingError('x'))).toBe(true);
     expect(isConfigValidationError(new SeamConfigError('x'))).toBe(true);
+    expect(isConfigValidationError(new CapabilityEntryError('x'))).toBe(true);
+    expect(isConfigValidationError(new CapabilitySourceError('x'))).toBe(true);
+    expect(isConfigValidationError(new ConfigParseError('x'))).toBe(true);
     expect(isConfigValidationError(new Error('x'))).toBe(false);
     expect(isConfigValidationError('nope')).toBe(false);
   });

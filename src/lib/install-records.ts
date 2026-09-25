@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { writeJsonAtomic } from './atomic-write.js';
 import { readBoundedFile } from './bounded-read.js';
@@ -24,7 +25,7 @@ import type { InstalledCapability } from '../types.js';
 // KEY is never path-joined: consumers iterate the install manifest and look each
 // manifest-derived key up here, so a hostile key can never drive a filesystem
 // access. A corrupt store is reported BY NAME, never silently collapsed into
-// "absent" (the same lesson lib/pharn-config.ts encodes for `models`/`seam`).
+// "absent" (the same lesson lib/pharn-config.ts encodes for `seam`).
 //
 // THE STAMP: the store carries the `skillsVersion` + `commit` that
 // `pharn.config.json` holds after the operation that wrote it. Every pharn
@@ -34,10 +35,33 @@ import type { InstalledCapability } from '../types.js';
 // unavailable (fail closed) rather than trusting hashes that may describe bytes
 // nobody wrote (P5/P7).
 //
+// ONE KEY IS NOT A FILE: `MODELS_RECORD_KEY` records the `models` block pharn
+// wrote INSIDE pharn.config.json, so `pharn update` can tell pharn's block from
+// the user's the same way it tells files apart (lib/models-update.ts). It is a
+// JSON-Pointer fragment no install manifest can produce, and like every key it
+// is compared, never path-joined.
+//
 // One axis (P3): the install record store.
 // ---------------------------------------------------------------------------
 
 export const RECORDS_FILE = 'pharn.records.json';
+
+/**
+ * The record key for the `models` block pharn wrote into pharn.config.json.
+ * `add` and `remove` carry it untouched (they extend or prefix-filter `files`);
+ * `init` and `update` write it whenever they write the block.
+ */
+export const MODELS_RECORD_KEY = 'pharn.config.json#/models';
+
+/**
+ * The recorded hash of a `models` block: sha256 of `JSON.stringify(block)` —
+ * the block as pharn serializes it, key order included, so re-indenting the
+ * file is not an edit and reordering keys is. Never called with `undefined`
+ * (an absent block has no record).
+ */
+export function modelsRecordHash(block: unknown): string {
+  return createHash('sha256').update(JSON.stringify(block)).digest('hex');
+}
 
 // Exact-match schema discriminator (P5). A store written by a future CLI with a
 // different version is NOT guessed at — it reads as unavailable, and update

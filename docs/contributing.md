@@ -76,7 +76,7 @@ pharn-cli/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status
     steps/                init stages (prereqs, overwrite-check, archetype-summary, install-archetype)
-    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-routing(-format), seam-config, install-records, update-decision, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, report-error, hash, validate, constants, banner, confirm, format
+    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-config(-format), models-update, upstream-models, seam-config, install-records, update-decision, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, report-error, hash, validate, constants, banner, confirm, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
@@ -93,6 +93,30 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
 - Remote fetches (`lib/skills-version.ts`) use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
 - The repo download (`lib/repo.ts`) has its own, larger bounds: a 60s timeout, a 32MB archive cap, a 128MB extracted cap, and a 20,000-entry cap — enforced twice, including at `gunzipSync`.
+
+### pharn-oss's `models` rules — a pinned copy
+
+pharn-oss owns the `models` schema of `pharn.config.json`, and its checker,
+`pharn/floor/check-model-config.mjs`, ships into every install. The CLI cannot call it — it never
+executes a file it installs (`THREAT-MODEL.md` §1) — so `src/lib/model-config.ts` is a copy of that
+checker's `validate` and `resolve` rules, and nothing more. `tests/model-config-parity.test.ts` keeps it
+that way: it runs the real checker, vendored byte-for-byte at
+`tests/fixtures/pharn-oss/check-model-config.mjs` and pinned by sha256, over a corpus, and fails on any
+verdict, RED line or resolution that differs from the copy's. It also reads the stage, alias, id and
+effort sets out of the checker's source, and fails if the corpus stops reaching one of the checker's
+RED kinds.
+
+When pharn-oss changes its checker:
+
+1. Copy `pharn/floor/check-model-config.mjs` from pharn-oss `main` over
+   `tests/fixtures/pharn-oss/check-model-config.mjs`, unedited.
+2. Update `PINNED_SHA256`, and the commit and `SKILLS_VERSION` in the comment above it, in
+   `tests/model-config-parity.test.ts`.
+3. Run `npx vitest run tests/model-config-parity.test.ts`, and change `src/lib/model-config.ts` until it
+   passes: port pharn-oss's change, never a rule of your own. If the checker gained a branch, extend the
+   corpus to reach it.
+4. If a released CLI would now reject pharn-oss's own block, release the new CLI first, then ask
+   pharn-oss to raise `MIN_CLI` to it.
 
 ### The fetch boundary
 
@@ -139,7 +163,9 @@ Two rules that are easy to get wrong:
 | `skills-version.test.ts`                                                   | Read/fetch + validate `SKILLS_VERSION`                                                                        |
 | `prereqs.test.ts`                                                          | `.git`-present gate                                                                                           |
 | `overwrite-check.test.ts` / `install-manifest.test.ts`                     | Pre-install write-target conflict check; the shared install manifest (mirror-pinned to `installCapabilities`) |
-| `model-routing.test.ts` / `seam-config.test.ts`                            | `models` / `seam` config validation                                                                           |
+| `model-config.test.ts` / `model-config-parity.test.ts`                     | pharn-oss's `models` rules as copied; the copy pinned to pharn-oss's own checker                              |
+| `models-update.test.ts` / `upstream-models.test.ts`                        | `update`'s rows for the `models` block and the old-format conversion; reading pharn-oss's block               |
+| `seam-config.test.ts`                                                      | `seam` config validation                                                                                      |
 | `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts`   | helpers; the codeload fetch boundary; banner; format                                                          |
 | `tar-extract.test.ts`                                                      | The ustar reader: strip-1, pax skip, prefix reassembly, and every rejection                                   |
 | `index.test.ts`                                                            | argv dispatch: the per-command option allowlist, the arity gate, and their exit codes                         |
@@ -153,7 +179,7 @@ Two rules that are easy to get wrong:
 | `unknown-capabilities.test.ts` / `constants.test.ts`                       | Control-char stripping for refused upstream names; the path constants                                         |
 | `ci-workflow.test.ts` / `check-composition.test.ts`                        | The six CI job names + runner pair; `npm run check`'s composition                                             |
 | `docs-install-tables.test.ts` / `lint-gate.test.ts` / `dev-script.test.ts` | The README + getting-started install tables; the lint gate; the dev script                                    |
-| `repo-signals.test.ts` / `model-routing-format.test.ts`                    | Fetch abort/cleanup signals; the model-routing render                                                         |
+| `repo-signals.test.ts` / `model-config-format.test.ts`                     | Fetch abort/cleanup signals; the `models` render                                                              |
 
 `lib/hash.ts` is the one module with no matching test file.
 

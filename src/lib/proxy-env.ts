@@ -2,7 +2,7 @@
  * What a proxy set in the environment means for THIS run — the logic half
  * (detection). Message strings live in ./proxy-env-format.ts, which changes for
  * wording reasons while this file changes only when the transport does (P3,
- * mirroring model-routing.ts / model-routing-format.ts).
+ * mirroring model-config.ts / model-config-format.ts).
  *
  * pharn fetches everything — the SHA resolve, the repo tarball,
  * `SKILLS_VERSION` — through Node's global `fetch`. By DEFAULT that fetch reads

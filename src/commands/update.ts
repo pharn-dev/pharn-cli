@@ -45,12 +45,21 @@ import {
 } from '../lib/layout.js';
 import {
   buildRecords,
+  MODELS_RECORD_KEY,
   readRecords,
   recordsBaseline,
   recordsUnderCapabilities,
   RECORDS_FILE,
   writeRecords,
 } from '../lib/install-records.js';
+import { modelsLabelLines } from '../lib/model-config-format.js';
+import {
+  decideModelsUpdate,
+  modelsMigrationPending,
+  type ModelsUpdate,
+} from '../lib/models-update.js';
+import { readUpstreamModels } from '../lib/upstream-models.js';
+import { terminalSafe } from '../lib/terminal-safe.js';
 import {
   planUpdate,
   type UpdateLabel,
@@ -66,6 +75,7 @@ import {
 import { row } from '../lib/format.js';
 import {
   assertConfigUnchanged,
+  CONFIG_FILENAME,
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
@@ -145,6 +155,10 @@ interface UpdateOutcome {
   // Upstream hooks the project's settings.json does not wire. Reported only —
   // update never writes settings.json. Absent on paths that never saw a clone.
   hookWiring?: HookWiringDiff;
+  // What happened to the `models` block (lib/models-update.ts), and the floor
+  // dir its checker is installed under, for the MODELS note.
+  models: ModelsUpdate;
+  modelsFloor: string;
 }
 
 async function runArchetypeUpdate(
@@ -206,7 +220,19 @@ async function runArchetypeUpdate(
   // repeat and its bytes would stay stale after a pharn upgrade that can parse it.
   const current = config.skillsVersion === latest;
   const recheckFrozen = (config.frozenCapabilities ?? []).length > 0;
-  if (current && !force && !recheckFrozen) {
+  // A `models` block still in the format pharn wrote before 0.7.0 re-opens the
+  // gate as well: converting it is this CLI's job, not upstream's, so it has to
+  // reach an install that is already current. Bounded: a run converts the block
+  // or writes pharn-oss's and records it, and either closes the gate
+  // (modelsMigrationPending). A local read — no round-trip.
+  const convertModels = modelsMigrationPending(
+    config.models,
+    recordsBaseline(readRecords(cwd), {
+      skillsVersion: config.skillsVersion,
+      commit: config.commit,
+    }).records?.[MODELS_RECORD_KEY] ?? null,
+  );
+  if (current && !force && !recheckFrozen && !convertModels) {
     outro(`Already up to date (skills v${config.skillsVersion}).`);
     return;
   }
@@ -226,6 +252,13 @@ async function runArchetypeUpdate(
         : pc.dim(
             '  Files you have changed are kept, not overwritten — they are listed at the end.',
           ),
+      ...(convertModels
+        ? [
+            pc.dim(
+              '  Your models block is in the format pharn wrote before 0.7.0 — this run converts it.',
+            ),
+          ]
+        : []),
       pc.dim(
         '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
       ),
@@ -499,6 +532,17 @@ async function applyUpdate(
 
   const plan = planUpdate({ latestHashes, diskStates, records, force });
 
+  // The `models` block goes through the same rows, over its hash instead of a
+  // file's (lib/models-update.ts): pharn-oss's block replaces one pharn wrote,
+  // and one the user edited is kept — converted when it is in the old format.
+  const models = decideModelsUpdate({
+    current: config.models,
+    upstream: readUpstreamModels(repoDir),
+    recorded: records?.[MODELS_RECORD_KEY] ?? null,
+    recordsAvailable: records !== null,
+    force,
+  });
+
   // Back up EVERY about-to-be-clobbered file before a single original is
   // touched; a failure here aborts with the whole tree still intact.
   //
@@ -506,15 +550,22 @@ async function applyUpdate(
   // pointer is handed UP here rather than only in the return value below: every
   // line after this one (the writes, the records, the config) can throw, and a
   // run that dies there has already moved the user's bytes into that directory.
+  // A `--force` over the user's models block backs up the whole config: the
+  // block lives inside it.
+  const backupRels = models.backup
+    ? [...plan.backups, CONFIG_FILENAME]
+    : plan.backups;
   const backup: Backup | null =
-    plan.backups.length > 0
-      ? { dir: createBackup(cwd, plan.backups), count: plan.backups.length }
+    backupRels.length > 0
+      ? { dir: createBackup(cwd, backupRels), count: backupRels.length }
       : null;
   if (backup) onBackup(backup);
 
   // A run that could not apply everything must not claim the new version: the
   // recorded version describes the last COMPLETE state, so the next `pharn
-  // update` still has work to do instead of early-returning forever.
+  // update` still has work to do instead of early-returning forever. A KEPT
+  // models block is not such a skip: it is configuration, not bytes of a
+  // version, and a block the user tuned is a steady state, not unfinished work.
   const versionWithheld = plan.counts.skipped > 0;
   const nextSkillsVersion = versionWithheld
     ? config.skillsVersion
@@ -596,6 +647,11 @@ async function applyUpdate(
       ...frozenRecords,
       ...plan.nextRecords,
       ...buildRecords(cwd, written),
+      // `planUpdate` keys its records by the manifest, which holds no models
+      // block, so the block's record is written here.
+      ...(models.nextRecord !== null
+        ? { [MODELS_RECORD_KEY]: models.nextRecord }
+        : {}),
     },
   });
   // Only KEPT entries count: an unparseable capability this project never had
@@ -641,6 +697,9 @@ async function applyUpdate(
     capabilities: configCapabilities,
     layout,
     installedAt: new Date().toISOString(),
+    // In place: the key keeps its position in the file, and `undefined` (there
+    // was none and there is none to write) writes no key.
+    models: models.next,
   });
 
   return {
@@ -658,6 +717,8 @@ async function applyUpdate(
       records !== null &&
       FEATURES_README in records &&
       resolveFeaturesReadme(repoDir, layout) !== FEATURES_README,
+    models,
+    modelsFloor: layoutPaths(layout).floor,
   };
 }
 
@@ -695,6 +756,7 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   if (recordsNote) log.warn(`⚠ ${recordsNote}`);
 
   reportCapabilityChanges(outcome.capabilityChanges);
+  reportModels(outcome.models, outcome.modelsFloor, outcome.backup);
 
   const hookLines = outcome.hookWiring
     ? hookWiringLines(outcome.hookWiring)
@@ -873,6 +935,114 @@ function reportCapabilityChanges(changes: CapabilityChange[]): void {
     );
   }
   note(lines.join('\n'), 'CAPABILITIES');
+}
+
+// The MODELS note: what happened to the `models` block, for every outcome but
+// `ok` (already pharn-oss's) and a quiet `upstream-absent` (nothing upstream,
+// nothing of yours to convert or flag). Every string quoted from a block —
+// stage names, values, upstream's reasons — goes through `terminalSafe`. The
+// note's own lines stay within 70 columns, so an 80-column box never wraps
+// one mid-sentence.
+function reportModels(
+  models: ModelsUpdate,
+  floor: string,
+  backup: Backup | null,
+): void {
+  const lines = modelsReportLines(models, backup);
+  if (lines.length === 0) return;
+  if (models.next !== undefined) {
+    lines.push('', ...modelsLabelLines(floor).map((line) => pc.dim(line)));
+  }
+  note(lines.join('\n'), 'MODELS');
+}
+
+function modelsReportLines(
+  models: ModelsUpdate,
+  backup: Backup | null,
+): string[] {
+  const quoted = (text: string): string =>
+    `  ${terminalSafe(text, { max: 300 })}`;
+  const lines: string[] = [];
+  switch (models.outcome) {
+    case 'ok':
+      return [];
+    case 'restored':
+      lines.push("Your config had no models block — wrote pharn-oss's.");
+      break;
+    case 'updated':
+      lines.push(
+        ...(models.replacedLegacyDefault
+          ? [
+              "Replaced the models block an earlier pharn wrote with pharn-oss's.",
+              'Its model ids, such as opus-4-8, are rejected by Claude Code',
+              "and by pharn-oss's checker.",
+            ]
+          : [
+              "Moved your models block to pharn-oss's current one: you had",
+              'not changed it since pharn wrote it.',
+            ]),
+      );
+      break;
+    case 'forced':
+      lines.push(
+        "Replaced your models block with pharn-oss's (--force).",
+        `Your previous ${CONFIG_FILENAME} is in ${backup?.dir ?? `${BACKUP_DIR}/`}.`,
+      );
+      break;
+    case 'kept':
+      lines.push(keptModelsHeading(models.label));
+      break;
+    case 'upstream-invalid':
+      lines.push(
+        "pharn-oss's models block was not applied; this pharn rejects it:",
+        ...models.upstreamReasons.map(quoted),
+        'If pharn-oss changed its models format, upgrade pharn',
+        '(npm i -g @pharn-dev/pharn@latest) and run `pharn update` again.',
+      );
+      break;
+    case 'upstream-absent':
+      if (models.conversion === null && models.problems.length === 0) {
+        return [];
+      }
+      lines.push('pharn-oss ships no models block, so yours is kept.');
+      break;
+  }
+  if (models.conversion !== null) {
+    lines.push(
+      '',
+      'Converted your models block from the format pharn wrote before 0.7.0,',
+      'keeping your values:',
+      ...models.conversion.changes.map(quoted),
+    );
+  }
+  if (models.problems.length > 0) {
+    lines.push(
+      '',
+      "pharn-oss's rules still reject your models block — left as is,",
+      'fix it by hand:',
+      ...models.problems.map(quoted),
+    );
+  }
+  if (models.outcome === 'kept') {
+    lines.push(
+      '',
+      pc.dim("--force replaces it with pharn-oss's, after copying"),
+      pc.dim(`${CONFIG_FILENAME} to ${BACKUP_DIR}/.`),
+    );
+  }
+  return lines;
+}
+
+// Why a models block is the user's — `decideFileAction`'s skip labels.
+function keptModelsHeading(label: ModelsUpdate['label']): string {
+  switch (label) {
+    case 'modified':
+      return 'Kept your models block — you changed it since pharn wrote it.';
+    case 'unrecorded':
+      return 'Kept your models block — pharn has no record of writing it.';
+    default:
+      return `Kept your models block — no usable ${RECORDS_FILE} to check it.`;
+  }
 }
 
 function skipHeading(label: string): string {

@@ -46,40 +46,14 @@ export interface InstalledCapability {
 }
 
 // ---------------------------------------------------------------------------
-// Model routing — the `models` block in pharn.config.json. The CLI owns this
-// schema. Per-stage {model, effort} with a `default` fallback; a stage without
-// an entry (incl. an empty `stages`) resolves to `default` (see
-// src/lib/model-routing.ts, resolveStageModel). Realized via generated subagent
-// frontmatter in a later increment — this is the config shape + validator only.
+// The `models` block in pharn.config.json is pharn-oss's, not this CLI's: its
+// schema and its defaults are owned upstream (pharn/floor/check-model-config.mjs,
+// and the block in pharn-oss's root pharn.config.json). This CLI copies that
+// block at `init`, carries it across `update` (src/lib/models-update.ts), shows
+// it in `status`, and checks it with a pinned copy of pharn-oss's rules
+// (src/lib/model-config.ts). So it has no type here: `PharnConfig.models` is
+// `unknown` — whatever pharn-oss's format holds, and whatever a user wrote.
 // ---------------------------------------------------------------------------
-
-// Effort level (brief: {low, high, max} — no "medium"). Runtime allowlist:
-// EFFORT_LEVELS in src/lib/model-routing.ts.
-export type EffortLevel = 'low' | 'high' | 'max';
-
-// Valid model-id strings (short forms of the current models). Runtime allowlist:
-// MODEL_IDS in src/lib/model-routing.ts.
-export type ModelId = 'opus-4-8' | 'sonnet-5' | 'fable-5' | 'haiku-4-5';
-
-// Known pipeline stage keys that may carry a model override — the dev-loop stage
-// commands (pharn-dev-*), realized as subagents. NOT the ARCHITECTURE §6 spine
-// (which omits `review` and includes `spec`). Runtime allowlist: PIPELINE_STAGES
-// in src/lib/model-routing.ts.
-export type PipelineStage =
-  'plan' | 'grill' | 'build' | 'regress' | 'verify' | 'review' | 'ship';
-
-// One routing target: which model runs a stage, at what effort.
-export interface StageModel {
-  model: ModelId;
-  effort: EffortLevel;
-}
-
-// The `models` block: a required `default` (the fallback for any stage without
-// an explicit entry, incl. an empty `stages`) plus per-stage overrides.
-export interface ModelRouting {
-  default: StageModel;
-  stages: Partial<Record<PipelineStage, StageModel>>;
-}
 
 // ---------------------------------------------------------------------------
 // Seam-resolution config — the `seam` block in pharn.config.json. The CLI owns
@@ -99,7 +73,7 @@ export type ResolutionStep =
   'official-skill' | 'pinned-docs' | 'fetch' | 'model' | 'ask';
 
 // The confidence bar at the `model` step ({low, medium, high} — the seam-config
-// contract's scale, NOT model-routing's effort enum). Runtime allowlist:
+// contract's scale, NOT the models block's effort levels). Runtime allowlist:
 // SEAM_CONFIDENCE_LEVELS in src/lib/seam-config.ts.
 export type SeamConfidence = 'low' | 'medium' | 'high';
 
@@ -151,10 +125,12 @@ export interface PharnConfig {
   isMultiTenant?: boolean;
   modules: InstalledModule[];
   installedAt: string;
-  // Per-stage model routing (the `models` block). Written on every fresh install
-  // with DEFAULT_MODEL_ROUTING; absent on legacy installs predating it (P7 —
-  // additive). Validated by validateModelRouting (src/lib/model-routing.ts).
-  models?: ModelRouting;
+  // The `models` block — pharn-oss's schema (see above), carried VERBATIM: never
+  // validated at load, so an old-format block `update` must migrate, pharn-oss's
+  // format, and a newer one all load. `init` writes pharn-oss's block (none when
+  // upstream has none); absent on installs that predate it (P7 — additive). The
+  // key stays pharn's to WRITE (CLI_OWNED_KEYS), so a re-run init replaces it.
+  models?: unknown;
   // Seam-resolution policy (the `seam` block). Written on every fresh install
   // with DEFAULT_SEAM_CONFIG; absent on legacy installs predating it (P7 —
   // additive). Validated by validateSeamConfig (src/lib/seam-config.ts).

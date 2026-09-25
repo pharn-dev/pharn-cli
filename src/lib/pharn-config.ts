@@ -11,7 +11,6 @@ import {
   VERSION_RE,
 } from './validate.js';
 import { ProjectChangedError } from './project-lock.js';
-import { validateModelRouting, ModelRoutingError } from './model-routing.js';
 import { validateSeamConfig, SeamConfigError } from './seam-config.js';
 import type { PharnConfig } from '../types.js';
 
@@ -24,7 +23,7 @@ const CAPABILITY_SOURCES = ['auto', 'manual'];
 /**
  * A `capabilities[].source` that is present but not in the allowlist — the FIRST
  * capabilities-entry check this config has ever had. Named + loud, following the
- * `ModelRoutingError`/`SeamConfigError` pattern, so a hand-edit is reported as
+ * `SeamConfigError` pattern, so a hand-edit is reported as
  * the hand-edit it is and never collapsed into the "run `pharn init`" lie.
  *
  * It validates `source` ONLY; an entry's `name` and `role` are the separate
@@ -202,8 +201,11 @@ export function configPath(cwd: string): string {
 
 /**
  * Every top-level key this CLI OWNS: exactly the keys `PharnConfig` declares —
- * the ones it writes and validates, plus the module-era fields it no longer
- * writes but that are still its own (`constitution`, `stackAnswers`, …).
+ * the ones it writes, plus the module-era fields it no longer writes but that
+ * are still its own (`constitution`, `stackAnswers`, …). One of them, `models`,
+ * is pharn's to WRITE but pharn-oss's to define: `init` copies pharn-oss's
+ * block into it and `update` manages it (lib/models-update.ts), so a re-run
+ * init replaces it rather than carrying a stale one across.
  *
  * `satisfies Record<keyof PharnConfig, true>` makes the list exhaustive BY
  * CONSTRUCTION: declaring a field on `PharnConfig` without listing it here (or
@@ -282,8 +284,13 @@ export function userOwnedConfigEntries(
  * something this CLI will not act on, and each throws its own NAMED error that
  * PROPAGATES rather than collapsing into the "run init" lie: `ConfigParseError`
  * (not JSON at all), and — validated OUTSIDE the null-returning try —
- * `ModelRoutingError`/`SeamConfigError`/`CapabilityEntryError`/
- * `CapabilitySourceError` (BUG 1).
+ * `SeamConfigError`/`CapabilityEntryError`/`CapabilitySourceError` (BUG 1).
+ *
+ * `models` is NOT validated here. Its schema is pharn-oss's
+ * (lib/model-config.ts), and this CLI must load the format it wrote before
+ * 0.7.0 (so `update` can migrate it), pharn-oss's format, and whatever
+ * pharn-oss's next format is — so the block passes through VERBATIM and no
+ * command refuses to run over it. `status` reports it; `update` manages it.
  *
  * The parse split is the point. "File absent" and "file corrupt" used to be the
  * same `null`, so a stray comma was reported as a MISSING file and answered with
@@ -291,8 +298,8 @@ export function userOwnedConfigEntries(
  * construction — the branch is `JSON.parse` throwing, not a second `existsSync`
  * guess at a call site.
  *
- * On success the validated, typed `models`/`seam` (the validators' stripped
- * return) replace the raw sub-blocks (BUG 3), while unknown TOP-LEVEL keys still
+ * On success the validated, typed `seam` (the validator's stripped return)
+ * replaces the raw sub-block (BUG 3), while unknown TOP-LEVEL keys still
  * pass through so a legacy config carrying a since-removed field still loads
  * (P7, additive) — and so a key the user owns (`userOwnedConfigEntries`) survives
  * every command that writes this object back.
@@ -328,11 +335,10 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   if (typeof raw.skillsVersion !== 'string' || !Array.isArray(raw.modules)) {
     return null;
   }
-  // Present-but-invalid → the validators THROW (named) and the error propagates.
-  // Absent models/seam is legacy/valid (P7, additive). Use the validators' typed,
-  // stripped return for the sub-blocks (BUG 3).
-  const models =
-    raw.models !== undefined ? validateModelRouting(raw.models) : undefined;
+  // Present-but-invalid → the validator THROWS (named) and the error propagates.
+  // An absent seam is legacy/valid (P7, additive). Use the validator's typed,
+  // stripped return for the sub-block (BUG 3). `models` is not validated: it
+  // rides the spread below untouched (see the doc comment).
   const seam =
     raw.seam !== undefined ? validateSeamConfig(raw.seam) : undefined;
   // Same discipline for `capabilities[].source`: a present-but-invalid value
@@ -343,7 +349,6 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   validateCapabilitySources(raw.capabilities);
   const config: PharnConfig = {
     ...(raw as unknown as PharnConfig),
-    ...(models !== undefined ? { models } : {}),
     ...(seam !== undefined ? { seam } : {}),
   };
   // Additive `layout` (lib/layout.ts): coerce to the {pharn, flat} enum. A legacy
@@ -497,9 +502,10 @@ export function assertConfigFingerprintUnchanged(
 
 /**
  * Is `err` a present-but-invalid-config error — a file that IS there and that
- * the user has to fix (unparseable JSON, a hand-edited `models`/`seam` block, or
- * a `capabilities[]` entry with an invalid `name`/`role`/`source`) — as opposed
- * to a programming bug?
+ * the user has to fix (unparseable JSON, a hand-edited `seam` block, or a
+ * `capabilities[]` entry with an invalid `name`/`role`/`source`) — as opposed
+ * to a programming bug? (A `models` block is never one: it is pharn-oss's, and
+ * `readPharnConfig` carries it unvalidated.)
  *
  * The single definition of "config error" — used by `loadConfigOrExit` and by
  * `list`'s own `--json`-aware error path, so neither re-encodes the class
@@ -511,13 +517,11 @@ export function isConfigValidationError(
   err: unknown,
 ): err is
   | ConfigParseError
-  | ModelRoutingError
   | SeamConfigError
   | CapabilityEntryError
   | CapabilitySourceError {
   return (
     err instanceof ConfigParseError ||
-    err instanceof ModelRoutingError ||
     err instanceof SeamConfigError ||
     err instanceof CapabilityEntryError ||
     err instanceof CapabilitySourceError

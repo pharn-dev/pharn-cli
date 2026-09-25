@@ -22,7 +22,8 @@ What PHARN CLI does today versus what is planned.
 | Proxy-environment warning — Node's `fetch` reads no proxy variable, so a configured one is reported as unused | Shipped |
 | Per-command option allowlist — an option a command does not take exits 1 instead of being ignored | Shipped |
 | Interactive-only `init`/`update` (exit 1 off a TTY; `update --yes` for CI) + the capability picker for bare `add`/`remove` | Shipped |
-| `models` + `seam` blocks written and validated on every fresh install | Shipped |
+| `seam` block written and validated on every fresh install | Shipped |
+| pharn-oss's `models` block — copied by `init`, kept or upgraded by `update` (which converts the format `pharn` wrote before 0.7.0), shown resolved per stage by `status` | Shipped |
 
 ## Planned
 
@@ -32,7 +33,6 @@ What PHARN CLI does today versus what is planned.
 | Stack scaffolding | Install npm packages / generate app code for a detected framework |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only requires a `.git` directory and hard-fails without one; it never inspects history and issues no warning) |
 | Orphaned-file detection in `pharn status` | `status` today reports modified, missing and unreadable PHARN-owned files; flagging files left orphaned after an upstream rename is not built yet |
-| Per-stage model routing | `pharn init` writes and validates the `models` block and both `init` and `status` display it, but no installed stage consumes it for routing — editing it changes which model runs nowhere. When a consumer lands, drop this row and the **Coming soon** marker in [pharn.config.json](reference/pharn-config.md#model-routing) |
 | Other agents | Codex and Cursor in addition to Claude Code |
 
 ## Related
