@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/review-cleanups/SHIP.md"
+    ".dev/features/local-file-reads/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-09-25T13:05:36.351Z"
+  "set_at": "2026-09-25T13:32:23.481Z"
 }

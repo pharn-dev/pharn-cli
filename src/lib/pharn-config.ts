@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import { writeJsonAtomic } from './atomic-write.js';
+import { readBoundedFile } from './bounded-read.js';
 import { resolve } from 'node:path';
 import { errorMessage, logError } from './report-error.js';
 import {
@@ -299,18 +299,15 @@ export function userOwnedConfigEntries(
  */
 export function readPharnConfig(cwd: string): PharnConfig | null {
   const path = configPath(cwd);
-  if (!existsSync(path)) return null;
-  // The read and the parse are DELIBERATELY separate tries. An unreadable file
-  // (EACCES, or a directory planted at this path → EISDIR) keeps the OLD
-  // behaviour — `null`, the caller's "run init" — because that is a different,
-  // pre-existing failure, and folding it in here would newly mislabel a
-  // permissions problem as a syntax error. Narrow on purpose (P7).
-  let text: string;
-  try {
-    text = readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
+  // The read and the parse are DELIBERATELY separate steps. An unreadable file
+  // (EACCES, a directory planted at this path, a FIFO or a device — read through
+  // lib/bounded-read.ts, so none of them can hang or read without bound) keeps
+  // the OLD behaviour — `null`, the caller's "run init" — because that is a
+  // different, pre-existing failure, and folding it in here would newly
+  // mislabel a permissions problem as a syntax error. Narrow on purpose (P7).
+  const read = readBoundedFile(path);
+  if (read.kind !== 'ok') return null;
+  const text = read.bytes.toString('utf8');
   // Present + readable + not JSON → the named throw. This try does NOT wrap the
   // validators below — that is the whole point (BUG 1).
   let raw: unknown;
@@ -478,14 +475,10 @@ function configChangedError(command: string): ProjectChangedError {
  * content hash of the bytes is (P0: content-hash, `ARCHITECTURE.md §2`).
  */
 export function configFingerprint(cwd: string): string {
-  let bytes: Buffer;
-  try {
-    bytes = readFileSync(configPath(cwd));
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    return code === 'ENOENT' ? 'absent' : `unreadable:${code ?? 'unknown'}`;
-  }
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  const read = readBoundedFile(configPath(cwd));
+  if (read.kind === 'absent') return 'absent';
+  if (read.kind === 'unusable') return `unreadable:${read.code}`;
+  return `sha256:${createHash('sha256').update(read.bytes).digest('hex')}`;
 }
 
 /**

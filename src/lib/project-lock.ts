@@ -3,7 +3,6 @@ import {
   closeSync,
   linkSync,
   openSync,
-  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -11,6 +10,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { hostname } from 'node:os';
+import { readBoundedFile } from './bounded-read.js';
 import { onFatalSignal } from './fatal-signal.js';
 import { safeJoin } from './validate.js';
 
@@ -171,11 +171,11 @@ function parsePayload(raw: string): LockPayload | null {
  * `null` is the same never-wedge rule `parsePayload` follows.
  */
 function readRawAt(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
+  // Bounded and non-blocking (lib/bounded-read.ts): a FIFO at the lock path
+  // reads as unreadable — presumed live, then broken, like any malformed lock —
+  // instead of hanging every writer in open(2).
+  const read = readBoundedFile(path);
+  return read.kind === 'ok' ? read.bytes.toString('utf8') : null;
 }
 
 /** Read the lock file, or `null` when it is absent or unreadable. */

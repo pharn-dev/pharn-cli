@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { log, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
@@ -10,6 +9,7 @@ import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { manifestSources, scanDest } from '../lib/dest-drift.js';
 import { createBackup } from '../lib/backup.js';
+import { readBoundedFile } from '../lib/bounded-read.js';
 import {
   buildRecords,
   readRecords,
@@ -369,8 +369,11 @@ function keptRecords(
  * importable from the module whose point is that it throws.
  */
 function readCarriedEntries(cwd: string): Record<string, unknown> {
+  // Bounded and non-blocking (lib/bounded-read.ts), like every read of this file.
+  const read = readBoundedFile(configPath(cwd));
+  if (read.kind !== 'ok') return {};
   try {
-    const raw: unknown = JSON.parse(readFileSync(configPath(cwd), 'utf8'));
+    const raw: unknown = JSON.parse(read.bytes.toString('utf8'));
     return isPlainObject(raw) ? userOwnedConfigEntries(raw) : {};
   } catch {
     return {};

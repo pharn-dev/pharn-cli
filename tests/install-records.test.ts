@@ -1,3 +1,4 @@
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   mkdirSync,
@@ -7,6 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
@@ -533,4 +535,42 @@ describe('buildRecords — an unstatable dest is skipped, not fatal', () => {
 
     expect(Object.keys(files)).toEqual(['CONSTITUTION.md']);
   });
+});
+
+// A store that is not a regular file is `invalid`, named — never a hang and
+// never an unbounded read. `update` reads it on every run and a re-run `init`
+// before its prompt and under the lock, so a FIFO here used to hang both (in
+// open(2), waiting for a writer). That case runs in a child with a hard timeout:
+// a regression would hang the test worker instead of failing.
+describe('readRecords — a store that is not a regular file', () => {
+  const tmp = useTmpDir();
+
+  it('names a directory as not a regular file', () => {
+    mkdirSync(join(tmp.path(), RECORDS_FILE));
+    expect(readRecords(tmp.path())).toEqual({
+      kind: 'invalid',
+      message: `${RECORDS_FILE} is not a regular file`,
+    });
+  });
+
+  it('reads a FIFO as invalid instead of waiting on it', () => {
+    execFileSync('mkfifo', [join(tmp.path(), RECORDS_FILE)]);
+    const mod = fileURLToPath(
+      new URL('../src/lib/install-records.ts', import.meta.url),
+    );
+    const script = `
+      const { readRecords } = await import(${JSON.stringify(mod)});
+      console.log(JSON.stringify(readRecords(process.argv[1])));
+    `;
+    const r = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script, tmp.path()],
+      { encoding: 'utf8', timeout: 15_000 },
+    );
+    expect(r.signal, 'the read hung and was killed').toBeNull();
+    expect(JSON.parse(r.stdout)).toEqual({
+      kind: 'invalid',
+      message: `${RECORDS_FILE} is not a regular file`,
+    });
+  }, 30_000);
 });

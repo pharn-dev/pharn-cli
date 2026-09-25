@@ -487,7 +487,8 @@ had installed manually with `pharn add <name>`.
 
 Two neighbouring cases are deliberately **not** reported this way, because the file is not readable
 in the first place: a config that is **absent**, or one that exists but cannot be read at all (a
-permissions problem, or a directory sitting at that path), still says
+permissions problem, a directory, a FIFO or a device sitting at that path, or a file over 16 MiB),
+still says
 [`No pharn.config.json found`](#add--update-say-to-run-init-first).
 
 ## Unknown command
