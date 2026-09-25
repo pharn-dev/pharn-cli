@@ -78,7 +78,7 @@ describe('temp-clone cleanup handlers', () => {
       'fetch',
       vi.fn(async (url: string) =>
         url === RESOLVE_URL
-          ? { ok: true, json: async () => ({ sha: VALID_SHA }) }
+          ? new Response(JSON.stringify({ sha: VALID_SHA }))
           : tarResponse(githubArchive(VALID_SHA)),
       ),
     );
@@ -101,9 +101,23 @@ describe('temp-clone cleanup handlers', () => {
   }
 
   let installed: Array<() => void> = [];
+  // Each fresh module instance also installs its own fatal-signal handlers
+  // (lib/fatal-signal.ts); remove them too, so they cannot pile up on the runner.
+  const SIGNALS = ['SIGINT', 'SIGTERM'] as const;
+  let signalListeners = new Map<string, unknown[]>();
+  beforeEach(() => {
+    signalListeners = new Map(SIGNALS.map((s) => [s, process.listeners(s)]));
+  });
   afterEach(() => {
     for (const l of installed) process.removeListener('exit', l);
     installed = [];
+    for (const sig of SIGNALS) {
+      const before = signalListeners.get(sig) ?? [];
+      for (const l of process.listeners(sig)) {
+        if (!before.includes(l))
+          process.removeListener(sig, l as (...args: unknown[]) => void);
+      }
+    }
   });
 
   it('registers an `exit` handler that removes a live clone', async () => {
@@ -153,6 +167,34 @@ describe('temp-clone cleanup handlers', () => {
     // only by chance, and "only by chance" is not a guard.
     expect(() => installed[0]!()).not.toThrow();
   });
+
+  // The signal half, in-process (the child-process test below proves the exit
+  // status; coverage cannot see inside it). The re-raise and the listener sweep
+  // are stubbed — they would act on the test runner itself.
+  it('removes a live clone from its fatal-signal handler', async () => {
+    const before = process.listeners('exit');
+    const sigBefore = process.listeners('SIGTERM');
+    const { fetchRepo } = await freshRepo();
+    const repo = await fetchRepo();
+    installed = addedExitListeners(before);
+    const onSignal = process
+      .listeners('SIGTERM')
+      .filter((l) => !sigBefore.includes(l)) as Array<() => void>;
+    expect(onSignal).toHaveLength(1);
+
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const sweep = vi
+      .spyOn(process, 'removeAllListeners')
+      .mockImplementation(() => process);
+    try {
+      onSignal[0]!();
+      expect(existsSync(repo.dir)).toBe(false);
+      expect(kill).toHaveBeenCalledWith(process.pid, 'SIGTERM');
+    } finally {
+      kill.mockRestore();
+      sweep.mockRestore();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -185,7 +227,7 @@ const SHA = ${JSON.stringify(VALID_SHA)};
 const RESOLVE = ${JSON.stringify(RESOLVE_URL)};
 globalThis.fetch = (async (url) => {
   if (String(url) === RESOLVE) {
-    return { ok: true, json: async () => ({ sha: SHA }) };
+    return new Response(JSON.stringify({ sha: SHA }));
   }
   const bytes = githubArchive(SHA);
   return {

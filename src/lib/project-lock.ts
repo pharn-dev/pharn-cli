@@ -11,6 +11,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { hostname } from 'node:os';
+import { onFatalSignal } from './fatal-signal.js';
 import { safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
@@ -503,20 +504,35 @@ export async function withProjectLock<T>(
     release(cwd);
     if (code === 0) {
       process.exitCode = 130;
-      try {
-        process.stderr.write(
-          `pharn ${command} was interrupted while writing to this project — it may be partially updated. Re-run \`pharn ${command}\`.\n`,
-        );
-      } catch {
-        /* the exit code already tells the truth */
-      }
+      sayInterrupted(command);
     }
   };
   process.on('exit', onExit);
+  // A REAL signal (SIGINT with stdin not raw, SIGTERM from `timeout` or
+  // `docker stop`) ends the process by its default action, which emits no
+  // `exit` — so neither the listener above nor the `finally` below runs on one.
+  // fatal-signal.ts runs this first, then re-raises; the status (130 / 143)
+  // already says the run did not finish. (SIGHUP is not handled — see there.)
+  const offSignal = onFatalSignal(() => {
+    release(cwd);
+    sayInterrupted(command);
+  });
   try {
     return await fn();
   } finally {
+    offSignal();
     process.off('exit', onExit);
     release(cwd);
+  }
+}
+
+/** The one honest line an interrupted writer prints. Never throws. */
+function sayInterrupted(command: string): void {
+  try {
+    process.stderr.write(
+      `pharn ${command} was interrupted while writing to this project — it may be partially updated. Re-run \`pharn ${command}\`.\n`,
+    );
+  } catch {
+    /* the exit status already tells the truth */
   }
 }

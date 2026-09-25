@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REPO, REPO_BRANCH } from './constants.js';
+import { onFatalSignal } from './fatal-signal.js';
 import { extractTarGz } from './tar-extract.js';
 import { assertSafeString, COMMIT_RE } from './validate.js';
 
@@ -34,7 +35,9 @@ const MAX_ENTRIES = 20_000;
 //      window in the CLI ends by leaking the clone AND reporting success.
 //   2. A signal. Nothing in pharn handled one, so default disposition applied —
 //      or worse, in a piped run @clack/prompts' own SIGINT listener printed and
-//      returned, swallowing the signal entirely.
+//      returned, swallowing the signal entirely. The signal half now lives in
+//      lib/fatal-signal.ts, shared with the project lock, which has to be
+//      released on the same signals.
 //
 // Registered dirs are removed synchronously, because an `exit` listener may not
 // await.
@@ -63,19 +66,13 @@ function installCleanupHandlers(): void {
     for (const dir of liveClones) rmQuiet(dir);
   });
 
-  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(sig, () => {
-      for (const dir of liveClones) rmQuiet(dir);
-      liveClones.clear();
-      // Re-raise so the exit status is TRUTHFUL — 130 for SIGINT, 143 for
-      // SIGTERM — rather than the 0 an interrupted install used to report to
-      // whatever script invoked it. removeAllListeners first: any other listener
-      // on this signal (clack's spinner handler prints and returns) would
-      // otherwise swallow the re-raise and hang the process.
-      process.removeAllListeners(sig);
-      process.kill(process.pid, sig);
-    });
-  }
+  // Registered for the life of the process — the set it drains is empty
+  // whenever no clone is live. fatal-signal.ts re-raises afterwards, so the exit
+  // status stays truthful (130 / 143).
+  onFatalSignal(() => {
+    for (const dir of liveClones) rmQuiet(dir);
+    liveClones.clear();
+  });
 }
 
 export interface FetchedRepo {
@@ -190,6 +187,10 @@ async function downloadArchive(ref: string): Promise<Buffer> {
     async (signal) => {
       const res = await fetch(url, { redirect: 'error', signal });
       if (!res.ok) {
+        // Released, not left streaming: an unread body holds its socket, and
+        // with it the process. Harmless today only because every caller exits 1
+        // on this throw — a property of the callers, so the release is made here.
+        await discardBody(res);
         throw new Error(`Failed to download ${url}: HTTP ${res.status}`);
       }
       if (!res.body) {
@@ -253,12 +254,56 @@ export async function fetchCommitSha(): Promise<string | null> {
             'X-GitHub-Api-Version': '2022-11-28',
           },
         });
-        if (!res.ok) return null;
-        const body = (await res.json()) as { sha?: unknown };
+        // A null SHA is a degraded mode, not an exit: the command carries on and
+        // finishes, and index.ts never calls process.exit on success. So a body
+        // left streaming here — a 403 page, or a 2xx still arriving at the
+        // deadline — kept the process alive after the command's last line was
+        // printed (measured: 30 s for a dripping 403). Neither may outlive this
+        // function.
+        if (!res.ok) {
+          await discardBody(res);
+          return null;
+        }
+        const body = JSON.parse(await readText(res, signal)) as {
+          sha?: unknown;
+        };
         return typeof body.sha === 'string' ? body.sha : null;
       },
     );
   } catch {
     return null;
   }
+}
+
+/** Release a response body that will not be read. Never throws. */
+async function discardBody(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    /* already errored or locked: there is nothing left to release */
+  }
+}
+
+/**
+ * The whole body as UTF-8, read through OUR reader and cancelled by OUR
+ * listener on OUR signal — downloadArchive's pattern. `res.json()` has no
+ * reader pharn can cancel, and on Node 20/22 the abort may never reach the body
+ * stream (lib/deadline.ts), so a body still streaming at the deadline outlived
+ * the command.
+ */
+async function readText(res: Response, signal: AbortSignal): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const cancel = (): void => {
+    reader.cancel().catch(() => undefined);
+  };
+  if (signal.aborted) cancel();
+  else signal.addEventListener('abort', cancel, { once: true });
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }

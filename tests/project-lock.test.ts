@@ -461,4 +461,176 @@ describe('withProjectLock — process.exit while held (PHARN-10)', () => {
     await withProjectLock(tmp.path(), 'add', () => undefined);
     expect(process.listenerCount('exit')).toBe(before);
   });
+
+  // The fatal-signal release, IN-PROCESS (coverage cannot see the children in
+  // the next block). A fresh module instance, so its signal handler is the one
+  // listener it added; the re-raise and the listener sweep are stubbed — they
+  // would act on the test runner itself.
+  it('in-process: the fatal-signal handler releases a held lock', async () => {
+    const dir = tmp.path();
+    const sigs = ['SIGINT', 'SIGTERM'] as const;
+    const before = new Map<string, unknown[]>(
+      sigs.map((s) => [s, process.listeners(s)]),
+    );
+    vi.resetModules();
+    const fresh = await import('../src/lib/project-lock.js');
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const sweep = vi
+      .spyOn(process, 'removeAllListeners')
+      .mockImplementation(() => process);
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      await fresh.withProjectLock(dir, 'update', () => {
+        const added = process
+          .listeners('SIGTERM')
+          .filter((l) => !before.get('SIGTERM')!.includes(l)) as Array<
+          () => void
+        >;
+        expect(added).toHaveLength(1);
+        added[0]!();
+        expect(existsSync(lockPath(dir))).toBe(false);
+      });
+      expect(String(write.mock.calls[0]?.[0])).toContain(
+        'pharn update was interrupted while writing',
+      );
+      expect(kill).toHaveBeenCalledWith(process.pid, 'SIGTERM');
+    } finally {
+      kill.mockRestore();
+      sweep.mockRestore();
+      write.mockRestore();
+      for (const sig of sigs) {
+        for (const l of process.listeners(sig)) {
+          if (!before.get(sig)!.includes(l))
+            process.removeListener(sig, l as (...args: unknown[]) => void);
+        }
+      }
+    }
+  });
+});
+
+// A REAL signal ends the process by its default action, which emits no `exit`
+// — so the listener above never ran on one, and neither did any `finally`.
+// `pharn update --yes` cancelled in CI, or killed by `timeout` / `docker stop`,
+// exited 130/143 with .pharn.lock still in the project. The next run on the
+// same host reclaimed it (dead pid), but a host sharing the directory waited
+// out STALE_MS — six hours. lib/fatal-signal.ts now runs the release first.
+//
+// Only a child process can take a real signal: the handler re-raises it.
+describe('withProjectLock — a fatal signal while held', () => {
+  const tmp = useTmpDir();
+
+  const SIGNAL_EXIT = { SIGINT: 130, SIGTERM: 143 } as const;
+
+  async function runChild(
+    body: string,
+    args: string[],
+  ): Promise<{
+    status: number | null;
+    signal: string | null;
+    stdout: string;
+    stderr: string;
+  }> {
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const src = (rel: string): string =>
+      JSON.stringify(fileURLToPath(new URL(rel, import.meta.url)));
+    const script = `
+      const { withProjectLock } = await import(${src('../src/lib/project-lock.ts')});
+      const { fetchRepo } = await import(${src('../src/lib/repo.ts')});
+      const { githubArchive } = await import(${src('./support/tar-fixture.ts')});
+      const { writeFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const [dir, sig] = process.argv.slice(1);
+      ${body}
+    `;
+    const r = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script, ...args],
+      { encoding: 'utf8', timeout: 30_000 },
+    );
+    return {
+      status: r.status,
+      signal: r.signal,
+      stdout: r.stdout,
+      stderr: r.stderr,
+    };
+  }
+
+  /** Killed by `sig` — as a signal, or as the shell's 128 + n. */
+  function diedBy(
+    r: { status: number | null; signal: string | null },
+    sig: keyof typeof SIGNAL_EXIT,
+  ): boolean {
+    return r.signal === sig || r.status === SIGNAL_EXIT[sig];
+  }
+
+  it('SIGTERM releases the lock, says so, and still dies by the signal', async () => {
+    const sig = 'SIGTERM';
+    const dir = tmp.path();
+    const r = await runChild(
+      `
+        await withProjectLock(dir, 'update', async () => {
+          process.kill(process.pid, sig);
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          console.log('SURVIVED-THE-SIGNAL');
+        });
+        `,
+      [dir, sig],
+    );
+    expect(r.stdout).not.toContain('SURVIVED-THE-SIGNAL');
+    expect(diedBy(r, sig)).toBe(true);
+    expect(existsSync(lockPath(dir))).toBe(false);
+    expect(r.stderr).toContain('pharn update was interrupted while writing');
+  }, 40_000);
+
+  it('SIGINT after a fetch removes the clone AND releases the lock', async () => {
+    const dir = tmp.path();
+    const sha = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
+    const r = await runChild(
+      `
+      globalThis.fetch = async (url) =>
+        String(url).startsWith('https://api.github.com/')
+          ? new Response(JSON.stringify({ sha: ${JSON.stringify(sha)} }))
+          : new Response(new Uint8Array(githubArchive(${JSON.stringify(sha)})));
+      await withProjectLock(dir, 'update', async () => {
+        const repo = await fetchRepo();
+        console.log('CLONE=' + repo.dir);
+        // What @clack/prompts installs while a spinner is up: print, return.
+        process.on('SIGINT', () => console.log('CLACK-LIKE-LISTENER-RAN'));
+        process.kill(process.pid, sig);
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        console.log('SURVIVED-THE-SIGNAL');
+      });
+      `,
+      [dir, 'SIGINT'],
+    );
+    const clone = /CLONE=(.+)/.exec(r.stdout)?.[1]?.trim();
+    expect(clone, `no CLONE in stdout:\n${r.stdout}\n${r.stderr}`).toBeTruthy();
+    expect(r.stdout).not.toContain('SURVIVED-THE-SIGNAL');
+    expect(diedBy(r, 'SIGINT')).toBe(true);
+    expect(existsSync(clone!)).toBe(false);
+    expect(existsSync(lockPath(dir))).toBe(false);
+  }, 40_000);
+
+  // After a normal release the cleanup is DEregistered. An empty lock file is
+  // what another process's lock looks like between its O_EXCL create and its
+  // payload write — and `release` deletes an unparseable lock — so a cleanup
+  // left registered would delete a live lock that is not ours.
+  it('a later signal leaves alone a lock another process is creating', async () => {
+    const dir = tmp.path();
+    const r = await runChild(
+      `
+      await withProjectLock(dir, 'update', () => undefined);
+      writeFileSync(join(dir, ${JSON.stringify(LOCK_FILE)}), '');
+      process.kill(process.pid, sig);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      console.log('SURVIVED-THE-SIGNAL');
+      `,
+      [dir, 'SIGTERM'],
+    );
+    expect(r.stdout).not.toContain('SURVIVED-THE-SIGNAL');
+    expect(diedBy(r, 'SIGTERM')).toBe(true);
+    expect(existsSync(lockPath(dir))).toBe(true);
+    expect(r.stderr).not.toContain('interrupted while writing');
+  }, 40_000);
 });

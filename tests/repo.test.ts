@@ -70,6 +70,38 @@ function archive(sha: string): Buffer {
   );
 }
 
+/**
+ * A real Response carrying `value` as JSON — the shape the commit-SHA resolve
+ * gets back. Real, not a `{ json }` stand-in: the resolve reads its body through
+ * its own reader (so it can cancel it), and a stand-in without a stream would
+ * test a path production never takes.
+ */
+function jsonResponse(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), { status });
+}
+
+/**
+ * A body stream whose cancellation is OBSERVABLE. "The body was released" must
+ * be asserted on the cancel itself — a `null` result says nothing about it,
+ * because the old code returned `null` too, with the body still streaming.
+ */
+function observedBody(
+  text: string,
+  { hang = false } = {},
+): { body: ReadableStream<Uint8Array>; cancelled: () => boolean } {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      if (text) c.enqueue(new TextEncoder().encode(text));
+      if (!hang) c.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return { body, cancelled: () => cancelled };
+}
+
 /** A Response-alike whose body streams `bytes` in small chunks. */
 function tarResponse(bytes: Buffer, chunkSize = 64): unknown {
   return {
@@ -142,9 +174,7 @@ describe('fetchRepo', () => {
       // would keep passing if the resolve URL drifted. Comparing the whole
       // string makes this an assertion about the resolve URL too.
       if (url === RESOLVE_URL) {
-        return sha === null
-          ? { ok: false, json: async () => ({}) }
-          : { ok: true, json: async () => ({ sha }) };
+        return sha === null ? jsonResponse({}, 404) : jsonResponse({ sha });
       }
       return body;
     });
@@ -230,6 +260,16 @@ describe('fetchRepo', () => {
     expect(leftoverTempDirs()).toEqual([]);
   });
 
+  // An error page is a body too, and an unread body holds its socket. The throw
+  // is harmless today only because every caller exits 1 on it — a property of
+  // the callers, so the release is made here instead.
+  it('releases the body of a non-200 download before throwing', async () => {
+    const page = observedBody('<html>server error</html>', { hang: true });
+    stubFetches(VALID_SHA, { ok: false, status: 500, body: page.body });
+    await expect(fetchRepo()).rejects.toThrow(/HTTP 500/);
+    expect(page.cancelled()).toBe(true);
+  });
+
   it('removes the temp dir and rethrows when the archive will not extract', async () => {
     stubFetches(VALID_SHA, tarResponse(Buffer.from('not a gzip stream')));
     await expect(fetchRepo()).rejects.toThrow();
@@ -251,18 +291,52 @@ describe('fetchCommitSha', () => {
   }
 
   it('returns the sha on a successful response', async () => {
-    stubFetch(() => ({ ok: true, json: async () => ({ sha: 'abc123' }) }));
+    stubFetch(() => jsonResponse({ sha: 'abc123' }));
     expect(await fetchCommitSha()).toBe('abc123');
   });
 
   it('returns null on a non-ok response', async () => {
-    stubFetch(() => ({ ok: false, json: async () => ({}) }));
+    stubFetch(() => jsonResponse({}, 403));
     expect(await fetchCommitSha()).toBeNull();
   });
 
   it('returns null when the sha is not a string', async () => {
-    stubFetch(() => ({ ok: true, json: async () => ({ sha: 42 }) }));
+    stubFetch(() => jsonResponse({ sha: 42 }));
     expect(await fetchCommitSha()).toBeNull();
+  });
+
+  it('returns null when the body is not JSON', async () => {
+    stubFetch(() => new Response('<html>rate limited</html>'));
+    expect(await fetchCommitSha()).toBeNull();
+  });
+
+  // The null is a degraded mode, not an exit: the command carries on and
+  // finishes. An error body nobody reads kept its socket — and with it the
+  // whole process — alive until the server finished sending, measured at 30 s
+  // after `pharn status` had already printed its last line.
+  it('releases the body of a non-ok response instead of leaving it streaming', async () => {
+    const page = observedBody('{"message":"API rate limit exceeded"', {
+      hang: true,
+    });
+    stubFetch(() => ({ ok: false, status: 403, body: page.body }));
+    expect(await fetchCommitSha()).toBeNull();
+    expect(page.cancelled()).toBe(true);
+  });
+
+  // The 2xx half of the same leak: `res.json()` has no reader pharn can
+  // cancel, so a body still streaming at the deadline outlived the command.
+  it('cancels a body still streaming at the 8s deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const body = observedBody('{"sha":"', { hang: true });
+      stubFetch(() => ({ ok: true, status: 200, body: body.body }));
+      const pending = fetchCommitSha();
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(await pending).toBeNull();
+      expect(body.cancelled()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns null when fetch throws', async () => {
@@ -278,7 +352,12 @@ describe('fetchCommitSha', () => {
     try {
       stubFetch(() => ({
         ok: true,
-        json: () => new Promise<never>(() => undefined),
+        status: 200,
+        // Headers arrived; the body never does, and even a cancel never
+        // settles — the answer must come from the deadline alone.
+        body: new ReadableStream<Uint8Array>({
+          cancel: () => new Promise<never>(() => undefined),
+        }),
       }));
       const pending = fetchCommitSha();
       await vi.advanceTimersByTimeAsync(8000);
