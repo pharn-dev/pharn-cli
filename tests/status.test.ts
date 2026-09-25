@@ -710,7 +710,9 @@ describe('runStatus — HOOKS (PHARN-04)', () => {
   it('names an upstream hook the project does not wire, and exits 0 without --strict', async () => {
     put(proj, oldWiring);
     await runStatus({});
-    expect(noteBody('HOOKS')).toContain('Stop: node .claude/hooks/b.cjs');
+    expect(noteBody('HOOKS')).toContain(
+      'Stop: {"type":"command","command":"node","args":[".claude/hooks/b.cjs"]}',
+    );
     expect(noteBody('DRIFT')).toContain('No drift');
   });
 
@@ -725,5 +727,19 @@ describe('runStatus — HOOKS (PHARN-04)', () => {
     put(proj, newWiring);
     await runStatus({ strict: true });
     expect(noteBody('HOOKS')).toBe('');
+  });
+
+  // Hooks wired in the per-user .claude/settings.local.json run for this user,
+  // so they are WIRED: --strict passes. The note still says they reach nobody
+  // else. (In CI that file does not exist, so CI's answer is unchanged.)
+  it('--strict exits 0 when the hooks are wired only in settings.local.json, and says so', async () => {
+    put(proj, { permissions: { allow: [] } });
+    writeFileSync(
+      join(proj, '.claude/settings.local.json'),
+      JSON.stringify(newWiring),
+    );
+    await runStatus({ strict: true });
+    expect(noteBody('HOOKS')).toContain('settings.local.json');
+    expect(noteBody('HOOKS')).toContain('not for teammates or CI');
   });
 });

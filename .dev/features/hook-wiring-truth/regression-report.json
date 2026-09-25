@@ -1,0 +1,27 @@
+{
+  "base": "36ecf7003aa4fa9d3d9d755c73e15f20a0715f90",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "src/commands/status.ts",
+    "src/lib/hook-wiring.ts",
+    "tests/hook-wiring.test.ts",
+    "tests/status.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
