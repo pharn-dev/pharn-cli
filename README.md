@@ -186,13 +186,27 @@ your project already had that file, PHARN preserved it and printed a warning
 instead of overwriting it — so until you copy the hook wiring across, every
 guarantee that depends on a `PreToolUse` hook is inactive.
 
-**Once wired, the write guard is fail-closed.** With no active scope, Claude
-Code's Write/Edit/MultiEdit/NotebookEdit tools are restricted to
-`pharn/features/**` and `.pharn/**`; ordinary edits to your own source are denied. That is the
-intended posture — a stage sets the scope from the concrete paths your
-`PLAN.md` declared — but it means the guard is not a drop-in for editing
-outside a PHARN run. Clearing the scope returns to this default; it does not
-re-open your source.
+**Once wired, the default depends on your tree (pharn-oss 6.24.0+).** With no
+active scope, `enforce-writes-scope.cjs` applies that default.
+
+In an **installed** project (`pharn.config.json` carries a non-empty
+`skillsVersion`), you can edit ordinary application source **outside** an open
+PHARN run. The narrow fail-closed posture — Claude Code's
+Write/Edit/MultiEdit/NotebookEdit tools restricted to `pharn/features/**` and
+`.pharn/**` — applies **only while** `/pharn-ship`, `/pharn-loop`, or
+`/pharn-review` has an open marker (`.pharn/<command>/<name>/active.json`; ship
+and review via `pharn/floor/run-marker.mjs`, loop via
+`require-loop-record.cjs`). Outside those runs the guard **denies** PHARN's
+installed surface (`pharn/**` except `pharn/features/**`, `.claude/**`,
+`pharn.config.json`, and `.pharn/writes-scope.json`) and **allows** the rest of
+your project, including app source. While a stage is running it still sets
+explicit scope from the concrete paths your `PLAN.md` declared.
+
+In PHARN's own dev repo or an unsignalled tree, the pre-6.24.0 posture
+remains: fail-closed everywhere with no active scope. Clearing the scope
+(`set-writes-scope.cjs --clear`, or deleting `.pharn/writes-scope.json`)
+returns to whichever default your tree and open-run state compute; it does not
+by itself re-open source in those postures, or during an open install run.
 
 Writes issued through Bash bypass both write guards entirely.
 
@@ -312,9 +326,13 @@ PHARN is intentionally scoped:
 
 - It targets **Claude Code today**. Codex and Cursor support are planned, not
   shipped.
-- It requires a git-initialized project and Node >= 20.13.0 (the floor its
-  prompt library needs). CI runs on Node 24, and a smoke job starts the packed
-  CLI on exactly Node 20.13.0.
+- It requires a git-initialized project. The **CLI** (`@pharn-dev/pharn`) needs
+  Node **>= 20.13.0** (`engines.node`; CI runs on Node 24, and a smoke job
+  starts the packed CLI on exactly 20.13.0). The **installed floor**
+  (`pharn/floor/*.mjs`) needs **Node 24.2+** for reliable checker runs
+  (`import.meta.main`; on older Node a guarded tool can exit 0 without running
+  its checks). Use 24.2+ locally for `/pharn-build`, `/pharn-verify`, and the
+  rest of the pipeline.
 - **Archetype detection is JS/TS-shaped.** The signals are `package.json`
   dependency names plus `next.config.*`, `app/` route handlers, `.tsx`/`.jsx`,
   `migrations/` and `.sql`. A Python, Go or Rust repo produces no signal,
