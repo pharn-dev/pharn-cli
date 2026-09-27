@@ -19,6 +19,15 @@
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
 
+## Node version: CLI vs installed floor
+
+Two different Node floors apply:
+
+- **CLI (`@pharn-dev/pharn`):** `engines.node` is `>=20.13.0`. npm/npx enforces this when the package is resolved; CI smoke-tests the packed CLI on exactly 20.13.0.
+- **Installed floor (`pharn/floor/*.mjs`):** pipeline checkers need **Node 24.2+** because their CLI entry points gate on `import.meta.main`. On an older Node a guarded tool can exit **0** without running its checks — a silent false green.
+
+If a `/pharn-*` stage reports success while something still looks wrong, check `node -v` in the environment where Claude Code runs your gates and upgrade to **24.2+** for pipeline work.
+
 ## Streams
 
 Error-level messages go to **stderr**; normal output (notes, summaries, prompts, spinners, the
