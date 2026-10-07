@@ -225,6 +225,7 @@ const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
     frozenCapabilities: true,
     repo: true,
     commit: true,
+    ref: true,
     constitution: true,
     isMultiTenant: true,
     modules: true,
@@ -357,6 +358,13 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // 'flat' survive verbatim, so the field round-trips.
   if (config.layout !== 'pharn' && config.layout !== 'flat') {
     delete config.layout;
+  }
+  // Additive `ref` (types.ts): only the literal `"main"` survives. Anything else
+  // — a typo, `"latest"`, a non-string — is dropped, so the install follows
+  // verified releases: a hand-edit can opt OUT of verification only by saying so
+  // exactly (P5).
+  if (config.ref !== undefined && config.ref !== 'main') {
+    delete config.ref;
   }
   // Additive `pendingSkillsVersion` (types.ts): only a VERSION_RE-shaped string
   // survives; anything else is dropped, so a garbage hand-edit fails closed —

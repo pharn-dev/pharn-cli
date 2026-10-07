@@ -110,6 +110,12 @@ export interface PharnConfig {
   frozenCapabilities?: string[];
   repo: string;
   commit: string | null;
+  // Additive (P7). The channel this install follows (lib/release.ts): `"main"`
+  // when it was installed or updated with `--ref main` (the unverified tip), and
+  // ABSENT for the default — the newest verified pharn-oss release. Only
+  // `"main"` is ever written; any other value is dropped at load, so a garbage
+  // hand-edit falls back to verified releases (the safe direction).
+  ref?: 'main';
   // Legacy (module/wizard) installs record the chosen constitution variant.
   // Optional: the archetype install (pharn init --archetype) copies pharn-oss's
   // canonical CONSTITUTION.md verbatim (no variant selection), so it omits this.

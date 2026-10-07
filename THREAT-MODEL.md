@@ -53,11 +53,11 @@ surface:
    fetch now carries a timeout and a body cap, the clone included: a streamed-byte cap on the
    download and a second cap on the decompressed size (see the fetch boundary below).
 4. **Redirect to an attacker host** — a 3xx from any `fetch()` endpoint (`SKILLS_VERSION`, commit
-   metadata, the tarball) to an off-repo sink. All three pass `redirect: 'error'`.
+   and release metadata, the tarball) to an off-repo sink. All of them pass `redirect: 'error'`.
 5. **The copied methodology itself (Surface A)** — validated for **placement**, not for semantic
    content.
-6. **Stale / renamed upstream paths** — `status`/`update`/`diff` resolve against `@main` HEAD (not
-   the pinned `commit`), so an upstream rename can orphan or re-target a path.
+6. **Stale / renamed upstream paths** — `status`/`update`/`diff` resolve against the newest verified
+   release (or `@main` HEAD on the `--ref main` channel), not the pinned `commit`, so an upstream rename can orphan or re-target a path.
 7. **The archive itself** — entry paths, types, sizes and header fields are attacker-controlled
    bytes, read by pharn's own extractor (see the fetch boundary below).
 
@@ -167,7 +167,9 @@ reach this write** (P0/P2): `skillsVersion` against `VERSION_RE`
 against `CAPABILITY_NAME_RE` (`parseCapabilityIndex` / `installCapabilityDirs`,
 `src/lib/capability-index.ts` + `src/lib/install-capabilities.ts`); the `commit`
 SHA against `COMMIT_RE` — a full 40-hex sha — at the fetch boundary in `fetchRepo`
-(`src/lib/repo.ts`), with `null` the documented degraded mode (§4, `LIMITS.md §3b`);
+(`src/lib/repo.ts`), with `null` the documented degraded mode of the `main` channel only (§4,
+`LIMITS.md §3b`); the release `tag_name` against `RELEASE_TAG_RE` and the tag's commit against
+`COMMIT_RE` (`src/lib/release.ts`), with the fetched tree's `SKILLS_VERSION` required to equal the tag;
 and the `models` block, copied from pharn-oss's root `pharn.config.json`, against
 pharn-oss's own rules — `checkModelsBlock` (`src/lib/model-config.ts`, a copy pinned
 to pharn-oss's checker) applied by `readUpstreamModels`
@@ -222,7 +224,7 @@ not a "the source repo is ours" assumption (P0).
   regardless of the store (row 1, `:60`). A file already byte-identical to upstream is never skipped even
   with no records, and its record is refreshed — so a degraded install partially heals, but never for the
   differing files an upgrade needs to touch (`:67-71`). `status` is not record-based at all: its drift is
-  a **live `@main` comparison** via `readDiskState` (`src/lib/diff.ts:79`, `src/lib/apply-update.ts:44`),
+  a **live comparison against the newest release (or `@main`)** via `readDiskState` (`src/lib/diff.ts:79`, `src/lib/apply-update.ts:44`),
   which classifies a symlink or non-regular path as `unreadable` rather than hashing it
   (`apply-update.ts:57-61`). _Backstop:_ drift **is** detected (`pharn status`, live), and bytes pharn
   cannot explain are **skipped, never overwritten** without `--force`.

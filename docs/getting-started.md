@@ -56,10 +56,11 @@ npx @pharn-dev/pharn init
    `app/` route handlers, `.tsx`/`.jsx`, `migrations/` and `.sql`. A Python, Go or Rust project produces
    no signal, resolves to `lib`, and receives the universal capabilities only — the correct outcome, not
    a failure.
-2. **Fetch + resolve.** It downloads `pharn-dev/pharn-oss` as a tarball at a pinned SHA and selects the
-   capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the rest
-   with a reason. If the SHA cannot be resolved (offline, rate-limited) the fetch floats `main` instead
-   and records `commit: null`. If the fetched version declares a `MIN_CLI` newer than your CLI, the run
+2. **Fetch + resolve.** It downloads the newest **verified release** of `pharn-dev/pharn-oss` — a tag
+   pharn-oss creates only after its post-merge CI passed — as a tarball at the tag's commit, and selects
+   the capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the
+   rest with a reason. If the release cannot be resolved (none published, offline, rate-limited) the run
+   stops with exit 1; `pharn init --ref main` installs the unverified tip of `main` instead. If the fetched version declares a `MIN_CLI` newer than your CLI, the run
    stops here with a named error and writes nothing.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus
    the fixed product surfaces (commands, hooks, contracts, `pharn-core`, floor checkers, the four trusted

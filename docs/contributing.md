@@ -76,7 +76,7 @@ pharn-cli/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status
     steps/                init stages (prereqs, node-prereq, overwrite-check, archetype-summary, install-archetype)
-    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, node-floor, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-config(-format), models-update, upstream-models, seam-config, install-records, update-decision, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, report-error, hash, validate, constants, banner, confirm, format
+    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, node-floor, release, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-config(-format), models-update, upstream-models, seam-config, install-records, update-decision, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, report-error, hash, validate, constants, banner, confirm, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
@@ -91,7 +91,8 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 
 - Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
-- Remote fetches (`lib/skills-version.ts`) use `redirect: 'error'`, an 8s timeout, and a 256KB body cap.
+- Remote fetches (`lib/skills-version.ts`, `lib/release.ts`) use `redirect: 'error'`, an 8s timeout, and a body cap (256KB for `SKILLS_VERSION`, 1MiB for a release object).
+- The release resolve (`lib/release.ts`) fails closed: a release that cannot be resolved refuses the command and never falls back to the tip of `main`.
 - The repo download (`lib/repo.ts`) has its own, larger bounds: a 60s timeout, a 32MB archive cap, a 128MB extracted cap, and a 20,000-entry cap — enforced twice, including at `gunzipSync`.
 
 ### pharn-oss's `models` rules — a pinned copy
@@ -172,6 +173,7 @@ Two rules that are easy to get wrong:
 | `project-lock.test.ts` + `-break` + `-commands`                            | The single-writer lock: acquire/release, stale-break single-winner, and which commands take it                |
 | `min-cli-gate.test.ts` / `semver.test.ts`                                  | The `MIN_CLI` forward-compat gate and its version comparison                                                  |
 | `node-floor.test.ts` / `node-prereq.test.ts`                               | The Node floor verdict (fail-closed) and the `init`/`update` preflight                                        |
+| `release.test.ts`                                                          | The verified-release resolver: tag/commit resolution, every fail-closed refusal, the channel                  |
 | `proxy-env.test.ts` / `proxy-env-format.test.ts`                           | Proxy detection and the warning's rendering + redaction                                                       |
 | `merge-capabilities.test.ts` / `dest-drift.test.ts`                        | The 9-row membership table; `add`'s destination-drift partition (drift vs unsafe)                             |
 | `capability-address.test.ts` / `capability-groups.test.ts`                 | `<role>:<name>` parsing; the grouped inventory rendering                                                      |

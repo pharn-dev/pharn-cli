@@ -16,6 +16,13 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
+import {
+  MAIN_WARNING,
+  ReleaseResolveError,
+  resolveSource,
+  sourceLabel,
+  type RefChoice,
+} from '../lib/release.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
@@ -42,7 +49,7 @@ import type {
   Selection,
 } from '../types.js';
 
-export async function runInit(): Promise<void> {
+export async function runInit(opts: { ref?: RefChoice } = {}): Promise<void> {
   showBanner();
   intro('init wizard');
 
@@ -86,7 +93,7 @@ export async function runInit(): Promise<void> {
   // agnostic — no module catalog / manifest fetch. (The legacy module/wizard
   // flow was removed entirely; add/update/status/remove reject a pre-archetype
   // config up front via loadArchetypeConfigOrExit — there is no manifest fallback.)
-  await runInitArchetype();
+  await runInitArchetype(opts.ref ?? 'latest');
 }
 
 // schemaVersion-free archetype flow: detect archetypes from the project, fetch
@@ -94,7 +101,7 @@ export async function runInit(): Promise<void> {
 // applicable capabilities + product surfaces. The fetched temp clone lives
 // across the interactive summary, so cleanup runs in a finally and every
 // process.exit / cancelAndExit happens AFTER it (Node skips finally on exit).
-async function runInitArchetype(): Promise<void> {
+async function runInitArchetype(channel: RefChoice): Promise<void> {
   const cwd = process.cwd();
   const { archetypes } = detectArchetypesFromProject(cwd);
   note(archetypes.join(', '), 'Detected archetypes');
@@ -115,14 +122,23 @@ async function runInitArchetype(): Promise<void> {
   s.start(`Fetching PHARN from ${REPO_URL}`);
   let repo: Awaited<ReturnType<typeof fetchRepo>>;
   try {
-    repo = await fetchRepo();
+    // WHICH commit, first: the newest verified release by default, or the tip
+    // with `--ref main`. A release that cannot be resolved REFUSES (no fallback
+    // to the tip), and the error already names `--ref main` (lib/release.ts).
+    repo = await fetchRepo(await resolveSource(channel));
   } catch (err) {
     s.stop('Failed to fetch PHARN');
-    reportFatal(`Could not reach ${REPO_URL}: ${errorMessage(err)}`, { err });
+    reportFatal(
+      err instanceof ReleaseResolveError
+        ? err.message
+        : `Could not reach ${REPO_URL}: ${errorMessage(err)}`,
+      { err },
+    );
     process.exit(1);
   }
 
-  s.stop(`PHARN fetched from ${REPO_URL}`);
+  s.stop(`PHARN fetched from ${sourceLabel(repo.source)}`);
+  if (repo.source.kind === 'main') log.warn(MAIN_WARNING);
 
   let outcome: 'installed' | 'cancelled' = 'cancelled';
   // The ERROR OBJECT, not its message: the reporter needs it to decide whether
@@ -261,7 +277,7 @@ async function runInitArchetype(): Promise<void> {
             archetypes,
             selection,
             commit,
-            carry,
+            channel === 'main' ? { ...carry, ref: 'main' } : carry,
             manifest,
           );
         });

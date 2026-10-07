@@ -37,6 +37,14 @@ import {
 } from '../lib/install-records.js';
 import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
+import {
+  channelOf,
+  MAIN_WARNING,
+  resolveSource,
+  sourceLabel,
+  type InstallSource,
+} from '../lib/release.js';
+import { compareVersionCore } from '../lib/semver.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
@@ -67,7 +75,8 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
   await runArchetypeAdd(config, cwd, capabilityArg);
 }
 
-// THE VERSION GATE. `add` fetches @main, so the clone can be AHEAD of what this
+// THE VERSION GATE. `add` fetches the newest release (or `main`, for a project
+// that follows it), so the clone can be AHEAD of what this
 // project installed. Stamping that clone's SKILLS_VERSION into pharn.config.json
 // while every previously-installed file still holds the OLD version's bytes is
 // what made `pharn update`'s `config.skillsVersion === latest` early-return lie —
@@ -96,10 +105,25 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
 // at that version. Without it, one kept edit dead-ended `add` for good — `update`
 // could never finish while the edit stayed, and this message sent the user back
 // to `update` in a loop.
-function versionGate(repoDir: string, config: PharnConfig): string | null {
+//
+// One case gets its own wording: an install AHEAD of the newest verified release
+// (made from `main`, as every install before 0.9.0 was). Sending that user to
+// `pharn update` would loop — `update` refuses to downgrade without `--force` —
+// so the message names the two real ways forward instead.
+function versionGate(
+  repoDir: string,
+  config: PharnConfig,
+  source: InstallSource,
+): string | null {
   const fetched = readSkillsVersion(repoDir);
   if (fetched === config.skillsVersion) return null;
   if (fetched === config.pendingSkillsVersion) return null;
+  if (
+    source.kind === 'release' &&
+    compareVersionCore(config.skillsVersion, fetched) === 1
+  ) {
+    return `Your install (skills v${config.skillsVersion}) is ahead of the latest verified ${REPO_URL} release (${source.tag}) — it came from pharn-oss main, and \`pharn add\` installs only at the version your project is already on. Run \`pharn update --ref main\` to follow main (\`pharn add\` then fetches from it too), or wait for a release at v${config.skillsVersion}.`;
+  }
   const base = `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on`;
   return config.pendingSkillsVersion === undefined
     ? `${base} — run \`pharn update\` first, then re-run \`pharn add\`.`
@@ -213,8 +237,11 @@ async function runArchetypeAdd(
       s.start(`Fetching capabilities from ${REPO_URL}`);
       let repo;
       try {
-        repo = await fetchRepo();
-        s.stop(`Capabilities fetched from ${REPO_URL}`);
+        // The channel this install follows (`ref` in the config) — `add` has
+        // no `--ref` of its own: it must fetch what the project is on.
+        repo = await fetchRepo(await resolveSource(channelOf(config)));
+        s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
+        if (repo.source.kind === 'main') log.warn(MAIN_WARNING);
       } catch (err) {
         s.stop('Failed to fetch capabilities');
         // Re-thrown, not exited: the catch below turns it into the same
@@ -237,7 +264,7 @@ async function runArchetypeAdd(
         // real action, so its message must be the one the user sees.
         const refusal =
           gate.refusal ??
-          versionGate(repo.dir, config) ??
+          versionGate(repo.dir, config, repo.source) ??
           layoutGate(repo.dir, config);
         return refusal
           ? { kind: 'error' as const, message: refusal }
@@ -335,8 +362,11 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       s.start(`Fetching capabilities from ${REPO_URL}`);
       let repo;
       try {
-        repo = await fetchRepo();
-        s.stop(`Capabilities fetched from ${REPO_URL}`);
+        // The channel this install follows (`ref` in the config) — `add` has
+        // no `--ref` of its own: it must fetch what the project is on.
+        repo = await fetchRepo(await resolveSource(channelOf(config)));
+        s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
+        if (repo.source.kind === 'main') log.warn(MAIN_WARNING);
       } catch (err) {
         s.stop('Failed to fetch capabilities');
         // Re-thrown rather than exited, so the lock releases — see the named path.
@@ -351,7 +381,7 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
         if (gate.warning) log.warn(gate.warning);
         const refusal =
           gate.refusal ??
-          versionGate(repo.dir, config) ??
+          versionGate(repo.dir, config, repo.source) ??
           layoutGate(repo.dir, config);
         return refusal
           ? { kind: 'error' as const, message: refusal }

@@ -9,19 +9,20 @@ archetypes/capabilities and the pinned commit).
 
 ## Top-level fields (archetype install)
 
-| Field           | Type           | Description                                                                    |                                                                     |
-| --------------- | -------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                  |                                                                     |
-| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                            |                                                                     |
-| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                            |                                                                     |
-| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable            |                                                                     |
-| `installedAt`   | string         | ISO timestamp of the install / last update                                     |                                                                     |
-| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                |                                                                     |
-| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below             |                                                                     |
-| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)          |                                                                     |
-| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)        |                                                                     |
-| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                   |                                                                     |
-| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))      |                                                                     |
+| Field           | Type           | Description                                                                                  |     |
+| --------------- | -------------- | -------------------------------------------------------------------------------------------- | --- |
+| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                                |     |
+| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                          |     |
+| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                          |     |
+| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                          |     |
+| `ref`           | string         | `"main"` when the install follows the tip of main (`--ref main`); absent → verified releases |     |
+| `installedAt`   | string         | ISO timestamp of the install / last update                                                   |     |
+| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                              |     |
+| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                           |     |
+| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                        |     |
+| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)                      |     |
+| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                 |     |
+| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))                    |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 
@@ -109,7 +110,13 @@ from the list. A value that is not a list of
   "modules": [],
   "models": { "stages": { "…": "…" } },
   "seam": {
-    "resolutionOrder": ["official-skill", "pinned-docs", "model", "fetch", "ask"],
+    "resolutionOrder": [
+      "official-skill",
+      "pinned-docs",
+      "model",
+      "fetch",
+      "ask"
+    ],
     "modelConfidenceThreshold": "high",
     "haltOnUnknown": true
   }
@@ -210,7 +217,13 @@ The installed default:
 ```json
 {
   "seam": {
-    "resolutionOrder": ["official-skill", "pinned-docs", "model", "fetch", "ask"],
+    "resolutionOrder": [
+      "official-skill",
+      "pinned-docs",
+      "model",
+      "fetch",
+      "ask"
+    ],
     "modelConfidenceThreshold": "high",
     "haltOnUnknown": true
   }

@@ -46,7 +46,34 @@ vi.mock('../src/lib/pharn-config.js', () => ({
 // is the only way to say "not called" about a function whose real form would go
 // to the network — and it also keeps this file offline.
 const fetchRepo = vi.fn();
-vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
+// `fetchRepo` returns the source it fetched; the wrapper fills it in from the
+// argument, so the suite's `{ dir, sha, cleanup }` stubs stay what they were.
+vi.mock('../src/lib/repo.js', () => ({
+  fetchRepo: async (source: unknown) => ({
+    source,
+    ...(await fetchRepo(source)),
+  }),
+}));
+// The release resolve (lib/release.ts) is a network call, so it is replaced. The
+// default channel resolves to a verified release AT the version the suite's
+// existing `fetchRemoteSkillsVersion` knob names — so every scenario it drives
+// (up to date, behind, offline) drives the release path the same way.
+const resolveSource = vi.fn(async (ref: string) => {
+  if (ref === 'main') return { kind: 'main' as const };
+  const version = String(await fetchRemoteSkillsVersion());
+  return {
+    kind: 'release' as const,
+    tag: `v${version}`,
+    version,
+    sha: 'b'.repeat(40),
+  };
+});
+vi.mock('../src/lib/release.js', async () => ({
+  ...(await vi.importActual<typeof import('../src/lib/release.js')>(
+    '../src/lib/release.js',
+  )),
+  resolveSource,
+}));
 
 // `update` checks the remote SKILLS_VERSION BEFORE it takes the lock, so an
 // un-mocked one here would make this suite perform real egress. Spread from the

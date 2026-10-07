@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit } from './helpers.js';
 
-const runInit = vi.fn(async () => undefined);
+const runInit = vi.fn(async (_opts?: { ref?: string }) => undefined);
 const runAdd = vi.fn(async (_arg?: string) => undefined);
 const runRemove = vi.fn(async (_arg?: string) => undefined);
 const runUpdate = vi.fn(
-  async (_opts?: { force?: boolean; yes?: boolean }) => undefined,
+  async (_opts?: { force?: boolean; yes?: boolean; ref?: string }) => undefined,
 );
 const runList = vi.fn(async (_opts?: { json?: boolean }) => undefined);
 const runStatus = vi.fn(
@@ -46,7 +46,7 @@ describe('main (argv dispatch)', () => {
     setArgv();
     await main();
     expect(runInit).toHaveBeenCalledTimes(1);
-    expect(runInit).toHaveBeenCalledWith();
+    expect(runInit).toHaveBeenCalledWith({ ref: undefined });
     expect(runAdd).not.toHaveBeenCalled();
     expect(runUpdate).not.toHaveBeenCalled();
   });
@@ -55,7 +55,7 @@ describe('main (argv dispatch)', () => {
     setArgv('init', '--archetype');
     await main();
     expect(runInit).toHaveBeenCalledTimes(1);
-    expect(runInit).toHaveBeenCalledWith();
+    expect(runInit).toHaveBeenCalledWith({ ref: undefined });
   });
 
   it('routes `add <arg>` to runAdd with the argument', async () => {
@@ -585,8 +585,13 @@ describe('main (argv dispatch)', () => {
     await main();
     expect(Object.keys(runUpdate.mock.calls[0]![0]!).sort()).toEqual([
       'force',
+      'ref',
       'yes',
     ]);
+
+    setArgv('init');
+    await main();
+    expect(Object.keys(runInit.mock.calls[0]![0]!)).toEqual(['ref']);
 
     setArgv('list', '--json');
     await main();
@@ -600,11 +605,7 @@ describe('main (argv dispatch)', () => {
     ]);
   });
 
-  it('passes no option object at all to the three flagless commands', async () => {
-    setArgv('init');
-    await main();
-    expect(runInit.mock.calls[0]).toHaveLength(0);
-
+  it('passes no option object at all to the two flagless commands', async () => {
     setArgv('add', 'a11y');
     await main();
     expect(runAdd.mock.calls[0]).toHaveLength(1);
@@ -612,6 +613,79 @@ describe('main (argv dispatch)', () => {
     setArgv('remove', 'a11y');
     await main();
     expect(runRemove.mock.calls[0]).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // `--ref`: the one VALUE-taking option. Its name is checked like every other
+  // flag (init and update only); its value against an exact allowlist.
+  // -------------------------------------------------------------------------
+
+  describe('--ref', () => {
+    it.each([
+      ['init', 'main'],
+      ['init', 'latest'],
+      ['update', 'main'],
+      ['update', 'latest'],
+    ])('`%s --ref %s` threads the value', async (cmd, value) => {
+      setArgv(cmd, '--ref', value);
+      await main();
+      const fn = cmd === 'init' ? runInit : runUpdate;
+      expect(fn.mock.calls[0]![0]).toMatchObject({ ref: value });
+    });
+
+    it('accepts the `--ref=main` form', async () => {
+      setArgv('update', '--ref=main', '--yes');
+      await main();
+      expect(runUpdate).toHaveBeenCalledWith({
+        force: false,
+        yes: true,
+        ref: 'main',
+      });
+    });
+
+    it('binds its value, so the value is not read as a positional', async () => {
+      // Without the string declaration, `main` would be a second positional
+      // and the arity gate would refuse `init main`.
+      setArgv('init', '--ref', 'main');
+      await main();
+      expect(runInit).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes undefined when absent, so each command picks its own default', async () => {
+      setArgv('update');
+      await main();
+      expect(runUpdate.mock.calls[0]![0]!.ref).toBeUndefined();
+    });
+
+    it.each([
+      [['init', '--ref', 'tip']],
+      [['init', '--ref', 'MAIN']],
+      [['init', '--ref']],
+      [['update', '--ref', '--yes']],
+      [['update', '--no-ref']],
+      [['init', '--ref=main', '--ref=latest']],
+    ])('refuses an invalid value: %j', async (args) => {
+      setArgv(...args);
+      await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+      expect(runInit).not.toHaveBeenCalled();
+      expect(runUpdate).not.toHaveBeenCalled();
+      expect(stderrText()).toContain('Invalid value for --ref');
+      expect(stderrText()).toContain('"latest" or "main"');
+    });
+
+    it('refuses an invalid value even beside --help', async () => {
+      setArgv('init', '--help', '--ref', 'tip');
+      await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    });
+
+    it.each(['status', 'add', 'remove', 'list'])(
+      'is refused for `%s`, which follows the recorded channel',
+      async (cmd) => {
+        setArgv(cmd, '--ref', 'main');
+        await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+        expect(stderrText()).toContain(`Unsupported option for \`${cmd}\``);
+      },
+    );
   });
 
   it('scopes every option to its command in the usage text', async () => {
@@ -622,5 +696,6 @@ describe('main (argv dispatch)', () => {
     expect(printed).toMatch(/--strict\s+status:/);
     expect(printed).toMatch(/--no-drift\s+status:/);
     expect(printed).toMatch(/--archetype\s+init:/);
+    expect(printed).toMatch(/--ref <ref>\s+init, update:/);
   });
 });

@@ -5,8 +5,16 @@ import {
 } from '../lib/hook-wiring.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
-import { REPO, REPO_BRANCH } from '../lib/constants.js';
+import { REPO } from '../lib/constants.js';
 import { fetchRepo } from '../lib/repo.js';
+import {
+  channelOf,
+  resolveSource,
+  sourceDescription,
+  sourceLabel,
+  type InstallSource,
+} from '../lib/release.js';
+import { compareVersionCore } from '../lib/semver.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
@@ -32,11 +40,10 @@ import {
 } from '../lib/skills-version.js';
 import type { PharnConfig } from '../types.js';
 
-const REF = `${REPO}@${REPO_BRANCH}`;
-
 /**
  * Read-only audit of an archetype install: is it current (version section) and
- * have any PHARN-owned files drifted from `pharn-dev/pharn-oss@main` (drift
+ * have any PHARN-owned files drifted from what it follows — the newest verified
+ * pharn-oss release, or `main` for a config that records `ref: "main"` (drift
  * section)? Never writes, deletes, or overwrites — fixing is `pharn update` /
  * `pharn add`. The module/manifest flow was removed; a pre-archetype config is
  * rejected up front by loadArchetypeConfigOrExit.
@@ -99,19 +106,29 @@ async function runArchetypeStatus(
     log.warn(proxyNoticeMessage(proxyNotice));
   }
 
+  // The channel the install follows, never a flag: `status` reports on the
+  // install as it is configured. A release that cannot be resolved fails the
+  // command (exit 1) on both paths, exactly like an unreachable fetch did.
+  const channel = channelOf(config);
+
   if (!drift) {
     const s = spinner();
     s.start('Checking for updates');
     let latest: string;
+    let source: InstallSource;
     try {
-      latest = await fetchRemoteSkillsVersion();
+      source = await resolveSource(channel);
+      latest =
+        source.kind === 'release'
+          ? source.version
+          : await fetchRemoteSkillsVersion();
       s.stop(`Latest skills v${latest}`);
     } catch (err) {
       s.stop('Failed to check for updates');
       reportFatal(errorMessage(err), { err });
       process.exit(1);
     }
-    const outdated = printArchetypeVersion(config, latest);
+    const outdated = printArchetypeVersion(config, latest, source);
     printModels(config);
     if (strict && outdated) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
@@ -119,11 +136,11 @@ async function runArchetypeStatus(
   }
 
   const s = spinner();
-  s.start(`Comparing against ${REF}`);
+  s.start(`Comparing against ${REPO}`);
   let repo;
   try {
-    repo = await fetchRepo();
-    s.stop(`Compared against ${REF}`);
+    repo = await fetchRepo(await resolveSource(channel));
+    s.stop(`Compared against ${sourceLabel(repo.source)}`);
   } catch (err) {
     s.stop(`Failed to reach ${REPO}`);
     reportFatal(errorMessage(err), { err });
@@ -132,7 +149,11 @@ async function runArchetypeStatus(
 
   let exitCode = 0;
   try {
-    const outdated = printArchetypeVersion(config, readSkillsVersion(repo.dir));
+    const outdated = printArchetypeVersion(
+      config,
+      readSkillsVersion(repo.dir),
+      repo.source,
+    );
     printModels(config);
     // Exclude FROZEN capabilities — the ones the fetch boundary could not parse
     // in this clone. `update` deliberately keeps their config entry but never
@@ -152,7 +173,7 @@ async function runArchetypeStatus(
       ),
       layout: configLayout(config),
     });
-    printDriftSection(result);
+    printDriftSection(result, sourceLabel(repo.source));
     // HOOKS: settings.json is user-owned and never compared as a file above;
     // what IS checked is whether every hook upstream wires is wired here.
     const hooks = diffHookWiring(repo.dir, cwd);
@@ -183,14 +204,29 @@ async function runArchetypeStatus(
 
 // VERSION note for an archetype install: skillsVersion currency + a summary of
 // the detected archetypes and installed capability count. Returns outdated.
-function printArchetypeVersion(config: PharnConfig, latest: string): boolean {
-  const outdated = config.skillsVersion !== latest;
-  const skillsLine = outdated
-    ? `${row('Skills version', `v${config.skillsVersion} → v${latest}`)} ${pc.dim('(update available, run `pharn update`)')}`
-    : `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim('(up to date)')}`;
+//
+// AHEAD is not outdated: an install made from `main` can hold a version newer
+// than the newest verified release, and `pharn update` refuses to downgrade it
+// without `--force` — so `--strict` must not fail on it either, or CI would
+// demand a run that does nothing.
+function printArchetypeVersion(
+  config: PharnConfig,
+  latest: string,
+  source: InstallSource,
+): boolean {
+  const ahead =
+    source.kind === 'release' &&
+    compareVersionCore(config.skillsVersion, latest) === 1;
+  const outdated = !ahead && config.skillsVersion !== latest;
+  const skillsLine = ahead
+    ? `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim(`(ahead of the latest verified release v${latest} — installed from main)`)}`
+    : outdated
+      ? `${row('Skills version', `v${config.skillsVersion} → v${latest}`)} ${pc.dim('(update available, run `pharn update`)')}`
+      : `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim('(up to date)')}`;
   note(
     [
       skillsLine,
+      row('Source', sourceDescription(source)),
       '',
       row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
       row('Capabilities', String((config.capabilities ?? []).length)),
@@ -247,23 +283,23 @@ function modelsNoteLines(block: unknown, floor: string): string[] {
 // DRIFT note: differing, missing and unreadable PHARN-owned files, or a clean
 // bill. Takes the InstallDiff type rather than an inline structural literal, so
 // a partition added to the diff cannot be silently left unrendered here.
-function printDriftSection(result: InstallDiff): void {
+function printDriftSection(result: InstallDiff, ref: string): void {
   if (
     result.modified.length === 0 &&
     result.missing.length === 0 &&
     result.unreadable.length === 0
   ) {
-    note(`No drift — ${result.okCount} file(s) match ${REF}.`, 'DRIFT');
+    note(`No drift — ${result.okCount} file(s) match ${ref}.`, 'DRIFT');
     return;
   }
 
   const lines: string[] = [];
   if (result.modified.length) {
-    // "DIFFERS FROM …@main", not "locally modified": this comparison is against
-    // upstream HEAD, so a file can differ because UPSTREAM moved, not only
+    // "DIFFERS FROM …", not "locally modified": this comparison is against
+    // what upstream ships NOW, so a file can differ because UPSTREAM moved, not only
     // because the user edited it. `update` is the command that can tell those
     // apart (it has the per-file install records); this report cannot.
-    lines.push(`  DIFFERS FROM ${REF} (PHARN-owned)`);
+    lines.push(`  DIFFERS FROM ${ref} (PHARN-owned)`);
     for (const p of result.modified) lines.push(`  ${p}`);
     lines.push(
       pc.dim("  `pharn update` keeps files you've edited and cleanly"),
@@ -307,6 +343,6 @@ function printDriftSection(result: InstallDiff): void {
       pc.dim('  unreadable file sits where pharn expects a regular file.'),
     );
   }
-  lines.push('', pc.dim(`  ${result.okCount} file(s) match ${REF}.`));
+  lines.push('', pc.dim(`  ${result.okCount} file(s) match ${ref}.`));
   note(lines.join('\n'), 'DRIFT');
 }

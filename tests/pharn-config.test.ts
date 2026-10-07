@@ -65,6 +65,25 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toEqual(withLayout);
   });
 
+  // The additive `ref` (lib/release.ts): only the literal "main" opts an
+  // install out of verified releases; anything else is dropped at load.
+  it('round-trips ref "main"', async () => {
+    const withRef: PharnConfig = { ...sample, ref: 'main' };
+    await writePharnConfig(tmp.path(), withRef);
+    expect(readPharnConfig(tmp.path())).toEqual(withRef);
+  });
+
+  it.each(['latest', 'Main', 'tip', '', 1, null, ['main']])(
+    'drops any other ref (%j), so the install follows verified releases',
+    (ref) => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify({ ...sample, ref }),
+      );
+      expect(readPharnConfig(tmp.path())).not.toHaveProperty('ref');
+    },
+  );
+
   it('loads a legacy config with NO layout field (P7 additive)', () => {
     writeFileSync(
       join(tmp.path(), 'pharn.config.json'),

@@ -37,7 +37,33 @@ vi.mock('@clack/prompts', () => ({
 // the test is stubbed: the network fetch (a fixture clone stands in) and the
 // banner.
 const fetchRepo = vi.fn();
-vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
+// `fetchRepo` returns the source it fetched; the wrapper fills it in from the
+// argument, so the suite's `{ dir, sha, cleanup }` stubs stay what they were.
+vi.mock('../src/lib/repo.js', () => ({
+  fetchRepo: async (source: unknown) => ({
+    source,
+    ...(await fetchRepo(source)),
+  }),
+}));
+// The release resolve (lib/release.ts) is a network call, so it is replaced: the
+// default channel resolves to one fixed verified release, `--ref main` to the
+// tip. The clone's own version is whatever the suite's stubs put in it.
+const resolveSource = vi.fn(async (ref: string) =>
+  ref === 'main'
+    ? { kind: 'main' as const }
+    : {
+        kind: 'release' as const,
+        tag: 'v9.9.9',
+        version: '9.9.9',
+        sha: 'b'.repeat(40),
+      },
+);
+vi.mock('../src/lib/release.js', async () => ({
+  ...(await vi.importActual<typeof import('../src/lib/release.js')>(
+    '../src/lib/release.js',
+  )),
+  resolveSource,
+}));
 vi.mock('../src/lib/banner.js', () => ({ showBanner: vi.fn() }));
 
 // A pass-through spy on the manifest builder, so a run can COUNT how often it
@@ -219,6 +245,30 @@ describe('archetype install (fixture e2e)', () => {
       { name: 'security', role: 'griller', source: 'auto' },
       { name: 'n-plus-one', role: 'lens', source: 'auto' },
     ]);
+  });
+
+  // The channel is recorded only when it is the tip: `ref: "main"` for an
+  // install made with `--ref main`, NO key for the verified-release default.
+  it('records ref "main" only for a --ref main install', async () => {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepo(repo);
+    const index = parseCapabilityIndex(repo);
+    const selection = resolveCapabilities(['ssr'], index);
+    const raw = (proj: string): Record<string, unknown> =>
+      JSON.parse(readFileSync(join(proj, 'pharn.config.json'), 'utf8'));
+
+    const viaRelease = join(tmp.path(), 'release');
+    await runInstallArchetype(repo, viaRelease, ['ssr'], selection, 'sha123');
+    expect('ref' in raw(viaRelease)).toBe(false);
+
+    const viaMain = join(tmp.path(), 'main');
+    await runInstallArchetype(repo, viaMain, ['ssr'], selection, 'sha123', {
+      manualKeys: new Set(),
+      kept: [],
+      previousStamp: null,
+      ref: 'main',
+    });
+    expect(raw(viaMain).ref).toBe('main');
   });
 
   // A fresh install MUST leave a record for every file it wrote. Without it the
