@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-10-07
+
 ### Security
 
 - **`smol-toml` override raised to `~1.9.0`.** [GHSA-r4xh-jqrq-34v2](https://github.com/advisories/GHSA-r4xh-jqrq-34v2) (Dependabot alert 20) reports a quadratic-time `parse()` in `smol-toml` `<= 1.8.0`. `markdownlint-cli2` (latest, `0.23.3`) still pins `1.8.0` exactly, so the existing `overrides` entry in `package.json` moves from `~1.7.1` to `~1.9.0` and the lockfile resolves `1.9.0`. The pinning test's floor moves with it. Dev-only, as with the earlier `smol-toml` advisory: nothing in the published package is affected.
@@ -1424,7 +1426,8 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.4.0...v0.5.0
