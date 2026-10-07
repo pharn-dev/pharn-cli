@@ -26,8 +26,8 @@ Commands:
 
 Options (each belongs to ONE command; passing it to another is an error):
       --archetype    init: deprecated no-op — archetype detection is now the default
-      --ref <ref>    init, update: install from "latest" (the newest verified pharn-oss
-                     release — the default) or "main" (its unverified tip); recorded
+      --ref <ref>    init, update: install from "main" (the pharn-oss tip — the default)
+                     or "latest" (its newest verified release); recorded
       --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
   -y, --yes          update: skip the confirmation prompt (for CI and scripts)
       --strict       status: exit 1 on any outdated/modified/missing file

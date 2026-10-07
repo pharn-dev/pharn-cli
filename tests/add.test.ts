@@ -677,11 +677,14 @@ describe('runAdd (archetype)', () => {
     expect(installCapabilityDirs).not.toHaveBeenCalled();
   });
 
-  // An install made from `main` (every install before 0.9.0) can be AHEAD of
-  // the newest verified release. "Run `pharn update` first" would loop — update
+  // An install made from `main` and then switched to `--ref latest` can be
+  // AHEAD of the newest verified release. "Run `pharn update` first" would loop — update
   // refuses to downgrade without --force — so the gate names the real ways out.
   it('names --ref main, not `pharn update`, when the install is AHEAD of the release', async () => {
-    loadArchetypeConfigOrExit.mockReturnValue(archConfig()); // records v1.0.0
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...archConfig(), // records v1.0.0
+      ref: 'latest',
+    });
     mockClone();
     readSkillsVersion.mockReturnValue('0.9.0');
 
@@ -693,26 +696,11 @@ describe('runAdd (archetype)', () => {
     expect(installCapabilityDirs).not.toHaveBeenCalled();
   });
 
-  it('fetches from the channel the config records, and warns on main', async () => {
+  it('fetches the verified release when the config records it', async () => {
     loadArchetypeConfigOrExit.mockReturnValue({
       ...archConfig(),
-      ref: 'main',
+      ref: 'latest',
     });
-    mockClone();
-
-    await runAdd('a11y');
-
-    expect(resolveSource).toHaveBeenCalledWith('main');
-    expect(
-      vi
-        .mocked(prompts.log.warn)
-        .mock.calls.map((c) => String(c[0]))
-        .join('\n'),
-    ).toContain('--ref main');
-  });
-
-  it('fetches the latest verified release by default', async () => {
-    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
     mockClone();
 
     await runAdd('a11y');
@@ -721,6 +709,16 @@ describe('runAdd (archetype)', () => {
     expect(fetchRepo).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'release', tag: 'v9.9.9' }),
     );
+  });
+
+  it('fetches the tip of main by default', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+
+    await runAdd('a11y');
+
+    expect(resolveSource).toHaveBeenCalledWith('main');
+    expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
   });
 
   it('gates BEFORE the already-installed no-op (named path ordering)', async () => {

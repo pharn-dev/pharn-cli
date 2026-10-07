@@ -15,7 +15,7 @@ archetypes/capabilities and the pinned commit).
 | `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                          |     |
 | `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                          |     |
 | `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                          |     |
-| `ref`           | string         | `"main"` when the install follows the tip of main (`--ref main`); absent → verified releases |     |
+| `ref`           | string         | `"latest"` to follow verified releases (`--ref latest`); absent → the tip of main            |     |
 | `installedAt`   | string         | ISO timestamp of the install / last update                                                   |     |
 | `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                              |     |
 | `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                           |     |

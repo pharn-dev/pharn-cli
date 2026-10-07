@@ -65,16 +65,16 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toEqual(withLayout);
   });
 
-  // The additive `ref` (lib/release.ts): only the literal "main" opts an
-  // install out of verified releases; anything else is dropped at load.
-  it('round-trips ref "main"', async () => {
-    const withRef: PharnConfig = { ...sample, ref: 'main' };
+  // The additive `ref` (lib/release.ts): only the literal "latest" opts an
+  // install into verified releases; anything else is dropped at load.
+  it('round-trips ref "latest"', async () => {
+    const withRef: PharnConfig = { ...sample, ref: 'latest' };
     await writePharnConfig(tmp.path(), withRef);
     expect(readPharnConfig(tmp.path())).toEqual(withRef);
   });
 
-  it.each(['latest', 'Main', 'tip', '', 1, null, ['main']])(
-    'drops any other ref (%j), so the install follows verified releases',
+  it.each(['main', 'Latest', 'tip', '', 1, null, ['latest']])(
+    'drops any other ref (%j), so the install follows main',
     (ref) => {
       writeFileSync(
         join(tmp.path(), 'pharn.config.json'),

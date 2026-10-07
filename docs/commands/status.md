@@ -27,8 +27,8 @@ which, and `status` cannot.
 2. Warns if a proxy is configured. `pharn` uses Node's global `fetch`, which reads no proxy variable,
    so the notice is emitted above **both** network paths — `--no-drift` skips the clone but still
    fetches `SKILLS_VERSION` over the wire.
-3. By default, resolves what the install follows — the newest verified pharn-oss release, or `main` for
-   a config that records `"ref": "main"` — clones it once and reuses it for both sections below (the
+3. By default, resolves what the install follows — the tip of pharn-oss `main`, or the newest verified
+   release for a config that records `"ref": "latest"` — clones it once and reuses it for both sections below (the
    temporary clone is always cleaned up). `--no-drift` skips the clone: a release names its version in
    its tag, and `main`'s `SKILLS_VERSION` is fetched on its own. A release that cannot be resolved
    exits 1. `status` has no `--ref`; it reports on the channel the install records.
@@ -38,7 +38,7 @@ which, and `status` cannot.
 5. **Drift** — derives the set of files your installed capabilities and the fixed product surfaces are
    expected to contribute (mirroring how `init` / `add` / `update` install them, at your recorded
    layout), then byte-compares each against your project:
-   - **Differs from `pharn-dev/pharn-oss@<release>` (PHARN-owned)** — files present whose contents differ.
+   - **Differs from `pharn-dev/pharn-oss@<source>` (PHARN-owned)** — files present whose contents differ.
      `pharn update` keeps files you've edited and cleanly upgrades the rest; `--force` overwrites edits
      too (backed up to `.pharn-backup/` first).
    - **Missing (expected but absent)** — expected files that aren't on disk (from your recorded
@@ -79,10 +79,10 @@ The heading says "differs from", not "locally modified", on purpose: the compari
 upstream ships now, so a file can differ because **upstream moved**, not only because you edited it.
 Distinguishing those two needs the install records, which only `update` reads.
 
-The comparison is always against the source the install follows — the newest verified release
-(`pharn-dev/pharn-oss@v6.54.1`, say), or `@main` for an install that records `"ref": "main"` — the same
+The comparison is always against the source the install follows — `@main`, or the newest verified
+release (`pharn-dev/pharn-oss@v6.54.1`, say) for an install that records `"ref": "latest"` — the same
 source `update` would install, not the `commit` pinned in your config. An install **ahead** of the newest
-release (made from `main`) is reported as ahead, not outdated, and does not fail `--strict`; its drift
+release (made from `main`, then switched with `--ref latest`) is reported as ahead, not outdated, and does not fail `--strict`; its drift
 section compares against the older release. Note that `update` derives its file set from the layout of the clone it
 fetches, so a project mid-way through a layout migration can show little drift here while `update` has
 a whole tree to relocate.

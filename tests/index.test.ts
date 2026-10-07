@@ -670,7 +670,7 @@ describe('main (argv dispatch)', () => {
       expect(runInit).not.toHaveBeenCalled();
       expect(runUpdate).not.toHaveBeenCalled();
       expect(stderrText()).toContain('Invalid value for --ref');
-      expect(stderrText()).toContain('"latest" or "main"');
+      expect(stderrText()).toContain('"main" or "latest"');
     });
 
     it('refuses an invalid value even beside --help', async () => {

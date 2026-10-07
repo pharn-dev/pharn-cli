@@ -69,7 +69,6 @@ import {
 import { fetchRepo } from '../lib/repo.js';
 import {
   channelOf,
-  MAIN_WARNING,
   resolveSource,
   sourceDescription,
   type InstallSource,
@@ -138,7 +137,7 @@ export async function runUpdate(
   }
 
   // The channel: `--ref` when passed (and then recorded), else the one this
-  // install already follows — `ref: "main"`, or verified releases by default.
+  // install already follows — `ref: "latest"`, or `main`'s tip by default.
   await runArchetypeUpdate(
     config,
     cwd,
@@ -243,10 +242,9 @@ async function runArchetypeUpdate(
     reportFatal(errorMessage(err), { err });
     process.exit(1);
   }
-  if (source.kind === 'main') log.warn(MAIN_WARNING);
 
-  // AHEAD OF THE RELEASE: an install made from `main` (every install before
-  // 0.9.0 was) can hold a NEWER version than the newest verified release — it
+  // AHEAD OF THE RELEASE: an install made from `main` (the default channel)
+  // switched to `--ref latest` can hold a NEWER version than the newest verified release — it
   // took a merge whose release had not been cut yet. Applying the release would
   // be a DOWNGRADE presented as an update, so it is refused unless asked for:
   // `--force` already means "make my tree match upstream", and here upstream is
@@ -257,7 +255,7 @@ async function runArchetypeUpdate(
     compareVersionCore(config.skillsVersion, latest) === 1
   ) {
     outro(
-      `Your install (skills v${config.skillsVersion}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` keeps following main; \`pharn update --force\` goes back to ${source.tag}.`,
+      `Your install (skills v${config.skillsVersion}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` switches back to main; \`pharn update --force\` goes back to ${source.tag}.`,
     );
     return;
   }
@@ -287,7 +285,7 @@ async function runArchetypeUpdate(
   // one that follows main) re-opens the gate too, so the switch is RECORDED even
   // at the same version — otherwise the next run would quietly revert to the old
   // channel. The re-apply is cheap: identical files are no-ops.
-  const switchChannel = (channel === 'main') !== (config.ref === 'main');
+  const switchChannel = channel !== channelOf(config);
   if (current && !force && !recheckFrozen && !convertModels && !switchChannel) {
     outro(`Already up to date (skills v${config.skillsVersion}).`);
     return;
@@ -754,7 +752,7 @@ async function applyUpdate(
     commit: nextCommit,
     // The channel this run used — even when the version bump is withheld: it is
     // the user's choice of source, not a claim about the bytes.
-    ...(channel === 'main' ? { ref: 'main' as const } : {}),
+    ...(channel === 'latest' ? { ref: 'latest' as const } : {}),
     ...(pendingSkillsVersion !== undefined ? { pendingSkillsVersion } : {}),
     ...(frozenCapabilities.length > 0 ? { frozenCapabilities } : {}),
     capabilities: configCapabilities,

@@ -138,44 +138,37 @@ describe('runInit (archetype default)', () => {
   // FIRST — before the git prerequisite, the TTY gate and the fetch — and writes
   // nothing. These run against the REAL steps/node-prereq (only prereqs.js is
   // mocked), so they prove the wiring, not the unit.
-  // The channel: the newest verified release by default; `--ref main` opts into
-  // the tip, is warned about, and reaches the install step to be recorded. A
+  // The channel: the tip of main by default; `--ref latest` opts into the
+  // newest verified release and reaches the install step to be recorded. A
   // release that cannot be resolved refuses — never a silent fall back to main.
   describe('release channel', () => {
     const carryOf = () =>
       (runInstallArchetype.mock.calls[0] as unknown as unknown[])[5] as {
         ref?: string;
       };
-    const warned = () =>
-      vi
-        .mocked(log.warn)
-        .mock.calls.map((c) => String(c[0]))
-        .join('\n');
 
-    it('fetches the latest verified release by default, recording no ref', async () => {
+    it('fetches the tip of main by default, recording no ref', async () => {
       runArchetypeSummary.mockResolvedValue('install');
       confirmWriteTargets.mockResolvedValue('proceed');
 
       await runInit();
 
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+      expect(carryOf().ref).toBeUndefined();
+    });
+
+    it('--ref latest fetches the verified release and hands the channel to the install', async () => {
+      runArchetypeSummary.mockResolvedValue('install');
+      confirmWriteTargets.mockResolvedValue('proceed');
+
+      await runInit({ ref: 'latest' });
+
       expect(resolveSource).toHaveBeenCalledWith('latest');
       expect(fetchRepo).toHaveBeenCalledWith(
         expect.objectContaining({ kind: 'release', tag: 'v9.9.9' }),
       );
-      expect(carryOf().ref).toBeUndefined();
-      expect(warned()).not.toContain('--ref main');
-    });
-
-    it('--ref main fetches the tip, warns, and hands the channel to the install', async () => {
-      runArchetypeSummary.mockResolvedValue('install');
-      confirmWriteTargets.mockResolvedValue('proceed');
-
-      await runInit({ ref: 'main' });
-
-      expect(resolveSource).toHaveBeenCalledWith('main');
-      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
-      expect(carryOf().ref).toBe('main');
-      expect(warned()).toContain('--ref main');
+      expect(carryOf().ref).toBe('latest');
     });
 
     it('refuses with exit 1 when the release cannot be resolved — no fallback, no prompt', async () => {
@@ -184,7 +177,9 @@ describe('runInit (archetype default)', () => {
         new ReleaseResolveError('No verified release. … --ref main'),
       );
 
-      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+      await expect(runInit({ ref: 'latest' })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
 
       expect(fetchRepo).not.toHaveBeenCalled();
       expect(runArchetypeSummary).not.toHaveBeenCalled();
