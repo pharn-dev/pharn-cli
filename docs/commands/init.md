@@ -100,7 +100,8 @@ Shows the PHARN logo and CLI version.
 
 ### 2. Prerequisites
 
-- **`.git` present** — checked up front, before anything else (universal, framework-agnostic). Hard-fails if absent.
+- **Node 24.2.0 or newer** — checked first of all, because PHARN's installed floor checkers refuse to run on an older Node. On an older Node, or one whose version cannot be read, `init` prints the required and the current version, exits 1 and writes nothing.
+- **`.git` present** — checked next, before detection (universal, framework-agnostic). Hard-fails if absent.
 
 ### 3. Detect archetypes
 

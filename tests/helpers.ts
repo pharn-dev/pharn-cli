@@ -60,3 +60,28 @@ export function setTTY(stdin?: boolean, stdout?: boolean): void {
 export function restoreTTY(): void {
   setTTY(ORIG_STDIN_ISTTY, ORIG_STDOUT_ISTTY);
 }
+
+// The real `process.versions`, captured once at module load.
+const ORIG_VERSIONS = process.versions;
+
+/**
+ * Make `process.versions.node` report `node` (`undefined` removes it). The
+ * property is read-only, but `process.versions` itself is configurable, so a
+ * copy with the one field changed stands in for it. Always pair with
+ * `restoreNodeVersion()` in `afterEach`.
+ */
+export function setNodeVersion(node: string | undefined): void {
+  const { node: _real, ...rest } = ORIG_VERSIONS;
+  Object.defineProperty(process, 'versions', {
+    value: node === undefined ? rest : { ...rest, node },
+    configurable: true,
+  });
+}
+
+/** Put the real `process.versions` back. */
+export function restoreNodeVersion(): void {
+  Object.defineProperty(process, 'versions', {
+    value: ORIG_VERSIONS,
+    configurable: true,
+  });
+}

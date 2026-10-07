@@ -4,10 +4,11 @@ name: node-floor
 # its floor. `package.json` once said ">=20" while @clack/prompts — a runtime
 # dependency — imports `styleText` from node:util (20.12.0+), so on 20.0–20.11
 # even `pharn --version` died at load time and nothing caught it: the six gates
-# in ci.yml run node 24 only. The floor is 20.13.0, not 20.12.0, because clack
-# also passes `styleText` an ARRAY of formats, which Node accepts only from
-# 20.13.0 — on 20.12.x cancelling a confirm prompt crashed. `--version` does not
-# reach that code, so tests/engines.test.ts is what catches it: it scans the
+# in ci.yml run node 24 (the latest 24.x), never the floor itself. The floor is
+# now 24.2.0, the number pharn-oss's floor CLIs refuse to run below (their
+# `import.meta.main` gate used to exit 0 having checked nothing on an older
+# Node). `--version`/`--help` do not reach the code a dependency's version gate
+# might break, so tests/engines.test.ts is what catches it: it scans the
 # dependencies' shipped code for known version-gated API uses.
 #
 # A SEPARATE workflow on purpose. ci.yml's six job names are a contract with the
@@ -35,7 +36,7 @@ jobs:
     name: Smoke (node floor)
     runs-on: ubuntu-latest
     env:
-      FLOOR: 20.13.0
+      FLOOR: 24.2.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

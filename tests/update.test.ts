@@ -16,7 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CANCEL,
   ProcessExit,
+  restoreNodeVersion,
   restoreTTY,
+  setNodeVersion,
   setTTY,
   stubProcessExit,
   useTmpDir,
@@ -197,6 +199,68 @@ describe('runUpdate (drift-safe)', () => {
     vi.clearAllMocks();
     shown.length = 0;
     restoreTTY();
+    restoreNodeVersion();
+  });
+
+  // The Node floor (pharn-oss's floor CLIs refuse below 24.2.0): update refuses
+  // FIRST — ahead of the config load, the TTY gate and every network call — and
+  // writes nothing, `--yes` and `--force` included.
+  describe('Node floor preflight', () => {
+    it.each(['24.1.9', '22.18.0', '20.13.0'])(
+      'refuses on Node %s: exit 1, before the config load and any network call',
+      async (v) => {
+        await installed();
+        loadArchetypeConfigOrExit.mockClear();
+        setNodeVersion(v);
+
+        await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+        const [msg, opts] = vi.mocked(prompts.log.error).mock.calls.at(-1)!;
+        expect(msg).toContain('24.2.0');
+        expect(msg).toContain(v);
+        expect(msg).toContain('Nothing was written');
+        expect(opts).toEqual({ output: process.stderr });
+        expect(loadArchetypeConfigOrExit).not.toHaveBeenCalled();
+        expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+        expect(fetchRepo).not.toHaveBeenCalled();
+        expect(prompts.confirm).not.toHaveBeenCalled();
+        expect(body(DOC)).toBe('constitution v1');
+        expect(readPharnConfig(proj)).toBeNull();
+      },
+    );
+
+    it('is not bypassed by --yes or --force', async () => {
+      await installed();
+      setNodeVersion('22.18.0');
+
+      await expect(runUpdate({ yes: true, force: true })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(readPharnConfig(proj)).toBeNull();
+    });
+
+    it('refuses on an UNPARSEABLE Node version', async () => {
+      await installed();
+      setNodeVersion('');
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(
+        String(vi.mocked(prompts.log.error).mock.calls.at(-1)![0]),
+      ).toContain('could not read');
+      expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+    });
+
+    it('lets a supported Node through to the normal flow', async () => {
+      await installed();
+      setNodeVersion('24.2.0');
+
+      await runUpdate();
+
+      expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
+    });
   });
 
   const records = () => {

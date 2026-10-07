@@ -2,7 +2,13 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import {
+  ProcessExit,
+  restoreNodeVersion,
+  setNodeVersion,
+  stubProcessExit,
+  useTmpDir,
+} from './helpers.js';
 import type { CapabilityIndex, PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -74,7 +80,78 @@ describe('runStatus (archetype)', () => {
     vi.spyOn(process, 'cwd').mockReturnValue('/proj');
     loadArchetypeConfigOrExit.mockReturnValue(config());
   });
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.clearAllMocks();
+    restoreNodeVersion();
+  });
+
+  // --- the NODE note (pharn-oss's floor CLIs refuse below Node 24.2.0) ---------
+  //
+  // Local and instant, so it renders on both paths and BEFORE any fetch — it must
+  // survive a failed fetch. A mismatch is reported, never fatal, and never a
+  // `--strict` input: the read-only report names it; the floor checks give the
+  // verdict.
+  describe('NODE note', () => {
+    const plain = (title: string): string =>
+      stripVTControlCharacters(noteBody(title));
+
+    it('shows the floor and the running Node on the drift path, without a mismatch', async () => {
+      setNodeVersion('24.13.1');
+      fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+      readSkillsVersion.mockReturnValue('1.0.0');
+      diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+      await runStatus({});
+
+      expect(plain('NODE')).toContain('>= 24.2.0');
+      expect(plain('NODE')).toContain('v24.13.1');
+      expect(plain('NODE')).not.toContain('MISMATCH');
+    });
+
+    it('shows it under --no-drift too', async () => {
+      setNodeVersion('24.2.0');
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+      await runStatus({ drift: false });
+
+      expect(plain('NODE')).toContain('v24.2.0');
+      expect(plain('NODE')).not.toContain('MISMATCH');
+    });
+
+    it('flags a Node below the floor, and still exits 0 — even with --strict', async () => {
+      setNodeVersion('22.18.0');
+      fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+      readSkillsVersion.mockReturnValue('1.0.0');
+      diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+      await runStatus({ strict: true });
+
+      expect(plain('NODE')).toContain('>= 24.2.0');
+      expect(plain('NODE')).toContain('v22.18.0');
+      expect(plain('NODE')).toContain('MISMATCH');
+    });
+
+    it('flags an UNPARSEABLE Node version, quoting it', async () => {
+      setNodeVersion('garbage');
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+      await runStatus({ drift: false });
+
+      expect(plain('NODE')).toContain('"garbage"');
+      expect(plain('NODE')).toContain('MISMATCH');
+    });
+
+    it('renders before any fetch, so it survives a fetch failure', async () => {
+      setNodeVersion('22.18.0');
+      fetchRemoteSkillsVersion.mockRejectedValueOnce(new Error('offline'));
+
+      await expect(runStatus({ drift: false })).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      expect(plain('NODE')).toContain('MISMATCH');
+    });
+  });
 
   it('aborts before any fetch when the config is not an archetype install', async () => {
     // loadArchetypeConfigOrExit prints LEGACY_CONFIG_MESSAGE + exit(1) for a

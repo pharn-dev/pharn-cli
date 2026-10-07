@@ -4,7 +4,7 @@
 
 | Situation                                                                                               | Exit code |
 | ------------------------------------------------------------------------------------------------------- | --------- |
-| Prerequisite failure (no `.git`)                                                                        | 1         |
+| Prerequisite failure (no `.git`, or `init` / `update` on a Node older than 24.2.0)                      | 1         |
 | Capability fetch / install failure                                                                      | 1         |
 | Unknown command                                                                                         | 1         |
 | Unknown option, an option the command does not take, or an unexpected extra argument                    | 1         |
@@ -19,14 +19,14 @@
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
 
-## Node version: CLI vs installed floor
+## Node version
 
-Two different Node floors apply:
+One Node floor applies to the CLI and to what it installs: **Node 24.2.0 or newer**.
 
-- **CLI (`@pharn-dev/pharn`):** `engines.node` is `>=20.13.0`. npm/npx enforces this when the package is resolved; CI smoke-tests the packed CLI on exactly 20.13.0.
-- **Installed floor (`pharn/floor/*.mjs`):** pipeline checkers need **Node 24.2+** because their CLI entry points gate on `import.meta.main`. On an older Node a guarded tool can exit **0** without running its checks — a silent false green.
+- **CLI (`@pharn-dev/pharn`):** `engines.node` is `>=24.2.0`. npm/npx only warns about it by default (`EBADENGINE`), so `pharn init` and `pharn update` check it themselves, first, before the git check, any prompt or any network call. On an older Node (or one whose version string cannot be read) they print the required and the current version, exit **1**, and write nothing. `pharn status` prints the floor and the running Node in a `NODE` note and flags a mismatch; it never fails over one, `--strict` included. `pharn add`, `remove` and `list` do not check.
+- **Installed floor (`pharn/floor/*.mjs`):** pipeline checkers gate on `import.meta.main`. On Node older than 24.2 a guarded tool used to exit **0** without running its checks — a silent false green — so since pharn-oss 6.50.0 they refuse to run there instead (one stderr line, exit **2**).
 
-If a `/pharn-*` stage reports success while something still looks wrong, check `node -v` in the environment where Claude Code runs your gates and upgrade to **24.2+** for pipeline work.
+If a `/pharn-*` stage fails with that refusal, check `node -v` in the environment where Claude Code runs your gates and upgrade to **24.2.0 or newer**. CI smoke-tests the packed CLI on exactly 24.2.0.
 
 ## Streams
 
@@ -113,12 +113,11 @@ directory (or move it aside) and re-run.
 
 ## Prerequisites failed
 
-`pharn init` has three prerequisites — a git repository, an interactive terminal, and Node >= 20.13.0. On an older Node 20 even
-`pharn --version` fails at load time with `does not provide an export named 'styleText'` — upgrade Node. On
-Node 20.12.x the CLI starts, but cancelling a confirmation (Esc or Ctrl-C), or a picker after selecting something, crashes with
-`ERR_INVALID_ARG_VALUE … Received [ 'strikethrough', 'dim' ]` and a stack trace instead of exiting cleanly: the
-prompt library passes `styleText` an array of formats, which Node accepts only from 20.13.0. Nothing was
-written at that point — upgrade Node.
+`pharn init` has three prerequisites — Node >= 24.2.0, a git repository, and an interactive terminal. The Node check comes
+first: on an older Node, `init` (and `update`) exit 1 with `pharn init requires Node 24.2.0 or newer, and this is Node …`
+and write nothing — upgrade Node. A Node whose version string cannot be parsed is refused the same way, because the check
+fails closed. (Before 0.8.0 the floor was Node 20.13.0, and on an older Node 20 even `pharn --version` failed at load time
+with `does not provide an export named 'styleText'`; that is an unsupported Node now too.)
 There is no stack-pack or package prerequisite: archetype detection reads `package.json` names and the
 file tree, and installs whatever capabilities apply.
 
