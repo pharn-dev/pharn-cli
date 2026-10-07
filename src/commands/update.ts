@@ -23,6 +23,7 @@ import {
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { FEATURES_README, REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
+import { runNodePrereq } from '../steps/node-prereq.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
@@ -93,6 +94,11 @@ export async function runUpdate(
   opts: { force?: boolean; yes?: boolean } = {},
 ): Promise<void> {
   intro('pharn update');
+
+  // FIRST, ahead of the config load, the TTY gate and every network call: the
+  // Node floor is environmental, so it wins over the project-state errors below
+  // and a refusal costs nothing and writes nothing. (See steps/node-prereq.ts.)
+  runNodePrereq('update');
 
   const cwd = process.cwd();
   const config = loadArchetypeConfigOrExit(cwd);

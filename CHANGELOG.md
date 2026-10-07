@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-07
+
+### Changed
+
+- **Node 24.2.0 or newer is now required (`engines.node: ">=24.2.0"`; 0.7.x declared `>=20.13.0`).** Every PHARN floor checker that pharn-oss installs (`pharn/floor/*.mjs`) is gated on `import.meta.main`, which an older Node leaves undefined: on Node below 22.18 or 24.2 such a checker exited 0 having checked nothing, a silent false green. Since pharn-oss 6.50.0 those checkers refuse to run below Node 24.2.0 (one line on stderr, exit 2). The CLI used to accept Node 20.13 and newer, so a project could be installed successfully on a Node where the installed checks then refused to run. Upgrade Node to 24.2.0 or newer; the CI smoke job now starts the packed CLI on exactly 24.2.0.
+- **`pharn status` prints the Node floor and the Node you are running.** A `NODE` note, on both paths and before any fetch, shows `>= 24.2.0` beside the running version, with a `MISMATCH` line when it is older or cannot be read. It is a report: it never fails `status`, `--strict` included.
+
+### Added
+
+- **`pharn init` and `pharn update` refuse up front on a Node older than 24.2.0.** npm and npx only warn about `engines` by default, so both commands check it themselves, first, ahead of the git check, the config load, any prompt and any network call. The message names the required and the current version; the exit code is 1 and nothing is written. `update --yes` and `--force` do not skip it. A Node whose version string cannot be read, or a prerelease of 24.2.0 itself, is refused too: the check fails closed. `pharn add`, `remove` and `list` do not check it.
+
 ## [0.7.1] — 2026-10-07
 
 ### Security
@@ -1426,7 +1437,8 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
   `pharn.config.json`. It does not yet install npm packages or scaffold the stack — that is
   planned for v0.2 (see `docs/roadmap.md` and the `TODO(v0.2)` markers).
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...v0.6.0

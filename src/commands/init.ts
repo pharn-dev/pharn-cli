@@ -20,6 +20,7 @@ import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { runGitPrereq } from '../steps/prereqs.js';
+import { runNodePrereq } from '../steps/node-prereq.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
 import { runArchetypeSummary } from '../steps/archetype-summary.js';
 import {
@@ -44,6 +45,12 @@ import type {
 export async function runInit(): Promise<void> {
   showBanner();
   intro('init wizard');
+
+  // FIRST, before even the git prerequisite: the Node floor is a fact about the
+  // environment that nothing later can repair, and an install made on a Node the
+  // PHARN floor checkers refuse to run on would fail mid-run. Refuses with
+  // nothing written, ahead of every prompt and every network call.
+  runNodePrereq('init');
 
   runGitPrereq();
 

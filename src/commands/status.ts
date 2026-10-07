@@ -23,6 +23,7 @@ import {
 } from '../lib/model-config-format.js';
 import { needsModelsConversion } from '../lib/models-update.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
+import { nodeFloorLines, nodeFloorStatus } from '../lib/node-floor.js';
 import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
 import { errorMessage, reportFatal } from '../lib/report-error.js';
 import {
@@ -67,6 +68,15 @@ async function runArchetypeStatus(
   cwd: string,
 ): Promise<void> {
   const { strict, drift } = opts;
+
+  // NODE note: local and instant, so it prints first and survives a failed
+  // fetch. A mismatch is REPORTED, never fatal and never a `--strict` input:
+  // `status` is the read-only report, and the verdict that matters — PHARN's
+  // floor checks refusing to run on this Node — is theirs to give.
+  note(
+    nodeFloorLines(nodeFloorStatus(process.versions.node)).join('\n'),
+    'NODE',
+  );
 
   // What a configured proxy means here (nothing: fetch never uses one), emitted
   // ONCE above the branch so it precedes EVERY fetch this command can make —

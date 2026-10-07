@@ -67,6 +67,11 @@ which, and `status` cannot.
    rules reject has each problem listed by name. The note is read-only and needs no download, and it
    is **not** a `--strict` input: the block is pharn-oss's, and so is the verdict on it. See
    [pharn.config.json](../reference/pharn-config.md#models).
+7. **Node** — a `NODE` note on **both** paths, printed before any fetch (so it survives a failed one):
+   the Node floor (`>= 24.2.0`, the number PHARN's installed floor checkers refuse to run below) beside
+   the Node you are running, with a `MISMATCH` line when it is older or its version cannot be read.
+   Local and instant. It is reported, never fatal, and **not** a `--strict` input: `pharn init` and
+   `pharn update` are what refuse on an older Node.
 
 The heading says "differs from", not "locally modified", on purpose: the comparison is against
 upstream `@main`, so a file can differ because **upstream moved**, not only because you edited it.

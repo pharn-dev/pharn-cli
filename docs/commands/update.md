@@ -20,21 +20,24 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 
 ## Behavior
 
-1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
+1. Checks the Node version before anything else: PHARN's installed floor checkers refuse to run below
+   **Node 24.2.0**, so on an older Node (or one whose version cannot be read) `update` exits 1, naming the
+   required and the current version, with nothing written — `--yes` and `--force` do not skip it.
+2. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
    a hint to run `pharn init` first. A config that is present but **invalid** gets its own named error
    and exit 1, not the "run `pharn init`" hint.
-2. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
+3. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
    update's fetches (the lightweight version check as well as the tarball).
-3. Fetches the latest `SKILLS_VERSION` from `pharn-dev/pharn-oss@main` (a lightweight check, no clone)
+4. Fetches the latest `SKILLS_VERSION` from `pharn-dev/pharn-oss@main` (a lightweight check, no clone)
    and compares it to your recorded `skillsVersion`.
-4. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
+5. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
    re-applies upstream at the current version, or your `models` block is still in the format `pharn`
    wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)).
-5. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
+6. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
    unless you passed `--yes`, which skips that one prompt and nothing else.
-6. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
+7. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
    latest capability index, then **unions** that result with the capabilities you added by hand.
-7. Decides each expected file with the table below — and your `models` block the same way — backs up
+8. Decides each expected file with the table below — and your `models` block the same way — backs up
    anything `--force` is about to overwrite, copies the files it may write, then updates
    `pharn.records.json` and `pharn.config.json`.
 

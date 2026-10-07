@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ProcessExit,
+  restoreNodeVersion,
   restoreTTY,
+  setNodeVersion,
   setTTY,
   stubProcessExit,
   useTmpDir,
@@ -103,6 +105,66 @@ describe('runInit (archetype default)', () => {
   afterEach(() => {
     vi.clearAllMocks();
     restoreTTY();
+    restoreNodeVersion();
+  });
+
+  // The Node floor (pharn-oss's floor CLIs refuse below 24.2.0): init refuses
+  // FIRST — before the git prerequisite, the TTY gate and the fetch — and writes
+  // nothing. These run against the REAL steps/node-prereq (only prereqs.js is
+  // mocked), so they prove the wiring, not the unit.
+  describe('Node floor preflight', () => {
+    it.each(['24.1.9', '22.18.0', '20.13.0'])(
+      'refuses on Node %s: exit 1, no git check, no fetch, nothing installed',
+      async (v) => {
+        setNodeVersion(v);
+
+        await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+        const [msg, opts] = vi.mocked(log.error).mock.calls.at(-1)!;
+        expect(msg).toContain('24.2.0');
+        expect(msg).toContain(v);
+        expect(msg).toContain('Nothing was written');
+        expect(opts).toEqual({ output: process.stderr });
+        expect(runGitPrereq).not.toHaveBeenCalled();
+        expect(fetchRepo).not.toHaveBeenCalled();
+        expect(runArchetypeSummary).not.toHaveBeenCalled();
+        expect(confirmWriteTargets).not.toHaveBeenCalled();
+        expect(runInstallArchetype).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refuses on an UNPARSEABLE Node version', async () => {
+      setNodeVersion('weird');
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(String(vi.mocked(log.error).mock.calls.at(-1)![0])).toContain(
+        'could not read',
+      );
+      expect(runGitPrereq).not.toHaveBeenCalled();
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    it('wins over the non-TTY refusal (it is the first fact about the environment)', async () => {
+      setNodeVersion('22.0.0');
+      setTTY(false, false);
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(String(vi.mocked(log.error).mock.calls.at(-1)![0])).toContain(
+        '24.2.0',
+      );
+    });
+
+    it('lets a supported Node through to the normal flow', async () => {
+      setNodeVersion('24.2.0');
+      fetchRepo.mockRejectedValueOnce(new Error('stop here'));
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(runGitPrereq).toHaveBeenCalled();
+      expect(fetchRepo).toHaveBeenCalled();
+    });
   });
 
   // Every `log.info` line of a run, joined — the affordance surface. Hoisted
