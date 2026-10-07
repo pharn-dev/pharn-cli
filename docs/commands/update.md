@@ -7,10 +7,12 @@ destroying anything you have edited**.
 pharn update
 pharn update --force   # overwrite your edits too (each file is backed up first)
 pharn update --yes     # skip the confirmation prompt (for CI and scripts)
+pharn update --ref main     # follow the unverified tip of main (recorded)
+pharn update --ref latest   # back to verified releases (recorded)
 ```
 
-`--force` and `--yes`/`-y` are `update`'s **only** options; they compose, and neither implies the
-other. Any other flag — `pharn update --json`, `--strict`, `--no-drift` — is refused with
+`--force`, `--yes`/`-y` and `--ref` are `update`'s **only** options; they compose, and none implies
+another. Any other flag — `pharn update --json`, `--strict`, `--no-drift` — is refused with
 ``Unsupported option for `update` `` on stderr and exit **1**, as is an extra positional. See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
@@ -28,8 +30,10 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    and exit 1, not the "run `pharn init`" hint.
 3. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
    update's fetches (the lightweight version check as well as the tarball).
-4. Fetches the latest `SKILLS_VERSION` from `pharn-dev/pharn-oss@main` (a lightweight check, no clone)
-   and compares it to your recorded `skillsVersion`.
+4. Resolves what to update to — the newest **verified release** of `pharn-dev/pharn-oss`, or the tip of
+   `main` for an install that follows it (see [Release channel](#release-channel)) — and compares its
+   version to your recorded `skillsVersion`. A release that cannot be resolved stops the run (exit 1).
+   An install **ahead** of the newest release is left as it is (exit 0) unless you pass `--force`.
 5. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
    re-applies upstream at the current version, or your `models` block is still in the format `pharn`
    wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)).
@@ -194,6 +198,24 @@ cp .pharn-backup/20260807-091500/pharn/CONSTITUTION.md pharn/CONSTITUTION.md
 **Retention is yours.** `pharn` never prunes `.pharn-backup/` and never edits your `.gitignore` — so
 backups accumulate and are committable by accident. Delete them once you are happy, or add
 `.pharn-backup/` to your `.gitignore`.
+
+## Release channel
+
+`update` installs the newest **GitHub release** of `pharn-dev/pharn-oss` — a tag pharn-oss creates only
+once every required check on that commit has passed after the merge — at exactly the commit the tag
+points at. It never takes a commit whose CI is unfinished, cancelled or red.
+
+- **The channel is recorded.** `pharn update --ref main` follows the tip of `main` instead (with a
+  warning) and writes `"ref": "main"` to `pharn.config.json`, so later `update`, `add` and `status` runs
+  keep following it. `pharn update --ref latest` switches back and removes the key. A switch re-applies
+  even at the current version, so it is recorded.
+- **No fallback.** When the release cannot be resolved (none published, `api.github.com` unreachable or
+  rate-limited), `update` exits 1 before cloning and names `--ref main`. See
+  [No verified release could be resolved](../troubleshooting.md#no-verified-release-could-be-resolved).
+- **Ahead of the release.** An install made from `main` — every install made before pharn 0.9.0 —
+  can be newer than the newest release. Applying the release would be a downgrade, so `update` says so
+  and exits 0 without changing anything. `--ref main` keeps following `main`; `--force` goes back to the
+  release (backing up your edits as usual).
 
 ## The `models` block
 

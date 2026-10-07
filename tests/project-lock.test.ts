@@ -595,7 +595,7 @@ describe('withProjectLock — a fatal signal while held', () => {
           ? new Response(JSON.stringify({ sha: ${JSON.stringify(sha)} }))
           : new Response(new Uint8Array(githubArchive(${JSON.stringify(sha)})));
       await withProjectLock(dir, 'update', async () => {
-        const repo = await fetchRepo();
+        const repo = await fetchRepo({ kind: 'main' });
         console.log('CLONE=' + repo.dir);
         // What @clack/prompts installs while a spinner is up: print, return.
         process.on('SIGINT', () => console.log('CLACK-LIKE-LISTENER-RAN'));

@@ -2,10 +2,16 @@ import { withDeadline } from './deadline.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REPO, REPO_BRANCH } from './constants.js';
+import { REPO, REPO_BRANCH, SKILLS_VERSION_FILE } from './constants.js';
 import { onFatalSignal } from './fatal-signal.js';
+import type { InstallSource } from './release.js';
+import { readSkillsVersion } from './skills-version.js';
 import { extractTarGz } from './tar-extract.js';
-import { assertSafeString, COMMIT_RE } from './validate.js';
+import {
+  assertSafeString,
+  COMMIT_RE,
+  ManifestValidationError,
+} from './validate.js';
 
 const API = 'https://api.github.com';
 const CODELOAD = 'https://codeload.github.com';
@@ -87,6 +93,9 @@ export interface FetchedRepo {
   // was fetched: the same value is both the last URL segment and this field, so
   // the record cannot silently lie.
   sha: string | null;
+  // What was fetched: a verified release (whose SKILLS_VERSION was checked
+  // against its tag before this returned) or the tip of `main`.
+  source: InstallSource;
   cleanup: () => void;
 }
 
@@ -108,8 +117,13 @@ export interface FetchedRepo {
  * now yields exactly the pinned SHA rather than an error — which is at least as
  * honest, since `sha` and the fetched bytes still come from one value.
  *
- * When the SHA cannot be resolved, fall back to `refs/heads/<REPO_BRANCH>`
- * (LIMITS.md §3b — the install still proceeds; `sha` is null). Provenance is
+ * `source` says WHAT to fetch (lib/release.ts) and is REQUIRED, never
+ * defaulted: a forgotten argument must not quietly mean "the unverified tip". A
+ * verified release is downloaded at the commit its tag resolved to, and its
+ * tree's SKILLS_VERSION must equal the tag or the fetch is refused. Only the
+ * `main` channel resolves the tip here — and when that SHA cannot be resolved,
+ * falls back to `refs/heads/<REPO_BRANCH>` (LIMITS.md §3b — the install still
+ * proceeds; `sha` is null). A release never floats. Provenance is
  * by-SHA, NOT cryptographic (LIMITS.md §1b): a compromised upstream serving a
  * valid-shaped tree at that SHA still passes. Trust is provenance + the
  * path/network floor, never signature verification.
@@ -125,7 +139,16 @@ export interface FetchedRepo {
  * than a dependency's. pharn invokes no `git` binary and keeps no tarball cache:
  * every fetch is a fresh download into a fresh temp dir.
  */
-export async function fetchRepo(): Promise<FetchedRepo> {
+export async function fetchRepo(source: InstallSource): Promise<FetchedRepo> {
+  if (source.kind === 'release') return fetchAt(source, source.sha);
+  return fetchAt(source, await fetchCommitSha());
+}
+
+// The download + extract half, at a resolved (or, for `main` only, null) SHA.
+async function fetchAt(
+  source: InstallSource,
+  rawSha: string | null,
+): Promise<FetchedRepo> {
   // The sha is network-derived (fetchCommitSha reads it from the GitHub commits
   // API) and untrusted (P2): a non-null value MUST be a full 40-hex commit SHA
   // before it becomes a URL segment OR is recorded as pharn.config.json
@@ -134,7 +157,6 @@ export async function fetchRepo(): Promise<FetchedRepo> {
   // provenance; `null` is the documented degraded mode (LIMITS.md §3b) and
   // passes through. One boundary guard covers every downstream sink (the URL
   // below + the three config-assembly writers).
-  const rawSha = await fetchCommitSha();
   const sha =
     rawSha === null ? null : assertSafeString(rawSha, 'commit SHA', COMMIT_RE);
   // Pin to the resolved SHA; else float the branch (LIMITS.md §3b degraded mode).
@@ -148,6 +170,18 @@ export async function fetchRepo(): Promise<FetchedRepo> {
       maxEntries: MAX_ENTRIES,
       maxTotalBytes: MAX_EXTRACTED_BYTES,
     });
+    // A release's tree must BE the version its tag names. pharn-oss creates
+    // `v<SKILLS_VERSION>` from the commit it tags, so a mismatch means the tag
+    // or the file is wrong — and recording either would make `update`'s
+    // version compare lie. Refused inside this try, so the tree is removed.
+    if (source.kind === 'release') {
+      const found = readSkillsVersion(dir);
+      if (found !== source.version) {
+        throw new ManifestValidationError(
+          `Release ${source.tag} (${source.sha}) ships ${SKILLS_VERSION_FILE} ${found}, not ${source.version}; refusing to install a release whose content does not match its tag.`,
+        );
+      }
+    }
   } catch (err) {
     // Extraction is not transactional, so a partially-written tree must never
     // be returned. Callers treat a fetchRepo throw as fatal.
@@ -158,6 +192,7 @@ export async function fetchRepo(): Promise<FetchedRepo> {
   return {
     dir,
     sha,
+    source,
     cleanup: () => {
       // Deregister before removing: a disposed dir must never be resurrected in
       // the registry, or a later handler run would rm a path this process no

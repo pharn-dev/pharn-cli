@@ -123,7 +123,7 @@ describe('temp-clone cleanup handlers', () => {
   it('registers an `exit` handler that removes a live clone', async () => {
     const before = process.listeners('exit');
     const { fetchRepo } = await freshRepo();
-    const repo = await fetchRepo();
+    const repo = await fetchRepo({ kind: 'main' });
     installed = addedExitListeners(before);
 
     expect(installed).toHaveLength(1);
@@ -141,9 +141,9 @@ describe('temp-clone cleanup handlers', () => {
     const before = process.listeners('exit');
     const { fetchRepo } = await freshRepo();
 
-    const a = await fetchRepo();
+    const a = await fetchRepo({ kind: 'main' });
     const afterFirst = addedExitListeners(before).length;
-    const b = await fetchRepo();
+    const b = await fetchRepo({ kind: 'main' });
     installed = addedExitListeners(before);
 
     expect(afterFirst).toBe(1);
@@ -156,7 +156,7 @@ describe('temp-clone cleanup handlers', () => {
   it('forgets a clone once cleanup() has disposed of it', async () => {
     const before = process.listeners('exit');
     const { fetchRepo } = await freshRepo();
-    const repo = await fetchRepo();
+    const repo = await fetchRepo({ kind: 'main' });
     installed = addedExitListeners(before);
 
     repo.cleanup();
@@ -175,7 +175,7 @@ describe('temp-clone cleanup handlers', () => {
     const before = process.listeners('exit');
     const sigBefore = process.listeners('SIGTERM');
     const { fetchRepo } = await freshRepo();
-    const repo = await fetchRepo();
+    const repo = await fetchRepo({ kind: 'main' });
     installed = addedExitListeners(before);
     const onSignal = process
       .listeners('SIGTERM')
@@ -237,7 +237,7 @@ globalThis.fetch = (async (url) => {
   };
 }) as unknown as typeof fetch;
 
-const repo = await fetchRepo();
+const repo = await fetchRepo({ kind: 'main' });
 console.log('DIR=' + repo.dir);
 
 // A listener that only prints — exactly what @clack/prompts installs while a

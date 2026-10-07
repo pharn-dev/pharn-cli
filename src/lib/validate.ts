@@ -23,6 +23,12 @@ export const COPY_FILENAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*\.(md|cjs|mjs|json)$/;
 // `commit` (P2); `null` (degraded mode, LIMITS.md §3b) is handled by the
 // caller's null-guard.
 export const COMMIT_RE = /^[0-9a-f]{40}$/;
+// A pharn-oss RELEASE tag — `v` + a plain three-part version, nothing else: no
+// prerelease suffix (a verified release is never a prerelease), no padding. The
+// network-derived `tag_name` (src/lib/release.ts) is validated against this
+// before it becomes a URL segment, is displayed, or is compared with the
+// fetched tree's SKILLS_VERSION (P2). Anchored, so a control character fails.
+export const RELEASE_TAG_RE = /^v(\d+\.\d+\.\d+)$/;
 // Capability `role` frontmatter enum — the two installable kinds shipped today
 // (ARCHITECTURE.md §3.1 role enum, narrowed consumer-side).
 export const ROLE_VALUES = ['griller', 'lens'] as const;

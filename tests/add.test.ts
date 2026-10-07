@@ -29,7 +29,33 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 const fetchRepo = vi.fn();
-vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
+// `fetchRepo` returns the source it fetched; the wrapper fills it in from the
+// argument, so the suite's `{ dir, sha, cleanup }` stubs stay what they were.
+vi.mock('../src/lib/repo.js', () => ({
+  fetchRepo: async (source: unknown) => ({
+    source,
+    ...(await fetchRepo(source)),
+  }),
+}));
+// The release resolve (lib/release.ts) is a network call, so it is replaced: the
+// default channel resolves to one fixed verified release, `--ref main` to the
+// tip. The clone's own version is whatever the suite's stubs put in it.
+const resolveSource = vi.fn(async (ref: string) =>
+  ref === 'main'
+    ? { kind: 'main' as const }
+    : {
+        kind: 'release' as const,
+        tag: 'v9.9.9',
+        version: '9.9.9',
+        sha: 'b'.repeat(40),
+      },
+);
+vi.mock('../src/lib/release.js', async () => ({
+  ...(await vi.importActual<typeof import('../src/lib/release.js')>(
+    '../src/lib/release.js',
+  )),
+  resolveSource,
+}));
 
 // The single-writer lock does REAL fs work in the project root, and most of this
 // file runs against the fake cwd `/proj`. Pass it through here and assert the
@@ -634,8 +660,12 @@ describe('runAdd (archetype)', () => {
 
   it('refuses symmetrically when the clone is OLDER than the config', async () => {
     // A rollback or a hand edit. The gate fires on `!==`, never `<`, so this must
-    // read the same as the ahead case — never a guessed direction.
-    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    // read the same as the ahead case — never a guessed direction. On the `main`
+    // channel: there, an older clone has no release to explain it.
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...archConfig(),
+      ref: 'main',
+    });
     mockClone();
     readSkillsVersion.mockReturnValue('0.9.0');
 
@@ -645,6 +675,52 @@ describe('runAdd (archetype)', () => {
     expect(lastError()).toContain('v0.9.0');
     expect(lastError()).toContain('pharn update');
     expect(installCapabilityDirs).not.toHaveBeenCalled();
+  });
+
+  // An install made from `main` (every install before 0.9.0) can be AHEAD of
+  // the newest verified release. "Run `pharn update` first" would loop — update
+  // refuses to downgrade without --force — so the gate names the real ways out.
+  it('names --ref main, not `pharn update`, when the install is AHEAD of the release', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig()); // records v1.0.0
+    mockClone();
+    readSkillsVersion.mockReturnValue('0.9.0');
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(lastError()).toContain('ahead of the latest verified');
+    expect(lastError()).toContain('v1.0.0');
+    expect(lastError()).toContain('pharn update --ref main');
+    expect(installCapabilityDirs).not.toHaveBeenCalled();
+  });
+
+  it('fetches from the channel the config records, and warns on main', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...archConfig(),
+      ref: 'main',
+    });
+    mockClone();
+
+    await runAdd('a11y');
+
+    expect(resolveSource).toHaveBeenCalledWith('main');
+    expect(
+      vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n'),
+    ).toContain('--ref main');
+  });
+
+  it('fetches the latest verified release by default', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+
+    await runAdd('a11y');
+
+    expect(resolveSource).toHaveBeenCalledWith('latest');
+    expect(fetchRepo).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'release', tag: 'v9.9.9' }),
+    );
   });
 
   it('gates BEFORE the already-installed no-op (named path ordering)', async () => {

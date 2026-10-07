@@ -58,7 +58,34 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 const fetchRepo = vi.fn();
-vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
+// `fetchRepo` returns the source it fetched; the wrapper fills it in from the
+// argument, so the suite's `{ dir, sha, cleanup }` stubs stay what they were.
+vi.mock('../src/lib/repo.js', () => ({
+  fetchRepo: async (source: unknown) => ({
+    source,
+    ...(await fetchRepo(source)),
+  }),
+}));
+// The release resolve (lib/release.ts) is a network call, so it is replaced. The
+// default channel resolves to a verified release AT the version the suite's
+// existing `fetchRemoteSkillsVersion` knob names — so every scenario it drives
+// (up to date, behind, offline) drives the release path the same way.
+const resolveSource = vi.fn(async (ref: string) => {
+  if (ref === 'main') return { kind: 'main' as const };
+  const version = String(await fetchRemoteSkillsVersion());
+  return {
+    kind: 'release' as const,
+    tag: `v${version}`,
+    version,
+    sha: 'b'.repeat(40),
+  };
+});
+vi.mock('../src/lib/release.js', async () => ({
+  ...(await vi.importActual<typeof import('../src/lib/release.js')>(
+    '../src/lib/release.js',
+  )),
+  resolveSource,
+}));
 
 const fetchRemoteSkillsVersion = vi.fn();
 vi.mock('../src/lib/skills-version.js', async () => {
@@ -83,6 +110,7 @@ vi.mock('../src/lib/pharn-config.js', async () => {
   return { ...actual, assertConfigUnchanged, loadArchetypeConfigOrExit };
 });
 
+const { ReleaseResolveError } = await import('../src/lib/release.js');
 const { runUpdate } = await import('../src/commands/update.js');
 const prompts = await import('@clack/prompts');
 const {
@@ -910,6 +938,140 @@ describe('runUpdate (drift-safe)', () => {
     expect(config.skillsVersion).toBe('1.1.0');
     expect(config.commit).toBe('a'.repeat(40));
     expect(cleanup).toHaveBeenCalled();
+  });
+
+  // --- the channel: verified releases by default, `--ref main` on request -----
+  //
+  // The default installs the newest pharn-oss release (tagged only after its
+  // post-merge CI passed), never the tip; `--ref main` opts into the tip and is
+  // RECORDED, so later runs keep following it until `--ref latest`.
+  describe('release channel', () => {
+    const warned = (): string =>
+      vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map(([m]) => String(m))
+        .join('\n');
+
+    it('installs the latest verified release by default, at its commit', async () => {
+      await installed();
+
+      await runUpdate();
+
+      expect(resolveSource).toHaveBeenCalledWith('latest');
+      expect(fetchRepo).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'release', tag: 'v1.1.0' }),
+      );
+      expect(readPharnConfig(proj)!.ref).toBeUndefined();
+      expect(warned()).not.toContain('--ref main');
+    });
+
+    it('refuses with exit 1, before any clone, when the release cannot be resolved', async () => {
+      await installed();
+      resolveSource.mockRejectedValueOnce(
+        new ReleaseResolveError(
+          'Could not resolve the latest verified release: HTTP 404. … --ref main',
+        ),
+      );
+
+      await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(
+        String(vi.mocked(prompts.log.error).mock.calls.at(-1)![0]),
+      ).toContain('--ref main');
+      expect(readPharnConfig(proj)).toBeNull();
+    });
+
+    // An install made from main (every install before 0.9.0) can be NEWER than
+    // the newest release. Applying the release would be a downgrade presented as
+    // an update.
+    it('does not downgrade an install that is AHEAD of the release', async () => {
+      await installed({ skillsVersion: '1.2.0' });
+
+      await runUpdate();
+
+      const outro = String(vi.mocked(prompts.outro).mock.calls.at(-1)![0]);
+      expect(outro).toContain('ahead of the latest verified release (v1.1.0)');
+      expect(outro).toContain('--ref main');
+      expect(outro).toContain('--force');
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(body(DOC)).toBe('constitution v1');
+      expect(readPharnConfig(proj)).toBeNull();
+    });
+
+    it('--force goes back to the release from an install that is ahead', async () => {
+      await installed({ skillsVersion: '1.2.0' });
+
+      await runUpdate({ force: true });
+
+      expect(fetchRepo).toHaveBeenCalled();
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+    });
+
+    it('--ref main fetches the tip, warns, and RECORDS the channel', async () => {
+      await installed();
+
+      await runUpdate({ ref: 'main' });
+
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
+      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+      expect(warned()).toContain('--ref main');
+      expect(readPharnConfig(proj)!.ref).toBe('main');
+    });
+
+    it('follows main without the flag once the config records it', async () => {
+      await installed({ ref: 'main' });
+
+      await runUpdate();
+
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(readPharnConfig(proj)!.ref).toBe('main');
+    });
+
+    it('never applies the ahead guard on main — main is not a release', async () => {
+      await installed({ ref: 'main', skillsVersion: '1.2.0' });
+
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+    });
+
+    it('--ref latest switches a main install back to verified releases', async () => {
+      await installed({ ref: 'main' });
+
+      await runUpdate({ ref: 'latest' });
+
+      expect(resolveSource).toHaveBeenCalledWith('latest');
+      expect(readPharnConfig(proj)!.ref).toBeUndefined();
+    });
+
+    // Otherwise the same-version early return would swallow the switch and the
+    // next run would silently revert to the old channel.
+    it('records a channel switch even at the current version', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+
+      await runUpdate({ ref: 'main' });
+
+      expect(prompts.outro).not.toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).toHaveBeenCalled();
+      expect(readPharnConfig(proj)!.ref).toBe('main');
+    });
+
+    it('names the source in the version note', async () => {
+      await installed();
+
+      await runUpdate();
+
+      const notes = vi
+        .mocked(prompts.note)
+        .mock.calls.map(([m]) => stripVTControlCharacters(String(m)))
+        .join('\n');
+      expect(notes).toContain('verified release v1.1.0');
+    });
   });
 
   // PHARN-04: new upstream hook wiring is REPORTED, and settings.json is never

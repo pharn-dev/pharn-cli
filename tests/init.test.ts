@@ -36,12 +36,38 @@ vi.mock('../src/lib/detect-archetype.js', () => ({
 }));
 
 const cleanup = vi.fn();
-const fetchRepo = vi.fn(async () => ({
+const fetchRepo = vi.fn(async (_source?: unknown) => ({
   dir: '/fake/repo',
   sha: 'sha123',
   cleanup,
 }));
-vi.mock('../src/lib/repo.js', () => ({ fetchRepo }));
+// `fetchRepo` returns the source it fetched; the wrapper fills it in from the
+// argument, so the suite's `{ dir, sha, cleanup }` stubs stay what they were.
+vi.mock('../src/lib/repo.js', () => ({
+  fetchRepo: async (source: unknown) => ({
+    source,
+    ...(await fetchRepo(source)),
+  }),
+}));
+// The release resolve (lib/release.ts) is a network call, so it is replaced: the
+// default channel resolves to one fixed verified release, `--ref main` to the
+// tip. The clone's own version is whatever the suite's stubs put in it.
+const resolveSource = vi.fn(async (ref: string) =>
+  ref === 'main'
+    ? { kind: 'main' as const }
+    : {
+        kind: 'release' as const,
+        tag: 'v9.9.9',
+        version: '9.9.9',
+        sha: 'b'.repeat(40),
+      },
+);
+vi.mock('../src/lib/release.js', async () => ({
+  ...(await vi.importActual<typeof import('../src/lib/release.js')>(
+    '../src/lib/release.js',
+  )),
+  resolveSource,
+}));
 
 const parseCapabilityIndex = vi.fn((): CapabilityIndex => ({
   capabilities: [],
@@ -112,6 +138,64 @@ describe('runInit (archetype default)', () => {
   // FIRST — before the git prerequisite, the TTY gate and the fetch — and writes
   // nothing. These run against the REAL steps/node-prereq (only prereqs.js is
   // mocked), so they prove the wiring, not the unit.
+  // The channel: the newest verified release by default; `--ref main` opts into
+  // the tip, is warned about, and reaches the install step to be recorded. A
+  // release that cannot be resolved refuses — never a silent fall back to main.
+  describe('release channel', () => {
+    const carryOf = () =>
+      (runInstallArchetype.mock.calls[0] as unknown as unknown[])[5] as {
+        ref?: string;
+      };
+    const warned = () =>
+      vi
+        .mocked(log.warn)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+
+    it('fetches the latest verified release by default, recording no ref', async () => {
+      runArchetypeSummary.mockResolvedValue('install');
+      confirmWriteTargets.mockResolvedValue('proceed');
+
+      await runInit();
+
+      expect(resolveSource).toHaveBeenCalledWith('latest');
+      expect(fetchRepo).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'release', tag: 'v9.9.9' }),
+      );
+      expect(carryOf().ref).toBeUndefined();
+      expect(warned()).not.toContain('--ref main');
+    });
+
+    it('--ref main fetches the tip, warns, and hands the channel to the install', async () => {
+      runArchetypeSummary.mockResolvedValue('install');
+      confirmWriteTargets.mockResolvedValue('proceed');
+
+      await runInit({ ref: 'main' });
+
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+      expect(carryOf().ref).toBe('main');
+      expect(warned()).toContain('--ref main');
+    });
+
+    it('refuses with exit 1 when the release cannot be resolved — no fallback, no prompt', async () => {
+      const { ReleaseResolveError } = await import('../src/lib/release.js');
+      resolveSource.mockRejectedValueOnce(
+        new ReleaseResolveError('No verified release. … --ref main'),
+      );
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(runArchetypeSummary).not.toHaveBeenCalled();
+      expect(runInstallArchetype).not.toHaveBeenCalled();
+      // The resolver's own message, not wrapped in "Could not reach".
+      const [msg] = vi.mocked(log.error).mock.calls.at(-1)!;
+      expect(msg).toContain('No verified release. … --ref main');
+      expect(msg).not.toContain('Could not reach');
+    });
+  });
+
   describe('Node floor preflight', () => {
     it.each(['24.1.9', '22.18.0', '20.13.0'])(
       'refuses on Node %s: exit 1, no git check, no fetch, nothing installed',

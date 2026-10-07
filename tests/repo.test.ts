@@ -197,7 +197,7 @@ describe('fetchRepo', () => {
           },
         }),
       });
-      const pending = fetchRepo();
+      const pending = fetchRepo({ kind: 'main' });
       const rejects = expect(pending).rejects.toThrow(/Timed out downloading/);
       await vi.advanceTimersByTimeAsync(60_000);
       await rejects;
@@ -208,7 +208,7 @@ describe('fetchRepo', () => {
 
   it('downloads the tarball at the resolved SHA and records it (recorded == fetched)', async () => {
     const mock = stubFetches(VALID_SHA);
-    const repo = await fetchRepo();
+    const repo = await fetchRepo({ kind: 'main' });
 
     // Exactly two requests: resolve, then download. The old implementation paid
     // for the ref to be resolved a SECOND time inside the clone dependency.
@@ -229,7 +229,7 @@ describe('fetchRepo', () => {
 
   it('sends the network floor on the download: redirect:error and an abort signal', async () => {
     const mock = stubFetches(VALID_SHA);
-    const repo = await fetchRepo();
+    const repo = await fetchRepo({ kind: 'main' });
     const init = mock.mock.calls[1]![1] as RequestInit;
     expect(init.redirect).toBe('error');
     expect(init.signal).toBeDefined();
@@ -238,7 +238,7 @@ describe('fetchRepo', () => {
 
   it('falls back to refs/heads/<branch> and records sha:null when unresolved (LIMITS §3b)', async () => {
     const mock = stubFetches(null);
-    const repo = await fetchRepo();
+    const repo = await fetchRepo({ kind: 'main' });
 
     expect(mock.mock.calls[1]![0]).toBe(
       `https://codeload.github.com/${REPO}/tar.gz/refs/heads/${REPO_BRANCH}`,
@@ -249,14 +249,16 @@ describe('fetchRepo', () => {
 
   it('rejects a malformed (non-40-hex) sha before any download or temp dir (P2)', async () => {
     const mock = stubFetches('deadbeefcafe'); // 12 hex chars, not a full SHA
-    await expect(fetchRepo()).rejects.toThrow(ManifestValidationError);
+    await expect(fetchRepo({ kind: 'main' })).rejects.toThrow(
+      ManifestValidationError,
+    );
     // Boundary reject: only the resolve happened — nothing was downloaded.
     expect(mock).toHaveBeenCalledTimes(1);
   });
 
   it('removes the temp dir and rethrows on a non-200 download', async () => {
     stubFetches(VALID_SHA, { ok: false, status: 404 });
-    await expect(fetchRepo()).rejects.toThrow(/HTTP 404/);
+    await expect(fetchRepo({ kind: 'main' })).rejects.toThrow(/HTTP 404/);
     expect(leftoverTempDirs()).toEqual([]);
   });
 
@@ -266,19 +268,88 @@ describe('fetchRepo', () => {
   it('releases the body of a non-200 download before throwing', async () => {
     const page = observedBody('<html>server error</html>', { hang: true });
     stubFetches(VALID_SHA, { ok: false, status: 500, body: page.body });
-    await expect(fetchRepo()).rejects.toThrow(/HTTP 500/);
+    await expect(fetchRepo({ kind: 'main' })).rejects.toThrow(/HTTP 500/);
     expect(page.cancelled()).toBe(true);
   });
 
   it('removes the temp dir and rethrows when the archive will not extract', async () => {
     stubFetches(VALID_SHA, tarResponse(Buffer.from('not a gzip stream')));
-    await expect(fetchRepo()).rejects.toThrow();
+    await expect(fetchRepo({ kind: 'main' })).rejects.toThrow();
     expect(leftoverTempDirs()).toEqual([]);
   });
 
   it('removes the temp dir and rethrows when the body has no stream', async () => {
     stubFetches(VALID_SHA, { ok: true, status: 200, body: null });
-    await expect(fetchRepo()).rejects.toThrow(/empty response body/);
+    await expect(fetchRepo({ kind: 'main' })).rejects.toThrow(
+      /empty response body/,
+    );
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+});
+
+// A verified release (lib/release.ts) is downloaded at the commit its tag
+// resolved to — the tip is never consulted — and its tree must BE the version
+// the tag names.
+describe('fetchRepo — a verified release', () => {
+  const release = (version = '1.0.0', sha = VALID_SHA) => ({
+    kind: 'release' as const,
+    tag: `v${version}`,
+    version,
+    sha,
+  });
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'pharn-repo-sandbox-'));
+    process.env.TMPDIR = sandbox;
+    process.env.TEMP = sandbox;
+    process.env.TMP = sandbox;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(realTmp)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(sandbox, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+  });
+
+  function stubDownload(): ReturnType<typeof vi.fn> {
+    const mock = vi.fn(async () => tarResponse(archive(VALID_SHA)));
+    vi.stubGlobal('fetch', mock);
+    return mock;
+  }
+
+  it('downloads at the release commit, never resolving the tip', async () => {
+    const mock = stubDownload();
+    const repo = await fetchRepo(release());
+
+    // ONE request: the download. No commits/main resolve.
+    expect(mock.mock.calls.map((c) => c[0])).toEqual([
+      `https://codeload.github.com/${REPO}/tar.gz/${VALID_SHA}`,
+    ]);
+    expect(repo.sha).toBe(VALID_SHA);
+    expect(repo.source).toEqual(release());
+    repo.cleanup();
+  });
+
+  it('refuses a release whose SKILLS_VERSION is not its tag, and removes the tree', async () => {
+    stubDownload();
+    // The archive ships SKILLS_VERSION 1.0.0; the tag claims 1.0.1.
+    const err = await fetchRepo(release('1.0.1')).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ManifestValidationError);
+    expect((err as Error).message).toContain('v1.0.1');
+    expect((err as Error).message).toContain('ships SKILLS_VERSION 1.0.0');
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('rejects a malformed release sha before any download or temp dir (P2)', async () => {
+    const mock = stubDownload();
+    await expect(fetchRepo(release('1.0.0', 'nope'))).rejects.toThrow(
+      ManifestValidationError,
+    );
+    expect(mock).not.toHaveBeenCalled();
     expect(leftoverTempDirs()).toEqual([]);
   });
 });

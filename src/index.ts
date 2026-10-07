@@ -8,6 +8,7 @@ import { runRemove } from './commands/remove.js';
 import { runUpdate } from './commands/update.js';
 import { runList } from './commands/list.js';
 import { runStatus } from './commands/status.js';
+import { REF_CHOICES, type RefChoice } from './lib/release.js';
 import { PHARN_VERSION } from './version.js';
 
 const USAGE = `Pharn - Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
@@ -25,6 +26,8 @@ Commands:
 
 Options (each belongs to ONE command; passing it to another is an error):
       --archetype    init: deprecated no-op — archetype detection is now the default
+      --ref <ref>    init, update: install from "latest" (the newest verified pharn-oss
+                     release — the default) or "main" (its unverified tip); recorded
       --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
   -y, --yes          update: skip the confirmation prompt (for CI and scripts)
       --strict       status: exit 1 on any outdated/modified/missing file
@@ -75,11 +78,11 @@ const MAX_POSITIONALS = new Map<string, number>([
 // which is what keeps `pharn bogus --json` on the more useful "Unknown command"
 // path rather than lecturing about a flag on a command that does not exist.
 const ALLOWED_FLAGS = new Map<string, readonly string[]>([
-  ['init', ['archetype']],
+  ['init', ['archetype', 'ref']],
   ['add', []],
   ['remove', []],
   ['rm', []],
-  ['update', ['force', 'yes']],
+  ['update', ['force', 'yes', 'ref']],
   ['list', ['json']],
   ['status', ['strict', 'drift']],
 ]);
@@ -100,13 +103,20 @@ const ALIASES: Readonly<Record<string, string>> = {
   y: 'yes',
 };
 
+// The flags in the table above that take a VALUE (`--ref main`) rather than
+// being booleans. Every other flag is a boolean. A flag's kind is a property of
+// the flag, not of the command, so this is a set of names, not a second table.
+const STRING_FLAGS: ReadonlySet<string> = new Set(['ref']);
+
 // DERIVED, never hand-maintained. A flag declared here but present in no
 // command's row is exactly the shape of the bug above, so the global
 // declaration list is computed from the per-command table instead of sitting
 // beside it waiting to drift.
-const DECLARED_BOOLEANS: string[] = [
+const DECLARED_FLAGS: string[] = [
   ...new Set([...GLOBAL_FLAGS, ...Array.from(ALLOWED_FLAGS.values()).flat()]),
 ];
+const DECLARED_BOOLEANS = DECLARED_FLAGS.filter((f) => !STRING_FLAGS.has(f));
+const DECLARED_STRINGS = DECLARED_FLAGS.filter((f) => STRING_FLAGS.has(f));
 
 // Fires for every arg whose key is not declared — POSITIONALS INCLUDED
 // (minimist guards both `setArg` and the `argv._.push`), so a handler that
@@ -149,7 +159,8 @@ function unsupportedFlags(allowed: readonly string[]): string[] {
   const offenders: string[] = [];
   const declared = [...GLOBAL_FLAGS, ...allowed];
   minimist(process.argv.slice(2), {
-    boolean: declared,
+    boolean: declared.filter((f) => !STRING_FLAGS.has(f)),
+    string: declared.filter((f) => STRING_FLAGS.has(f)),
     alias: aliasesFor(declared),
     unknown: collectFlags(offenders),
   });
@@ -188,7 +199,10 @@ export async function main(): Promise<void> {
     // `parseCapabilityArg` and dies on `.includes(':')` with a raw TypeError
     // stack instead of the curated "valid capabilities" listing. `@types/minimist`
     // declares `_: string[]`, so the type checker never saw the lie.
-    string: ['_'],
+    //
+    // The value-taking flags are declared here too, so `--ref main` binds
+    // `main` to `ref` rather than reading it as a positional.
+    string: ['_', ...DECLARED_STRINGS],
     // `archetype` is retained as a no-op alias for one release: archetype
     // detection is now init's default, so the flag still parses but is not read.
     // `status` drifts by default; `--no-drift` flips it off. minimist defaults
@@ -230,6 +244,18 @@ export async function main(): Promise<void> {
     }
   }
 
+  // `--ref`'s VALUE, checked where the flag's NAME was: before the short-
+  // circuits, so `pharn init --help --ref tip` refuses too. Reached only when
+  // the command took the flag (or no `--ref` was passed at all), so it needs no
+  // command check of its own.
+  const ref = refOption(argv.ref);
+  if (ref === null) {
+    refuse(
+      `Invalid value for --ref (expected ${REF_CHOICES.map((r) => `"${r}"`).join(' or ')})`,
+      [typeof argv.ref === 'string' ? argv.ref : JSON.stringify(argv.ref)],
+    );
+  }
+
   if (argv.version) {
     console.log(PHARN_VERSION);
     return;
@@ -249,7 +275,7 @@ export async function main(): Promise<void> {
 
   switch (cmd) {
     case 'init':
-      await runInit();
+      await runInit({ ref });
       return;
     case 'add':
       await runAdd(argv._[1]);
@@ -266,7 +292,11 @@ export async function main(): Promise<void> {
       await runRemove(argv._[1]);
       return;
     case 'update':
-      await runUpdate({ force: Boolean(argv.force), yes: Boolean(argv.yes) });
+      await runUpdate({
+        force: Boolean(argv.force),
+        yes: Boolean(argv.yes),
+        ref,
+      });
       return;
     case 'list':
       await runList({ json: Boolean(argv.json) });
@@ -282,6 +312,16 @@ export async function main(): Promise<void> {
       console.error(USAGE);
       process.exit(1);
   }
+}
+
+// `--ref`: absent → `undefined` (each command picks its own default); one of
+// REF_CHOICES → that choice; anything else → `null`, which the dispatch refuses.
+// "Anything else" covers what minimist can hand back for a string flag: `''`
+// for a bare `--ref`, `false` for `--no-ref`, and an ARRAY when it was passed
+// twice — exact membership, never a guess at which one was meant (P5).
+function refOption(value: unknown): RefChoice | undefined | null {
+  if (value === undefined) return undefined;
+  return REF_CHOICES.find((choice) => choice === value) ?? null;
 }
 
 // Auto-run only when invoked as the CLI entry point (dev: `tsx src/index.ts`,

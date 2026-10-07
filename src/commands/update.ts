@@ -67,6 +67,15 @@ import {
   type UpdatePlan,
 } from '../lib/update-decision.js';
 import { fetchRepo } from '../lib/repo.js';
+import {
+  channelOf,
+  MAIN_WARNING,
+  resolveSource,
+  sourceDescription,
+  type InstallSource,
+  type RefChoice,
+} from '../lib/release.js';
+import { compareVersionCore } from '../lib/semver.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import {
@@ -91,7 +100,7 @@ import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 // `--force` overwrites the skip buckets after copying each file to
 // `.pharn-backup/<timestamp>/`.
 export async function runUpdate(
-  opts: { force?: boolean; yes?: boolean } = {},
+  opts: { force?: boolean; yes?: boolean; ref?: RefChoice } = {},
 ): Promise<void> {
   intro('pharn update');
 
@@ -128,7 +137,15 @@ export async function runUpdate(
     process.exit(1);
   }
 
-  await runArchetypeUpdate(config, cwd, opts.force ?? false, yes);
+  // The channel: `--ref` when passed (and then recorded), else the one this
+  // install already follows — `ref: "main"`, or verified releases by default.
+  await runArchetypeUpdate(
+    config,
+    cwd,
+    opts.force ?? false,
+    yes,
+    opts.ref ?? channelOf(config),
+  );
 }
 
 // Where the `--force` copies went, and how many there are — the two facts the
@@ -172,6 +189,7 @@ async function runArchetypeUpdate(
   cwd: string,
   force: boolean,
   yes: boolean,
+  channel: RefChoice,
 ): Promise<void> {
   // What a configured proxy means here (nothing: fetch never uses one), emitted
   // ONCE at the top so it precedes EVERY fetch this command can make — the
@@ -208,13 +226,40 @@ async function runArchetypeUpdate(
   const s = spinner();
   s.start('Checking for updates');
   let latest: string;
+  let source: InstallSource;
   try {
-    latest = await fetchRemoteSkillsVersion();
-    s.stop(`Latest skills v${latest}`);
+    // ONE resolve per run, reused for the tarball inside the lock below, so the
+    // version this check reports is the version that run installs. A release
+    // names its version in its tag (and `fetchRepo` checks the tree agrees);
+    // only the `main` channel reads the tip's SKILLS_VERSION over the wire.
+    source = await resolveSource(channel);
+    latest =
+      source.kind === 'release'
+        ? source.version
+        : await fetchRemoteSkillsVersion();
+    s.stop(`Latest skills v${latest} (${sourceDescription(source)})`);
   } catch (err) {
     s.stop('Failed to check for updates');
     reportFatal(errorMessage(err), { err });
     process.exit(1);
+  }
+  if (source.kind === 'main') log.warn(MAIN_WARNING);
+
+  // AHEAD OF THE RELEASE: an install made from `main` (every install before
+  // 0.9.0 was) can hold a NEWER version than the newest verified release — it
+  // took a merge whose release had not been cut yet. Applying the release would
+  // be a DOWNGRADE presented as an update, so it is refused unless asked for:
+  // `--force` already means "make my tree match upstream", and here upstream is
+  // the release. Not ahead (or a version either side cannot order) → as before.
+  if (
+    source.kind === 'release' &&
+    !force &&
+    compareVersionCore(config.skillsVersion, latest) === 1
+  ) {
+    outro(
+      `Your install (skills v${config.skillsVersion}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` keeps following main; \`pharn update --force\` goes back to ${source.tag}.`,
+    );
+    return;
   }
 
   // The version gate. `--force` deliberately bypasses it: `--force` means "make
@@ -238,7 +283,12 @@ async function runArchetypeUpdate(
       commit: config.commit,
     }).records?.[MODELS_RECORD_KEY] ?? null,
   );
-  if (current && !force && !recheckFrozen && !convertModels) {
+  // Switching channel (`--ref main` on a release install, or `--ref latest` on
+  // one that follows main) re-opens the gate too, so the switch is RECORDED even
+  // at the same version — otherwise the next run would quietly revert to the old
+  // channel. The re-apply is cheap: identical files are no-ops.
+  const switchChannel = (channel === 'main') !== (config.ref === 'main');
+  if (current && !force && !recheckFrozen && !convertModels && !switchChannel) {
     outro(`Already up to date (skills v${config.skillsVersion}).`);
     return;
   }
@@ -248,6 +298,7 @@ async function runArchetypeUpdate(
       current
         ? row('Skills version', `v${config.skillsVersion} (re-applying)`)
         : row('Skills version', `v${config.skillsVersion} → v${latest}`),
+      row('Source', sourceDescription(source)),
       '',
       row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
       '',
@@ -354,7 +405,7 @@ async function runArchetypeUpdate(
       // outer `finally` could clean it up — which, with the fetch now inside the
       // lock, would dereference `undefined` on a failed fetch and mask the real
       // "could not reach" message with a TypeError.
-      const repo = await fetchRepo();
+      const repo = await fetchRepo(source);
       try {
         // THE MIN_CLI GATE — upstream's lever to refuse a stale CLI CLEANLY
         // instead of breaking somewhere downstream. Inside this try so the
@@ -375,6 +426,7 @@ async function runArchetypeUpdate(
           config,
           cwd,
           force,
+          channel,
           (backup) => {
             backupRef.current = backup;
             // Named the moment it exists (as `add` does): everything after the
@@ -463,6 +515,7 @@ async function applyUpdate(
   config: PharnConfig,
   cwd: string,
   force: boolean,
+  channel: RefChoice,
   onBackup: (backup: Backup) => void,
 ): Promise<UpdateOutcome> {
   const index = parseCapabilityIndex(repoDir);
@@ -692,12 +745,16 @@ async function applyUpdate(
   const {
     pendingSkillsVersion: _previousPending,
     frozenCapabilities: _previousFrozen,
+    ref: _previousRef,
     ...rest
   } = config;
   await writePharnConfig(cwd, {
     ...rest,
     skillsVersion: nextSkillsVersion,
     commit: nextCommit,
+    // The channel this run used — even when the version bump is withheld: it is
+    // the user's choice of source, not a claim about the bytes.
+    ...(channel === 'main' ? { ref: 'main' as const } : {}),
     ...(pendingSkillsVersion !== undefined ? { pendingSkillsVersion } : {}),
     ...(frozenCapabilities.length > 0 ? { frozenCapabilities } : {}),
     capabilities: configCapabilities,

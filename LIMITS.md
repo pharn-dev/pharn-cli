@@ -55,14 +55,16 @@ filesystem except when `status` runs.
 - **Struck claim:** "the config says module X is installed, therefore its exact files are present and
   unmodified."
 - **True statement:** the config is a record of **intent**; actual on-disk state is derived **live**
-  by `pharn status` / `diff` (against `@main`, not the pinned `commit`). "installed per config" ≠
+  by `pharn status` / `diff` (against the newest verified release — or `@main` on that channel — not
+  the pinned `commit`). "installed per config" ≠
   "these exact bytes present" until `status` is run.
 - **Backstop:** `pharn status` re-derives drift live — that is the guarantee, not the config field.
 
-### 1d. `update` / `status` resolve against `@main`; `remove` resolves offline
+### 1d. `update` / `status` resolve against the newest release; `remove` resolves offline
 
-There is no manifest. `update`/`status` re-derive the expected set from a fresh `@main` clone (not the
-pinned `commit`), while `remove` resolves against **nothing remote** — it is addressed entirely from
+There is no manifest. `update`/`status` re-derive the expected set from a fresh clone of the newest
+verified release — or of `@main`, for an install that records `"ref": "main"` — (not the pinned
+`commit`), while `remove` resolves against **nothing remote** — it is addressed entirely from
 `pharn.config.json` via `configLayout` (`src/commands/remove.ts:12`, `:212`, `:307`). An upstream
 **rename** lands at two levels: a renamed **capability** surfaces in `update`'s membership report as
 `dropped-gone` / `added` (`src/lib/merge-capabilities.ts:79`, `:201`), while a renamed **file inside** a
@@ -125,9 +127,15 @@ set, and if not, what would make it, so the failure is explained rather than sil
 
 ### 3b. GitHub API rate limits
 
-The `commit` SHA is fetched best-effort via the GitHub API; unauthenticated rate limits can make it
-unavailable, so `commit` may be **absent** — the install still proceeds (an advisory field, never a
-gate).
+The default channel resolves the newest verified pharn-oss release with two unauthenticated GitHub API
+requests (`src/lib/release.ts`), and that resolve **fails closed**: when it is rate-limited (60 requests
+an hour per address) or unreachable, `init` / `update` / `add` / `status` exit 1 rather than install
+content no CI verdict stands behind. That is a deliberate availability cost. `--ref main` is the
+explicit way through.
+
+On the `main` channel only, the tip's `commit` SHA is fetched best-effort; unauthenticated rate limits
+can make it unavailable, so `commit` may be **absent** — the install still proceeds at the floated
+branch (an advisory field, never a gate).
 
 ### 3c. Single-source coupling
 
@@ -139,10 +147,11 @@ mirror or failover. Upstream availability is a hard dependency.
 Installs target `.claude/`. **Codex and Cursor are Coming soon** (P7) — explicitly deferred, not
 silently unsupported.
 
-### 3e. Released CLIs read `main` HEAD with a closed grammar
+### 3e. Released CLIs read the newest release with a closed grammar
 
-Every released CLI fetches `pharn-dev/pharn-oss` at **`main` HEAD** (`src/lib/repo.ts`) and can never
-pin older content, so upstream's `main` is a **live input to every deployed CLI at once**. The
+Every released CLI fetches `pharn-dev/pharn-oss` at its **newest verified release** (`src/lib/release.ts`;
+`main` HEAD on the `--ref main` channel, and on every CLI before 0.9.0) and can never pin older
+content, so upstream's newest release is a **live input to every deployed CLI at once**. The
 capability grammar it parses is closed (`src/lib/validate.ts`, frozen enums), and that is
 deliberate — the fail-closed posture is the security property (P2).
 
