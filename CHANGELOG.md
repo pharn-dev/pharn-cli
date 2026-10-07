@@ -9,15 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.9.0] — 2026-10-07
 
-### Changed
-
-- **`pharn` installs the newest verified pharn-oss release, not the tip of `main`.** `init`, `update`, `add` and `status` used to take whatever had merged last on pharn-oss `main`, whether or not its post-merge CI had finished — and it happened: two post-merge runs were cancelled and the tip stayed unverified for about 47 minutes. They now resolve the newest pharn-oss GitHub release (tag `v<SKILLS_VERSION>`, which pharn-oss creates only after every required check on that commit has passed), download exactly the commit the tag points at, and refuse it if its `SKILLS_VERSION` is not the version the tag names. **This needs pharn-oss to publish releases: until it does, the default refuses every install** — use `--ref main`.
-- **No silent fallback.** When the release cannot be resolved — none published, `api.github.com` unreachable, or its unauthenticated limit of 60 requests an hour per address used up — the command exits 1, writes nothing, and names `--ref main`. Before, a failed resolve quietly installed the tip.
-- **An install ahead of the newest release is not downgraded.** An install made from `main` (every install before this release) can be newer than the newest release. `pharn update` then says so and exits 0 without changing anything; `--force` goes back to the release. `pharn status` reports it as ahead, not outdated, so `--strict` passes. `pharn add` names `pharn update --ref main` rather than sending you back to `update`.
-
 ### Added
 
-- **`--ref main` / `--ref latest` for `init` and `update`.** `--ref main` installs the tip of pharn-oss `main` with a warning, and records `"ref": "main"` in `pharn.config.json`, so `update`, `add` and `status` keep following it; `pharn update --ref latest` switches back. Any other value is refused (exit 1). `status`, `add`, `remove` and `list` take no `--ref`.
+- **`--ref latest` for `init` and `update`: install the newest verified pharn-oss release instead of the tip of `main`.** By default `pharn` still installs whatever merged last on pharn-oss `main`, whether or not its post-merge CI has finished. With `--ref latest` it resolves the newest pharn-oss GitHub release instead (tag `v<SKILLS_VERSION>`, which pharn-oss is to create only after every required check on that commit has passed), downloads exactly the commit the tag points at, and refuses it if its `SKILLS_VERSION` is not the version the tag names. The choice is recorded as `"ref": "latest"` in `pharn.config.json`, so `update`, `add` and `status` keep following releases; `pharn update --ref main` switches back. Any other value is refused (exit 1). `status`, `add`, `remove` and `list` take no `--ref`.
+- **No silent fallback on the release channel.** When the release cannot be resolved — none published (pharn-oss publishes none yet), `api.github.com` unreachable, or its unauthenticated limit of 60 requests an hour per address used up — the command exits 1, writes nothing, and names `--ref main`.
+- **An install ahead of the newest release is not downgraded.** An install made from `main` can be newer than the newest release. `pharn update --ref latest` then says so and exits 0 without changing anything; `--force` goes back to the release. `pharn status` reports it as ahead, not outdated, so `--strict` passes. `pharn add` names `pharn update --ref main` rather than sending you back to `update`.
 
 ## [0.8.0] — 2026-10-07
 

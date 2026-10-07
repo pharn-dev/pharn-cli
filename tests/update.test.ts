@@ -940,33 +940,46 @@ describe('runUpdate (drift-safe)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
-  // --- the channel: verified releases by default, `--ref main` on request -----
+  // --- the channel: main by default, verified releases with `--ref latest` ---
   //
-  // The default installs the newest pharn-oss release (tagged only after its
-  // post-merge CI passed), never the tip; `--ref main` opts into the tip and is
-  // RECORDED, so later runs keep following it until `--ref latest`.
+  // The default installs the tip of pharn-oss main; `--ref latest` opts into the
+  // newest pharn-oss release (tagged only after its post-merge CI passed) and is
+  // RECORDED, so later runs keep following it until `--ref main`.
   describe('release channel', () => {
-    const warned = (): string =>
-      vi
-        .mocked(prompts.log.warn)
-        .mock.calls.map(([m]) => String(m))
-        .join('\n');
-
-    it('installs the latest verified release by default, at its commit', async () => {
+    it('installs the tip of main by default, recording no ref', async () => {
       await installed();
 
       await runUpdate();
+
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
+      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+      expect(readPharnConfig(proj)!.ref).toBeUndefined();
+    });
+
+    it('--ref latest installs the verified release at its commit and RECORDS the channel', async () => {
+      await installed();
+
+      await runUpdate({ ref: 'latest' });
 
       expect(resolveSource).toHaveBeenCalledWith('latest');
       expect(fetchRepo).toHaveBeenCalledWith(
         expect.objectContaining({ kind: 'release', tag: 'v1.1.0' }),
       );
-      expect(readPharnConfig(proj)!.ref).toBeUndefined();
-      expect(warned()).not.toContain('--ref main');
+      expect(readPharnConfig(proj)!.ref).toBe('latest');
+    });
+
+    it('follows verified releases without the flag once the config records it', async () => {
+      await installed({ ref: 'latest' });
+
+      await runUpdate();
+
+      expect(resolveSource).toHaveBeenCalledWith('latest');
+      expect(readPharnConfig(proj)!.ref).toBe('latest');
     });
 
     it('refuses with exit 1, before any clone, when the release cannot be resolved', async () => {
-      await installed();
+      await installed({ ref: 'latest' });
       resolveSource.mockRejectedValueOnce(
         new ReleaseResolveError(
           'Could not resolve the latest verified release: HTTP 404. … --ref main',
@@ -982,13 +995,12 @@ describe('runUpdate (drift-safe)', () => {
       expect(readPharnConfig(proj)).toBeNull();
     });
 
-    // An install made from main (every install before 0.9.0) can be NEWER than
-    // the newest release. Applying the release would be a downgrade presented as
-    // an update.
+    // An install made from main can be NEWER than the newest release. Applying
+    // the release would be a downgrade presented as an update.
     it('does not downgrade an install that is AHEAD of the release', async () => {
       await installed({ skillsVersion: '1.2.0' });
 
-      await runUpdate();
+      await runUpdate({ ref: 'latest' });
 
       const outro = String(vi.mocked(prompts.outro).mock.calls.at(-1)![0]);
       expect(outro).toContain('ahead of the latest verified release (v1.1.0)');
@@ -1003,47 +1015,26 @@ describe('runUpdate (drift-safe)', () => {
     it('--force goes back to the release from an install that is ahead', async () => {
       await installed({ skillsVersion: '1.2.0' });
 
-      await runUpdate({ force: true });
+      await runUpdate({ ref: 'latest', force: true });
 
       expect(fetchRepo).toHaveBeenCalled();
       expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
     });
 
-    it('--ref main fetches the tip, warns, and RECORDS the channel', async () => {
-      await installed();
+    it('never applies the ahead guard on main — main is not a release', async () => {
+      await installed({ skillsVersion: '1.2.0' });
+
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+    });
+
+    it('--ref main switches a release install back to main', async () => {
+      await installed({ ref: 'latest' });
 
       await runUpdate({ ref: 'main' });
 
       expect(resolveSource).toHaveBeenCalledWith('main');
-      expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
-      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
-      expect(warned()).toContain('--ref main');
-      expect(readPharnConfig(proj)!.ref).toBe('main');
-    });
-
-    it('follows main without the flag once the config records it', async () => {
-      await installed({ ref: 'main' });
-
-      await runUpdate();
-
-      expect(resolveSource).toHaveBeenCalledWith('main');
-      expect(readPharnConfig(proj)!.ref).toBe('main');
-    });
-
-    it('never applies the ahead guard on main — main is not a release', async () => {
-      await installed({ ref: 'main', skillsVersion: '1.2.0' });
-
-      await runUpdate();
-
-      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
-    });
-
-    it('--ref latest switches a main install back to verified releases', async () => {
-      await installed({ ref: 'main' });
-
-      await runUpdate({ ref: 'latest' });
-
-      expect(resolveSource).toHaveBeenCalledWith('latest');
       expect(readPharnConfig(proj)!.ref).toBeUndefined();
     });
 
@@ -1052,17 +1043,17 @@ describe('runUpdate (drift-safe)', () => {
     it('records a channel switch even at the current version', async () => {
       await installed({ skillsVersion: '1.1.0' });
 
-      await runUpdate({ ref: 'main' });
+      await runUpdate({ ref: 'latest' });
 
       expect(prompts.outro).not.toHaveBeenCalledWith(
         'Already up to date (skills v1.1.0).',
       );
       expect(fetchRepo).toHaveBeenCalled();
-      expect(readPharnConfig(proj)!.ref).toBe('main');
+      expect(readPharnConfig(proj)!.ref).toBe('latest');
     });
 
     it('names the source in the version note', async () => {
-      await installed();
+      await installed({ ref: 'latest' });
 
       await runUpdate();
 

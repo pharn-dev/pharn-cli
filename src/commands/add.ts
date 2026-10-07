@@ -39,7 +39,6 @@ import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
   channelOf,
-  MAIN_WARNING,
   resolveSource,
   sourceLabel,
   type InstallSource,
@@ -241,7 +240,6 @@ async function runArchetypeAdd(
         // no `--ref` of its own: it must fetch what the project is on.
         repo = await fetchRepo(await resolveSource(channelOf(config)));
         s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
-        if (repo.source.kind === 'main') log.warn(MAIN_WARNING);
       } catch (err) {
         s.stop('Failed to fetch capabilities');
         // Re-thrown, not exited: the catch below turns it into the same
@@ -366,7 +364,6 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
         // no `--ref` of its own: it must fetch what the project is on.
         repo = await fetchRepo(await resolveSource(channelOf(config)));
         s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
-        if (repo.source.kind === 'main') log.warn(MAIN_WARNING);
       } catch (err) {
         s.stop('Failed to fetch capabilities');
         // Re-thrown rather than exited, so the lock releases — see the named path.

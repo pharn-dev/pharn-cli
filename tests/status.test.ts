@@ -120,15 +120,25 @@ describe('runStatus (archetype)', () => {
   // verdict.
   // --- the channel -----------------------------------------------------------
   //
-  // status follows the channel the config records — verified releases by
-  // default, `ref: "main"` for an install made with `--ref main` — and an install
-  // AHEAD of the release (made from main) is reported as ahead, never outdated,
+  // status follows the channel the config records — main by default, verified
+  // releases for `ref: "latest"` — and an install AHEAD of the release (made
+  // from main, then switched) is reported as ahead, never outdated,
   // so `--strict` does not demand an update that would be a downgrade.
   describe('release channel', () => {
     const plain = (title: string): string =>
       stripVTControlCharacters(noteBody(title));
 
-    it('compares against the latest verified release by default', async () => {
+    it('compares against the tip of main by default', async () => {
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+      await runStatus({ drift: false });
+
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(plain('VERSION')).toContain('main (tip)');
+    });
+
+    it('follows verified releases when the config records it', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(config({ ref: 'latest' }));
       fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
       readSkillsVersion.mockReturnValue('1.0.0');
       fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
@@ -140,19 +150,9 @@ describe('runStatus (archetype)', () => {
       expect(plain('VERSION')).toContain('verified release v1.0.0');
     });
 
-    it('follows main when the config records it', async () => {
-      loadArchetypeConfigOrExit.mockReturnValue(config({ ref: 'main' }));
-      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
-
-      await runStatus({ drift: false });
-
-      expect(resolveSource).toHaveBeenCalledWith('main');
-      expect(plain('VERSION')).toContain('unverified tip');
-    });
-
     it('reports an install AHEAD of the release as ahead, and --strict passes', async () => {
       loadArchetypeConfigOrExit.mockReturnValue(
-        config({ skillsVersion: '1.2.0' }),
+        config({ skillsVersion: '1.2.0', ref: 'latest' }),
       );
       fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
 
@@ -175,6 +175,7 @@ describe('runStatus (archetype)', () => {
     });
 
     it('exits 1 when the release cannot be resolved', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(config({ ref: 'latest' }));
       fetchRemoteSkillsVersion.mockRejectedValueOnce(new Error('HTTP 404'));
 
       await expect(runStatus({})).rejects.toMatchObject(new ProcessExit(1));
@@ -518,7 +519,7 @@ describe('runStatus (archetype)', () => {
   // The DRIFT copy is the user's only pointer from "status found something" to
   // "here is what update will do about it" — it must not promise the old
   // overwrite-by-default behavior.
-  it('describes the drift section as DIFFERS FROM <release>, not "locally modified"', async () => {
+  it('describes the drift section as DIFFERS FROM <source>, not "locally modified"', async () => {
     // The comparison is against what upstream ships now, so a file can differ
     // because UPSTREAM moved — status cannot tell that from a user edit.
     fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
@@ -533,7 +534,7 @@ describe('runStatus (archetype)', () => {
     await runStatus({});
 
     const drift = noteBody('DRIFT');
-    expect(drift).toContain('DIFFERS FROM pharn-dev/pharn-oss@v1.0.0');
+    expect(drift).toContain('DIFFERS FROM pharn-dev/pharn-oss@main');
     expect(drift).not.toContain('LOCALLY MODIFIED');
   });
 

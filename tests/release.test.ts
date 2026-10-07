@@ -9,10 +9,11 @@ import {
 } from '../src/lib/release.js';
 
 // ---------------------------------------------------------------------------
-// The verified-release resolver. The default channel installs the newest
-// pharn-oss GitHub release (created only after post-merge CI passed), never the
-// tip of main; when that release cannot be resolved the command REFUSES and
-// names `--ref main` — it never floats to the unverified tip on its own.
+// The verified-release resolver. The default channel installs the tip of
+// pharn-oss main; `--ref latest` installs the newest pharn-oss GitHub release
+// (created only after post-merge CI passed), and when that release cannot be
+// resolved the command REFUSES and names `--ref main` — it never floats to the
+// tip on its own.
 // ---------------------------------------------------------------------------
 
 const SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
@@ -228,14 +229,14 @@ describe('resolveSource', () => {
 });
 
 describe('channelOf', () => {
-  it('follows main only for the literal "main"', () => {
-    expect(channelOf({ ref: 'main' })).toBe('main');
+  it('follows verified releases only for the literal "latest"', () => {
+    expect(channelOf({ ref: 'latest' })).toBe('latest');
   });
 
-  it.each([undefined, 'latest', 'Main', '', 1, null])(
-    'otherwise follows verified releases (%j)',
+  it.each([undefined, 'main', 'Latest', '', 1, null])(
+    'otherwise follows main (%j)',
     (ref) => {
-      expect(channelOf({ ref })).toBe('latest');
+      expect(channelOf({ ref })).toBe('main');
     },
   );
 });
@@ -253,8 +254,8 @@ describe('labels', () => {
     expect(sourceLabel({ kind: 'main' })).toBe(`${REPO}@main`);
   });
 
-  it('says which source is verified and which is not', () => {
+  it('says which source is a verified release and which is the tip', () => {
     expect(sourceDescription(release)).toBe('verified release v6.54.1');
-    expect(sourceDescription({ kind: 'main' })).toContain('unverified');
+    expect(sourceDescription({ kind: 'main' })).toBe('main (tip)');
   });
 });

@@ -134,7 +134,7 @@ catalog.
 | Step | What happens |
 | ---- | ------------ |
 | Detect | Reads `package.json` dependency names and performs a bounded, symlink-safe file-tree scan to classify the project as `ssr`, `backend`, `spa`, `lib`, or a combination. |
-| Fetch | Resolves the newest **verified release** of `pharn-dev/pharn-oss` (a tag pharn-oss creates only after its post-merge CI passed) to its commit, downloads that commit's GitHub codeload tarball, checks its `SKILLS_VERSION` matches the tag, and extracts it into a temp directory. `--ref main` installs the unverified tip of `main` instead. |
+| Fetch | Resolves the tip of `pharn-dev/pharn-oss` `main` to its commit, downloads that commit's GitHub codeload tarball, and extracts it into a temp directory. `--ref latest` installs the newest **verified release** instead (a tag pharn-oss creates only after its post-merge CI passed), checking its `SKILLS_VERSION` matches the tag. |
 | Resolve | Selects capabilities whose `applies` value is `universal` or intersects your detected archetypes. Skipped capabilities are named with the reason. |
 | Install | Copies the selected capabilities plus fixed PHARN product surfaces into your repo, mirroring the upstream layout. |
 | Record | Writes `pharn.config.json` and `pharn.records.json` so future updates can tell PHARN-owned files from local edits. |

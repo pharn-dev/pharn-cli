@@ -7,8 +7,8 @@ destroying anything you have edited**.
 pharn update
 pharn update --force   # overwrite your edits too (each file is backed up first)
 pharn update --yes     # skip the confirmation prompt (for CI and scripts)
-pharn update --ref main     # follow the unverified tip of main (recorded)
-pharn update --ref latest   # back to verified releases (recorded)
+pharn update --ref latest   # follow verified releases instead of main (recorded)
+pharn update --ref main     # back to the tip of main (recorded)
 ```
 
 `--force`, `--yes`/`-y` and `--ref` are `update`'s **only** options; they compose, and none implies
@@ -30,10 +30,10 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    and exit 1, not the "run `pharn init`" hint.
 3. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
    update's fetches (the lightweight version check as well as the tarball).
-4. Resolves what to update to — the newest **verified release** of `pharn-dev/pharn-oss`, or the tip of
-   `main` for an install that follows it (see [Release channel](#release-channel)) — and compares its
-   version to your recorded `skillsVersion`. A release that cannot be resolved stops the run (exit 1).
-   An install **ahead** of the newest release is left as it is (exit 0) unless you pass `--force`.
+4. Resolves what to update to — the tip of `pharn-dev/pharn-oss` `main`, or the newest **verified
+   release** for an install that follows releases (see [Release channel](#release-channel)) — and
+   compares its version to your recorded `skillsVersion`. A release that cannot be resolved stops the run
+   (exit 1). An install **ahead** of the newest release is left as it is (exit 0) unless you pass `--force`.
 5. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
    re-applies upstream at the current version, or your `models` block is still in the format `pharn`
    wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)).
@@ -201,21 +201,22 @@ backups accumulate and are committable by accident. Delete them once you are hap
 
 ## Release channel
 
-`update` installs the newest **GitHub release** of `pharn-dev/pharn-oss` — a tag pharn-oss creates only
-once every required check on that commit has passed after the merge — at exactly the commit the tag
-points at. It never takes a commit whose CI is unfinished, cancelled or red.
+By default `update` installs the tip of `pharn-dev/pharn-oss` `main` — whatever merged last. With
+`--ref latest` it installs the newest **GitHub release** instead — a tag pharn-oss is to create only once
+every required check on that commit has passed after the merge — at exactly the commit the tag points
+at, never a commit whose CI is unfinished, cancelled or red.
 
-- **The channel is recorded.** `pharn update --ref main` follows the tip of `main` instead (with a
-  warning) and writes `"ref": "main"` to `pharn.config.json`, so later `update`, `add` and `status` runs
-  keep following it. `pharn update --ref latest` switches back and removes the key. A switch re-applies
-  even at the current version, so it is recorded.
+- **The channel is recorded.** `pharn update --ref latest` writes `"ref": "latest"` to
+  `pharn.config.json`, so later `update`, `add` and `status` runs keep following releases.
+  `pharn update --ref main` switches back and removes the key. A switch re-applies even at the current
+  version, so it is recorded.
 - **No fallback.** When the release cannot be resolved (none published, `api.github.com` unreachable or
   rate-limited), `update` exits 1 before cloning and names `--ref main`. See
   [No verified release could be resolved](../troubleshooting.md#no-verified-release-could-be-resolved).
-- **Ahead of the release.** An install made from `main` — every install made before pharn 0.9.0 —
-  can be newer than the newest release. Applying the release would be a downgrade, so `update` says so
-  and exits 0 without changing anything. `--ref main` keeps following `main`; `--force` goes back to the
-  release (backing up your edits as usual).
+- **Ahead of the release.** An install made from `main` can be newer than the newest release. Applying
+  the release would be a downgrade, so `update --ref latest` says so and exits 0 without changing
+  anything. `--ref main` switches back to `main`; `--force` goes back to the release (backing up your
+  edits as usual).
 
 ## The `models` block
 

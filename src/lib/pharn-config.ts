@@ -359,11 +359,10 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   if (config.layout !== 'pharn' && config.layout !== 'flat') {
     delete config.layout;
   }
-  // Additive `ref` (types.ts): only the literal `"main"` survives. Anything else
-  // — a typo, `"latest"`, a non-string — is dropped, so the install follows
-  // verified releases: a hand-edit can opt OUT of verification only by saying so
-  // exactly (P5).
-  if (config.ref !== undefined && config.ref !== 'main') {
+  // Additive `ref` (types.ts): only the literal `"latest"` survives. Anything
+  // else — a typo, `"main"`, a non-string — is dropped, so the install follows
+  // the default channel, the tip of `main`.
+  if (config.ref !== undefined && config.ref !== 'latest') {
     delete config.ref;
   }
   // Additive `pendingSkillsVersion` (types.ts): only a VERSION_RE-shaped string

@@ -17,7 +17,6 @@ import { PHARN_VERSION } from '../version.js';
 import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
-  MAIN_WARNING,
   ReleaseResolveError,
   resolveSource,
   sourceLabel,
@@ -93,7 +92,7 @@ export async function runInit(opts: { ref?: RefChoice } = {}): Promise<void> {
   // agnostic — no module catalog / manifest fetch. (The legacy module/wizard
   // flow was removed entirely; add/update/status/remove reject a pre-archetype
   // config up front via loadArchetypeConfigOrExit — there is no manifest fallback.)
-  await runInitArchetype(opts.ref ?? 'latest');
+  await runInitArchetype(opts.ref ?? 'main');
 }
 
 // schemaVersion-free archetype flow: detect archetypes from the project, fetch
@@ -122,9 +121,10 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
   s.start(`Fetching PHARN from ${REPO_URL}`);
   let repo: Awaited<ReturnType<typeof fetchRepo>>;
   try {
-    // WHICH commit, first: the newest verified release by default, or the tip
-    // with `--ref main`. A release that cannot be resolved REFUSES (no fallback
-    // to the tip), and the error already names `--ref main` (lib/release.ts).
+    // WHICH commit, first: the tip of main by default, or the newest verified
+    // release with `--ref latest`. A release that cannot be resolved REFUSES (no
+    // fallback to the tip), and the error already names `--ref main`
+    // (lib/release.ts).
     repo = await fetchRepo(await resolveSource(channel));
   } catch (err) {
     s.stop('Failed to fetch PHARN');
@@ -138,7 +138,6 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
   }
 
   s.stop(`PHARN fetched from ${sourceLabel(repo.source)}`);
-  if (repo.source.kind === 'main') log.warn(MAIN_WARNING);
 
   let outcome: 'installed' | 'cancelled' = 'cancelled';
   // The ERROR OBJECT, not its message: the reporter needs it to decide whether
@@ -277,7 +276,7 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
             archetypes,
             selection,
             commit,
-            channel === 'main' ? { ...carry, ref: 'main' } : carry,
+            channel === 'latest' ? { ...carry, ref: 'latest' } : carry,
             manifest,
           );
         });

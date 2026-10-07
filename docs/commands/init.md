@@ -10,28 +10,29 @@ pharn
 
 `init` detects your project's **archetype(s)** and installs the PHARN **capabilities** that apply to them. It fetches nothing you did not ask for: only the capabilities matching your project, plus the fixed product surfaces (commands, hooks, docs, contracts, `pharn-core`, floor), are copied. There is no module catalog and no `manifest.json` fetch — capabilities are the install unit.
 
-## What `init` installs: the newest verified release
+## What `init` installs: the tip of `main`, or a verified release
 
 ```bash
-pharn init              # the newest verified pharn-oss release (the default)
-pharn init --ref main   # the tip of pharn-oss main — not yet verified by its CI
+pharn init                # the tip of pharn-oss main (the default)
+pharn init --ref latest   # the newest verified pharn-oss release
 ```
 
-By default `init` installs the newest **GitHub release** of `pharn-dev/pharn-oss`. pharn-oss creates a
-release (tag `v<SKILLS_VERSION>`) only after every required check on that commit has passed after the
-merge, so an install never lands on a commit whose CI is still running, was cancelled, or failed. `init`
-downloads exactly the commit the tag points at and refuses it if its `SKILLS_VERSION` is not the version
-the tag names.
+By default `init` installs the tip of `pharn-dev/pharn-oss` `main` — whatever merged last, whether or
+not its post-merge CI has finished.
 
-When the release cannot be resolved — none has been published, `api.github.com` is unreachable, or its
-unauthenticated limit (60 requests an hour per address) is used up — `init` **exits 1** and writes
-nothing. It never falls back to `main` on its own. See
+`--ref latest` installs the newest **GitHub release** instead. pharn-oss is to create a release (tag
+`v<SKILLS_VERSION>`) only after every required check on that commit has passed after the merge, so such
+an install never lands on a commit whose CI is still running, was cancelled, or failed. `init` downloads
+exactly the commit the tag points at and refuses it if its `SKILLS_VERSION` is not the version the tag
+names. When the release cannot be resolved — none has been published, `api.github.com` is unreachable,
+or its unauthenticated limit (60 requests an hour per address) is used up — `init` **exits 1** and
+writes nothing. It never falls back to `main` on its own. See
 [No verified release could be resolved](../troubleshooting.md#no-verified-release-could-be-resolved).
 
-`--ref main` opts into the tip instead, with a warning, and records `"ref": "main"` in
-`pharn.config.json`, so [`update`](update.md), [`add`](add.md) and [`status`](status.md) keep following
-`main` until `pharn update --ref latest` switches back. `--ref latest` is the default spelled out. Any
-other value is refused (exit 1). A re-run `init` follows its own `--ref`, never the replaced config's.
+`--ref latest` is recorded as `"ref": "latest"` in `pharn.config.json`, so [`update`](update.md),
+[`add`](add.md) and [`status`](status.md) keep following releases until `pharn update --ref main`
+switches back. `--ref main` is the default spelled out. Any other value is refused (exit 1). A re-run
+`init` follows its own `--ref`, never the replaced config's.
 
 > The `--archetype` flag is a **deprecated no-op** kept for one release: archetype detection is now the default, so `pharn init --archetype` behaves identically to `pharn init`.
 
@@ -134,7 +135,7 @@ Reads `package.json` dependency names and walks the project tree (bounded and sy
 
 If a proxy is configured in your environment, `init` warns first: `pharn` uses Node's global `fetch`,
 which reads no proxy variable on any platform, so a proxy-only network fails as an unexplained timeout
-unless you are told. Resolves the newest verified release (or, with `--ref main`, the branch head) via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir — refusing a release whose `SKILLS_VERSION` is not its tag. A release that cannot be resolved stops the run (exit 1, nothing written) and names `--ref main`. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up — on success, on error, on cancel, and on Ctrl-C or a `SIGTERM` mid-clone — and `pharn` keeps no download cache. An interrupted run also exits **130** (or 143 for `SIGTERM`) rather than reporting success.
+unless you are told. Resolves the branch head (or, with `--ref latest`, the newest verified release) via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir — refusing a release whose `SKILLS_VERSION` is not its tag. A release that cannot be resolved stops the run (exit 1, nothing written) and names `--ref main`. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up — on success, on error, on cancel, and on Ctrl-C or a `SIGTERM` mid-clone — and `pharn` keeps no download cache. An interrupted run also exits **130** (or 143 for `SIGTERM`) rather than reporting success.
 
 If the fetched version declares a `MIN_CLI` newer than your CLI, `init` stops here with a named error
 and writes nothing.

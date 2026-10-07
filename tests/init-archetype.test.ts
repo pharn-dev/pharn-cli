@@ -46,8 +46,8 @@ vi.mock('../src/lib/repo.js', () => ({
   }),
 }));
 // The release resolve (lib/release.ts) is a network call, so it is replaced: the
-// default channel resolves to one fixed verified release, `--ref main` to the
-// tip. The clone's own version is whatever the suite's stubs put in it.
+// `--ref latest` channel resolves to one fixed verified release, the default
+// (`main`) to the tip. The clone's own version is whatever the suite's stubs put in it.
 const resolveSource = vi.fn(async (ref: string) =>
   ref === 'main'
     ? { kind: 'main' as const }
@@ -247,9 +247,9 @@ describe('archetype install (fixture e2e)', () => {
     ]);
   });
 
-  // The channel is recorded only when it is the tip: `ref: "main"` for an
-  // install made with `--ref main`, NO key for the verified-release default.
-  it('records ref "main" only for a --ref main install', async () => {
+  // The channel is recorded only when it is the verified release: `ref:
+  // "latest"` for an install made with `--ref latest`, NO key for the default.
+  it('records ref "latest" only for a --ref latest install', async () => {
     const repo = join(tmp.path(), 'repo');
     scaffoldRepo(repo);
     const index = parseCapabilityIndex(repo);
@@ -257,18 +257,18 @@ describe('archetype install (fixture e2e)', () => {
     const raw = (proj: string): Record<string, unknown> =>
       JSON.parse(readFileSync(join(proj, 'pharn.config.json'), 'utf8'));
 
-    const viaRelease = join(tmp.path(), 'release');
-    await runInstallArchetype(repo, viaRelease, ['ssr'], selection, 'sha123');
-    expect('ref' in raw(viaRelease)).toBe(false);
-
     const viaMain = join(tmp.path(), 'main');
-    await runInstallArchetype(repo, viaMain, ['ssr'], selection, 'sha123', {
+    await runInstallArchetype(repo, viaMain, ['ssr'], selection, 'sha123');
+    expect('ref' in raw(viaMain)).toBe(false);
+
+    const viaRelease = join(tmp.path(), 'release');
+    await runInstallArchetype(repo, viaRelease, ['ssr'], selection, 'sha123', {
       manualKeys: new Set(),
       kept: [],
       previousStamp: null,
-      ref: 'main',
+      ref: 'latest',
     });
-    expect(raw(viaMain).ref).toBe('main');
+    expect(raw(viaRelease).ref).toBe('latest');
   });
 
   // A fresh install MUST leave a record for every file it wrote. Without it the

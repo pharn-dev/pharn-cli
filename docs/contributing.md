@@ -92,7 +92,7 @@ See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype ins
 - Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
 - Remote fetches (`lib/skills-version.ts`, `lib/release.ts`) use `redirect: 'error'`, an 8s timeout, and a body cap (256KB for `SKILLS_VERSION`, 1MiB for a release object).
-- The release resolve (`lib/release.ts`) fails closed: a release that cannot be resolved refuses the command and never falls back to the tip of `main`.
+- The default channel is the tip of pharn-oss `main`. The opt-in release resolve (`--ref latest`, `lib/release.ts`) fails closed: a release that cannot be resolved refuses the command and never falls back to the tip of `main`.
 - The repo download (`lib/repo.ts`) has its own, larger bounds: a 60s timeout, a 32MB archive cap, a 128MB extracted cap, and a 20,000-entry cap — enforced twice, including at `gunzipSync`.
 
 ### pharn-oss's `models` rules — a pinned copy

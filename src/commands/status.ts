@@ -42,8 +42,8 @@ import type { PharnConfig } from '../types.js';
 
 /**
  * Read-only audit of an archetype install: is it current (version section) and
- * have any PHARN-owned files drifted from what it follows — the newest verified
- * pharn-oss release, or `main` for a config that records `ref: "main"` (drift
+ * have any PHARN-owned files drifted from what it follows — pharn-oss `main`,
+ * or the newest verified release for a config that records `ref: "latest"` (drift
  * section)? Never writes, deletes, or overwrites — fixing is `pharn update` /
  * `pharn add`. The module/manifest flow was removed; a pre-archetype config is
  * rejected up front by loadArchetypeConfigOrExit.

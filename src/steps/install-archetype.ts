@@ -64,10 +64,10 @@ export interface InstallCarry {
   // records store must carry for a kept entry's records to be trusted.
   previousStamp: { skillsVersion: string; commit: string | null } | null;
   // Not carried over: the channel THIS run installed from, recorded as the
-  // config's `ref` — `"main"` for `--ref main`, absent (the verified-release
+  // config's `ref` — `"latest"` for `--ref latest`, absent (the `main`
   // default) otherwise. A re-run init follows its own flag, never the old
   // config's channel (lib/release.ts).
-  ref?: 'main';
+  ref?: 'latest';
 }
 
 /**
@@ -255,7 +255,7 @@ export async function runInstallArchetype(
     skillsVersion,
     repo: REPO_URL.replace(/^github\.com\//, ''),
     commit,
-    ...(carry.ref === 'main' ? { ref: 'main' as const } : {}),
+    ...(carry.ref === 'latest' ? { ref: 'latest' as const } : {}),
     // No constitution variant: the archetype install copies pharn-oss's canonical
     // CONSTITUTION.md verbatim. No modules: capabilities are the install unit.
     modules: [],
