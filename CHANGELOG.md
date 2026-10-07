@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`smol-toml` override raised to `~1.9.0`.** [GHSA-r4xh-jqrq-34v2](https://github.com/advisories/GHSA-r4xh-jqrq-34v2) (Dependabot alert 20) reports a quadratic-time `parse()` in `smol-toml` `<= 1.8.0`. `markdownlint-cli2` (latest, `0.23.3`) still pins `1.8.0` exactly, so the existing `overrides` entry in `package.json` moves from `~1.7.1` to `~1.9.0` and the lockfile resolves `1.9.0`. The pinning test's floor moves with it. Dev-only, as with the earlier `smol-toml` advisory: nothing in the published package is affected.
+- **`katex` forced to `~0.18.2` with an `overrides` entry.** [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) (Dependabot alert 19) covers `katex` `>= 0.11.0, < 0.18.2`. It arrives only through `markdownlint-cli2` → `markdownlint` → `micromark-extension-math`, which declares `katex@^0.16.0` and so cannot reach the fix; the lockfile now resolves `0.18.10`, and `tests/dependency-overrides.test.ts` pins the floor. Dev-only; the published package does not ship it.
+
 ### Changed
 
 - **Docs:** Align README, getting-started, and troubleshooting with pharn-oss 6.24.0 write-guard posture and CLI vs floor Node versions.

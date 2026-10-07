@@ -43,8 +43,9 @@ import { compareVersionCore } from '../src/lib/semver.js';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 // The first version carrying the fix. Everything at or above this is acceptable;
-// `<= 1.7.0` is the advisory's vulnerable range.
-const MINIMUM = '1.7.1';
+// `<= 1.8.0` is the vulnerable range of the latest advisory (alert 20,
+// GHSA-r4xh-jqrq-34v2, quadratic-time parse(); alert 11 was `<= 1.7.0`).
+const MINIMUM = '1.9.0';
 
 // Anchored, so a NESTED copy (`node_modules/x/node_modules/smol-toml`) is caught
 // and a LOOKALIKE (`node_modules/smol-toml-x`) is not. Both directions are
@@ -107,7 +108,7 @@ describe('smol-toml override: the declared policy', () => {
   // The spelling layer. It asserts the override EXISTS and that the range it
   // declares cannot admit a vulnerable version — deliberately NOT an equality
   // against one literal specifier, which would red on a future TIGHTENING (say
-  // `~1.7.3` after another advisory) that strictly improves security. A test
+  // `~1.9.1` after another advisory) that strictly improves security. A test
   // that fails for a safe change teaches people to edit the test reflexively,
   // which is exactly how a spelling layer goes hollow.
   it('declares an override whose lowest admitted version is patched', () => {
@@ -152,14 +153,14 @@ describe('smol-toml override: the check rejects what it claims to', () => {
     );
     expect(verdict).toEqual({
       ok: false,
-      reason: 'node_modules/smol-toml: 1.7.0 < 1.7.1',
+      reason: 'node_modules/smol-toml: 1.7.0 < 1.9.0',
     });
   });
 
   it('rejects a vulnerable copy NESTED under another package', () => {
     const verdict = auditSmolToml(
       {
-        'node_modules/smol-toml': { version: '1.7.2' },
+        'node_modules/smol-toml': { version: '1.9.0' },
         'node_modules/markdownlint-cli2/node_modules/smol-toml': {
           version: '1.6.0',
         },
@@ -210,10 +211,10 @@ describe('smol-toml override: the check rejects what it claims to', () => {
 
 describe('lowestAdmitted: the specifier forms it models', () => {
   it.each([
-    ['~1.7.1', '1.7.1'],
-    ['^1.7.1', '1.7.1'],
-    ['>=1.7.1', '1.7.1'],
-    ['1.7.2', '1.7.2'],
+    ['~1.9.0', '1.9.0'],
+    ['^1.9.0', '1.9.0'],
+    ['>=1.9.0', '1.9.0'],
+    ['1.9.1', '1.9.1'],
   ])('reads the floor of %s as %s', (specifier, expected) => {
     expect(lowestAdmitted(specifier)).toBe(expected);
   });
@@ -224,4 +225,58 @@ describe('lowestAdmitted: the specifier forms it models', () => {
       expect(lowestAdmitted(specifier)).toBeNull();
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// The `katex` override, pinned the same way.
+//
+// Dependabot alert 19 (GHSA-238p-pmpm-9mq7, prototype pollution bypassing
+// trust restrictions) covers katex >= 0.11.0, < 0.18.2. It is a transitive DEV
+// dependency (markdownlint-cli2 -> markdownlint -> micromark-extension-math),
+// and micromark-extension-math declares `katex: ^0.16.0`, which can never reach
+// the patch line, so an `overrides` entry is the only fix short of a downgrade.
+// ---------------------------------------------------------------------------
+
+const KATEX_MINIMUM = '0.18.2';
+const KATEX_KEY_RE = /(?:^|\/)node_modules\/katex$/;
+
+describe('katex override', () => {
+  it('declares an override whose lowest admitted version is patched', () => {
+    const pkg = JSON.parse(
+      readFileSync(join(repoRoot, 'package.json'), 'utf8'),
+    ) as { overrides?: Record<string, string> };
+
+    const specifier = pkg.overrides?.['katex'];
+    expect(
+      specifier,
+      'package.json must declare overrides["katex"]',
+    ).toBeDefined();
+
+    const lowest = lowestAdmitted(specifier!);
+    expect(lowest, `unmodelled specifier form: "${specifier!}"`).not.toBeNull();
+    expect(compareVersionCore(lowest!, KATEX_MINIMUM)).toBeGreaterThanOrEqual(
+      0,
+    );
+  });
+
+  it('resolves every katex entry in the committed lockfile to a patched version', () => {
+    const entries = Object.entries(readLockPackages()).filter(([key]) =>
+      KATEX_KEY_RE.test(key),
+    );
+    // Vacuity guard: a matcher that finds nothing must not pass.
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [key, meta] of entries) {
+      const ordering = compareVersionCore(String(meta.version), KATEX_MINIMUM);
+      expect(ordering, `${key}: ${String(meta.version)}`).not.toBeNull();
+      expect(
+        ordering!,
+        `${key}: ${String(meta.version)}`,
+      ).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('rejects the last vulnerable version (the comparator bites)', () => {
+    expect(compareVersionCore('0.18.1', KATEX_MINIMUM)).toBeLessThan(0);
+    expect(compareVersionCore('0.16.47', KATEX_MINIMUM)).toBeLessThan(0);
+  });
 });
