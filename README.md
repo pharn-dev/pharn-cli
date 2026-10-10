@@ -268,7 +268,7 @@ Two commands sit outside the pipeline:
 | `pharn remove [capability]` | Remove one installed capability. With no argument, opens an interactive picker. |
 | `pharn update` | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt. |
 | `pharn list` | Show installed archetypes and capabilities. Use `--json` for machine-readable output. |
-| `pharn status` | Read-only version and drift report. Use `--strict` to make drift fail CI, or `--no-drift` to skip byte comparison. |
+| `pharn status` | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report. |
 | `pharn --help` | Show command help. |
 | `pharn --version` | Show the installed CLI version. |
 
@@ -278,7 +278,7 @@ archetype detection is now the default.
 Three behaviours matter if you script the CLI:
 
 - **Options are per-command.** Passing one a command does not take prints
-  ``Unsupported option for `status`: "--json"`` to stderr with the usage text
+  ``Unsupported option for `status`: "--force"`` to stderr with the usage text
   and exits **1**; an extra positional is refused the same way. Both previously
   parsed, were silently dropped, and exited 0.
 - **`init` and `update` are interactive-only.** Off a TTY they exit 1 rather

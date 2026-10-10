@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`pharn status --json`: one machine-readable report for scripts, CI and agents.** It prints exactly one JSON object (`schemaVersion: 1`) on stdout and nothing else — no clack chrome — on both the default path and `--no-drift` (where `drift`, `hooks` and `unknownCapabilities` are `null`). It carries the Node floor, the version (installed, latest, channel, source, `ahead`, `outdated`), archetypes and the capability count, drift, hook wiring, the `models` verdict and any skipped upstream capabilities. Diagnostics and every failure go to stderr with stdout empty and exit 1. Exit codes match text mode and `--strict` composes (the report is still printed; `strict.failed` mirrors the exit code). Characters a terminal would interpret in upstream-derived strings are written as `\uXXXX` escapes, so the output is safe to `cat` and parses back losslessly. `status` previously refused `--json` as an unsupported option.
+
 ### Changed
 
 - **The `models` label and docs now say what reads the block.** `pharn status`, `init` and `update` print that `/pharn-ship` and `/pharn-loop` read `models.stages` to pick the model they request for the stages they route (never the effort), that a stage you run directly uses its command's own frontmatter, and that nothing runs the `agreement` check automatically. The docs also explain that editing a command's frontmatter makes it `modified` (`update` skips it and withholds the version bump) while editing only the block causes no file drift.

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeJsonAtomic } from './atomic-write.js';
 import { readBoundedFile } from './bounded-read.js';
 import { resolve } from 'node:path';
-import { errorMessage, logError } from './report-error.js';
+import { errorMessage, logError, logErrorPlain } from './report-error.js';
 import {
   assertSafeString,
   CAPABILITY_NAME_RE,
@@ -419,22 +419,33 @@ function isFrozenKeyList(value: unknown): value is string[] {
  * Any OTHER error is a programming bug, not a config problem — it is RETHROWN,
  * never swallowed (so this helper can never re-become the disease it fixes).
  */
-export function loadConfigOrExit(cwd: string): PharnConfig {
+export function loadConfigOrExit(
+  cwd: string,
+  opts: { json?: boolean } = {},
+): PharnConfig {
+  const fail = (message: string): never => {
+    reportLoadError(message, opts.json ?? false);
+    process.exit(1);
+  };
   try {
     const config = readPharnConfig(cwd);
     if (config) return config;
   } catch (err) {
-    if (isConfigValidationError(err)) {
-      logError(err.message);
-      process.exit(1);
-    }
+    if (isConfigValidationError(err)) fail(err.message);
     throw err;
   }
   // Reached only when readPharnConfig returned null (absent / unreadable /
   // wrong-shape). A file that EXISTS but does not parse throws above instead —
   // this line may never again describe a file that is sitting right there.
-  logError('No pharn.config.json found. Run `pharn init` first.');
-  process.exit(1);
+  return fail('No pharn.config.json found. Run `pharn init` first.');
+}
+
+// Where a load failure goes. Under `--json` it is a plain line on stderr (no
+// clack chrome), exactly like `list --json`, so a `2>&1` consumer and a JSON
+// reader on stdout both stay clean; control characters are still stripped.
+function reportLoadError(message: string, json: boolean): void {
+  if (json) logErrorPlain(message);
+  else logError(message);
 }
 
 /**
@@ -585,10 +596,13 @@ export const LEGACY_CONFIG_MESSAGE =
  * it single-sources the legacy reject (P3, no 5× copy). `list` keeps its own
  * json-aware check because its error must stay on stderr in `--json`.
  */
-export function loadArchetypeConfigOrExit(cwd: string): PharnConfig {
-  const config = loadConfigOrExit(cwd);
+export function loadArchetypeConfigOrExit(
+  cwd: string,
+  opts: { json?: boolean } = {},
+): PharnConfig {
+  const config = loadConfigOrExit(cwd, opts);
   if (!isArchetypeConfig(config)) {
-    logError(LEGACY_CONFIG_MESSAGE);
+    reportLoadError(LEGACY_CONFIG_MESSAGE, opts.json ?? false);
     process.exit(1);
   }
   return config;

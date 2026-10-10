@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/models-label-truth/SHIP.md"
+    ".dev/features/status-json/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-10-10T21:53:20.964Z"
+  "set_at": "2026-10-10T22:32:04.522Z"
 }

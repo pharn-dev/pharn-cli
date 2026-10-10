@@ -101,3 +101,28 @@ export function reportFatal(message: string, cause?: FatalCause): void {
   // (not `log.error`): it is an affordance, not a second failure.
   log.info(PHARN_DEBUG_HINT, { output: process.stderr });
 }
+
+/**
+ * `logError` without clack's chrome, for `--json` modes: one plain line on
+ * stderr, so a `2>&1` capture holds no glyphs or ANSI framing and a JSON reader
+ * on stdout sees nothing. The same terminal-safety as `logError`: control and
+ * format characters are stripped, `\n` and `\t` kept.
+ */
+export function logErrorPlain(message: string): void {
+  console.error(terminalSafe(message, { keepNewlines: true }));
+}
+
+/**
+ * `reportFatal` for `--json` modes: the same message, the same cause rules (the
+ * `PHARN_DEBUG` dump, or the hint — only when a cause is passed), all as plain
+ * stderr lines. Nothing here touches stdout.
+ */
+export function reportFatalPlain(message: string, cause?: FatalCause): void {
+  logErrorPlain(`⚠ ${message}`);
+  if (cause === undefined) return;
+  if (process.env.PHARN_DEBUG) {
+    console.error(cause.err);
+    return;
+  }
+  console.error(PHARN_DEBUG_HINT);
+}

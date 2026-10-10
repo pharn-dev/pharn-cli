@@ -11,8 +11,14 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 const { log } = await import('@clack/prompts');
-const { errorMessage, logError, reportFatal, PHARN_DEBUG_HINT } =
-  await import('../src/lib/report-error.js');
+const {
+  errorMessage,
+  logError,
+  logErrorPlain,
+  reportFatal,
+  reportFatalPlain,
+  PHARN_DEBUG_HINT,
+} = await import('../src/lib/report-error.js');
 
 const srcDir = join(fileURLToPath(import.meta.url), '..', '..', 'src');
 const walk = (dir: string): string[] =>
@@ -48,6 +54,36 @@ describe('report-error', () => {
     expect(log.error).toHaveBeenCalledWith('boom', {
       output: process.stderr,
     });
+  });
+
+  // --- the plain (--json) reporters: stderr via console, never clack ---------
+
+  it('logErrorPlain writes one sanitized line to stderr and touches no clack stream', () => {
+    logErrorPlain('bad x\u001b[2K\u202e\nsecond');
+    expect(errSpy).toHaveBeenCalledWith('bad x[2K\nsecond');
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('reportFatalPlain prefixes the glyph and offers the hint only with a cause', () => {
+    reportFatalPlain('curated refusal');
+    expect(errSpy.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      '⚠ curated refusal',
+    ]);
+    errSpy.mockClear();
+    reportFatalPlain('could not reach', { err: new Error('e') });
+    expect(errSpy.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      '⚠ could not reach',
+      PHARN_DEBUG_HINT,
+    ]);
+    expect(log.info).not.toHaveBeenCalled();
+  });
+
+  it('reportFatalPlain dumps the cause instead of the hint under PHARN_DEBUG', () => {
+    process.env.PHARN_DEBUG = '1';
+    const cause = new Error('inner');
+    reportFatalPlain('x', { err: cause });
+    expect(errSpy).toHaveBeenCalledWith(cause);
+    expect(errSpy).not.toHaveBeenCalledWith(PHARN_DEBUG_HINT);
   });
 
   it('does not reword the message it is given', () => {

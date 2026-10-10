@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkModelsBlock,
+  PRODUCT_STAGES,
   type ModelsStages,
 } from '../src/lib/model-config.js';
 import {
   modelsCheckerCommand,
   modelsLabelLines,
   resolvedStageLines,
+  resolveStageRows,
 } from '../src/lib/model-config-format.js';
 
 const stagesOf = (stages: Record<string, unknown>): ModelsStages => {
@@ -102,5 +104,34 @@ describe('the label', () => {
     expect(modelsCheckerCommand('.dev/floor', 'validate')).toBe(
       'node .dev/floor/check-model-config.mjs validate',
     );
+  });
+});
+
+describe('resolveStageRows', () => {
+  it('returns default first, then every product stage, marking fallbacks', () => {
+    const rows = resolveStageRows(
+      stagesOf({
+        default: { model: 'sonnet', effort: 'high' },
+        plan: { model: 'opus', effort: 'max' },
+      }),
+    );
+    expect(rows[0]).toEqual({
+      stage: 'default',
+      model: 'sonnet',
+      effort: 'high',
+      viaDefault: false,
+    });
+    expect(rows.find((r) => r.stage === 'plan')).toEqual({
+      stage: 'plan',
+      model: 'opus',
+      effort: 'max',
+      viaDefault: false,
+    });
+    expect(rows.find((r) => r.stage === 'build')).toMatchObject({
+      model: 'sonnet',
+      effort: 'high',
+      viaDefault: true,
+    });
+    expect(rows.map((r) => r.stage).slice(1)).toEqual([...PRODUCT_STAGES]);
   });
 });

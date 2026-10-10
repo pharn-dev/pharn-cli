@@ -32,23 +32,49 @@ export function modelsCheckerCommand(
   return `node ${floorDir}/check-model-config.mjs ${mode}`;
 }
 
+/** One resolved row: a stage, its model and effort, and whether it fell back. */
+export interface StageRow {
+  stage: string;
+  model: string;
+  effort: string;
+  /** True when the stage has no entry of its own and shows `default`'s. */
+  viaDefault: boolean;
+}
+
 /**
  * One row per product stage, resolved as pharn-oss resolves it, after the
  * `default` row: a stage without its own entry shows the `default` it falls
- * back to, marked `(default)`. The stage order is pharn-oss's.
+ * back to. The stage order is pharn-oss's. The structured form behind both the
+ * note's text rows and `status --json`.
  */
-export function resolvedStageLines(stages: ModelsStages): string[] {
-  const rows: Array<
-    [label: string, model: string, effort: string, via: boolean]
-  > = [['default', stages.default!.model, stages.default!.effort, false]];
+export function resolveStageRows(stages: ModelsStages): StageRow[] {
+  const rows: StageRow[] = [
+    {
+      stage: 'default',
+      model: stages.default!.model,
+      effort: stages.default!.effort,
+      viaDefault: false,
+    },
+  ];
   for (const stage of PRODUCT_STAGES) {
     const { model, effort } = resolveStageModel(stages, stage);
-    rows.push([stage, model, effort, !Object.hasOwn(stages, stage)]);
+    rows.push({
+      stage,
+      model,
+      effort,
+      viaDefault: !Object.hasOwn(stages, stage),
+    });
   }
-  const width = Math.max(...rows.map(([label]) => label.length)) + 3;
+  return rows;
+}
+
+/** The rows as aligned text, `(default)` marking a fallback. */
+export function resolvedStageLines(stages: ModelsStages): string[] {
+  const rows = resolveStageRows(stages);
+  const width = Math.max(...rows.map((r) => r.stage.length)) + 3;
   return rows.map(
-    ([label, model, effort, via]) =>
-      `${label.padEnd(width)}${model} · ${effort}${via ? '  (default)' : ''}`,
+    (r) =>
+      `${r.stage.padEnd(width)}${r.model} · ${r.effort}${r.viaDefault ? '  (default)' : ''}`,
   );
 }
 
