@@ -7,12 +7,13 @@ destroying anything you have edited**.
 pharn update
 pharn update --force   # overwrite your edits too (each file is backed up first)
 pharn update --yes     # skip the confirmation prompt (for CI and scripts)
+pharn update --dry-run # show exactly what it would do, and write nothing
 pharn update --ref latest   # follow verified releases instead of main (recorded)
 pharn update --ref main     # back to the tip of main (recorded)
 ```
 
-`--force`, `--yes`/`-y` and `--ref` are `update`'s **only** options; they compose, and none implies
-another. Any other flag — `pharn update --json`, `--strict`, `--no-drift` — is refused with
+`--force`, `--yes`/`-y`, `--ref` and `--dry-run` are `update`'s **only** options; they compose, and none
+implies another. Any other flag — `pharn update --json`, `--strict`, `--no-drift` — is refused with
 ``Unsupported option for `update` `` on stderr and exit **1**, as is an extra positional. See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
@@ -48,6 +49,42 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 Because `update` re-resolves your archetypes against the latest index, a capability upstream added for
 one of your archetypes since your last install is picked up, and one it removed is dropped — your
 `archetypes` list itself is never changed.
+
+## Previewing an update
+
+```bash
+pharn update --dry-run          # what would a plain update do?
+pharn update --dry-run --force  # ...and what would --force overwrite and back up?
+pharn update --dry-run --ref latest
+```
+
+`--dry-run` runs the same checks and the same per-file decisions as a real update, prints the result,
+and exits **0** having **written nothing**: no file in your project, no `pharn.records.json` or
+`pharn.config.json` change, no `.pharn.lock`, no `.pharn-backup/`. It needs no terminal and never
+asks to confirm (`--yes` is accepted and does nothing). Use it to look before you apply — in a
+terminal, or from a script or an agent that wants to read the plan first.
+
+What it still does, exactly like a real run: the Node check, the config load, resolving the source
+(`--ref`), the "ahead of the release" and "Already up to date" early returns (reported, exit 0), the
+clone, and the `MIN_CLI` gate (a refusal exits 1). What it skips: the confirm, the project lock and
+the check that the config did not change under you.
+
+It prints:
+
+- `PLAN` — the files it would **write** (`restored`, `updated`), under `--force` the ones it would
+  **overwrite** (`modified`, `unrecorded`, `unverifiable`), the files it would **back up** first
+  (`.pharn-backup/<timestamp>/` — the timestamp is only known when a real run makes the backup), how
+  many are unchanged or skipped, and the channel it would record when `--ref` changes it;
+- the `SKIPPED`, `CAPABILITIES`, `MODELS` and `HOOKS` notes of a real run, worded as what _would_
+  happen;
+- whether the recorded `skillsVersion` would be **withheld** (and recorded as pending), and the layout
+  and features-README moves it would make.
+
+It is a **snapshot**, not a promise. A real run fetches again and decides again under its own lock,
+so an edit you make, another process, or a newer upstream merge between the preview and the apply can
+change the outcome. The only thing a dry run creates is the clone's temporary directory under your OS
+temp directory, removed before it exits. A machine-readable (`--json`) form of the plan is not
+available yet.
 
 ## What happens to your capability list
 

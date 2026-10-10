@@ -1,8 +1,9 @@
+import { hookWiringLines, type HookWiringDiff } from '../lib/hook-wiring.js';
 import {
-  diffHookWiring,
-  hookWiringLines,
-  type HookWiringDiff,
-} from '../lib/hook-wiring.js';
+  buildUpdatePlan,
+  type PlannedUpdate,
+  type UpdatePlanReport,
+} from '../lib/update-plan.js';
 import {
   confirm,
   intro,
@@ -21,51 +22,29 @@ import {
   type FatalCause,
 } from '../lib/report-error.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
-import { FEATURES_README, REPO_URL } from '../lib/constants.js';
+import { REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { runNodePrereq } from '../steps/node-prereq.js';
-import { parseCapabilityIndex } from '../lib/capability-index.js';
-import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
-import { resolveCapabilities } from '../lib/resolve-capabilities.js';
-import {
-  mergeCapabilities,
-  type CapabilityChange,
-} from '../lib/merge-capabilities.js';
-import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
-import { applyWrites, ApplyError, readDiskState } from '../lib/apply-update.js';
+import type { CapabilityChange } from '../lib/merge-capabilities.js';
+import { applyWrites, ApplyError } from '../lib/apply-update.js';
 import { createBackup, BACKUP_DIR } from '../lib/backup.js';
-import { sha256File } from '../lib/hash.js';
-import {
-  capabilitySubtree,
-  configLayout,
-  detectLayout,
-  layoutPaths,
-  resolveFeaturesReadme,
-} from '../lib/layout.js';
 import {
   buildRecords,
   MODELS_RECORD_KEY,
   readRecords,
   recordsBaseline,
-  recordsUnderCapabilities,
   RECORDS_FILE,
   writeRecords,
 } from '../lib/install-records.js';
 import { modelsLabelLines } from '../lib/model-config-format.js';
 import {
-  decideModelsUpdate,
   modelsMigrationPending,
   type ModelsUpdate,
 } from '../lib/models-update.js';
-import { readUpstreamModels } from '../lib/upstream-models.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
-import {
-  planUpdate,
-  type UpdateLabel,
-  type UpdatePlan,
-} from '../lib/update-decision.js';
+import type { UpdateLabel, UpdatePlan } from '../lib/update-decision.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
   channelOf,
@@ -77,10 +56,7 @@ import {
 import { compareVersionCore } from '../lib/semver.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
-import {
-  fetchRemoteSkillsVersion,
-  readSkillsVersion,
-} from '../lib/skills-version.js';
+import { fetchRemoteSkillsVersion } from '../lib/skills-version.js';
 import { row } from '../lib/format.js';
 import {
   assertConfigUnchanged,
@@ -88,8 +64,7 @@ import {
   loadArchetypeConfigOrExit,
   writePharnConfig,
 } from '../lib/pharn-config.js';
-import type { DiskState } from '../lib/update-decision.js';
-import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
+import type { Layout, PharnConfig } from '../types.js';
 
 // `pharn update` refreshes an archetype install: re-resolve the recorded
 // archetypes against the latest capability index and re-copy — but DRIFT-SAFELY.
@@ -99,9 +74,15 @@ import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 // `--force` overwrites the skip buckets after copying each file to
 // `.pharn-backup/<timestamp>/`.
 export async function runUpdate(
-  opts: { force?: boolean; yes?: boolean; ref?: RefChoice } = {},
+  opts: {
+    force?: boolean;
+    yes?: boolean;
+    ref?: RefChoice;
+    dryRun?: boolean;
+  } = {},
 ): Promise<void> {
-  intro('pharn update');
+  const dryRun = opts.dryRun ?? false;
+  intro(dryRun ? 'pharn update --dry-run' : 'pharn update');
 
   // FIRST, ahead of the config load, the TTY gate and every network call: the
   // Node floor is environmental, so it wins over the project-state errors below
@@ -122,8 +103,12 @@ export async function runUpdate(
   // The config load runs FIRST and deliberately so: an uninitialized directory
   // deserves its actionable "run pharn init" error, not a TTY message about a
   // prompt it would never have reached.
+  //
+  // A dry run never prompts and never writes, so it has nothing to gate: it runs
+  // without a terminal, and `--yes` (which only skips the confirm) is moot.
   const yes = opts.yes ?? false;
   if (
+    !dryRun &&
     !yes &&
     !interactiveAllowed({
       stdinIsTTY: process.stdin.isTTY,
@@ -144,6 +129,7 @@ export async function runUpdate(
     opts.force ?? false,
     yes,
     opts.ref ?? channelOf(config),
+    dryRun,
   );
 }
 
@@ -189,6 +175,7 @@ async function runArchetypeUpdate(
   force: boolean,
   yes: boolean,
   channel: RefChoice,
+  dryRun: boolean,
 ): Promise<void> {
   // What a configured proxy means here (nothing: fetch never uses one), emitted
   // ONCE at the top so it precedes EVERY fetch this command can make — the
@@ -317,9 +304,18 @@ async function runArchetypeUpdate(
       pc.dim(
         '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
       ),
+      ...(dryRun ? [pc.dim('  Preview only — nothing will be written.')] : []),
       pc.dim('  https://github.com/pharn-dev/pharn-oss/blob/main/CHANGELOG.md'),
     ].join('\n'),
   );
+
+  // The preview stops here, ahead of the confirm, the lock and every write: it
+  // shares the gates above (so it answers "Already up to date" exactly when the
+  // real run would) and the planner below, and nothing else.
+  if (dryRun) {
+    await runDryRun(config, cwd, force, channel, source);
+    return;
+  }
   // `--yes` skips THE CONFIRM AND NOTHING ELSE. The note above has already
   // printed (a non-interactive log deserves the same context a terminal gets),
   // and every decision below — the plan, the drift-safe skips, the backups, the
@@ -411,19 +407,26 @@ async function runArchetypeUpdate(
         // a refusal writes nothing at all. It can only fire after the confirm,
         // because the file it reads lives in the clone — named in GRILL.md; the
         // refusal still costs zero writes.
-        const gate = minCliGate(repo.dir, PHARN_VERSION);
-        if (gate.warning) log.warn(gate.warning);
+        const gate = checkMinCli(repo.dir);
         if (gate.refusal) {
           s2.stop('Update refused');
           refusalRef.current = gate.refusal;
           return null;
         }
-        const applied = await applyUpdate(
-          repo.dir,
-          repo.sha,
+        const planned = buildUpdatePlan({
+          repoDir: repo.dir,
+          sha: repo.sha,
           config,
           cwd,
           force,
+          channel,
+          // Logged the moment the index is parsed, as it always was.
+          onUnknownWarning: (warning) => log.warn(warning),
+        });
+        const applied = await applyPlannedUpdate(
+          planned,
+          config,
+          cwd,
           channel,
           (backup) => {
             backupRef.current = backup;
@@ -449,7 +452,7 @@ async function runArchetypeUpdate(
             ? 'Capabilities updated'
             : 'Nothing to write',
         );
-        return { ...applied, hookWiring: diffHookWiring(repo.dir, cwd) };
+        return applied;
       } finally {
         repo.cleanup();
       }
@@ -502,146 +505,36 @@ async function runArchetypeUpdate(
   reportOutcome(outcome, force);
 }
 
-// The fetch-side work: resolve, hash, decide, back up, write, persist. Pure of
+// The write half: back up, write, persist. The decisions were made by
+// `buildUpdatePlan` (lib/update-plan.ts), which the dry run shares. Pure of
 // process.exit — the caller owns cleanup + exit.
 //
 // `onBackup` fires the instant a backup exists, because the caller needs that
 // path on the paths this function does NOT return from.
-async function applyUpdate(
-  repoDir: string,
-  sha: string | null,
+async function applyPlannedUpdate(
+  planned: PlannedUpdate,
   config: PharnConfig,
   cwd: string,
-  force: boolean,
   channel: RefChoice,
   onBackup: (backup: Backup) => void,
 ): Promise<UpdateOutcome> {
-  const index = parseCapabilityIndex(repoDir);
-  // No silent skips (P5): a capability the fetch boundary refused is NAMED here,
-  // immediately after the parse, at every call site.
-  const unknownWarning = unknownCapabilitiesWarning(index.unknown);
-  if (unknownWarning) log.warn(unknownWarning);
-  // The frozen key set: `role:name` for every unparseable capability, built from
-  // the SUBTREE's role (authoritative — a frozen capability's declared role may
-  // be exactly what failed). It answers the one question index membership
-  // structurally cannot: "is this entry missing because it was REMOVED upstream,
-  // or because we could not READ it this run?"
-  const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
-  const selection = resolveCapabilities(config.archetypes ?? [], index);
-  // The UNION, not a wholesale replace: the freshly-resolved auto set PLUS every
-  // manual entry the user added by name (lib/merge-capabilities.ts owns the
-  // table). Replacing wholesale is what used to delete manual adds and resurrect
-  // removals in silence. `capabilities` feeds the install manifest below, so a
-  // preserved manual entry is first-class — its files run through the same
-  // per-file decision rows as everything else.
-  //
-  // Membership is written even when `versionWithheld` holds the version back
-  // (below), and that is deliberate: membership answers "which capabilities does
-  // this project have", which the archetypes decide, while the version answers
-  // "are its BYTES complete". A newly-selected capability's files are absent, so
-  // they always take the `restored` row and are written regardless; withholding
-  // membership instead would strand a phantom entry forever for any user whose
-  // tree has a single local edit.
-  const merged = mergeCapabilities(
-    selection,
-    config.capabilities ?? [],
-    frozen,
-  );
-  // TWO arrays, deliberately — they answer different questions and a frozen entry
-  // separates them. The CONFIG keeps the entry (it is still this project's
-  // capability; `update` never deletes, and a transient upstream parse failure
-  // must not silently drop it). The MANIFEST must NOT: it is `update`'s only
-  // write source, and enumerating an unparseable clone directory would classify
-  // its files `restored` (update-decision.ts row 1) and copy an arbitrary WIP
-  // upstream directory into the user's project — the exact fail-open this whole
-  // contract exists to prevent. Recorded is not the same as re-copied.
-  const configCapabilities: InstalledCapability[] = merged.capabilities;
-  const manifestCapabilities = configCapabilities.filter(
-    (cap) => !frozen.has(`${cap.role}:${cap.name}`),
-  );
-  const installedVersion = readSkillsVersion(repoDir);
-
-  // The layout the copy actually mirrors is the CLONE's (this is what
-  // installCapabilities has always done) — so it is also what gets RECORDED, and
-  // the two can no longer disagree. A project recorded `flat` meeting a `pharn`
-  // clone therefore migrates, and the config stops lying about where its files are.
-  const layout = detectLayout(repoDir);
-  const previousLayout = configLayout(config);
-
-  const expected = collectExpectedInstallPaths({
-    repoDir,
-    capabilities: manifestCapabilities,
-    layout,
-  });
-
-  const latestHashes = new Map<string, string>();
-  for (const [rel, source] of expected)
-    latestHashes.set(rel, sha256File(source));
-
-  const diskStates = new Map<string, DiskState>();
-  for (const rel of expected.keys())
-    diskStates.set(rel, readDiskState(cwd, rel));
-
-  const { records, note: recordsNote } = recordsBaseline(readRecords(cwd), {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  });
-
-  const plan = planUpdate({ latestHashes, diskStates, records, force });
-
-  // The `models` block goes through the same rows, over its hash instead of a
-  // file's (lib/models-update.ts): pharn-oss's block replaces one pharn wrote,
-  // and one the user edited is kept — converted when it is in the old format.
-  const models = decideModelsUpdate({
-    current: config.models,
-    upstream: readUpstreamModels(repoDir),
-    recorded: records?.[MODELS_RECORD_KEY] ?? null,
-    recordsAvailable: records !== null,
-    force,
-  });
+  const { report, apply } = planned;
+  const { expected, records, plan, models, configCapabilities } = apply;
 
   // Back up EVERY about-to-be-clobbered file before a single original is
   // touched; a failure here aborts with the whole tree still intact.
   //
-  // Ordered exactly as before — after planUpdate, before applyWrites — and the
+  // Ordered exactly as before — after planning, before applyWrites — and the
   // pointer is handed UP here rather than only in the return value below: every
   // line after this one (the writes, the records, the config) can throw, and a
   // run that dies there has already moved the user's bytes into that directory.
   // A `--force` over the user's models block backs up the whole config: the
-  // block lives inside it.
-  const backupRels = models.backup
-    ? [...plan.backups, CONFIG_FILENAME]
-    : plan.backups;
+  // block lives inside it (`report.backups` already includes it).
   const backup: Backup | null =
-    backupRels.length > 0
-      ? { dir: createBackup(cwd, backupRels), count: backupRels.length }
+    report.backups.length > 0
+      ? { dir: createBackup(cwd, report.backups), count: report.backups.length }
       : null;
   if (backup) onBackup(backup);
-
-  // A run that could not apply everything must not claim the new version: the
-  // recorded version describes the last COMPLETE state, so the next `pharn
-  // update` still has work to do instead of early-returning forever. A KEPT
-  // models block is not such a skip: it is configuration, not bytes of a
-  // version, and a block the user tuned is a steady state, not unfinished work.
-  const versionWithheld = plan.counts.skipped > 0;
-  const nextSkillsVersion = versionWithheld
-    ? config.skillsVersion
-    : installedVersion;
-  const nextCommit = versionWithheld ? config.commit : sha;
-  // Withheld ONLY by the user's own kept edits → every other file IS at
-  // `installedVersion`, so record that as pending (types.ts) and let `add`
-  // install at it. Any other skip (`unverifiable`, `unreadable`) can leave most
-  // of the tree at the old version, so nothing is recorded; a complete run
-  // clears it. Exact label membership, not "forceable" (P5).
-  // A pending version equal to the withheld one (a same-version run, e.g. the
-  // re-check of a formerly-frozen capability) tells `add` nothing it does not
-  // already accept, so it is not written.
-  const pendingSkillsVersion =
-    versionWithheld &&
-    installedVersion !== nextSkillsVersion &&
-    plan.skipped.every((g) => USER_EDIT_SKIPS.has(g.label))
-      ? installedVersion
-      : undefined;
 
   let written: string[];
   try {
@@ -680,28 +573,11 @@ async function applyUpdate(
   // exactly the assumption a record exists to avoid making: hashing what landed
   // is what makes "the record cannot disagree with disk" true by construction
   // rather than by trusting the copy (lib/install-records.ts).
-  // A frozen capability is absent from the manifest, and `planUpdate` keys
-  // `nextRecords` by the manifest — so without this its entries would be pruned
-  // as "no longer installed". They are not: nothing under it was touched, so its
-  // recorded hashes are still true, and dropping them would make the next run
-  // (once upstream parses again) read every one of those files as `unrecorded`
-  // and skip it — a transient upstream break turned into a `--force`.
-  const frozenRecords =
-    records === null
-      ? {}
-      : recordsUnderCapabilities(
-          records,
-          layoutPaths(layout),
-          configCapabilities.filter((cap) =>
-            frozen.has(`${cap.role}:${cap.name}`),
-          ),
-        );
-
   await writeRecords(cwd, {
-    skillsVersion: nextSkillsVersion,
-    commit: nextCommit,
+    skillsVersion: apply.nextSkillsVersion,
+    commit: apply.nextCommit,
     files: {
-      ...frozenRecords,
+      ...apply.frozenRecords,
       ...plan.nextRecords,
       ...buildRecords(cwd, written),
       // `planUpdate` keys its records by the manifest, which holds no models
@@ -711,35 +587,6 @@ async function applyUpdate(
         : {}),
     },
   });
-  // Only KEPT entries count: an unparseable capability this project never had
-  // must not pin every future run to a re-fetch. And one the LAST run listed
-  // that parses again stays listed while any of ITS files was skipped this run:
-  // the version bump already happened on the run that froze it, so here a skip
-  // withholds nothing — this list is the only thing that makes the next run
-  // re-check those files instead of returning "Already up to date". Drawn from
-  // the MERGED capabilities, so an entry the merge dropped cannot linger.
-  const previouslyFrozen = new Set(config.frozenCapabilities ?? []);
-  const skippedRels = plan.skipped.flatMap((group) => group.rels);
-  const paths = layoutPaths(layout);
-  const hasSkippedFile = (cap: InstalledCapability): boolean => {
-    // The same `<subtree>/<name>/` prefix recordsUnderCapabilities keys on.
-    const subtree = capabilitySubtree(paths, cap.role);
-    const prefix = `${subtree}/${cap.name}/`;
-    return skippedRels.some((rel) => rel.startsWith(prefix));
-  };
-  const frozenCapabilities = [
-    ...new Set(
-      configCapabilities
-        .filter((cap) => {
-          const key = `${cap.role}:${cap.name}`;
-          return (
-            frozen.has(key) ||
-            (previouslyFrozen.has(key) && hasSkippedFile(cap))
-          );
-        })
-        .map((cap) => `${cap.role}:${cap.name}`),
-    ),
-  ].sort();
   const {
     pendingSkillsVersion: _previousPending,
     frozenCapabilities: _previousFrozen,
@@ -748,15 +595,19 @@ async function applyUpdate(
   } = config;
   await writePharnConfig(cwd, {
     ...rest,
-    skillsVersion: nextSkillsVersion,
-    commit: nextCommit,
+    skillsVersion: apply.nextSkillsVersion,
+    commit: apply.nextCommit,
     // The channel this run used — even when the version bump is withheld: it is
     // the user's choice of source, not a claim about the bytes.
     ...(channel === 'latest' ? { ref: 'latest' as const } : {}),
-    ...(pendingSkillsVersion !== undefined ? { pendingSkillsVersion } : {}),
-    ...(frozenCapabilities.length > 0 ? { frozenCapabilities } : {}),
+    ...(report.pendingSkillsVersion !== null
+      ? { pendingSkillsVersion: report.pendingSkillsVersion }
+      : {}),
+    ...(apply.frozenKeys.length > 0
+      ? { frozenCapabilities: apply.frozenKeys }
+      : {}),
     capabilities: configCapabilities,
-    layout,
+    layout: report.layout,
     installedAt: new Date().toISOString(),
     // In place: the key keeps its position in the file, and `undefined` (there
     // was none and there is none to write) writes no key.
@@ -764,22 +615,19 @@ async function applyUpdate(
   });
 
   return {
-    installedVersion,
-    recordedVersion: nextSkillsVersion,
-    capCount: configCapabilities.length,
-    capabilityChanges: merged.changes,
+    installedVersion: report.installedVersion,
+    recordedVersion: report.recordedVersion,
+    capCount: report.capCount,
+    capabilityChanges: report.capabilityChanges,
     plan,
     backup,
-    recordsNote,
-    versionWithheld,
-    abandonedLayout:
-      previousLayout !== layout && written.length > 0 ? previousLayout : null,
-    featuresReadmeRelocation:
-      records !== null &&
-      FEATURES_README in records &&
-      resolveFeaturesReadme(repoDir, layout) !== FEATURES_README,
+    recordsNote: report.recordsNote,
+    versionWithheld: report.versionWithheld,
+    abandonedLayout: report.abandonedLayout,
+    featuresReadmeRelocation: report.featuresReadmeRelocation,
+    hookWiring: report.hookWiring,
     models,
-    modelsFloor: layoutPaths(layout).floor,
+    modelsFloor: report.modelsFloor,
   };
 }
 
@@ -794,13 +642,6 @@ async function applyUpdate(
 // check (there is no shared enum and no test pinning the two lists): a new skip
 // label has to be added HERE as well as there, or the heading will say UNREADABLE
 // while the advice offers `--force`.
-// The skips that are the user's own kept edits — the only ones that may leave
-// a `pendingSkillsVersion` behind (applyUpdate).
-const USER_EDIT_SKIPS = new Set<UpdateLabel | 'unreadable'>([
-  'modified',
-  'unrecorded',
-]);
-
 const FORCEABLE_SKIPS = new Set<UpdateLabel | 'unreadable'>([
   'modified',
   'unrecorded',
@@ -824,69 +665,15 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
     : null;
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
 
-  // An unhashable destination is skipped BEFORE the decision table and `force`
-  // is not an input to that branch (lib/update-decision.ts) — deliberately, since
-  // there is no hash to compare and guessing one is what P5 forbids. So the
-  // report must not prescribe `--force` for it: a run whose skips are all
-  // unreadable would otherwise be told to re-run a command that produces a
-  // byte-identical outcome, forever, while the withheld version bump keeps
-  // `pharn status --strict` red with nothing that clears it.
-  const forceable = plan.skipped.some((g) => FORCEABLE_SKIPS.has(g.label));
-  const hasUnreadable = plan.skipped.some((g) => !FORCEABLE_SKIPS.has(g.label));
-
-  if (plan.skipped.length > 0) {
-    const lines: string[] = [];
-    for (const group of plan.skipped) {
-      lines.push(`  ${skipHeading(group.label)}`);
-      for (const rel of group.rels) lines.push(`  ${rel}`);
-      lines.push('');
-    }
-    if (forceable) {
-      lines.push(
-        pc.dim(
-          `  Re-run with --force to overwrite (skipped files are backed up to ${BACKUP_DIR}/ first).`,
-        ),
-      );
-    }
-    if (hasUnreadable) {
-      // SKIP_ORDER puts `unreadable` last, so this sits under the group it names.
-      // The closing two lines are `pharn status`'s drift report verbatim
-      // (src/commands/status.ts): same situation, same sentence, so the two
-      // commands read as one product. The bucket is named rather than "these"
-      // because the forceable advice above can sit between it and its group.
-      lines.push(
-        pc.dim('  --force cannot clear the UNREADABLE paths above.'),
-        pc.dim('  Inspect each path by hand — a directory, a symlink, or an'),
-        pc.dim('  unreadable file sits where pharn expects a regular file.'),
-      );
-    }
-    note(lines.join('\n'), 'SKIPPED');
-  }
+  const forceable = reportSkipped(plan.skipped, false);
 
   // The backup pointer was printed when the backup was created (onBackup).
 
-  // Both directions are named. `abandonedLayout` has always been computed
-  // direction-agnostically (see its assignment above), but only 'flat' used to be
-  // rendered — so a pharn→flat migration abandoned the whole pharn/ tree in
-  // silence, which is strictly more than the other direction leaves behind. The
-  // second test is `=== 'pharn'` rather than a bare `else` so that a third Layout
-  // member would print nothing instead of this message (P5: membership, not a
-  // fallback that guesses).
-  if (outcome.abandonedLayout === 'flat') {
-    log.warn(
-      'Your install moved to the pharn/ layout. The old top-level copies are left behind and are no longer managed by pharn — delete them by hand.',
-    );
-  } else if (outcome.abandonedLayout === 'pharn') {
-    log.warn(
-      'Your install moved to the flat layout. The old pharn/ tree (contracts, floor scripts, docs, and capabilities) is left behind and is no longer managed by pharn — delete it by hand.',
-    );
-  }
-
-  if (outcome.featuresReadmeRelocation) {
-    log.warn(
-      'Your install now keeps the product-loop boundary contract at pharn/features/README.md. A copy at the project root (features/README.md) is left behind and is no longer managed by pharn — delete it by hand.',
-    );
-  }
+  reportLayoutWarnings(
+    outcome.abandonedLayout,
+    outcome.featuresReadmeRelocation,
+    false,
+  );
 
   if (versionWithheld) {
     // `--force` is offered only while a bucket it can actually clear is still
@@ -905,6 +692,240 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
 
   outro(
     `${pc.green('✔')} ${summary} ${pc.dim(`(${outcome.capCount} capabilit${outcome.capCount === 1 ? 'y' : 'ies'}, skills v${outcome.recordedVersion})`)}`,
+  );
+}
+
+// The SKIPPED note, shared by the real report and the preview (`preview` only
+// changes the tense of the one line of advice). Returns whether any skipped
+// bucket is one `--force` can clear — the caller's withheld-version line needs it.
+function reportSkipped(
+  skipped: UpdatePlan['skipped'],
+  preview: boolean,
+): boolean {
+  // An unhashable destination is skipped BEFORE the decision table and `force`
+  // is not an input to that branch (lib/update-decision.ts) — deliberately, since
+  // there is no hash to compare and guessing one is what P5 forbids. So the
+  // report must not prescribe `--force` for it: a run whose skips are all
+  // unreadable would otherwise be told to re-run a command that produces a
+  // byte-identical outcome, forever, while the withheld version bump keeps
+  // `pharn status --strict` red with nothing that clears it.
+  const forceable = skipped.some((g) => FORCEABLE_SKIPS.has(g.label));
+  const hasUnreadable = skipped.some((g) => !FORCEABLE_SKIPS.has(g.label));
+
+  if (skipped.length > 0) {
+    const lines: string[] = [];
+    for (const group of skipped) {
+      lines.push(`  ${skipHeading(group.label)}`);
+      for (const rel of group.rels) lines.push(`  ${rel}`);
+      lines.push('');
+    }
+    if (forceable) {
+      lines.push(
+        pc.dim(
+          preview
+            ? `  Run \`pharn update --force\` to overwrite (skipped files would be backed up to ${BACKUP_DIR}/ first).`
+            : `  Re-run with --force to overwrite (skipped files are backed up to ${BACKUP_DIR}/ first).`,
+        ),
+      );
+    }
+    if (hasUnreadable) {
+      // SKIP_ORDER puts `unreadable` last, so this sits under the group it names.
+      // The closing two lines are `pharn status`'s drift report verbatim
+      // (src/commands/status.ts): same situation, same sentence, so the two
+      // commands read as one product. The bucket is named rather than "these"
+      // because the forceable advice above can sit between it and its group.
+      lines.push(
+        pc.dim('  --force cannot clear the UNREADABLE paths above.'),
+        pc.dim('  Inspect each path by hand — a directory, a symlink, or an'),
+        pc.dim('  unreadable file sits where pharn expects a regular file.'),
+      );
+    }
+    note(lines.join('\n'), 'SKIPPED');
+  }
+  return forceable;
+}
+
+// Both directions are named. `abandonedLayout` has always been computed
+// direction-agnostically, but only 'flat' used to be rendered — so a pharn→flat
+// migration abandoned the whole pharn/ tree in silence, which is strictly more
+// than the other direction leaves behind. The second test is `=== 'pharn'`
+// rather than a bare `else` so that a third Layout member would print nothing
+// instead of this message (P5: membership, not a fallback that guesses).
+function reportLayoutWarnings(
+  abandonedLayout: Layout | null,
+  featuresReadmeRelocation: boolean,
+  preview: boolean,
+): void {
+  if (abandonedLayout === 'flat') {
+    log.warn(
+      preview
+        ? 'Your install would move to the pharn/ layout. The old top-level copies would be left behind and no longer managed by pharn — you would delete them by hand.'
+        : 'Your install moved to the pharn/ layout. The old top-level copies are left behind and are no longer managed by pharn — delete them by hand.',
+    );
+  } else if (abandonedLayout === 'pharn') {
+    log.warn(
+      preview
+        ? 'Your install would move to the flat layout. The old pharn/ tree (contracts, floor scripts, docs, and capabilities) would be left behind and no longer managed by pharn — you would delete it by hand.'
+        : 'Your install moved to the flat layout. The old pharn/ tree (contracts, floor scripts, docs, and capabilities) is left behind and is no longer managed by pharn — delete it by hand.',
+    );
+  }
+
+  if (featuresReadmeRelocation) {
+    log.warn(
+      preview
+        ? 'Your install would keep the product-loop boundary contract at pharn/features/README.md. A copy at the project root (features/README.md) would be left behind and no longer managed by pharn — you would delete it by hand.'
+        : 'Your install now keeps the product-loop boundary contract at pharn/features/README.md. A copy at the project root (features/README.md) is left behind and is no longer managed by pharn — delete it by hand.',
+    );
+  }
+}
+
+// The MIN_CLI gate — upstream's lever to refuse a stale CLI CLEANLY. One
+// function for the real run and the preview, so the warning, the refusal text
+// and the exit code cannot diverge. Returns the refusal (or null); a warning is
+// logged and does not refuse.
+function checkMinCli(repoDir: string): { refusal: string | null } {
+  const gate = minCliGate(repoDir, PHARN_VERSION);
+  if (gate.warning) log.warn(gate.warning);
+  return { refusal: gate.refusal ?? null };
+}
+
+// `--dry-run`: fetch, gate, plan, print, exit 0 — and write NOTHING. No lock, no
+// confirm, no backup, no copy, no records, no config: none of those functions is
+// reachable from here (the project-root writes all live in applyPlannedUpdate,
+// which this never calls). The only thing created is the clone's temp dir under
+// the OS temp dir, removed in the finally exactly as the real run does.
+async function runDryRun(
+  config: PharnConfig,
+  cwd: string,
+  force: boolean,
+  channel: RefChoice,
+  source: InstallSource,
+): Promise<void> {
+  const s = spinner();
+  s.start(`Planning from ${REPO_URL}`);
+  let planned: PlannedUpdate | null = null;
+  let refusal: string | null = null;
+  let failure: FatalCause | null = null;
+  try {
+    const repo = await fetchRepo(source);
+    try {
+      refusal = checkMinCli(repo.dir).refusal;
+      if (refusal) {
+        s.stop('Update refused');
+      } else {
+        planned = buildUpdatePlan({
+          repoDir: repo.dir,
+          sha: repo.sha,
+          config,
+          cwd,
+          force,
+          channel,
+          onUnknownWarning: (warning) => log.warn(warning),
+        });
+        s.stop('Plan ready');
+      }
+    } finally {
+      repo.cleanup();
+    }
+  } catch (err) {
+    s.stop('Planning failed');
+    failure = { err };
+  }
+
+  // Every exit AFTER the clone's cleanup above (Node skips finally on exit).
+  if (refusal) {
+    reportFatal(refusal);
+    process.exit(1);
+  }
+  if (failure || !planned) {
+    if (failure) reportFatal(errorMessage(failure.err), failure);
+    else reportFatal('Update failed.');
+    process.exit(1);
+  }
+
+  reportDryRun(planned.report, force, channel, config);
+}
+
+// The preview report. It reuses the real run's renderers for the membership,
+// models, hooks and skip notes, in the same order, and adds the PLAN note —
+// the per-file verdicts the real run acts on without listing.
+function reportDryRun(
+  r: UpdatePlanReport,
+  force: boolean,
+  channel: RefChoice,
+  config: PharnConfig,
+): void {
+  if (r.recordsNote) log.warn(`⚠ ${r.recordsNote}`);
+
+  const writes = r.files.filter((f) => f.action === 'write');
+  const sections: { heading: string; rels: string[] }[] = [
+    {
+      heading: 'WOULD WRITE — restored (missing from your project)',
+      rels: writes.filter((f) => f.label === 'restored').map((f) => f.rel),
+    },
+    {
+      heading: 'WOULD WRITE — updated (still exactly as pharn wrote them)',
+      rels: writes.filter((f) => f.label === 'updated').map((f) => f.rel),
+    },
+    ...(['modified', 'unrecorded', 'unverifiable'] as const).map((label) => ({
+      heading: `WOULD OVERWRITE (--force) — ${label}`,
+      rels: writes
+        .filter((f) => f.forced && f.label === label)
+        .map((f) => f.rel),
+    })),
+  ];
+  const lines: string[] = [];
+  for (const { heading, rels } of sections) {
+    if (rels.length === 0) continue;
+    lines.push(`  ${heading}`);
+    for (const rel of rels) lines.push(`  ${rel}`);
+    lines.push('');
+  }
+  if (r.backups.length > 0) {
+    lines.push(
+      `  WOULD BACK UP ${r.backups.length} file(s) to ${BACKUP_DIR}/<timestamp>/ first`,
+    );
+    for (const rel of r.backups) lines.push(`  ${rel}`);
+    lines.push('');
+  }
+  if (writes.length === 0) lines.push('  Nothing would be written.', '');
+  lines.push(
+    `  UNCHANGED ${r.counts.ok} file(s) · SKIPPED ${r.counts.skipped} file(s)`,
+  );
+  if (channel !== channelOf(config)) {
+    lines.push('', `  Would record channel: ${channel}`);
+  }
+  note(lines.join('\n'), 'PLAN');
+
+  reportCapabilityChanges(r.capabilityChanges);
+  reportModels(r.models, r.modelsFloor, null, true);
+
+  const hookLines = hookWiringLines(r.hookWiring);
+  if (hookLines) note(hookLines.join('\n'), 'HOOKS');
+
+  const forceable = reportSkipped(r.skipped, true);
+  reportLayoutWarnings(r.abandonedLayout, r.featuresReadmeRelocation, true);
+
+  if (r.versionWithheld) {
+    log.warn(
+      `${r.counts.skipped} file(s) would be skipped, so your install would stay recorded as skills v${r.recordedVersion} (upstream is v${r.installedVersion}) — resolve them${forceable ? ', or run with --force,' : ''} to finish the upgrade.`,
+    );
+    if (r.pendingSkillsVersion !== null) {
+      log.info(
+        `Would record skills v${r.pendingSkillsVersion} as pending, so \`pharn add\` installs at it.`,
+      );
+    }
+  } else {
+    log.info(`Would record skills v${r.recordedVersion}.`);
+  }
+  if (r.frozenCapabilities.length > 0) {
+    log.info(
+      `Would keep unread upstream capabilities as they are: ${r.frozenCapabilities.join(', ')}.`,
+    );
+  }
+
+  outro(
+    `Dry run — would write ${writes.length} · back up ${r.backups.length} · unchanged ${r.counts.ok} · skipped ${r.counts.skipped}. Nothing was changed. Run \`pharn update${force ? ' --force' : ''}\` to apply.`,
   );
 }
 
@@ -1008,8 +1029,9 @@ function reportModels(
   models: ModelsUpdate,
   floor: string,
   backup: Backup | null,
+  preview = false,
 ): void {
-  const lines = modelsReportLines(models, backup);
+  const lines = modelsReportLines(models, backup, preview);
   if (lines.length === 0) return;
   if (models.next !== undefined) {
     lines.push('', ...modelsLabelLines(floor).map((line) => pc.dim(line)));
@@ -1020,6 +1042,7 @@ function reportModels(
 function modelsReportLines(
   models: ModelsUpdate,
   backup: Backup | null,
+  preview: boolean,
 ): string[] {
   const quoted = (text: string): string =>
     `  ${terminalSafe(text, { max: 300 })}`;
@@ -1028,26 +1051,38 @@ function modelsReportLines(
     case 'ok':
       return [];
     case 'restored':
-      lines.push("Your config had no models block — wrote pharn-oss's.");
+      lines.push(
+        preview
+          ? "Your config has no models block — would write pharn-oss's."
+          : "Your config had no models block — wrote pharn-oss's.",
+      );
       break;
     case 'updated':
       lines.push(
         ...(models.replacedLegacyDefault
           ? [
-              "Replaced the models block an earlier pharn wrote with pharn-oss's.",
+              preview
+                ? "Would replace the models block an earlier pharn wrote with pharn-oss's."
+                : "Replaced the models block an earlier pharn wrote with pharn-oss's.",
               'Its model ids, such as opus-4-8, are rejected by Claude Code',
               "and by pharn-oss's checker.",
             ]
           : [
-              "Moved your models block to pharn-oss's current one: you had",
+              preview
+                ? "Would move your models block to pharn-oss's current one: you have"
+                : "Moved your models block to pharn-oss's current one: you had",
               'not changed it since pharn wrote it.',
             ]),
       );
       break;
     case 'forced':
       lines.push(
-        "Replaced your models block with pharn-oss's (--force).",
-        `Your previous ${CONFIG_FILENAME} is in ${backup?.dir ?? `${BACKUP_DIR}/`}.`,
+        preview
+          ? "Would replace your models block with pharn-oss's (--force)."
+          : "Replaced your models block with pharn-oss's (--force).",
+        preview
+          ? `Your current ${CONFIG_FILENAME} would be copied to ${BACKUP_DIR}/<timestamp>/ first.`
+          : `Your previous ${CONFIG_FILENAME} is in ${backup?.dir ?? `${BACKUP_DIR}/`}.`,
       );
       break;
     case 'kept':
@@ -1071,7 +1106,9 @@ function modelsReportLines(
   if (models.conversion !== null) {
     lines.push(
       '',
-      'Converted your models block from the format pharn wrote before 0.7.0,',
+      preview
+        ? 'Would convert your models block from the format pharn wrote before 0.7.0,'
+        : 'Converted your models block from the format pharn wrote before 0.7.0,',
       'keeping your values:',
       ...models.conversion.changes.map(quoted),
     );

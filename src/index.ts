@@ -30,6 +30,7 @@ Options (each belongs to ONE command; passing it to another is an error):
                      or "latest" (its newest verified release); recorded
       --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
   -y, --yes          update: skip the confirmation prompt (for CI and scripts)
+      --dry-run      update: show what would change and write nothing
       --strict       status: exit 1 on any outdated/modified/missing file
       --no-drift     status: skip the byte-level drift check
       --json         list: emit the inventory as JSON
@@ -83,7 +84,7 @@ const ALLOWED_FLAGS = new Map<string, readonly string[]>([
   ['add', []],
   ['remove', []],
   ['rm', []],
-  ['update', ['force', 'yes', 'ref']],
+  ['update', ['force', 'yes', 'ref', 'dry-run']],
   ['list', ['json']],
   ['status', ['strict', 'drift', 'json']],
 ]);
@@ -296,6 +297,7 @@ export async function main(): Promise<void> {
       await runUpdate({
         force: Boolean(argv.force),
         yes: Boolean(argv.yes),
+        dryRun: Boolean(argv['dry-run']),
         ref,
       });
       return;

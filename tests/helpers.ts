@@ -1,4 +1,12 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  lstatSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, vi } from 'vitest';
@@ -84,4 +92,35 @@ export function restoreNodeVersion(): void {
     value: ORIG_VERSIONS,
     configurable: true,
   });
+}
+
+/**
+ * A whole-tree snapshot of `dir`: every entry's relative path, type, mode and
+ * (for a regular file) sha256, dotfiles and empty directories included, sorted.
+ * Two snapshots being equal means no file or directory was created, removed,
+ * rewritten or re-moded in between — which is exactly what "writes nothing" has
+ * to mean, and what a spy on the write functions cannot prove on its own.
+ */
+export function snapshotTree(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string): void => {
+    for (const name of readdirSync(join(dir, rel)).sort()) {
+      const childRel = rel === '' ? name : `${rel}/${name}`;
+      const st = lstatSync(join(dir, childRel));
+      const mode = (st.mode & 0o7777).toString(8);
+      if (st.isDirectory()) {
+        out.push(`d ${childRel} ${mode}`);
+        walk(childRel);
+      } else if (st.isSymbolicLink()) {
+        out.push(`l ${childRel} ${readlinkSync(join(dir, childRel))}`);
+      } else {
+        const hash = createHash('sha256')
+          .update(readFileSync(join(dir, childRel)))
+          .digest('hex');
+        out.push(`f ${childRel} ${mode} ${hash}`);
+      }
+    }
+  };
+  walk('');
+  return out;
 }
