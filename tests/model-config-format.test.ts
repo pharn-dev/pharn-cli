@@ -64,21 +64,37 @@ describe('resolvedStageLines', () => {
 });
 
 describe('the label', () => {
-  it('says Claude Code applies the frontmatter, not the block', () => {
-    const lines = modelsLabelLines('pharn/floor');
-    expect(lines.join(' ')).toContain(
-      "Claude Code applies each /pharn-* command's own model:/effort: frontmatter, not this block.",
+  const lines = modelsLabelLines('pharn/floor');
+  const text = lines.join(' ');
+
+  it('names what reads the block: orchestrated routing, the model only', () => {
+    expect(text).toContain('/pharn-ship and /pharn-loop read this block');
+    expect(text).toContain('pick the model they request');
+    expect(text).toContain('Effort is never routed');
+    expect(text).toContain("a stage that runs inline uses the session's model");
+  });
+
+  it('names what does not: a direct run uses its own frontmatter, and nothing runs the check', () => {
+    expect(text).toContain(
+      "A stage you run directly uses its command's own model:/effort: frontmatter",
     );
-    expect(lines.join(' ')).toContain(
-      'The block is the source of truth that frontmatter is held to',
-    );
+    expect(text).toContain('which this block is held to');
+    expect(text).toContain('Nothing runs that check automatically');
     expect(lines.at(-1)).toBe(
       'node pharn/floor/check-model-config.mjs agreement',
     );
-    // Never routing that happens.
-    expect(lines.join(' ')).not.toMatch(/rout/i);
-    // Within 70 columns: a clack note box in an 80-column terminal never
-    // wraps a line of it.
+  });
+
+  it('no longer claims the block is never routing', () => {
+    expect(text).not.toContain('not this block');
+    expect(text).not.toMatch(/nothing reads this block/i);
+  });
+
+  it('claims nothing about what a stage ran on', () => {
+    expect(text).not.toMatch(/\bran\b|guarantee|ensure/i);
+  });
+
+  it('keeps every line within 70 columns, so a clack note never wraps one', () => {
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(70);
   });
 

@@ -62,9 +62,10 @@ which, and `status` cannot.
 6. **Models** — whenever `pharn.config.json` carries a `models` block, `status` prints a `MODELS` note
    on **both** paths (with and without `--drift`): every product stage beside the model and effort it
    resolves to — its own entry, or `default`, marked `(default)`. Under the rows, the label that says
-   what they are: Claude Code applies each `/pharn-*` command's own `model:` / `effort:` frontmatter,
-   not this block; the block is the source of truth that frontmatter is held to, and
-   `node pharn/floor/check-model-config.mjs agreement` checks the two agree. A block still in the format
+   what reads them: `/pharn-ship` and `/pharn-loop` read the block to pick the model they request for the
+   stages they route (never the effort), and a stage you run directly uses its command's own `model:` /
+   `effort:` frontmatter, which the block is held to; nothing runs
+   `node pharn/floor/check-model-config.mjs agreement` automatically. A block still in the format
    `pharn` wrote before 0.7.0 is reported as such (`pharn update` converts it), and a block pharn-oss's
    rules reject has each problem listed by name. The note is read-only and needs no download, and it
    is **not** a `--strict` input: the block is pharn-oss's, and so is the verdict on it. See

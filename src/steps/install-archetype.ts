@@ -328,10 +328,11 @@ export async function runInstallArchetype(
   const grillers = capabilities.filter((c) => c.role === 'griller').length;
   const lenses = capabilities.filter((c) => c.role === 'lens').length;
   // The block just written, resolved per stage, under the label that says what
-  // it is: the source of truth each /pharn-* command's frontmatter is held to.
-  // Claude Code applies that frontmatter; nothing reads this block to pick a
-  // model, and the outro must not read as routing that happens. No block (or
-  // one that declares no stages) → no section.
+  // it is: read by /pharn-ship and /pharn-loop to pick the model they request
+  // for the stages they route (never effort), and the source of truth each
+  // /pharn-* command's frontmatter is held to. The outro shows a declaration,
+  // not what any stage ran on. No block (or one that declares no stages) → no
+  // section.
   const modelsCheck = checkModelsBlock(models);
   const modelsSection =
     modelsCheck.kind === 'valid'

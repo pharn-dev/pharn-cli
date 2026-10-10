@@ -237,9 +237,10 @@ function printArchetypeVersion(
 }
 
 // MODELS note: the `models` block, resolved per product stage — a declaration,
-// labeled as one. Claude Code applies each /pharn-* command's own frontmatter;
-// the block is the source of truth that frontmatter is held to, and pharn-oss's
-// checker (installed under the floor dir) is what compares the two. Omitted
+// labeled as one. /pharn-ship and /pharn-loop read it to pick the model they
+// request for routed stages (never effort); a directly invoked /pharn-* stage
+// uses its own frontmatter, which the block is held to, and pharn-oss's
+// checker (installed under the floor dir) compares the two on request. Omitted
 // when `models` is absent (P7 additive/legacy). Read-only, local (no clone),
 // and NOT a `--strict` input: the block's verdict is pharn-oss's checker's to
 // give — this note reports it, through this CLI's pinned copy of its rules.

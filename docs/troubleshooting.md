@@ -556,8 +556,12 @@ same: `node pharn/floor/check-model-config.mjs validate` (`.dev/floor/` in the l
 - **A stage, alias or effort pharn-oss added after your `pharn` was released** — upgrade `pharn`: the
   copy of pharn-oss's rules it checks with predates the change.
 - **Your values differ from the installed commands' frontmatter** — not an error here.
-  `node pharn/floor/check-model-config.mjs agreement` lists each difference. Claude Code applies the
-  frontmatter, not the block, so change both or neither.
+  `node pharn/floor/check-model-config.mjs agreement` lists each difference; nothing runs it
+  automatically. The two have different reach: `/pharn-ship` and `/pharn-loop` read the block to pick
+  the **model** they request for the stages they route (never the effort), while a `/pharn-<stage>`
+  you run directly uses its own frontmatter. Editing only the block causes no file drift. Editing a
+  command's frontmatter makes that file `modified`, so `pharn update` skips it and withholds the
+  skills-version bump until you restore it or run `pharn update --force` (which backs it up first).
 
 `pharn update` lists the same problems when it keeps your block, and `pharn init` names them when
 pharn-oss's own block fails — it writes none then.

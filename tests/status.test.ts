@@ -677,9 +677,9 @@ describe('runStatus (archetype)', () => {
   });
 
   // The MODELS note shows pharn-oss's block resolved per product stage, under
-  // a label that says what it is: Claude Code applies each command's own
-  // frontmatter, and the block is the source of truth that frontmatter is held
-  // to. Never presented as routing that happens.
+  // a label that says what reads it: /pharn-ship and /pharn-loop (model only,
+  // never effort); a directly run stage uses its own frontmatter, which the
+  // block is held to.
   it('MODELS note resolves every product stage, labeled truthfully', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(
       config({
@@ -705,15 +705,16 @@ describe('runStatus (archetype)', () => {
     expect(models).toContain('memory-promote   sonnet · high  (default)');
     expect(models).toContain('ac-test          sonnet · high  (default)');
     expect(models).toContain(
-      "Claude Code applies each /pharn-* command's own model:/effort:",
+      '/pharn-ship and /pharn-loop read this block to pick the model they',
     );
+    expect(models).toContain('Effort is never');
     expect(models).toContain(
-      'frontmatter, not this block. The block is the source of truth',
+      "A stage you run directly uses its command's own model:/effort:",
     );
     expect(models).toContain(
       'node pharn/floor/check-model-config.mjs agreement',
     );
-    expect(models).not.toMatch(/rout/i);
+    expect(models).not.toContain('not this block');
     expect(models).not.toContain('no installed stage reads');
   });
 

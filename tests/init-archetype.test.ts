@@ -224,20 +224,22 @@ describe('archetype install (fixture e2e)', () => {
     expect(raw._models_stages_note).toBeUndefined();
     expect(raw.ship).toBeUndefined();
     // The outro shows the block resolved per stage, under a label that says
-    // what it is: Claude Code applies each command's own frontmatter, and the
-    // block is the source of truth that frontmatter is held to. Both
-    // directions are pinned — the old claims gone AND the honest label present.
+    // what reads it: /pharn-ship and /pharn-loop pick the model they request
+    // for routed stages (never effort), and a directly run stage uses its own
+    // frontmatter, which the block is held to. Both directions are pinned —
+    // the old claim gone AND the honest label present.
     const outro = outroBody();
     expect(outro).toContain('Declared model per stage');
     expect(outro).toContain('plan             opus · high');
     expect(outro).toContain('ship             sonnet · high  (default)');
     expect(outro).toContain(
-      "Claude Code applies each /pharn-* command's own model:/effort:",
+      '/pharn-ship and /pharn-loop read this block to pick the model they',
     );
+    expect(outro).toContain('Effort is never');
     expect(outro).toContain('node .dev/floor/check-model-config.mjs agreement');
     expect(outro).not.toContain('Models per stage');
     expect(outro).not.toContain('Change per-stage routing anytime');
-    expect(outro).not.toMatch(/rout/i);
+    expect(outro).not.toContain('not this block');
     // Everything a fresh install writes came from archetype resolution, so it is
     // `auto` — update owns it. Only `pharn add` writes `manual`.
     expect(config!.capabilities).toEqual([

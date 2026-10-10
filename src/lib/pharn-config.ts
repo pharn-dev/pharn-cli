@@ -244,7 +244,8 @@ const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
  * The top-level entries of a parsed `pharn.config.json` that this CLI does NOT
  * own (`CLI_OWNED_KEYS`): keys the user put there, most of them for upstream
  * pharn-oss to read — `testResults` (the per-test results runners `/pharn-test`
- * and `/pharn-verify` need) and `ship.requireAttestation`. Returned verbatim and
+ * and `/pharn-verify` need), `ship.requireAttestation`, `gates.exclude` and
+ * `budget.instructionGrowthBytes`. Returned verbatim and
  * never validated: pharn does not own their schema, so it has no business
  * judging them. Pure. `pharn init` is the caller — it rebuilds the config from
  * its own fields and carries these over (steps/install-archetype.ts).
