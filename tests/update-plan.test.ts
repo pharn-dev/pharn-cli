@@ -109,6 +109,7 @@ describe('buildUpdatePlan', () => {
     expect(report.backups).toEqual([]);
     expect(report.abandonedLayout).toBeNull();
     expect(report.unknownWarning).toBeNull();
+    expect(report.unknownCapabilities).toEqual([]);
   });
 
   it('withholds the version on a kept edit, recording it as pending', async () => {
@@ -187,6 +188,15 @@ describe('buildUpdatePlan', () => {
     expect(report.frozenCapabilities).toEqual(['griller:backwards-compat']);
     expect(warnings).toHaveLength(1);
     expect(report.unknownWarning).toBe(warnings[0]);
+    // The structured twin of the warning: what the fetch boundary refused.
+    expect(report.unknownCapabilities).toEqual([
+      expect.objectContaining({
+        role: 'griller',
+        name: 'backwards-compat',
+        subtree: 'pharn-pipeline/grillers',
+        reason: 'bad role',
+      }),
+    ]);
   });
 
   it('keeps a previously frozen capability listed while one of its files is skipped', async () => {

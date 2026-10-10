@@ -18,9 +18,13 @@ import { cancelAndExit } from '../lib/confirm.js';
 import {
   errorMessage,
   logError,
+  logErrorPlain,
   reportFatal,
+  reportFatalPlain,
   type FatalCause,
 } from '../lib/report-error.js';
+import { serializeJsonReport } from '../lib/json-report.js';
+import { buildUpdateReport, type UpdateStatus } from '../lib/update-report.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
@@ -79,18 +83,28 @@ export async function runUpdate(
     yes?: boolean;
     ref?: RefChoice;
     dryRun?: boolean;
+    json?: boolean;
   } = {},
 ): Promise<void> {
   const dryRun = opts.dryRun ?? false;
-  intro(dryRun ? 'pharn update --dry-run' : 'pharn update');
+  const json = opts.json ?? false;
+  // `--json` is the dry run's machine-readable form and nothing else: the
+  // dispatch refuses it alone, and a direct caller fails closed here rather than
+  // reaching a real run that would print clack chrome into a JSON consumer.
+  if (json && !dryRun) {
+    reportFatalPlain('--json is only available with --dry-run.');
+    process.exit(1);
+  }
+  // Under `--json` NOTHING reaches stdout but the one report: no clack at all.
+  if (!json) intro(dryRun ? 'pharn update --dry-run' : 'pharn update');
 
   // FIRST, ahead of the config load, the TTY gate and every network call: the
   // Node floor is environmental, so it wins over the project-state errors below
   // and a refusal costs nothing and writes nothing. (See steps/node-prereq.ts.)
-  runNodePrereq('update');
+  runNodePrereq('update', { json });
 
   const cwd = process.cwd();
-  const config = loadArchetypeConfigOrExit(cwd);
+  const config = loadArchetypeConfigOrExit(cwd, { json });
 
   // Non-TTY (CI, a pipe) → NEVER prompt into the void: a usage error + exit(1),
   // BEFORE any network call (P5 — the terminal fallback is a hard-fail, not a
@@ -130,6 +144,7 @@ export async function runUpdate(
     yes,
     opts.ref ?? channelOf(config),
     dryRun,
+    json,
   );
 }
 
@@ -176,6 +191,7 @@ async function runArchetypeUpdate(
   yes: boolean,
   channel: RefChoice,
   dryRun: boolean,
+  json: boolean,
 ): Promise<void> {
   // What a configured proxy means here (nothing: fetch never uses one), emitted
   // ONCE at the top so it precedes EVERY fetch this command can make — the
@@ -206,10 +222,12 @@ async function runArchetypeUpdate(
   // fetch really did happen.
   const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice));
+    // A diagnostic: stderr under `--json`, so stdout stays one object.
+    if (json) logErrorPlain(proxyNoticeMessage(proxyNotice));
+    else log.warn(proxyNoticeMessage(proxyNotice));
   }
 
-  const s = spinner();
+  const s = json ? silentSpinner() : spinner();
   s.start('Checking for updates');
   let latest: string;
   let source: InstallSource;
@@ -226,9 +244,28 @@ async function runArchetypeUpdate(
     s.stop(`Latest skills v${latest} (${sourceDescription(source)})`);
   } catch (err) {
     s.stop('Failed to check for updates');
-    reportFatal(errorMessage(err), { err });
+    (json ? reportFatalPlain : reportFatal)(errorMessage(err), { err });
     process.exit(1);
   }
+
+  // The `--json` report of a run that ends at an early return: the same object
+  // as a planned one, with `plan: null` — the outcome is the `status` field, not
+  // prose.
+  const emitEarlyReturn = (status: UpdateStatus): void => {
+    emitJson(
+      buildUpdateReport({
+        status,
+        force,
+        channel,
+        currentChannel: channelOf(config),
+        source,
+        installed: config.skillsVersion,
+        latest,
+        archetypes: config.archetypes ?? [],
+        plan: null,
+      }),
+    );
+  };
 
   // AHEAD OF THE RELEASE: an install made from `main` (the default channel)
   // switched to `--ref latest` can hold a NEWER version than the newest verified release — it
@@ -241,6 +278,10 @@ async function runArchetypeUpdate(
     !force &&
     compareVersionCore(config.skillsVersion, latest) === 1
   ) {
+    if (json) {
+      emitEarlyReturn('ahead-of-release');
+      return;
+    }
     outro(
       `Your install (skills v${config.skillsVersion}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` switches back to main; \`pharn update --force\` goes back to ${source.tag}.`,
     );
@@ -274,46 +315,56 @@ async function runArchetypeUpdate(
   // channel. The re-apply is cheap: identical files are no-ops.
   const switchChannel = channel !== channelOf(config);
   if (current && !force && !recheckFrozen && !convertModels && !switchChannel) {
+    if (json) {
+      emitEarlyReturn('up-to-date');
+      return;
+    }
     outro(`Already up to date (skills v${config.skillsVersion}).`);
     return;
   }
 
-  note(
-    [
-      current
-        ? row('Skills version', `v${config.skillsVersion} (re-applying)`)
-        : row('Skills version', `v${config.skillsVersion} → v${latest}`),
-      row('Source', sourceDescription(source)),
-      '',
-      row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
-      '',
-      force
-        ? pc.dim(
-            `  --force: files you changed will be OVERWRITTEN (each is copied to ${BACKUP_DIR}/ first).`,
-          )
-        : pc.dim(
-            '  Files you have changed are kept, not overwritten — they are listed at the end.',
-          ),
-      ...(convertModels
-        ? [
-            pc.dim(
-              '  Your models block is in the format pharn wrote before 0.7.0 — this run converts it.',
+  // The preview's header note is chrome; `--json` carries its facts as fields.
+  if (!json)
+    note(
+      [
+        current
+          ? row('Skills version', `v${config.skillsVersion} (re-applying)`)
+          : row('Skills version', `v${config.skillsVersion} → v${latest}`),
+        row('Source', sourceDescription(source)),
+        '',
+        row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
+        '',
+        force
+          ? pc.dim(
+              `  --force: files you changed will be OVERWRITTEN (each is copied to ${BACKUP_DIR}/ first).`,
+            )
+          : pc.dim(
+              '  Files you have changed are kept, not overwritten — they are listed at the end.',
             ),
-          ]
-        : []),
-      pc.dim(
-        '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
-      ),
-      ...(dryRun ? [pc.dim('  Preview only — nothing will be written.')] : []),
-      pc.dim('  https://github.com/pharn-dev/pharn-oss/blob/main/CHANGELOG.md'),
-    ].join('\n'),
-  );
+        ...(convertModels
+          ? [
+              pc.dim(
+                '  Your models block is in the format pharn wrote before 0.7.0 — this run converts it.',
+              ),
+            ]
+          : []),
+        pc.dim(
+          '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
+        ),
+        ...(dryRun
+          ? [pc.dim('  Preview only — nothing will be written.')]
+          : []),
+        pc.dim(
+          '  https://github.com/pharn-dev/pharn-oss/blob/main/CHANGELOG.md',
+        ),
+      ].join('\n'),
+    );
 
   // The preview stops here, ahead of the confirm, the lock and every write: it
   // shares the gates above (so it answers "Already up to date" exactly when the
   // real run would) and the planner below, and nothing else.
   if (dryRun) {
-    await runDryRun(config, cwd, force, channel, source);
+    await runDryRun(config, cwd, force, channel, source, json, latest);
     return;
   }
   // `--yes` skips THE CONFIRM AND NOTHING ELSE. The note above has already
@@ -781,69 +832,137 @@ function reportLayoutWarnings(
 
 // The MIN_CLI gate — upstream's lever to refuse a stale CLI CLEANLY. One
 // function for the real run and the preview, so the warning, the refusal text
-// and the exit code cannot diverge. Returns the refusal (or null); a warning is
-// logged and does not refuse.
-function checkMinCli(repoDir: string): { refusal: string | null } {
+// and the exit code cannot diverge. Returns the refusal (or null); a warning goes
+// to `warn` (clack's `log.warn`, or plain stderr under `--json`) and does not
+// refuse.
+function checkMinCli(
+  repoDir: string,
+  warn: (message: string) => void = (message) => log.warn(message),
+): { refusal: string | null } {
   const gate = minCliGate(repoDir, PHARN_VERSION);
-  if (gate.warning) log.warn(gate.warning);
+  if (gate.warning) warn(gate.warning);
   return { refusal: gate.refusal ?? null };
 }
 
-// `--dry-run`: fetch, gate, plan, print, exit 0 — and write NOTHING. No lock, no
-// confirm, no backup, no copy, no records, no config: none of those functions is
-// reachable from here (the project-root writes all live in applyPlannedUpdate,
-// which this never calls). The only thing created is the clone's temp dir under
-// the OS temp dir, removed in the finally exactly as the real run does.
-async function runDryRun(
+// A spinner that draws nothing, for `--json`: stdout stays the one report.
+function silentSpinner(): Pick<ReturnType<typeof spinner>, 'start' | 'stop'> {
+  return { start: () => undefined, stop: () => undefined };
+}
+
+// The one stdout write of a `--json` run. A normal return follows (never
+// `process.exit`), so a large object piped to `jq` is flushed, not cut off.
+function emitJson(report: object): void {
+  console.log(serializeJsonReport(report));
+}
+
+// What a dry run's clone phase produced — exactly one of the three.
+type PlanOutcome =
+  | { kind: 'planned'; planned: PlannedUpdate }
+  | { kind: 'refused'; refusal: string }
+  | { kind: 'failed'; failure: FatalCause | null };
+
+// The clone → MIN_CLI gate → plan phase, shared by the text and `--json` dry
+// runs so there is ONE copy of the clone/cleanup discipline: the clone is
+// removed before this returns, and every exit is the caller's, AFTER it.
+async function fetchAndPlan(
   config: PharnConfig,
   cwd: string,
   force: boolean,
   channel: RefChoice,
   source: InstallSource,
-): Promise<void> {
-  const s = spinner();
-  s.start(`Planning from ${REPO_URL}`);
-  let planned: PlannedUpdate | null = null;
-  let refusal: string | null = null;
-  let failure: FatalCause | null = null;
+  ui: {
+    spin: Pick<ReturnType<typeof spinner>, 'start' | 'stop'>;
+    warn: (message: string) => void;
+  },
+): Promise<PlanOutcome> {
+  const { spin, warn } = ui;
+  spin.start(`Planning from ${REPO_URL}`);
+  let outcome: PlanOutcome;
   try {
     const repo = await fetchRepo(source);
     try {
-      refusal = checkMinCli(repo.dir).refusal;
+      const refusal = checkMinCli(repo.dir, warn).refusal;
       if (refusal) {
-        s.stop('Update refused');
+        spin.stop('Update refused');
+        outcome = { kind: 'refused', refusal };
       } else {
-        planned = buildUpdatePlan({
+        const planned = buildUpdatePlan({
           repoDir: repo.dir,
           sha: repo.sha,
           config,
           cwd,
           force,
           channel,
-          onUnknownWarning: (warning) => log.warn(warning),
+          onUnknownWarning: warn,
         });
-        s.stop('Plan ready');
+        spin.stop('Plan ready');
+        outcome = { kind: 'planned', planned };
       }
     } finally {
       repo.cleanup();
     }
   } catch (err) {
-    s.stop('Planning failed');
-    failure = { err };
+    spin.stop('Planning failed');
+    outcome = { kind: 'failed', failure: { err } };
   }
+  return outcome;
+}
+
+// `--dry-run`: fetch, gate, plan, print, exit 0 — and write NOTHING. No lock, no
+// confirm, no backup, no copy, no records, no config: none of those functions is
+// reachable from here (the project-root writes all live in applyPlannedUpdate,
+// which this never calls). The only thing created is the clone's temp dir under
+// the OS temp dir, removed in fetchAndPlan exactly as the real run does.
+//
+// `--json` swaps the sinks, not the logic: no spinner, diagnostics and failures
+// on plain stderr (stdout empty, exit 1), and one report on stdout at the end.
+async function runDryRun(
+  config: PharnConfig,
+  cwd: string,
+  force: boolean,
+  channel: RefChoice,
+  source: InstallSource,
+  json: boolean,
+  latest: string,
+): Promise<void> {
+  const outcome = await fetchAndPlan(config, cwd, force, channel, source, {
+    spin: json ? silentSpinner() : spinner(),
+    warn: json
+      ? (message) => logErrorPlain(message)
+      : (message) => log.warn(message),
+  });
 
   // Every exit AFTER the clone's cleanup above (Node skips finally on exit).
-  if (refusal) {
-    reportFatal(refusal);
+  const fatal = json ? reportFatalPlain : reportFatal;
+  if (outcome.kind === 'refused') {
+    fatal(outcome.refusal);
     process.exit(1);
   }
-  if (failure || !planned) {
-    if (failure) reportFatal(errorMessage(failure.err), failure);
-    else reportFatal('Update failed.');
+  if (outcome.kind === 'failed') {
+    if (outcome.failure)
+      fatal(errorMessage(outcome.failure.err), outcome.failure);
+    else fatal('Update failed.');
     process.exit(1);
   }
 
-  reportDryRun(planned.report, force, channel, config);
+  const { report } = outcome.planned;
+  if (json) {
+    emitJson(
+      buildUpdateReport({
+        status: 'planned',
+        force,
+        channel,
+        currentChannel: channelOf(config),
+        source,
+        installed: config.skillsVersion,
+        latest,
+        archetypes: config.archetypes ?? [],
+        plan: report,
+      }),
+    );
+    return;
+  }
+  reportDryRun(report, force, channel, config);
 }
 
 // The preview report. It reuses the real run's renderers for the membership,

@@ -8,12 +8,15 @@ pharn update
 pharn update --force   # overwrite your edits too (each file is backed up first)
 pharn update --yes     # skip the confirmation prompt (for CI and scripts)
 pharn update --dry-run # show exactly what it would do, and write nothing
+pharn update --dry-run --json # ...as one JSON object, for scripts and agents
 pharn update --ref latest   # follow verified releases instead of main (recorded)
 pharn update --ref main     # back to the tip of main (recorded)
 ```
 
-`--force`, `--yes`/`-y`, `--ref` and `--dry-run` are `update`'s **only** options; they compose, and none
-implies another. Any other flag — `pharn update --json`, `--strict`, `--no-drift` — is refused with
+`--force`, `--yes`/`-y`, `--ref`, `--dry-run` and `--json` are `update`'s **only** options; they compose,
+and none implies another — except that `--json` is accepted **only together with `--dry-run`**
+(`pharn update --json` alone exits **1** with an `Incomplete option for` error on stderr, plus the
+usage text). Any other flag — `--strict`, `--no-drift` — is refused with
 ``Unsupported option for `update` `` on stderr and exit **1**, as is an extra positional. See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
@@ -83,8 +86,128 @@ It prints:
 It is a **snapshot**, not a promise. A real run fetches again and decides again under its own lock,
 so an edit you make, another process, or a newer upstream merge between the preview and the apply can
 change the outcome. The only thing a dry run creates is the clone's temporary directory under your OS
-temp directory, removed before it exits. A machine-readable (`--json`) form of the plan is not
-available yet.
+temp directory, removed before it exits.
+
+### JSON output
+
+```bash
+pharn update --dry-run --json | jq .status
+```
+
+`pharn update --dry-run --json` prints **exactly one JSON object on stdout and nothing else** — no
+spinner, intro, outro or note. Every diagnostic (the proxy notice, the unknown-capabilities warning, a
+garbage `MIN_CLI`) goes to **stderr**. On any failure — no config, a Node below the floor, an unreachable
+release or clone, a `MIN_CLI` refusal, a planning error — stdout is **empty** and the exit code is `1`,
+so `pharn update --dry-run --json | jq .` either parses or receives nothing. In every other case the
+exit code is `0`, whatever the plan contains: there is no `--strict` for a preview. It composes with
+`--force` and `--ref`; `--yes` is accepted and does nothing. It writes nothing, like the text preview. These are behaviours the test suite pins (every stdout write and every clack call is spied), not something an operating-system hook enforces.
+
+The outcome is the `status` field, not prose:
+
+| `status`           | meaning                                                                                                                                                                     | `plan` |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                            | object |
+| `up-to-date`       | "Already up to date": the installed version is the latest, and nothing (`--force`, a kept unreadable capability, an old `models` block, a channel switch) re-opens the run. | `null` |
+| `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                      | `null` |
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "update",
+  "dryRun": true,
+  "status": "planned",
+  "force": false,
+  "channel": "main",
+  "channelChange": null,
+  "source": { "kind": "main", "tag": null },
+  "version": {
+    "installed": "6.54.0",
+    "latest": "6.54.1",
+    "recorded": "6.54.0",
+    "withheld": true,
+    "pending": "6.54.1"
+  },
+  "archetypes": ["ssr"],
+  "plan": {
+    "layout": "flat",
+    "abandonedLayout": null,
+    "featuresReadmeRelocation": false,
+    "capabilities": { "count": 12, "changes": [] },
+    "files": [
+      {
+        "rel": "CONSTITUTION.md",
+        "action": "write",
+        "label": "updated",
+        "backup": false,
+        "forced": false
+      },
+      {
+        "rel": ".claude/commands/pharn-plan.md",
+        "action": "skip",
+        "label": "modified",
+        "backup": false,
+        "forced": false
+      }
+    ],
+    "writes": ["CONSTITUTION.md"],
+    "backups": [],
+    "skipped": [
+      { "label": "modified", "rels": [".claude/commands/pharn-plan.md"] }
+    ],
+    "counts": {
+      "updated": 1,
+      "restored": 0,
+      "ok": 86,
+      "forced": 0,
+      "skipped": 1
+    },
+    "models": {
+      "outcome": "ok",
+      "label": null,
+      "replacedLegacyDefault": false,
+      "backup": false,
+      "conversion": null,
+      "problems": [],
+      "upstreamReasons": []
+    },
+    "hooks": {
+      "status": "match",
+      "missing": [],
+      "localOnly": [],
+      "file": null,
+      "reason": null
+    },
+    "frozenCapabilities": [],
+    "unknownCapabilities": [],
+    "recordsNote": null
+  }
+}
+```
+
+| key                                         | meaning                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schemaVersion`                             | `1`. Match it exactly. New keys may appear within `1`; a breaking change bumps it. This is a documented contract, not something `pharn` enforces. It versions independently of `pharn status --json`.                                                                                            |
+| `status`, `force`                           | The outcome above, and whether `--force` was passed.                                                                                                                                                                                                                                             |
+| `channel`                                   | `main` or `latest`, the channel this run used. `channelChange` is `{from, to}` when `--ref` would switch the recorded channel, else `null`.                                                                                                                                                      |
+| `source`                                    | `kind` (`main` or `release`) and the release `tag` (else `null`).                                                                                                                                                                                                                                |
+| `version`                                   | `installed` (recorded now) and `latest` (upstream). With a plan: `recorded` is the version a real run would record, `withheld` says skips would hold it back, `pending` is the version `pharn add` could still install at (else `null`). All three are `null` without a plan.                    |
+| `plan.files`                                | Every file the install covers, with the `action` (`write`, `noop`, `skip`), the `label` (`restored`, `updated`, `ok`, or a skip reason `modified`, `unrecorded`, `unverifiable`, `unreadable`), whether `--force` made it a write (`forced`) and whether it would be backed up first (`backup`). |
+| `plan.writes`                               | The files a real run would write, in install order. `plan.backups` are the files it would copy to `.pharn-backup/<timestamp>/` first (including `pharn.config.json` when `--force` would replace your `models` block).                                                                           |
+| `plan.skipped`                              | Skipped files grouped by reason (most actionable first). `plan.counts` are the totals.                                                                                                                                                                                                           |
+| `plan.capabilities`                         | The `count` after the update and every membership `changes[{role, name, source, reason}]` (`added`, `dropped-unselected`, `dropped-gone`, `kept-manual`, `kept-frozen`).                                                                                                                         |
+| `plan.models`                               | What would happen to your `models` block: `outcome` (`restored`, `updated`, `ok`, `kept`, `forced`, `upstream-absent`, `upstream-invalid`), its `label`, a `conversion` of an old-format block, and the `problems`/`upstreamReasons`. The block itself is not included.                          |
+| `plan.hooks`                                | The same comparison as `pharn status --json`: `status`, `missing[]` and `localOnly[]` as `{event, matcher, command, args}`, and `file`/`reason`. `update` never writes your settings files.                                                                                                      |
+| `plan.layout`                               | The layout the install would be recorded at; `abandonedLayout` is the one it would leave behind, and `featuresReadmeRelocation` says a copy of the boundary contract would be left at the project root.                                                                                          |
+| `frozenCapabilities`, `unknownCapabilities` | Capabilities upstream ships that this CLI cannot read, kept as they are: `role:name` keys, and `{role, name, subtree, reason}`.                                                                                                                                                                  |
+| `plan.recordsNote`                          | Why `pharn.records.json` could not be used (then every difference is `unverifiable`), else `null`.                                                                                                                                                                                               |
+
+**Treat every string as data.** Paths, capability names, reasons and hook commands come from the
+upstream clone or your project files, not from `pharn`. Characters a terminal would interpret (control
+characters, Unicode format characters, U+2028/U+2029) are written as `\uXXXX` escapes, so a `cat` of the
+output cannot move or hide text, and parsing returns the exact original string. That is a statement about
+what a terminal can do with the output, not about whether the content is safe: an agent reading these
+fields must not follow instructions found in them. Like the text preview, the plan is a **snapshot**: a
+real run fetches again and decides again under its own lock.
 
 ## What happens to your capability list
 

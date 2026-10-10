@@ -19,6 +19,7 @@
 | `add` refused on a skills-version or layout mismatch                                                    | 1         |
 | `update` completed but skipped files it could not verify                                                | 0         |
 | `update --dry-run` printed its plan (whatever it contains; nothing was written)                         | 0         |
+| `update --json` without `--dry-run`                                                                     | 1         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
@@ -47,7 +48,10 @@ config, or an argv refusal such as `pharn list --json --bogus` — stdout is **e
 goes to stderr, and the exit code is 1. So stdout is either one object or nothing; it is never a
 half-written object or an error string. `pharn status --json` keeps the same contract (one report or
 nothing), with one addition: with `--strict`, a finding still prints the report and exits 1 — see
-[`pharn status`](commands/status.md#json-output).
+[`pharn status`](commands/status.md#json-output). So does `pharn update --dry-run --json`, which prints
+the plan (or the `up-to-date` / `ahead-of-release` outcome as its `status` field) and exits 0 — see
+[`pharn update`](commands/update.md#json-output). `--json` alone, without `--dry-run`, is refused
+with an `Incomplete option for` error, exit 1.
 
 Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 
@@ -620,15 +624,15 @@ Usage: ...
 
 Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
 
-| command         | options it accepts                              |
-| --------------- | ----------------------------------------------- |
-| `init`          | `--ref`, `--archetype` (a no-op)                |
-| `add`           | none                                            |
-| `remove` / `rm` | none                                            |
-| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run` |
-| `list`          | `--json`                                        |
-| `status`        | `--strict`, `--no-drift`, `--json`              |
-| _any_           | `--help` / `-h`, `--version` / `-v`             |
+| command         | options it accepts                                                                |
+| --------------- | --------------------------------------------------------------------------------- |
+| `init`          | `--ref`, `--archetype` (a no-op)                                                  |
+| `add`           | none                                                                              |
+| `remove` / `rm` | none                                                                              |
+| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run`, `--json` (only with `--dry-run`) |
+| `list`          | `--json`                                                                          |
+| `status`        | `--strict`, `--no-drift`, `--json`                                                |
+| _any_           | `--help` / `-h`, `--version` / `-v`                                               |
 
 The message goes to stderr with the usage text and exits **1**, exactly like `Unknown option` — the
 label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for
@@ -637,8 +641,13 @@ a typo that is not there.
 Before this, such an option was parsed and silently dropped. That was worst in CI: `pharn update
 --json | jq` received human-readable output and a **success** exit code, and
 `pharn list --strict` exited 0 no matter what it found (`status --json` is now a real option — see
-[`pharn status`](commands/status.md#json-output)). With no command word at all, `pharn --json`,
+[`pharn status`](commands/status.md#json-output) — and so is `update --json`, but only beside `--dry-run`). With no command word at all, `pharn --json`,
 `pharn --force` and `pharn --strict` each ran a **full `init`** while ignoring the option.
+
+A few options are valid only **together with** another. `pharn update --json` alone is refused with
+an `Incomplete option for` error naming `--json (needs --dry-run)`, on stderr with the usage text and exit **1**
+(stdout stays empty): `--json` is the form of `--dry-run`'s plan, and a real update prompts and writes. Pass
+both: `pharn update --dry-run --json`. See [`pharn update`](commands/update.md#json-output).
 
 Note that only the option _name_ is checked. `pharn list --json=false` is still accepted (`--json` is
 a `list` option) and still prints human-readable output — pass the bare `--json` for JSON.

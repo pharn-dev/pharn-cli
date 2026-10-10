@@ -36,7 +36,12 @@ import { readSkillsVersion } from './skills-version.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
 import { FEATURES_README } from './constants.js';
 import type { RefChoice } from './release.js';
-import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
+import type {
+  InstalledCapability,
+  Layout,
+  PharnConfig,
+  UnknownCapability,
+} from '../types.js';
 
 // The planning half of `pharn update`, shared by the real run and `--dry-run`.
 // It READS the clone and the project and writes nothing: no log, no backup, no
@@ -82,6 +87,8 @@ export interface UpdatePlanReport {
   hookWiring: HookWiringDiff;
   recordsNote: string | null;
   unknownWarning: string | null;
+  // The structured twin of `unknownWarning`: what the fetch boundary refused.
+  unknownCapabilities: UnknownCapability[];
 }
 
 export interface UpdateApplyInputs {
@@ -284,6 +291,7 @@ export function buildUpdatePlan(input: {
       hookWiring: diffHookWiring(repoDir, cwd),
       recordsNote,
       unknownWarning,
+      unknownCapabilities: index.unknown,
     },
     apply: {
       expected,

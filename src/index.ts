@@ -35,6 +35,7 @@ Options (each belongs to ONE command; passing it to another is an error):
       --no-drift     status: skip the byte-level drift check
       --json         list: emit the inventory as JSON
                      status: emit one JSON report on stdout (diagnostics on stderr)
+                     update: with --dry-run, emit the plan as one JSON object
   -h, --help         Show this help text
   -v, --version      Show the version number`;
 
@@ -84,10 +85,25 @@ const ALLOWED_FLAGS = new Map<string, readonly string[]>([
   ['add', []],
   ['remove', []],
   ['rm', []],
-  ['update', ['force', 'yes', 'ref', 'dry-run']],
+  ['update', ['force', 'yes', 'ref', 'dry-run', 'json']],
   ['list', ['json']],
   ['status', ['strict', 'drift', 'json']],
 ]);
+
+// Flags that are only valid TOGETHER with another flag, per command: `{ flag,
+// requires }` means `flag` is refused unless `requires` is also passed. ALLOWED_FLAGS
+// answers "may this command take the flag at all"; this answers "may it take it
+// alone". `update --json` is the dry run's machine-readable form, so it needs
+// `--dry-run` — a real update prompts, writes and prints clack chrome, none of
+// which a JSON consumer can use.
+//
+// A `Map` and absent-row-means-no-check, exactly like its siblings. Presence is
+// read the way the dispatch reads the flag (`Boolean(argv[flag])`), so
+// `--dry-run=false --json` is refused: the flag is passed but its value is off.
+const REQUIRED_WITH = new Map<
+  string,
+  readonly { flag: string; requires: string }[]
+>([['update', [{ flag: 'json', requires: 'dry-run' }]]]);
 
 // Accepted by every command in the table above. They short-circuit below rather
 // than dispatching, but they are listed rather than special-cased so that
@@ -169,6 +185,17 @@ function unsupportedFlags(allowed: readonly string[]): string[] {
   return offenders;
 }
 
+// The `{ flag, requires }` pairs `cmd` passed without the flag they need, as the
+// text the refusal names. Literal flag names from the table, never argv.
+function unmetRequirements(
+  cmd: string,
+  argv: Record<string, unknown>,
+): string[] {
+  return (REQUIRED_WITH.get(cmd) ?? [])
+    .filter(({ flag, requires }) => Boolean(argv[flag]) && !argv[requires])
+    .map(({ flag, requires }) => `--${flag} (needs --${requires})`);
+}
+
 // Refuse argv we do not understand: print the offenders + the usage text to
 // STDERR and exit 1. `console.error`, not the shared reporter, exactly like the
 // unknown-command path below — `pharn list --json --bogus` must stay parseable
@@ -246,6 +273,12 @@ export async function main(): Promise<void> {
     }
   }
 
+  // The same position and the same reason, one level finer: a flag the command
+  // takes, passed without the flag it depends on. Reached only for commands in
+  // REQUIRED_WITH, so `cmd` here is one of its literal keys.
+  const unmet = unmetRequirements(cmd, argv);
+  if (unmet.length > 0) refuse(`Incomplete option for \`${cmd}\``, unmet);
+
   // `--ref`'s VALUE, checked where the flag's NAME was: before the short-
   // circuits, so `pharn init --help --ref tip` refuses too. Reached only when
   // the command took the flag (or no `--ref` was passed at all), so it needs no
@@ -298,6 +331,7 @@ export async function main(): Promise<void> {
         force: Boolean(argv.force),
         yes: Boolean(argv.yes),
         dryRun: Boolean(argv['dry-run']),
+        json: Boolean(argv.json),
         ref,
       });
       return;

@@ -6,7 +6,7 @@ import { checkModelsBlock, type ModelsRed } from './model-config.js';
 import { needsModelsConversion } from './models-update.js';
 import { NODE_FLOOR, type NodeFloorStatus } from './node-floor.js';
 import type { InstallSource, RefChoice } from './release.js';
-import { escapeUnsafe } from './terminal-safe.js';
+import { cap, serializeJsonReport } from './json-report.js';
 import { versionStatus } from './version-status.js';
 import type { PharnConfig, UnknownCapability } from '../types.js';
 
@@ -34,10 +34,6 @@ export const STATUS_SCHEMA_VERSION = 1;
 const MAX_RED_DETAIL = 300;
 const MAX_UNKNOWN_FIELD = 200;
 const MAX_RUNNING_NODE = 40;
-
-function cap(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value;
-}
 
 export interface StatusReport {
   schemaVersion: typeof STATUS_SCHEMA_VERSION;
@@ -233,18 +229,9 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
 }
 
 /**
- * The report as the text written to stdout. Two-space indented JSON, then every
- * character a terminal would interpret (C0, DEL, C1, Unicode format characters,
- * U+2028/2029) as a `\uXXXX` escape. That is lossless and safe by construction:
- * `JSON.stringify` emits only ASCII structure and escapes `\n`, `\r` and `\t`
- * inside strings, so every remaining unsafe character sits inside a string —
- * key or value — where `\u` is a JSON escape, and the output parses back to the
- * exact original. The one raw control character it emits is the `\n` between
- * lines, which is structural; it is split on, not escaped.
+ * The report as the text written to stdout: `serializeJsonReport` (lib/
+ * json-report.ts), the one serializer every `--json` report goes through.
  */
 export function serializeStatusReport(report: StatusReport): string {
-  return JSON.stringify(report, null, 2)
-    .split('\n')
-    .map(escapeUnsafe)
-    .join('\n');
+  return serializeJsonReport(report);
 }
