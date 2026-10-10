@@ -33,6 +33,7 @@ Options (each belongs to ONE command; passing it to another is an error):
       --strict       status: exit 1 on any outdated/modified/missing file
       --no-drift     status: skip the byte-level drift check
       --json         list: emit the inventory as JSON
+                     status: emit one JSON report on stdout (diagnostics on stderr)
   -h, --help         Show this help text
   -v, --version      Show the version number`;
 
@@ -63,10 +64,10 @@ const MAX_POSITIONALS = new Map<string, number>([
 // their rows are empty; `--archetype` is init's retained no-op alias.
 //
 // Before this table, minimist declared every flag globally and the dispatch
-// simply did not look at the ones it did not want: `pharn status --json` was
-// parsed, dropped, and exited 0 — so `pharn status --json | jq` got clack
-// chrome and a success code, permanently disarming a CI gate that still looked
-// green.
+// simply did not look at the ones it did not want: `pharn list --strict` was
+// parsed, dropped, and exited 0 regardless of what it found — a CI gate that
+// still looked green. (`status --json` was the same trap until `status` took
+// the flag for real.)
 //
 // A `Map` for the same reason MAX_POSITIONALS is one: `cmd` is untrusted argv,
 // and an object lookup resolves `Object.prototype` keys — `ALLOWED_FLAGS['toString']`
@@ -84,7 +85,7 @@ const ALLOWED_FLAGS = new Map<string, readonly string[]>([
   ['rm', []],
   ['update', ['force', 'yes', 'ref']],
   ['list', ['json']],
-  ['status', ['strict', 'drift']],
+  ['status', ['strict', 'drift', 'json']],
 ]);
 
 // Accepted by every command in the table above. They short-circuit below rather
@@ -226,8 +227,8 @@ export async function main(): Promise<void> {
 
   // ALSO before the short-circuits, and for the same reason the gate above is:
   // a genuine `--help` does not license a sibling this command cannot use.
-  // `pharn status --help --json` refuses rather than printing usage and
-  // swallowing the `--json`, which is the same call the plain gate makes about
+  // `pharn status --help --force` refuses rather than printing usage and
+  // swallowing the `--force`, which is the same call the plain gate makes about
   // `--bogus`. `pharn status --help` itself is unaffected — `help` and
   // `version` are in every row.
   //
@@ -305,6 +306,7 @@ export async function main(): Promise<void> {
       await runStatus({
         strict: Boolean(argv.strict),
         drift: argv.drift !== false,
+        json: Boolean(argv.json),
       });
       return;
     default:

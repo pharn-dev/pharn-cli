@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { log } from '@clack/prompts';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import { ProjectChangedError } from '../src/lib/project-lock.js';
@@ -639,6 +639,54 @@ describe('loadConfigOrExit', () => {
     expect(msg).toContain('is not valid JSON');
     expect(msg).toContain('(line 1, column 11)');
     expect(msg).not.toContain('No pharn.config.json found');
+  });
+
+  describe('{ json: true } routes every refusal to plain stderr, never clack', () => {
+    let errSpy: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    });
+    afterEach(() => errSpy.mockRestore());
+    const said = () =>
+      errSpy.mock.calls.map((c: unknown[]) => c.join(' ')).join('\n');
+
+    it('absent config', () => {
+      expect(() => loadConfigOrExit(tmp.path(), { json: true })).toThrow(
+        ProcessExit,
+      );
+      expect(said()).toMatch(/pharn init/);
+      expect(log.error).not.toHaveBeenCalled();
+    });
+
+    it('invalid config', () => {
+      writeFileSync(join(tmp.path(), 'pharn.config.json'), '{ "a": 1, }');
+      expect(() => loadConfigOrExit(tmp.path(), { json: true })).toThrow(
+        ProcessExit,
+      );
+      expect(said()).toContain('is not valid JSON');
+      expect(log.error).not.toHaveBeenCalled();
+    });
+
+    it('legacy (pre-archetype) config', () => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify({ skillsVersion: '0.1.0', modules: [] }),
+      );
+      expect(() =>
+        loadArchetypeConfigOrExit(tmp.path(), { json: true }),
+      ).toThrow(ProcessExit);
+      expect(said()).toContain('legacy module layout');
+      expect(log.error).not.toHaveBeenCalled();
+    });
+
+    it('still loads a valid archetype config', () => {
+      const raw = { skillsVersion: '0.1.0', modules: [], capabilities: [] };
+      writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(raw));
+      expect(loadArchetypeConfigOrExit(tmp.path(), { json: true })).toEqual(
+        raw,
+      );
+      expect(said()).toBe('');
+    });
   });
 
   it('prints "run init" and exits(1) when the config is absent', () => {

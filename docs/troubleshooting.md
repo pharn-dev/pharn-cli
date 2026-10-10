@@ -44,7 +44,9 @@ On success, `pharn list --json` writes exactly one inventory object to stdout an
 `pharn list --json | jq .` parses cleanly. On **any** failure — a missing config, a pre-archetype
 config, or an argv refusal such as `pharn list --json --bogus` — stdout is **empty**, the diagnostic
 goes to stderr, and the exit code is 1. So stdout is either one object or nothing; it is never a
-half-written object or an error string.
+half-written object or an error string. `pharn status --json` keeps the same contract (one report or
+nothing), with one addition: with `--strict`, a finding still prints the report and exits 1 — see
+[`pharn status`](commands/status.md#json-output).
 
 Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 
@@ -599,7 +601,7 @@ run un-forced, and `pharn add a11y extra` used to drop the third argument.
 Two consequences worth knowing:
 
 - A genuine `--help` or `--version` does **not** excuse a bad sibling — neither an unrecognised one
-  nor one this command does not take: `pharn --help --bogus` and `pharn status --help --json` both
+  nor one this command does not take: `pharn --help --bogus` and `pharn status --help --force` both
   refuse instead of printing the usage text. `pharn status --help` on its own is unaffected.
 - Options are **scoped to one command**, and passing one to a different command is an error, not a
   no-op — see the next section.
@@ -609,7 +611,7 @@ Run `pharn --help` for the full option list.
 ## Unsupported option for this command
 
 ```text
-Unsupported option for `status`: "--json"
+Unsupported option for `status`: "--force"
 
 Usage: ...
 ```
@@ -618,21 +620,22 @@ Every option belongs to exactly one command, and `pharn` refuses the ones a comm
 
 | command         | options it accepts                  |
 | --------------- | ----------------------------------- |
-| `init`          | `--archetype` (a deprecated no-op)  |
+| `init`          | `--ref`, `--archetype` (a no-op)    |
 | `add`           | none                                |
 | `remove` / `rm` | none                                |
 | `update`        | `--force`, `--yes` / `-y`           |
 | `list`          | `--json`                            |
-| `status`        | `--strict`, `--no-drift`            |
+| `status`        | `--strict`, `--no-drift`, `--json`  |
 | _any_           | `--help` / `-h`, `--version` / `-v` |
 
 The message goes to stderr with the usage text and exits **1**, exactly like `Unknown option` — the
 label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for
 a typo that is not there.
 
-Before this, such an option was parsed and silently dropped. That was worst in CI: `pharn status
---json | jq` received the human-readable box-drawing output and a **success** exit code, and
-`pharn list --strict` exited 0 no matter what it found. With no command word at all, `pharn --json`,
+Before this, such an option was parsed and silently dropped. That was worst in CI: `pharn update
+--json | jq` received human-readable output and a **success** exit code, and
+`pharn list --strict` exited 0 no matter what it found (`status --json` is now a real option — see
+[`pharn status`](commands/status.md#json-output)). With no command word at all, `pharn --json`,
 `pharn --force` and `pharn --strict` each ran a **full `init`** while ignoring the option.
 
 Note that only the option _name_ is checked. `pharn list --json=false` is still accepted (`--json` is

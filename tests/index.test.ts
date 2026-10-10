@@ -154,19 +154,58 @@ describe('main (argv dispatch)', () => {
   it('routes `status` to runStatus with strict:false, drift:true by default', async () => {
     setArgv('status');
     await main();
-    expect(runStatus).toHaveBeenCalledWith({ strict: false, drift: true });
+    expect(runStatus).toHaveBeenCalledWith({
+      strict: false,
+      drift: true,
+      json: false,
+    });
   });
 
   it('passes strict:true through for `status --strict`', async () => {
     setArgv('status', '--strict');
     await main();
-    expect(runStatus).toHaveBeenCalledWith({ strict: true, drift: true });
+    expect(runStatus).toHaveBeenCalledWith({
+      strict: true,
+      drift: true,
+      json: false,
+    });
   });
 
   it('maps `status --no-drift` to drift:false', async () => {
     setArgv('status', '--no-drift');
     await main();
-    expect(runStatus).toHaveBeenCalledWith({ strict: false, drift: false });
+    expect(runStatus).toHaveBeenCalledWith({
+      strict: false,
+      drift: false,
+      json: false,
+    });
+  });
+
+  it('routes `status --json` to runStatus with json:true', async () => {
+    setArgv('status', '--json');
+    await main();
+    expect(runStatus).toHaveBeenCalledWith({
+      strict: false,
+      drift: true,
+      json: true,
+    });
+  });
+
+  it('refuses an extra positional after `status --json`', async () => {
+    setArgv('status', '--json', 'extra');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unexpected argument');
+    noCommandRan();
+  });
+
+  it('composes `status --json --strict --no-drift`', async () => {
+    setArgv('status', '--json', '--strict', '--no-drift');
+    await main();
+    expect(runStatus).toHaveBeenCalledWith({
+      strict: true,
+      drift: false,
+      json: true,
+    });
   });
 
   it('prints the version for --version and runs no command', async () => {
@@ -393,8 +432,8 @@ describe('main (argv dispatch)', () => {
     noCommandRan();
   };
 
-  it('exits(1) on `status --json` — the CI trap the finding names', async () => {
-    await expectUnsupported(['status', '--json'], '--json');
+  it('exits(1) on `status --force` — a misapplied flag, not a dropped one', async () => {
+    await expectUnsupported(['status', '--force'], '--force');
     // The command is named, so the message says WHICH command refused, and the
     // usage text still follows on stderr exactly as the unknown-option path.
     expect(stderrText()).toContain('status');
@@ -449,11 +488,18 @@ describe('main (argv dispatch)', () => {
   // A genuine --help does not license a MISAPPLIED sibling either, which is the
   // same rule the unknown-option gate applies to `--help --bogus`. Both gates
   // sit above the short-circuits so the ruling is one ruling, not two.
-  it('exits(1) on `status --help --json` and prints no usage on stdout', async () => {
-    setArgv('status', '--help', '--json');
+  it('exits(1) on `status --help --force` and prints no usage on stdout', async () => {
+    setArgv('status', '--help', '--force');
     await expect(main()).rejects.toMatchObject(new ProcessExit(1));
     expect(stdoutText()).not.toContain('Usage:');
-    expect(stderrText()).toContain('--json');
+    expect(stderrText()).toContain('--force');
+    noCommandRan();
+  });
+
+  it("prints usage for `status --help --json`: --json is status's own flag", async () => {
+    setArgv('status', '--help', '--json');
+    await main();
+    expect(stdoutText()).toContain('Usage:');
     noCommandRan();
   });
 
@@ -516,9 +562,9 @@ describe('main (argv dispatch)', () => {
   // Precedence: the flag gate runs BEFORE the arity gate, matching the file's
   // existing order (a global unknown option already beats an extra positional).
   it('names the unsupported flag, not the extra positional, when both are wrong', async () => {
-    setArgv('status', '--json', 'extra');
+    setArgv('status', '--force', 'extra');
     await expect(main()).rejects.toMatchObject(new ProcessExit(1));
-    expect(stderrText()).toContain('--json');
+    expect(stderrText()).toContain('--force');
     expect(stderrText()).not.toContain('Unexpected argument');
     noCommandRan();
   });
@@ -601,6 +647,7 @@ describe('main (argv dispatch)', () => {
     await main();
     expect(Object.keys(runStatus.mock.calls[0]![0]!).sort()).toEqual([
       'drift',
+      'json',
       'strict',
     ]);
   });
@@ -694,6 +741,7 @@ describe('main (argv dispatch)', () => {
     const printed = stdoutText();
     expect(printed).toMatch(/--json\s+list:/);
     expect(printed).toMatch(/--strict\s+status:/);
+    expect(printed).toMatch(/--json[^\n]*\n\s+status:/);
     expect(printed).toMatch(/--no-drift\s+status:/);
     expect(printed).toMatch(/--archetype\s+init:/);
     expect(printed).toMatch(/--ref <ref>\s+init, update:/);

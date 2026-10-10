@@ -1,8 +1,4 @@
-import {
-  diffHookWiring,
-  hookWiringFails,
-  hookWiringLines,
-} from '../lib/hook-wiring.js';
+import { diffHookWiring, hookWiringLines } from '../lib/hook-wiring.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
 import { REPO } from '../lib/constants.js';
@@ -14,7 +10,12 @@ import {
   sourceLabel,
   type InstallSource,
 } from '../lib/release.js';
-import { compareVersionCore } from '../lib/semver.js';
+import { versionStatus } from '../lib/version-status.js';
+import {
+  buildStatusReport,
+  serializeStatusReport,
+  strictFails,
+} from '../lib/status-report.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
@@ -33,7 +34,12 @@ import { needsModelsConversion } from '../lib/models-update.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { nodeFloorLines, nodeFloorStatus } from '../lib/node-floor.js';
 import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
-import { errorMessage, reportFatal } from '../lib/report-error.js';
+import {
+  errorMessage,
+  logErrorPlain,
+  reportFatal,
+  reportFatalPlain,
+} from '../lib/report-error.js';
 import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
@@ -52,18 +58,122 @@ import type { PharnConfig } from '../types.js';
  * skips the clone and only checks the version (via the lightweight SKILLS_VERSION
  * fetch). `--strict` exits 1 when anything is outdated, modified, or missing,
  * or when a hook upstream wires is not wired in `.claude/settings.json`.
+ *
+ * `--json` emits ONE JSON object on stdout and nothing else there — no clack
+ * chrome at all; diagnostics and every failure go to stderr, with stdout empty.
+ * It carries what the text notes report, and the exit codes are the same.
  */
 export async function runStatus(
-  opts: { strict?: boolean; drift?: boolean } = {},
+  opts: { strict?: boolean; drift?: boolean; json?: boolean } = {},
 ): Promise<void> {
   const strict = opts.strict ?? false;
   const drift = opts.drift ?? true;
+  const json = opts.json ?? false;
 
-  intro('pharn status');
+  if (!json) intro('pharn status');
 
   const cwd = process.cwd();
-  const config = loadArchetypeConfigOrExit(cwd);
+  const config = loadArchetypeConfigOrExit(cwd, { json });
+  if (json) {
+    await runArchetypeStatusJson(config, { strict, drift }, cwd);
+    return;
+  }
   await runArchetypeStatus(config, { strict, drift }, cwd);
+}
+
+// The `--json` twin of runArchetypeStatus: the same fetches in the same order,
+// but NOTHING reaches stdout until the report is complete — every failure
+// before that point writes to stderr and exits 1 with stdout empty. A strict
+// failure still prints the report (it is a finding, not a failure to report)
+// and sets `process.exitCode` rather than calling `process.exit`, so a large
+// object piped to `jq` is flushed, not cut off; the code is the text mode's.
+async function runArchetypeStatusJson(
+  config: PharnConfig,
+  opts: { strict: boolean; drift: boolean },
+  cwd: string,
+): Promise<void> {
+  const { strict, drift } = opts;
+  const node = nodeFloorStatus(process.versions.node);
+
+  // A diagnostic, so stderr — and above both fetches, as in text mode.
+  const proxyNotice = detectProxyNotice(process.env);
+  if (proxyNotice) logErrorPlain(proxyNoticeMessage(proxyNotice));
+
+  const channel = channelOf(config);
+  const emit = (report: ReturnType<typeof buildStatusReport>): void => {
+    console.log(serializeStatusReport(report));
+    if (report.strict.failed) process.exitCode = 1;
+  };
+
+  if (!drift) {
+    let latest: string;
+    let source: InstallSource;
+    try {
+      source = await resolveSource(channel);
+      latest =
+        source.kind === 'release'
+          ? source.version
+          : await fetchRemoteSkillsVersion();
+    } catch (err) {
+      reportFatalPlain(errorMessage(err), { err });
+      process.exit(1);
+    }
+    emit(
+      buildStatusReport({
+        node,
+        config,
+        channel,
+        latest,
+        source,
+        drift: null,
+        strict,
+      }),
+    );
+    return;
+  }
+
+  let repo;
+  try {
+    repo = await fetchRepo(await resolveSource(channel));
+  } catch (err) {
+    reportFatalPlain(errorMessage(err), { err });
+    process.exit(1);
+  }
+
+  let report: ReturnType<typeof buildStatusReport> | undefined;
+  try {
+    const index = parseCapabilityIndex(repo.dir);
+    const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
+    const diff = diffInstalledCapabilities({
+      repoDir: repo.dir,
+      projectRoot: cwd,
+      capabilities: (config.capabilities ?? []).filter(
+        (cap) => !frozen.has(`${cap.role}:${cap.name}`),
+      ),
+      layout: configLayout(config),
+    });
+    report = buildStatusReport({
+      node,
+      config,
+      channel,
+      latest: readSkillsVersion(repo.dir),
+      source: repo.source,
+      drift: {
+        diff,
+        hooks: diffHookWiring(repo.dir, cwd),
+        unknown: index.unknown,
+      },
+      strict,
+    });
+  } catch (err) {
+    reportFatalPlain(errorMessage(err), { err });
+  } finally {
+    repo.cleanup();
+  }
+
+  // Cleanup has run; a failure to build the report exits with stdout empty.
+  if (report === undefined) process.exit(1);
+  emit(report);
 }
 
 // Archetype install audit: version via SKILLS_VERSION + capability drift.
@@ -130,7 +240,7 @@ async function runArchetypeStatus(
     }
     const outdated = printArchetypeVersion(config, latest, source);
     printModels(config);
-    if (strict && outdated) process.exit(1);
+    if (strict && strictFails({ outdated })) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
     return;
   }
@@ -179,16 +289,7 @@ async function runArchetypeStatus(
     const hooks = diffHookWiring(repo.dir, cwd);
     const hookLines = hookWiringLines(hooks);
     if (hookLines) note(hookLines.join('\n'), 'HOOKS');
-    if (
-      strict &&
-      (outdated ||
-        result.modified.length ||
-        result.missing.length ||
-        result.unreadable.length ||
-        // The diff's STATUS, not the note's presence: a hook wired only in
-        // settings.local.json is noted, and is still wired.
-        hookWiringFails(hooks))
-    ) {
+    if (strict && strictFails({ outdated, diff: result, hooks })) {
       exitCode = 1;
     }
   } catch (err) {
@@ -214,10 +315,11 @@ function printArchetypeVersion(
   latest: string,
   source: InstallSource,
 ): boolean {
-  const ahead =
-    source.kind === 'release' &&
-    compareVersionCore(config.skillsVersion, latest) === 1;
-  const outdated = !ahead && config.skillsVersion !== latest;
+  const { ahead, outdated } = versionStatus({
+    installed: config.skillsVersion,
+    latest,
+    source,
+  });
   const skillsLine = ahead
     ? `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim(`(ahead of the latest verified release v${latest} — installed from main)`)}`
     : outdated

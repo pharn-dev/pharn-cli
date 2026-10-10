@@ -2,6 +2,7 @@ import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import { findSymlinkComponent } from './symlink-guard.js';
+import { escapeUnsafe } from './terminal-safe.js';
 import { isPlainObject, safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
@@ -247,29 +248,8 @@ export function hookWiringFails(diff: HookWiringDiff): boolean {
   );
 }
 
-// What never reaches a terminal raw: the shared sanitizer's set (C0, DEL, C1,
-// Unicode format characters — lib/terminal-safe.ts) plus the two Unicode line
-// separators, which are not format characters but still move text. Built from
-// code points so no such character sits in this source file.
-const ESCAPED = new RegExp(
-  `[\\x00-\\x1f\\x7f-\\x9f\\p{Cf}${String.fromCodePoint(0x2028, 0x2029)}]`,
-  'gu',
-);
 /** Longest line the note prints for one hook. */
 const MAX_LINE = 300;
-
-/**
- * Each UTF-16 unit of each unsafe character as `\uXXXX`. Inside a JSON string
- * these are JSON escapes, so the printed object parses back to the EXACT
- * upstream string; outside one they are just visible text.
- */
-function escapeUnsafe(text: string): string {
-  return text.replace(ESCAPED, (ch) =>
-    [...Array(ch.length).keys()]
-      .map((i) => `\\u${ch.charCodeAt(i).toString(16).padStart(4, '0')}`)
-      .join(''),
-  );
-}
 
 /**
  * One display line: `Event [matcher]: <the hook as JSON>`. The JSON is the hook
