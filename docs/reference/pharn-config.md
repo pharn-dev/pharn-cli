@@ -9,20 +9,20 @@ archetypes/capabilities and the pinned commit).
 
 ## Top-level fields (archetype install)
 
-| Field           | Type           | Description                                                                                  |     |
-| --------------- | -------------- | -------------------------------------------------------------------------------------------- | --- |
-| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                                |     |
-| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                          |     |
-| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                          |     |
-| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                          |     |
-| `ref`           | string         | `"latest"` to follow verified releases (`--ref latest`); absent → the tip of main            |     |
-| `installedAt`   | string         | ISO timestamp of the install / last update                                                   |     |
-| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                              |     |
-| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                           |     |
-| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                        |     |
-| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)                      |     |
-| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                 |     |
-| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))                    |     |
+| Field           | Type           | Description                                                                       |     |
+| --------------- | -------------- | --------------------------------------------------------------------------------- | --- |
+| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                     |     |
+| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                               |     |
+| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                               |     |
+| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable               |     |
+| `ref`           | string         | `"latest"` to follow verified releases (`--ref latest`); absent → the tip of main |     |
+| `installedAt`   | string         | ISO timestamp of the install / last update                                        |     |
+| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                   |     |
+| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                |     |
+| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)             |     |
+| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)           |     |
+| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                      |     |
+| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))         |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 
@@ -127,18 +127,37 @@ from the list. A value that is not a list of
 
 The `models` block is **pharn-oss's**, not this CLI's: pharn-oss owns its schema and its defaults —
 every other field on this page is pharn's. It declares a model and an effort for each PHARN product
-stage, and it is the **source of truth** that each `/pharn-*` command's static `model:` / `effort:`
-frontmatter is held to.
+stage. Two things use it, and they are not the same thing:
 
-> **What applies a model is the command frontmatter, not this block.** Claude Code runs each
-> `/pharn-*` command on the `model:` / `effort:` in that command's own frontmatter; nothing reads this
-> block to pick one. pharn-oss's checker, installed with PHARN, holds the two equal:
-> `node pharn/floor/check-model-config.mjs agreement` (`.dev/floor/` in the legacy flat layout). So
-> editing the block is half a change: update the command frontmatter too, or the checker tells you. A
-> green check means two files agree, never that a stage ran on that model — pharn-oss states the
-> bounds in its `LIMITS.md` §8.
+- **Orchestrated runs read it.** `/pharn-ship` and `/pharn-loop` run the stages their routing policy
+  routes as subagents, and they read `models.stages` at run time to choose the **model** each subagent
+  is requested on. As of pharn-oss 6.55.0, `/pharn-ship` routes plan, grill, test and build (quick mode:
+  plan, test and build), and `/pharn-loop` routes spec, plan, test and build. The policy is pharn-oss's,
+  in its `pharn/floor/stage-agent-core.mjs`, and can change.
+- **Direct invocation does not.** A `/pharn-<stage>` you run yourself uses that command's own static
+  `model:` / `effort:` frontmatter. The block is the source of truth that frontmatter is **held to**:
+  pharn-oss's checker, `node pharn/floor/check-model-config.mjs agreement` (`.dev/floor/` in the
+  legacy flat layout), lists each difference. Nothing in an installed project runs it automatically.
 
-pharn-oss's block, as of pharn-oss 6.22.0:
+What the block does **not** reach: **effort** is never routed (the Agent tool takes none), so a routed
+stage runs at the effort it inherits. A stage the policy keeps inline, a stage whose resolved model is
+`inherit` or a full `claude-*` id, and a run with no usable block all run on the model of the session
+that runs the orchestrator, and the run says why. Routing records what was **requested**; nothing
+observes what a stage actually ran on, and a green `agreement` check means two files agree. pharn-oss
+states the bounds in its `LIMITS.md` §8.
+
+What editing changes:
+
+- **A `/pharn-*` command's frontmatter.** That file is then `modified`: `pharn status` lists it as
+  differing, and `pharn update` **skips** it (your edit stays) and withholds the `skillsVersion` bump
+  for as long as the skip stands. `pharn update --force` backs the file up and overwrites it. This
+  changes what a direct invocation uses.
+- **Only `models.stages`.** No file drifts: `pharn.config.json` is not one of the files `status` compares,
+  `pharn update` keeps an edited block whole and never withholds the version over it, and a re-run
+  `pharn init` resets it to pharn-oss's block. This changes the model orchestrated runs request, while
+  a direct invocation keeps the frontmatter's, so `agreement` reports the difference.
+
+pharn-oss's block, as of pharn-oss 6.55.0:
 
 ```json
 {
@@ -232,12 +251,12 @@ The installed default:
 
 | Field                      | Type    | Meaning                                                                       |
 | -------------------------- | ------- | ----------------------------------------------------------------------------- |
-| `resolutionOrder`          | array   | The steps to try, in order. Must end with `ask`.                              |
+| `resolutionOrder`          | array   | The steps to try, in order. Must contain `ask`, anywhere in the list.         |
 | `modelConfidenceThreshold` | string  | How sure the model must be before its answer counts. Requires a `model` step. |
 | `haltOnUnknown`            | boolean | Stop rather than guess when nothing in the order resolves.                    |
 
 Five hand-edits are rejected by name: an unknown sibling key, an unknown step, a **duplicate** step, a
-`resolutionOrder` whose last entry is not `ask`, and a `modelConfidenceThreshold` set without a `model`
+`resolutionOrder` that does not contain `ask`, and a `modelConfidenceThreshold` set without a `model`
 step in the order.
 
 ## Keys pharn does not own
@@ -246,24 +265,33 @@ Every field on this page is **pharn's** to write, including the
 [legacy fields](#legacy-fields-pre-archetype-configs-still-load) it no longer writes — `models` too,
 though pharn-oss defines what goes inside it. Any **other** top-level key is **yours**: `pharn` does not
 interpret or validate it, and every command that writes this file keeps it. Upstream PHARN documents
-two that you add by hand:
+four that you add by hand:
 
-| Key           | Read by                                                        | What it sets                                                 |
-| ------------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
-| `testResults` | `/pharn-test`, and `/pharn-verify`'s acceptance-criteria check | The JSON report format of each test gate                     |
-| `ship`        | `/pharn-ship` (`ship.requireAttestation`)                      | `true`: the ship stage asks for a named person's attestation |
+| Key           | Read by                                                        | What it sets                                                                                                |
+| ------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `testResults` | `/pharn-test`, and `/pharn-verify`'s acceptance-criteria check | The JSON report format of each test gate                                                                    |
+| `ship`        | `/pharn-ship` (`ship.requireAttestation`)                      | `true`: the ship stage asks for a named person's attestation                                                |
+| `gates`       | `/pharn-regress`, `/pharn-verify` and `/pharn-test`'s red run  | `gates.exclude`: ids of discovered gates to leave out of discovery                                          |
+| `budget`      | `/pharn-verify`'s `instruction-growth` gate                    | `budget.instructionGrowthBytes`: how many bytes the always-loaded instruction files may grow (default 2048) |
 
 ```json
 {
   "testResults": { "test": "vitest-json", "test:e2e": "playwright-json" },
-  "ship": { "requireAttestation": false }
+  "ship": { "requireAttestation": false },
+  "gates": { "exclude": ["e2e"] },
+  "budget": { "instructionGrowthBytes": 2048 }
 }
 ```
 
-Without `testResults`, `/pharn-loop` stops with `blocked: no-test-runner`. The shape of both keys is
-upstream's to define — see the pharn-oss README,
-[Per-test results](https://github.com/pharn-dev/pharn-oss#per-test-results). Because `pharn` does not
-own these keys it does not check them, so a typo in one is not reported by any `pharn` command.
+Without `testResults`, `/pharn-loop` stops with `blocked: no-test-runner`. The shape of these keys is
+upstream's to define. The pharn-oss README documents `testResults`
+([Per-test results](https://github.com/pharn-dev/pharn-oss#per-test-results)) and `gates.exclude`
+([Excluding a gate](https://github.com/pharn-dev/pharn-oss#excluding-a-gate-6360)): each id must be one
+of the gates PHARN discovers, anything else stops the run with an error, and an excluded gate is not
+evidence either way, so commit the list before the run. The README does **not** describe
+`budget.instructionGrowthBytes`; pharn-oss's `LIMITS.md` §3e says the `instruction-growth` gate compares
+the bytes added since a base commit with that key, read from `pharn.config.json` at that base, default 2048. Because `pharn` does not own these keys it does not check them, so a typo in one is not reported
+by any `pharn` command.
 
 How each command keeps them:
 

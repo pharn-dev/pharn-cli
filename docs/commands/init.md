@@ -224,7 +224,7 @@ publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
 
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 
-On success, the CLI reports the capability count, prints the `models` block it copied resolved per stage — under the label that Claude Code applies each command's own frontmatter, which the block is the source of truth for — and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.
+On success, the CLI reports the capability count, prints the `models` block it copied resolved per stage — under the label that says what reads it (`/pharn-ship` and `/pharn-loop`, for the model only) and that a directly run stage uses its command's own frontmatter, which the block is held to — and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.
 
 ## Concurrency
 

@@ -8,11 +8,15 @@ import {
 // Showing the `models` block — the rows `pharn status`, `pharn init` and
 // `pharn update` print, and the one label they all print under them.
 //
-// The label is the point. Claude Code applies each /pharn-* command's own
-// static `model:` / `effort:` frontmatter; nothing reads this block to pick a
-// model. The block is the source of truth that frontmatter is HELD TO, by
-// pharn-oss's checker (its `agreement` mode). So the rows are a declaration,
-// and they are never presented as routing that happens.
+// The label is the point. It says what reads the block and what does not.
+// Orchestrated runs read it: /pharn-ship and /pharn-loop pick the MODEL they
+// request for each stage they route to a subagent (pharn-oss's routing policy;
+// a stage it keeps inline, an `inherit` or a `claude-*` id runs on the
+// session's model). EFFORT is never routed. A stage a person invokes directly
+// uses that command's own static `model:` / `effort:` frontmatter, which the
+// block is HELD TO by pharn-oss's checker (its `agreement` mode) — and nothing
+// runs that check automatically. A request is never proof of what a stage ran
+// on, so the rows are a declaration, never a record of what happened.
 //
 // Pure: no color, no clack — callers add their own chrome. Every token in a
 // row is a product stage (this CLI's pinned list) or a value pharn-oss's rules
@@ -54,9 +58,12 @@ export function resolvedStageLines(stages: ModelsStages): string[] {
  */
 export function modelsLabelLines(floorDir: string): string[] {
   return [
-    "Claude Code applies each /pharn-* command's own model:/effort:",
-    'frontmatter, not this block. The block is the source of truth',
-    'that frontmatter is held to; to check the two agree:',
+    '/pharn-ship and /pharn-loop read this block to pick the model they',
+    'request for each stage they run as a subagent. Effort is never',
+    "routed, and a stage that runs inline uses the session's model.",
+    "A stage you run directly uses its command's own model:/effort:",
+    'frontmatter, which this block is held to. Nothing runs that',
+    'check automatically; to run it:',
     modelsCheckerCommand(floorDir, 'agreement'),
   ];
 }

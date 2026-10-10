@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The `models` label and docs now say what reads the block.** `pharn status`, `init` and `update` print that `/pharn-ship` and `/pharn-loop` read `models.stages` to pick the model they request for the stages they route (never the effort), that a stage you run directly uses its command's own frontmatter, and that nothing runs the `agreement` check automatically. The docs also explain that editing a command's frontmatter makes it `modified` (`update` skips it and withholds the version bump) while editing only the block causes no file drift.
+
+### Fixed
+
+- **`docs/reference/pharn-config.md`:** `seam.resolutionOrder` must _contain_ `ask`, not end with it, as the code has always required; and the user-owned keys table now lists `gates` and `budget` beside `testResults` and `ship`.
+
 ## [0.9.0] — 2026-10-07
 
 ### Added
@@ -47,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `default` sits inside `stages`, beside pharn-oss's eleven product stages.
 
   No command refuses to run over the block any more; `pharn status` lists what pharn-oss's rules reject instead. If pharn-oss's rules move ahead of the copy in your `pharn`, the newer block is not applied, the reason is named, and upgrading `pharn` fixes it.
+
 - **`pharn status` and `pharn init` show the block for what it is.** They list every product stage with the model and effort it resolves to, marking the stages that fall back to `default`. The label under the list says that Claude Code applies each `/pharn-*` command's own `model:`/`effort:` frontmatter, that the block is the source of truth that frontmatter is held to, and that `node pharn/floor/check-model-config.mjs agreement` checks the two. The block is no longer presented as routing.
 - **`pharn update` manages the `models` block like a file.** pharn-oss's block replaces one `pharn` wrote, tracked by a new `pharn.config.json#/models` entry in `pharn.records.json`, and a block you changed is kept. `--force` replaces yours after backing up `pharn.config.json` to `.pharn-backup/`. A kept block never holds back the skills version, and a `MODELS` note says what happened.
 

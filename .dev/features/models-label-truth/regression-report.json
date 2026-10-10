@@ -1,0 +1,33 @@
+{
+  "base": "1c96bf8f41107d972159a4545ceaca8a0cfb1581",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/init.md",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "docs/reference/pharn-config.md",
+    "docs/troubleshooting.md",
+    "src/commands/status.ts",
+    "src/lib/model-config-format.ts",
+    "src/lib/pharn-config.ts",
+    "src/steps/install-archetype.ts",
+    "tests/docs-models-claims.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/model-config-format.test.ts",
+    "tests/status.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

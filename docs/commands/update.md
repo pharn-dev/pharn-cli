@@ -221,7 +221,8 @@ at, never a commit whose CI is unfinished, cancelled or red.
 ## The `models` block
 
 `models` in `pharn.config.json` is **pharn-oss's** block: the source of truth each `/pharn-*`
-command's `model:` / `effort:` frontmatter is held to (see
+command's `model:` / `effort:` frontmatter is held to, and which `/pharn-ship` and `/pharn-loop` read to
+pick the model they request for the stages they route (see
 [pharn.config.json](../reference/pharn-config.md#models)). `update` decides it with the table above,
 using the block's hash where a file would use its bytes, and prints a `MODELS` note for every outcome
 except "already identical":
@@ -255,7 +256,10 @@ is converted it no longer does.
 A kept block never holds back the skills version, unlike a skipped file: your `models` block is
 configuration, and a block you tuned is a steady state, not an unfinished upgrade. Keep in mind what
 the block is for, though — if your values differ from the installed commands' frontmatter,
-`node pharn/floor/check-model-config.mjs agreement` lists where.
+`node pharn/floor/check-model-config.mjs agreement` lists where (nothing runs it automatically).
+Editing the frontmatter of a `/pharn-*` command is a different edit: that file becomes `modified`, so
+`update` skips it and **does** withhold the skills-version bump, until you restore it or use `--force`.
+Editing only the block causes no file drift, and a re-run `pharn init` resets it.
 
 If pharn-oss ships no block, yours is left alone (converted, if it is in the old format). If pharn-oss
 ships one this `pharn` cannot accept — pharn-oss's rules can move ahead of the copy of them in your
