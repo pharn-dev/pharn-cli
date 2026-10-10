@@ -5,7 +5,12 @@ const runInit = vi.fn(async (_opts?: { ref?: string }) => undefined);
 const runAdd = vi.fn(async (_arg?: string) => undefined);
 const runRemove = vi.fn(async (_arg?: string) => undefined);
 const runUpdate = vi.fn(
-  async (_opts?: { force?: boolean; yes?: boolean; ref?: string }) => undefined,
+  async (_opts?: {
+    force?: boolean;
+    yes?: boolean;
+    ref?: string;
+    dryRun?: boolean;
+  }) => undefined,
 );
 const runList = vi.fn(async (_opts?: { json?: boolean }) => undefined);
 const runStatus = vi.fn(
@@ -87,13 +92,21 @@ describe('main (argv dispatch)', () => {
   it('routes `update` to runUpdate with force:false, yes:false by default', async () => {
     setArgv('update');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: false, yes: false });
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: false,
+      yes: false,
+      dryRun: false,
+    });
   });
 
   it('passes force:true through for `update --force`', async () => {
     setArgv('update', '--force');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: true, yes: false });
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: true,
+      yes: false,
+      dryRun: false,
+    });
   });
 
   // `--yes` was parsed but dead before this: minimist listed it and only
@@ -102,19 +115,92 @@ describe('main (argv dispatch)', () => {
   it('passes yes:true through for `update --yes`', async () => {
     setArgv('update', '--yes');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: false, yes: true });
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: false,
+      yes: true,
+      dryRun: false,
+    });
   });
 
   it('accepts the -y alias for `update`', async () => {
     setArgv('update', '-y');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: false, yes: true });
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: false,
+      yes: true,
+      dryRun: false,
+    });
+  });
+
+  it('passes dryRun:true through for `update --dry-run`', async () => {
+    setArgv('update', '--dry-run');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: false,
+      yes: false,
+      dryRun: true,
+    });
+  });
+
+  it('composes `update --dry-run` with --force, --yes and --ref', async () => {
+    setArgv('update', '--dry-run', '--force', '-y', '--ref', 'latest');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: true,
+      yes: true,
+      dryRun: true,
+      ref: 'latest',
+    });
+  });
+
+  it('reads `--dry-run=false` and `--no-dry-run` as dryRun:false', async () => {
+    setArgv('update', '--dry-run=false');
+    await main();
+    expect(runUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dryRun: false }),
+    );
+    setArgv('update', '--no-dry-run');
+    await main();
+    expect(runUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dryRun: false }),
+    );
+  });
+
+  it.each(['init', 'add', 'remove', 'list', 'status'])(
+    'refuses `--dry-run` on `%s`',
+    async (cmd) => {
+      setArgv(cmd, '--dry-run');
+      await expect(main()).rejects.toThrow(ProcessExit);
+      expect(runUpdate).not.toHaveBeenCalled();
+      const out = errSpy.mock.calls
+        .map((c: unknown[]) => String(c[0]))
+        .join('\n');
+      expect(out).toContain(`Unsupported option for \`${cmd}\``);
+      expect(out).toContain('--dry-run');
+    },
+  );
+
+  it('still refuses `--dry-run` beside a genuine --help on another command', async () => {
+    setArgv('status', '--help', '--dry-run');
+    await expect(main()).rejects.toThrow(ProcessExit);
+  });
+
+  it('documents --dry-run as an update flag in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    expect(String(logSpy.mock.calls[0]![0])).toMatch(
+      /--dry-run\s+update: show what would change and write nothing/,
+    );
   });
 
   it('composes `update --yes --force` (the full CI re-apply)', async () => {
     setArgv('update', '--yes', '--force');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: true, yes: true });
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: true,
+      yes: true,
+      dryRun: false,
+    });
   });
 
   it('documents --yes as an update flag in the usage text', async () => {
@@ -607,10 +693,18 @@ describe('main (argv dispatch)', () => {
   it('still composes `update --force --yes` in either order', async () => {
     setArgv('update', '--force', '--yes');
     await main();
-    expect(runUpdate).toHaveBeenCalledWith({ force: true, yes: true });
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: true,
+      yes: true,
+      dryRun: false,
+    });
     setArgv('update', '--yes', '--force');
     await main();
-    expect(runUpdate).toHaveBeenLastCalledWith({ force: true, yes: true });
+    expect(runUpdate).toHaveBeenLastCalledWith({
+      force: true,
+      yes: true,
+      dryRun: false,
+    });
   });
 
   it('still runs init on a bare `pharn` with no argv at all', async () => {
@@ -630,6 +724,7 @@ describe('main (argv dispatch)', () => {
     setArgv('update', '--force', '--yes');
     await main();
     expect(Object.keys(runUpdate.mock.calls[0]![0]!).sort()).toEqual([
+      'dryRun',
       'force',
       'ref',
       'yes',
@@ -686,6 +781,7 @@ describe('main (argv dispatch)', () => {
       expect(runUpdate).toHaveBeenCalledWith({
         force: false,
         yes: true,
+        dryRun: false,
         ref: 'main',
       });
     });

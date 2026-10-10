@@ -18,6 +18,7 @@
 | The fetched version declares a `MIN_CLI` newer than the installed CLI                                   | 1         |
 | `add` refused on a skills-version or layout mismatch                                                    | 1         |
 | `update` completed but skipped files it could not verify                                                | 0         |
+| `update --dry-run` printed its plan (whatever it contains; nothing was written)                         | 0         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
@@ -127,7 +128,8 @@ There is no stack-pack or package prerequisite: archetype detection reads `packa
 file tree, and installs whatever capabilities apply.
 
 Off a TTY, `init` and `update` **exit 1** rather than prompting into a dead stream; `update --yes` is
-the supported way through in CI, and `init` deliberately has no `--yes`.
+the supported way through in CI, and `init` deliberately has no `--yes`. `update --dry-run` needs no
+terminal at all: it never prompts and writes nothing.
 
 ### Git not found
 
@@ -618,15 +620,15 @@ Usage: ...
 
 Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
 
-| command         | options it accepts                  |
-| --------------- | ----------------------------------- |
-| `init`          | `--ref`, `--archetype` (a no-op)    |
-| `add`           | none                                |
-| `remove` / `rm` | none                                |
-| `update`        | `--force`, `--yes` / `-y`           |
-| `list`          | `--json`                            |
-| `status`        | `--strict`, `--no-drift`, `--json`  |
-| _any_           | `--help` / `-h`, `--version` / `-v` |
+| command         | options it accepts                              |
+| --------------- | ----------------------------------------------- |
+| `init`          | `--ref`, `--archetype` (a no-op)                |
+| `add`           | none                                            |
+| `remove` / `rm` | none                                            |
+| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run` |
+| `list`          | `--json`                                        |
+| `status`        | `--strict`, `--no-drift`, `--json`              |
+| _any_           | `--help` / `-h`, `--version` / `-v`             |
 
 The message goes to stderr with the usage text and exits **1**, exactly like `Unknown option` — the
 label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for

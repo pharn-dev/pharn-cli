@@ -266,7 +266,7 @@ Two commands sit outside the pipeline:
 | `pharn init` | Detect archetypes and install matching capabilities. This is also the default when no command is given. |
 | `pharn add [capability]` | Add one capability manually, for example `a11y` or `lens:n-plus-one`. With no argument, opens an interactive picker. |
 | `pharn remove [capability]` | Remove one installed capability. With no argument, opens an interactive picker. |
-| `pharn update` | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt. |
+| `pharn update` | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt; `--dry-run` prints what it would do and writes nothing. |
 | `pharn list` | Show installed archetypes and capabilities. Use `--json` for machine-readable output. |
 | `pharn status` | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report. |
 | `pharn --help` | Show command help. |
