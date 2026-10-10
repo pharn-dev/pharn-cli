@@ -1,4 +1,4 @@
-import { logError } from '../lib/report-error.js';
+import { logError, logErrorPlain } from '../lib/report-error.js';
 import { nodeFloorRefusal, nodeFloorStatus } from '../lib/node-floor.js';
 
 // The Node-floor preflight for the two commands that install PHARN's floor
@@ -13,12 +13,17 @@ import { nodeFloorRefusal, nodeFloorStatus } from '../lib/node-floor.js';
 // Reported through the shared reporter (stderr), exit 1 — the CLI's own refusal
 // code, like every other up-front refusal in `index.ts`. (pharn-oss's floor CLIs
 // exit 2 for the same condition; that is theirs, and `status` quotes it.)
-export function runNodePrereq(command: 'init' | 'update'): void {
+export function runNodePrereq(
+  command: 'init' | 'update',
+  opts: { json?: boolean } = {},
+): void {
   const refusal = nodeFloorRefusal(
     nodeFloorStatus(process.versions.node),
     command,
   );
   if (refusal === null) return;
-  logError(refusal);
+  // `--json` keeps stdout and the clack chrome out of it: one plain stderr line.
+  if (opts.json) logErrorPlain(refusal);
+  else logError(refusal);
   process.exit(1);
 }

@@ -10,6 +10,7 @@ const runUpdate = vi.fn(
     yes?: boolean;
     ref?: string;
     dryRun?: boolean;
+    json?: boolean;
   }) => undefined,
 );
 const runList = vi.fn(async (_opts?: { json?: boolean }) => undefined);
@@ -96,6 +97,7 @@ describe('main (argv dispatch)', () => {
       force: false,
       yes: false,
       dryRun: false,
+      json: false,
     });
   });
 
@@ -106,6 +108,7 @@ describe('main (argv dispatch)', () => {
       force: true,
       yes: false,
       dryRun: false,
+      json: false,
     });
   });
 
@@ -119,6 +122,7 @@ describe('main (argv dispatch)', () => {
       force: false,
       yes: true,
       dryRun: false,
+      json: false,
     });
   });
 
@@ -129,6 +133,7 @@ describe('main (argv dispatch)', () => {
       force: false,
       yes: true,
       dryRun: false,
+      json: false,
     });
   });
 
@@ -139,6 +144,7 @@ describe('main (argv dispatch)', () => {
       force: false,
       yes: false,
       dryRun: true,
+      json: false,
     });
   });
 
@@ -149,6 +155,7 @@ describe('main (argv dispatch)', () => {
       force: true,
       yes: true,
       dryRun: true,
+      json: false,
       ref: 'latest',
     });
   });
@@ -200,6 +207,7 @@ describe('main (argv dispatch)', () => {
       force: true,
       yes: true,
       dryRun: false,
+      json: false,
     });
   });
 
@@ -552,9 +560,8 @@ describe('main (argv dispatch)', () => {
 
   // A command that HAS flags still refuses one that is not its own: the table
   // is per-command membership, not "does pharn know this flag at all".
-  it('exits(1) on `update --json`', async () => {
-    await expectUnsupported(['update', '--json'], '--json');
-  });
+  // (`update` now takes `--json`, but only with `--dry-run`: see the
+  // cross-flag table below.)
 
   // `--archetype` is init's retained no-op alias, so it is init's ALONE.
   it('exits(1) on `status --archetype`', async () => {
@@ -697,6 +704,7 @@ describe('main (argv dispatch)', () => {
       force: true,
       yes: true,
       dryRun: false,
+      json: false,
     });
     setArgv('update', '--yes', '--force');
     await main();
@@ -704,6 +712,7 @@ describe('main (argv dispatch)', () => {
       force: true,
       yes: true,
       dryRun: false,
+      json: false,
     });
   });
 
@@ -726,6 +735,7 @@ describe('main (argv dispatch)', () => {
     expect(Object.keys(runUpdate.mock.calls[0]![0]!).sort()).toEqual([
       'dryRun',
       'force',
+      'json',
       'ref',
       'yes',
     ]);
@@ -782,6 +792,7 @@ describe('main (argv dispatch)', () => {
         force: false,
         yes: true,
         dryRun: false,
+        json: false,
         ref: 'main',
       });
     });
@@ -841,5 +852,115 @@ describe('main (argv dispatch)', () => {
     expect(printed).toMatch(/--no-drift\s+status:/);
     expect(printed).toMatch(/--archetype\s+init:/);
     expect(printed).toMatch(/--ref <ref>\s+init, update:/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The cross-flag table (REQUIRED_WITH): a flag a command takes, but only
+// together with another. `update --json` is the dry run's JSON form.
+// ---------------------------------------------------------------------------
+describe('main (cross-flag requirements)', () => {
+  stubProcessExit();
+  const realArgv = process.argv;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  const stderr = (): string =>
+    errSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
+
+  beforeEach(() => {
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    process.argv = realArgv;
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it('passes json:true through for `update --dry-run --json`', async () => {
+    setArgv('update', '--dry-run', '--json');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: false,
+      yes: false,
+      dryRun: true,
+      json: true,
+    });
+  });
+
+  it('composes `--json` with --force and --ref', async () => {
+    setArgv('update', '--json', '--dry-run', '--force', '--ref', 'latest');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: true,
+      yes: false,
+      dryRun: true,
+      json: true,
+      ref: 'latest',
+    });
+  });
+
+  it('refuses `update --json` alone: exit 1, stderr, usage, runUpdate never called', async () => {
+    setArgv('update', '--json');
+    await expect(main()).rejects.toThrow(new ProcessExit(1));
+    expect(runUpdate).not.toHaveBeenCalled();
+    const out = stderr();
+    expect(out).toContain('Incomplete option for `update`');
+    expect(out).toContain('--json (needs --dry-run)');
+    expect(out).toContain('Usage:');
+    expect(console.log).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['update', '--json', '--help'],
+    ['update', '--help', '--json'],
+    ['update', '--json', '--version'],
+    ['update', '--json', '--force'],
+    ['update', '--json', '--yes'],
+    ['update', '--dry-run=false', '--json'],
+    ['update', '--no-dry-run', '--json'],
+  ])(
+    'refuses `%s %s %s`: a genuine --help licenses no misapplied sibling',
+    async (...argv) => {
+      setArgv(...argv);
+      await expect(main()).rejects.toThrow(new ProcessExit(1));
+      expect(runUpdate).not.toHaveBeenCalled();
+      expect(console.log).not.toHaveBeenCalled();
+      expect(stderr()).toContain('--json (needs --dry-run)');
+    },
+  );
+
+  it('reads `--json=false` as absent, like the dispatch does', async () => {
+    setArgv('update', '--json=false');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ dryRun: false, json: false }),
+    );
+  });
+
+  it('does not touch the commands outside its table', async () => {
+    setArgv('status', '--json');
+    await main();
+    expect(runStatus).toHaveBeenCalledTimes(1);
+    setArgv('list', '--json');
+    await main();
+    expect(runList).toHaveBeenCalledWith({ json: true });
+  });
+
+  it('keeps "Unknown command" for a bogus command with --json', async () => {
+    setArgv('bogus', '--json');
+    await expect(main()).rejects.toThrow(new ProcessExit(1));
+    expect(stderr()).toContain('Unknown command: bogus');
+  });
+
+  it('documents --json as an update flag in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    const printed = vi
+      .mocked(console.log)
+      .mock.calls.map((c: unknown[]) => String(c[0] ?? ''))
+      .join('\n');
+    expect(printed).toMatch(
+      /update: with --dry-run, emit the plan as one JSON object/,
+    );
   });
 });

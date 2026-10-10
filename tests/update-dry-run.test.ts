@@ -636,7 +636,7 @@ describe('runUpdate --dry-run', () => {
       await writeRecords(proj, {
         skillsVersion: '1.0.0',
         commit: null,
-        files: { ...read.store.files, 'features/README.md': 'x'.repeat(64) },
+        files: { ...read.store.files, 'features/README.md': 'a'.repeat(64) },
       });
       write(join(repo, 'pharn/features/README.md'), 'readme');
       write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v2');

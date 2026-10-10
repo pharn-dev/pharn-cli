@@ -131,13 +131,13 @@ upstream's
 `pharn init` is archetype-driven. There is no stack questionnaire and no module
 catalog.
 
-| Step | What happens |
-| ---- | ------------ |
-| Detect | Reads `package.json` dependency names and performs a bounded, symlink-safe file-tree scan to classify the project as `ssr`, `backend`, `spa`, `lib`, or a combination. |
-| Fetch | Resolves the tip of `pharn-dev/pharn-oss` `main` to its commit, downloads that commit's GitHub codeload tarball, and extracts it into a temp directory. `--ref latest` installs the newest **verified release** instead (a tag pharn-oss creates only after its post-merge CI passed), checking its `SKILLS_VERSION` matches the tag. |
-| Resolve | Selects capabilities whose `applies` value is `universal` or intersects your detected archetypes. Skipped capabilities are named with the reason. |
-| Install | Copies the selected capabilities plus fixed PHARN product surfaces into your repo, mirroring the upstream layout. |
-| Record | Writes `pharn.config.json` and `pharn.records.json` so future updates can tell PHARN-owned files from local edits. |
+| Step    | What happens                                                                                                                                                                                                                                                                                                                          |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Detect  | Reads `package.json` dependency names and performs a bounded, symlink-safe file-tree scan to classify the project as `ssr`, `backend`, `spa`, `lib`, or a combination.                                                                                                                                                                |
+| Fetch   | Resolves the tip of `pharn-dev/pharn-oss` `main` to its commit, downloads that commit's GitHub codeload tarball, and extracts it into a temp directory. `--ref latest` installs the newest **verified release** instead (a tag pharn-oss creates only after its post-merge CI passed), checking its `SKILLS_VERSION` matches the tag. |
+| Resolve | Selects capabilities whose `applies` value is `universal` or intersects your detected archetypes. Skipped capabilities are named with the reason.                                                                                                                                                                                     |
+| Install | Copies the selected capabilities plus fixed PHARN product surfaces into your repo, mirroring the upstream layout.                                                                                                                                                                                                                     |
+| Record  | Writes `pharn.config.json` and `pharn.records.json` so future updates can tell PHARN-owned files from local edits.                                                                                                                                                                                                                    |
 
 The current upstream install layout places most runtime surfaces under `pharn/`
 and Claude Code integration under `.claude/`. Older flat-layout installs are
@@ -145,18 +145,18 @@ still understood through the recorded `layout` field.
 
 ## What gets installed
 
-| Artifact | Purpose |
-| -------- | ------- |
-| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline auditors and review lenses selected for your project archetype(s). |
-| `.claude/commands/`, `.claude/hooks/` | The installed `/pharn-*` Claude Code slash commands and deterministic `.cjs` hooks. |
-| `pharn/pharn-contracts/`, `pharn/floor/` | Schemas shared across PHARN stages and floor checkers invoked by the workflow. |
-| `pharn/pharn-core/` | Agent-readable mechanism skills, including the seam resolver. |
-| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md` | Trusted PHARN docs copied from upstream in the current layout. |
-| `THREAT-MODEL.md`, `LIMITS.md` | Trusted PHARN docs copied at the project root in the current layout. |
-| `pharn/LICENSE` (flat: `PHARN-LICENSE`) | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten. |
-| `pharn/features/README.md` | The feature-loop boundary contract referenced by installed commands (pharn layout). |
-| `pharn.config.json` | Installed version, commit, layout, archetypes, capabilities, and defaults. |
-| `pharn.records.json` | Per-file hashes for drift-safe updates. Commit this with the config. |
+| Artifact                                                              | Purpose                                                                             |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline auditors and review lenses selected for your project archetype(s).         |
+| `.claude/commands/`, `.claude/hooks/`                                 | The installed `/pharn-*` Claude Code slash commands and deterministic `.cjs` hooks. |
+| `pharn/pharn-contracts/`, `pharn/floor/`                              | Schemas shared across PHARN stages and floor checkers invoked by the workflow.      |
+| `pharn/pharn-core/`                                                   | Agent-readable mechanism skills, including the seam resolver.                       |
+| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Trusted PHARN docs copied from upstream in the current layout.                      |
+| `THREAT-MODEL.md`, `LIMITS.md`                                        | Trusted PHARN docs copied at the project root in the current layout.                |
+| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten.          |
+| `pharn/features/README.md`                                            | The feature-loop boundary contract referenced by installed commands (pharn layout). |
+| `pharn.config.json`                                                   | Installed version, commit, layout, archetypes, capabilities, and defaults.          |
+| `pharn.records.json`                                                  | Per-file hashes for drift-safe updates. Commit this with the config.                |
 
 An existing `.claude/settings.json` is preserved. PHARN may create it when
 absent, but it never overwrites your Claude Code settings.
@@ -228,16 +228,16 @@ The full set of bounds lives in upstream's
 Once PHARN is installed, use the slash commands from Claude Code. The pipeline
 is eight typed stages, each reading what the previous one produced:
 
-| Stage | Command | Purpose |
-| ----- | ------- | ------- |
-| Spec | `/pharn-spec` | Capture feature intent and scope. Stops for your approval. |
-| Plan | `/pharn-plan` | Turn the approved spec into an implementation plan, mapping each acceptance criterion to a test (`AC-TESTS.md`). |
-| Grill | `/pharn-grill` | Challenge the plan before code is written. |
-| Test | `/pharn-test` | Write each acceptance criterion's test before the build, run it, and require it to fail. `/pharn-build` refuses to start without that evidence. |
-| Build | `/pharn-build` | Implement an approved increment. |
-| Regress | `/pharn-regress` | Look for regressions outside the just-built feature. |
-| Verify | `/pharn-verify` | Verify behavior and PHARN floor requirements, including that every acceptance criterion's test now passes. |
-| Ship | `/pharn-ship` | Run stages 1-7 in order, then stop at the merge/fix/abandon gate. |
+| Stage   | Command          | Purpose                                                                                                                                         |
+| ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spec    | `/pharn-spec`    | Capture feature intent and scope. Stops for your approval.                                                                                      |
+| Plan    | `/pharn-plan`    | Turn the approved spec into an implementation plan, mapping each acceptance criterion to a test (`AC-TESTS.md`).                                |
+| Grill   | `/pharn-grill`   | Challenge the plan before code is written.                                                                                                      |
+| Test    | `/pharn-test`    | Write each acceptance criterion's test before the build, run it, and require it to fail. `/pharn-build` refuses to start without that evidence. |
+| Build   | `/pharn-build`   | Implement an approved increment.                                                                                                                |
+| Regress | `/pharn-regress` | Look for regressions outside the just-built feature.                                                                                            |
+| Verify  | `/pharn-verify`  | Verify behavior and PHARN floor requirements, including that every acceptance criterion's test now passes.                                      |
+| Ship    | `/pharn-ship`    | Run stages 1-7 in order, then stop at the merge/fix/abandon gate.                                                                               |
 
 `/pharn-ship` is itself the eighth stage: it orchestrates the seven before it in
 one pass, so you rarely run them by hand, and it keeps both human gates —
@@ -254,23 +254,23 @@ Code's edit tools on that path, so edit it yourself; see upstream's
 
 Two commands sit outside the pipeline:
 
-| Command | Purpose |
-| ------- | ------- |
-| `/pharn-review` | Run the review lenses in parallel over any code and merge their findings deterministically. Standalone — no pipeline stage invokes it. |
-| `/pharn-memory-promote` | Promote one lesson into `memory-bank/` through a gated provenance check. |
+| Command                 | Purpose                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `/pharn-review`         | Run the review lenses in parallel over any code and merge their findings deterministically. Standalone — no pipeline stage invokes it. |
+| `/pharn-memory-promote` | Promote one lesson into `memory-bank/` through a gated provenance check.                                                               |
 
 ## CLI commands
 
-| Command | Description |
-| ------- | ----------- |
-| `pharn init` | Detect archetypes and install matching capabilities. This is also the default when no command is given. |
-| `pharn add [capability]` | Add one capability manually, for example `a11y` or `lens:n-plus-one`. With no argument, opens an interactive picker. |
-| `pharn remove [capability]` | Remove one installed capability. With no argument, opens an interactive picker. |
-| `pharn update` | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt; `--dry-run` prints what it would do and writes nothing. |
-| `pharn list` | Show installed archetypes and capabilities. Use `--json` for machine-readable output. |
-| `pharn status` | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report. |
-| `pharn --help` | Show command help. |
-| `pharn --version` | Show the installed CLI version. |
+| Command                     | Description                                                                                                                                                                                                                                                                             |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pharn init`                | Detect archetypes and install matching capabilities. This is also the default when no command is given.                                                                                                                                                                                 |
+| `pharn add [capability]`    | Add one capability manually, for example `a11y` or `lens:n-plus-one`. With no argument, opens an interactive picker.                                                                                                                                                                    |
+| `pharn remove [capability]` | Remove one installed capability. With no argument, opens an interactive picker.                                                                                                                                                                                                         |
+| `pharn update`              | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt; `--dry-run` prints what it would do and writes nothing (add `--json` for the plan as one machine-readable object). |
+| `pharn list`                | Show installed archetypes and capabilities. Use `--json` for machine-readable output.                                                                                                                                                                                                   |
+| `pharn status`              | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report.                                                                                                                            |
+| `pharn --help`              | Show command help.                                                                                                                                                                                                                                                                      |
+| `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                         |
 
 `init` also accepts `--archetype`, a deprecated no-op kept for one release —
 archetype detection is now the default.
@@ -370,12 +370,12 @@ npm run check
 
 Useful scripts:
 
-| Script | Purpose |
-| ------ | ------- |
-| `npm run typecheck` | Type-check source and tests. |
-| `npm run lint` | Run ESLint with zero warnings. |
-| `npm run lint:md` | Run markdownlint over docs and root markdown. |
-| `npm run test:coverage` | Run the Vitest coverage gate used by CI. |
+| Script                        | Purpose                                               |
+| ----------------------------- | ----------------------------------------------------- |
+| `npm run typecheck`           | Type-check source and tests.                          |
+| `npm run lint`                | Run ESLint with zero warnings.                        |
+| `npm run lint:md`             | Run markdownlint over docs and root markdown.         |
+| `npm run test:coverage`       | Run the Vitest coverage gate used by CI.              |
 | `npm run build:install-local` | Build and install the local CLI into local test apps. |
 
 Set `PHARN_DEBUG=1` for verbose fetch and install errors. See

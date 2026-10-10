@@ -63,3 +63,34 @@ describe('runNodePrereq', () => {
     expect(() => runNodePrereq('init')).toThrow(new ProcessExit(1));
   });
 });
+
+describe('runNodePrereq under --json', () => {
+  stubProcessExit();
+  afterEach(() => {
+    restoreNodeVersion();
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it('refuses on plain stderr, never through clack, and never writes stdout', () => {
+    setNodeVersion('22.0.0');
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    expect(() => runNodePrereq('update', { json: true })).toThrow(
+      new ProcessExit(1),
+    );
+    expect(log.error).not.toHaveBeenCalled();
+    expect(out).not.toHaveBeenCalled();
+    const printed = err.mock.calls
+      .map((c: unknown[]) => String(c[0]))
+      .join('\n');
+    expect(printed).toContain('24.2.0');
+    expect(printed).toContain('22.0.0');
+  });
+
+  it('passes silently on a supported Node', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(() => runNodePrereq('update', { json: true })).not.toThrow();
+    expect(err).not.toHaveBeenCalled();
+  });
+});
