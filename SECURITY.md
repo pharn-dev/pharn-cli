@@ -1,6 +1,6 @@
 # Security Policy
 
-PHARN is an audit-grade methodology — taking security seriously is part of the brand, not an afterthought. `pharn` is the bootstrapper that fetches and installs that methodology, so it sits at a trust boundary: it pulls remote content over the network and writes it into a user's project. We welcome coordinated disclosure of any vulnerability in this repository.
+Taking security seriously is part of PHARN, not an afterthought. `pharn` is the installer that fetches and installs PHARN, so it sits at a trust boundary: it pulls remote content over the network and writes it into a user's project. We welcome coordinated disclosure of any vulnerability in this repository.
 
 ## What `pharn` is, and its security surface
 

@@ -1,6 +1,6 @@
 # pharn status
 
-Read-only audit of your install: is it on the latest version, and have any PHARN-owned files drifted
+Read-only check of your install: is it on the latest version, and have any PHARN-owned files drifted
 from upstream?
 
 ```bash

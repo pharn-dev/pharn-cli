@@ -24,7 +24,7 @@ Examples of unacceptable behavior include:
 - Publishing others' private information, such as a physical or email address, without their explicit permission
 - Other conduct which could reasonably be considered inappropriate in a professional setting
 
-PHARN is for craft-serious people who want their AI sessions to produce audit-grade artifacts. Disagree on substance; do not flame.
+PHARN is for craft-serious people who want to ship features right with Claude Code. Disagree on substance; do not flame.
 
 ## Enforcement Responsibilities
 
