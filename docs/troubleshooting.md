@@ -20,6 +20,7 @@
 | `update` completed but skipped files it could not verify                                                | 0         |
 | `update --dry-run` printed its plan (whatever it contains; nothing was written)                         | 0         |
 | `update --json` without `--dry-run`                                                                     | 1         |
+| `update --compact` without `--json`                                                                     | 1         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
@@ -51,7 +52,8 @@ nothing), with one addition: with `--strict`, a finding still prints the report 
 [`pharn status`](commands/status.md#json-output). So does `pharn update --dry-run --json`, which prints
 the plan (or the `up-to-date` / `ahead-of-release` outcome as its `status` field) and exits 0 — see
 [`pharn update`](commands/update.md#json-output). `--json` alone, without `--dry-run`, is refused
-with an `Incomplete option for` error, exit 1.
+with an `Incomplete option for` error, exit 1; so is `--compact` (which leaves the unchanged files out of
+the plan's file list) without `--json`.
 
 Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 

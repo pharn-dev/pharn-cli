@@ -1,0 +1,29 @@
+{
+  "base": "2c4155b246b7af1269381691a021a246d2a12406",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/commands/update.md",
+    "docs/troubleshooting.md",
+    "src/commands/update.ts",
+    "src/index.ts",
+    "src/lib/update-report.ts",
+    "tests/index.test.ts",
+    "tests/update-dry-run-json.test.ts",
+    "tests/update-report.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

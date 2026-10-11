@@ -45,6 +45,10 @@ export interface UpdateReport {
   schemaVersion: typeof UPDATE_SCHEMA_VERSION;
   command: 'update';
   dryRun: true;
+  // Present (as `true`) ONLY under `--compact`, on every status: the list in
+  // `plan.files` may then be filtered, see `plan.filesOmitted`. Absent in the
+  // default report, which is byte-identical to the one 0.10.0 shipped.
+  compact?: true;
   // `planned` ⇒ `plan` is set; the two early returns ⇒ `plan` is null.
   status: UpdateStatus;
   force: boolean;
@@ -81,6 +85,9 @@ export interface UpdateReport {
       backup: boolean;
       forced: boolean;
     }[];
+    // Present ONLY under `--compact`: what `files` leaves out. The count always
+    // equals `counts.ok`, so `files.length + count` is the installed-file total.
+    filesOmitted?: { action: 'noop'; count: number };
     writes: string[];
     backups: string[];
     skipped: { label: UpdateLabel | 'unreadable'; rels: string[] }[];
@@ -125,12 +132,20 @@ export interface UpdateReportInput {
   archetypes: readonly string[];
   // The planner's report; null on an early return.
   plan: UpdatePlanReport | null;
+  // `--compact`: omit the `noop` entries of `plan.files` and say so.
+  compact?: boolean;
 }
 
 const capAll = (values: readonly string[], max: number): string[] =>
   values.map((v) => cap(v, max));
 
-function planReport(p: UpdatePlanReport): NonNullable<UpdateReport['plan']> {
+function planReport(
+  p: UpdatePlanReport,
+  compact: boolean,
+): NonNullable<UpdateReport['plan']> {
+  // Membership on the `UpdateAction` enum, nothing heuristic: every other
+  // entry is kept whole, and `counts` is never filtered.
+  const kept = compact ? p.files.filter((f) => f.action !== 'noop') : p.files;
   return {
     layout: p.layout,
     abandonedLayout: p.abandonedLayout,
@@ -144,13 +159,21 @@ function planReport(p: UpdatePlanReport): NonNullable<UpdateReport['plan']> {
         reason: c.reason,
       })),
     },
-    files: p.files.map((f) => ({
+    files: kept.map((f) => ({
       rel: f.rel,
       action: f.action,
       label: f.label,
       backup: f.backup,
       forced: f.forced,
     })),
+    ...(compact
+      ? {
+          filesOmitted: {
+            action: 'noop' as const,
+            count: p.files.length - kept.length,
+          },
+        }
+      : {}),
     writes: [...p.writes],
     backups: [...p.backups],
     skipped: p.skipped.map((g) => ({ label: g.label, rels: [...g.rels] })),
@@ -196,10 +219,12 @@ function planReport(p: UpdatePlanReport): NonNullable<UpdateReport['plan']> {
 
 export function buildUpdateReport(input: UpdateReportInput): UpdateReport {
   const { plan } = input;
+  const compact = input.compact ?? false;
   return {
     schemaVersion: UPDATE_SCHEMA_VERSION,
     command: 'update',
     dryRun: true,
+    ...(compact ? { compact: true as const } : {}),
     status: input.status,
     force: input.force,
     channel: input.channel,
@@ -219,6 +244,6 @@ export function buildUpdateReport(input: UpdateReportInput): UpdateReport {
       pending: plan ? plan.pendingSkillsVersion : null,
     },
     archetypes: [...input.archetypes],
-    plan: plan ? planReport(plan) : null,
+    plan: plan ? planReport(plan, compact) : null,
   };
 }

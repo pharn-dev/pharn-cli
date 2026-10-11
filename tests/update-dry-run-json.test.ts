@@ -211,7 +211,12 @@ describe('runUpdate --dry-run --json', () => {
 
   // Run it and parse what it printed.
   async function run(
-    opts: { force?: boolean; ref?: 'latest' | 'main'; yes?: boolean } = {},
+    opts: {
+      force?: boolean;
+      ref?: 'latest' | 'main';
+      yes?: boolean;
+      compact?: boolean;
+    } = {},
   ): Promise<Parsed> {
     await runUpdate({ ...opts, dryRun: true, json: true });
     return printed();
@@ -601,6 +606,93 @@ describe('runUpdate --dry-run --json', () => {
       await installed({ skillsVersion: '2.0.0' });
       const { json } = await run({ ref: 'latest', force: true });
       expect(json.status).toBe('planned');
+    });
+  });
+
+  describe('--compact', () => {
+    // CAP_FILE and HOOK already match upstream (noop), DOC is a clean upgrade,
+    // CMD is an edit that would be skipped.
+    async function mixed(): Promise<void> {
+      await installed();
+      write(join(proj, CAP_FILE), readFileSync(join(repo, CAP_FILE), 'utf8'));
+      write(join(proj, HOOK), readFileSync(join(repo, HOOK), 'utf8'));
+      write(join(proj, CMD), 'MY EDIT');
+    }
+
+    it('omits the noop entries, keeps the rest, and says so', async () => {
+      await mixed();
+      const full = (await run()).json;
+      logSpy.mockClear();
+      const { json } = await run({ compact: true });
+      expectOnlyTheObject();
+      expect(json.compact).toBe(true);
+      expect(json.plan.files.map((f: { rel: string }) => f.rel).sort()).toEqual(
+        [DOC, CMD].sort(),
+      );
+      expect(json.plan.filesOmitted).toEqual({ action: 'noop', count: 2 });
+      expect(json.plan.filesOmitted.count).toBe(json.plan.counts.ok);
+      expect(json.plan.skipped).toEqual([{ label: 'modified', rels: [CMD] }]);
+      // Everything but the list and the two markers is the full report.
+      const strip = (r: {
+        plan: Record<string, unknown>;
+        [key: string]: unknown;
+      }): unknown => {
+        const { compact: _c, plan, ...rest } = r;
+        const { files: _f, filesOmitted: _o, ...planRest } = plan;
+        return { ...rest, plan: planRest };
+      };
+      expect(strip(json)).toEqual(strip(full));
+    });
+
+    it('the default run carries neither marker', async () => {
+      await mixed();
+      const { json, raw } = await run();
+      expect(json).not.toHaveProperty('compact');
+      expect(json.plan).not.toHaveProperty('filesOmitted');
+      expect(raw).not.toContain('filesOmitted');
+      expect(json.plan.files).toHaveLength(4);
+    });
+
+    it('keeps forced entries under --force', async () => {
+      await mixed();
+      const { json } = await run({ compact: true, force: true });
+      const forced = json.plan.files.filter(
+        (f: { forced: boolean }) => f.forced,
+      );
+      expect(forced.map((f: { rel: string }) => f.rel)).toEqual([CMD]);
+      expect(
+        json.plan.files.some((f: { action: string }) => f.action === 'noop'),
+      ).toBe(false);
+    });
+
+    it('marks up-to-date and ahead-of-release, with a null plan', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      const upToDate = (await run({ compact: true })).json;
+      expect(upToDate).toMatchObject({
+        status: 'up-to-date',
+        compact: true,
+        plan: null,
+      });
+      logSpy.mockClear();
+      await installed({ skillsVersion: '9.0.0' });
+      fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
+      const ahead = (await run({ compact: true, ref: 'latest' })).json;
+      expect(ahead).toMatchObject({
+        status: 'ahead-of-release',
+        compact: true,
+        plan: null,
+      });
+    });
+
+    it('without --json, called directly: fail closed, nothing run', async () => {
+      await installed();
+      await expect(
+        runUpdate({ dryRun: true, compact: true }),
+      ).rejects.toMatchObject(new ProcessExit(1));
+      expect(logSpy).not.toHaveBeenCalled();
+      expect(stderr()).toContain('--compact');
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(prompts.intro).not.toHaveBeenCalled();
     });
   });
 

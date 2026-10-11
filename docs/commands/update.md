@@ -9,13 +9,15 @@ pharn update --force   # overwrite your edits too (each file is backed up first)
 pharn update --yes     # skip the confirmation prompt (for CI and scripts)
 pharn update --dry-run # show exactly what it would do, and write nothing
 pharn update --dry-run --json # ...as one JSON object, for scripts and agents
+pharn update --dry-run --json --compact # ...without the list of unchanged files
 pharn update --ref latest   # follow verified releases instead of main (recorded)
 pharn update --ref main     # back to the tip of main (recorded)
 ```
 
-`--force`, `--yes`/`-y`, `--ref`, `--dry-run` and `--json` are `update`'s **only** options; they compose,
-and none implies another — except that `--json` is accepted **only together with `--dry-run`**
-(`pharn update --json` alone exits **1** with an `Incomplete option for` error on stderr, plus the
+`--force`, `--yes`/`-y`, `--ref`, `--dry-run`, `--json` and `--compact` are `update`'s **only** options;
+they compose, and none implies another — except that `--json` is accepted **only together with
+`--dry-run`**, and `--compact` **only together with `--json`** (`pharn update --json` alone, or
+`pharn update --compact` alone, exits **1** with an `Incomplete option for` error on stderr, plus the
 usage text). Any other flag — `--strict`, `--no-drift` — is refused with
 ``Unsupported option for `update` `` on stderr and exit **1**, as is an extra positional. See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
@@ -200,6 +202,30 @@ The outcome is the `status` field, not prose:
 | `plan.layout`                               | The layout the install would be recorded at; `abandonedLayout` is the one it would leave behind, and `featuresReadmeRelocation` says a copy of the boundary contract would be left at the project root.                                                                                          |
 | `frozenCapabilities`, `unknownCapabilities` | Capabilities upstream ships that this CLI cannot read, kept as they are: `role:name` keys, and `{role, name, subtree, reason}`.                                                                                                                                                                  |
 | `plan.recordsNote`                          | Why `pharn.records.json` could not be used (then every difference is `unverifiable`), else `null`.                                                                                                                                                                                               |
+
+#### `--compact`: leave out the unchanged files
+
+`plan.files` lists **every** installed file, including the ones that already match upstream
+(`action: "noop"`, `label: "ok"`). On a large install that is most of the report: in a measured
+504-file example the full object is about 104 KB and the same object with `--compact` about 1.6 KB.
+`pharn update --dry-run --json --compact` omits exactly those `noop` entries and nothing else:
+
+```bash
+pharn update --dry-run --json --compact | jq '.plan | {writes, skipped, counts}'
+```
+
+A compact report says so, in two places that exist **only** under `--compact`:
+
+| key                 | meaning                                                                                                                                                  |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compact`           | `true`, at the top level, on every `status` (the `up-to-date` and `ahead-of-release` reports too, where `plan` is `null`).                               |
+| `plan.filesOmitted` | `{ "action": "noop", "count": N }`: what `plan.files` leaves out. `N` always equals `plan.counts.ok`, so `files.length + N` is the installed-file total. |
+
+To tell the shapes apart, check `compact`: the default report has neither key, is byte-for-byte what
+`pharn` 0.10.0 printed, and always holds the full list. `schemaVersion` stays `1`: nothing is removed or
+renamed, and the new keys appear only when you ask for them. Every other field, including all of `counts`,
+`writes`, `backups` and `skipped`, is identical in both shapes. `--compact` only helps when most files are
+unchanged; a first install or a restore after deleting files lists every file as a real change in both.
 
 **Treat every string as data.** Paths, capability names, reasons and hook commands come from the
 upstream clone or your project files, not from `pharn`. Characters a terminal would interpret (control
