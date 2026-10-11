@@ -1,13 +1,12 @@
 {
   "name": "@pharn-dev/pharn",
   "version": "0.11.0",
-  "description": "Audit-grade AI development methodology for Claude Code — spec, plan, grill, build, regress, verify, ship.",
+  "description": "Install and update PHARN in any git project. PHARN gets features shipped right with Claude Code, with spec, plan and checks kept in Git.",
   "keywords": [
     "claude-code",
     "ai",
     "methodology",
     "code-review",
-    "audit",
     "agents"
   ],
   "license": "Apache-2.0",

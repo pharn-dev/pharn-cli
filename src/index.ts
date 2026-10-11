@@ -11,7 +11,7 @@ import { runStatus } from './commands/status.js';
 import { REF_CHOICES, type RefChoice } from './lib/release.js';
 import { PHARN_VERSION } from './version.js';
 
-const USAGE = `Pharn - Installs PHARN (an audit-grade methodology for Claude Code) into your project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
+const USAGE = `Pharn - Installs and updates PHARN (a workflow for shipping features right with Claude Code) in your git project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
 
 Usage:
   pharn [command] [options]
