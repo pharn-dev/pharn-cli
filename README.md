@@ -6,12 +6,11 @@
   <img alt="Pharn" src="assets/pharn-logo-light-transparent.svg" width="420">
 </picture>
 
-**Install PHARN into an existing project: a reviewable workflow for AI-written code.**
+**Install and update PHARN in any git project.**
 
-PHARN is an open, audit-grade methodology for Claude Code. It keeps the intent,
-constraints, plans, checks, and review trail for AI-assisted changes in plain
-files inside your repo, so the reasoning behind a change survives beyond the
-chat window.
+PHARN gets features shipped right with Claude Code. The spec, plan, and checks
+stay in plain files in Git, so months later you can answer "what was done and
+why?".
 
 [![npm](https://img.shields.io/npm/v/@pharn-dev/pharn)](https://www.npmjs.com/package/@pharn-dev/pharn)
 [![CI](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/pharn-dev/pharn-cli/actions/workflows/ci.yml)
@@ -70,7 +69,7 @@ be committed beside the change.
 - **Preserve intent.** Specs, plans, constraints, and review notes live in the
   repository, not only in an agent transcript.
 - **Make work inspectable.** PHARN installs grillers and lenses: pipeline
-  auditors and review perspectives that help interrogate a plan or diff before
+  checks and review perspectives that help interrogate a plan or diff before
   it ships.
 - **Keep updates safe.** `pharn update` uses per-file hashes to avoid
   overwriting local edits unless you explicitly choose `--force`.
@@ -147,7 +146,7 @@ still understood through the recorded `layout` field.
 
 | Artifact                                                              | Purpose                                                                             |
 | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline auditors and review lenses selected for your project archetype(s).         |
+| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline grillers and review lenses selected for your project archetype(s).         |
 | `.claude/commands/`, `.claude/hooks/`                                 | The installed `/pharn-*` Claude Code slash commands and deterministic `.cjs` hooks. |
 | `pharn/pharn-contracts/`, `pharn/floor/`                              | Schemas shared across PHARN stages and floor checkers invoked by the workflow.      |
 | `pharn/pharn-core/`                                                   | Agent-readable mechanism skills, including the seam resolver.                       |

@@ -17,7 +17,7 @@ export function showBanner(): void {
   }
   console.log();
   console.log(
-    `  ${pc.dim(`Audit-grade methodology for Claude Code · v${PHARN_VERSION}`)}`,
+    `  ${pc.dim(`Ship features right with Claude Code · v${PHARN_VERSION}`)}`,
   );
   console.log();
 }
