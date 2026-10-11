@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   buildUpdateReport,
@@ -402,5 +403,197 @@ describe('buildUpdateReport — untrusted text', () => {
     const out = serializeJsonReport(r);
     expect(out).not.toContain(ESC);
     expect(JSON.parse(out).plan.writes[0]).toBe(hostile);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The default report is byte-identical to 0.10.0: pinned by hash, captured from
+// the builder BEFORE `--compact` existed.
+// ---------------------------------------------------------------------------
+const sha = (text: string): string =>
+  createHash('sha256').update(text).digest('hex');
+
+describe('buildUpdateReport — default output is unchanged', () => {
+  it('serializes the planned fixture to the exact 0.10.0 bytes', () => {
+    const text = serializeJsonReport(buildUpdateReport(input({ force: true })));
+    expect(sha(text)).toBe(
+      '13a9755b35bf7eb73c52357d17572aedeeb61ce1e737026267c17447169f8615',
+    );
+    expect(text).not.toContain('"compact"');
+    expect(text).not.toContain('filesOmitted');
+  });
+
+  it('serializes an early return to the exact 0.10.0 bytes', () => {
+    const text = serializeJsonReport(
+      buildUpdateReport(input({ status: 'up-to-date', plan: null })),
+    );
+    expect(sha(text)).toBe(
+      'e020755f74fb843f747e4eda160f8165ae5bce9b1a38fd58b28964ed0951a81c',
+    );
+    expect(text).not.toContain('"compact"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `--compact`: the `noop` entries of `plan.files` are omitted, and the report
+// says so.
+// ---------------------------------------------------------------------------
+const noop = (rel: string): UpdatePlanReport['files'][number] => ({
+  rel,
+  action: 'noop',
+  label: 'ok',
+  backup: false,
+  forced: false,
+});
+
+describe('buildUpdateReport — compact', () => {
+  const base = planReport();
+  const files: UpdatePlanReport['files'] = [
+    noop('n1.md'),
+    ...base.files,
+    noop('n2.md'),
+  ];
+  const withNoops = planReport({
+    files,
+    counts: { ...base.counts, ok: 2 },
+  });
+  const full = buildUpdateReport(input({ plan: withNoops }));
+  const compact = buildUpdateReport(input({ plan: withNoops, compact: true }));
+
+  it('omits exactly the noop entries, in order, and keeps the rest whole', () => {
+    expect(compact.plan!.files).toEqual(
+      full.plan!.files.filter((f) => f.action !== 'noop'),
+    );
+    expect(compact.plan!.files.map((f) => f.rel)).toEqual([
+      'a.md',
+      'b.md',
+      'c.md',
+    ]);
+  });
+
+  it('says what was omitted, and the count matches counts.ok', () => {
+    expect(compact.compact).toBe(true);
+    expect(compact.plan!.filesOmitted).toEqual({ action: 'noop', count: 2 });
+    expect(compact.plan!.filesOmitted!.count).toBe(compact.plan!.counts.ok);
+    expect(compact.plan!.files.length + compact.plan!.filesOmitted!.count).toBe(
+      full.plan!.files.length,
+    );
+  });
+
+  it('changes nothing but files and the two markers', () => {
+    const { compact: _c, ...rest } = compact;
+    const { filesOmitted: _o, files: _f, ...planRest } = compact.plan!;
+    const { files: _ff, ...fullPlanRest } = full.plan!;
+    expect(rest).toEqual({ ...full, plan: rest.plan });
+    expect(planRest).toEqual(fullPlanRest);
+  });
+
+  it('keeps the default shape marker-free', () => {
+    expect(full).not.toHaveProperty('compact');
+    expect(full.plan).not.toHaveProperty('filesOmitted');
+    expect(compact.plan!.files.length).toBeLessThan(full.plan!.files.length);
+  });
+
+  it('marks an early return too, with a null plan', () => {
+    for (const status of ['up-to-date', 'ahead-of-release'] as const) {
+      const r = buildUpdateReport(input({ status, plan: null, compact: true }));
+      expect(r.compact).toBe(true);
+      expect(r.plan).toBeNull();
+    }
+  });
+
+  it('compact:false is the default shape, byte for byte', () => {
+    expect(
+      serializeJsonReport(
+        buildUpdateReport(input({ plan: withNoops, compact: false })),
+      ),
+    ).toBe(serializeJsonReport(full));
+  });
+
+  it('still escapes a hostile rel on a kept entry, and drops one on an omitted noop', () => {
+    const hostile = planReport({
+      files: [
+        noop(`${ESC}[2Jgone.md`),
+        { ...noop(`${ESC}[2Jkept.md`), action: 'skip', label: 'modified' },
+      ],
+      counts: { updated: 0, restored: 0, ok: 1, forced: 0, skipped: 1 },
+    });
+    const text = serializeJsonReport(
+      buildUpdateReport(input({ plan: hostile, compact: true })),
+    );
+    expect(text).toContain('\\u001b[2Jkept.md');
+    expect(text).not.toContain('gone.md');
+    expect(text).not.toContain(ESC);
+  });
+});
+
+describe('buildUpdateReport — compact size on a realistic install', () => {
+  // 504 installed files with argus-like paths: 500 unchanged, plus a restore, an
+  // upgrade, a forced overwrite and an edited file that is skipped.
+  const unchanged = Array.from({ length: 500 }, (_, i) =>
+    noop(
+      `pharn/pharn-review/lenses/lens-${i % 40}/references/reference-file-${i}.md`,
+    ),
+  );
+  const changed: UpdatePlanReport['files'] = [
+    {
+      rel: 'CONSTITUTION.md',
+      action: 'write',
+      label: 'updated',
+      backup: false,
+      forced: false,
+    },
+    {
+      rel: '.claude/commands/pharn-ship.md',
+      action: 'write',
+      label: 'restored',
+      backup: false,
+      forced: false,
+    },
+    {
+      rel: '.claude/hooks/guard.cjs',
+      action: 'write',
+      label: 'modified',
+      backup: true,
+      forced: true,
+    },
+    {
+      rel: '.claude/commands/pharn-plan.md',
+      action: 'skip',
+      label: 'modified',
+      backup: false,
+      forced: false,
+    },
+  ];
+  const plan = planReport({
+    files: [...unchanged, ...changed],
+    writes: ['CONSTITUTION.md', '.claude/commands/pharn-ship.md'],
+    backups: ['.claude/hooks/guard.cjs'],
+    skipped: [{ label: 'modified', rels: ['.claude/commands/pharn-plan.md'] }],
+    counts: { updated: 1, restored: 1, ok: 500, forced: 1, skipped: 1 },
+    capabilityChanges: [],
+    frozenCapabilities: [],
+    unknownCapabilities: [],
+    recordsNote: null,
+  });
+  const full = serializeJsonReport(buildUpdateReport(input({ plan })));
+  const compact = serializeJsonReport(
+    buildUpdateReport(input({ plan, compact: true })),
+  );
+
+  it('the fixture is big enough to mean something', () => {
+    expect(full.length).toBeGreaterThan(60_000);
+  });
+
+  it('shrinks the report to a few KB, under 3% of the full one', () => {
+    expect(compact.length).toBeLessThan(4096);
+    expect(compact.length).toBeLessThan(full.length * 0.03);
+  });
+
+  it('keeps every changed entry and the complete counts', () => {
+    const parsed = JSON.parse(compact);
+    expect(parsed.plan.files).toHaveLength(4);
+    expect(parsed.plan.counts.ok).toBe(500);
+    expect(parsed.plan.filesOmitted).toEqual({ action: 'noop', count: 500 });
   });
 });

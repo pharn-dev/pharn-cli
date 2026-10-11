@@ -98,6 +98,7 @@ describe('main (argv dispatch)', () => {
       yes: false,
       dryRun: false,
       json: false,
+      compact: false,
     });
   });
 
@@ -109,6 +110,7 @@ describe('main (argv dispatch)', () => {
       yes: false,
       dryRun: false,
       json: false,
+      compact: false,
     });
   });
 
@@ -123,6 +125,7 @@ describe('main (argv dispatch)', () => {
       yes: true,
       dryRun: false,
       json: false,
+      compact: false,
     });
   });
 
@@ -134,6 +137,7 @@ describe('main (argv dispatch)', () => {
       yes: true,
       dryRun: false,
       json: false,
+      compact: false,
     });
   });
 
@@ -145,6 +149,7 @@ describe('main (argv dispatch)', () => {
       yes: false,
       dryRun: true,
       json: false,
+      compact: false,
     });
   });
 
@@ -156,6 +161,7 @@ describe('main (argv dispatch)', () => {
       yes: true,
       dryRun: true,
       json: false,
+      compact: false,
       ref: 'latest',
     });
   });
@@ -208,6 +214,7 @@ describe('main (argv dispatch)', () => {
       yes: true,
       dryRun: false,
       json: false,
+      compact: false,
     });
   });
 
@@ -705,6 +712,7 @@ describe('main (argv dispatch)', () => {
       yes: true,
       dryRun: false,
       json: false,
+      compact: false,
     });
     setArgv('update', '--yes', '--force');
     await main();
@@ -713,6 +721,7 @@ describe('main (argv dispatch)', () => {
       yes: true,
       dryRun: false,
       json: false,
+      compact: false,
     });
   });
 
@@ -733,6 +742,7 @@ describe('main (argv dispatch)', () => {
     setArgv('update', '--force', '--yes');
     await main();
     expect(Object.keys(runUpdate.mock.calls[0]![0]!).sort()).toEqual([
+      'compact',
       'dryRun',
       'force',
       'json',
@@ -793,6 +803,7 @@ describe('main (argv dispatch)', () => {
         yes: true,
         dryRun: false,
         json: false,
+        compact: false,
         ref: 'main',
       });
     });
@@ -884,6 +895,7 @@ describe('main (cross-flag requirements)', () => {
       yes: false,
       dryRun: true,
       json: true,
+      compact: false,
     });
   });
 
@@ -895,8 +907,53 @@ describe('main (cross-flag requirements)', () => {
       yes: false,
       dryRun: true,
       json: true,
+      compact: false,
       ref: 'latest',
     });
+  });
+
+  it('passes compact:true through for `update --dry-run --json --compact`', async () => {
+    setArgv('update', '--dry-run', '--json', '--compact');
+    await main();
+    expect(runUpdate).toHaveBeenCalledWith({
+      force: false,
+      yes: false,
+      dryRun: true,
+      json: true,
+      compact: true,
+    });
+  });
+
+  it.each([
+    [['update', '--compact'], '--compact (needs --json)'],
+    [['update', '--compact', '--dry-run'], '--compact (needs --json)'],
+    [['update', '--json', '--compact'], '--json (needs --dry-run)'],
+    [['update', '--compact', '--help'], '--compact (needs --json)'],
+  ] as const)('refuses `%j` as an incomplete option', async (argv, needle) => {
+    setArgv(...argv);
+    await expect(main()).rejects.toThrow(new ProcessExit(1));
+    expect(runUpdate).not.toHaveBeenCalled();
+    const out = stderr();
+    expect(out).toContain('Incomplete option for `update`');
+    expect(out).toContain(needle);
+  });
+
+  it.each(['status', 'list', 'add', 'remove', 'rm', 'init'])(
+    'refuses --compact as unsupported on `%s`',
+    async (cmd) => {
+      setArgv(cmd, '--compact');
+      await expect(main()).rejects.toThrow(new ProcessExit(1));
+      expect(stderr()).toContain(`Unsupported option for \`${cmd}\``);
+      expect(stderr()).toContain('--compact');
+    },
+  );
+
+  it('documents --compact in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    expect(String(vi.mocked(console.log).mock.calls[0]![0])).toMatch(
+      /--compact\s+update: with --dry-run --json/,
+    );
   });
 
   it('refuses `update --json` alone: exit 1, stderr, usage, runUpdate never called', async () => {

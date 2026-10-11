@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`pharn update --dry-run --json --compact`: the plan without the unchanged files.** `plan.files` lists every installed file, so on a 504-file install the report was about 104 KB, nearly all of it `noop` entries an agent does not need. `--compact` omits exactly those entries (about 1.6 KB in the same measured example); `plan.counts`, `writes`, `backups` and `skipped` are unchanged. A compact report carries `compact: true` at the top level and `plan.filesOmitted: {action: "noop", count}` (equal to `counts.ok`), and neither key exists without the flag, so the default `schemaVersion: 1` output is byte-identical to 0.10.0. `--compact` is accepted only together with `--json` (`pharn update --compact` alone is refused with an `Incomplete option for` error, exit 1) and only by `update`. See [`pharn update`](docs/commands/update.md#compact-leave-out-the-unchanged-files).
+
 ## [0.10.0] — 2026-10-11
 
 ### Added

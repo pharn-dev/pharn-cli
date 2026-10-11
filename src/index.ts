@@ -36,6 +36,7 @@ Options (each belongs to ONE command; passing it to another is an error):
       --json         list: emit the inventory as JSON
                      status: emit one JSON report on stdout (diagnostics on stderr)
                      update: with --dry-run, emit the plan as one JSON object
+      --compact      update: with --dry-run --json, omit the unchanged files from the plan's file list
   -h, --help         Show this help text
   -v, --version      Show the version number`;
 
@@ -85,7 +86,7 @@ const ALLOWED_FLAGS = new Map<string, readonly string[]>([
   ['add', []],
   ['remove', []],
   ['rm', []],
-  ['update', ['force', 'yes', 'ref', 'dry-run', 'json']],
+  ['update', ['force', 'yes', 'ref', 'dry-run', 'json', 'compact']],
   ['list', ['json']],
   ['status', ['strict', 'drift', 'json']],
 ]);
@@ -103,7 +104,15 @@ const ALLOWED_FLAGS = new Map<string, readonly string[]>([
 const REQUIRED_WITH = new Map<
   string,
   readonly { flag: string; requires: string }[]
->([['update', [{ flag: 'json', requires: 'dry-run' }]]]);
+>([
+  [
+    'update',
+    [
+      { flag: 'json', requires: 'dry-run' },
+      { flag: 'compact', requires: 'json' },
+    ],
+  ],
+]);
 
 // Accepted by every command in the table above. They short-circuit below rather
 // than dispatching, but they are listed rather than special-cased so that
@@ -332,6 +341,7 @@ export async function main(): Promise<void> {
         yes: Boolean(argv.yes),
         dryRun: Boolean(argv['dry-run']),
         json: Boolean(argv.json),
+        compact: Boolean(argv.compact),
         ref,
       });
       return;

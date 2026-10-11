@@ -84,15 +84,23 @@ export async function runUpdate(
     ref?: RefChoice;
     dryRun?: boolean;
     json?: boolean;
+    compact?: boolean;
   } = {},
 ): Promise<void> {
   const dryRun = opts.dryRun ?? false;
   const json = opts.json ?? false;
+  const compact = opts.compact ?? false;
   // `--json` is the dry run's machine-readable form and nothing else: the
   // dispatch refuses it alone, and a direct caller fails closed here rather than
   // reaching a real run that would print clack chrome into a JSON consumer.
   if (json && !dryRun) {
     reportFatalPlain('--json is only available with --dry-run.');
+    process.exit(1);
+  }
+  // `--compact` filters the JSON report and has nothing to filter anywhere else:
+  // the dispatch refuses it without `--json`, and a direct caller fails closed.
+  if (compact && !json) {
+    reportFatalPlain('--compact is only available with --json.');
     process.exit(1);
   }
   // Under `--json` NOTHING reaches stdout but the one report: no clack at all.
@@ -145,6 +153,7 @@ export async function runUpdate(
     opts.ref ?? channelOf(config),
     dryRun,
     json,
+    compact,
   );
 }
 
@@ -192,6 +201,7 @@ async function runArchetypeUpdate(
   channel: RefChoice,
   dryRun: boolean,
   json: boolean,
+  compact: boolean,
 ): Promise<void> {
   // What a configured proxy means here (nothing: fetch never uses one), emitted
   // ONCE at the top so it precedes EVERY fetch this command can make — the
@@ -263,6 +273,7 @@ async function runArchetypeUpdate(
         latest,
         archetypes: config.archetypes ?? [],
         plan: null,
+        compact,
       }),
     );
   };
@@ -364,7 +375,7 @@ async function runArchetypeUpdate(
   // shares the gates above (so it answers "Already up to date" exactly when the
   // real run would) and the planner below, and nothing else.
   if (dryRun) {
-    await runDryRun(config, cwd, force, channel, source, json, latest);
+    await runDryRun(config, cwd, force, channel, source, json, latest, compact);
     return;
   }
   // `--yes` skips THE CONFIRM AND NOTHING ELSE. The note above has already
@@ -924,6 +935,7 @@ async function runDryRun(
   source: InstallSource,
   json: boolean,
   latest: string,
+  compact: boolean,
 ): Promise<void> {
   const outcome = await fetchAndPlan(config, cwd, force, channel, source, {
     spin: json ? silentSpinner() : spinner(),
@@ -958,6 +970,7 @@ async function runDryRun(
         latest,
         archetypes: config.archetypes ?? [],
         plan: report,
+        compact,
       }),
     );
     return;

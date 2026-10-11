@@ -1,7 +1,7 @@
 {
   "scope": [
-    ".dev/features/update-dry-run-json/SHIP.md"
+    ".dev/features/dry-run-json-compact/SHIP.md"
   ],
   "set_by": ".claude/commands/pharn-dev-ship.md",
-  "set_at": "2026-10-10T22:49:13.506Z"
+  "set_at": "2026-10-11T00:08:04.853Z"
 }
