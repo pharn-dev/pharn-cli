@@ -92,6 +92,7 @@ const { collectExpectedInstallPaths } =
   await import('../src/lib/install-manifest.js');
 const { sha256File } = await import('../src/lib/hash.js');
 const { runInit } = await import('../src/commands/init.js');
+const { displayHook } = await import('../src/lib/hook-wiring.js');
 const prompts = await import('@clack/prompts');
 
 // The single string runInstallArchetype passed to outro() — the same
@@ -1478,5 +1479,167 @@ describe('`pharn init` run twice, through the real steps', () => {
       readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
     ).toBe('MY EDIT');
     expect(readPharnConfig(proj)!.commit).toBe('sha123');
+  });
+});
+
+// F-02: a brownfield project — one already using Claude Code — keeps its
+// `.claude/settings.json` (never overwritten, never merged). init used to say
+// only "compare it against pharn-oss", then deleted the clone, leaving nothing
+// to compare against: every PHARN hook stayed unwired and `status --strict`
+// failed from day one. While the clone still exists, init now prints the same
+// paste-ready HOOKS note `status` and `update` print.
+describe('init over a preserved .claude/settings.json — the HOOKS note', () => {
+  const tmp = useTmpDir();
+
+  const SCOPE = {
+    type: 'command',
+    command:
+      'node "${CLAUDE_PROJECT_DIR}"/.claude/hooks/enforce-writes-scope.cjs',
+  };
+  const STOP = {
+    type: 'command',
+    command: 'node',
+    args: ['.claude/hooks/stop-check.cjs'],
+  };
+  const UPSTREAM_SETTINGS = {
+    hooks: {
+      PreToolUse: [{ matcher: 'Write|Edit', hooks: [SCOPE] }],
+      Stop: [{ hooks: [STOP] }],
+    },
+  };
+  const SCOPE_LINE = displayHook({
+    event: 'PreToolUse',
+    matcher: 'Write|Edit',
+    command: SCOPE.command,
+    args: [],
+  });
+  const STOP_LINE = displayHook({
+    event: 'Stop',
+    matcher: '',
+    command: STOP.command,
+    args: STOP.args,
+  });
+
+  beforeEach(() => {
+    vi.mocked(prompts.note).mockClear();
+    vi.mocked(prompts.log.info).mockClear();
+    vi.mocked(prompts.log.warn).mockClear();
+  });
+
+  async function install(opts: {
+    settings?: string;
+    local?: string;
+  }): Promise<{ proj: string; repo: string }> {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(
+      join(repo, '.claude/settings.json'),
+      JSON.stringify(UPSTREAM_SETTINGS),
+    );
+    write(join(proj, 'package.json'), '{}');
+    if (opts.settings !== undefined)
+      write(join(proj, '.claude/settings.json'), opts.settings);
+    if (opts.local !== undefined)
+      write(join(proj, '.claude/settings.local.json'), opts.local);
+    const { archetypes } = detectArchetypesFromProject(proj);
+    const selection = resolveCapabilities(
+      archetypes,
+      parseCapabilityIndex(repo),
+    );
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    return { proj, repo };
+  }
+
+  function hooksNotes(): string[] {
+    return vi
+      .mocked(prompts.note)
+      .mock.calls.filter((c) => c[1] === 'HOOKS')
+      .map((c) => String(c[0]));
+  }
+
+  function logged(fn: 'info' | 'warn'): string {
+    return vi
+      .mocked(prompts.log[fn])
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+  }
+
+  it('lists exactly the upstream hooks the preserved file does not wire, and says --strict fails', async () => {
+    const mine = JSON.stringify({
+      permissions: { allow: ['Bash(ls)'] },
+      hooks: { PreToolUse: [{ matcher: 'Write|Edit', hooks: [SCOPE] }] },
+    });
+    const { proj } = await install({ settings: mine });
+
+    const notes = hooksNotes();
+    expect(notes).toHaveLength(1);
+    const body = notes[0]!;
+    expect(body).toContain(STOP_LINE);
+    expect(body).not.toContain(SCOPE_LINE);
+    expect(body).toContain('.claude/settings.local.json');
+    expect(body).toContain('`pharn status --strict` fails until');
+    // The pointer to a clone that is about to be deleted is gone.
+    expect(logged('warn')).not.toContain('compare it against pharn-oss');
+    expect(logged('info')).toContain(
+      'Existing .claude/settings.json preserved',
+    );
+    // Never written or merged — the user's bytes, exactly.
+    expect(readFileSync(join(proj, '.claude/settings.json'), 'utf8')).toBe(
+      mine,
+    );
+    expect(readPharnConfig(proj)).not.toBeNull();
+  });
+
+  it('lists every upstream hook when the preserved file wires none', async () => {
+    await install({ settings: '{"permissions":{}}' });
+    const body = hooksNotes()[0] ?? '';
+    expect(body).toContain(SCOPE_LINE);
+    expect(body).toContain(STOP_LINE);
+    expect(body).toContain('Upstream wires 2 hook(s)');
+  });
+
+  it('prints no HOOKS note when the preserved file already wires every upstream hook', async () => {
+    await install({
+      settings: JSON.stringify({ ...UPSTREAM_SETTINGS, model: 'opus' }),
+    });
+    expect(hooksNotes()).toEqual([]);
+    expect(logged('info')).toContain(
+      'Existing .claude/settings.json preserved',
+    );
+  });
+
+  it('names hooks wired only in settings.local.json, without the --strict line', async () => {
+    await install({
+      settings: '{}',
+      local: JSON.stringify(UPSTREAM_SETTINGS),
+    });
+    const body = hooksNotes()[0] ?? '';
+    expect(body).toContain('only in .claude/settings.local.json');
+    expect(body).not.toContain('--strict');
+  });
+
+  it('prints no HOOKS note on a fresh install — settings.json is written from upstream', async () => {
+    const { proj } = await install({});
+    expect(hooksNotes()).toEqual([]);
+    expect(logged('info')).not.toContain('preserved');
+    expect(
+      JSON.parse(readFileSync(join(proj, '.claude/settings.json'), 'utf8')),
+    ).toEqual(UPSTREAM_SETTINGS);
+  });
+
+  it('reports an unreadable preserved settings file, and still completes the install', async () => {
+    const { proj } = await install({ settings: '{ not json' });
+    const body = hooksNotes()[0] ?? '';
+    expect(body).toContain(
+      '.claude/settings.json could not be read (it is not valid JSON)',
+    );
+    expect(body).toContain(SCOPE_LINE);
+    expect(body).toContain('`pharn status --strict` fails until');
+    expect(readFileSync(join(proj, '.claude/settings.json'), 'utf8')).toBe(
+      '{ not json',
+    );
+    expect(readPharnConfig(proj)?.capabilities?.length).toBeGreaterThan(0);
+    expect(outroBody()).not.toBe('');
   });
 });

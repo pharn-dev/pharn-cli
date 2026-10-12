@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pharn init` over an existing `.claude/settings.json` now says which PHARN hooks it does not wire.** The file is still preserved, never overwritten or merged, but `init` used to print only "compare it against pharn-oss to wire the PHARN hooks if needed" and then delete the fetched copy, leaving nothing to compare against: in a project already using Claude Code every PHARN hook stayed unwired and `pharn status --strict` failed from the first run. `init` now prints the same `HOOKS` note as `pharn status` and `pharn update` — each missing hook as one line of paste-ready JSON, and that `pharn status --strict` fails until they are wired. When every hook is already wired it prints no note; an unreadable settings file is named with the reason, and the install still completes. See [`pharn init`](docs/commands/init.md#an-existing-claudesettingsjson).
+
 ## [0.12.0] — 2026-10-12
 
 ### Changed

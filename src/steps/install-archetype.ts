@@ -1,6 +1,15 @@
-import { log, outro, spinner } from '@clack/prompts';
+import { log, note, outro, spinner } from '@clack/prompts';
 import pc from 'picocolors';
-import { FIRST_FEATURE_COMMAND, REPO_URL } from '../lib/constants.js';
+import {
+  CLAUDE_SETTINGS_FILE,
+  FIRST_FEATURE_COMMAND,
+  REPO_URL,
+} from '../lib/constants.js';
+import {
+  diffHookWiring,
+  hookWiringFails,
+  hookWiringLines,
+} from '../lib/hook-wiring.js';
 import {
   installCapabilities,
   prepareInstall,
@@ -200,10 +209,25 @@ export async function runInstallArchetype(
   }
   s.stop('Capabilities installed');
 
+  // `.claude/settings.json` is user-owned: an existing one is preserved, never
+  // overwritten or merged. What the user needs to know is which PHARN hooks it
+  // does not wire — and only now can that be answered: the clone is deleted
+  // right after this step. So init prints the same paste-ready HOOKS note
+  // `status` and `update` print (lib/hook-wiring.ts), plus the consequence
+  // `status` would report. Nothing on a fresh install: the file was just
+  // written from upstream. diffHookWiring never throws — an unreadable project
+  // file is a status of its own, reported in the note.
   if (settingsPreserved) {
-    log.warn(
-      'Existing .claude/settings.json preserved — compare it against pharn-oss to wire the PHARN hooks if needed.',
+    log.info(
+      `Existing ${CLAUDE_SETTINGS_FILE} preserved — pharn never overwrites it.`,
     );
+    const hooks = diffHookWiring(repoDir, cwd);
+    const hookLines = hookWiringLines(hooks);
+    if (hookLines) {
+      if (hookWiringFails(hooks))
+        hookLines.push('  `pharn status --strict` fails until they are wired.');
+      note(hookLines.join('\n'), 'HOOKS');
+    }
   }
 
   // The `models` block is pharn-oss's: copied VERBATIM from its root

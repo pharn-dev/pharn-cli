@@ -181,9 +181,10 @@ are keyed to the latter.
 Three things about the installed hooks are worth knowing on day one.
 
 **Hooks enforce only once they are registered in `.claude/settings.json`.** If
-your project already had that file, PHARN preserved it and printed a warning
-instead of overwriting it — so until you copy the hook wiring across, every
-guarantee that depends on a `PreToolUse` hook is inactive.
+your project already had that file, PHARN preserved it instead of overwriting
+it and printed a `HOOKS` note listing each hook it does not wire, as
+paste-ready JSON — until you copy those entries across, every guarantee that
+depends on a `PreToolUse` hook is inactive, and `pharn status --strict` fails.
 
 **Once wired, the default depends on your tree (pharn-oss 6.24.0+).** With no
 active scope, `enforce-writes-scope.cjs` applies that default.
@@ -216,7 +217,8 @@ also does nothing until registered — under `Stop`, with no matcher. The
 `settings.json` upstream ships has registered it since pharn-oss 6.12.0, but a
 file PHARN preserved, or one created by an earlier install, lacks the entry:
 copy it across by hand. `pharn update` never edits `.claude/settings.json`;
-`pharn status` and `pharn update` name the missing entry in a `HOOKS` note.
+`pharn init`, `pharn status` and `pharn update` name the missing entry in a
+`HOOKS` note.
 
 The full set of bounds lives in upstream's
 [`LIMITS.md`](https://github.com/pharn-dev/pharn-oss/blob/main/LIMITS.md) and
