@@ -1,7 +1,12 @@
 name: publish
 
-# Publish to npm when a GitHub Release is published.
-# Cut a release (tag vX.Y.Z, matching package.json "version") and this runs.
+# Release on merge. Every push to main runs this workflow; it releases exactly
+# when package.json's version has no `v<version>` tag yet. The version bump and
+# its CHANGELOG section travel in the feature PR, so merging that PR is the
+# release. A merge that does not bump the version (dependabot, docs, a feature
+# saved for a later release) ends at the `gate` job and publishes nothing.
+#
+#   gate → build → publish → release
 #
 # Auth = npm Trusted Publishing (OIDC) — configured on npmjs.org as a Trusted
 # Publisher for this workflow (publish.yml) + environment `npm-publish`. No
@@ -9,34 +14,80 @@ name: publish
 # stays manual (`npm publish`, run once by a maintainer to create the package
 # before the Trusted Publisher can take over).
 #
-# TWO JOBS, and the split is the point (PHARN-07). Any step in a job that holds
+# The job split is the point (PHARN-07). Any step in a job that holds
 # `id-token: write` can request the OIDC token npm trades for publish rights.
 # The old single job ran `npm ci` (install scripts of ~280 dev dependencies) and
 # `npm publish`, whose prepublishOnly/prepack ran prettier, eslint, markdownlint,
 # tsc, vitest and esbuild — all with the token requestable, so one compromised
 # dev dependency could publish a malicious version WITH a valid provenance
 # attestation. Now:
-#   - `build` has NO id-token. It refuses anything but a strict vX.Y.Z tag on a
-#     commit contained in main (before `npm ci`), runs the gates, packs the
-#     tarball, smoke-installs it, and uploads it as an artifact.
+#   - `gate` reads package.json and asks the remote whether the tag exists. It
+#     installs nothing and holds no write permission.
+#   - `build` has NO id-token. It checks the version and that the commit is on
+#     main, extracts the release notes (before `npm ci`), runs the gates, packs
+#     the tarball, smoke-installs it, and uploads tarball + notes as an artifact.
 #   - `publish` is the ONLY job with id-token + the `npm-publish` environment. It
-#     checks out nothing, installs nothing, and publishes the prebuilt tarball
-#     with --ignore-scripts.
+#     checks out nothing, installs nothing, skips the publish when the registry
+#     already has the version (a re-run after a later failure), and otherwise
+#     publishes the prebuilt tarball with --ignore-scripts.
+#   - `release` is the ONLY job with `contents: write`. It checks out nothing and
+#     installs nothing: it tags the built commit and creates the GitHub Release
+#     from the notes. It runs after npm, so a tag always means "on npm".
 # Residual, named: the tarball is produced in `build`, so a compromised dev
 # dependency there can still alter its CONTENT; it can no longer mint a token or
 # publish on its own.
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+  # Recovery: re-drive a release whose run was cancelled or superseded. The gate
+  # refuses any ref but main, so this can only release the version on main.
+  workflow_dispatch:
+
+# Workflow-level, so a second merge's `gate` cannot read "no tag" while the first
+# run is still between publish and release. Never cancel a run mid-release.
+concurrency:
+  group: publish
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  gate:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.tag.outputs.version }}
+      version: ${{ steps.decide.outputs.version }}
+      release: ${{ steps.decide.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # `git ls-remote --exit-code` exits 0 when the tag exists and 2 when it does
+      # not; anything else (network, auth) fails the run rather than reading as
+      # "no tag". `|| rc=$?` keeps `set -e` from ending the step on exit 2.
+      - name: Decide
+        id: decide
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "publish runs only on refs/heads/main, not $GITHUB_REF"; exit 1; }
+          VERSION="$(node -p "require('./package.json').version")"
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "package.json version $VERSION is not X.Y.Z"; exit 1; }
+          rc=0
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null || rc=$?
+          case "$rc" in
+            0) RELEASE=false; echo "v$VERSION is already tagged: nothing to release" ;;
+            2) RELEASE=true; echo "v$VERSION has no tag: releasing" ;;
+            *) echo "git ls-remote exited $rc: cannot tell whether v$VERSION is released"; exit 1 ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,29 +97,31 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      # Before `npm ci`, so a bad tag costs no dependency install. Strict: a
-      # prerelease or `v`-less tag is refused rather than half-published.
-      - name: Verify tag
-        id: tag
+      # Before `npm ci`, so a bad version costs no dependency install.
+      - name: Verify version
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag $GITHUB_REF_NAME is not vX.Y.Z"; exit 1; }
+          [[ "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "version $VERSION is not X.Y.Z"; exit 1; }
           PKG="$(node -p "require('./package.json').version")"
-          [ "${GITHUB_REF_NAME#v}" = "$PKG" ] || { echo "tag $GITHUB_REF_NAME != package.json $PKG"; exit 1; }
+          [ "$PKG" = "$VERSION" ] || { echo "package.json $PKG != gate version $VERSION"; exit 1; }
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "$GITHUB_SHA is not on main"; exit 1; }
-          echo "version=$PKG" >> "$GITHUB_OUTPUT"
+      # Also before `npm ci`: a bump without its CHANGELOG section fails here.
+      # npm does NOT create --pack-destination (ENOENT on npm 10 and 11), so the
+      # directory the Pack step writes into is made here, earlier in this job.
+      - name: Release notes
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pkg"
+          node scripts/release-notes.mjs "$VERSION" CHANGELOG.md > "$RUNNER_TEMP/pkg/RELEASE_NOTES.md"
       - name: Install
         run: npm ci
       - name: Gates
         run: |
           npm run check
           npm run test:coverage
-      # `npm pack` runs prepack (the build) here, in the unprivileged job. npm does
-      # NOT create --pack-destination (ENOENT on npm 10 and 11), so make it first.
+      # `npm pack` runs prepack (the build) here, in the unprivileged job.
       - name: Pack
-        run: |
-          mkdir -p "$RUNNER_TEMP/pkg"
-          npm pack --pack-destination "$RUNNER_TEMP/pkg"
+        run: npm pack --pack-destination "$RUNNER_TEMP/pkg"
       - name: Smoke the packed CLI
         working-directory: ${{ runner.temp }}
         run: |
@@ -76,18 +129,17 @@ jobs:
           npm init -y > /dev/null
           npm install --no-audit --no-fund ../pkg/pharn-dev-pharn-*.tgz
           ./node_modules/.bin/pharn --version
-      # Unverified from the authoring environment (no GitHub access outside this
-      # repo): these two SHAs are the upstream v4.6.2 / v4.3.0 tags as known at
-      # authoring time. A wrong SHA fails this workflow before anything publishes.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-tarball
-          path: ${{ runner.temp }}/pkg/pharn-dev-pharn-${{ steps.tag.outputs.version }}.tgz
+          path: |
+            ${{ runner.temp }}/pkg/pharn-dev-pharn-${{ needs.gate.outputs.version }}.tgz
+            ${{ runner.temp }}/pkg/RELEASE_NOTES.md
           if-no-files-found: error
           retention-days: 1
 
   publish:
-    needs: build
+    needs: [gate, build]
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -102,7 +154,7 @@ jobs:
       # node >= 22.14.0). node 24 already BUNDLES a satisfying npm — 11.17.0 at the
       # released v24.19.0, checked 2026-08-10 — so the floor needs no install, only
       # enforcement. This step therefore ASSERTS the floor instead of globally
-      # installing the floating `latest` npm at publish time: the release job, which
+      # installing the floating `latest` npm at publish time: the publish job, which
       # holds `id-token: write` and the `npm-publish` environment, now downloads no
       # third-party tool at all. (The deleted step had silently crossed a major — the
       # registry `latest` dist-tag was npm 12.0.2 on 2026-08-10.) Pure node stdlib,
@@ -133,6 +185,34 @@ jobs:
             }
             console.log(`npm floor OK: npm ${found.trim()} >= ${floor}`);
           ' "$(npm --version)" 11.5.1
+      # Idempotency: a re-run after `release` failed must not publish again. Only
+      # the HTTP status is read — 200 (already on npm) skips the publish, 404
+      # publishes, anything else (or no answer) fails the run. Pure node stdlib.
+      - name: Registry check
+        id: registry
+        env:
+          VERSION_URL: https://registry.npmjs.org/@pharn-dev%2fpharn/${{ needs.gate.outputs.version }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const url = process.env.VERSION_URL;
+            let status;
+            try {
+              const res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(15000) });
+              status = res.status;
+              await res.body?.cancel();
+            } catch (err) {
+              console.error(`registry check: no answer from ${url}: ${err.message}`);
+              process.exit(1);
+            }
+            const published = { 200: "true", 404: "false" }[status];
+            if (published === undefined) {
+              console.error(`registry check: unexpected HTTP ${status} from ${url}`);
+              process.exit(1);
+            }
+            console.log(`registry check: HTTP ${status} from ${url} -> published=${published}`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `published=${published}\n`);
+          '
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-tarball
@@ -143,6 +223,32 @@ jobs:
       # The leading `./` is load-bearing: a bare `pkg/x.tgz` matches npm's GitHub
       # `owner/repo` shorthand and is resolved as a git repo, not the file.
       - name: Publish
+        if: steps.registry.outputs.published == 'false'
         env:
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.gate.outputs.version }}
         run: npm publish "./pkg/pharn-dev-pharn-${VERSION}.tgz" --provenance --access public --ignore-scripts
+
+  release:
+    needs: [gate, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the tag + GitHub Release — THIS job only; no id-token here
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-tarball
+          path: pkg
+      # A release created with GITHUB_TOKEN triggers no other workflow, which is
+      # why tagging happens here rather than in a separate on-release workflow.
+      # An existing Release (a re-run) is left alone.
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "release $TAG already exists"
+            exit 0
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --notes-file pkg/RELEASE_NOTES.md

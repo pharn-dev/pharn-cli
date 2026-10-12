@@ -25,6 +25,7 @@ Closes #<!-- issue number -->
 - [ ] Read the existing file(s) before editing; followed the ESM `.js`-extension import convention.
 - [ ] Updated the matching `tests/*.test.ts` when wizard behavior changed (tests mirror step/lib files one-to-one).
 - [ ] Updated the relevant `docs/` page (see the "Documentation maintenance" table in `CONTRIBUTING.md`); unimplemented behavior is marked **Coming soon** or linked to `docs/roadmap.md`.
+- [ ] **Releasing?** Merging a version bump publishes to npm. Bump `package.json` + `package-lock.json` (`npm version --no-git-tag-version X.Y.Z`) and move the `[Unreleased]` entries under a `## [X.Y.Z] — YYYY-MM-DD` CHANGELOG heading (with its compare link) in this PR — see [`docs/RELEASING.md`](https://github.com/pharn-dev/pharn-cli/blob/main/docs/RELEASING.md). Not releasing? Leave the version alone and add to `[Unreleased]`.
 - [ ] Preserved the security invariants in `src/lib/github.ts` / `src/lib/validate.ts` (regex allowlists, `..` checks, `redirect: 'error'`, timeout/size caps, `schemaVersion === 1`) if I touched remote-input handling.
 
 ## Quality gates

@@ -16,7 +16,7 @@ Before changing anything, read these in order:
 - **Where your change goes** → [`CLAUDE.md`](./CLAUDE.md) architecture section and the [test map](./docs/contributing.md#test-map)
 - **The rules of the repo** → [`CLAUDE.md`](./CLAUDE.md) (source of truth — read it before adding, editing, or removing anything)
 - **User-facing docs** → [`docs/`](./docs/README.md)
-- **Releasing (maintainers)** → [`docs/RELEASING.md`](./docs/RELEASING.md) (version bump → GitHub Release → npm via Trusted Publishing)
+- **Releasing (maintainers)** → [`docs/RELEASING.md`](./docs/RELEASING.md) (bump the version + CHANGELOG in your PR → merging it publishes to npm via Trusted Publishing)
 - **Community standards** → [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
 
 ## The 30-second version
@@ -27,7 +27,7 @@ Before changing anything, read these in order:
    `npm run format:check` · `npm run lint` · `npm run lint:md` · `npm run typecheck` · `npm run test:coverage` · `npm run build`
    `npm run check` runs the first four plus `test`, so it is the one command to reach for — but it is **not** the whole of CI: it skips `build`, and it runs `test` rather than `test:coverage`, so it does not enforce the coverage thresholds. See the [gates table](./docs/contributing.md#quality-gates) for the job names.
 4. **Branch**: `feat/…`, `fix/…`, or `docs/…`.
-5. **Commit** in [Conventional Commits](https://www.conventionalcommits.org/) style, one logical change per commit — and **write the PR title the same way**. PRs are squash-merged, so the PR title *becomes* the commit message on `main`; individual commit messages inside the branch are discarded. Nothing enforces this automatically, so it is a reviewer check: `main` carries at least one `changes (#97)` that landed a real behaviour change under the least informative possible message.
+5. **Commit** in [Conventional Commits](https://www.conventionalcommits.org/) style, one logical change per commit — and **write the PR title the same way**. PRs are squash-merged, so the PR title _becomes_ the commit message on `main`; individual commit messages inside the branch are discarded. Nothing enforces this automatically, so it is a reviewer check: `main` carries at least one `changes (#97)` that landed a real behaviour change under the least informative possible message.
 6. **Tests first** — when changing behavior, update the matching `tests/*.test.ts` before touching code. The suite mirrors `commands/`, `steps/` and `lib/` one-to-one, with `lib/hash.ts` the single exception.
 7. **Security-sensitive files** (`lib/validate.ts`, `lib/install-capabilities.ts`, `lib/skills-version.ts`, `lib/tar-extract.ts`, `lib/repo.ts`) — preserve the validation invariants (regex/enum allowlists, `safeJoin` path guard, symlink rejection, `redirect: 'error'`, and the fetch timeout/size caps) called out in [`CLAUDE.md`](./CLAUDE.md).
 8. **Keep docs in sync** — see the [Documentation maintenance](./docs/contributing.md#documentation-maintenance) table.
