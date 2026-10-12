@@ -210,7 +210,7 @@ settings file — and is refused only when its target does not exist. See
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                     |
 | Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs` hooks, the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files and `test-fixtures/`)                                         |
-| Preserve settings          | An existing `.claude/settings.json` is **never** overwritten (a note tells you to wire the hooks by hand if needed)                                                                                                                                                |
+| Preserve settings          | An existing `.claude/settings.json` is **never** overwritten or merged; a `HOOKS` note lists every PHARN hook it does not wire ([below](#an-existing-claudesettingsjson))                                                                                          |
 | Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
 | Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `seam`, `modules: []`, `frozenCapabilities` (see above)       |
@@ -221,6 +221,27 @@ The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`,
 the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
 that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and
 publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
+
+#### An existing `.claude/settings.json`
+
+If your project already has `.claude/settings.json`, `init` keeps it byte for byte — it never
+overwrites or merges that file — and says so. PHARN's hooks enforce only once they are registered
+there, so while the fetched copy of pharn-oss is still on disk `init` compares the hooks pharn-oss
+wires with the ones your `.claude/settings.json` and `.claude/settings.local.json` wire together, and
+prints the same `HOOKS` note as [`pharn status`](status.md) and [`pharn update`](update.md):
+
+- **Every hook wired** — no note.
+- **Some missing** — each missing hook is listed as one line of JSON under its event and matcher,
+  ready to paste into `.claude/settings.json` (or `.claude/settings.local.json`, for yourself only).
+  `pharn status --strict` fails until they are wired.
+- **Wired only in `settings.local.json`** — those hooks are named: they run for you, not for
+  teammates or CI. `pharn status --strict` passes.
+- **A settings file `init` cannot read** (not valid JSON, not a regular file, larger than 256 KB) —
+  the note names the file and the reason and lists every hook pharn-oss wires. The install still
+  completes.
+
+Matching is textual: a hook you wrote differently but equivalently is listed too. On a fresh install
+there is no note — `.claude/settings.json` is written from pharn-oss.
 
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 
