@@ -373,7 +373,8 @@ test("★ the live repo has NO floating install in any workflow run: line", () =
   //
   // 10 = six in ci.yml (one per gate job — each required status check installs for itself), two
   // in publish.yml's unprivileged `build` job (`npm ci`, and the PATH install of the packed tarball
-  // for its smoke — the privileged `publish` job installs nothing), and two in node-floor.yml (its
+  // for its smoke — the privileged `publish` job, and the `gate` and `release` jobs added by
+  // release-on-merge, install nothing), and two in node-floor.yml (its
   // `npm ci` build step, and the PATH install of the packed tarball onto the floor Node). It was 2
   // while ci.yml ran a single `check` job, 7 until the node-floor smoke job, 9 until publish.yml was
   // split; each step is a deliberate change this count records.
@@ -425,22 +426,79 @@ test("★ publish.yml still ENFORCES the npm floor — the assert step and its f
 // PHARN-07: `id-token: write` lets EVERY step of its job request the OIDC token npm trades for
 // publish rights, so it may appear only on publish.yml's `publish` job — never top-level, never on
 // the job that runs `npm ci` and the dev toolchain. A text-level pin (no YAML parser in the floor):
-// the grant appears exactly once, after the `publish:` job header, and that job runs no install.
-test("★ publish.yml grants id-token ONLY to the publish job, which installs nothing", () => {
-  const text = readFileSync(join(REPO, ".github", "workflows", "publish.yml"), "utf8");
-  const code = text
+// the grant appears exactly once, inside the `publish:` job, and that job runs no install.
+//
+// The job is sliced from its header to the NEXT job header (release-on-merge), not to end of file:
+// publish.yml now has a `release` job after `publish`, and an EOF slice would both attribute that
+// job's lines to `publish` and let a grant hiding in `release` pass as "inside the publish job".
+
+// Comment lines dropped: a YAML comment is never executed, and publish.yml's comments name the very
+// things these pins forbid.
+function codeOf(text) {
+  return text
     .split(/\r\n|\r|\n/)
     .filter((l) => !l.trimStart().startsWith("#"))
     .join("\n");
+}
+
+// One job's lines: from its two-space-indented header under `jobs:` to the next job header or the
+// next top-level key, whichever comes first. `null` when there is no such job.
+function jobBlock(code, id) {
+  const lines = code.split("\n");
+  const jobsAt = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+  if (jobsAt < 0) return null;
+  const start = lines.findIndex((l, i) => i > jobsAt && l === `  ${id}:`);
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^ {2}[A-Za-z0-9_-]+:\s*$/.test(lines[i]) || /^\S/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n");
+}
+
+test("job slicing: a job ends at the next job header, not at end of file", () => {
+  const code = [
+    "on: push",
+    "jobs:",
+    "  publish:",
+    "    steps:",
+    "      - run: npm publish ./x.tgz --ignore-scripts",
+    "  release:",
+    "    steps:",
+    "      - run: npm ci",
+  ].join("\n");
+  assert.ok(!/npm ci/.test(jobBlock(code, "publish")), "a later job's install was attributed to publish");
+  assert.match(jobBlock(code, "release"), /npm ci/);
+  const inside = code.replace("      - run: npm publish", "      - run: npm ci\n      - run: npm publish");
+  assert.match(jobBlock(inside, "publish"), /npm ci/, "an install inside publish was not attributed to it");
+  assert.equal(jobBlock(code, "missing"), null);
+});
+
+test("★ publish.yml grants id-token ONLY to the publish job, which installs nothing", () => {
+  const code = codeOf(readFileSync(join(REPO, ".github", "workflows", "publish.yml"), "utf8"));
   const grants = code.match(/^\s*id-token:\s*write\b/gm) ?? [];
   assert.equal(grants.length, 1, "id-token: write must appear exactly once");
-  const publishAt = code.search(/^  publish:\s*$/m);
-  assert.ok(publishAt > 0, "the `publish` job header was not found");
-  const publishJob = code.slice(publishAt);
+  const publishJob = jobBlock(code, "publish");
+  assert.ok(publishJob, "the `publish` job header was not found");
   assert.match(publishJob, /^\s*id-token:\s*write\b/m, "the grant is not inside the publish job");
   assert.ok(!/npm (ci|install|i)\b/.test(publishJob), "the privileged publish job installs packages");
   assert.ok(!/actions\/checkout@/.test(publishJob), "the privileged publish job checks out the repo");
   assert.match(publishJob, /--ignore-scripts/, "the privileged publish must not run lifecycle scripts");
+});
+
+// The mirror pin: `release` holds the one `contents: write` (tag + GitHub Release). It must never
+// also hold the npm token, and it runs no repository or dependency code at all.
+test("★ publish.yml's release job holds no id-token and checks out / installs nothing", () => {
+  const code = codeOf(readFileSync(join(REPO, ".github", "workflows", "publish.yml"), "utf8"));
+  const releaseJob = jobBlock(code, "release");
+  assert.ok(releaseJob, "the `release` job header was not found");
+  assert.ok(!/^\s*id-token:/m.test(releaseJob), "the release job requests the OIDC token");
+  assert.ok(!/npm (ci|install|i)\b/.test(releaseJob), "the release job installs packages");
+  assert.ok(!/actions\/checkout@/.test(releaseJob), "the release job checks out the repo");
+  assert.ok(!/\bnode\b/.test(releaseJob), "the release job runs repository code");
 });
 
 test("★★ mutating the live publish.yml back to `npm install -g npm@latest` IS caught", () => {

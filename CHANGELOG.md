@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Releases publish on merge (maintainers).** `publish.yml` now runs on every push to `main` and publishes when `package.json` carries a version with no `v<version>` tag yet: npm first (via Trusted Publishing, as before), then the tag and a GitHub Release whose notes are that version's CHANGELOG section. The version bump and its CHANGELOG section go in the feature PR; a merge that does not bump the version publishes nothing. A re-run never publishes twice. Cutting a GitHub Release by hand is no longer part of the flow. See [`docs/RELEASING.md`](docs/RELEASING.md).
+
 ## [0.11.0] — 2026-10-11
 
 ### Added

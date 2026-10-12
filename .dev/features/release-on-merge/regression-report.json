@@ -1,0 +1,30 @@
+{
+  "base": "6c04a7f0182cfbbf21abf071d16a70771f9df9e9",
+  "inside": [
+    ".dev/floor/check-run-pins.test.mjs",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/workflows/publish.yml",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "docs/RELEASING.md",
+    "scripts/release-notes.mjs",
+    "tests/ci-workflow.test.ts",
+    "tests/publish-workflow.test.ts",
+    "tests/release-consistency.test.ts",
+    "tests/release-notes.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

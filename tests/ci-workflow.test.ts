@@ -13,8 +13,9 @@ import { describe, expect, it } from 'vitest';
 // below: `ci.yml` (six named jobs), `floor.yml` and `gitleaks.yml` (one job
 // each with NO `name:`, so each reports under its id), and `codeql.yml` (one
 // job whose name is a matrix template). `publish.yml` is deliberately absent —
-// it runs on a published Release and reports no required context, so listing it
-// would make REQUIRED_CONTEXTS claim something false.
+// it runs only on push to `main` (and `workflow_dispatch`), never on a pull
+// request, and reports no required context, so listing it would make
+// REQUIRED_CONTEXTS claim something false.
 //
 // The invariant is two-sided and this test pins only the side that lives in the
 // repo. Nothing here reads the live ruleset, so a ruleset edited on github.com
