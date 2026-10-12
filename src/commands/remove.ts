@@ -181,7 +181,7 @@ function backupBeforeDelete(
     );
   } catch (err) {
     throw new RemoveBackupError(
-      `Could not back up the files in ${label} before removing: ${errorMessage(err)}. Nothing was removed.`,
+      `Could not back up the files in ${label} before removing: ${errorMessage(err).replace(/\.$/, '')}. Nothing was removed.`,
     );
   }
 }
