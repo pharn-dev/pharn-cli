@@ -10,7 +10,7 @@
 - `src/commands/remove.ts:96-108` `deleteCapabilityDir` → `rmSync(dir, {recursive:true, force:true})`, no prompt, no backup. Called from `removeNamed` (:277, inside `withProjectLock` after `assertConfigUnchanged`) and the picker loop (:383, inside the lock, after the one confirm). `refuseSymlinkedTargets` (:119) already refuses, before the lock (and before the picker's confirm), any target whose dir path crosses a symlinked component — so the dir root itself is never a link when the delete runs (modulo the named race below).
 - `pruneCapabilityRecords` (:174) reaches the store via `recordsBaseline(readRecords(cwd), {skillsVersion, commit})` → `records: FileRecords | null` (null = absent / invalid / stamped-for-another-state). Record keys are project-relative posix paths `${capabilityRelDir}/<rel>` — the same prefix the prune filters on.
 - `src/lib/backup.ts` `createBackup(projectRoot, rels)`: refuses a symlinked `.pharn-backup`, per-component symlink check on each rel, throws on a vanished source, uniquifies the timestamp dir, returns `.pharn-backup/<ts>`. Throws rather than returning partial work; it may leave a partially-filled backup dir behind, never touches an original.
-- `src/commands/add.ts:632-641` is the precedent: `createBackup(cwd, scan.drifted)` then `log.info(\`Backed up ${n} file(s) to ${backupDir} before overwriting.\`)` — announced AT CREATION. No shared notice helper exists; `add` inlines it.
+- `src/commands/add.ts:632-641` is the precedent: `createBackup(cwd, scan.drifted)` then `log.info(\`Backed up ${n} file(s) to ${backupDir} before overwriting.\`)`— announced AT CREATION. No shared notice helper exists;`add` inlines it.
 - `src/lib/install-manifest.ts` `walkFiles` is private, skips symlinks, and yields any non-directory (a FIFO included) as a file — so it is not reusable for the DEST side (a FIFO handed to `copyFileSync`/`sha256File` blocks on open). A dest walk must keep only `isFile()` entries.
 - `src/lib/hash.ts` `sha256File` — the hash the records were taken with (`buildRecords`).
 - `runRemove` (:52) catches only `ProjectLockedError`; any other throw from inside the lock reaches `main().catch` → raw `console.error(err)` + exit 1. `withProjectLock` releases on throw.
@@ -27,7 +27,7 @@
    - Keys are compared as strings; the walk joins only names read from the local dest dir under a `safeJoin`-contained root.
 2. **`src/commands/remove.ts`**:
    - Read the records baseline ONCE inside the lock (after `assertConfigUnchanged`), pass it to both the backup step and `pruneCapabilityRecords` (signature takes the baseline instead of re-reading; behaviour of the prune unchanged).
-   - New `backupBeforeDelete(cwd, paths, targets, records)`: computes `removalBackupSet` over `targets.map(capabilityRelDir)`; empty → nothing (no `.pharn-backup/` created); else `createBackup(cwd, set)` and immediately `log.info(\`Backed up ${n} file(s) to ${dir} before removing.\`)` (same shape as `add`, announced at creation). Any throw from scan or backup is wrapped in a local `RemoveBackupError` ("Could not back up … before removing: <cause>. Nothing was removed.").
+   - New `backupBeforeDelete(cwd, paths, targets, records)`: computes `removalBackupSet` over `targets.map(capabilityRelDir)`; empty → nothing (no `.pharn-backup/` created); else `createBackup(cwd, set)` and immediately `log.info(\`Backed up ${n} file(s) to ${dir} before removing.\`)`(same shape as`add`, announced at creation). Any throw from scan or backup is wrapped in a local `RemoveBackupError` ("Could not back up … before removing: <cause>. Nothing was removed.").
    - Order inside the lock becomes: `assertConfigUnchanged` → records baseline → **backup** → delete → prune → config. Named path: for `[target]`. Picker: ONE backup for the whole selection, after the confirm, inside the one lock, before the first delete.
    - `runRemove`'s catch: `RemoveBackupError` → `logError(message)` + `process.exit(1)` (same treatment as `ProjectLockedError`; the lock is already released by unwinding).
    - Contract otherwise unchanged: named path still never prompts, no `--yes`, picker keeps its single confirm, `refuseSymlinkedTargets` unchanged and still first.
@@ -57,6 +57,7 @@
 ## Evals to write (P1)
 
 Unit (`tests/removal-backup.test.ts`):
+
 - user file not in records → in the set
 - recorded file, bytes unchanged → NOT in the set
 - recorded file, edited → in the set
@@ -67,6 +68,7 @@ Unit (`tests/removal-backup.test.ts`):
 - unreadable file (chmod 000, skipped when running as root) → throws
 
 Integration (`tests/remove.test.ts`, named path unless stated):
+
 - user file `…/a11y/notes/USER.md` inside the dir → backed up at `.pharn-backup/<ts>/<same rel>`, bytes identical, dir deleted, `log.info` called with the "Backed up 1 file(s) to .pharn-backup/… before removing." line
 - edited recorded file → backed up; unchanged recorded file in the same dir → NOT in the backup
 - all files recorded and unchanged → no `.pharn-backup` directory created, `log.info` not called with the notice
