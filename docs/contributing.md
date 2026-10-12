@@ -60,7 +60,7 @@ Gates run on **ubuntu-latest with Node 24 only**. Two support claims are therefo
 
 `npm run check` runs `format:check` + `lint` + `lint:md` + `typecheck` + `test` as a single local pre-push command. It covers every gate above **except `build`**, and it runs `test` rather than `test:coverage` — so it does not enforce the coverage thresholds the `Test` job does. A green `check` is the strongest single local signal, not a proof that CI will be green.
 
-Three more workflows report required checks: `floor` (the deterministic PHARN floor), `gitleaks` (secret scanning), and `Analyze (javascript-typescript)` (CodeQL, also on pushes to `main` and weekly).
+Three more workflows report required checks: `floor` (the deterministic PHARN floor), `gitleaks` (secret scanning), and `Analyze (javascript-typescript)` (CodeQL, also on pushes to `main` and weekly). The `main` ruleset also requires two Socket Security checks, `Socket Security: Project Report` and `Socket Security: Pull Request Alerts`; no workflow in this repo produces them (the Socket GitHub App reports them), so they are not in the workflow-derived list or in `REQUIRED_CONTEXTS` in `tests/ci-workflow.test.ts`. If a Socket check name changes, the ruleset must be edited.
 
 ## Branch & commit style
 
