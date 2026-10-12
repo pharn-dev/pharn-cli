@@ -103,7 +103,7 @@ overwritten**. Inspect `.pharn-backup` at your project root:
 A symlink in a source file's path (or one of its parent directories) is also rejected; the error names
 the component.
 
-### `add` writes backups too
+### `add` and `remove` write backups too
 
 `.pharn-backup/<timestamp>/` is not only an `update --force` artefact. Before `pharn add` copies a
 capability, it compares each destination file against the clone and copies every one that **differs**
@@ -111,6 +111,12 @@ into the same backup directory — so re-adding a capability whose files you edi
 edits. Byte-identical files are not drift and are not backed up. Everything in
 [`--force` aborted with a backup error](#--force-aborted-with-a-backup-error) applies to `add`
 verbatim, including the abort-with-nothing-touched contract.
+
+Before `pharn remove` deletes a capability directory, it copies every file in it that is not recorded in
+`pharn.records.json` at its current hash — files you added, files you edited, and every file when the
+store is absent or unusable — into the same backup directory. A backup failure makes `remove` exit 1
+having deleted nothing. See
+[What is backed up before the delete](commands/remove.md#what-is-backed-up-before-the-delete).
 
 `add` also **refuses outright** — writing nothing, exit 1 — when a destination path crosses a
 symlinked directory, naming the offending component:

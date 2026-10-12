@@ -47,7 +47,7 @@ disagree with what is actually on disk. Keys are sorted, so the committed file h
 | `init`   | Writes the full store — every file the install wrote, and the `models` block when it wrote one         |
 | `add`    | Merges the added capability's files in. Only extends an **already readable** store; it never mints one |
 | `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record  |
-| `remove` | Prunes the removed capability's entries. Only edits an **already readable** store; it never mints one  |
+| `remove` | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one      |
 
 `.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
 absent.
@@ -111,6 +111,11 @@ touched, and the `skillsVersion`/`commit` stamp does not move: `remove` changes 
 stays stamped for the state it is still in. If the store is absent, unreadable, or stamped for another
 state, `remove` leaves the file exactly as it found it — it never mints a store and never rewrites one
 it could not verify, the same rule [`add`](../commands/add.md) follows.
+
+Before that delete, `remove` also **reads** the store: a file in the capability directory whose path is
+recorded here at its current hash is deleted without a copy, and every other file is first copied to
+`.pharn-backup/<timestamp>/`. With no usable store, every file in the directory is copied. See
+[What is backed up before the delete](../commands/remove.md#what-is-backed-up-before-the-delete).
 
 ## Trust
 

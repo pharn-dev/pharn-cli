@@ -1,18 +1,7 @@
 {
   "scope": [
-    ".github/workflows/publish.yml",
-    "scripts/release-notes.mjs",
-    "tests/release-notes.test.ts",
-    "tests/release-consistency.test.ts",
-    "tests/publish-workflow.test.ts",
-    ".dev/floor/check-run-pins.test.mjs",
-    "tests/ci-workflow.test.ts",
-    "docs/RELEASING.md",
-    "CLAUDE.md",
-    "CONTRIBUTING.md",
-    ".github/PULL_REQUEST_TEMPLATE.md",
-    "CHANGELOG.md"
+    ".dev/features/remove-preserve-user-files/SHIP.md"
   ],
-  "set_by": ".dev/features/release-on-merge/PLAN.md",
-  "set_at": "2026-10-12T13:36:15.064Z"
+  "set_by": ".claude/commands/pharn-dev-ship.md",
+  "set_at": "2026-10-12T22:19:45.439Z"
 }

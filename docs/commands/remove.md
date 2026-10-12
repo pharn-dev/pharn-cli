@@ -2,7 +2,9 @@
 
 Remove a single installed **capability** — a griller or a lens — from an existing project (one with a
 `pharn.config.json`). The inverse of [`add`](add.md): it deletes exactly that capability's directory and
-drops its entry from `pharn.config.json`.
+drops its entry from `pharn.config.json`. Any file in that directory that `pharn` cannot prove it wrote
+unchanged is copied to `.pharn-backup/<timestamp>/` first — see
+[What is backed up before the delete](#what-is-backed-up-before-the-delete).
 
 ```bash
 pharn remove <name>          # e.g. pharn remove a11y
@@ -21,7 +23,9 @@ pharn remove                 # no arg, in a terminal: interactive multi-select p
    argument, resolves it to one installed capability. In a non-interactive context (CI, a pipe),
    no-argument `pharn remove` does **not** prompt — it exits with a usage error (unless nothing is
    installed, which is reported plainly).
-3. Deletes each selected capability's isolated directory and drops its entry from `capabilities`.
+3. Backs up every file in the selected directories that is not provably `pharn`'s own, unchanged bytes
+   (see [below](#what-is-backed-up-before-the-delete)), then deletes each selected capability's
+   isolated directory and drops its entry from `capabilities`.
 4. Prunes that capability's entries from [`pharn.records.json`](../reference/pharn-records.md), so the
    store never describes files that are gone.
 
@@ -49,9 +53,45 @@ to **No**.
 > Earlier releases accepted `pharn remove --yes` and silently dropped it. See
 > [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
+## What is backed up before the delete
+
+A capability directory can hold more than `pharn` put there — notes you added, or an edit to a persona
+file. Before deleting anything, `remove` checks every regular file in each directory it is about to
+delete against [`pharn.records.json`](../reference/pharn-records.md):
+
+- A file whose path is recorded **and** whose bytes still match the recorded hash is `pharn`'s own,
+  unchanged — it is deleted without a copy (the next install can write it again).
+- **Every other file is copied first**: a file you added, a recorded file you edited, and — when the
+  store is absent, unreadable, or stamped for a different install state — every file in the directory,
+  because then nothing can be proven.
+
+The copies go to `.pharn-backup/<timestamp>/` at your project root — the same backup directory
+[`pharn update --force`](update.md) and [`pharn add`](add.md) write — preserving each file's
+project-relative path, and the directory is printed as soon as it exists:
+
+```text
+Backed up 1 file(s) to .pharn-backup/20261013-141530 before removing.
+```
+
+When nothing needs saving (every file is recorded and unchanged, or the directory was already gone), no
+backup directory is created. The picker makes **one** backup for its whole selection, after you confirm
+and before the first delete. The backup copies everything that qualifies, however large — if you keep
+big generated files inside a capability directory, they are copied too.
+
+If the backup cannot be made — `.pharn-backup` is a symlink, a file or folder in the directory cannot be
+read, a copy fails — `remove` **refuses with exit 1 and deletes nothing**: no directory, no config
+change, no records change. A partly written `.pharn-backup/<timestamp>/` may be left behind; your
+originals are untouched. Fix the cause (see
+[`--force` aborted with a backup error](../troubleshooting.md#--force-aborted-with-a-backup-error)) and
+re-run.
+
+**Not backed up:** entries that are not regular files. A **symbolic link** inside the directory is
+deleted as a link and never followed — whatever it points at is left exactly as it was, and the link
+itself is not saved. A FIFO, socket or device file is skipped and deleted the same way.
+
 ## Concurrency
 
-`remove` takes the project lock (`.pharn.lock`) around its delete → prune → config write — on the
+`remove` takes the project lock (`.pharn.lock`) around its backup → delete → prune → config write — on the
 named path, and on the picker path after its one confirmation. A second `pharn` writer refuses with a
 named message and exit 1. Worth knowing because `remove` is otherwise entirely local: it makes no
 network call and clones nothing, so a refusal is the one thing that can stop it for a reason outside

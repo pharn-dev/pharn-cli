@@ -308,7 +308,9 @@ PHARN is intentionally conservative about writes:
   upstream, and refuses the whole install — writing nothing — when a destination
   path crosses a symlinked directory.
 - `status` and `list` are read-only.
-- `remove` deletes only the selected capability directory and prunes its records;
+- `remove` deletes only the selected capability directory and prunes its records,
+  after backing up to `.pharn-backup/<timestamp>/` any file in it that `pharn`
+  cannot prove it wrote unchanged;
   it never touches `CONSTITUTION.md`, `memory-bank/`, or your detected
   archetypes, and refuses when that directory's path crosses a symlink.
 
