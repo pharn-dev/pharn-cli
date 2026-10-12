@@ -1,10 +1,10 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/pharn-logo-dark-transparent.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/pharn-logo-light-transparent.svg">
-  <img alt="Pharn" src="assets/pharn-logo-light-transparent.svg" width="420">
-</picture>
+<p align="center">
+  <img src="./assets/pharn-logo.svg" alt="Pharn CLI" width="96">
+</p>
+
+<h1 align="center">Pharn CLI</h1>
 
 **Install and update PHARN in any git project.**
 
