@@ -159,9 +159,11 @@ Backed up 1 file(s) to .pharn-backup/20260908-141530 before overwriting.
 Files that are already **byte-identical** to upstream are not backed up — re-adding an untouched
 capability stays silent. Files that do not exist yet are simply created, so a normal first-time `add`
 never produces a backup directory. Files that are in the directory but **not** part of the capability
-upstream are never touched at all, and are never recorded in
+upstream are never touched by `add`, and are never recorded in
 [`pharn.records.json`](../reference/pharn-records.md) — `add` records only the files it actually
-copied.
+copied. If you later [`pharn remove`](remove.md) that capability, those files are copied to
+`.pharn-backup/<timestamp>/` before its directory is deleted — see
+[What is backed up before the delete](remove.md#what-is-backed-up-before-the-delete).
 
 **Why this exists.** [`pharn update`](update.md) never deletes: when a capability stops being
 selected, its directory is left on disk and the report says so. If you then edit those files and

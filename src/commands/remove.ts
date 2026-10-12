@@ -16,7 +16,9 @@ import {
   type LayoutPaths,
 } from '../lib/layout.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
-import { logError } from '../lib/report-error.js';
+import { errorMessage, logError } from '../lib/report-error.js';
+import { createBackup } from '../lib/backup.js';
+import { removalBackupSet } from '../lib/removal-backup.js';
 import {
   buildRemoveSelection,
   interactiveAllowed,
@@ -49,6 +51,12 @@ import type { InstalledCapability, PharnConfig } from '../types.js';
 // skip it either — the dispatcher passes the argument alone (src/index.ts). The
 // legacy module/skill removal (which read the manifest) was removed; a
 // pre-archetype config is rejected up front.
+//
+// Neither path deletes a file it cannot prove is pharn's own without saving it
+// first: every regular file in a target directory that is not at its recorded
+// hash in a usable `pharn.records.json` is copied to `.pharn-backup/<ts>/`
+// BEFORE the first delete (backupBeforeDelete), and a failed backup refuses the
+// removal with nothing deleted.
 export async function runRemove(arg: string | undefined): Promise<void> {
   intro('pharn remove');
 
@@ -66,7 +74,23 @@ export async function runRemove(arg: string | undefined): Promise<void> {
       logError(err.message);
       process.exit(1);
     }
+    // A backup that could not be made is the same kind of refusal: it fired
+    // BEFORE the first delete, so the message can say "Nothing was removed"
+    // truthfully, and the lock was released by the unwinding that got us here.
+    if (err instanceof RemoveBackupError) {
+      logError(err.message);
+      process.exit(1);
+    }
     throw err;
+  }
+}
+
+// The scan or the backup in front of a delete failed. Carries a complete,
+// user-facing message; runRemove reports it and exits 1.
+class RemoveBackupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RemoveBackupError';
   }
 }
 
@@ -98,13 +122,81 @@ function deleteCapabilityDir(
   paths: LayoutPaths,
   target: InstalledCapability,
 ): boolean {
-  const dir = safeChildJoin(
-    safeJoin(cwd, capabilitySubtree(paths, target.role)),
-    target.name,
-  );
+  const dir = capabilityDir(cwd, paths, target);
   const existed = existsSync(dir);
   if (existed) rmSync(dir, { recursive: true, force: true });
   return existed;
+}
+
+// The absolute directory a target addresses — a STRICT child of its role
+// subtree, or a `Refusing path` throw. Shared by the delete and the backup scan,
+// so the scan can never read (or back up) more than the delete would remove: a
+// hand-edited `..` name is refused here, before either runs.
+function capabilityDir(
+  cwd: string,
+  paths: LayoutPaths,
+  target: InstalledCapability,
+): string {
+  return safeChildJoin(
+    safeJoin(cwd, capabilitySubtree(paths, target.role)),
+    target.name,
+  );
+}
+
+// Copy every file the coming delete would lose — anything in the target
+// directories that is not provably pharn-written-and-unchanged against a usable
+// record store (lib/removal-backup.ts) — to `.pharn-backup/<ts>/`, BEFORE the
+// first delete. Nothing to save → no backup directory at all.
+//
+// The order is deterministic control flow demonstrated by tests, not a floor
+// primitive (the same honest label lib/backup.ts carries): this runs to
+// completion before deleteCapabilityDir is first called, and any failure — a
+// directory that cannot be listed, a recorded file that cannot be hashed, a
+// symlinked `.pharn-backup`, a copy error — throws RemoveBackupError with every
+// file still in place. A failed backup can leave a partly filled backup
+// directory behind; it never touches an original.
+//
+// Announced AT CREATION, as `add` does: the printed directory is the user's only
+// pointer back to those bytes, and the deletes after it can still fail.
+function backupBeforeDelete(
+  cwd: string,
+  paths: LayoutPaths,
+  targets: InstalledCapability[],
+  records: FileRecords | null,
+): void {
+  // Addressed first, OUTSIDE the wrap: a refused name keeps its own
+  // `Refusing path` error rather than being reworded as a backup failure.
+  for (const target of targets) capabilityDir(cwd, paths, target);
+  const label = targets.map((t) => `${t.name} (${t.role})`).join(', ');
+  try {
+    const rels = removalBackupSet(
+      cwd,
+      targets.map((t) => capabilityRelDir(paths, t)),
+      records,
+    );
+    if (rels.length === 0) return;
+    const backupDir = createBackup(cwd, rels);
+    log.info(
+      `Backed up ${rels.length} file(s) to ${backupDir} before removing.`,
+    );
+  } catch (err) {
+    throw new RemoveBackupError(
+      `Could not back up the files in ${label} before removing: ${errorMessage(err)}. Nothing was removed.`,
+    );
+  }
+}
+
+// The usable record baseline, or null (absent / corrupt / stamped for another
+// install state). Read ONCE per run, inside the lock, and shared by the backup
+// decision and the prune, so both judge the same store.
+function readRecordsBaseline(
+  cwd: string,
+  config: PharnConfig,
+): FileRecords | null {
+  return recordsBaseline(readRecords(cwd), {
+    skillsVersion: config.skillsVersion,
+    commit: config.commit,
+  }).records;
 }
 
 // Refuse (exit 1, nothing deleted) when any target's directory path crosses a
@@ -176,11 +268,10 @@ async function pruneCapabilityRecords(
   config: PharnConfig,
   paths: LayoutPaths,
   targets: InstalledCapability[],
+  // readRecordsBaseline's result, read once for the run (the delete before
+  // this touches no record, so it is still the store on disk).
+  records: FileRecords | null,
 ): Promise<void> {
-  const { records } = recordsBaseline(readRecords(cwd), {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  });
   if (records === null) return; // absent/corrupt/stale → leave it alone
 
   // The trailing slash is load-bearing: without it `lenses/a11y` would also eat
@@ -268,15 +359,17 @@ async function removeNamed(
   const target = matches[0]!;
   const paths = layoutPaths(configLayout(config));
   refuseSymlinkedTargets(cwd, paths, [target]);
-  // The single-writer lock spans delete → prune → config: the three writes are
-  // individually atomic but the sequence is not, so another process must not
-  // land between them. `remove` has no prompt on this path and no network, so
-  // the held window is the write itself.
+  // The single-writer lock spans backup → delete → prune → config: the writes
+  // are individually atomic but the sequence is not, so another process must
+  // not land between them. `remove` has no prompt on this path and no network,
+  // so the held window is the write itself.
   const note = await withProjectLock(cwd, 'remove', async () => {
     assertConfigUnchanged(cwd, config, 'remove');
+    const records = readRecordsBaseline(cwd, config);
+    backupBeforeDelete(cwd, paths, [target], records);
     const existed = deleteCapabilityDir(cwd, paths, target);
 
-    // Order: delete → prune records → write config (mirroring `add`'s
+    // Order: backup → delete → prune records → write config (mirroring `add`'s
     // records-before-config). Each of those two writes is individually atomic
     // (lib/atomic-write.ts), but the PAIR is not a transaction, so this remains a
     // benign-failure argument, NOT an atomicity claim (advisory, P0): a prune that
@@ -288,7 +381,7 @@ async function removeNamed(
     //
     // `existed` deliberately does NOT gate this: on the "already gone" path the
     // records are exactly what is left to clean up.
-    await pruneCapabilityRecords(cwd, config, paths, [target]);
+    await pruneCapabilityRecords(cwd, config, paths, [target], records);
 
     // The surviving entries are the ORIGINAL objects, so every other
     // capability's `source` is carried through untouched.
@@ -314,7 +407,8 @@ async function removeNamed(
 // Nothing installed → benign message (even non-TTY). Otherwise: non-TTY → a
 // reworded usage error + exit(1) (NEVER a prompt, P5); TTY → multi-select over
 // the installed capabilities, ONE confirm listing the picks (destructive), then
-// delete each + a single config write dropping them all.
+// one backup for the selection, delete each + a single config write dropping
+// them all.
 async function runRemovePicker(
   cwd: string,
   config: PharnConfig,
@@ -380,11 +474,16 @@ async function runRemovePicker(
   // and spanning the whole selection, not one lock per capability.
   await withProjectLock(cwd, 'remove', async () => {
     assertConfigUnchanged(cwd, config, 'remove');
+    // ONE backup for the whole selection, after the confirm and before the
+    // first delete — a failure here deletes none of the picks.
+    const records = readRecordsBaseline(cwd, config);
+    backupBeforeDelete(cwd, paths, targets, records);
     for (const target of targets) deleteCapabilityDir(cwd, paths, target);
 
-    // One prune for the whole selection — the same delete → prune → config
-    // order as removeNamed, and one store write to match the one config write.
-    await pruneCapabilityRecords(cwd, config, paths, targets);
+    // One prune for the whole selection — the same backup → delete → prune →
+    // config order as removeNamed, and one store write to match the one config
+    // write.
+    await pruneCapabilityRecords(cwd, config, paths, targets, records);
 
     // As in removeNamed: survivors are the original objects, so their `source`
     // is preserved verbatim.

@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -871,5 +872,280 @@ describe('runRemove (archetype)', () => {
       expect(storeBytes()).toBe(before);
       expect(writePharnConfig).not.toHaveBeenCalled();
     });
+  });
+
+  // --- F-01: never delete a file pharn cannot prove is its own -----------------
+  //
+  // `remove` deletes the WHOLE capability directory. Anything in it that is not
+  // provably pharn-written-and-unchanged (a usable `pharn.records.json` holding
+  // its key at its current hash) is copied to `.pharn-backup/<ts>/` FIRST.
+  describe('backup before delete', () => {
+    const DIR = 'pharn/pharn-review/a11y';
+    const PERSONA = `${DIR}/a11y.md`;
+    const CASE = `${DIR}/evals/cases/basic.md`;
+    const USER = `${DIR}/notes/USER.md`;
+
+    // Record the hashes of what actually landed, stamped for archConfig().
+    async function seedRecorded(rels: string[]): Promise<void> {
+      const files: Record<string, string> = {};
+      for (const rel of rels) {
+        write(join(proj, rel), `${rel} pharn bytes`);
+        files[rel] = sha256File(join(proj, rel));
+      }
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: 'old',
+        files,
+      });
+    }
+
+    function backupDirs(): string[] {
+      const root = join(proj, '.pharn-backup');
+      return existsSync(root) ? readdirSync(root).sort() : [];
+    }
+
+    // Every file under the ONE backup directory, relative to it.
+    function backedUp(): string[] {
+      const dirs = backupDirs();
+      expect(dirs).toHaveLength(1);
+      return snapshotFiles(join(proj, '.pharn-backup', dirs[0]!));
+    }
+
+    function backupBytes(rel: string): string {
+      return readFileSync(
+        join(proj, '.pharn-backup', backupDirs()[0]!, rel),
+        'utf8',
+      );
+    }
+
+    function snapshotFiles(root: string): string[] {
+      const out: string[] = [];
+      const walk = (dir: string): void => {
+        for (const e of readdirSync(dir, { withFileTypes: true })) {
+          const p = join(dir, e.name);
+          if (e.isDirectory()) walk(p);
+          else out.push(relative(root, p));
+        }
+      };
+      walk(root);
+      return out.sort();
+    }
+
+    const infoLines = (): string =>
+      vi
+        .mocked(prompts.log.info)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+
+    function lensConfig(extra: { name: string; role: 'lens' }[] = []): void {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        archConfig([{ name: 'a11y', role: 'lens' }, ...extra], {
+          layout: 'pharn',
+        }),
+      );
+    }
+
+    it('a user file inside the dir is backed up, byte-identical, before the dir is deleted', async () => {
+      lensConfig();
+      await seedRecorded([PERSONA, CASE]);
+      write(join(proj, USER), 'MY NOTES — not pharn');
+
+      await runRemove('a11y');
+
+      expect(existsSync(join(proj, DIR))).toBe(false);
+      expect(backedUp()).toEqual([USER]);
+      expect(backupBytes(USER)).toBe('MY NOTES — not pharn');
+      expect(infoLines()).toMatch(
+        /^Backed up 1 file\(s\) to \.pharn-backup\/\d{8}-\d{6} before removing\.$/m,
+      );
+      expect(lastWritten().capabilities).toEqual([]);
+    });
+
+    it('an edited recorded file is backed up; an unchanged one beside it is not', async () => {
+      lensConfig();
+      await seedRecorded([PERSONA, CASE]);
+      write(join(proj, PERSONA), 'my edit to the persona');
+
+      await runRemove('a11y');
+
+      expect(backedUp()).toEqual([PERSONA]);
+      expect(backupBytes(PERSONA)).toBe('my edit to the persona');
+      expect(existsSync(join(proj, DIR))).toBe(false);
+    });
+
+    it('nothing to back up → no .pharn-backup directory and no notice', async () => {
+      lensConfig();
+      await seedRecorded([PERSONA, CASE]);
+
+      await runRemove('a11y');
+
+      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(infoLines()).not.toContain('Backed up');
+      expect(existsSync(join(proj, DIR))).toBe(false);
+    });
+
+    it('no record store → every file in the dir is backed up', async () => {
+      lensConfig();
+      write(join(proj, PERSONA), 'P');
+      write(join(proj, CASE), 'C');
+
+      await runRemove('a11y');
+
+      expect(backedUp()).toEqual([PERSONA, CASE]);
+      expect(infoLines()).toContain('Backed up 2 file(s)');
+    });
+
+    it('a store stamped for another install state proves nothing → every file is backed up', async () => {
+      lensConfig();
+      await seedRecorded([PERSONA, CASE]);
+      const raw = JSON.parse(
+        readFileSync(join(proj, RECORDS_FILE), 'utf8'),
+      ) as { commit: string };
+      raw.commit = 'someone-else';
+      writeFileSync(join(proj, RECORDS_FILE), JSON.stringify(raw));
+
+      await runRemove('a11y');
+
+      expect(backedUp()).toEqual([PERSONA, CASE]);
+    });
+
+    it.each([
+      ['.pharn-backup is a symlink', 'symlink'],
+      ['a scanned file cannot be read', 'unreadable'],
+    ])(
+      'backup failure (%s) → exit 1, NOTHING deleted, no config or records write',
+      async (_label, kind) => {
+        if (kind === 'unreadable' && process.getuid?.() === 0) return;
+        lensConfig();
+        await seedRecorded([PERSONA, CASE]);
+        write(join(proj, USER), 'MY NOTES');
+        if (kind === 'symlink') {
+          const elsewhere = join(tmp.path(), 'elsewhere');
+          mkdirSync(elsewhere, { recursive: true });
+          symlinkSync(elsewhere, join(proj, '.pharn-backup'));
+        } else {
+          // A recorded file that cannot be read cannot be proven unchanged.
+          chmodSync(join(proj, PERSONA), 0o000);
+        }
+        const recordsBefore = readFileSync(join(proj, RECORDS_FILE), 'utf8');
+
+        try {
+          await expect(runRemove('a11y')).rejects.toMatchObject(
+            new ProcessExit(1),
+          );
+        } finally {
+          if (kind === 'unreadable') {
+            chmodSync(join(proj, PERSONA), 0o600);
+          }
+        }
+
+        expect(existsSync(join(proj, USER))).toBe(true);
+        expect(existsSync(join(proj, PERSONA))).toBe(true);
+        expect(existsSync(join(proj, CASE))).toBe(true);
+        expect(writePharnConfig).not.toHaveBeenCalled();
+        expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(
+          recordsBefore,
+        );
+        const errors = vi
+          .mocked(prompts.log.error)
+          .mock.calls.map((c) => String(c[0]))
+          .join('\n');
+        expect(errors).toContain('Nothing was removed');
+        expect(errors).toContain('a11y');
+        // The lock was released on the way out.
+        expect(existsSync(join(proj, '.pharn.lock'))).toBe(false);
+      },
+    );
+
+    it('an already-gone dir backs up nothing (and still removes the entry)', async () => {
+      lensConfig();
+
+      await runRemove('a11y');
+
+      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(lastWritten().capabilities).toEqual([]);
+    });
+
+    it('picker: ONE backup for the whole selection, created after the confirm', async () => {
+      const LENS = 'pharn/pharn-review/n-plus-one';
+      lensConfig([{ name: 'n-plus-one', role: 'lens' }]);
+      await seedRecorded([PERSONA, `${LENS}/n-plus-one.md`]);
+      write(join(proj, USER), 'mine A');
+      write(join(proj, `${LENS}/MINE.md`), 'mine N');
+      setTTY(true, true);
+      vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+        'lens:a11y',
+        'lens:n-plus-one',
+      ]);
+      vi.mocked(prompts.confirm).mockImplementation(async () => {
+        // The backup must not exist while the human is still being asked.
+        expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+        return true;
+      });
+
+      await runRemove(undefined);
+
+      expect(backedUp()).toEqual([USER, `${LENS}/MINE.md`].sort());
+      expect(backupBytes(`${LENS}/MINE.md`)).toBe('mine N');
+      expect(existsSync(join(proj, DIR))).toBe(false);
+      expect(existsSync(join(proj, LENS))).toBe(false);
+      expect(infoLines()).toContain('Backed up 2 file(s)');
+    });
+
+    it('picker: declining the confirm writes no backup', async () => {
+      lensConfig();
+      write(join(proj, USER), 'mine');
+      setTTY(true, true);
+      vi.mocked(prompts.groupMultiselect).mockResolvedValue(['lens:a11y']);
+      vi.mocked(prompts.confirm).mockResolvedValue(false);
+
+      await expect(runRemove(undefined)).rejects.toMatchObject(
+        new ProcessExit(0),
+      );
+
+      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(existsSync(join(proj, USER))).toBe(true);
+    });
+
+    it('picker: a backup failure deletes NONE of the selection', async () => {
+      const LENS = 'pharn/pharn-review/n-plus-one';
+      lensConfig([{ name: 'n-plus-one', role: 'lens' }]);
+      write(join(proj, USER), 'mine A');
+      write(join(proj, `${LENS}/n.md`), 'N');
+      const elsewhere = join(tmp.path(), 'elsewhere');
+      mkdirSync(elsewhere, { recursive: true });
+      symlinkSync(elsewhere, join(proj, '.pharn-backup'));
+      setTTY(true, true);
+      vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+        'lens:a11y',
+        'lens:n-plus-one',
+      ]);
+      vi.mocked(prompts.confirm).mockResolvedValue(true);
+
+      await expect(runRemove(undefined)).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
+
+      expect(existsSync(join(proj, USER))).toBe(true);
+      expect(existsSync(join(proj, `${LENS}/n.md`))).toBe(true);
+      expect(writePharnConfig).not.toHaveBeenCalled();
+    });
+
+    it.skipIf(process.platform === 'win32')(
+      'a symlink inside the dir is removed as a link; its target is untouched and not backed up',
+      async () => {
+        lensConfig();
+        await seedRecorded([PERSONA]);
+        const outside = join(tmp.path(), 'outside.md');
+        writeFileSync(outside, 'outside bytes');
+        symlinkSync(outside, join(proj, DIR, 'link.md'));
+
+        await runRemove('a11y');
+
+        expect(existsSync(join(proj, DIR))).toBe(false);
+        expect(readFileSync(outside, 'utf8')).toBe('outside bytes');
+        expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      },
+    );
   });
 });

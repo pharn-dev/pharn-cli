@@ -1,18 +1,20 @@
 {
   "scope": [
-    ".github/workflows/publish.yml",
-    "scripts/release-notes.mjs",
-    "tests/release-notes.test.ts",
-    "tests/release-consistency.test.ts",
-    "tests/publish-workflow.test.ts",
-    ".dev/floor/check-run-pins.test.mjs",
-    "tests/ci-workflow.test.ts",
-    "docs/RELEASING.md",
+    "src/lib/removal-backup.ts",
+    "src/commands/remove.ts",
+    "tests/removal-backup.test.ts",
+    "tests/remove.test.ts",
+    "tests/project-lock-commands.test.ts",
+    "docs/commands/remove.md",
+    "docs/commands/add.md",
+    "docs/troubleshooting.md",
+    "docs/reference/pharn-records.md",
+    "docs/roadmap.md",
+    "README.md",
+    "docs/contributing.md",
     "CLAUDE.md",
-    "CONTRIBUTING.md",
-    ".github/PULL_REQUEST_TEMPLATE.md",
     "CHANGELOG.md"
   ],
-  "set_by": ".dev/features/release-on-merge/PLAN.md",
-  "set_at": "2026-10-12T13:36:15.064Z"
+  "set_by": ".dev/features/remove-preserve-user-files/PLAN.md",
+  "set_at": "2026-10-12T22:11:54.415Z"
 }
