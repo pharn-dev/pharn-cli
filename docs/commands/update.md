@@ -43,8 +43,10 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    when `main` has moved back to an older version — is left as it is (exit 0) unless you pass `--force`
    (see [An install ahead of its source](#an-install-ahead-of-its-source)).
 5. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
-   re-applies upstream at the current version, or your `models` block is still in the format `pharn`
-   wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)).
+   re-applies upstream at the current version, your `models` block is still in the format `pharn`
+   wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)), or a file
+   or capability directory `pharn` installed is missing, which this run restores (see
+   [Missing files at the same skills version](#missing-files-at-the-same-skills-version)).
 6. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
    unless you passed `--yes`, which skips that one prompt and nothing else.
 7. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
@@ -108,12 +110,12 @@ exit code is `0`, whatever the plan contains: there is no `--strict` for a previ
 
 The outcome is the `status` field, not prose:
 
-| `status`           | meaning                                                                                                                                                                     | `plan` |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                            | object |
-| `up-to-date`       | "Already up to date": the installed version is the latest, and nothing (`--force`, a kept unreadable capability, an old `models` block, a channel switch) re-opens the run. | `null` |
-| `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                      | `null` |
-| `ahead-of-main`    | Your install is newer than pharn-oss `main` — `main` moved back to an older version; a real run changes nothing without `--force`.                                          | `null` |
+| `status`           | meaning                                                                                                                                                                                               | `plan` |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                                                      | object |
+| `up-to-date`       | "Already up to date": the installed version is the latest, and nothing (`--force`, a kept unreadable capability, an old `models` block, a channel switch, a missing installed file) re-opens the run. | `null` |
+| `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                                                | `null` |
+| `ahead-of-main`    | Your install is newer than pharn-oss `main` — `main` moved back to an older version; a real run changes nothing without `--force`.                                                                    | `null` |
 
 `ahead-of-main` was added without a `schemaVersion` bump (it stays `1`): an additive value, like a new
 key. Treat a `status` you do not recognise as "do not apply".
@@ -558,11 +560,41 @@ Resolve it once, either way:
 
 Either path writes a full record store, and every later update is precise.
 
+## Missing files at the same skills version
+
+When your `skillsVersion` already equals upstream's, `update` does not download anything to compare.
+It first checks, locally, whether your install is still complete:
+
+- every capability in `pharn.config.json`'s `capabilities` still has its directory, at your recorded
+  layout;
+- every file listed in [`pharn.records.json`](../reference/pharn-records.md) still exists (when the store
+  is usable — absent, unreadable or stamped for a different install state, only the directories are
+  checked).
+
+If something is missing, the run goes ahead as a normal update instead of stopping at "Already up to
+date". The header names the first missing path (`CONSTITUTION.md is missing — this run re-applies the
+install to restore it.`), and the per-file table restores it: a missing file is always `restore`d, so
+your edits elsewhere are still kept, and no `--force` is needed. `--dry-run` and `--dry-run --json`
+take the same branch (the JSON `status` is `planned`). After that run the install is complete again and
+the next `update` answers "Already up to date".
+
+Only a path that is **provably** gone counts. A path that goes through a symbolic link is never followed
+and is not counted — `update` refuses to write through a link, so it could not restore it anyway — and
+neither is a path blocked by a file where a directory should be. [`pharn status`](status.md) reports
+those.
+
+Two things this check cannot see, because nothing in your project records them:
+
+- a capability you removed with [`pharn remove`](remove.md) — it drops both the config entry and its
+  records, so see [Removing an auto-selected capability](remove.md#removing-an-auto-selected-capability);
+- a surface a newer `pharn` release installs that your install never had — see the next section.
+
 ## A surface added by a newer CLI, at the same skills version
 
-`update` compares versions before it compares files: if your `skillsVersion` already equals upstream's,
-it reports "Already up to date" and exits **without reading a single file** (step 3 above). That is the
-right call for the common case, but it has one sharp edge.
+`update` compares versions before it compares files: if your `skillsVersion` already equals upstream's
+and nothing it installed is missing (see the previous section), it reports "Already up to date" and
+exits **without comparing a single file against upstream** (step 5 above). That is the right call for
+the common case, but it has one sharp edge.
 
 When a **new `pharn` release starts installing a surface that earlier releases did not** — as the
 release adding `pharn/pharn-core/` does — an install pinned at the _current_ skills version is missing

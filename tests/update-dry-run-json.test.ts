@@ -582,6 +582,16 @@ describe('runUpdate --dry-run --json', () => {
       expect(json.status).toBe('planned');
     });
 
+    it('is planned, restoring it, when a recorded file is missing at the current version', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, CMD));
+      const { json } = await run();
+      expect(json.status).toBe('planned');
+      expect(
+        json.plan.files.find((f: { rel: string }) => f.rel === CMD),
+      ).toMatchObject({ action: 'write', label: 'restored' });
+    });
+
     it('is planned when --ref switches the channel at the current version', async () => {
       await installed({ skillsVersion: '1.1.0' });
       const { json } = await run({ ref: 'latest' });

@@ -110,10 +110,18 @@ cannot verify — the same rule [`add`](add.md) follows. The removal itself proc
 ## Removing an auto-selected capability
 
 If the entry's recorded `source` is `auto` — it was selected for your archetypes by
-[`init`](init.md) or a prior [`update`](update.md) — `remove` prints a warning that the next
-[`pharn update`](update.md) **will** reinstall it (and will name it in its report), because update
-re-resolves your archetypes every run. Removing a `manual` entry (one you added with
-[`add`](add.md)) warns nothing.
+[`init`](init.md) or a prior [`update`](update.md) — `remove` prints a warning that it comes back:
+[`pharn update`](update.md) **will** reinstall it (and name it in its report) the next time it
+re-applies your install, because every such run re-resolves your archetypes. Removing a `manual` entry
+(one you added with [`add`](add.md)) warns nothing.
+
+That is not necessarily the very next `update`. At the skills version you already have, `update` stops
+at "Already up to date" without fetching the capability index, and nothing left in your project says
+the capability is missing — `remove` dropped both its config entry and its records — so a same-version
+run leaves it removed. It comes back with the first run that re-applies the install: at the latest the
+one that moves to a new pharn-oss version, or right away with `pharn update --force` (which also
+overwrites files you edited, after backing them up — see
+[`--force`](update.md#--force-and-pharn-backup)).
 
 The warning asserts "will", not "may", because it is derived from the stored `source` alone — `remove`
 makes no network call and cannot re-resolve. The next section is why that is a heuristic rather than a

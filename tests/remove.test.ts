@@ -525,6 +525,18 @@ describe('runRemove (archetype)', () => {
       return runRemove('a11y').then(() => {
         expect(warnings()).toContain('pharn update');
         expect(warnings()).toContain('a11y');
+        // F-09: it must not promise the NEXT update. At the version already
+        // installed, update early-returns before it can re-resolve the
+        // archetypes (pinned in tests/update.test.ts), so the warning names
+        // when it really comes back — and that a same-version run does not.
+        expect(warnings()).not.toContain('the next `pharn update` will');
+        expect(warnings()).toContain('a new pharn-oss version');
+        expect(warnings()).toContain(
+          'may answer "Already up to date" and leave it removed',
+        );
+        expect(warnings()).toContain(
+          '`pharn update --force` reinstalls it now',
+        );
       });
     });
 

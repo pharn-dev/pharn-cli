@@ -361,6 +361,19 @@ describe('runUpdate --dry-run', () => {
       expect(fetchRepo).not.toHaveBeenCalled();
     });
 
+    // The same gate as the real run: a file missing at the current version
+    // re-opens it, so the preview plans the restore — and writes nothing.
+    it('plans the restore of a file missing at the current version, writing nothing', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, DOC));
+      const before = snapshotTree(proj);
+      await runUpdate({ dryRun: true });
+      expect(outroText()).not.toContain('Already up to date');
+      expect(outroText()).toContain('Dry run');
+      expect(fetchRepo).toHaveBeenCalled();
+      expect(snapshotTree(proj)).toEqual(before);
+    });
+
     it('is not up to date under --force, and shows the re-apply', async () => {
       await installed({ skillsVersion: '1.1.0' });
       scaffoldClone(repo, '1.1.0', 'v2');
