@@ -16,13 +16,13 @@ Plan: `.dev/features/install-surface-accounting/PLAN.md` (with its GATE 1 "Resol
   severity: important
   file: '.dev/features/install-surface-accounting/PLAN.md:74'
   problem: 'The accounting is derived from the MANIFEST, while init copies through installCapabilities. "The copy and the accounting agree by construction" holds only through the shared name predicates plus the existing mirror test (manifest == real install). The plan must extend that mirror test with an .mjs hook and say "pinned by test", not "by construction", for the copy side.'
-  evidence: 'single-sourced so the copy, update''s writes and status''s diff agree by construction'
+  evidence: "single-sourced so the copy, update's writes and status's diff agree by construction"
 - type: FINDING
   rule_id: P5
   severity: minor
   file: '.dev/features/install-surface-accounting/PLAN.md:23'
-  problem: 'On the pharn layout resolveFeaturesReadme falls back to the ROOT features/README.md when pharn/features/README.md is absent; the reported path for an absent README must be the layout''s preferred path, and a clone shipping only the root fallback must count as shipped (not absent). Pin both.'
-  evidence: 'for the features README the layout''s preferred path when neither candidate exists'
+  problem: "On the pharn layout resolveFeaturesReadme falls back to the ROOT features/README.md when pharn/features/README.md is absent; the reported path for an absent README must be the layout's preferred path, and a clone shipping only the root fallback must count as shipped (not absent). Pin both."
+  evidence: "for the features README the layout's preferred path when neither candidate exists"
 - type: FINDING
   rule_id: P1
   severity: important
@@ -33,7 +33,7 @@ Plan: `.dev/features/install-surface-accounting/PLAN.md` (with its GATE 1 "Resol
   rule_id: P7
   severity: minor
   file: '.dev/features/install-surface-accounting/PLAN.md:67'
-  problem: 'update''s same-version early return exits before planning, so an absent surface is reported by update only on a run that plans; on an up-to-date install only status names it. Acceptable (status is the ongoing check) but the update doc must not claim every update run reports it.'
+  problem: "update's same-version early return exits before planning, so an absent surface is reported by update only on a run that plans; on an up-to-date install only status names it. Acceptable (status is the ongoing check) but the update doc must not claim every update run reports it."
   evidence: 'update: plan reports `absentUpstream`; text run + dry-run print `NOT SHIPPED`'
 - type: FINDING
   rule_id: P3

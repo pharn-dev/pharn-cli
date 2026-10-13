@@ -50,6 +50,10 @@
 - `tests/init-archetype.test.ts` — unified warning (the existing docs-warning pins move to it) — layer: tests
 - `docs/commands/status.md`, `docs/commands/update.md`, `docs/commands/init.md` (install lists say `.cjs`/`.mjs` hooks; the new warning/section; `--strict`; JSON field), `docs/contributing.md` test table if it lists files (check at build), `CLAUDE.md` (`installCapabilities` paragraph + status paragraph), `CHANGELOG.md` `[Unreleased]` `### Fixed` — layer: docs
 
+- `README.md`, `docs/README.md`, `docs/getting-started.md` — ADDED AT BUILD (declared here before regress, not silently): each says the install ships "`.cjs` hooks", which became untrue with `.mjs` hooks; one-word sync to `.cjs`/`.mjs` — layer: docs
+
+- `tests/status-json.test.ts` — ADDED AT BUILD (first `check-regress.mjs scope` run flagged it as escaped; declared here, not silently): the `status --json` command tests needed the new seam mock and the `drift.absentUpstream` / `layout` / `--strict` pins that Resolved decision 2 requires — layer: tests
+
 ## Contracts satisfied
 
 - No `pharn-contracts` file governs the install set. The JSON reports' stability contract (`schemaVersion: 1`, additive keys allowed — `status-report.ts`/`update-report.ts` headers) is kept: only new keys. The install manifest's "single source of truth" contract (`install-manifest.ts` header) is extended, not forked (P4).
