@@ -57,6 +57,7 @@ import {
   type InstallSource,
   type RefChoice,
 } from '../lib/release.js';
+import { findMissingInstalled } from '../lib/missing-installed.js';
 import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
@@ -329,6 +330,11 @@ async function runArchetypeUpdate(
   // repeat and its bytes would stay stale after a pharn upgrade that can parse it.
   const current = config.skillsVersion === latest;
   const recheckFrozen = (config.frozenCapabilities ?? []).length > 0;
+  // The stamped records baseline, read ONCE for the two local checks below.
+  const baselineRecords = recordsBaseline(readRecords(cwd), {
+    skillsVersion: config.skillsVersion,
+    commit: config.commit,
+  }).records;
   // A `models` block still in the format pharn wrote before 0.7.0 re-opens the
   // gate as well: converting it is this CLI's job, not upstream's, so it has to
   // reach an install that is already current. Bounded: a run converts the block
@@ -336,17 +342,32 @@ async function runArchetypeUpdate(
   // (modelsMigrationPending). A local read — no round-trip.
   const convertModels = modelsMigrationPending(
     config.models,
-    recordsBaseline(readRecords(cwd), {
-      skillsVersion: config.skillsVersion,
-      commit: config.commit,
-    }).records?.[MODELS_RECORD_KEY] ?? null,
+    baselineRecords?.[MODELS_RECORD_KEY] ?? null,
   );
   // Switching channel (`--ref main` on a release install, or `--ref latest` on
   // one that follows main) re-opens the gate too, so the switch is RECORDED even
   // at the same version — otherwise the next run would quietly revert to the old
   // channel. The re-apply is cheap: identical files are no-ops.
   const switchChannel = channel !== channelOf(config);
-  if (current && !force && !recheckFrozen && !convertModels && !switchChannel) {
+  // An INCOMPLETE install re-opens the gate as well: a configured capability
+  // whose dir is gone, or a recorded file that is gone, at the current version.
+  // Without this a deleted file stayed deleted until upstream bumped its version
+  // or the user reached for `--force` (which also overwrites their edits). A
+  // local, read-only lstat walk — no round-trip — that only ever answers
+  // "provably missing", so the run it opens restores what it found and the next
+  // run early-returns again (lib/missing-installed.ts).
+  const missing =
+    current && !force
+      ? findMissingInstalled(cwd, config, baselineRecords)
+      : null;
+  if (
+    current &&
+    !force &&
+    !recheckFrozen &&
+    !convertModels &&
+    !switchChannel &&
+    missing === null
+  ) {
     if (json) {
       emitEarlyReturn('up-to-date');
       return;
@@ -377,6 +398,13 @@ async function runArchetypeUpdate(
           ? [
               pc.dim(
                 '  Your models block is in the format pharn wrote before 0.7.0 — this run converts it.',
+              ),
+            ]
+          : []),
+        ...(missing !== null
+          ? [
+              pc.dim(
+                `  ${terminalSafe(missing)} is missing — this run re-applies the install to restore it.`,
               ),
             ]
           : []),

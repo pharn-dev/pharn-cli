@@ -313,8 +313,16 @@ function warnIfAutoSelected(targets: InstalledCapability[]): void {
   const auto = targets.filter((c) => c.source === 'auto');
   if (auto.length === 0) return;
   const names = auto.map((c) => `${c.name} (${c.role})`).join(', ');
+  const one = auto.length === 1;
+  const pronoun = one ? 'it' : 'them';
+  // WHEN it comes back, not "the next update": at the version already installed
+  // `update` early-returns before re-resolving the archetypes, and nothing local
+  // is left to re-open it (this command drops the entry AND its records), so a
+  // same-version run can leave the removal in place. The reinstall comes with the
+  // next run that re-applies the install — at the latest a new pharn-oss
+  // version — or now with `--force`.
   log.warn(
-    `${names} ${auto.length === 1 ? 'is' : 'are'} selected automatically for your archetypes, so the next \`pharn update\` will reinstall ${auto.length === 1 ? 'it' : 'them'} (and will name ${auto.length === 1 ? 'it' : 'them'} in its report).`,
+    `${names} ${one ? 'is' : 'are'} selected automatically for your archetypes, so ${one ? 'it comes' : 'they come'} back: the next \`pharn update\` that re-applies your install — at the latest the one that moves to a new pharn-oss version — reinstalls ${pronoun} and names ${pronoun} in its report. Until then \`pharn update\` may answer "Already up to date" and leave ${pronoun} removed; \`pharn update --force\` reinstalls ${pronoun} now.`,
   );
 }
 

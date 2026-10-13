@@ -659,6 +659,123 @@ describe('runUpdate (drift-safe)', () => {
     expect(fetchRepo).not.toHaveBeenCalled();
   });
 
+  // F-09: the same-version early return used to skip planning outright, so a
+  // file (or capability dir) deleted at the current version stayed gone until
+  // upstream bumped SKILLS_VERSION or the user reached for `--force`. A LOCAL,
+  // read-only check now re-opens it; a complete install still early-returns.
+  describe('same version, install incomplete', () => {
+    const noteText = () =>
+      vi
+        .mocked(prompts.note)
+        .mock.calls.map((c) => stripVTControlCharacters(String(c[0])))
+        .join('\n');
+
+    it('restores a missing RECORDED file without --force', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, DOC));
+
+      await runUpdate();
+
+      expect(prompts.outro).not.toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(noteText()).toContain(`${DOC} is missing`);
+      expect(body(DOC)).toBe('constitution v2');
+      expect(records()![DOC]).toBe(sha256File(join(proj, DOC)));
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+      expect(backupDirs()).toEqual([]);
+    });
+
+    it('restores a missing capability dir even with no records store', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, RECORDS_FILE));
+      rmSync(join(proj, 'pharn-pipeline/grillers/a11y'), { recursive: true });
+
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(noteText()).toContain('pharn-pipeline/grillers/a11y is missing');
+      expect(body(CAP_FILE)).toBe('a11y v2');
+    });
+
+    it('closes again after the restoring run: the next run early-returns', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, DOC));
+      await runUpdate();
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
+      vi.clearAllMocks();
+      fetchRepo.mockResolvedValue({ dir: repo, sha: 'a'.repeat(40), cleanup });
+      fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
+
+      await runUpdate();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    it('a complete install still early-returns, with no fetch beyond the version check', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      await runUpdate();
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRemoteSkillsVersion).toHaveBeenCalledTimes(1);
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(prompts.confirm).not.toHaveBeenCalled();
+    });
+
+    // A symlinked component is not "missing": the real run refuses to write
+    // through it, so re-opening could not repair it and would loop forever.
+    it('a recorded path behind a symlinked dir does not re-open it', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      const outside = join(tmp.path(), 'outside');
+      mkdirSync(outside);
+      rmSync(join(proj, 'pharn-pipeline/grillers/a11y'), { recursive: true });
+      symlinkSync(outside, join(proj, 'pharn-pipeline/grillers/a11y'));
+
+      await runUpdate();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    // The scenario `pharn remove`'s warning describes. `remove` drops the
+    // config entry AND prunes its records, so nothing LOCAL is left to say the
+    // capability is gone; only the upstream index (which the early return
+    // never fetches) knows the archetypes select it. So the same-version run
+    // leaves it removed, and the next run that re-applies — a version bump, or
+    // `--force` — reinstalls it. The warning says exactly that.
+    it('an auto capability removed at the current version stays removed until a run re-applies', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, 'pharn-pipeline/grillers/a11y'), { recursive: true });
+      const removed = baseConfig({ skillsVersion: '1.1.0', capabilities: [] });
+      const { [CAP_FILE]: _gone, ...kept } = records()!;
+      await writeRecords(proj, {
+        skillsVersion: '1.1.0',
+        commit: null,
+        files: kept,
+      });
+      loadArchetypeConfigOrExit.mockReturnValue(removed);
+
+      await runUpdate();
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(existsSync(join(proj, CAP_FILE))).toBe(false);
+
+      await runUpdate({ force: true });
+      expect(body(CAP_FILE)).toBe('a11y v2');
+      expect(readPharnConfig(proj)!.capabilities).toEqual([
+        { ...CAP, source: 'auto' },
+      ]);
+    });
+  });
+
   it('cancels when declined — no clone, nothing written', async () => {
     await installed();
     vi.mocked(prompts.confirm).mockResolvedValue(false);
