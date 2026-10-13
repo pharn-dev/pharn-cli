@@ -1,0 +1,43 @@
+{
+  "base": "ff9312f45040a0cb0605f7ee447914db5aca0edc",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/commands/add.md",
+    "docs/commands/init.md",
+    "docs/commands/list.md",
+    "docs/commands/update.md",
+    "docs/contributing.md",
+    "docs/reference/pharn-config.md",
+    "docs/reference/pharn-records.md",
+    "docs/troubleshooting.md",
+    "src/commands/add.ts",
+    "src/commands/remove.ts",
+    "src/commands/update.ts",
+    "src/lib/capability-dir.ts",
+    "src/lib/dest-drift.ts",
+    "src/lib/merge-capabilities.ts",
+    "src/lib/update-plan.ts",
+    "src/lib/update-report.ts",
+    "tests/capability-dir.test.ts",
+    "tests/update-dry-run-json.test.ts",
+    "tests/update-dry-run.test.ts",
+    "tests/update-plan.test.ts",
+    "tests/update-report.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

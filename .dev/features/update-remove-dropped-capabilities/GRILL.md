@@ -39,13 +39,13 @@ Plan: `.dev/features/update-remove-dropped-capabilities/PLAN.md` (as amended at 
   rule_id: P4
   severity: minor
   file: '.dev/features/update-remove-dropped-capabilities/PLAN.md:17'
-  problem: "LIMITS.md cites `src/commands/remove.ts` and `src/commands/update.ts:452` by line; moving helpers out of remove.ts and rewording update.ts shifts them. The GATE-2 hand-over text should refresh those citations, since the agent cannot edit LIMITS.md."
+  problem: 'LIMITS.md cites `src/commands/remove.ts` and `src/commands/update.ts:452` by line; moving helpers out of remove.ts and rewording update.ts shifts them. The GATE-2 hand-over text should refresh those citations, since the agent cannot edit LIMITS.md.'
   evidence: '`LIMITS.md:71` (human-only)'
 - type: FINDING
   rule_id: P7
   severity: minor
   file: '.dev/features/update-remove-dropped-capabilities/PLAN.md:45'
-  problem: "Projects that already have orphaned capability dirs from earlier pharn versions get no help (their config entry is gone, so update has nothing to drop). The plan says so; the CHANGELOG entry should also say it, with the manual fix (delete the dir), so users do not assume upgrading cleans them."
+  problem: 'Projects that already have orphaned capability dirs from earlier pharn versions get no help (their config entry is gone, so update has nothing to drop). The plan says so; the CHANGELOG entry should also say it, with the manual fix (delete the dir), so users do not assume upgrading cleans them.'
   evidence: 'a capability directory left on disk by pharn < this version (or created by hand) is not listed but still runs — delete it by hand'
 ```
 
