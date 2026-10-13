@@ -21,6 +21,8 @@ Orchestration note (advisory): `.pharn/writes-scope.json` (scratch) and `.dev/fe
 
 Iteration 2 (after the outro fix, `d06bb40`): `scope` exit 0 (29 inside, nothing escaped); base → head again `tests 0 → 0`, `validate 0 → 0`.
 
+Iteration 3: no change since iteration 2; the report stands.
+
 REGRESSIONS: none — no deterministically-detectable breakage outside the feature.
 
 Residual: this catches exactly what the suite above catches, nothing more.

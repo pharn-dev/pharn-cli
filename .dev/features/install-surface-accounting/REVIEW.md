@@ -53,3 +53,9 @@ VERDICT: GREEN — 0 floor-gate findings, 4 advisory (1 important, fixed in iter
 Re-reviewed `git diff fd9e7d2..d06bb40` (`src/steps/install-archetype.ts`, `tests/init-archetype.test.ts`, `docs/commands/init.md`, `CHANGELOG.md`). The important advisory finding above is resolved: the outro builds its `.claude/` line from the same `absentInstallSurfaces` result the warning uses (`PHARN commands written` when no hooks landed, a `!` line when neither did), pinned by two tests. No new findings. The three minor findings stand as advisory.
 
 VERDICT: GREEN — 0 floor-gate findings.
+
+## Iteration 3
+
+No diff since iteration 2 (no fix was possible within the plan's `## Files`: the only red is `tests/lint-gate.test.ts`, which this increment does not touch, timing out on its own `eslint` child processes under host load). No new findings.
+
+VERDICT: GREEN — 0 floor-gate findings.
