@@ -54,6 +54,9 @@ function scaffoldRepo(repo: string): void {
   // hooks (+ their tests, which are dev-only)
   write(join(repo, '.claude/hooks/set-writes-scope.cjs'), 'hook');
   write(join(repo, '.claude/hooks/set-writes-scope.test.cjs'), 'HOOKTEST');
+  write(join(repo, '.claude/hooks/require-loop-record.mjs'), 'esm hook');
+  write(join(repo, '.claude/hooks/require-loop-record.test.mjs'), 'HOOKTEST');
+  write(join(repo, '.claude/hooks/legacy.js'), 'not a hook pharn installs');
   // settings
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
   // trusted docs
@@ -173,6 +176,17 @@ describe('installCapabilities', () => {
     expect(
       existsSync(join(proj, '.claude/hooks/set-writes-scope.test.cjs')),
     ).toBe(false);
+  });
+
+  it('copies .mjs hooks too, but EXCLUDES *.test.mjs and other extensions', () => {
+    const { proj } = run();
+    expect(
+      readFileSync(join(proj, '.claude/hooks/require-loop-record.mjs'), 'utf8'),
+    ).toBe('esm hook');
+    expect(
+      existsSync(join(proj, '.claude/hooks/require-loop-record.test.mjs')),
+    ).toBe(false);
+    expect(existsSync(join(proj, '.claude/hooks/legacy.js'))).toBe(false);
   });
 
   it('copies the trusted docs and pharn-contracts', () => {

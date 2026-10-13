@@ -8,8 +8,10 @@ import { NODE_FLOOR, type NodeFloorStatus } from './node-floor.js';
 import type { InstallSource, RefChoice } from './release.js';
 import { cap, serializeJsonReport } from './json-report.js';
 import { versionStatus } from './version-status.js';
+import type { AbsentSurface, InstallSurface } from './install-manifest.js';
+import { configLayout } from './layout.js';
 import type { Orphan, OrphanState } from './orphans.js';
-import type { PharnConfig, UnknownCapability } from '../types.js';
+import type { Layout, PharnConfig, UnknownCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // The `pharn status --json` report: ONE pure object built from values the
@@ -53,12 +55,18 @@ export interface StatusReport {
   };
   archetypes: string[];
   capabilities: { count: number };
+  // The layout the install is recorded at, and the one the fetched clone ships
+  // (null under `--no-drift`: nothing was fetched). A difference is advisory —
+  // `pharn update` moves the install — and NOT a `--strict` input.
+  layout: { recorded: Layout; upstream: Layout | null };
   // null when the drift check was skipped (`--no-drift`): not computed.
   drift: {
     modified: string[];
     missing: string[];
     unreadable: { rel: string; reason: string }[];
     okCount: number;
+    // Declared product surfaces the clone ships no file for, at ITS layout.
+    absentUpstream: { surface: InstallSurface; path: string }[];
   } | null;
   hooks: {
     status: HookWiringDiff['status'];
@@ -97,6 +105,9 @@ export interface StatusReportInput {
     unknown: readonly UnknownCapability[];
     // null when they could not be determined (see StatusReport.orphans).
     orphans: readonly Orphan[] | null;
+    // absentInstallSurfaces at the clone's layout, and that layout.
+    absentUpstream: readonly AbsentSurface[];
+    upstreamLayout: Layout;
   } | null;
   strict: boolean;
 }
@@ -110,10 +121,14 @@ export function strictFails(input: {
   outdated: boolean;
   diff?: InstallDiff;
   hooks?: HookWiringDiff;
+  // A declared surface upstream ships no file for: the install cannot be
+  // complete. (A recorded layout that differs from upstream's is NOT an input.)
+  absentUpstream?: readonly AbsentSurface[];
 }): boolean {
-  const { outdated, diff, hooks } = input;
+  const { outdated, diff, hooks, absentUpstream } = input;
   return (
     outdated ||
+    (absentUpstream !== undefined && absentUpstream.length > 0) ||
     (diff !== undefined &&
       (diff.modified.length > 0 ||
         diff.missing.length > 0 ||
@@ -193,6 +208,10 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
     },
     archetypes: config.archetypes ?? [],
     capabilities: { count: (config.capabilities ?? []).length },
+    layout: {
+      recorded: configLayout(config),
+      upstream: drift === null ? null : drift.upstreamLayout,
+    },
     drift:
       drift === null
         ? null
@@ -201,6 +220,10 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
             missing: drift.diff.missing,
             unreadable: drift.diff.unreadable,
             okCount: drift.diff.okCount,
+            absentUpstream: drift.absentUpstream.map((a) => ({
+              surface: a.surface,
+              path: cap(a.path, MAX_UNKNOWN_FIELD),
+            })),
           },
     hooks:
       drift === null
@@ -240,6 +263,7 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
           outdated,
           diff: drift?.diff,
           hooks: drift?.hooks,
+          absentUpstream: drift?.absentUpstream,
         }),
     },
   };

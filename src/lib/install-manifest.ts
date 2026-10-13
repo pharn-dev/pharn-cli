@@ -56,6 +56,63 @@ import type { InstalledCapability, Layout } from '../types.js';
 // guarded exactly it — so it joins the conflict set below.
 export const PHARN_CONFIG_FILE = 'pharn.config.json';
 
+// The two filename filters the install applies to its flat surfaces, shared by
+// the copy (lib/install-capabilities.ts → copyFilteredDir) and this mirror, so
+// the writer and the manifest cannot disagree about which names they take.
+// `name` is a path relative to the surface dir: anything nested is never taken.
+
+/** A product command: a top-level `pharn-*.md` that is not a `pharn-dev-*` one. */
+export function isProductCommandFile(name: string): boolean {
+  return (
+    !name.includes('/') &&
+    name.endsWith('.md') &&
+    name.startsWith(PRODUCT_COMMAND_PREFIX) &&
+    !name.startsWith(DEV_COMMAND_PREFIX)
+  );
+}
+
+/**
+ * A hook script: a top-level `.cjs` OR `.mjs` file that is not a test
+ * (`*.test.cjs` / `*.test.mjs`). Both module flavours, because upstream may
+ * ship either — an `.mjs` hook was silently left out before, while the wiring
+ * in settings.json still pointed at it.
+ */
+export function isInstalledHookFile(name: string): boolean {
+  return (
+    !name.includes('/') &&
+    /\.(cjs|mjs)$/.test(name) &&
+    !/\.test\.(cjs|mjs)$/.test(name)
+  );
+}
+
+/**
+ * The fixed product surfaces an install DECLARES — everything it copies that is
+ * not a selected capability. Capabilities are not here: a selected one that is
+ * missing in the clone already refuses the install (installCapabilityDirs).
+ */
+export type InstallSurface =
+  | 'commands'
+  | 'hooks'
+  | 'trusted-doc'
+  | 'license'
+  | 'features-readme'
+  | 'contracts'
+  | 'core'
+  | 'floor';
+
+/** A declared surface the fetched clone ships no file for. */
+export interface AbsentSurface {
+  surface: InstallSurface;
+  // The clone-relative path pharn looked at — a CLI-owned constant resolved for
+  // the layout, never a name read from the clone.
+  path: string;
+}
+
+/** One declared surface and how many files it contributed to the manifest. */
+interface SurfaceAccount extends AbsentSurface {
+  files: number;
+}
+
 // Relative paths (posix) of every file (not directory) under `dir`, recursively.
 function* walkFiles(dir: string, prefix = ''): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -77,7 +134,7 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
 /**
  * The exact project-root-relative paths an archetype install writes, mapped to
  * their source path in `repoDir` — the selected capability dirs + the fixed
- * product surfaces (product `pharn-*` commands, `.cjs` hooks, trusted docs, the
+ * product surfaces (product `pharn-*` commands, `.cjs`/`.mjs` hooks, trusted docs, the
  * root `features/README.md`, `pharn-contracts/`, `pharn-core/`, `.dev/floor/`
  * minus test files and its `test-fixtures/` + `fixtures/` subtrees), at `layout`. `.claude/settings.json`
  * is user-owned (preserved at install) and is NOT included. Mirrors
@@ -88,11 +145,53 @@ export function collectExpectedInstallPaths(params: {
   capabilities: InstalledCapability[];
   layout: Layout;
 }): Map<string, string> {
+  return collectInstallManifest(params).expected;
+}
+
+/**
+ * The declared fixed surfaces the clone ships NO file for at `layout` — each
+ * one the install would otherwise skip in silence. Derived from the SAME
+ * enumeration as the manifest (collectInstallManifest), so "absent" means
+ * exactly "contributes zero files to what the install writes": a missing
+ * source, a symlinked or wrong-typed one, or a dir with no file passing its
+ * filter (hooks renamed to `.js`, say). In declaration order.
+ *
+ * `pharn-core` is declared for the `pharn` layout only: the flat path is a
+ * documented no-op (lib/constants.ts → CORE_DIR), and flagging it would make
+ * every flat clone report a surface that never existed there.
+ *
+ * A closed, CLI-side list (LIMITS.md §3e): a surface upstream ADDS is neither
+ * installed nor named here.
+ */
+export function absentInstallSurfaces(params: {
+  repoDir: string;
+  layout: Layout;
+}): AbsentSurface[] {
+  return collectInstallManifest({ ...params, capabilities: [] })
+    .surfaces.filter((s) => s.files === 0)
+    .map(({ surface, path }) => ({ surface, path }));
+}
+
+// The one enumeration behind both exports above: the manifest, plus how many
+// files each declared fixed surface contributed to it.
+function collectInstallManifest(params: {
+  repoDir: string;
+  capabilities: InstalledCapability[];
+  layout: Layout;
+}): { expected: Map<string, string>; surfaces: SurfaceAccount[] } {
   const { repoDir, capabilities, layout } = params;
   const paths = layoutPaths(layout);
   const expected = new Map<string, string>();
+  const surfaces: SurfaceAccount[] = [];
   const add = (rel: string, repoPath: string): void => {
     expected.set(toPosix(rel), repoPath);
+  };
+  const account = (
+    surface: InstallSurface,
+    path: string,
+    files: number,
+  ): void => {
+    surfaces.push({ surface, path, files });
   };
   // Enumerate one source dir's files (optionally filtered by relative name) into
   // the expected map at the mirrored path. The root is lstat-checked, NOT
@@ -112,15 +211,18 @@ export function collectExpectedInstallPaths(params: {
     relDir: string,
     keep?: (rel: string) => boolean,
     validate?: (rel: string) => void,
-  ): void => {
+  ): number => {
     const from = safeJoin(repoDir, relDir);
-    if (findSymlinkComponent(repoDir, relDir) !== null) return;
-    if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return;
+    if (findSymlinkComponent(repoDir, relDir) !== null) return 0;
+    if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return 0;
+    let added = 0;
     for (const rel of walkFiles(from)) {
       if (keep && !keep(rel)) continue;
       validate?.(rel);
       add(join(relDir, rel), resolve(from, rel));
+      added += 1;
     }
+    return added;
   };
 
   // The filename floor copyFilteredDir applies to the same two surfaces. Both
@@ -144,21 +246,24 @@ export function collectExpectedInstallPaths(params: {
     addDir(`${subtree}/${cap.name}`);
   }
   // Product commands: top-level non-dev pharn-*.md.
-  addDir(
+  account(
+    'commands',
     CLAUDE_COMMANDS_DIR,
-    (rel) =>
-      !rel.includes('/') &&
-      rel.endsWith('.md') &&
-      rel.startsWith(PRODUCT_COMMAND_PREFIX) &&
-      !rel.startsWith(DEV_COMMAND_PREFIX),
-    copyNameFloor(CLAUDE_COMMANDS_DIR),
+    addDir(
+      CLAUDE_COMMANDS_DIR,
+      isProductCommandFile,
+      copyNameFloor(CLAUDE_COMMANDS_DIR),
+    ),
   );
-  // Hooks: top-level *.cjs, excluding *.test.cjs.
-  addDir(
+  // Hooks: top-level *.cjs / *.mjs, excluding *.test.cjs / *.test.mjs.
+  account(
+    'hooks',
     CLAUDE_HOOKS_DIR,
-    (rel) =>
-      !rel.includes('/') && rel.endsWith('.cjs') && !rel.endsWith('.test.cjs'),
-    copyNameFloor(CLAUDE_HOOKS_DIR),
+    addDir(
+      CLAUDE_HOOKS_DIR,
+      isInstalledHookFile,
+      copyNameFloor(CLAUDE_HOOKS_DIR),
+    ),
   );
   // Trusted docs. The prefix is per-DOC, not per-layout: flat keeps all four at
   // the root; the pharn layout has CONSTITUTION + ARCHITECTURE under pharn/ and
@@ -169,46 +274,63 @@ export function collectExpectedInstallPaths(params: {
   // never expected here either (see addDir's note).
   for (const doc of paths.docs) {
     const from = safeJoin(repoDir, doc);
-    if (findSymlinkComponent(repoDir, doc) !== null) continue;
-    if (lstatSync(from, { throwIfNoEntry: false })?.isFile()) add(doc, from);
+    const shipped =
+      findSymlinkComponent(repoDir, doc) === null &&
+      lstatSync(from, { throwIfNoEntry: false })?.isFile() === true;
+    if (shipped) add(doc, from);
+    account('trusted-doc', doc, shipped ? 1 : 0);
   }
   // Upstream's LICENSE at a MAPPED destination — the one entry whose dest differs
   // from its source, which is exactly what this map's dest→source shape exists
   // for. A symlinked source must be absent here as well as unwritten by the
   // installer: a manifest entry the installer never writes is phantom drift, and
   // since this map drives `update`'s WRITES it would also copy one in.
+  let licenseShipped = false;
   if (findSymlinkComponent(repoDir, paths.license.from) === null) {
     const licenseFrom = safeJoin(repoDir, paths.license.from);
     if (lstatSync(licenseFrom, { throwIfNoEntry: false })?.isFile()) {
       add(paths.license.to, licenseFrom);
+      licenseShipped = true;
     }
   }
+  account('license', paths.license.from, licenseShipped ? 1 : 0);
   // features/README.md — layout-dependent since pharn-oss 5.0.0; see resolveFeaturesReadme.
   const featuresRel = resolveFeaturesReadme(repoDir, layout);
+  let featuresShipped = false;
   if (findSymlinkComponent(repoDir, featuresRel) === null) {
     const featuresFrom = safeJoin(repoDir, featuresRel);
     if (lstatSync(featuresFrom, { throwIfNoEntry: false })?.isFile()) {
       add(featuresRel, featuresFrom);
+      featuresShipped = true;
     }
   }
+  // Absent → named at the LAYOUT's own path, not the fallback the resolver
+  // returned: the root path is only a pre-relocation window on the pharn layout.
+  account(
+    'features-readme',
+    featuresShipped ? featuresRel : paths.featuresReadme,
+    featuresShipped ? 1 : 0,
+  );
   // Contracts + pharn-core (whole dirs) + floor checkers (test files excluded),
   // at layout paths. pharn-core is a FIXED surface, not a capability, so it
   // reaches status/update only through this entry — a flat clone has none, so
   // addDir's lstat finds no directory and contributes nothing (P7).
-  addDir(paths.contracts);
-  addDir(paths.core);
+  account('contracts', paths.contracts, addDir(paths.contracts));
+  const coreFiles = addDir(paths.core);
+  if (layout === 'pharn') account('core', paths.core, coreFiles);
   // `rel` here is ALREADY a floor-relative posix path (walkFiles builds it with
   // `/`), and the writer's predicate is anchored at the floor root — so both
   // sides test the SAME string, and their equivalence is readable rather than
   // argued. Kept exactly as wide as the writer's, no wider: a mirror that
   // excludes more than the writer copies is the same divergence in the other
   // direction (update would report permanent `missing` entries).
-  addDir(
+  const floorFiles = addDir(
     paths.floor,
     (rel) => !/\.test\.(mjs|cjs)$/.test(rel) && !isFloorTestFixturePath(rel),
   );
+  account('floor', paths.floor, floorFiles);
 
-  return expected;
+  return { expected, surfaces };
 }
 
 /**

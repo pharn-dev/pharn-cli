@@ -1,4 +1,6 @@
 import { hookWiringLines, type HookWiringDiff } from '../lib/hook-wiring.js';
+import { absentSurfaceLines } from '../lib/absent-surfaces.js';
+import type { AbsentSurface } from '../lib/install-manifest.js';
 import {
   buildUpdatePlan,
   type PlannedUpdate,
@@ -189,6 +191,9 @@ interface UpdateOutcome {
   // Upstream hooks the project's settings.json does not wire. Reported only —
   // update never writes settings.json. Absent on paths that never saw a clone.
   hookWiring?: HookWiringDiff;
+  // The declared product surfaces the clone ships no file for (NOT SHIPPED).
+  // Absent on paths that never saw a clone.
+  absentUpstream?: AbsentSurface[];
   // What happened to the `models` block (lib/models-update.ts), and the floor
   // dir its checker is installed under, for the MODELS note.
   models: ModelsUpdate;
@@ -746,6 +751,7 @@ async function applyPlannedUpdate(
     abandonedLayout: report.abandonedLayout,
     featuresReadmeRelocation: report.featuresReadmeRelocation,
     hookWiring: report.hookWiring,
+    absentUpstream: report.absentUpstream,
     models,
     modelsFloor: report.modelsFloor,
     orphans: report.orphans,
@@ -785,6 +791,7 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
     ? hookWiringLines(outcome.hookWiring)
     : null;
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
+  reportAbsentSurfaces(outcome.absentUpstream ?? []);
 
   const forceable = reportSkipped(plan.skipped, false);
   reportOrphans(outcome.orphans);
@@ -815,6 +822,15 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   outro(
     `${pc.green('✔')} ${summary} ${pc.dim(`(${outcome.capCount} capabilit${outcome.capCount === 1 ? 'y' : 'ies'}, skills v${outcome.recordedVersion})`)}`,
   );
+}
+
+// The NOT SHIPPED note, shared by the real report and the preview: every
+// declared product surface the clone ships no file for (lib/absent-surfaces.ts
+// words it, as `init` does). Report only — it withholds nothing, since no file
+// on disk was left behind by it. Nothing absent → no note.
+function reportAbsentSurfaces(absent: readonly AbsentSurface[]): void {
+  const lines = absentSurfaceLines(absent);
+  if (lines) note(lines.join('\n'), 'NOT SHIPPED');
 }
 
 // The SKIPPED note, shared by the real report and the preview (`preview` only
@@ -1102,6 +1118,7 @@ function reportDryRun(
 
   const hookLines = hookWiringLines(r.hookWiring);
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
+  reportAbsentSurfaces(r.absentUpstream);
 
   const forceable = reportSkipped(r.skipped, true);
   reportOrphans(r.orphans);

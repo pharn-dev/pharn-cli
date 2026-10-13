@@ -1,11 +1,10 @@
 import pc from 'picocolors';
 import { readDiskState } from './apply-update.js';
+import { CLAUDE_COMMANDS_DIR, CLAUDE_HOOKS_DIR } from './constants.js';
 import {
-  CLAUDE_COMMANDS_DIR,
-  CLAUDE_HOOKS_DIR,
-  DEV_COMMAND_PREFIX,
-  PRODUCT_COMMAND_PREFIX,
-} from './constants.js';
+  isInstalledHookFile,
+  isProductCommandFile,
+} from './install-manifest.js';
 import { layoutPaths, type LayoutPaths } from './layout.js';
 import { MODELS_RECORD_KEY, type FileRecords } from './install-records.js';
 import { terminalSafe } from './terminal-safe.js';
@@ -114,7 +113,7 @@ function capabilityOf(rel: string): string | null {
  * Could ANY install (flat or pharn layout) have written `rel`? Mirrors the
  * surfaces lib/install-manifest.ts enumerates — capability dirs, contracts,
  * pharn-core, the floor, the trusted docs, the LICENSE dest, the features
- * README, product `pharn-*.md` commands and `.cjs` hooks — derived from
+ * README, product `pharn-*.md` commands and `.cjs`/`.mjs` hooks — derived from
  * `layoutPaths` so it follows the layout contract. A membership test (P5).
  */
 export function isInstallRootPath(rel: string): boolean {
@@ -122,18 +121,13 @@ export function isInstallRootPath(rel: string): boolean {
   if (SURFACE_FILES.has(rel)) return true;
   if (SURFACE_DIRS.some((dir) => rel.startsWith(`${dir}/`))) return true;
   if (capabilityOf(rel) !== null) return true;
+  // The install's own name filters (lib/install-manifest.ts), so this bound
+  // takes exactly the command and hook names an install copies — `.mjs` hooks
+  // included — and cannot drift from them.
   const command = directChild(rel, CLAUDE_COMMANDS_DIR);
-  if (command !== null) {
-    return (
-      command.endsWith('.md') &&
-      command.startsWith(PRODUCT_COMMAND_PREFIX) &&
-      !command.startsWith(DEV_COMMAND_PREFIX)
-    );
-  }
+  if (command !== null) return isProductCommandFile(command);
   const hook = directChild(rel, CLAUDE_HOOKS_DIR);
-  if (hook !== null) {
-    return hook.endsWith('.cjs') && !hook.endsWith('.test.cjs');
-  }
+  if (hook !== null) return isInstalledHookFile(hook);
   return false;
 }
 

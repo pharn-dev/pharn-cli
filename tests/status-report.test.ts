@@ -18,6 +18,9 @@ const CLEAN: InstallDiff = {
 };
 const HOOKS_OK: HookWiringDiff = { status: 'match', missing: [] };
 const MAIN: InstallSource = { kind: 'main' };
+// The drift input's surface accounting: nothing absent, clone at the recorded
+// (flat) layout.
+const SURFACES = { absentUpstream: [], upstreamLayout: 'flat' as const };
 
 function config(extra: Partial<PharnConfig> = {}): PharnConfig {
   return {
@@ -40,7 +43,13 @@ function input(extra: Partial<StatusReportInput> = {}): StatusReportInput {
     channel: 'main',
     latest: '1.0.0',
     source: MAIN,
-    drift: { diff: CLEAN, hooks: HOOKS_OK, unknown: [], orphans: [] },
+    drift: {
+      ...SURFACES,
+      diff: CLEAN,
+      hooks: HOOKS_OK,
+      unknown: [],
+      orphans: [],
+    },
     strict: false,
     ...extra,
   };
@@ -61,7 +70,14 @@ describe('buildStatusReport', () => {
       },
       archetypes: ['ssr'],
       capabilities: { count: 1 },
-      drift: { modified: [], missing: [], unreadable: [], okCount: 3 },
+      layout: { recorded: 'flat', upstream: 'flat' },
+      drift: {
+        modified: [],
+        missing: [],
+        unreadable: [],
+        okCount: 3,
+        absentUpstream: [],
+      },
       hooks: {
         status: 'match',
         missing: [],
@@ -83,6 +99,34 @@ describe('buildStatusReport', () => {
     expect(r.unknownCapabilities).toBeNull();
     expect(r.orphans).toBeNull();
     expect(r.version.latest).toBe('1.0.0');
+    // No clone, so no upstream layout — the recorded one is still reported.
+    expect(r.layout).toEqual({ recorded: 'flat', upstream: null });
+  });
+
+  // F-10: a declared surface the clone ships no file for, and the layout pair.
+  it('reports absentUpstream rows (path capped) and the recorded vs upstream layout', () => {
+    const r = buildStatusReport(
+      input({
+        config: config({ layout: 'flat' }),
+        drift: {
+          diff: CLEAN,
+          hooks: HOOKS_OK,
+          unknown: [],
+          orphans: [],
+          absentUpstream: [
+            { surface: 'hooks', path: '.claude/hooks' },
+            { surface: 'floor', path: 'f'.repeat(300) },
+          ],
+          upstreamLayout: 'pharn',
+        },
+      }),
+    );
+    expect(r.drift!.absentUpstream[0]).toEqual({
+      surface: 'hooks',
+      path: '.claude/hooks',
+    });
+    expect(r.drift!.absentUpstream[1]!.path).toHaveLength(201);
+    expect(r.layout).toEqual({ recorded: 'flat', upstream: 'pharn' });
   });
 
   it('lists the orphans, null when they could not be determined', () => {
@@ -95,7 +139,15 @@ describe('buildStatusReport', () => {
       },
     ];
     const r = buildStatusReport(
-      input({ drift: { diff: CLEAN, hooks: HOOKS_OK, unknown: [], orphans } }),
+      input({
+        drift: {
+          ...SURFACES,
+          diff: CLEAN,
+          hooks: HOOKS_OK,
+          unknown: [],
+          orphans,
+        },
+      }),
     );
     expect(r.orphans![0]).toEqual(orphans[0]);
     expect(Object.keys(r.orphans![0]!)).toEqual(['path', 'state']);
@@ -104,7 +156,13 @@ describe('buildStatusReport', () => {
     expect(
       buildStatusReport(
         input({
-          drift: { diff: CLEAN, hooks: HOOKS_OK, unknown: [], orphans: null },
+          drift: {
+            ...SURFACES,
+            diff: CLEAN,
+            hooks: HOOKS_OK,
+            unknown: [],
+            orphans: null,
+          },
         }),
       ).orphans,
     ).toBeNull();
@@ -158,6 +216,7 @@ describe('buildStatusReport', () => {
     const r = buildStatusReport(
       input({
         drift: {
+          ...SURFACES,
           diff: CLEAN,
           hooks: {
             status: 'unreadable',
@@ -184,6 +243,7 @@ describe('buildStatusReport', () => {
     const r = buildStatusReport(
       input({
         drift: {
+          ...SURFACES,
           diff: CLEAN,
           hooks: HOOKS_OK,
           unknown: [
@@ -275,6 +335,7 @@ describe('buildStatusReport', () => {
     it('is failed only when enabled AND a finding exists', () => {
       const modified = { ...CLEAN, modified: ['x'] };
       const drift = {
+        ...SURFACES,
         diff: modified,
         hooks: HOOKS_OK,
         unknown: [],
@@ -291,11 +352,37 @@ describe('buildStatusReport', () => {
       expect(buildStatusReport(input({ strict: true })).strict.failed).toBe(
         false,
       );
+      // F-10: an absent surface alone fails it; a layout mismatch alone does not.
+      const absent = {
+        ...SURFACES,
+        diff: CLEAN,
+        hooks: HOOKS_OK,
+        unknown: [],
+        orphans: [],
+        absentUpstream: [
+          { surface: 'core' as const, path: 'pharn/pharn-core' },
+        ],
+      };
+      expect(
+        buildStatusReport(input({ drift: absent, strict: true })).strict.failed,
+      ).toBe(true);
+      const moved = {
+        ...SURFACES,
+        diff: CLEAN,
+        hooks: HOOKS_OK,
+        unknown: [],
+        orphans: [],
+        upstreamLayout: 'pharn' as const,
+      };
+      expect(
+        buildStatusReport(input({ drift: moved, strict: true })).strict.failed,
+      ).toBe(false);
     });
     // Orphans are leftovers no pharn command can clear (update never deletes):
     // reported, never a --strict input.
     it('is not failed by orphans', () => {
       const drift = {
+        ...SURFACES,
         diff: CLEAN,
         hooks: HOOKS_OK,
         unknown: [],
@@ -340,6 +427,15 @@ describe('strictFails', () => {
   ] as const)('fails on %s', (_l, args) => {
     expect(strictFails(args as Parameters<typeof strictFails>[0])).toBe(true);
   });
+  it('fails on a declared surface upstream does not ship', () => {
+    expect(
+      strictFails({
+        ...base,
+        absentUpstream: [{ surface: 'floor', path: 'pharn/floor' }],
+      }),
+    ).toBe(true);
+    expect(strictFails({ ...base, absentUpstream: [] })).toBe(false);
+  });
   it('does not fail on local-only hooks', () => {
     expect(
       strictFails({
@@ -373,6 +469,7 @@ describe('serializeStatusReport', () => {
       input({
         config: config({ skillsVersion: `1.0.0${HOSTILE}` }),
         drift: {
+          ...SURFACES,
           diff: {
             modified: [`a${HOSTILE}`],
             missing: [`b${HOSTILE}`],

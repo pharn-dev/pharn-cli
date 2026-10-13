@@ -1355,6 +1355,57 @@ describe('runUpdate (drift-safe)', () => {
     ).toBe(false);
   });
 
+  // F-10: a declared surface the clone ships no file for is NAMED — never a
+  // silent existence-guarded skip — and, being nothing on disk, withholds
+  // nothing.
+  it('names every declared surface the clone does not ship in a NOT SHIPPED note, and still records the new version', async () => {
+    await installed();
+    await runUpdate();
+    const notShipped = String(
+      vi
+        .mocked(prompts.note)
+        .mock.calls.find((c) => c[1] === 'NOT SHIPPED')?.[0],
+    );
+    // The scaffold ships commands, hooks and CONSTITUTION.md only.
+    expect(notShipped).toContain('pharn-contracts (contracts)');
+    expect(notShipped).toContain('.dev/floor (floor)');
+    expect(notShipped).toContain('LICENSE (license)');
+    expect(notShipped).toContain('LIMITS.md (trusted-doc)');
+    expect(notShipped).not.toContain('(hooks)');
+    expect(notShipped).not.toContain('(commands)');
+    expect(notShipped).not.toContain('CONSTITUTION.md');
+    expect(readPharnConfig(proj)?.skillsVersion).toBe('1.1.0');
+  });
+
+  it('prints no NOT SHIPPED note when the clone ships every declared surface', async () => {
+    await installed();
+    for (const rel of [
+      'ARCHITECTURE.md',
+      'THREAT-MODEL.md',
+      'LIMITS.md',
+      'LICENSE',
+      'features/README.md',
+      'pharn-contracts/finding-shape.md',
+      '.dev/floor/validate.mjs',
+    ])
+      write(join(repo, rel), 'x');
+    await runUpdate();
+    expect(
+      vi.mocked(prompts.note).mock.calls.some((c) => c[1] === 'NOT SHIPPED'),
+    ).toBe(false);
+  });
+
+  it('copies an .mjs hook upstream ships, and never its .test.mjs', async () => {
+    await installed();
+    write(join(repo, '.claude/hooks/require-loop-record.mjs'), 'esm');
+    write(join(repo, '.claude/hooks/require-loop-record.test.mjs'), 'TEST');
+    await runUpdate();
+    expect(body('.claude/hooks/require-loop-record.mjs')).toBe('esm');
+    expect(
+      existsSync(join(proj, '.claude/hooks/require-loop-record.test.mjs')),
+    ).toBe(false);
+  });
+
   // PHARN-05: a bump withheld ONLY by the user's own kept edits records the
   // version it did apply, so `pharn add` is not dead-ended by one kept edit.
   it("records pendingSkillsVersion when only the user's edits were skipped", async () => {

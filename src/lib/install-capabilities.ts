@@ -13,8 +13,6 @@ import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
-  DEV_COMMAND_PREFIX,
-  PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import {
   capabilitySubtree,
@@ -26,6 +24,8 @@ import {
 import {
   collectExpectedInstallPaths,
   isFloorTestFixturePath,
+  isInstalledHookFile,
+  isProductCommandFile,
   PHARN_CONFIG_FILE,
 } from './install-manifest.js';
 import { RECORDS_FILE } from './install-records.js';
@@ -46,10 +46,14 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 //
 // Dev-only exclusion is STRUCTURAL, not a scan: only these source subtrees are
 // ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands,
-// `.cjs` hooks, settings.json, the trusted docs, the root features/README.md,
+// `.cjs`/`.mjs` hooks, settings.json, the trusted docs, the root features/README.md,
 // pharn-contracts/, pharn-core/, and `.dev/floor/` minus test FILES and its
 // `test-fixtures/` + `fixtures/` subtrees. `pharn-dev-*` commands, `.dev/features/`,
 // `.dev/memory-bank/`, and `*.test.*` are NEVER in the copy set.
+//
+// A declared surface the clone does not ship is still skipped here, but no
+// longer in silence: lib/install-manifest.ts → absentInstallSurfaces names it,
+// and init/update/status report it.
 //
 // One axis (P3): the capability copy routine.
 // ---------------------------------------------------------------------------
@@ -226,17 +230,17 @@ export function installCapabilities(
   );
 
   // --- product commands: pharn-*.md, excluding pharn-dev-*.md ----------------
-  copyFilteredDir(repoDir, projectRoot, CLAUDE_COMMANDS_DIR, (fileName) => {
-    if (!fileName.endsWith('.md')) return false;
-    if (fileName.startsWith(DEV_COMMAND_PREFIX)) return false;
-    return fileName.startsWith(PRODUCT_COMMAND_PREFIX);
-  });
+  // The name filters are the manifest's own (lib/install-manifest.ts), so the
+  // copy and the mirror take exactly the same names.
+  copyFilteredDir(
+    repoDir,
+    projectRoot,
+    CLAUDE_COMMANDS_DIR,
+    isProductCommandFile,
+  );
 
-  // --- hooks: *.cjs, excluding *.test.cjs ------------------------------------
-  copyFilteredDir(repoDir, projectRoot, CLAUDE_HOOKS_DIR, (fileName) => {
-    if (!fileName.endsWith('.cjs')) return false;
-    return !isTestFile(fileName);
-  });
+  // --- hooks: *.cjs / *.mjs, excluding *.test.cjs / *.test.mjs ---------------
+  copyFilteredDir(repoDir, projectRoot, CLAUDE_HOOKS_DIR, isInstalledHookFile);
 
   // --- settings.json: NEVER overwrite the user's existing one (grill F1) -----
   // `existsSync` FOLLOWS a symlink, so a live link here counts as existing and

@@ -12,7 +12,10 @@ import { useTmpDir } from './helpers.js';
 import {
   capabilityCloneFiles,
   collectExpectedInstallPaths,
+  absentInstallSurfaces,
   conflictingWriteTargets,
+  isInstalledHookFile,
+  isProductCommandFile,
   PHARN_CONFIG_FILE,
 } from '../src/lib/install-manifest.js';
 import {
@@ -58,6 +61,9 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, '.claude/commands/README.md'));
   write(join(repo, '.claude/hooks/set-writes-scope.cjs'));
   write(join(repo, '.claude/hooks/set-writes-scope.test.cjs'));
+  // An ESM hook: upstream may ship `.mjs` as well as `.cjs` (F-10).
+  write(join(repo, '.claude/hooks/require-loop-record.mjs'));
+  write(join(repo, '.claude/hooks/require-loop-record.test.mjs'));
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
   write(join(repo, 'CONSTITUTION.md'));
   write(join(repo, 'ARCHITECTURE.md'));
@@ -91,6 +97,9 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, '.claude/commands/pharn-dev-plan.md'));
   write(join(repo, '.claude/hooks/set-writes-scope.cjs'));
   write(join(repo, '.claude/hooks/set-writes-scope.test.cjs'));
+  // An ESM hook: upstream may ship `.mjs` as well as `.cjs` (F-10).
+  write(join(repo, '.claude/hooks/require-loop-record.mjs'));
+  write(join(repo, '.claude/hooks/require-loop-record.test.mjs'));
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
   // The docs, at the paths pharn-oss ACTUALLY ships them in a pharn-layout tree:
   // the relocation moved CONSTITUTION + ARCHITECTURE under pharn/ and left
@@ -165,6 +174,7 @@ describe('collectExpectedInstallPaths (flat)', () => {
       '.claude/commands/pharn-plan.md',
       '.claude/commands/pharn-ship.md',
       '.claude/hooks/set-writes-scope.cjs',
+      '.claude/hooks/require-loop-record.mjs',
       'CONSTITUTION.md',
       'ARCHITECTURE.md',
       'THREAT-MODEL.md',
@@ -185,6 +195,7 @@ describe('collectExpectedInstallPaths (flat)', () => {
       '.claude/commands/pharn-dev-plan.md',
       '.claude/commands/README.md',
       '.claude/hooks/set-writes-scope.test.cjs',
+      '.claude/hooks/require-loop-record.test.mjs',
       '.dev/floor/validate.test.mjs',
       'pharn-pipeline/grillers/security/security.md',
       'pharn-review/trust-fence/trust-fence.md',
@@ -988,5 +999,170 @@ describe('isInstallRootPath ⟷ installCapabilities (mirror)', () => {
   it("never accepts the user's own feature work beside the features README", () => {
     expect(isInstallRootPath('pharn/features/my-feature/PLAN.md')).toBe(false);
     expect(isInstallRootPath('features/my-feature/PLAN.md')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surface accounting (F-10): every DECLARED fixed surface either contributes at
+// least one file to the manifest or is named as absent upstream — never a
+// silent existence-guarded no-op.
+// ---------------------------------------------------------------------------
+describe('absentInstallSurfaces', () => {
+  const tmp = useTmpDir();
+
+  function repoOf(scaffold: (r: string) => void): string {
+    const repo = join(tmp.path(), 'repo');
+    scaffold(repo);
+    return repo;
+  }
+
+  it('is [] for a complete clone, in both layouts', () => {
+    expect(
+      absentInstallSurfaces({ repoDir: repoOf(scaffoldRepo), layout: 'flat' }),
+    ).toEqual([]);
+    rmSync(join(tmp.path(), 'repo'), { recursive: true, force: true });
+    expect(
+      absentInstallSurfaces({
+        repoDir: repoOf(scaffoldRepoPharn),
+        layout: 'pharn',
+      }),
+    ).toEqual([]);
+  });
+
+  it('never declares pharn-core for the flat layout (a documented no-op path)', () => {
+    const repo = repoOf(scaffoldRepo);
+    expect(existsSync(join(repo, 'pharn-core'))).toBe(false);
+    expect(
+      absentInstallSurfaces({ repoDir: repo, layout: 'flat' }).map(
+        (s) => s.surface,
+      ),
+    ).not.toContain('core');
+  });
+
+  const pharnCases: [string, string, { surface: string; path: string }][] = [
+    [
+      '.claude/commands',
+      'dir',
+      { surface: 'commands', path: '.claude/commands' },
+    ],
+    ['.claude/hooks', 'dir', { surface: 'hooks', path: '.claude/hooks' }],
+    [
+      'pharn/CONSTITUTION.md',
+      'file',
+      { surface: 'trusted-doc', path: 'pharn/CONSTITUTION.md' },
+    ],
+    ['LIMITS.md', 'file', { surface: 'trusted-doc', path: 'LIMITS.md' }],
+    ['LICENSE', 'file', { surface: 'license', path: 'LICENSE' }],
+    [
+      'pharn/features/README.md',
+      'file',
+      { surface: 'features-readme', path: 'pharn/features/README.md' },
+    ],
+    [
+      'pharn/pharn-contracts',
+      'dir',
+      { surface: 'contracts', path: 'pharn/pharn-contracts' },
+    ],
+    ['pharn/pharn-core', 'dir', { surface: 'core', path: 'pharn/pharn-core' }],
+    ['pharn/floor', 'dir', { surface: 'floor', path: 'pharn/floor' }],
+  ];
+  for (const [rel, kind, row] of pharnCases) {
+    it(`pharn layout: names exactly ${row.surface} at ${row.path} when the clone lacks ${rel} (${kind})`, () => {
+      const repo = repoOf(scaffoldRepoPharn);
+      if (rel === 'pharn/pharn-contracts') {
+        // The layout MARKER: keep the dir (else the clone reads as flat), but
+        // ship no file in it — zero files contributed is absent.
+        rmSync(join(repo, rel), { recursive: true, force: true });
+        mkdirSync(join(repo, rel), { recursive: true });
+      } else {
+        rmSync(join(repo, rel), { recursive: true, force: true });
+      }
+      expect(absentInstallSurfaces({ repoDir: repo, layout: 'pharn' })).toEqual(
+        [row],
+      );
+    });
+  }
+
+  it('flat layout: names a missing contracts dir, floor dir and features README', () => {
+    const repo = repoOf(scaffoldRepo);
+    rmSync(join(repo, 'pharn-contracts'), { recursive: true, force: true });
+    rmSync(join(repo, '.dev/floor'), { recursive: true, force: true });
+    rmSync(join(repo, 'features'), { recursive: true, force: true });
+    expect(absentInstallSurfaces({ repoDir: repo, layout: 'flat' })).toEqual([
+      { surface: 'features-readme', path: 'features/README.md' },
+      { surface: 'contracts', path: 'pharn-contracts' },
+      { surface: 'floor', path: '.dev/floor' },
+    ]);
+  });
+
+  it('a dir that ships no file passing its filter is absent (zero files contributed)', () => {
+    const repo = repoOf(scaffoldRepoPharn);
+    // Commands renamed out of the product prefix; hooks shipped only as tests or
+    // under an extension the install does not take.
+    rmSync(join(repo, '.claude/commands/pharn-plan.md'));
+    write(join(repo, '.claude/commands/plan.md'));
+    for (const f of ['set-writes-scope.cjs', 'require-loop-record.mjs'])
+      rmSync(join(repo, '.claude/hooks', f));
+    write(join(repo, '.claude/hooks/guard.js'));
+    expect(
+      absentInstallSurfaces({ repoDir: repo, layout: 'pharn' }).map(
+        (s) => s.surface,
+      ),
+    ).toEqual(['commands', 'hooks']);
+  });
+
+  it('the features README at the ROOT fallback counts as shipped on the pharn layout', () => {
+    const repo = repoOf(scaffoldRepoPharn);
+    rmSync(join(repo, 'pharn/features'), { recursive: true, force: true });
+    write(join(repo, 'features/README.md'));
+    expect(absentInstallSurfaces({ repoDir: repo, layout: 'pharn' })).toEqual(
+      [],
+    );
+  });
+
+  it('a symlinked surface root is absent — the copy refuses it too', () => {
+    const repo = repoOf(scaffoldRepoPharn);
+    const outside = join(tmp.path(), 'outside');
+    write(join(outside, 'x.md'));
+    rmSync(join(repo, 'pharn/pharn-core'), { recursive: true, force: true });
+    symlinkSync(outside, join(repo, 'pharn/pharn-core'));
+    expect(absentInstallSurfaces({ repoDir: repo, layout: 'pharn' })).toEqual([
+      { surface: 'core', path: 'pharn/pharn-core' },
+    ]);
+  });
+});
+
+describe('hook and command name predicates (shared by the copy and the manifest)', () => {
+  const tmp = useTmpDir();
+
+  it('takes .cjs and .mjs hooks, never their tests or other extensions', () => {
+    expect(isInstalledHookFile('guard.cjs')).toBe(true);
+    expect(isInstalledHookFile('guard.mjs')).toBe(true);
+    expect(isInstalledHookFile('guard.test.cjs')).toBe(false);
+    expect(isInstalledHookFile('guard.test.mjs')).toBe(false);
+    expect(isInstalledHookFile('guard.js')).toBe(false);
+    expect(isInstalledHookFile('nested/guard.cjs')).toBe(false);
+  });
+
+  it('takes top-level non-dev pharn-*.md commands only', () => {
+    expect(isProductCommandFile('pharn-plan.md')).toBe(true);
+    expect(isProductCommandFile('pharn-dev-plan.md')).toBe(false);
+    expect(isProductCommandFile('plan.md')).toBe(false);
+    expect(isProductCommandFile('pharn-plan.txt')).toBe(false);
+    expect(isProductCommandFile('sub/pharn-plan.md')).toBe(false);
+  });
+
+  it('an .mjs hook is in the manifest; its .test.mjs is not (the copy side: the mirror tests)', () => {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepoPharn(repo);
+    const keys = [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: [],
+        layout: 'pharn',
+      }).keys(),
+    ];
+    expect(keys).toContain('.claude/hooks/require-loop-record.mjs');
+    expect(keys).not.toContain('.claude/hooks/require-loop-record.test.mjs');
   });
 });

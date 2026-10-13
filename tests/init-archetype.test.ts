@@ -587,6 +587,9 @@ describe('archetype install (fixture e2e)', () => {
     write(join(repo, 'ARCHITECTURE.md'), 'A');
     write(join(repo, 'THREAT-MODEL.md'), 'T');
     write(join(repo, 'LIMITS.md'), 'L');
+    // Every other declared surface too, so the clone is complete (F-10).
+    write(join(repo, 'LICENSE'), 'Apache');
+    write(join(repo, 'features/README.md'), 'F');
     project(proj);
     vi.mocked(prompts.log.warn).mockClear();
 
@@ -601,7 +604,40 @@ describe('archetype install (fixture e2e)', () => {
       .mocked(prompts.log.warn)
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
-    expect(warned).not.toContain('not installed');
+    expect(warned).not.toContain('pharn-oss ships nothing');
+  });
+
+  // F-10: every declared surface — not only the docs — is named when the clone
+  // ships nothing for it. Warned, never fatal: the install completes.
+  it('names every declared surface the clone does not ship, in ONE warning, and still installs', async () => {
+    const repo = join(tmp.path(), 'partial-repo');
+    const proj = join(tmp.path(), 'partial-proj');
+    scaffoldRepo(repo);
+    rmSync(join(repo, '.claude/hooks'), { recursive: true, force: true });
+    rmSync(join(repo, 'pharn-contracts'), { recursive: true, force: true });
+    project(proj);
+    vi.mocked(prompts.log.warn).mockClear();
+
+    await install(repo, proj);
+
+    const warnings = vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .filter((w) => w.includes('pharn-oss ships nothing'));
+    expect(warnings).toHaveLength(1);
+    const [warning] = warnings;
+    expect(warning).toContain('.claude/hooks (hooks)');
+    expect(warning).toContain('pharn-contracts (contracts)');
+    // The docs are rows of the same report, not a second warning.
+    expect(warning).toContain('LIMITS.md (trusted-doc)');
+    expect(warning).toContain('LICENSE (license)');
+    expect(warning).toContain('features/README.md (features-readme)');
+    expect(warning).not.toContain('CONSTITUTION.md');
+    expect(warning).not.toContain('(floor)');
+    expect(warning).not.toContain('(core)');
+    // Not fatal: the config and the records are written as on any install.
+    expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
+    expect(existsSync(join(proj, 'pharn.records.json'))).toBe(true);
   });
 });
 

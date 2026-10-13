@@ -626,6 +626,13 @@ describe('runUpdate --dry-run', () => {
       expect(noteBody('HOOKS')).toContain('x.cjs');
     });
 
+    it('names the declared surfaces the clone does not ship (NOT SHIPPED), as the real run does', async () => {
+      await installed();
+      await runUpdate({ dryRun: true });
+      expect(noteBody('NOT SHIPPED')).toContain('pharn-contracts (contracts)');
+      expect(noteBody('NOT SHIPPED')).not.toContain('(hooks)');
+    });
+
     it('names a frozen capability and keeps it out of the plan', async () => {
       const FROZEN = { name: 'backwards-compat', role: 'griller' as const };
       const FILE =

@@ -10,6 +10,7 @@ import type {
 } from './update-decision.js';
 import type { UpdatePlanReport } from './update-plan.js';
 import type { OrphanState } from './orphans.js';
+import type { InstallSurface } from './install-manifest.js';
 import type { Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,9 @@ export interface UpdateReport {
       file: string | null;
       reason: string | null;
     };
+    // The declared product surfaces the clone ships no file for. Present ONLY
+    // when there is one, so a report with none keeps the 0.10.0 bytes.
+    absentUpstream?: { surface: InstallSurface; path: string }[];
     frozenCapabilities: string[];
     unknownCapabilities: {
       role: string;
@@ -216,6 +220,14 @@ function planReport(
       file: p.hookWiring.file ?? null,
       reason: p.hookWiring.reason ?? null,
     },
+    ...(p.absentUpstream.length > 0
+      ? {
+          absentUpstream: p.absentUpstream.map((a) => ({
+            surface: a.surface,
+            path: cap(a.path, MAX_UNKNOWN_FIELD),
+          })),
+        }
+      : {}),
     frozenCapabilities: [...p.frozenCapabilities],
     unknownCapabilities: p.unknownCapabilities.map((u) => ({
       role: u.role,

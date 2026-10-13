@@ -144,18 +144,18 @@ still understood through the recorded `layout` field.
 
 ## What gets installed
 
-| Artifact                                                              | Purpose                                                                             |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline grillers and review lenses selected for your project archetype(s).         |
-| `.claude/commands/`, `.claude/hooks/`                                 | The installed `/pharn-*` Claude Code slash commands and deterministic `.cjs` hooks. |
-| `pharn/pharn-contracts/`, `pharn/floor/`                              | Schemas shared across PHARN stages and floor checkers invoked by the workflow.      |
-| `pharn/pharn-core/`                                                   | Agent-readable mechanism skills, including the seam resolver.                       |
-| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Trusted PHARN docs copied from upstream in the current layout.                      |
-| `THREAT-MODEL.md`, `LIMITS.md`                                        | Trusted PHARN docs copied at the project root in the current layout.                |
-| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten.          |
-| `pharn/features/README.md`                                            | The feature-loop boundary contract referenced by installed commands (pharn layout). |
-| `pharn.config.json`                                                   | Installed version, commit, layout, archetypes, capabilities, and defaults.          |
-| `pharn.records.json`                                                  | Per-file hashes for drift-safe updates. Commit this with the config.                |
+| Artifact                                                              | Purpose                                                                                    |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline grillers and review lenses selected for your project archetype(s).                |
+| `.claude/commands/`, `.claude/hooks/`                                 | The installed `/pharn-*` Claude Code slash commands and deterministic `.cjs`/`.mjs` hooks. |
+| `pharn/pharn-contracts/`, `pharn/floor/`                              | Schemas shared across PHARN stages and floor checkers invoked by the workflow.             |
+| `pharn/pharn-core/`                                                   | Agent-readable mechanism skills, including the seam resolver.                              |
+| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Trusted PHARN docs copied from upstream in the current layout.                             |
+| `THREAT-MODEL.md`, `LIMITS.md`                                        | Trusted PHARN docs copied at the project root in the current layout.                       |
+| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten.                 |
+| `pharn/features/README.md`                                            | The feature-loop boundary contract referenced by installed commands (pharn layout).        |
+| `pharn.config.json`                                                   | Installed version, commit, layout, archetypes, capabilities, and defaults.                 |
+| `pharn.records.json`                                                  | Per-file hashes for drift-safe updates. Commit this with the config.                       |
 
 An existing `.claude/settings.json` is preserved. PHARN may create it when
 absent, but it never overwrites your Claude Code settings.

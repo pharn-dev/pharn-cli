@@ -55,6 +55,8 @@ describe('isInstallRootPath', () => {
     'pharn/features/README.md',
     '.claude/commands/pharn-old.md',
     '.claude/hooks/old-hook.cjs',
+    // An ESM hook is an install path too (F-10): the install copies `.mjs` hooks.
+    '.claude/hooks/old-hook.mjs',
   ])('%s is a path an install can write', (rel) => {
     expect(isInstallRootPath(rel)).toBe(true);
   });
@@ -75,6 +77,8 @@ describe('isInstallRootPath', () => {
     '.claude/hooks/sub/x.cjs',
     '.claude/hooks/x.js',
     '.claude/hooks/x.test.cjs',
+    '.claude/hooks/x.test.mjs',
+    '.claude/hooks/sub/x.mjs',
     // directly under a capability subtree, not inside a capability dir
     'pharn-review/README.md',
     'pharn/pharn-pipeline/grillers/notes.md',
