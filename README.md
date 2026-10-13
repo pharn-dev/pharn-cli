@@ -270,6 +270,7 @@ Two commands sit outside the pipeline:
 | `pharn update`              | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt; `--dry-run` prints what it would do and writes nothing (add `--json` for the plan as one machine-readable object, and `--compact` to leave the unchanged files out of it). |
 | `pharn list`                | Show installed archetypes and capabilities. Use `--json` for machine-readable output.                                                                                                                                                                                                                                                           |
 | `pharn status`              | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report.                                                                                                                                                                                    |
+| `pharn uninstall`           | Remove PHARN: deletes only the files `pharn` recorded and you did not change, then `pharn.records.json` and `pharn.config.json` (backed up first). Never touches `.claude/settings.json` or `.pharn-backup/`. `--yes`/`-y` skips the confirmation prompt.                                                                                       |
 | `pharn --help`              | Show command help.                                                                                                                                                                                                                                                                                                                              |
 | `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                                                                                 |
 
@@ -287,12 +288,14 @@ Three behaviours matter if you script the CLI:
   `init`, `--yes` skips the summary confirm but never the overwrite one: it
   installs only into a project where none of its files exists yet, and
   otherwise exits 1 — so a re-install always refuses it (use `update`). Both
-  commands' `--dry-run` needs no terminal and writes nothing.
-- **One writer at a time.** `init`, `add`, `remove` and `update` take an
-  advisory lock at `.pharn.lock`; a second run refuses rather than queueing.
-  `add`, `remove` and `update` also re-read `pharn.config.json` once they hold
-  the lock, and refuse — writing nothing — if another run changed it after they
-  read it (for example while a confirm prompt was open).
+  commands' `--dry-run` needs no terminal and writes nothing. `uninstall`
+  likewise exits 1 off a TTY unless it is given `--yes`.
+- **One writer at a time.** `init`, `add`, `remove`, `update` and `uninstall`
+  take an advisory lock at `.pharn.lock`; a second run refuses rather than
+  queueing. `add`, `remove`, `update` and `uninstall` also re-read
+  `pharn.config.json` once they hold the lock, and refuse — writing nothing —
+  if another run changed it after they read it (for example while a confirm
+  prompt was open).
   `list` and `status` never take it and are never blocked by one, so
   `pharn status --strict` stays runnable in CI while an update is in flight.
 
@@ -315,6 +318,12 @@ PHARN is intentionally conservative about writes:
   cannot prove it wrote unchanged;
   it never touches `CONSTITUTION.md`, `memory-bank/`, or your detected
   archetypes, and refuses when that directory's path crosses a symlink.
+- `uninstall` deletes only files recorded in `pharn.records.json` that still
+  match their recorded hash, inside `pharn`'s install paths; it keeps every file
+  you changed or added and lists the ones it kept, backs up `pharn.config.json`
+  before deleting it, never writes `.claude/settings.json` (it prints the hooks
+  you need to unwire instead), and refuses — deleting nothing — without a usable
+  record store.
 
 PHARN can also refuse to install at all: if upstream declares a minimum CLI
 version newer than yours, `init`/`add`/`update` stop with a named error before

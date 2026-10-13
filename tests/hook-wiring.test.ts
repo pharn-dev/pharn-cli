@@ -10,6 +10,7 @@ import {
   hookWiringFails,
   hookWiringLines,
   preservedSettingsHookLines,
+  hooksReferencing,
 } from '../src/lib/hook-wiring.js';
 
 // PHARN-04: upstream re-wired its hooks twice (6.1.0 CLAUDE_PROJECT_DIR anchoring,
@@ -484,5 +485,121 @@ describe('preservedSettingsHookLines', () => {
     expect(preservedSettingsHookLines(localOnly)).toEqual(
       hookWiringLines(localOnly),
     );
+  });
+});
+
+// `pharn uninstall` never edits the settings files; it LISTS the project's own
+// hooks that still run a script it removed.
+describe('hooksReferencing', () => {
+  const tmp = useTmpDir();
+  const GONE = [
+    '.claude/hooks/protect-trusted-paths.cjs',
+    '.claude/hooks/require-loop-record.cjs',
+  ];
+
+  function project(shared?: unknown, local?: unknown): string {
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(join(proj, '.claude'), { recursive: true });
+    if (shared !== undefined)
+      writeFileSync(
+        join(proj, '.claude/settings.json'),
+        typeof shared === 'string' ? shared : JSON.stringify(shared),
+      );
+    if (local !== undefined)
+      writeFileSync(
+        join(proj, '.claude/settings.local.json'),
+        JSON.stringify(local),
+      );
+    return proj;
+  }
+
+  it('matches the plain, the CLAUDE_PROJECT_DIR and the exec (args) forms', () => {
+    const fromOld = hooksReferencing(project(OLD), GONE);
+    expect(fromOld).toEqual([
+      {
+        file: '.claude/settings.json',
+        kind: 'ok',
+        entries: [
+          {
+            event: 'PreToolUse',
+            matcher: 'Write|Edit|MultiEdit|NotebookEdit',
+            command: 'node .claude/hooks/protect-trusted-paths.cjs',
+            args: [],
+          },
+        ],
+      },
+    ]);
+    const fromNew = hooksReferencing(project(NEW), GONE);
+    expect(fromNew).toHaveLength(1);
+    const entries = fromNew[0]!.kind === 'ok' ? fromNew[0]!.entries : [];
+    expect(entries.map((e) => e.event)).toEqual(['PreToolUse', 'Stop']);
+    expect(entries[1]!.args).toEqual([
+      '${CLAUDE_PROJECT_DIR}/.claude/hooks/require-loop-record.cjs',
+    ]);
+  });
+
+  it('never lists a hook that runs a script still present (not in the list)', () => {
+    const refs = hooksReferencing(project(OLD), [
+      '.claude/hooks/something-else.cjs',
+    ]);
+    expect(refs).toEqual([]);
+  });
+
+  it('reads settings.local.json too, reporting each file separately', () => {
+    const refs = hooksReferencing(project({ hooks: {} }, OLD), GONE);
+    expect(refs.map((r) => r.file)).toEqual(['.claude/settings.local.json']);
+  });
+
+  it('returns nothing when no script is gone, without reading anything', () => {
+    expect(hooksReferencing(project('not json'), [])).toEqual([]);
+  });
+
+  it('omits absent files', () => {
+    expect(hooksReferencing(project(), GONE)).toEqual([]);
+  });
+
+  it('reports an unreadable file rather than guessing it wires nothing', () => {
+    expect(hooksReferencing(project('not json'), GONE)).toEqual([
+      {
+        file: '.claude/settings.json',
+        kind: 'unreadable',
+        reason: 'it is not valid JSON',
+      },
+    ]);
+  });
+
+  it('refuses to read through a symlinked .claude/ directory', () => {
+    const real = join(tmp.path(), 'elsewhere');
+    mkdirSync(real, { recursive: true });
+    writeFileSync(join(real, 'settings.json'), JSON.stringify(OLD));
+    const proj = join(tmp.path(), 'linked');
+    mkdirSync(proj, { recursive: true });
+    symlinkSync(real, join(proj, '.claude'));
+    const refs = hooksReferencing(proj, GONE);
+    expect(refs).toHaveLength(2);
+    expect(refs.every((r) => r.kind === 'unreadable')).toBe(true);
+  });
+
+  it('prints a project hook carrying control characters only escaped', () => {
+    const hostile = {
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command:
+                  'node .claude/hooks/protect-trusted-paths.cjs\u001b[2J',
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const refs = hooksReferencing(project(hostile), GONE);
+    const entry = refs[0]!.kind === 'ok' ? refs[0]!.entries[0]! : undefined;
+    const line = displayHook(entry!);
+    expect(line.includes(String.fromCharCode(27))).toBe(false);
+    expect(line).toContain('\\u001b');
   });
 });

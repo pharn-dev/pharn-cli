@@ -15,6 +15,7 @@ The CLI version (`0.5.0`) and the content version it installs (`skillsVersion`, 
 - [init](commands/init.md) — detect archetypes and install capabilities (the default command)
 - [add](commands/add.md) — add a single capability to an existing project
 - [remove](commands/remove.md) (alias `rm`) — remove an installed capability from an existing project
+- [uninstall](commands/uninstall.md) — remove PHARN, deleting only the files `pharn` wrote and you did not change
 - [update](commands/update.md) — re-fetch installed capabilities at the latest skills version
 - [list](commands/list.md) — list installed archetypes + capabilities
 - [status](commands/status.md) — read-only version + local-drift check; `--strict` exits 1 on any outdated/modified/missing/unreadable file, and neither `status` nor `list` is ever blocked by another `pharn` run's lock

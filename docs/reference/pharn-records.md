@@ -42,12 +42,13 @@ disagree with what is actually on disk. Keys are sorted, so the committed file h
 
 ## Who writes it
 
-| Command  | Effect                                                                                                                                                          |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`   | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files) |
-| `add`    | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                          |
-| `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files)   |
-| `remove` | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                               |
+| Command     | Effect                                                                                                                                                          |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`      | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files) |
+| `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                          |
+| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files)   |
+| `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                               |
+| `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                           |
 
 `.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
 absent.
@@ -77,7 +78,8 @@ differs from upstream, labelling them `unverifiable` — whenever it is:
   that is empty, absolute, or has a `..` or `.` path **segment**. The key rule is a segment rule,
   not a substring ban: an ordinary filename that merely _contains_ `..`, such as
   `migration..v2.md`, is valid, because a key here is compared against the install manifest and
-  otherwise only read through the guarded orphan check (see [Trust](#trust)) — never used to write.
+  otherwise only read through the guarded orphan check (see [Trust](#trust)) — never used to write;
+  [`uninstall`](#uninstall) alone deletes by key, under the same guard.
   Any one of these invalidates the **whole** store rather than
   a single entry, and the reason is reported by name so a fixable JSON error is not mistaken for a
   legacy install;
@@ -130,6 +132,16 @@ recorded here at its current hash is deleted without a copy, and every other fil
 `.pharn-backup/<timestamp>/`. With no usable store, every file in the directory is copied. See
 [What is backed up before the delete](../commands/remove.md#what-is-backed-up-before-the-delete).
 
+## Uninstall
+
+[`uninstall`](../commands/uninstall.md) has no clone and so no install manifest: this store is its
+**only** proof of what `pharn` wrote. It deletes a recorded file only when the key is a path an install
+writes at your recorded layout, the file is a regular file reached without a symlinked directory, and
+its bytes still match the recorded hash. Every other key is left alone — an edited file is kept and
+listed, and a key outside `pharn`'s install paths is never deleted whatever its hash says. With no
+usable store (absent, corrupt, or stamped for another state) `uninstall` refuses and deletes nothing.
+The store itself is deleted after the files, before `pharn.config.json`.
+
 ## Trust
 
 The file is local but hand-editable, so it is treated as untrusted input: it is parsed defensively,
@@ -143,9 +155,15 @@ other key is never read and never listed. Editing a
 hash to match your own bytes will make `update` treat that file as pharn's and overwrite it — that is
 your call to make, and it is the only thing such an edit can do.
 
+`uninstall` is the one command that turns a key into a **delete**, under the same guard as orphan
+detection: the key must name a path an install could have written, stay inside your project, cross no
+symlinked directory, and be a regular file whose bytes still match the record (an invented `src/app.ts`
+key is never touched, whatever its hash). Within those paths, a hash edited to match your own bytes lets
+`uninstall` delete that file — again your call, and again the only thing the edit can do.
+
 ## The write lock
 
-`init`, `add`, `remove` and `update` hold a single-writer lock — `.pharn.lock` at the project root,
+`init`, `add`, `remove`, `update` and `uninstall` hold a single-writer lock — `.pharn.lock` at the project root,
 carrying the holder's pid, host, command and start time — across the write phase, and a second pharn
 process refuses instead of interleaving. Without it, two runs can leave this store describing bytes
 the other one replaced, **under a matching stamp**, which is precisely the case the stamp cannot

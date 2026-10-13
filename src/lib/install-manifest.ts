@@ -4,7 +4,9 @@ import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   DEV_COMMAND_PREFIX,
+  FEATURES_README,
   FLOOR_TEST_FIXTURES_DIRS,
+  PHARN_FEATURES_README,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import {
@@ -17,6 +19,7 @@ import { findSymlinkComponent } from './symlink-guard.js';
 import {
   assertNoDotDot,
   assertSafeString,
+  CAPABILITY_NAME_RE,
   COPY_FILENAME_RE,
   safeJoin,
   toPosix,
@@ -300,4 +303,73 @@ export function capabilityCloneFiles(
   const from = safeJoin(repoDir, relDir);
   if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return [];
   return [...walkFiles(from)].map((rel) => `${relDir}/${rel}`).sort();
+}
+
+/**
+ * Could an archetype install at `layout` ever write `rel`? A pure string test
+ * over the SHAPE of every path collectExpectedInstallPaths can produce — no clone
+ * and no filesystem access — so a command that has no clone (`pharn uninstall`)
+ * can bound what it is willing to touch to pharn's own install surfaces.
+ *
+ * A MIRROR of the manifest above, kept beside it for that reason, and pinned by
+ * tests/install-manifest.test.ts against a REAL installCapabilities run in both
+ * layouts. Drift is safe in one direction only, and that is the direction it is
+ * built to fail in: a surface the manifest learns and this predicate does not is
+ * merely LEFT by `uninstall`; it is never the reason something is deleted.
+ *
+ * Deliberately not wider than the writer: the product-command and hook rules are
+ * the manifest's own keep predicates (top level only, `pharn-*.md` minus
+ * `pharn-dev-*`, `*.cjs` minus `*.test.cjs`), a capability path needs a
+ * CAPABILITY_NAME_RE directory and something below it, and the floor excludes
+ * test files and its `test-fixtures/` subtree exactly as the copy does. The
+ * pharn layout accepts BOTH features-README spellings, because
+ * resolveFeaturesReadme falls back to the root one for a pre-relocation clone.
+ *
+ * Trust (P2): `rel` is typically a record key — local, user-editable input. An
+ * empty, `.` or `..` segment is rejected here on its own, independent of the
+ * record reader's validation. This only CLASSIFIES; containment stays safeJoin's.
+ */
+export function isInstallSurfacePath(rel: string, layout: Layout): boolean {
+  const segments = rel.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return false;
+  const paths = layoutPaths(layout);
+
+  if (paths.docs.includes(rel) || rel === paths.license.to) return true;
+  if (rel === FEATURES_README) return true;
+  if (layout === 'pharn' && rel === PHARN_FEATURES_README) return true;
+
+  const below = (dir: string): string | null =>
+    rel.startsWith(`${dir}/`) ? rel.slice(dir.length + 1) : null;
+
+  const command = below(CLAUDE_COMMANDS_DIR);
+  if (command !== null) {
+    return (
+      !command.includes('/') &&
+      command.endsWith('.md') &&
+      command.startsWith(PRODUCT_COMMAND_PREFIX) &&
+      !command.startsWith(DEV_COMMAND_PREFIX)
+    );
+  }
+  const hook = below(CLAUDE_HOOKS_DIR);
+  if (hook !== null) {
+    return (
+      !hook.includes('/') &&
+      hook.endsWith('.cjs') &&
+      !hook.endsWith('.test.cjs')
+    );
+  }
+  for (const subtree of [paths.grillers, paths.lenses]) {
+    const inside = below(subtree);
+    if (inside === null) continue;
+    const [name, ...rest] = inside.split('/');
+    return rest.length > 0 && CAPABILITY_NAME_RE.test(name ?? '');
+  }
+  if (below(paths.contracts) !== null || below(paths.core) !== null) {
+    return true;
+  }
+  const floor = below(paths.floor);
+  if (floor !== null) {
+    return !/\.test\.(mjs|cjs)$/.test(floor) && !isFloorTestFixturePath(floor);
+  }
+  return false;
 }
