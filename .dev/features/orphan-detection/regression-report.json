@@ -1,0 +1,44 @@
+{
+  "base": "ff9312f45040a0cb0605f7ee447914db5aca0edc",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "docs/contributing.md",
+    "docs/reference/pharn-records.md",
+    "docs/roadmap.md",
+    "src/commands/status.ts",
+    "src/commands/update.ts",
+    "src/lib/install-records.ts",
+    "src/lib/orphans.ts",
+    "src/lib/status-report.ts",
+    "src/lib/update-plan.ts",
+    "src/lib/update-report.ts",
+    "src/steps/install-archetype.ts",
+    "tests/init-archetype.test.ts",
+    "tests/orphans.test.ts",
+    "tests/status-json.test.ts",
+    "tests/status-report.test.ts",
+    "tests/status.test.ts",
+    "tests/update-dry-run-json.test.ts",
+    "tests/update-dry-run.test.ts",
+    "tests/update-plan.test.ts",
+    "tests/update-report.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

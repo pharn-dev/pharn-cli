@@ -45,9 +45,16 @@
 - `src/steps/install-archetype.ts` — carry orphan records on a re-run `init` (Q4) — layer: step
 - `src/lib/install-records.ts` — header comment: keys ARE path-joined in exactly one read-only place (orphans), under the install-root membership + `readDiskState` floor — layer: lib (comment only)
 - `tests/orphans.test.ts` — NEW: unit tests for `findOrphans` + `orphanNoteLines` — layer: tests
-- `tests/update-plan.test.ts` / `tests/update.test.ts` / `tests/update-dry-run.test.ts` / `tests/update-report.test.ts` (whichever exist; checked at build) — integration + projection — layer: tests
-- `tests/status.test.ts` / `tests/status-report.test.ts` / `tests/status-json.test.ts` (whichever exist) — text + json + strict-unaffected — layer: tests
-- `tests/init.test.ts` or `tests/install-archetype.test.ts` — re-init carries orphan records — layer: tests
+- `tests/update-plan.test.ts` — planner: orphans reported, records carried, dropped/frozen excluded — layer: tests
+- `tests/update.test.ts` — integration: ORPHANED note, kept record across runs, pruned once gone, re-ship upgrades — layer: tests
+- `tests/update-dry-run.test.ts` — the preview names an orphan and writes nothing — layer: tests
+- `tests/update-dry-run-json.test.ts` — `plan.orphans` on stdout, `--compact` does not filter it — layer: tests
+- `tests/update-report.test.ts` — projection + key-order pins for `plan.orphans` — layer: tests
+  (Build note: the exact test file names were resolved at build, as this plan said; this list names the files actually touched.)
+- `tests/status.test.ts` — ORPHANED note, null store / layout mismatch / `--no-drift` print nothing — layer: tests
+- `tests/status-report.test.ts` — `orphans` field, `--strict` unaffected — layer: tests
+- `tests/status-json.test.ts` — `orphans` in `--json`, null cases — layer: tests
+- `tests/init-archetype.test.ts` — re-run init carries orphan records — layer: tests
 - `docs/commands/update.md` — replace the "never deletes … stays where it is" sentence with an "Orphaned files" section (definition, the note, JSON field, record kept until the file is gone, hint) — layer: docs
 - `docs/commands/status.md` — ORPHANED note, `orphans` JSON field, not a `--strict` input, and the now-precise "reads records only for orphans" statement (lines 19, 82, 220) — layer: docs
 - `docs/reference/pharn-records.md` — Pruning (orphan records kept while the file exists), Trust (the one read-only key-to-path use and its floor), who reads it (status) — layer: docs
