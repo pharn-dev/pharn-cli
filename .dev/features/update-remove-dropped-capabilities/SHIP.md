@@ -17,6 +17,10 @@ Stages run, in order: `/pharn-dev-plan` → GATE 1 (approved with one scope chan
 | 1         | `FAIL` | `no-regressions` | `CONTINUE` (exit 3)       |
 | 2         | `PASS` | `no-regressions` | `STOP_GREEN` (exit 0)     |
 
+| init half (after GATE 2) — 1 | `PASS` | `no-regressions` | `STOP_GREEN` (exit 0) |
+
+GATE 2 approved the update half with three changes (JSON key absent when empty; rebase onto origin/main `7f1b727`; the init half in this PR). After them the loop ran regress → verify → review once more: `check-ship.mjs … --iter 1 --cap 3` → `STOP_GREEN`. The final verdict files are the ones in this folder.
+
 Iteration 1's `failing_gates: ["test"]` were 6 timeouts in files outside the increment under host load 74–98 (see `VERIFY.md`). Iteration 2 applied the review's advisory fixes within `## Files` and re-ran at load ~21.
 
 `node .dev/floor/check-ship.mjs … --iter 2 --cap 3` → `"decision": "STOP_GREEN"`, reason: "floor-GREEN: /verify PASS and /regress no-regressions — stop and present at the human gate".
