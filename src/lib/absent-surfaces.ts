@@ -4,7 +4,8 @@ import { terminalSafe } from './terminal-safe.js';
 // ---------------------------------------------------------------------------
 // The words for a declared product surface the fetched pharn-oss does not ship
 // (lib/install-manifest.ts → absentInstallSurfaces). One wording, shared by
-// `init` (a warning after the copy) and `update` (a NOT SHIPPED note), so the
+// `init` (a warning after the copy, and in its `--dry-run` preview) and `update`
+// (a NOT SHIPPED note), so the
 // two commands describe the same condition the same way. `status` renders its
 // own DRIFT section, as it does for every other partition.
 //
@@ -18,13 +19,17 @@ import { terminalSafe } from './terminal-safe.js';
 
 const MAX_PATH = 200;
 
-/** The report lines, or null when nothing is absent. */
+/**
+ * The report lines, or null when nothing is absent. `preview` words it for a
+ * run that writes nothing (`init --dry-run`).
+ */
 export function absentSurfaceLines(
   absent: readonly AbsentSurface[],
+  opts: { preview?: boolean } = {},
 ): string[] | null {
   if (absent.length === 0) return null;
   return [
-    'pharn-oss ships nothing at these paths, so pharn did not install them:',
+    `pharn-oss ships nothing at these paths, so pharn ${opts.preview === true ? 'would not install' : 'did not install'} them:`,
     ...absent.map(
       ({ surface, path }) =>
         `  ${terminalSafe(path, { max: MAX_PATH })} (${surface})`,

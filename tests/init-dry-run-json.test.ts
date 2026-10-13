@@ -240,6 +240,15 @@ describe('runInit --dry-run --json', () => {
     expect(r.settings).toEqual({ preserved: false });
     expect(r.hooks).toBeNull();
     expect(r.models).toEqual({ outcome: 'copy', reasons: [] });
+    // F-10: the scaffold ships no hooks and no contracts — named as data.
+    expect(r.absentUpstream).toContainEqual({
+      surface: 'hooks',
+      path: '.claude/hooks',
+    });
+    expect(r.absentUpstream).toContainEqual({
+      surface: 'contracts',
+      path: 'pharn-contracts',
+    });
     // The unknown-capabilities prose went to stderr, plain.
     expect(stderr()).toContain('could not be read');
   });

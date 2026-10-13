@@ -416,7 +416,7 @@ What is **not** listed:
   `pharn.records.json` was unusable. With no usable store, nothing is listed.
 - The files of a capability this update **drops** from your config: that is a membership change, named
   in the `CAPABILITIES` note.
-- Anything outside the paths an install can write (`.claude/commands/pharn-*.md`, `.claude/hooks/*.cjs`,
+- Anything outside the paths an install can write (`.claude/commands/pharn-*.md`, `.claude/hooks/*.cjs` or `*.mjs`,
   the capability directories, `pharn-contracts/`, `pharn-core/`, the floor directory, the trusted docs,
   the PHARN license and the features `README.md`, in either layout) — even if a hand-edited
   `pharn.records.json` names it.

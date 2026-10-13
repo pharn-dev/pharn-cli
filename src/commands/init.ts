@@ -59,6 +59,7 @@ import {
   runInstallArchetype,
 } from '../steps/install-archetype.js';
 import { assertConfigFingerprintUnchanged } from '../lib/pharn-config.js';
+import { absentSurfaceLines } from '../lib/absent-surfaces.js';
 import type { Archetype } from '../types.js';
 
 export interface InitOptions {
@@ -593,6 +594,10 @@ function reportInitDryRun(r: InitPlanReport): void {
   const hookLines =
     r.hookWiring === null ? null : preservedSettingsHookLines(r.hookWiring);
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
+
+  // The not-shipped warning a real run prints after the copy, as a preview.
+  const absentLines = absentSurfaceLines(r.absentUpstream, { preview: true });
+  if (absentLines) log.warn(absentLines.join('\n'));
 
   if (r.models.outcome === 'rejected') {
     log.warn(

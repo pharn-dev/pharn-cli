@@ -2,6 +2,7 @@ import type { ArchetypeEvidence } from './archetype.js';
 import type { DriftLabel } from './dest-drift.js';
 import type { HookEntry, HookWiringDiff } from './hook-wiring.js';
 import type { InitPlanReport } from './init-plan.js';
+import type { InstallSurface } from './install-manifest.js';
 import { cap } from './json-report.js';
 import type { InstallSource, RefChoice } from './release.js';
 import type { Archetype, Layout, SelectedCapability } from '../types.js';
@@ -100,6 +101,9 @@ export interface InitReport {
     file: string | null;
     reason: string | null;
   } | null;
+  // Present ONLY when there is one: the declared surfaces the clone ships no
+  // file for (as `update --dry-run --json`'s `plan.absentUpstream`).
+  absentUpstream?: { surface: InstallSurface; path: string }[];
   models: { outcome: InitPlanReport['models']['outcome']; reasons: string[] };
   config: { carriedKeys: string[] };
 }
@@ -183,6 +187,14 @@ export function buildInitReport(p: InitPlanReport): InitReport {
             file: p.hookWiring.file ?? null,
             reason: p.hookWiring.reason ?? null,
           },
+    ...(p.absentUpstream.length > 0
+      ? {
+          absentUpstream: p.absentUpstream.map((a) => ({
+            surface: a.surface,
+            path: cap(a.path, MAX_UNKNOWN_FIELD),
+          })),
+        }
+      : {}),
     models: {
       outcome: p.models.outcome,
       reasons: p.models.reasons.map((r) => cap(r, MAX_REASON)),

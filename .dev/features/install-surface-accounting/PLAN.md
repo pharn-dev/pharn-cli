@@ -54,6 +54,10 @@
 
 - `tests/status-json.test.ts` — ADDED AT BUILD (first `check-regress.mjs scope` run flagged it as escaped; declared here, not silently): the `status --json` command tests needed the new seam mock and the `drift.absentUpstream` / `layout` / `--strict` pins that Resolved decision 2 requires — layer: tests
 
+- `src/lib/orphans.ts`, `tests/orphans.test.ts`, `tests/uninstall.test.ts` — ADDED AT REBASE onto #282/#285 (GATE 2 instruction): `isInstallRootPath` now uses the shared `isProductCommandFile`/`isInstalledHookFile`, so orphan detection and `pharn uninstall` treat `.claude/hooks/*.mjs` as an install path — layer: lib + tests
+- `src/lib/init-plan.ts`, `src/lib/init-report.ts`, `src/commands/init.ts`, `tests/init-report.test.ts`, `tests/init-dry-run.test.ts`, `tests/init-dry-run-json.test.ts` — ADDED AT REBASE onto #283 (GATE 2 instruction): `init --dry-run` prints the not-shipped warning (preview wording) and `--dry-run --json` carries `absentUpstream` (present only when non-empty) — layer: lib + command + tests
+- `docs/reference/pharn-records.md` — ADDED AT REBASE: its install-root description names `.mjs` hooks — layer: docs
+
 ## Contracts satisfied
 
 - No `pharn-contracts` file governs the install set. The JSON reports' stability contract (`schemaVersion: 1`, additive keys allowed — `status-report.ts`/`update-report.ts` headers) is kept: only new keys. The install manifest's "single source of truth" contract (`install-manifest.ts` header) is extended, not forked (P4).

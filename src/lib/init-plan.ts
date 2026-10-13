@@ -4,8 +4,10 @@ import { readBoundedFile } from './bounded-read.js';
 import { diffHookWiring, type HookWiringDiff } from './hook-wiring.js';
 import { prepareInstall } from './install-capabilities.js';
 import {
+  absentInstallSurfaces,
   collectExpectedInstallPaths,
   PHARN_CONFIG_FILE,
+  type AbsentSurface,
 } from './install-manifest.js';
 import {
   readRecords,
@@ -317,6 +319,10 @@ export interface InitPlanReport {
   // pharn-oss's models block: copied, absent upstream, or rejected (reasons
   // quote upstream bytes).
   models: { outcome: 'copy' | 'none' | 'rejected'; reasons: string[] };
+  // The declared product surfaces the clone ships no file for, at its layout
+  // (lib/install-manifest.ts → absentInstallSurfaces) — what a real run warns
+  // about after the copy.
+  absentUpstream: AbsentSurface[];
   // The top-level keys of the replaced config that pharn does not own — the
   // NAMES only, never their values.
   carriedConfigKeys: string[];
@@ -423,6 +429,7 @@ export function buildInitPlan(params: {
         : upstreamModels.kind === 'absent'
           ? { outcome: 'none', reasons: [] }
           : { outcome: 'rejected', reasons: upstreamModels.reasons },
+    absentUpstream: absentInstallSurfaces({ repoDir, layout }),
     carriedConfigKeys: Object.keys(readCarriedEntries(cwd)),
   };
 }

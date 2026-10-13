@@ -21,6 +21,17 @@ describe('absentSurfaceLines', () => {
     ]);
   });
 
+  it('words a preview (init --dry-run) in the conditional', () => {
+    const lines = absentSurfaceLines(
+      [{ surface: 'hooks', path: '.claude/hooks' }],
+      { preview: true },
+    );
+    expect(lines?.[0]).toBe(
+      'pharn-oss ships nothing at these paths, so pharn would not install them:',
+    );
+    expect(lines?.[1]).toBe('  .claude/hooks (hooks)');
+  });
+
   it('renders a path terminal-safe (no control characters reach the terminal)', () => {
     const lines = absentSurfaceLines([
       { surface: 'floor', path: 'pharn/fl\u001b[31moor' },

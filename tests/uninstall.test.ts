@@ -247,6 +247,35 @@ describe('runUninstall', () => {
     expect(hooks).toContain('pharn never edits these files');
   });
 
+  // F-10: the install copies `.mjs` hooks, so uninstall's install-root bound
+  // must take them too — else a pharn-written ESM hook would be left behind.
+  it('deletes a recorded .mjs hook, and names its wiring in the HOOKS note', async () => {
+    await install([...FLAT_FILES, '.claude/hooks/require-loop-record.mjs']);
+    write(
+      '.claude/settings.json',
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'node',
+                  args: ['.claude/hooks/require-loop-record.mjs'],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    await runUninstall({ yes: true });
+    expect(
+      existsSync(join(proj, '.claude/hooks/require-loop-record.mjs')),
+    ).toBe(false);
+    expect(notes('HOOKS')).toContain('require-loop-record.mjs');
+  });
+
   it('ignores a recorded hooks key that is not an install path', async () => {
     await install(
       FLAT_FILES.filter((f) => !f.startsWith('.claude/hooks/')),
