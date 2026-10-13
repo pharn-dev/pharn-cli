@@ -82,6 +82,12 @@ const DROP_REASONS = new Set<CapabilityChangeReason>([
   'dropped-gone',
 ]);
 
+function isDrop(
+  reason: CapabilityChangeReason,
+): reason is CapabilityRemoval['reason'] {
+  return DROP_REASONS.has(reason);
+}
+
 /**
  * A capability this run drops from the config, and so deletes from disk: PHARN's
  * commands find capabilities by scanning their directories, not by reading
@@ -421,8 +427,8 @@ function planRemovals(
   const removals: CapabilityRemoval[] = [];
   const seen = new Set<string>();
   for (const change of changes) {
-    if (!DROP_REASONS.has(change.reason)) continue;
-    const { cap } = change;
+    const { cap, reason } = change;
+    if (!isDrop(reason)) continue;
     const key = `${cap.role}:${cap.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -448,7 +454,7 @@ function planRemovals(
     }
     removals.push({
       cap,
-      reason: change.reason as CapabilityRemoval['reason'],
+      reason,
       dir,
       present,
       backups,

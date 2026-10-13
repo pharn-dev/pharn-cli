@@ -1864,6 +1864,19 @@ describe('runUpdate (drift-safe)', () => {
         },
       );
 
+      it('names the removal in the backup notice even when the deleted directory needed no copy', async () => {
+        await droppedStale();
+        rmSync(join(proj, NOTES)); // stale.md alone: recorded, unchanged — no copy
+        write(join(proj, DOC), 'MY DOC EDIT'); // a forced overwrite
+
+        await runUpdate({ force: true });
+
+        expect(existsSync(join(proj, STALE_DIR))).toBe(false);
+        expect(infoLines()).toContain(
+          `Backed up 1 file(s) to ${BACKUP_DIR}/${backupDirs()[0]} before overwriting and removing.`,
+        );
+      });
+
       it('says before the confirm that dropped capabilities are deleted, pointing at --dry-run', async () => {
         await droppedStale();
 

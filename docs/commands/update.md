@@ -306,6 +306,11 @@ inside the project lock, the way [`pharn remove`](remove.md) does:
 - **Before the writes.** The order is backup → delete → copy → `pharn.records.json` →
   `pharn.config.json`. If the backup fails, nothing is deleted. If a delete fails, nothing has been
   written yet; the config still lists the capability, so the next `update` drops it again.
+- **Upstream decides membership.** Which capabilities your archetypes select, and which still exist,
+  comes from the fetched `pharn-oss` index — so a capability upstream stops listing for you has its
+  directory deleted on your next `update`. That is bounded: only the one directory of a capability your
+  `pharn.config.json` lists, addressed by its validated name, with your files backed up first. Preview it
+  with `pharn update --dry-run`.
 - **Visible beforehand.** The confirm comes before the download, so it cannot name the capabilities;
   it says that dropped capabilities are deleted and points at `pharn update --dry-run`, which lists each
   directory under `WOULD DELETE` (and `plan.capabilities.removals` under `--json`).

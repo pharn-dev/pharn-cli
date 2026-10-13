@@ -695,15 +695,16 @@ async function applyPlannedUpdate(
   // manifest holds no dropped capability), and de-duplicated anyway.
   const removalBackups = report.removals.flatMap((r) => r.backups);
   const backupRels = [...new Set([...report.backups, ...removalBackups])];
+  // "removing" whenever a directory will be deleted — even one whose files are
+  // all pharn's own and need no copy — so an aborted run never under-reports
+  // what may already be gone.
+  const deletes = report.removals.some((r) => r.present);
   const backup: Backup | null =
     backupRels.length > 0
       ? {
           dir: createBackup(cwd, backupRels),
           count: backupRels.length,
-          action: backupAction(
-            report.backups.length > 0,
-            removalBackups.length > 0,
-          ),
+          action: backupAction(report.backups.length > 0, deletes),
         }
       : null;
   if (backup) onBackup(backup);
@@ -1265,8 +1266,9 @@ function printBackupNotice(backup: Backup, opts: { aborted: boolean }): void {
   }
 }
 
-// What a backup was made ahead of. Membership of two booleans, no third case:
-// a backup exists only when at least one set is non-empty.
+// What a backup was made ahead of: overwrites (`--force` casualties) and/or
+// directory deletes. Two booleans, no third case; with neither, no backup exists
+// (a backup always has a reason, so `overwriting` is the honest default).
 function backupAction(overwrites: boolean, removals: boolean): BackupAction {
   if (overwrites && removals) return 'overwriting and removing';
   return removals ? 'removing' : 'overwriting';
