@@ -82,9 +82,13 @@ field is a valid fix — the next update sets it.
 > cannot read is kept exactly as it was (and listed in `frozenCapabilities`). A `manual` entry
 > upstream no longer ships is dropped and named; an entry with **no** `source` is re-resolved from
 > the archetypes like an `auto` one. [Keys pharn does not own](#keys-pharn-does-not-own) are copied
-> across. Everything else pharn owns is written fresh. `init` warns before overwriting
-> `pharn.config.json` and defaults to **No**. Use `pharn update` to refresh an existing install;
-> `init` is for installing one.
+> across. Everything else pharn owns is written fresh — notably `seam` is reset to pharn's default and
+> `models` to pharn-oss's current block (or removed, when it ships none or this pharn rejects it), so
+> hand-tuning of either does not survive in the live file. `init` warns before overwriting
+> `pharn.config.json` and defaults to **No**, and before rewriting it copies the existing file
+> (a regular file, not a symlink) to `.pharn-backup/<timestamp>/` — the prompt marks it
+> `(will be rewritten — backed up first)` — so that tuning is recoverable from the backup. Use
+> `pharn update` to refresh an existing install; `init` is for installing one.
 
 A sibling file, [`pharn.records.json`](pharn-records.md), holds a sha256 per installed file. It is
 written by the same operations that write this config and is **stamped** with this file's
@@ -171,7 +175,7 @@ What editing changes:
   changes what a direct invocation uses.
 - **Only `models.stages`.** No file drifts: `pharn.config.json` is not one of the files `status` compares,
   `pharn update` keeps an edited block whole and never withholds the version over it, and a re-run
-  `pharn init` resets it to pharn-oss's block. This changes the model orchestrated runs request, while
+  `pharn init` resets it to pharn-oss's block (backing the previous file up to `.pharn-backup/` first). This changes the model orchestrated runs request, while
   a direct invocation keeps the frontmatter's, so `agreement` reports the difference.
 
 pharn-oss's block, as of pharn-oss 6.55.0:
@@ -375,7 +379,9 @@ anything, and it deliberately has no `--yes`.
 For the files PHARN installs (as opposed to this config), `update` never overwrites one you have
 edited unless you pass `--force` — see the [update decision table](../commands/update.md#the-decision-table).
 Both `update --force` and `pharn add` copy every file they are about to overwrite into
-`.pharn-backup/<timestamp>/` first, preserving its project-relative path.
+`.pharn-backup/<timestamp>/` first, preserving its project-relative path. A re-run `pharn init` copies
+this config there too before rewriting it (and marks it in its prompt), together with the installed
+files it would otherwise lose — see [re-running `init`](../commands/init.md#6-summary).
 
 ## Related
 

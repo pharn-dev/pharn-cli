@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CANCEL, stubProcessExit, useTmpDir } from './helpers.js';
@@ -423,5 +423,89 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     expect(lastWarning()).not.toContain('(edited)');
     expect(lastWarning()).not.toContain('(differs from upstream)');
     expect(lastWarning()).not.toContain('.pharn-backup/');
+  });
+});
+
+// F-08: a re-install rewrites pharn.config.json — its `seam` and `models`
+// blocks are reset — so the install backs the existing file up first, and the
+// prompt says so before the user confirms. Listed right after the backed-up
+// files, so the MAX_LISTED cap cannot hide it.
+describe('confirmWriteTargets — pharn.config.json is rewritten, backed up first (F-08)', () => {
+  const tmp = useTmpDir();
+  const sel = selection();
+  const NPO = 'pharn-review/n-plus-one/n-plus-one.md';
+  const MARKED = 'pharn.config.json (will be rewritten — backed up first)';
+  const CONFIG_LINE =
+    'pharn.config.json will be rewritten (seam and models reset to their defaults); it will be copied to .pharn-backup/ first.';
+
+  function bullets(warning: string): string[] {
+    return warning.split('\n').filter((l) => l.trimStart().startsWith('•'));
+  }
+
+  function installed(): { repo: string; proj: string } {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    installCapabilities(repo, proj, sel);
+    vi.mocked(prompts.confirm).mockReset();
+    vi.mocked(prompts.log.warn).mockReset();
+    vi.mocked(prompts.confirm).mockResolvedValueOnce(false);
+    return { repo, proj };
+  }
+
+  it('marks the existing config, and says what is reset and where the copy goes', async () => {
+    const { repo, proj } = installed();
+    write(join(proj, 'pharn.config.json'), CONFIG_2_3_4);
+
+    await confirmWriteTargets(repo, proj, sel);
+
+    const warning = lastWarning();
+    // A full re-install conflicts on more than MAX_LISTED paths; the config
+    // is still among the shown ones — first, as nothing else is marked.
+    expect(bullets(warning)[0]).toContain(MARKED);
+    expect(warning).toContain(CONFIG_LINE);
+    expect(warning).toContain('skills v2.3.4');
+  });
+
+  it('lists it right AFTER the backed-up files, keeping their order', async () => {
+    const { repo, proj } = installed();
+    write(join(proj, 'pharn.config.json'), CONFIG_2_3_4);
+    write(join(proj, NPO), 'MY EDIT');
+    write(join(proj, 'CONSTITUTION.md'), 'MY CONSTITUTION');
+
+    await confirmWriteTargets(repo, proj, sel);
+
+    const shown = bullets(lastWarning());
+    expect(shown[0]).toContain('CONSTITUTION.md (differs from upstream)');
+    expect(shown[1]).toContain(`${NPO} (differs from upstream)`);
+    expect(shown[2]).toContain(MARKED);
+    expect(shown.filter((b) => b.includes('pharn.config.json'))).toHaveLength(
+      1,
+    );
+    expect(lastWarning()).toContain('All 2 will be copied to .pharn-backup/');
+    expect(lastWarning()).toContain(CONFIG_LINE);
+  });
+
+  it('a fresh install over other files: no config marker, no config line', async () => {
+    const { repo, proj } = installed();
+
+    await confirmWriteTargets(repo, proj, sel);
+
+    const warning = lastWarning();
+    expect(warning).not.toContain('pharn.config.json');
+    expect(warning).not.toContain('backed up first');
+  });
+
+  it('does not mark a symlinked pharn.config.json — the install never backs one up', async () => {
+    const { repo, proj } = installed();
+    const outside = join(tmp.path(), 'outside.json');
+    writeFileSync(outside, CONFIG_2_3_4);
+    symlinkSync(outside, join(proj, 'pharn.config.json'));
+
+    await confirmWriteTargets(repo, proj, sel);
+
+    const warning = lastWarning();
+    expect(warning).not.toContain(MARKED);
+    expect(warning).not.toContain(CONFIG_LINE);
   });
 });

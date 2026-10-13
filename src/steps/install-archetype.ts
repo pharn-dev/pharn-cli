@@ -17,7 +17,7 @@ import {
 import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { manifestSources, scanDest } from '../lib/dest-drift.js';
-import { createBackup } from '../lib/backup.js';
+import { createBackup, replacedConfigBackup } from '../lib/backup.js';
 import { readBoundedFile } from '../lib/bounded-read.js';
 import {
   buildRecords,
@@ -171,14 +171,18 @@ export async function runInstallArchetype(
     sources: manifestSources(repoDir, prepared.manifest),
     records: baseline,
   });
+  // The config this install replaces is rewritten below (`seam` and `models`
+  // reset), so an existing one is always saved too — in the SAME backup, even
+  // alone (lib/backup.ts → replacedConfigBackup). None on a fresh install.
+  const toBackUp = [...scan.drifted, ...replacedConfigBackup(cwd)];
   // `unsafe` is empty after a passing pre-flight; non-empty means a link
   // appeared since, and installCapabilities' own pre-flight refuses the run —
   // so no backup is made for a copy that will not happen.
-  if (scan.drifted.length > 0 && scan.unsafe.length === 0) {
-    const backupDir = createBackup(cwd, scan.drifted);
+  if (toBackUp.length > 0 && scan.unsafe.length === 0) {
+    const backupDir = createBackup(cwd, toBackUp);
     // Named at creation, so the pointer survives anything that fails after it.
     log.info(
-      `Backed up ${scan.drifted.length} file(s) to ${backupDir} before overwriting.`,
+      `Backed up ${toBackUp.length} file(s) to ${backupDir} before overwriting.`,
     );
   }
 
