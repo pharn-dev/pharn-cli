@@ -31,10 +31,13 @@ import {
 } from '../lib/install-records.js';
 import { findOrphans } from '../lib/orphans.js';
 import {
+  planInitRemovals,
   readCarriedEntries,
   reinstallBaseline,
   type InstallCarry,
 } from '../lib/init-plan.js';
+import { removalBackups } from '../lib/capability-removal.js';
+import { deleteCapabilityDir } from '../lib/capability-dir.js';
 import { checkModelsBlock } from '../lib/model-config.js';
 import {
   modelsLabelLines,
@@ -151,19 +154,52 @@ export async function runInstallArchetype(
     sources: manifestSources(repoDir, prepared.manifest),
     records: baseline,
   });
+  // The directories of the capabilities this install DROPS from the config,
+  // planned again here, under the lock, against the same baseline — this is the
+  // authoritative plan (the prompt's list is advisory). A symlinked component or
+  // an unreadable file refuses (CapabilityRemovalError) before anything is
+  // written. PHARN runs every capability directory on disk, so a dropped one
+  // must go (lib/capability-removal.ts).
+  const removals = planInitRemovals(cwd, carry);
+  const deletes = removals.filter((r) => r.present);
   // The config this install replaces is rewritten below (`seam` and `models`
   // reset), so an existing one is always saved too — in the SAME backup, even
-  // alone (lib/backup.ts → replacedConfigBackup). None on a fresh install.
-  const toBackUp = [...scan.drifted, ...replacedConfigBackup(cwd)];
+  // alone (lib/backup.ts → replacedConfigBackup). None on a fresh install. The
+  // files of a dropped capability's directory pharn cannot prove it wrote go in
+  // the same one backup.
+  const overwriteBackups = [...scan.drifted, ...replacedConfigBackup(cwd)];
+  const toBackUp = [
+    ...new Set([...overwriteBackups, ...removalBackups(removals)]),
+  ];
   // `unsafe` is empty after a passing pre-flight; non-empty means a link
   // appeared since, and installCapabilities' own pre-flight refuses the run —
-  // so no backup is made for a copy that will not happen.
-  if (toBackUp.length > 0 && scan.unsafe.length === 0) {
-    const backupDir = createBackup(cwd, toBackUp);
-    // Named at creation, so the pointer survives anything that fails after it.
-    log.info(
-      `Backed up ${toBackUp.length} file(s) to ${backupDir} before overwriting.`,
-    );
+  // so no backup is made, and nothing is deleted, for a copy that will not
+  // happen.
+  if (scan.unsafe.length === 0) {
+    if (toBackUp.length > 0) {
+      const backupDir = createBackup(cwd, toBackUp);
+      const action =
+        deletes.length === 0
+          ? 'overwriting'
+          : overwriteBackups.length > 0
+            ? 'overwriting and removing'
+            : 'removing';
+      // Named at creation, so the pointer survives anything that fails after it.
+      log.info(
+        `Backed up ${toBackUp.length} file(s) to ${backupDir} before ${action}.`,
+      );
+    }
+    // Deleted BEFORE the copy, after the backup: a delete that fails stops the
+    // run with nothing copied and the replaced config still in place, so the
+    // next init drops them again.
+    if (deletes.length > 0) {
+      const paths = layoutPaths(carry.previousLayout ?? 'flat');
+      for (const removal of deletes)
+        deleteCapabilityDir(cwd, paths, removal.cap);
+      log.info(
+        `Deleted ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} no longer installed: ${deletes.map((r) => `${r.dir}/`).join(', ')}.`,
+      );
+    }
   }
 
   const s = spinner();

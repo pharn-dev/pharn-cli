@@ -9,8 +9,10 @@ import {
   MAX_LISTED,
   OverwriteRefusedError,
   planWriteTargets,
+  removalLines,
   targetLines,
 } from '../src/lib/write-targets.js';
+import type { CapabilityRemoval } from '../src/lib/capability-removal.js';
 import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
 import { detectLayout } from '../src/lib/layout.js';
 import { contentHash } from '../src/lib/hash.js';
@@ -235,5 +237,73 @@ describe('assertNoExistingTargets (init --yes)', () => {
     expect(message).toContain(`pharn.config.json ${CONFIG_MARKER}`);
     expect(message).toContain('pharn update');
     expect(message).toContain('pharn init --dry-run');
+  });
+});
+
+// F-04: the dropped capabilities' directories a re-install deletes ride the
+// same plan, and `--yes` never deletes.
+describe('removals in the write-target plan', () => {
+  const tmp = useTmpDir();
+  const removal = (
+    over: Partial<CapabilityRemoval> = {},
+  ): CapabilityRemoval => ({
+    cap: { name: 'old', role: 'lens', source: 'auto' },
+    reason: 'dropped-unselected',
+    dir: 'pharn-review/old',
+    present: true,
+    backups: ['pharn-review/old/NOTES.md'],
+    ...over,
+  });
+
+  it('passes the removals through, with or without conflicts', () => {
+    const { repo, proj, manifest } = fixture(tmp.path());
+    const plan = planWriteTargets({
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: CAPS,
+      manifest,
+      records: null,
+      removals: [removal()],
+    });
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.removals).toEqual([removal()]);
+  });
+
+  it('lists only the directories that exist, with their backup counts', () => {
+    expect(
+      removalLines([
+        removal(),
+        removal({ cap: { name: 'x', role: 'griller' }, backups: [] }),
+        removal({ cap: { name: 'gone', role: 'lens' }, present: false }),
+      ]),
+    ).toEqual([
+      '  • pharn-review/old/ (lens:old — 1 file(s) backed up to .pharn-backup/ first)',
+      '  • pharn-review/old/ (griller:x)',
+    ]);
+  });
+
+  it('--yes refuses a re-install that would delete a directory, naming it', () => {
+    const { repo, proj, manifest } = fixture(tmp.path());
+    const params = {
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: CAPS,
+      manifest,
+      records: null,
+      removals: [removal()],
+    };
+    expect(() => assertNoExistingTargets(params)).toThrow(
+      OverwriteRefusedError,
+    );
+    expect(() => assertNoExistingTargets(params)).toThrow(
+      /--yes never deletes[\s\S]*pharn-review\/old\//,
+    );
+    // An already-gone directory deletes nothing, so it does not refuse.
+    expect(() =>
+      assertNoExistingTargets({
+        ...params,
+        removals: [removal({ present: false })],
+      }),
+    ).not.toThrow();
   });
 });

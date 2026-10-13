@@ -2,9 +2,9 @@
 
 Show which PHARN **archetypes** and **capabilities** `pharn.config.json` records as installed in this
 project. PHARN's commands run every capability whose **directory** is on disk, so a capability
-directory with no entry in the config — one an older `pharn update` or a re-run `pharn init` left
-behind when it dropped the entry, or one you created by hand — is not listed here but still runs.
-Delete such a directory by hand (`pharn update` now deletes the directory of a capability it drops; see
+directory with no entry in the config — one an older `pharn` left behind when it dropped the entry, or
+one you created by hand — is not listed here but still runs. Delete such a directory by hand
+(`pharn update` and a re-run `pharn init` now delete the directory of a capability they drop; see
 [Dropped capabilities are deleted](update.md#dropped-capabilities-are-deleted)). **Read-only** — it never writes files, never clones the repo, and never fetches
 over the network.
 

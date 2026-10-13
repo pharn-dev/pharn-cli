@@ -184,6 +184,26 @@ describe('pharn init --yes', () => {
     expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
   });
 
+  // F-04: a re-install that would DELETE a dropped capability's directory
+  // needs the interactive confirm — `--yes` never deletes.
+  it('refuses a re-install that would delete a dropped capability’s directory — exit 1, nothing written', async () => {
+    const { repo, proj } = fixture(tmp.path());
+    await init(repo, proj, { yes: true, archetypes: ['backend'] });
+    expect(existsSync(join(proj, 'pharn-review/n-plus-one'))).toBe(true);
+    vi.clearAllMocks();
+    const before = snapshotTree(proj);
+
+    // Detection says lib: n-plus-one (backend) is no longer selected.
+    const err = await init(repo, proj, { yes: true }).catch((e) => e);
+    expect(err).toBeInstanceOf(ProcessExit);
+    expect((err as ProcessExit).code).toBe(1);
+    expect(snapshotTree(proj)).toEqual(before);
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    const msg = errors();
+    expect(msg).toContain('pharn init --yes never deletes');
+    expect(msg).toContain('pharn-review/n-plus-one/ (lens:n-plus-one)');
+  });
+
   it('refuses when any target exists — exit 1, nothing written, the targets named', async () => {
     const { repo, proj } = fixture(tmp.path());
     write(join(proj, '.claude/commands/pharn-plan.md'), 'mine');

@@ -315,7 +315,8 @@ PHARN is intentionally conservative about writes:
   untouched. The only thing it deletes is the directory of a capability it
   drops from `pharn.config.json` (PHARN runs whatever capability directories
   are on disk), after backing up any file in it that `pharn` cannot prove it
-  wrote; it never touches `.claude/settings.json`.
+  wrote; it never touches `.claude/settings.json`. A re-run `init` does the
+  same, after listing those directories in its prompt.
 - `update --force` backs up overwritten files under `.pharn-backup/<timestamp>/`
   before writing. `add` does the same for any destination file that differs from
   upstream, and refuses the whole install — writing nothing — when a destination

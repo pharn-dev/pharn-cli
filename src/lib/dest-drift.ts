@@ -20,8 +20,8 @@ import { safeJoin, toPosix } from './validate.js';
 //
 // Two callers. `pharn add` — which had no edit protection at all, while a
 // capability directory can outlive its config entry (left by a pharn older than
-// the fix that made `update` delete the directories it drops, dropped by a
-// re-run `init`, or created by hand), the user edits it, and a later `add` of
+// the fix that made `update` and a re-run `init` delete the directories they
+// drop, or created by hand), the user edits it, and a later `add` of
 // that capability is not a config no-op. And a
 // re-run `pharn init`, which overwrites everything it installs: its prompt marks
 // these files (steps/overwrite-check.ts) and its install step backs them up

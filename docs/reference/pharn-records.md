@@ -49,13 +49,13 @@ this is the plain sha256 of its bytes, so stores written by earlier versions sta
 
 ## Who writes it
 
-| Command     | Effect                                                                                                                                                                                                                                                   |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`      | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files)                                                                                          |
-| `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                                                                                                                   |
-| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files). Reads it first to decide what to back up before deleting a dropped capability's directory |
-| `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                                                                                                                        |
-| `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                                                                                                                    |
+| Command     | Effect                                                                                                                                                                                                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `init`      | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files), and reads the replaced store to decide what to back up before deleting a dropped capability's directory |
+| `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                                                                                                                                   |
+| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files). Reads it first to decide what to back up before deleting a dropped capability's directory                 |
+| `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                                                                                                                                        |
+| `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                                                                                                                                    |
 
 `.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
 absent.

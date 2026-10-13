@@ -56,6 +56,7 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     ],
     conflicts: ['.claude/commands/pharn-plan.md', 'pharn.config.json'],
     configBackedUp: true,
+    removals: [],
     backups: ['.claude/commands/pharn-plan.md', 'pharn.config.json'],
     counts: { create: 1, overwrite: 2, backup: 2 },
     settingsPreserved: false,
@@ -232,12 +233,63 @@ describe('buildInitReport', () => {
     expect(text).toContain('\\u001b');
   });
 
-  it('yesWouldProceed is exactly counts.overwrite === 0', () => {
+  it('yesWouldProceed: nothing overwritten and no directory deleted', () => {
     expect(buildInitReport(plan()).yesWouldProceed).toBe(false);
     expect(
       buildInitReport(plan({ counts: { create: 3, overwrite: 0, backup: 0 } }))
         .yesWouldProceed,
     ).toBe(true);
+    expect(
+      buildInitReport(
+        plan({
+          counts: { create: 3, overwrite: 0, backup: 0 },
+          removals: [
+            {
+              cap: { name: 'old', role: 'lens', source: 'auto' },
+              reason: 'dropped-unselected',
+              dir: 'pharn-review/old',
+              present: true,
+              backups: [],
+            },
+          ],
+        }),
+      ).yesWouldProceed,
+    ).toBe(false);
+  });
+
+  // F-04: the directories a re-install would delete — absent when none (read
+  // it as `?? []`), as `update`'s `plan.capabilities.removals`.
+  it('carries capabilities.removals only when a directory would be deleted', () => {
+    expect('removals' in buildInitReport(plan()).capabilities).toBe(false);
+    const r = buildInitReport(
+      plan({
+        removals: [
+          {
+            cap: { name: 'old', role: 'lens', source: 'manual' },
+            reason: 'dropped-gone',
+            dir: 'pharn-review/old',
+            present: true,
+            backups: ['pharn-review/old/NOTES.md'],
+          },
+        ],
+      }),
+    );
+    expect(r.capabilities.removals).toEqual([
+      {
+        role: 'lens',
+        name: 'old',
+        reason: 'dropped-gone',
+        dir: 'pharn-review/old',
+        present: true,
+        backups: ['pharn-review/old/NOTES.md'],
+      },
+    ]);
+    expect(Object.keys(r.capabilities)).toEqual([
+      'selected',
+      'skipped',
+      'carried',
+      'removals',
+    ]);
   });
 
   it('names the release tag for a release install', () => {

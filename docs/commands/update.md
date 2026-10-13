@@ -319,8 +319,8 @@ capability it keeps, a tree left behind by a layout change, or anything else, an
 `.claude/settings.json`. Directories that an older `pharn` left behind when it dropped a capability
 (it removed only the config entry) have no config entry, so `update` cannot find
 them: `pharn list` does not show them, but PHARN still runs them. Delete them by hand. A re-run
-[`pharn init`](init.md) still drops capabilities from the config **without** deleting their
-directories; that is unchanged for now.
+[`pharn init`](init.md#dropped-capabilities-are-deleted) deletes the directories of the capabilities it
+drops the same way, after listing them in its overwrite prompt.
 
 > **Named limit — removals are not permanent.** `pharn remove` drops the entry from `capabilities`;
 > it does not record a tombstone. If your archetypes still select that capability, the next `update`

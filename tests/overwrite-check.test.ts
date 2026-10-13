@@ -105,6 +105,64 @@ describe('confirmWriteTargets', () => {
     return { repo, proj };
   }
 
+  // F-04: a dropped capability's directory is deleted by the install, so the
+  // prompt lists it — and asks even when nothing would be overwritten.
+  describe('dropped capabilities', () => {
+    const removal = {
+      cap: { name: 'old', role: 'lens' as const, source: 'auto' as const },
+      reason: 'dropped-unselected' as const,
+      dir: 'pharn-review/old',
+      present: true,
+      backups: ['pharn-review/old/NOTES.md'],
+    };
+
+    it('asks before deleting even with zero conflicts, default No', async () => {
+      const { repo, proj } = dirs(scaffoldRepo);
+      vi.mocked(prompts.confirm).mockResolvedValue(false);
+      await expect(
+        confirmWriteTargets(repo, proj, selection(), { removals: [removal] }),
+      ).resolves.toBe('decline');
+      expect(prompts.confirm).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Continue and delete them?',
+          initialValue: false,
+        }),
+      );
+      const warning = lastWarning();
+      expect(warning).toContain('will be DELETED');
+      expect(warning).toContain('pharn-review/old/ (lens:old');
+      expect(warning).toContain(
+        '1 file(s) in them pharn did not write will be copied to .pharn-backup/ first.',
+      );
+    });
+
+    it('lists the deletions under the overwrites, and asks once', async () => {
+      const { repo, proj } = dirs(scaffoldRepo);
+      write(join(proj, 'pharn.config.json'), CONFIG_2_3_4);
+      vi.mocked(prompts.confirm).mockResolvedValue(true);
+      await expect(
+        confirmWriteTargets(repo, proj, selection(), { removals: [removal] }),
+      ).resolves.toBe('proceed');
+      expect(prompts.confirm).toHaveBeenCalledTimes(1);
+      expect(prompts.confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Continue, overwrite and delete?' }),
+      );
+      const warning = lastWarning();
+      expect(warning).toContain('may be overwritten');
+      expect(warning).toContain('will be DELETED');
+    });
+
+    it('does not ask for a directory that is already gone', async () => {
+      const { repo, proj } = dirs(scaffoldRepo);
+      await expect(
+        confirmWriteTargets(repo, proj, selection(), {
+          removals: [{ ...removal, present: false }],
+        }),
+      ).resolves.toBe('proceed');
+      expect(prompts.confirm).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns true with NO prompt for a conflict-free project (zero friction)', async () => {
     const { repo, proj } = dirs(scaffoldRepo);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(

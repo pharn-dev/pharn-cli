@@ -591,9 +591,8 @@ async function resolveArchetypeAdd(
   // product's three edit-protections: no prompt (init's confirmWriteTargets), no
   // per-file skip (update's records table), no backup (update --force). And a
   // capability directory can hold edited bytes without a config entry: one left
-  // behind by a pharn older than the fix that made `update` delete the
-  // directories it drops, one a re-run `init` dropped (init still leaves them),
-  // or one the user created by hand. A later `add` of that capability is not a
+  // behind by a pharn older than the fix that made `update` and a re-run `init`
+  // delete the directories they drop, or one the user created by hand. A later `add` of that capability is not a
   // config no-op — so cpSync's `force: true` replaced the edits with pristine
   // upstream bytes, unrecoverably.
   //

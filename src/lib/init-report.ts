@@ -76,6 +76,19 @@ export interface InitReport {
       reason: string;
     }[];
     carried: { manual: string[]; kept: string[]; dropped: string[] };
+    // Present ONLY when this re-install drops at least one capability whose
+    // directory it would delete (read it as `?? []`): `{role, name, reason,
+    // dir, present, backups}`, as `update --dry-run --json`'s
+    // `plan.capabilities.removals`. Absent otherwise, so such a report is
+    // byte-identical to earlier releases.
+    removals?: {
+      role: SelectedCapability['role'];
+      name: string;
+      reason: 'dropped-unselected' | 'dropped-gone';
+      dir: string;
+      present: boolean;
+      backups: string[];
+    }[];
   };
   unknownCapabilities: {
     role: string;
@@ -90,8 +103,9 @@ export interface InitReport {
   }[];
   backups: string[];
   counts: { create: number; overwrite: number; backup: number };
-  // Exactly `counts.overwrite === 0`: whether `pharn init --yes` would install
-  // into this project now (it refuses wherever anything would be overwritten).
+  // Whether `pharn init --yes` would install into this project now: nothing
+  // would be overwritten AND no capability directory would be deleted (it
+  // refuses both).
   yesWouldProceed: boolean;
   settings: { preserved: boolean };
   hooks: {
@@ -157,6 +171,18 @@ export function buildInitReport(p: InitPlanReport): InitReport {
         kept: p.carry.kept.map(key),
         dropped: p.carry.gone.map(key),
       },
+      ...(p.removals.length > 0
+        ? {
+            removals: p.removals.map((r) => ({
+              role: r.cap.role,
+              name: r.cap.name,
+              reason: r.reason,
+              dir: r.dir,
+              present: r.present,
+              backups: [...r.backups],
+            })),
+          }
+        : {}),
     },
     unknownCapabilities: p.unknownCapabilities.map((u) => ({
       role: u.role,
@@ -175,7 +201,8 @@ export function buildInitReport(p: InitPlanReport): InitReport {
       overwrite: p.counts.overwrite,
       backup: p.counts.backup,
     },
-    yesWouldProceed: p.counts.overwrite === 0,
+    yesWouldProceed:
+      p.counts.overwrite === 0 && !p.removals.some((r) => r.present),
     settings: { preserved: p.settingsPreserved },
     hooks:
       p.hookWiring === null
