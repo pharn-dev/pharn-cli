@@ -40,7 +40,7 @@ function input(extra: Partial<StatusReportInput> = {}): StatusReportInput {
     channel: 'main',
     latest: '1.0.0',
     source: MAIN,
-    drift: { diff: CLEAN, hooks: HOOKS_OK, unknown: [] },
+    drift: { diff: CLEAN, hooks: HOOKS_OK, unknown: [], orphans: [] },
     strict: false,
     ...extra,
   };
@@ -71,6 +71,7 @@ describe('buildStatusReport', () => {
       },
       models: null,
       unknownCapabilities: [],
+      orphans: [],
       strict: { enabled: false, failed: false },
     });
   });
@@ -80,7 +81,33 @@ describe('buildStatusReport', () => {
     expect(r.drift).toBeNull();
     expect(r.hooks).toBeNull();
     expect(r.unknownCapabilities).toBeNull();
+    expect(r.orphans).toBeNull();
     expect(r.version.latest).toBe('1.0.0');
+  });
+
+  it('lists the orphans, null when they could not be determined', () => {
+    const orphans = [
+      { path: '.claude/commands/pharn-old.md', state: 'unchanged' as const },
+      {
+        path: '.claude/hooks/x.cjs',
+        state: 'unreadable' as const,
+        reason: 'r'.repeat(400),
+      },
+    ];
+    const r = buildStatusReport(
+      input({ drift: { diff: CLEAN, hooks: HOOKS_OK, unknown: [], orphans } }),
+    );
+    expect(r.orphans![0]).toEqual(orphans[0]);
+    expect(Object.keys(r.orphans![0]!)).toEqual(['path', 'state']);
+    // The reason is capped like every other free-text reason.
+    expect(r.orphans![1]!.reason!.length).toBeLessThan(400);
+    expect(
+      buildStatusReport(
+        input({
+          drift: { diff: CLEAN, hooks: HOOKS_OK, unknown: [], orphans: null },
+        }),
+      ).orphans,
+    ).toBeNull();
   });
 
   it('names a release source by its tag and derives ahead/outdated from versionStatus', () => {
@@ -140,6 +167,7 @@ describe('buildStatusReport', () => {
             reason: 'bad json',
           },
           unknown: [],
+          orphans: [],
         },
       }),
     );
@@ -166,6 +194,7 @@ describe('buildStatusReport', () => {
               reason: 'r'.repeat(300),
             },
           ],
+          orphans: [],
         },
       }),
     );
@@ -245,7 +274,12 @@ describe('buildStatusReport', () => {
   describe('strict', () => {
     it('is failed only when enabled AND a finding exists', () => {
       const modified = { ...CLEAN, modified: ['x'] };
-      const drift = { diff: modified, hooks: HOOKS_OK, unknown: [] };
+      const drift = {
+        diff: modified,
+        hooks: HOOKS_OK,
+        unknown: [],
+        orphans: [],
+      };
       expect(buildStatusReport(input({ drift })).strict).toEqual({
         enabled: false,
         failed: false,
@@ -257,6 +291,19 @@ describe('buildStatusReport', () => {
       expect(buildStatusReport(input({ strict: true })).strict.failed).toBe(
         false,
       );
+    });
+    // Orphans are leftovers no pharn command can clear (update never deletes):
+    // reported, never a --strict input.
+    it('is not failed by orphans', () => {
+      const drift = {
+        diff: CLEAN,
+        hooks: HOOKS_OK,
+        unknown: [],
+        orphans: [{ path: '.dev/floor/gone.mjs', state: 'edited' as const }],
+      };
+      expect(
+        buildStatusReport(input({ drift, strict: true })).strict.failed,
+      ).toBe(false);
     });
     it('under --no-drift only the version can fail it', () => {
       expect(
@@ -346,6 +393,7 @@ describe('serializeStatusReport', () => {
           unknown: [
             { name: HOSTILE, role: 'lens', subtree: HOSTILE, reason: HOSTILE },
           ],
+          orphans: [{ path: HOSTILE, state: 'edited' }],
         },
       }),
     );

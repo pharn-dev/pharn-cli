@@ -88,9 +88,19 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
         reason: 'bad role',
       },
     ],
+    orphans: [],
     ...over,
   };
 }
+
+const ORPHANS: UpdatePlanReport['orphans'] = [
+  { path: '.claude/commands/pharn-old.md', state: 'unchanged' },
+  {
+    path: '.claude/hooks/linked.cjs',
+    state: 'unreadable',
+    reason: 'the path is a symlink',
+  },
+];
 
 function input(over: Partial<UpdateReportInput> = {}): UpdateReportInput {
   return {
@@ -265,6 +275,16 @@ describe('buildUpdateReport — planned', () => {
       'unknownCapabilities',
       'recordsNote',
     ]);
+    const withOrphans = buildUpdateReport(
+      input({ plan: planReport({ orphans: ORPHANS }) }),
+    ).plan!;
+    expect(Object.keys(withOrphans).at(-1)).toBe('orphans');
+    expect(Object.keys(withOrphans.orphans![0]!)).toEqual(['path', 'state']);
+    expect(Object.keys(withOrphans.orphans![1]!)).toEqual([
+      'path',
+      'state',
+      'reason',
+    ]);
     expect(Object.keys(r.plan!.models)).toEqual([
       'outcome',
       'label',
@@ -288,6 +308,24 @@ describe('buildUpdateReport — planned', () => {
       'withheld',
       'pending',
     ]);
+  });
+
+  // Additive within schemaVersion 1, and ABSENT when there is none — so the
+  // report of an install with no orphans keeps its exact bytes (pinned below).
+  it('lists the orphans when there are some, reason only where there is one', () => {
+    const q = buildUpdateReport(
+      input({ plan: planReport({ orphans: ORPHANS }) }),
+    );
+    expect(q.schemaVersion).toBe(1);
+    expect(q.plan!.orphans).toEqual(ORPHANS);
+    expect(r.plan).not.toHaveProperty('orphans');
+  });
+
+  it('never filters the orphans under --compact', () => {
+    const compact = buildUpdateReport(
+      input({ compact: true, plan: planReport({ orphans: ORPHANS }) }),
+    );
+    expect(compact.plan!.orphans).toEqual(ORPHANS);
   });
 
   it('reports a null conversion and a null recordsNote as null', () => {

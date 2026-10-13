@@ -72,6 +72,7 @@ vi.mock('../src/lib/skills-version.js', () => ({
 }));
 
 const { runStatus } = await import('../src/commands/status.js');
+const { sha256File } = await import('../src/lib/hash.js');
 const prompts = await import('@clack/prompts');
 
 function config(extra: Partial<PharnConfig> = {}): PharnConfig {
@@ -1023,5 +1024,72 @@ describe('runStatus — HOOKS (PHARN-04)', () => {
     await runStatus({ strict: true });
     expect(noteBody('HOOKS')).toContain('settings.local.json');
     expect(noteBody('HOOKS')).toContain('not for teammates or CI');
+  });
+});
+
+// F-12: files pharn recorded writing that upstream no longer ships, still on
+// disk. status reads pharn.records.json for this ONLY; drift is unchanged.
+describe('runStatus — ORPHANED', () => {
+  stubProcessExit();
+  const tmp = useTmpDir();
+  let repo = '';
+  let proj = '';
+  const OLD = '.claude/commands/pharn-old.md';
+  const KEPT = '.claude/commands/pharn-plan.md';
+
+  const put = (root: string, rel: string, content: string) => {
+    mkdirSync(join(root, rel, '..'), { recursive: true });
+    writeFileSync(join(root, rel), content);
+  };
+  const records = (files: Record<string, string>, skillsVersion = '1.0.0') =>
+    put(
+      proj,
+      'pharn.records.json',
+      JSON.stringify({ schemaVersion: 1, skillsVersion, commit: 'old', files }),
+    );
+  const hash = (rel: string) => sha256File(join(proj, rel));
+
+  beforeEach(() => {
+    repo = join(tmp.path(), 'repo');
+    proj = join(tmp.path(), 'proj');
+    put(repo, KEPT, 'plan');
+    put(proj, KEPT, 'plan');
+    put(proj, OLD, 'old command');
+    vi.spyOn(process, 'cwd').mockReturnValue(proj);
+    loadArchetypeConfigOrExit.mockReturnValue(config());
+    fetchRepo.mockResolvedValue({ dir: repo, cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(CLEAN);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('names a recorded file upstream no longer ships, and --strict still exits 0', async () => {
+    records({ [KEPT]: hash(KEPT), [OLD]: hash(OLD) });
+    await runStatus({ strict: true });
+    const body = stripVTControlCharacters(noteBody('ORPHANED'));
+    expect(body).toContain('UNCHANGED');
+    expect(body).toContain(OLD);
+    expect(body).not.toContain(KEPT);
+    expect(noteBody('DRIFT')).toContain('No drift');
+  });
+
+  it('prints nothing without a usable records store', async () => {
+    records({ [OLD]: hash(OLD) }, '0.9.0'); // stamped for another state
+    await runStatus({});
+    expect(noteBody('ORPHANED')).toBe('');
+  });
+
+  it('prints nothing when the clone is at another layout than the install', async () => {
+    records({ [OLD]: hash(OLD) });
+    put(repo, 'pharn/pharn-contracts/x.md', 'x'); // a pharn-layout clone
+    await runStatus({});
+    expect(noteBody('ORPHANED')).toBe('');
+  });
+
+  it('--no-drift never reads for orphans', async () => {
+    records({ [OLD]: hash(OLD) });
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+    await runStatus({ drift: false });
+    expect(noteBody('ORPHANED')).toBe('');
   });
 });

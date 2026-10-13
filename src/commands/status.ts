@@ -22,7 +22,10 @@ import { diffInstalledCapabilities } from '../lib/diff.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import type { InstallDiff } from '../lib/diff.js';
-import { configLayout, layoutPaths } from '../lib/layout.js';
+import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
+import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
+import { readRecords, recordsBaseline } from '../lib/install-records.js';
+import { findOrphans, orphanNoteLines, type Orphan } from '../lib/orphans.js';
 import { row } from '../lib/format.js';
 import { checkModelsBlock } from '../lib/model-config.js';
 import {
@@ -44,7 +47,7 @@ import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
 } from '../lib/skills-version.js';
-import type { PharnConfig } from '../types.js';
+import type { InstalledCapability, PharnConfig } from '../types.js';
 
 /**
  * Read-only audit of an archetype install: is it current (version section) and
@@ -162,6 +165,7 @@ async function runArchetypeStatusJson(
         diff,
         hooks: diffHookWiring(repo.dir, cwd),
         unknown: index.unknown,
+        orphans: statusOrphans(repo.dir, cwd, config, frozen),
       },
       strict,
     });
@@ -284,6 +288,12 @@ async function runArchetypeStatus(
       layout: configLayout(config),
     });
     printDriftSection(result, sourceLabel(repo.source));
+    // ORPHANED: report only — never a --strict input (no pharn command can
+    // clear one; update never deletes).
+    const orphanLines = orphanNoteLines(
+      statusOrphans(repo.dir, cwd, config, frozen) ?? [],
+    );
+    if (orphanLines) note(orphanLines.join('\n'), 'ORPHANED');
     // HOOKS: settings.json is user-owned and never compared as a file above;
     // what IS checked is whether every hook upstream wires is wired here.
     const hooks = diffHookWiring(repo.dir, cwd);
@@ -385,6 +395,45 @@ function modelsNoteLines(block: unknown, floor: string): string[] {
     '',
     ...modelsLabelLines(floor).map((line) => pc.dim(line)),
   ];
+}
+
+// Recorded files the install no longer owns (lib/orphans.ts), or null when
+// that cannot be determined. This is the ONLY reason status reads
+// pharn.records.json: the drift section above stays a records-free byte compare.
+//
+// null — not "none" — when the store is absent / invalid / stamped for another
+// state (no baseline to name a file by), or when the clone is at another layout
+// than the install: the expected set is then derived at paths the clone does
+// not have, so nearly every recorded file would read as orphaned. `update` is
+// the command that migrates the layout, and it names the copies it leaves.
+function statusOrphans(
+  repoDir: string,
+  cwd: string,
+  config: PharnConfig,
+  frozen: ReadonlySet<string>,
+): Orphan[] | null {
+  const { records } = recordsBaseline(readRecords(cwd), {
+    skillsVersion: config.skillsVersion,
+    commit: config.commit,
+  });
+  if (records === null) return null;
+  const layout = configLayout(config);
+  if (detectLayout(repoDir) !== layout) return null;
+  const all: InstalledCapability[] = config.capabilities ?? [];
+  const isFrozen = (cap: InstalledCapability): boolean =>
+    frozen.has(`${cap.role}:${cap.name}`);
+  const expected = collectExpectedInstallPaths({
+    repoDir,
+    capabilities: all.filter((cap) => !isFrozen(cap)),
+    layout,
+  });
+  return findOrphans({
+    projectRoot: cwd,
+    records,
+    expected,
+    capabilities: all,
+    frozen: all.filter(isFrozen),
+  }).orphans;
 }
 
 // DRIFT note: differing, missing and unreadable PHARN-owned files, or a clean

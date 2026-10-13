@@ -8,6 +8,7 @@ import { NODE_FLOOR, type NodeFloorStatus } from './node-floor.js';
 import type { InstallSource, RefChoice } from './release.js';
 import { cap, serializeJsonReport } from './json-report.js';
 import { versionStatus } from './version-status.js';
+import type { Orphan, OrphanState } from './orphans.js';
 import type { PharnConfig, UnknownCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,11 @@ export interface StatusReport {
   } | null;
   unknownCapabilities:
     { role: string; name: string; subtree: string; reason: string }[] | null;
+  // Recorded files upstream no longer ships that are still on disk
+  // (lib/orphans.ts). null when not determined: `--no-drift`, no usable
+  // pharn.records.json, or a clone at another layout than the install. Never a
+  // `--strict` input.
+  orphans: { path: string; state: OrphanState; reason?: string }[] | null;
   strict: { enabled: boolean; failed: boolean };
 }
 
@@ -89,6 +95,8 @@ export interface StatusReportInput {
     diff: InstallDiff;
     hooks: HookWiringDiff;
     unknown: readonly UnknownCapability[];
+    // null when they could not be determined (see StatusReport.orphans).
+    orphans: readonly Orphan[] | null;
   } | null;
   strict: boolean;
 }
@@ -213,6 +221,16 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
             name: cap(u.name, MAX_UNKNOWN_FIELD),
             subtree: cap(u.subtree, MAX_UNKNOWN_FIELD),
             reason: cap(u.reason, MAX_UNKNOWN_FIELD),
+          })),
+    orphans:
+      drift === null || drift.orphans === null
+        ? null
+        : drift.orphans.map((o) => ({
+            path: o.path,
+            state: o.state,
+            ...(o.reason !== undefined
+              ? { reason: cap(o.reason, MAX_RED_DETAIL) }
+              : {}),
           })),
     strict: {
       enabled: input.strict,
