@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -21,6 +22,29 @@ import {
   useTmpDir,
 } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
+
+// A pass-through `node:fs` whose unlink/rmdir a test can intercept, so the
+// ENOENT tolerance and the final config/records delete failing can be driven
+// without a concurrent process. Untouched hooks behave exactly like node:fs.
+const fsHooks = vi.hoisted(() => ({
+  unlink: null as null | ((path: string) => void),
+  rmdir: null as null | ((path: string) => void),
+}));
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...real,
+    default: real,
+    unlinkSync: (path: string) => {
+      fsHooks.unlink?.(String(path));
+      return real.unlinkSync(path);
+    },
+    rmdirSync: (path: string) => {
+      fsHooks.rmdir?.(String(path));
+      return real.rmdirSync(path);
+    },
+  };
+});
 
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
@@ -159,6 +183,8 @@ describe('runUninstall', () => {
   afterEach(() => {
     vi.clearAllMocks();
     restoreTTY();
+    fsHooks.unlink = null;
+    fsHooks.rmdir = null;
   });
 
   it('deletes every recorded, unchanged file, the empty dirs, the records and the config', async () => {
@@ -360,7 +386,6 @@ describe('runUninstall', () => {
 
     it('when there is no pharn.records.json', async () => {
       await install(FLAT_FILES);
-      const { rmSync } = await import('node:fs');
       rmSync(join(proj, 'pharn.records.json'));
       await expectRefusal(
         /there is no pharn\.records\.json.*Removing PHARN by hand/s,
@@ -534,7 +559,6 @@ describe('runUninstall', () => {
     await install([...many, 'CONSTITUTION.md']);
     for (const rel of many) write(rel, 'edited');
     // A directory where a recorded file should be: not a regular file.
-    const { rmSync } = await import('node:fs');
     rmSync(join(proj, 'CONSTITUTION.md'));
     mkdirSync(join(proj, 'CONSTITUTION.md'));
     await runUninstall({ yes: true });
@@ -586,7 +610,6 @@ describe('runUninstall', () => {
     await install(FLAT_FILES);
     setTTY(true, true);
     vi.mocked(prompts.confirm).mockImplementationOnce(async () => {
-      const { rmSync } = await import('node:fs');
       rmSync(join(proj, 'pharn.records.json'));
       return true;
     });
@@ -596,9 +619,119 @@ describe('runUninstall', () => {
       expect(existsSync(join(proj, rel))).toBe(true);
   });
 
+  // Orphans (lib/orphans.ts): files upstream stopped shipping keep their
+  // records while they exist. They are pharn's bytes too.
+  it('deletes an unchanged orphan and keeps an edited one, listing it', async () => {
+    await install([
+      ...FLAT_FILES,
+      '.claude/commands/pharn-old.md',
+      '.claude/hooks/old-hook.cjs',
+    ]);
+    write('.claude/hooks/old-hook.cjs', 'the user changed this');
+    await runUninstall({ yes: true });
+    expect(existsSync(join(proj, '.claude/commands/pharn-old.md'))).toBe(false);
+    expect(readFileSync(join(proj, '.claude/hooks/old-hook.cjs'), 'utf8')).toBe(
+      'the user changed this',
+    );
+    expect(notes('PLAN')).toContain('  • .claude/hooks/old-hook.cjs');
+    expect(notes('UNINSTALLED')).toContain('  • .claude/hooks/old-hook.cjs');
+  });
+
+  it('deletes an orphan left at the OTHER layout after a flat → pharn move', async () => {
+    await install(
+      [...PHARN_FILES, 'pharn-contracts/finding-shape.md', 'CONSTITUTION.md'],
+      config({ layout: 'pharn' }),
+    );
+    await runUninstall({ yes: true });
+    expect(existsSync(join(proj, 'pharn-contracts'))).toBe(false);
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn'))).toBe(false);
+  });
+
+  describe('a file that vanishes mid-run', () => {
+    it('skips a recorded file another process deleted after the plan (ENOENT)', async () => {
+      await install(FLAT_FILES);
+      const victim = join(proj, 'CONSTITUTION.md');
+      fsHooks.unlink = (path) => {
+        if (path === victim && existsSync(victim)) {
+          fsHooks.unlink = null;
+          rmSync(victim);
+        }
+      };
+      await runUninstall({ yes: true });
+      expect(existsSync(join(proj, 'pharn.config.json'))).toBe(false);
+      expect(notes('UNINSTALLED')).toContain(
+        `Deleted ${FLAT_FILES.length - 1} file(s)`,
+      );
+    });
+
+    it('skips a directory another process removed first (ENOENT on rmdir)', async () => {
+      await install(FLAT_FILES);
+      const dir = join(proj, 'features');
+      fsHooks.rmdir = (path) => {
+        if (path === dir) {
+          fsHooks.rmdir = null;
+          rmSync(dir, { recursive: true });
+        }
+      };
+      await runUninstall({ yes: true });
+      expect(existsSync(dir)).toBe(false);
+      expect(notes('UNINSTALLED')).toContain('and 10 empty directories');
+    });
+
+    it('treats an already-deleted pharn.records.json as done', async () => {
+      await install(FLAT_FILES);
+      const records = join(proj, 'pharn.records.json');
+      fsHooks.unlink = (path) => {
+        if (path === records && existsSync(records)) rmSync(records);
+      };
+      await runUninstall({ yes: true });
+      expect(existsSync(join(proj, 'pharn.config.json'))).toBe(false);
+    });
+  });
+
+  it('reports a failed final config delete, naming the file to delete by hand', async () => {
+    await install(FLAT_FILES);
+    const cfg = join(proj, 'pharn.config.json');
+    fsHooks.unlink = (path) => {
+      if (path === cfg) {
+        throw Object.assign(new Error('EACCES: permission denied'), {
+          code: 'EACCES',
+        });
+      }
+    };
+    await expect(runUninstall({ yes: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(errors()).toMatch(
+      /Could not delete pharn\.config\.json: EACCES: permission denied\. Every file pharn could prove it wrote is already gone; delete pharn\.config\.json yourself to finish\./,
+    );
+    for (const rel of FLAT_FILES)
+      expect(existsSync(join(proj, rel))).toBe(false);
+    expect(existsSync(join(proj, 'pharn.records.json'))).toBe(false);
+    expect(existsSync(cfg)).toBe(true);
+    expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
+  });
+
+  it('reports a failed records delete and keeps the config', async () => {
+    await install(FLAT_FILES);
+    const records = join(proj, 'pharn.records.json');
+    fsHooks.unlink = (path) => {
+      if (path === records) {
+        throw Object.assign(new Error('EPERM: operation not permitted'), {
+          code: 'EPERM',
+        });
+      }
+    };
+    await expect(runUninstall({ yes: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    expect(errors()).toContain('Could not delete pharn.records.json');
+    expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
+  });
+
   it('never removes the project root, even when nothing else is left in it', async () => {
     await install(['CONSTITUTION.md']);
-    const { rmSync } = await import('node:fs');
     rmSync(join(proj, '.claude'), { recursive: true });
     await runUninstall({ yes: true });
     expect(lstatSync(proj).isDirectory()).toBe(true);

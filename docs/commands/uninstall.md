@@ -18,7 +18,9 @@ hold:
 
 - it is a path a `pharn` install writes — a capability directory's files, a `pharn-*` command under
   `.claude/commands/`, a hook script under `.claude/hooks/`, a trusted doc, the `LICENSE` copy, the
-  features README, `pharn-contracts/`, `pharn-core/`, or the floor checkers, at your recorded layout;
+  features README, `pharn-contracts/`, `pharn-core/`, or the floor checkers — in either layout, so a
+  file an older install left at the other layout, or one upstream has since stopped shipping (an
+  [orphan](../reference/pharn-records.md#orphaned-files)), is covered too;
 - it is a regular file, reached without passing through a symbolic-linked directory;
 - its bytes still match the recorded sha256 — `pharn` wrote exactly this, and nobody changed it.
 

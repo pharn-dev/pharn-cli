@@ -13,7 +13,6 @@ import {
   capabilityCloneFiles,
   collectExpectedInstallPaths,
   conflictingWriteTargets,
-  isInstallSurfacePath,
   PHARN_CONFIG_FILE,
 } from '../src/lib/install-manifest.js';
 import {
@@ -21,6 +20,7 @@ import {
   installCapabilityDirs,
 } from '../src/lib/install-capabilities.js';
 import { applyWrites } from '../src/lib/apply-update.js';
+import { isInstallRootPath } from '../src/lib/orphans.js';
 import { BACKUP_DIR } from '../src/lib/backup.js';
 import { RECORDS_FILE } from '../src/lib/install-records.js';
 import { layoutPaths } from '../src/lib/layout.js';
@@ -937,10 +937,11 @@ describe('collectExpectedInstallPaths — command/hook filename floor (P2)', () 
   });
 });
 
-// `pharn uninstall` has no clone, so it bounds what it may delete with a pure
-// predicate over the SHAPE of an install path. Pinned here, beside the manifest
-// it mirrors, against a REAL install in both layouts.
-describe('isInstallSurfacePath', () => {
+// `pharn uninstall` (and orphan detection) has no clone, so it bounds what it
+// may touch with isInstallRootPath, a pure predicate over the SHAPE of an
+// install path. Pinned here against a REAL install in both layouts: every path
+// the install writes must pass, or uninstall would silently leave it.
+describe('isInstallRootPath ⟷ installCapabilities (mirror)', () => {
   const tmp = useTmpDir();
 
   function installedPaths(
@@ -961,17 +962,17 @@ describe('isInstallSurfacePath', () => {
     ];
   }
 
-  it('accepts every path a real flat install writes (mirror)', () => {
+  it('accepts every path a real flat install writes', () => {
     const paths = installedPaths('flat', scaffoldRepo);
     expect(paths.length).toBeGreaterThan(10);
-    expect(paths.filter((p) => !isInstallSurfacePath(p, 'flat'))).toEqual([]);
+    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
   });
 
-  it('accepts every path a real pharn-layout install writes (mirror)', () => {
+  it('accepts every path a real pharn-layout install writes', () => {
     const paths = installedPaths('pharn', scaffoldRepoPharn);
     expect(paths).toContain('pharn/pharn-core/seam-resolver/seam-resolver.md');
     expect(paths).toContain('pharn/LICENSE');
-    expect(paths.filter((p) => !isInstallSurfacePath(p, 'pharn'))).toEqual([]);
+    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
   });
 
   it('accepts the root features README a pre-relocation pharn clone ships', () => {
@@ -981,59 +982,11 @@ describe('isInstallSurfacePath', () => {
       write(join(repo, 'features/README.md'));
     });
     expect(paths).toContain('features/README.md');
-    expect(paths.filter((p) => !isInstallSurfacePath(p, 'pharn'))).toEqual([]);
+    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
   });
 
-  it.each([
-    // Dev-only and nested names the copy never writes.
-    '.claude/commands/pharn-dev-plan.md',
-    '.claude/commands/README.md',
-    '.claude/commands/sub/pharn-x.md',
-    '.claude/commands/my-command.md',
-    '.claude/hooks/x.test.cjs',
-    '.claude/hooks/nested/x.cjs',
-    '.claude/hooks/x.mjs',
-    '.claude/settings.json',
-    '.claude/settings.local.json',
-    '.dev/floor/validate.test.mjs',
-    '.dev/floor/test-fixtures/red/skill.md',
-    '.dev/floor/test-fixtures',
-    '.dev/features/x/PLAN.md',
-    // A capability path needs a valid name and something below it.
-    'pharn-review/n-plus-one',
-    'pharn-review/Bad_Name/x.md',
-    'pharn-pipeline/grillers',
-    'pharn-contracts',
-    // The user's own files, and pharn's own metadata.
-    'src/app.ts',
-    'LICENSE',
-    'README.md',
-    'pharn.config.json',
-    'pharn.records.json',
-    '.pharn-backup/2026/pharn.config.json',
-    'pharn-review/../src/app.ts',
-    './CONSTITUTION.md',
-    '',
-  ])('rejects %j at the flat layout', (rel) => {
-    expect(isInstallSurfacePath(rel, 'flat')).toBe(false);
-  });
-
-  it.each([
-    'pharn/features/my-feature/PLAN.md',
-    'pharn/pharn-review/n-plus-one',
-    'pharn/floor/x.test.cjs',
-    'pharn/floor/test-fixtures/a.md',
-    'pharn/THREAT-MODEL.md',
-    'CONSTITUTION.md',
-    'PHARN-LICENSE',
-    'pharn-review/n-plus-one/n-plus-one.md',
-  ])('rejects %j at the pharn layout', (rel) => {
-    expect(isInstallSurfacePath(rel, 'pharn')).toBe(false);
-  });
-
-  it('does not accept the pharn features README at the flat layout', () => {
-    expect(isInstallSurfacePath('pharn/features/README.md', 'flat')).toBe(
-      false,
-    );
+  it("never accepts the user's own feature work beside the features README", () => {
+    expect(isInstallRootPath('pharn/features/my-feature/PLAN.md')).toBe(false);
+    expect(isInstallRootPath('features/my-feature/PLAN.md')).toBe(false);
   });
 });

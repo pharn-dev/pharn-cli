@@ -13,8 +13,6 @@ import {
   recordsPath,
   type FileRecords,
 } from '../lib/install-records.js';
-import { isInstallSurfacePath } from '../lib/install-manifest.js';
-import { configLayout } from '../lib/layout.js';
 import {
   assertConfigUnchanged,
   CONFIG_FILENAME,
@@ -25,13 +23,14 @@ import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { errorMessage, logError } from '../lib/report-error.js';
 import { CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS_FILE } from '../lib/constants.js';
 import { escapeUnsafe } from '../lib/terminal-safe.js';
+import { isInstallRootPath } from '../lib/orphans.js';
 import { planUninstall, type UninstallPlan } from '../lib/uninstall-plan.js';
 import { safeJoin } from '../lib/validate.js';
-import type { Layout, PharnConfig } from '../types.js';
+import type { PharnConfig } from '../types.js';
 
 // `pharn uninstall` — remove PHARN from a project, deleting only what pharn can
 // PROVE it wrote and nobody changed (lib/uninstall-plan.ts): a file recorded in a
-// usable `pharn.records.json`, inside pharn's install surfaces, still at its
+// usable `pharn.records.json`, at a path an install writes, still at its
 // recorded sha256. Everything else stays where it is — an edited file, a file
 // pharn has no record of, `.claude/settings.json` (never written), and every
 // `.pharn-backup/` directory — and the edited/unverifiable files are listed.
@@ -76,7 +75,6 @@ interface UninstallResult {
   keptDirs: string[];
   backupDir: string;
   records: FileRecords;
-  layout: Layout;
 }
 
 export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
@@ -93,14 +91,13 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
     return;
   }
   const config = loadArchetypeConfigOrExit(cwd);
-  const layout = configLayout(config);
 
   const records = usableRecords(cwd, config);
   if (typeof records === 'string') {
     logError(records);
     process.exit(1);
   }
-  const preview = planUninstall(cwd, layout, records);
+  const preview = planUninstall(cwd, records);
   if (preview.unsafe.length > 0) {
     logError(unsafeMessage(preview));
     process.exit(1);
@@ -179,8 +176,7 @@ async function applyUninstall(
   // tree changed, and THIS plan is the one that decides.
   const records = usableRecords(cwd, config);
   if (typeof records === 'string') throw new UninstallError(records);
-  const layout = configLayout(config);
-  const plan = planUninstall(cwd, layout, records);
+  const plan = planUninstall(cwd, records);
   if (plan.unsafe.length > 0) throw new UninstallError(unsafeMessage(plan));
 
   // Before anything is deleted: a config that cannot be saved stops the run
@@ -214,7 +210,7 @@ async function applyUninstall(
   unlinkIfPresent(recordsPath(cwd), RECORDS_FILE);
   unlinkIfPresent(configPath(cwd), CONFIG_FILENAME);
 
-  return { plan, deleted, removedDirs, keptDirs, backupDir, records, layout };
+  return { plan, deleted, removedDirs, keptDirs, backupDir, records };
 }
 
 function unlinkIfPresent(abs: string, label: string): void {
@@ -332,7 +328,7 @@ function reportResult(cwd: string, result: UninstallResult): void {
   );
   note(lines.join('\n'), 'UNINSTALLED');
 
-  const hookLines = danglingHookLines(cwd, result.records, result.layout);
+  const hookLines = danglingHookLines(cwd, result.records);
   if (hookLines.length > 0) note(hookLines.join('\n'), 'HOOKS');
 }
 
@@ -340,16 +336,12 @@ function reportResult(cwd: string, result: UninstallResult): void {
 // gone now (deleted by this run, or already absent). pharn never writes the
 // settings files, so this is a list for the user to act on.
 // Only keys that name an installed hook script are considered (the same
-// isInstallSurfacePath bound the deletes use), and they are only lstat-ed.
-function danglingHookLines(
-  cwd: string,
-  records: FileRecords,
-  layout: Layout,
-): string[] {
+// isInstallRootPath bound the deletes use), and they are only lstat-ed.
+function danglingHookLines(cwd: string, records: FileRecords): string[] {
   const gone = Object.keys(records).filter(
     (rel) =>
       rel.startsWith(`${CLAUDE_HOOKS_DIR}/`) &&
-      isInstallSurfacePath(rel, layout) &&
+      isInstallRootPath(rel) &&
       isGone(cwd, rel),
   );
   const refs = hooksReferencing(cwd, gone);

@@ -1,11 +1,10 @@
 import { lstatSync } from 'node:fs';
 import { posix } from 'node:path';
 import { sha256File } from './hash.js';
-import { isInstallSurfacePath } from './install-manifest.js';
 import { MODELS_RECORD_KEY, type FileRecords } from './install-records.js';
+import { isInstallRootPath } from './orphans.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { safeJoin } from './validate.js';
-import type { Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // What `pharn uninstall` may delete. Read-only: it classifies, it never writes.
@@ -19,10 +18,15 @@ import type { Layout } from '../types.js';
 // Every record key lands in exactly one bucket, decided in this order (P5 —
 // membership tests and one byte comparison, never a guess):
 //
-//   outside       the key is not a path an install could write at this layout
-//                 (isInstallSurfacePath). Left alone, whatever its hash says:
-//                 the store is local and committed, so a hand-edited key must
-//                 not be enough to delete a user's file.
+//   outside       the key is not a path an install could have written, in
+//                 either layout (isInstallRootPath, lib/orphans.ts — the same
+//                 install-root set orphan detection reads through). Left alone,
+//                 whatever its hash says: the store is local and committed, so a
+//                 hand-edited key must not be enough to delete a user's file.
+//                 Both layouts on purpose: an install that moved from `flat` to
+//                 `pharn` still records its old-layout files while they exist
+//                 (lib/orphans.ts carries an orphan's record), and those are
+//                 pharn's bytes too.
 //   unsafe        a DIRECTORY on the way to it is a symbolic link, so deleting
 //                 through it would reach outside the project. The caller refuses
 //                 the whole run.
@@ -38,8 +42,9 @@ import type { Layout } from '../types.js';
 // The `models` record key is not a file (lib/install-records.ts) and is skipped.
 //
 // Trust (P2): record keys are local, user-editable text. This is the one place a
-// key is JOINED into a path, and only after isInstallSurfacePath accepted it,
-// through safeJoin, after a symlink walk of its parent directories. File
+// key is DELETED by, and only after isInstallRootPath accepted it, through
+// safeJoin, after a symlink walk of its parent directories, and only when its
+// bytes match the record. (Orphan detection reads keys under the same guard.) File
 // contents are hashed, never parsed or executed.
 //
 // NOT a lock (stated, P0): the classification reads the tree at time T and the
@@ -61,7 +66,6 @@ export interface UninstallPlan {
 /** Classify every record key. Sorted buckets; reads only. */
 export function planUninstall(
   projectRoot: string,
-  layout: Layout,
   records: FileRecords,
 ): UninstallPlan {
   const plan: UninstallPlan = {
@@ -74,7 +78,7 @@ export function planUninstall(
   };
   for (const rel of Object.keys(records).sort()) {
     if (rel === MODELS_RECORD_KEY) continue;
-    if (!isInstallSurfacePath(rel, layout)) {
+    if (!isInstallRootPath(rel)) {
       plan.outside.push(rel);
       continue;
     }
@@ -104,7 +108,7 @@ function classify(projectRoot: string, rel: string, recorded: string): Verdict {
   } catch {
     // ENOTDIR: a component on the way is a regular file, so nothing can be at
     // this path. (The walk's only other throw, safeJoin's escape refusal, is
-    // unreachable: isInstallSurfacePath already rejected `..` segments.)
+    // unreachable: the store's ingest rule already rejected `..` segments.)
     return 'absent';
   }
   if (linked !== null) return { rel, component: linked };

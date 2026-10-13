@@ -42,7 +42,7 @@ describe('planUninstall', () => {
     recorded(root, records, '.claude/hooks/protect-trusted-paths.cjs');
     write(root, 'CONSTITUTION.md', 'the user changed this');
 
-    const plan = planUninstall(root, 'flat', records);
+    const plan = planUninstall(root, records);
     expect(plan.delete).toEqual([
       '.claude/hooks/protect-trusted-paths.cjs',
       'pharn-review/n-plus-one/n-plus-one.md',
@@ -56,7 +56,7 @@ describe('planUninstall', () => {
     const records: Record<string, string> = {};
     recorded(root, records, 'pharn-review/a11y/a11y.md');
     write(root, 'pharn-review/a11y/my-notes.md');
-    const plan = planUninstall(root, 'flat', records);
+    const plan = planUninstall(root, records);
     const all = Object.values(plan).flat();
     expect(JSON.stringify(all)).not.toContain('my-notes.md');
     expect(plan.delete).toEqual(['pharn-review/a11y/a11y.md']);
@@ -67,7 +67,7 @@ describe('planUninstall', () => {
     const records: Record<string, string> = {};
     recorded(root, records, 'src/app.ts');
     recorded(root, records, 'pharn/features/my-feature/PLAN.md');
-    const plan = planUninstall(root, 'pharn', records);
+    const plan = planUninstall(root, records);
     expect(plan.delete).toEqual([]);
     expect(plan.outside).toEqual([
       'pharn/features/my-feature/PLAN.md',
@@ -77,20 +77,20 @@ describe('planUninstall', () => {
 
   it('skips the models record key (not a file)', () => {
     const root = proj();
-    const plan = planUninstall(root, 'flat', { [MODELS_RECORD_KEY]: HASH });
+    const plan = planUninstall(root, { [MODELS_RECORD_KEY]: HASH });
     expect(Object.values(plan).flat()).toEqual([]);
   });
 
   it('reports a recorded file that is already gone as absent', () => {
     const root = proj();
-    const plan = planUninstall(root, 'flat', { 'LIMITS.md': HASH });
+    const plan = planUninstall(root, { 'LIMITS.md': HASH });
     expect(plan.absent).toEqual(['LIMITS.md']);
   });
 
   it('reads a path below a regular FILE as absent (ENOTDIR)', () => {
     const root = proj();
     write(root, 'pharn-contracts', 'a file where a dir should be');
-    const plan = planUninstall(root, 'flat', {
+    const plan = planUninstall(root, {
       'pharn-contracts/finding-shape.md': HASH,
     });
     expect(plan.absent).toEqual(['pharn-contracts/finding-shape.md']);
@@ -99,7 +99,7 @@ describe('planUninstall', () => {
   it('reads a path whose PARENT walk meets a regular file as absent', () => {
     const root = proj();
     write(root, 'pharn-contracts', 'a file where a dir should be');
-    const plan = planUninstall(root, 'flat', {
+    const plan = planUninstall(root, {
       'pharn-contracts/sub/x.md': HASH,
     });
     expect(plan.absent).toEqual(['pharn-contracts/sub/x.md']);
@@ -113,7 +113,7 @@ describe('planUninstall', () => {
       recorded(root, records, 'pharn-contracts/finding-shape.md');
       chmodSync(join(root, 'pharn-contracts'), 0o600);
       try {
-        const plan = planUninstall(root, 'flat', records);
+        const plan = planUninstall(root, records);
         expect(plan.unverifiable).toEqual(['pharn-contracts/finding-shape.md']);
       } finally {
         chmodSync(join(root, 'pharn-contracts'), 0o755);
@@ -129,7 +129,7 @@ describe('planUninstall', () => {
     const target = write(tmp.path(), 'outside/real.md');
     mkdirSync(join(root, '.claude/hooks'), { recursive: true });
     symlinkSync(target, join(root, '.claude/hooks/linked.cjs'));
-    const plan = planUninstall(root, 'flat', {
+    const plan = planUninstall(root, {
       'pharn-contracts/finding-shape.md': HASH,
       '.claude/hooks/linked.cjs': sha256File(target),
     });
@@ -146,7 +146,7 @@ describe('planUninstall', () => {
       const root = proj();
       mkdirSync(join(root, '.claude/hooks'), { recursive: true });
       execFileSync('mkfifo', [join(root, '.claude/hooks/pipe.cjs')]);
-      const plan = planUninstall(root, 'flat', {
+      const plan = planUninstall(root, {
         '.claude/hooks/pipe.cjs': HASH,
       });
       expect(plan.unverifiable).toEqual(['.claude/hooks/pipe.cjs']);
@@ -161,7 +161,7 @@ describe('planUninstall', () => {
       recorded(root, records, 'ARCHITECTURE.md');
       chmodSync(join(root, 'ARCHITECTURE.md'), 0o000);
       try {
-        const plan = planUninstall(root, 'flat', records);
+        const plan = planUninstall(root, records);
         expect(plan.unverifiable).toEqual(['ARCHITECTURE.md']);
       } finally {
         chmodSync(join(root, 'ARCHITECTURE.md'), 0o644);
@@ -174,7 +174,7 @@ describe('planUninstall', () => {
     const elsewhere = join(tmp.path(), 'shared');
     write(elsewhere, 'pharn-review/a11y/a11y.md');
     symlinkSync(elsewhere, join(root, 'pharn'));
-    const plan = planUninstall(root, 'pharn', {
+    const plan = planUninstall(root, {
       'pharn/pharn-review/a11y/a11y.md': sha256File(
         join(elsewhere, 'pharn-review/a11y/a11y.md'),
       ),
@@ -192,7 +192,7 @@ describe('planUninstall', () => {
     recorded(root, records, 'pharn/features/README.md');
     recorded(root, records, 'pharn/floor/validate.mjs');
     recorded(root, records, 'THREAT-MODEL.md');
-    expect(planUninstall(root, 'pharn', records).delete).toEqual([
+    expect(planUninstall(root, records).delete).toEqual([
       'THREAT-MODEL.md',
       'pharn/CONSTITUTION.md',
       'pharn/features/README.md',

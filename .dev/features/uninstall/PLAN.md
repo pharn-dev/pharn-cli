@@ -171,3 +171,7 @@ GATE 1 passed: "approved as written".
 6. HOOKS note limited to recorded `.claude/hooks/*` scripts that are absent after the run.
 7. `CONSTITUTION.md` / `LIMITS.md` not edited by the agent; exact replacement text handed over at GATE 2.
 8. (Added at GATE 1) The PLAN note AND the final summary state plainly that `.pharn-backup/` directories and `.claude/settings.json` are left untouched.
+
+## Rebase note (GATE 2 follow-up, 2026-10-13)
+
+On the rebase onto `origin/main` (5fc4e46), #282 had added `isInstallRootPath` (`src/lib/orphans.ts`): the same "could an install have written this path" predicate, layout-agnostic, already the guard orphan detection reads record keys through. `isInstallSurfacePath` was dropped in its favour — one predicate instead of two mirrors — and `planUninstall` lost its `layout` parameter. Both layouts are accepted on purpose: orphans carried at the other layout (an install that moved `flat` → `pharn`) are pharn's bytes and are now deleted when unchanged. The mirror test against a real install moved to `isInstallRootPath`. `src/lib/orphans.ts`'s TRUST header, which called orphan detection the ONE place a key becomes a path, now names uninstall as the second (comment only).
