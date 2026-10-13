@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`pharn.config.json` and `pharn.records.json` can no longer be redirected through a symlink committed beside them.** Both files are written to a temporary file next to them and then renamed into place. That temporary file had a predictable name (`pharn.config.json.<pid>.tmp`) and was opened in a way that followed a symbolic link, so a repository that committed a link at that name could make any `pharn` command that writes the config (or the records store) overwrite a file outside the project that you can write to, and leave `pharn.config.json` itself as a link. The temporary file now gets an unpredictable random name and is created exclusively: an existing entry at the name, a link included, is never opened or followed, and `pharn` tries a fresh name instead (after 8 taken names it stops with an error and writes nothing). File contents and permissions are written exactly as before.
+
 ### Fixed
 
 - **`pharn init` over an existing `.claude/settings.json` now says which PHARN hooks it does not wire.** The file is still preserved, never overwritten or merged, but `init` used to print only "compare it against pharn-oss to wire the PHARN hooks if needed" and then delete the fetched copy, leaving nothing to compare against: in a project already using Claude Code every PHARN hook stayed unwired and `pharn status --strict` failed from the first run. `init` now prints the same `HOOKS` note as `pharn status` and `pharn update` — each missing hook as one line of paste-ready JSON, and that `pharn status --strict` fails until they are wired. When every hook is already wired it prints no note; an unreadable settings file is named with the reason, and the install still completes. See [`pharn init`](docs/commands/init.md#an-existing-claudesettingsjson).

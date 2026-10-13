@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import {
   mkdirSync,
   readFileSync,
@@ -28,7 +29,7 @@ import {
   CapabilitySourceError,
   ConfigParseError,
 } from '../src/lib/pharn-config.js';
-import { tmpPathFor } from '../src/lib/atomic-write.js';
+import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
 import type { PharnConfig } from '../src/types.js';
 import {
   DEFAULT_SEAM_CONFIG,
@@ -40,6 +41,24 @@ import {
 vi.mock('@clack/prompts', () => ({
   log: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
+
+// The atomic write's temp name carries a random nonce. It is wrapped (not
+// replaced) so only the test that needs a predictable name pins one, to plant
+// a blocker at the name pharn will actually try.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, randomBytes: vi.fn(actual.randomBytes) };
+});
+
+/** Pin the temp nonce for one test and return the temp path it yields. */
+function pinTmpPath(target: string): string {
+  const nonce = Buffer.alloc(TMP_NONCE_BYTES, 0x5a);
+  // `randomBytes` is overloaded (sync + callback); this is the sync shape.
+  vi.mocked(randomBytes).mockImplementation(
+    (() => nonce) as unknown as typeof randomBytes,
+  );
+  return tmpPathFor(target, nonce.toString('hex'));
+}
 
 const sample: PharnConfig = {
   pharnVersion: '0.2.0',
@@ -793,6 +812,9 @@ describe('loadArchetypeConfigOrExit', () => {
 describe('writePharnConfig — atomic replacement', () => {
   const tmp = useTmpDir();
   const configFile = () => join(tmp.path(), 'pharn.config.json');
+  afterEach(() => {
+    vi.mocked(randomBytes).mockReset();
+  });
 
   it('writes the same bytes as before: 2-space JSON + trailing newline', async () => {
     await writePharnConfig(tmp.path(), sample);
@@ -808,12 +830,12 @@ describe('writePharnConfig — atomic replacement', () => {
     expect(readPharnConfig(tmp.path())?.skillsVersion).toBe('9.9.9');
   });
 
-  // A directory planted at the temp path fails the write for ANY user —
-  // deterministic, unlike a read-only-directory fixture a root runner writes
-  // straight through.
+  // A directory planted at the (pinned) temp name fails the exclusive create
+  // for ANY user — deterministic, unlike a read-only-directory fixture a root
+  // runner writes straight through.
   it('leaves the previous config intact and loadable when the write fails', async () => {
     await writePharnConfig(tmp.path(), sample);
-    mkdirSync(tmpPathFor(configFile()), { recursive: true });
+    mkdirSync(pinTmpPath(configFile()), { recursive: true });
 
     await expect(
       writePharnConfig(tmp.path(), { ...sample, skillsVersion: '9.9.9' }),
