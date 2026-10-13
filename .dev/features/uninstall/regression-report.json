@@ -1,5 +1,5 @@
 {
-  "base": "ff9312f45040a0cb0605f7ee447914db5aca0edc",
+  "base": "5fc4e463c64aad6bf8e95b12221d395ce24904fb",
   "inside": [
     "CHANGELOG.md",
     "CLAUDE.md",
@@ -12,8 +12,8 @@
     "src/commands/uninstall.ts",
     "src/index.ts",
     "src/lib/hook-wiring.ts",
-    "src/lib/install-manifest.ts",
     "src/lib/install-records.ts",
+    "src/lib/orphans.ts",
     "src/lib/uninstall-plan.ts",
     "tests/hook-wiring.test.ts",
     "tests/index.test.ts",

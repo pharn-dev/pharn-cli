@@ -11,7 +11,7 @@
 
 VERIFIED: floor gates PASS
 
-`test` ran as `CI=1 VITEST_MAX_WORKERS=2 npm test -- --testTimeout=60000` (2356 passed, 1 skipped). Orchestration note (advisory): the same command at vitest's default 5 s per-test timeout exited 1 on the host's load average of 100–220 (other agents running) with 7 timeouts, all in two files this increment does not touch — `tests/lint-gate.test.ts` (each case spawns eslint; one eslint run took 10 s wall at 18 % CPU) and `tests/publish-workflow.test.ts` (one registry-check case). Both files pass at the longer timeout, alone and in the full run. No assertion was changed; only the per-test time budget.
+`test` ran, after the GATE 2 rebase onto `origin/main` 5fc4e46, as `CI=1 npx vitest run --maxWorkers=2 --testTimeout=120000` (95 files, 2562 passed, 1 skipped), and again under `npm run test:coverage -- --maxWorkers=2 --testTimeout=120000` (same counts; thresholds met: 97.9 % statements, 94.51 % branches, 98.24 % functions, 98.69 % lines). Orchestration note (advisory): the raised per-test budget is for the host's load average (100–270, other agents running); at vitest's default 5 s an earlier, pre-rebase run timed out only in `tests/lint-gate.test.ts` (each case spawns eslint) and one `tests/publish-workflow.test.ts` case — files this increment does not touch — and both pass at the longer budget. No assertion was changed.
 
 Verifiers: no verifiers registered — floor gates only.
 

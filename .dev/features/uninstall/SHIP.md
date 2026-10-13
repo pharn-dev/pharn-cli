@@ -20,6 +20,8 @@ Stages run, in order: `/pharn-dev-plan` → GATE 1 (approved as written, 2026-10
 
 Iteration 1's build included three small follow-up commits made during review (a hard-wrapped HOOKS sentence found on a dist smoke run, the HOOKS bound to install paths, and the matching CLAUDE.md line); `/pharn-dev-regress` and `/pharn-dev-verify` were run at the final HEAD, after them.
 
+After GATE 2 the branch was rebased onto `origin/main` 5fc4e46 and given one follow-up commit (the shared `isInstallRootPath`, orphan and mid-run-failure tests); `/pharn-dev-regress` and `/pharn-dev-verify` were re-run at that HEAD with the same verdicts.
+
 ## Pointers
 
 - Review (advisory): [`REVIEW.md`](REVIEW.md)

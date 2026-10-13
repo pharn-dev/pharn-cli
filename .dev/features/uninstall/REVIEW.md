@@ -53,3 +53,7 @@ None.
 None — no recurring failure pattern.
 
 VERDICT: GREEN — 0 floor-gate findings, 5 advisory (minor) findings. This review is advisory; the merge / fix / abandon decision is the human's.
+
+## After GATE 2
+
+The human kept advisories 2 and 5 as they are. Advisory 1 was addressed in `ae4edb3`: `tests/uninstall.test.ts` now drives a recorded file and a directory vanishing mid-run (ENOENT tolerated) and the final `pharn.records.json` / `pharn.config.json` delete failing, through a pass-through `node:fs` mock. Advisories 3 and 4 (trusted docs) stay with the human.
