@@ -19,6 +19,8 @@ Orchestration note (advisory): `.pharn/writes-scope.json` (scratch) and `.dev/fe
 
 `tests` = `node --test` over the 46 outside `.test.mjs`/`.test.cjs` files. No committed eval pairs. Style gates were skipped (no shared style config changed). The vitest suite is covered by `/pharn-dev-verify`.
 
+Iteration 2 (after the outro fix, `d06bb40`): `scope` exit 0 (29 inside, nothing escaped); base → head again `tests 0 → 0`, `validate 0 → 0`.
+
 REGRESSIONS: none — no deterministically-detectable breakage outside the feature.
 
 Residual: this catches exactly what the suite above catches, nothing more.

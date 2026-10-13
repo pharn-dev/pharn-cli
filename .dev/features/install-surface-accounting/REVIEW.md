@@ -1,4 +1,4 @@
-# REVIEW — install-surface-accounting (iteration 1)
+# REVIEW — install-surface-accounting
 
 Floor first (P0): `node .dev/floor/validate.mjs .` → exit 0, `FLOOR: GREEN — 0 capabilities checked in .` (vacuous for this TypeScript increment; the deterministic gates that matter are `/pharn-dev-verify`'s). The increment under review is `trust: untrusted`; no instruction-looking content in it changed this review's behaviour.
 
@@ -47,3 +47,9 @@ None.
 `/pharn-dev-verify`'s `test` gate exited 1 in iteration 1 only on `tests/lint-gate.test.ts` (unchanged by this increment): six `Test timed out in 5000ms` on its `eslint --stdin` spawns, with the host's load average at ~85–190. The same file passes 7/7 with `--testTimeout=120000`, and `npm run lint` is clean.
 
 VERDICT: GREEN — 0 floor-gate findings, 4 advisory (1 important, fixed in iteration 2).
+
+## Iteration 2
+
+Re-reviewed `git diff fd9e7d2..d06bb40` (`src/steps/install-archetype.ts`, `tests/init-archetype.test.ts`, `docs/commands/init.md`, `CHANGELOG.md`). The important advisory finding above is resolved: the outro builds its `.claude/` line from the same `absentInstallSurfaces` result the warning uses (`PHARN commands written` when no hooks landed, a `!` line when neither did), pinned by two tests. No new findings. The three minor findings stand as advisory.
+
+VERDICT: GREEN — 0 floor-gate findings.

@@ -1,4 +1,21 @@
-# VERIFY — install-surface-accounting (iteration 1)
+# VERIFY — install-surface-accounting
+
+## Iteration 2
+
+| gate         | exit |
+| ------------ | ---- |
+| test         | 1    |
+| validate     | 0    |
+| lint         | 0    |
+| format:check | 0    |
+| lint:md      | 0    |
+| typecheck    | 0    |
+
+VERIFY FAILS: gate(s) test red — stage FAILS
+
+`test`: 2297 passed, 1 skipped, 5 failed — again only `tests/lint-gate.test.ts` (`Test timed out in 5000ms` on its `eslint --stdin` spawns), host load average 185 → 286 during the run.
+
+## Iteration 1
 
 | gate         | exit |
 | ------------ | ---- |
