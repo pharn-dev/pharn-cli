@@ -66,6 +66,8 @@ Two phases, because the real run must keep "a cancelled summary builds no manife
 - `src/steps/archetype-summary.ts` — export `archetypeSummaryLines`; prompt unchanged — layer steps
 - `src/steps/install-archetype.ts` — import `readCarriedEntries` from lib (behaviour unchanged) — layer steps
 - `src/steps/prereqs.ts` — `runGitPrereq({ json })` → `logErrorPlain` — layer steps
+- `src/lib/hook-wiring.ts` — `preservedSettingsHookLines`, the one HOOKS-note composition for init's real run and dry run (GATE 2 follow-up) — layer lib
+- `tests/hook-wiring.test.ts` — the helper (GATE 2 follow-up)
 - `tests/init-dry-run.test.ts` — NEW fixture e2e: text preview, no-write snapshot + spies, refusals
 - `tests/init-dry-run-json.test.ts` — NEW: one object on stdout, zero clack, failure shapes
 - `tests/init-report.test.ts` — NEW: projection key sets, caps, round-trip
@@ -132,3 +134,23 @@ Human approved with every recommendation:
 - **Q5:** two-phase planning; the real run reuses only the selection/carry part.
 - **Residual:** the under-lock-to-copy residual is documented in `docs/commands/init.md`, not only here.
 - **Bare `pharn --json`:** the new "Incomplete option for `init`" message is accepted, pinned in `tests/index.test.ts`.
+
+## GATE 2 follow-up (2026-10-13)
+
+The human approved GATE 2 and asked for four changes before the PR:
+
+- **REVIEW #1:** `preservedSettingsHookLines` (`lib/hook-wiring.ts`) is now the one HOOKS-note composition.
+- **REVIEW #2:** two preview-branch tests were added: the text warning sink and the rejected models block.
+- **REVIEW #3:** the troubleshooting wording was fixed.
+- **REVIEW #6:** a bare `pharn --dry-run` / `pharn -y` is now documented.
+
+REVIEW #4 and #5 were left as they are.
+
+The branch was then rebased onto origin/main 2d39a62. F-08 (#279) always backs up an existing `pharn.config.json` on re-install (`replacedConfigBackup`). That behaviour is carried into `planWriteTargets`:
+
+- **`configBackedUp`:** a new field on the plan.
+- **Ordering:** the backed-up config is ranked right after the labelled files.
+- **Marker:** `targetLines` marks it with `CONFIG_MARKER`.
+- **Prompt:** keeps F-08's exact list and its reset line.
+- **Dry run:** labels the config `rewritten` and adds it to `backups`.
+- **`--yes`:** still refuses, because the config exists.

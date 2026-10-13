@@ -67,3 +67,11 @@ Nothing in the reviewed diff or in the fetched-content fixtures read as an instr
 - When a command gains a "non-interactive" flag next to a destructive confirmation, the safe shape is "proceed only where the confirmation would have nothing to protect", re-checked under the lock. That keeps the old reason for refusing `--yes`, instead of abandoning it.
 
 Advisory review — 0 blocking, 6 minor. The decision (merge / fix / abandon) is the human's at GATE 2.
+
+## Resolved after GATE 2
+
+- **#1:** fixed. `preservedSettingsHookLines` in `src/lib/hook-wiring.ts` is now the one composition, used by both the real run and the dry run.
+- **#2:** fixed. Two tests were added in `tests/init-dry-run.test.ts`: an unreadable upstream capability, and a rejected models block.
+- **#3:** fixed. The troubleshooting wording was reworded.
+- **#6:** fixed. `docs/commands/init.md` now documents a bare `pharn --dry-run` / `pharn -y`.
+- **#4 and #5:** left as they are, by the human's decision.

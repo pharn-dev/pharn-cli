@@ -26,7 +26,7 @@ import {
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
-import { hookWiringFails, hookWiringLines } from '../lib/hook-wiring.js';
+import { preservedSettingsHookLines } from '../lib/hook-wiring.js';
 import { serializeJsonReport } from '../lib/json-report.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { BACKUP_DIR } from '../lib/backup.js';
@@ -540,15 +540,10 @@ function reportInitDryRun(r: InitPlanReport): void {
   note(lines.join('\n'), 'PLAN');
 
   // The same note a real run prints over a preserved settings.json
-  // (steps/install-archetype.ts), from the same two functions.
-  if (r.hookWiring !== null) {
-    const hookLines = hookWiringLines(r.hookWiring);
-    if (hookLines) {
-      if (hookWiringFails(r.hookWiring))
-        hookLines.push('  `pharn status --strict` fails until they are wired.');
-      note(hookLines.join('\n'), 'HOOKS');
-    }
-  }
+  // (steps/install-archetype.ts), from the same function.
+  const hookLines =
+    r.hookWiring === null ? null : preservedSettingsHookLines(r.hookWiring);
+  if (hookLines) note(hookLines.join('\n'), 'HOOKS');
 
   if (r.models.outcome === 'rejected') {
     log.warn(

@@ -7,8 +7,7 @@ import {
 } from '../lib/constants.js';
 import {
   diffHookWiring,
-  hookWiringFails,
-  hookWiringLines,
+  preservedSettingsHookLines,
 } from '../lib/hook-wiring.js';
 import {
   installCapabilities,
@@ -202,13 +201,8 @@ export async function runInstallArchetype(
     log.info(
       `Existing ${CLAUDE_SETTINGS_FILE} preserved — pharn never overwrites it.`,
     );
-    const hooks = diffHookWiring(repoDir, cwd);
-    const hookLines = hookWiringLines(hooks);
-    if (hookLines) {
-      if (hookWiringFails(hooks))
-        hookLines.push('  `pharn status --strict` fails until they are wired.');
-      note(hookLines.join('\n'), 'HOOKS');
-    }
+    const hookLines = preservedSettingsHookLines(diffHookWiring(repoDir, cwd));
+    if (hookLines) note(hookLines.join('\n'), 'HOOKS');
   }
 
   // The `models` block is pharn-oss's: copied VERBATIM from its root

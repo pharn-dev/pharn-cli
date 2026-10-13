@@ -66,6 +66,7 @@ the interactivity check never masks it.
 
 ```bash
 pharn init --dry-run
+pharn --dry-run          # the same: with no command word, pharn runs init
 ```
 
 `--dry-run` runs everything a real `init` runs before its first prompt — the Node and git checks,
@@ -169,6 +170,7 @@ floor can enforce.
 
 ```bash
 pharn init --yes   # or -y
+pharn --yes        # the same (and pharn -y): with no command word, pharn runs init
 ```
 
 `--yes` is for a **fresh** project in CI, a devcontainer or an agent run. It skips the summary's

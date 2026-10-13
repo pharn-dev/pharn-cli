@@ -348,6 +348,34 @@ describe('pharn init --dry-run', () => {
     });
   });
 
+  describe('warnings in the text preview', () => {
+    beforeEach(() => setTTY(undefined, undefined));
+
+    it('names an upstream capability this pharn cannot read, through clack', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      // No markdown file of its own name: refused at the fetch boundary.
+      write(join(repo, 'pharn-review/broken/notes.md'), 'x');
+      await init(repo, proj, { dryRun: true });
+      expect(logged('warn')).toContain('lens:broken');
+      expect(logged('warn')).toContain('could not be read');
+      expect(notes('PLAN')).toHaveLength(1);
+    });
+
+    it("says pharn-oss's models block would not be written when this pharn rejects it", async () => {
+      const { repo, proj } = fixture(tmp.path());
+      write(
+        join(repo, 'pharn.config.json'),
+        JSON.stringify({ models: { stages: { plan: { model: `x${ESC}y` } } } }),
+      );
+      await init(repo, proj, { dryRun: true });
+      const warned = logged('warn');
+      expect(warned).toContain(
+        "pharn-oss's models block would not be written; this pharn rejects it:",
+      );
+      expect(warned).not.toContain(ESC);
+    });
+  });
+
   describe('refusals exit 1 as in a real run', () => {
     beforeEach(() => setTTY(undefined, undefined));
 

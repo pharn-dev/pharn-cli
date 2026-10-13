@@ -298,3 +298,20 @@ export function hookWiringLines(diff: HookWiringDiff): string[] | null {
     '  textual: an equivalent hook you wrote differently is listed too.',
   ];
 }
+
+/**
+ * The HOOKS note `init` prints over a PRESERVED `.claude/settings.json` — the
+ * same body `status` and `update` print, plus the consequence `status` would
+ * report — or `null` when there is nothing to say. ONE composition for the real
+ * run (steps/install-archetype.ts) and `init --dry-run` (commands/init.ts), so
+ * the preview's note is the install's by construction.
+ */
+export function preservedSettingsHookLines(
+  diff: HookWiringDiff,
+): string[] | null {
+  const lines = hookWiringLines(diff);
+  if (lines === null) return null;
+  return hookWiringFails(diff)
+    ? [...lines, '  `pharn status --strict` fails until they are wired.']
+    : lines;
+}

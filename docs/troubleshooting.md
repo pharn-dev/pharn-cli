@@ -136,7 +136,8 @@ directory (or move it aside) and re-run.
 
 ## Prerequisites failed
 
-`pharn init` has three prerequisites — Node >= 24.2.0, a git repository, and an interactive terminal. The Node check comes
+`pharn init` has two prerequisites — Node >= 24.2.0 and a git repository — and a plain `pharn init` (without `--dry-run` or
+`--yes`) needs a third: an interactive terminal. The Node check comes
 first: on an older Node, `init` (and `update`) exit 1 with `pharn init requires Node 24.2.0 or newer, and this is Node …`
 and write nothing — upgrade Node. A Node whose version string cannot be parsed is refused the same way, because the check
 fails closed. (Before 0.8.0 the floor was Node 20.13.0, and on an older Node 20 even `pharn --version` failed at load time
