@@ -1,0 +1,36 @@
+{
+  "base": "6dae4fec26470cc1ef8391d48d9179806e65f351",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/commands/init.md",
+    "docs/getting-started.md",
+    "docs/reference/pharn-config.md",
+    "docs/troubleshooting.md",
+    "src/commands/init.ts",
+    "src/index.ts",
+    "src/lib/archetype.ts",
+    "src/lib/detect-archetype.ts",
+    "src/steps/archetype-summary.ts",
+    "src/types.ts",
+    "tests/archetype-summary.test.ts",
+    "tests/archetype.test.ts",
+    "tests/detect-archetype.test.ts",
+    "tests/index.test.ts",
+    "tests/init.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

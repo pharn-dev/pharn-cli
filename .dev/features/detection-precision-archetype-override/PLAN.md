@@ -69,13 +69,13 @@ interface ClassifyContext {
 
 `runArchetypeSummary(archetypes, selection, origin)` where `origin` is `{ kind: 'detected', evidence }` | `{ kind: 'flag', detected: ArchetypeDetection }`. Rendering:
 
-```
+```text
   Detected archetypes        ssr, backend
     ssr      ← next (package.json)
     backend  ← src/app/api/hello/route.ts
 ```
 
-```
+```text
   Archetypes (--archetype)   backend
     detection found          ssr, backend   (not used)
 ```
@@ -192,3 +192,5 @@ GATE 1 passed: approved, with the answers below.
 7. No `LIMITS.md` / `ARCHITECTURE.md` proposal.
 
 Coordination constraint (F-07 reworks init in parallel: init `--dry-run/--json/--yes`, `archetypeSummaryLines` extraction, `lib/init-plan.ts`): keep `init.ts` / `archetype-summary.ts` edits small and localized; the evidence / origin rendering lives in ONE pure function taking plain data (`archetypeOriginLines`), so it can slot into `archetypeSummaryLines` later.
+
+Rebase note (2026-10-13): F-05 merged first (`3fedcb8`, #277). The branch was rebased onto `origin/main` `6dae4fe`; the `ARCHETYPE_VALUES` declaration merged identically, so `src/lib/validate.ts` no longer differs from main and this branch now uses the merged declaration. A config with invalid `archetypes` is now refused by `readPharnConfig` (F-05), so init's tolerant `readPreviousConfig` yields no previous config there — the "previously recorded" line is then simply absent, as designed.
