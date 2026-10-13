@@ -10,7 +10,7 @@ import {
   scanDest,
   type DriftLabel,
 } from '../lib/dest-drift.js';
-import { BACKUP_DIR } from '../lib/backup.js';
+import { BACKUP_DIR, replacedConfigBackup } from '../lib/backup.js';
 import { readBoundedFile } from '../lib/bounded-read.js';
 import type { FileRecords } from '../lib/install-records.js';
 import { safeJoin, VERSION_RE } from '../lib/validate.js';
@@ -106,6 +106,8 @@ const MARKERS: Record<DriftLabel, string> = {
   unrecorded: '(no pharn record)',
   unverifiable: '(differs from upstream)',
 };
+// The existing pharn.config.json: not drift, but rewritten — and backed up.
+const CONFIG_MARKER = '(will be rewritten — backed up first)';
 const LABEL_ORDER: readonly DriftLabel[] = [
   'modified',
   'unrecorded',
@@ -174,7 +176,8 @@ export async function confirmWriteTargets(
   // ADVISORY: runInstallArchetype re-scans under the lock, immediately before
   // the copy, and that scan is the one that backs files up — this snapshot
   // only labels the list. `pharn.config.json` is outside the manifest (init
-  // regenerates it), so it is never scanned.
+  // regenerates it), so it is never scanned: an existing one is marked on its
+  // own below, and always backed up.
   const { labels } = scanDest({
     repoDir,
     projectRoot: cwd,
@@ -182,11 +185,18 @@ export async function confirmWriteTargets(
     sources: manifestSources(repoDir, manifest),
     records: context.records ?? null,
   });
+  // The existing config is rewritten (`seam` and `models` reset) and always
+  // backed up first — the same predicate the install acts on. Ranked right
+  // after the labelled files, so the MAX_LISTED cap cannot hide it.
+  const configBackedUp =
+    conflicts.includes(PHARN_CONFIG_FILE) &&
+    replacedConfigBackup(cwd).length > 0;
   const rank = (p: string): number => {
     const label = labels.get(p);
-    return label === undefined
+    if (label !== undefined) return LABEL_ORDER.indexOf(label);
+    return configBackedUp && p === PHARN_CONFIG_FILE
       ? LABEL_ORDER.length
-      : LABEL_ORDER.indexOf(label);
+      : LABEL_ORDER.length + 1;
   };
   // A stable sort over the already-sorted conflicts: grouped by label, then by
   // path within a group (P5 — deterministic output).
@@ -196,7 +206,10 @@ export async function confirmWriteTargets(
   const list = shown
     .map((p) => {
       const label = labels.get(p);
-      return label === undefined ? `  • ${p}` : `  • ${p} ${MARKERS[label]}`;
+      if (label !== undefined) return `  • ${p} ${MARKERS[label]}`;
+      return configBackedUp && p === PHARN_CONFIG_FILE
+        ? `  • ${p} ${CONFIG_MARKER}`
+        : `  • ${p}`;
     })
     .join('\n');
   const tail = more > 0 ? `\n  …and ${more} more` : '';
@@ -208,6 +221,9 @@ export async function confirmWriteTargets(
     labels.size > 0
       ? `\n${counts.map(([label, n]) => labelLine(label, n)).join('\n')}\n${labels.size === 1 ? 'It' : `All ${labels.size}`} will be copied to ${BACKUP_DIR}/ before being overwritten.`
       : '';
+  const configLine = configBackedUp
+    ? `\n${PHARN_CONFIG_FILE} will be rewritten (seam and models reset to their defaults); it will be copied to ${BACKUP_DIR}/ first.`
+    : '';
   // Only when the config itself is at risk — i.e. a re-install over an existing
   // one — and only AFTER the zero-conflict return above, so a conflict-free
   // project still reaches none of this (P5: the branch stays `conflicts.length
@@ -223,7 +239,7 @@ export async function confirmWriteTargets(
   // steps/archetype-summary.ts: every helper there ends in cancelAndExit, and
   // this stage's whole contract is that it does not exit.
   log.warn(
-    `${intro} These paths already exist and may be overwritten:\n${list}${tail}${editsLine}`,
+    `${intro} These paths already exist and may be overwritten:\n${list}${tail}${editsLine}${configLine}`,
   );
   const result = await confirm({
     message: 'Continue and overwrite?',

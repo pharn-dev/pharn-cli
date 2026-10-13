@@ -4,6 +4,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -655,14 +656,126 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     expect(info).toContain(`.pharn-backup/${backups[0]!}`);
   });
 
-  it('makes NO backup when nothing was edited (byte-identical is not an edit)', async () => {
+  it('backs up only pharn.config.json when no installed file was edited (byte-identical is not an edit)', async () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     const { archetypes, selection } = await firstInstall(repo, proj);
 
     await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
 
+    // The config is rewritten on every re-install, so it is the one file
+    // always saved; no installed file is.
+    expect(backedUp(proj)).toEqual(['pharn.config.json']);
+  });
+
+  it('makes NO backup on a fresh install — there is no config to lose yet', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    vi.mocked(prompts.log.info).mockClear();
+
+    await firstInstall(repo, proj);
+
+    expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
     expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    const info = vi
+      .mocked(prompts.log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(info).not.toContain('Backed up');
+  });
+
+  it('a fresh install over a file of yours backs up that file, never a config that is not there', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    write(join(proj, 'CONSTITUTION.md'), 'MY OWN CONSTITUTION');
+
+    await firstInstall(repo, proj);
+
+    expect(backedUp(proj)).toEqual(['CONSTITUTION.md']);
+  });
+
+  // F-08: the rewrite resets `seam` to pharn's default and `models` to
+  // pharn-oss's block. Carrying them over is a separate question; losing them
+  // with no copy anywhere is the defect — the backup makes it recoverable.
+  it('backs up the original pharn.config.json bytes — hand-tuned seam and models — before rewriting it', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const { archetypes, selection } = await firstInstall(repo, proj);
+    const tuned = JSON.parse(
+      readFileSync(join(proj, 'pharn.config.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    tuned.seam = {
+      resolutionOrder: ['pinned-docs', 'ask'],
+      modelConfidenceThreshold: 'medium',
+      haltOnUnknown: false,
+    };
+    tuned.models = {
+      stages: { default: { model: 'haiku', effort: 'low' } },
+    };
+    const original = `${JSON.stringify(tuned, null, 4)}\n`;
+    writeFileSync(join(proj, 'pharn.config.json'), original);
+    vi.mocked(prompts.log.info).mockClear();
+
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    expect(backedUp(proj)).toEqual(['pharn.config.json']);
+    const [dir] = readdirSync(join(proj, '.pharn-backup'));
+    expect(
+      readFileSync(
+        join(proj, '.pharn-backup', dir!, 'pharn.config.json'),
+        'utf8',
+      ),
+    ).toBe(original);
+    // The rewrite itself is unchanged: both blocks are reset.
+    const rewritten = readPharnConfig(proj)!;
+    expect(rewritten.seam).toEqual({
+      resolutionOrder: [
+        'official-skill',
+        'pinned-docs',
+        'model',
+        'fetch',
+        'ask',
+      ],
+      modelConfidenceThreshold: 'high',
+      haltOnUnknown: true,
+    });
+    expect(rewritten.models).toEqual(UPSTREAM_MODELS);
+    const info = vi
+      .mocked(prompts.log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(info).toContain(`Backed up 1 file(s) to .pharn-backup/${dir!}`);
+  });
+
+  it('backs up the config together with an edited file, in ONE backup', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const { archetypes, selection } = await firstInstall(repo, proj);
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'MY LOCAL EDIT');
+
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    expect(backedUp(proj)).toEqual([
+      '.claude/commands/pharn-plan.md',
+      'pharn.config.json',
+    ]);
+  });
+
+  it('does not back up a pharn.config.json that is a symlink — its target is never written', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const { archetypes, selection } = await firstInstall(repo, proj);
+    const outside = join(tmp.path(), 'outside.json');
+    writeFileSync(outside, readFileSync(join(proj, 'pharn.config.json')));
+    rmSync(join(proj, 'pharn.config.json'));
+    symlinkSync(outside, join(proj, 'pharn.config.json'));
+    const before = readFileSync(outside, 'utf8');
+
+    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(readFileSync(outside, 'utf8')).toBe(before);
+    expect(readPharnConfig(proj)!.commit).toBe('sha123');
   });
 
   it('records the carried-over manual capabilities as `manual`', async () => {
@@ -1144,7 +1257,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
 
-  it("backs up NOTHING after an upstream bump alone — pharn's own bytes are a clean upgrade", async () => {
+  it("backs up no installed file after an upstream bump alone — pharn's own bytes are a clean upgrade", async () => {
     const { repo, proj, archetypes, selection } = await installed();
     bumpUpstream(repo);
 
@@ -1157,8 +1270,9 @@ describe('re-running init after an upstream bump — the records decide what is 
       carry(STAMP),
     );
 
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
-    expect(informed()).not.toContain('Backed up');
+    // Only the config it rewrites (F-08) — no installed file.
+    expect(backedUp(proj)).toEqual(['pharn.config.json']);
+    expect(informed()).toContain('Backed up 1 file(s)');
     expect(
       readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
     ).toBe('plan v2');
@@ -1178,7 +1292,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       carry(STAMP),
     );
 
-    expect(backedUp(proj)).toEqual(['CONSTITUTION.md']);
+    expect(backedUp(proj)).toEqual(['CONSTITUTION.md', 'pharn.config.json']);
     const [dir] = readdirSync(join(proj, '.pharn-backup'));
     expect(
       readFileSync(
@@ -1216,6 +1330,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       expect(backedUp(proj)).toEqual([
         '.claude/commands/pharn-plan.md',
         'CONSTITUTION.md',
+        'pharn.config.json',
       ]);
     },
   );
@@ -1233,7 +1348,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       carry(STAMP),
     );
 
-    expect(backedUp(proj)).toEqual(['PHARN-LICENSE']);
+    expect(backedUp(proj)).toEqual(['PHARN-LICENSE', 'pharn.config.json']);
     expect(readFileSync(join(proj, 'PHARN-LICENSE'), 'utf8')).toBe(
       'Apache-2.0',
     );
@@ -1265,7 +1380,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       carry(STAMP),
     );
 
-    expect(backedUp(proj)).toEqual(['pharn/LICENSE']);
+    expect(backedUp(proj)).toEqual(['pharn.config.json', 'pharn/LICENSE']);
   });
 
   // The records are keyed by PATH. A layout change (flat → pharn/) writes to
@@ -1299,7 +1414,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       carry(STAMP),
     );
 
-    expect(backedUp(proj)).toEqual(['pharn/LICENSE']);
+    expect(backedUp(proj)).toEqual(['pharn.config.json', 'pharn/LICENSE']);
     expect(readFileSync(join(proj, 'pharn/CONSTITUTION.md'), 'utf8')).toBe('C');
     // The flat copies are left in place — init never deletes.
     expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
@@ -1406,7 +1521,7 @@ describe('`pharn init` run twice, through the real steps', () => {
     );
   }
 
-  it('computes the install manifest ONCE per run, and marks and backs up nothing after an upstream bump alone', async () => {
+  it('computes the install manifest ONCE per run, and marks and backs up no installed file after an upstream bump alone', async () => {
     const { repo, proj } = fixture();
     await init(repo, proj, 'sha123');
     bumpUpstream(repo);
@@ -1422,8 +1537,11 @@ describe('`pharn init` run twice, through the real steps', () => {
     expect(warning).toContain('.claude/commands/pharn-plan.md');
     expect(warning).not.toContain('(edited)');
     expect(warning).not.toContain('(differs from upstream)');
-    expect(warning).not.toContain('.pharn-backup/');
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    // The config alone: marked, and the one file backed up (F-08).
+    expect(warning).toContain(
+      'pharn.config.json (will be rewritten — backed up first)',
+    );
+    expect(backedUp(proj)).toEqual(['pharn.config.json']);
     const config = readPharnConfig(proj)!;
     expect(config.skillsVersion).toBe('1.1.0');
     expect(config.commit).toBe('sha456');
@@ -1443,11 +1561,14 @@ describe('`pharn init` run twice, through the real steps', () => {
       .split('\n')
       .filter((l) => l.trimStart().startsWith('•'));
     expect(bullets[0]).toContain('CONSTITUTION.md (edited)');
-    expect(bullets.filter((b) => b.includes('('))).toHaveLength(1);
+    expect(bullets[1]).toContain(
+      'pharn.config.json (will be rewritten — backed up first)',
+    );
+    expect(bullets.filter((b) => b.includes('('))).toHaveLength(2);
     expect(warning).toContain(
       '1 of them changed since pharn wrote it (your edits).',
     );
-    expect(backedUp(proj)).toEqual(['CONSTITUTION.md']);
+    expect(backedUp(proj)).toEqual(['CONSTITUTION.md', 'pharn.config.json']);
   });
 
   it('refuses a project it cannot install into BEFORE asking to overwrite anything', async () => {

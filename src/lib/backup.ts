@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { PHARN_CONFIG_FILE } from './install-manifest.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { ManifestValidationError, safeJoin } from './validate.js';
 
@@ -92,6 +93,37 @@ export function createBackup(
   }
 
   return dirRel;
+}
+
+/**
+ * `[pharn.config.json]` when a re-run `init` is about to REWRITE an existing
+ * one, else `[]` — the config's entry in init's backup set.
+ *
+ * init rebuilds the file from its own fields (steps/install-archetype.ts): the
+ * `seam` block is reset to pharn's default and `models` to pharn-oss's block,
+ * whatever the user had tuned there. Keys pharn does not own are carried over;
+ * these are not. Without a copy the one command the docs name for recovery
+ * silently discarded that tuning — so the existing file is ALWAYS backed up,
+ * even when it is the only file in the set. A fresh install has nothing here.
+ *
+ * Only a REGULAR file, at the project root: a symlink is skipped — the atomic
+ * write replaces the link and never writes its target, so nothing is lost, and
+ * `createBackup` would refuse it anyway; a directory is refused by the install's
+ * own pre-flight. An lstat that fails (EACCES on the project root, say) → `[]`:
+ * a probe, not a gate — a file that IS there but cannot be read still makes
+ * `createBackup` throw, before anything is written. Shared by the
+ * install (which acts) and init's overwrite prompt (which marks), so the two
+ * cannot disagree about the file.
+ */
+export function replacedConfigBackup(projectRoot: string): string[] {
+  try {
+    const stat = lstatSync(safeJoin(projectRoot, PHARN_CONFIG_FILE), {
+      throwIfNoEntry: false,
+    });
+    return stat?.isFile() === true ? [PHARN_CONFIG_FILE] : [];
+  } catch {
+    return [];
+  }
 }
 
 // The first free `<ts>`, `<ts>-2`, `<ts>-3`, … — never an existing directory.

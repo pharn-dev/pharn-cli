@@ -476,7 +476,8 @@ the block is for, though — if your values differ from the installed commands' 
 `node pharn/floor/check-model-config.mjs agreement` lists where (nothing runs it automatically).
 Editing the frontmatter of a `/pharn-*` command is a different edit: that file becomes `modified`, so
 `update` skips it and **does** withhold the skills-version bump, until you restore it or use `--force`.
-Editing only the block causes no file drift, and a re-run `pharn init` resets it.
+Editing only the block causes no file drift, and a re-run `pharn init` resets it (copying the previous
+`pharn.config.json` to `.pharn-backup/` first).
 
 If pharn-oss ships no block, yours is left alone (converted, if it is in the old format). If pharn-oss
 ships one this `pharn` cannot accept — pharn-oss's rules can move ahead of the copy of them in your

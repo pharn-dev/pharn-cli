@@ -168,6 +168,17 @@ files **first**, marked, and says how many there are of each kind:
 | `(differs from upstream)` | It differs from upstream, and there is no usable `pharn.records.json` to tell your edits from upstream changes, so every difference counts | Yes       |
 | _(not marked)_            | Byte-identical to upstream, or still exactly what pharn wrote (upstream simply moved on) — a clean upgrade                                 | No        |
 
+`pharn.config.json` is listed and backed up on its own terms. `init` **rewrites** it from its own
+fields, so when one exists (as a regular file) it is always copied to the same `.pharn-backup/<timestamp>/`
+first — even when it is the only file there — and the prompt marks it
+`pharn.config.json (will be rewritten — backed up first)`, right after the files above, so the cap of
+10 never hides it. What the rewrite resets: `seam` goes back to pharn's default and `models` is replaced
+by pharn-oss's current block (or removed, when pharn-oss ships none or this pharn rejects it), so any
+tuning of either is lost from the live file — copy it back from the backup if you want it. `archetypes`,
+`capabilities`, `layout`, `skillsVersion`, `commit` and the other keys pharn owns are regenerated;
+`manual` capabilities and [keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own)
+are carried over (below). A first install has no config to lose, so it backs none up.
+
 `pharn.records.json` counts as usable only when it matches the `skillsVersion` and `commit` of the
 config being replaced, as for `update`. Records are kept by path, so a file of yours at a path the
 previous install did not write — for example your own file at a path a newer pharn now installs to —
