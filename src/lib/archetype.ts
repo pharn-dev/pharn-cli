@@ -1,4 +1,5 @@
 import type { Archetype } from '../types.js';
+import { ARCHETYPE_VALUES } from './validate.js';
 
 // ---------------------------------------------------------------------------
 // Archetype classification (pure, no I/O): observable project facts → project
@@ -59,7 +60,7 @@ const CLIENT_UI = new Set([
 // The fixed output order. Detection returns archetypes in this order so the
 // result is deterministic regardless of input (package.json key order, or
 // file-tree traversal order) (P5).
-const ARCHETYPE_ORDER: readonly Archetype[] = ['ssr', 'backend', 'spa', 'lib'];
+const ARCHETYPE_ORDER: readonly Archetype[] = ARCHETYPE_VALUES;
 
 // The subset of package.json we read: dependency name maps only.
 export interface ProjectPackages {

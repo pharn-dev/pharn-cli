@@ -25,6 +25,7 @@ import {
   isArchetypeConfig,
   configPath,
   LEGACY_CONFIG_MESSAGE,
+  ArchetypesError,
   CapabilityEntryError,
   CapabilitySourceError,
   ConfigParseError,
@@ -434,6 +435,135 @@ describe('pharn-config', () => {
     });
   });
 
+  // F-05: `archetypes` drives selection (`resolveCapabilities`) and is printed by
+  // list/status/update, yet was never validated — `"ssr"` crashed those commands
+  // with a raw TypeError, `["bogus"]` silently narrowed the selection, and an ESC
+  // byte in an entry reached the terminal. It is now the `ArchetypesError` member
+  // of the named-error family.
+  describe('archetypes ingest', () => {
+    stubProcessExit();
+    const ABSENT = Symbol('absent');
+    const withArchetypes = (archetypes: unknown) => ({
+      pharnVersion: '0.4.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: null,
+      modules: [],
+      installedAt: '2026-08-07T00:00:00.000Z',
+      ...(archetypes === ABSENT ? {} : { archetypes }),
+      capabilities: [{ name: 'a11y', role: 'griller' }],
+    });
+    const writeRaw = (value: unknown): void => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify(value, null, 2),
+      );
+    };
+    const messageOf = (): string => {
+      try {
+        readPharnConfig(tmp.path());
+      } catch (err) {
+        return (err as Error).message;
+      }
+      return '';
+    };
+
+    it.each([['ssr'], [null], [{ 0: 'ssr' }], [7], [true]])(
+      'THROWS a named error when archetypes is not an array (%j)',
+      (archetypes) => {
+        writeRaw(withArchetypes(archetypes));
+        expect(() => readPharnConfig(tmp.path())).toThrow(ArchetypesError);
+        expect(messageOf()).toMatch(/pharn\.config\.json: archetypes must be/);
+        expect(messageOf()).toContain(JSON.stringify(archetypes));
+      },
+    );
+
+    it.each([[7], [null], [['ssr']], [{ name: 'ssr' }]])(
+      'THROWS a named error for a non-string entry %j, naming its index',
+      (entry) => {
+        writeRaw(withArchetypes(['ssr', entry]));
+        expect(() => readPharnConfig(tmp.path())).toThrow(ArchetypesError);
+        expect(messageOf()).toMatch(/archetypes\[1\]/);
+      },
+    );
+
+    it.each([['bogus'], ['SSR'], [' ssr'], ['universal'], ['']])(
+      'THROWS a named error for an unknown archetype %j (never a silent narrowing)',
+      (entry) => {
+        writeRaw(withArchetypes([entry]));
+        expect(() => readPharnConfig(tmp.path())).toThrow(ArchetypesError);
+        expect(messageOf()).toMatch(/archetypes\[0\]/);
+        expect(messageOf()).toContain(JSON.stringify(entry));
+        // The allowlist is named, so the fix is obvious.
+        for (const a of ['ssr', 'backend', 'spa', 'lib']) {
+          expect(messageOf()).toContain(`"${a}"`);
+        }
+      },
+    );
+
+    it.each([
+      ['ss\u001b[2Jr'],
+      ['ssr\u009b2J'],
+      ['s\u202esr'],
+      ['ssr\u2028'],
+      ['\u0007'],
+    ])(
+      'never echoes an unsafe character from the offending entry %j',
+      (entry) => {
+        writeRaw(withArchetypes([entry]));
+        const message = messageOf();
+        expect(message).toMatch(/archetypes\[0\]/);
+        expect(message).not.toMatch(
+          // eslint-disable-next-line no-control-regex
+          /[\x00-\x1f\x7f-\x9f\u2028\u2029\p{Cf}]/u,
+        );
+        // Escaped, not dropped: the offender stays recognisable.
+        expect(message).toMatch(/\\u00(1b|9b|07)|\\u202e|\\u2028/);
+      },
+    );
+
+    it('caps a huge offending value instead of echoing it whole', () => {
+      writeRaw(withArchetypes('x'.repeat(10_000)));
+      const message = messageOf();
+      expect(message).toMatch(/archetypes must be/);
+      expect(message.length).toBeLessThan(400);
+    });
+
+    it('still loads every archetypes shape this CLI writes or tolerated (P7)', () => {
+      for (const archetypes of [
+        ['ssr'],
+        ['ssr', 'backend', 'spa', 'lib'],
+        [],
+        // Duplicates are accepted, like duplicate capability entries: selection
+        // is set membership, so a repeat changes nothing.
+        ['ssr', 'ssr'],
+      ]) {
+        writeRaw(withArchetypes(archetypes));
+        expect(readPharnConfig(tmp.path())?.archetypes).toEqual(archetypes);
+      }
+      // Absent stays legal — every consumer reads `config.archetypes ?? []`.
+      writeRaw(withArchetypes(ABSENT));
+      const read = readPharnConfig(tmp.path());
+      expect(read).not.toBeNull();
+      expect(read).not.toHaveProperty('archetypes');
+    });
+
+    it('does not validate a pre-archetype (module) config, whose unused fields still load (P7)', () => {
+      writeRaw({ ...sample, archetypes: 'ssr' });
+      expect(readPharnConfig(tmp.path())?.archetypes).toBe('ssr');
+    });
+
+    it('joins isConfigValidationError, so every loader reports it and exits 1', () => {
+      expect(isConfigValidationError(new ArchetypesError('x'))).toBe(true);
+      writeRaw(withArchetypes('ssr'));
+      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
+        'archetypes must be',
+      );
+    });
+  });
+
   it('still loads a config carrying a removed vendorSkills key (P7 additive)', async () => {
     // A config written by an older CLI may carry the now-removed vendorSkills
     // field; the passthrough loader ignores unknown keys and still reads it.
@@ -744,6 +874,7 @@ describe('isConfigValidationError', () => {
     expect(isConfigValidationError(new SeamConfigError('x'))).toBe(true);
     expect(isConfigValidationError(new CapabilityEntryError('x'))).toBe(true);
     expect(isConfigValidationError(new CapabilitySourceError('x'))).toBe(true);
+    expect(isConfigValidationError(new ArchetypesError('x'))).toBe(true);
     expect(isConfigValidationError(new ConfigParseError('x'))).toBe(true);
     expect(isConfigValidationError(new Error('x'))).toBe(false);
     expect(isConfigValidationError('nope')).toBe(false);

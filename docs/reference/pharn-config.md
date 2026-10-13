@@ -34,6 +34,23 @@ actually copied from. `pharn add` never writes the field — it
 [refuses](../commands/add.md#layout-mismatch) a clone whose layout disagrees with the recorded one,
 because it installs a single capability and cannot migrate the rest of your tree.
 
+### `archetypes` — checked when the config loads
+
+`archetypes` decides which capabilities `pharn update` selects, so `list`, `status`, `update`, `add`
+and `remove` check it when they load the config. It must be an array, and each entry must be one of `"ssr"`,
+`"backend"`, `"spa"` or `"lib"` — exactly what `pharn init` writes. Anything else is a hand-edit error:
+a string such as `"archetypes": "ssr"`, an entry that is not a string, or an unknown name such as
+`"bogus"` or `"SSR"`. `pharn` names the field or the entry (`archetypes[1]`) and the value it found,
+then exits 1 before any download. It does not fall back to "run `pharn init`", and it never drops an
+unknown entry and continues with fewer archetypes. Characters a terminal would interpret are shown as
+`\uXXXX` escapes. Under `--json` the message goes to stderr and stdout stays empty.
+
+These are accepted: an absent `archetypes` (read as none), an empty array, and a repeated entry
+(selection treats a repeat as one).
+
+`pharn init` is not refused: as with any other config it cannot read, it carries nothing over from the
+old file and writes the archetypes it detects.
+
 ### `capabilities[].source` — selection provenance
 
 Each entry records **how it got there**, which decides who owns it on the next `pharn update`:
