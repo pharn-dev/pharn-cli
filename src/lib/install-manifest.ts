@@ -4,7 +4,7 @@ import {
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   DEV_COMMAND_PREFIX,
-  FLOOR_TEST_FIXTURES_DIR,
+  FLOOR_TEST_FIXTURES_DIRS,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import {
@@ -79,7 +79,7 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
  * their source path in `repoDir` — the selected capability dirs + the fixed
  * product surfaces (product `pharn-*` commands, `.cjs` hooks, trusted docs, the
  * root `features/README.md`, `pharn-contracts/`, `pharn-core/`, `.dev/floor/`
- * minus test files and its `test-fixtures/` subtree), at `layout`. `.claude/settings.json`
+ * minus test files and its `test-fixtures/` + `fixtures/` subtrees), at `layout`. `.claude/settings.json`
  * is user-owned (preserved at install) and is NOT included. Mirrors
  * installCapabilities (lib/install-capabilities.ts); every read is safeJoin-guarded.
  */
@@ -205,13 +205,24 @@ export function collectExpectedInstallPaths(params: {
   // direction (update would report permanent `missing` entries).
   addDir(
     paths.floor,
-    (rel) =>
-      !/\.test\.(mjs|cjs)$/.test(rel) &&
-      rel !== FLOOR_TEST_FIXTURES_DIR &&
-      !rel.startsWith(`${FLOOR_TEST_FIXTURES_DIR}/`),
+    (rel) => !/\.test\.(mjs|cjs)$/.test(rel) && !isFloorTestFixturePath(rel),
   );
 
   return expected;
+}
+
+/**
+ * Is this floor-RELATIVE posix path one of the floor's test-apparatus dirs
+ * (`FLOOR_TEST_FIXTURES_DIRS`) or inside one? Anchored at the floor root: only
+ * the root's DIRECT child of that name matches, so `lib/fixtures/x` and a file
+ * merely named `my-test-fixtures.mjs` are kept, and `''` (the root) never
+ * matches. The ONE predicate both the writer (install-capabilities.ts) and this
+ * manifest use, so the two cannot disagree on what the floor copy contains.
+ */
+export function isFloorTestFixturePath(rel: string): boolean {
+  return FLOOR_TEST_FIXTURES_DIRS.some(
+    (dir) => rel === dir || rel.startsWith(`${dir}/`),
+  );
 }
 
 /**

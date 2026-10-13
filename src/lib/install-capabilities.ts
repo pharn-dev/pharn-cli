@@ -14,7 +14,6 @@ import {
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
   DEV_COMMAND_PREFIX,
-  FLOOR_TEST_FIXTURES_DIR,
   PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import {
@@ -26,6 +25,7 @@ import {
 } from './layout.js';
 import {
   collectExpectedInstallPaths,
+  isFloorTestFixturePath,
   PHARN_CONFIG_FILE,
 } from './install-manifest.js';
 import { RECORDS_FILE } from './install-records.js';
@@ -48,7 +48,7 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 // ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands,
 // `.cjs` hooks, settings.json, the trusted docs, the root features/README.md,
 // pharn-contracts/, pharn-core/, and `.dev/floor/` minus test FILES and its
-// `test-fixtures/` subtree. `pharn-dev-*` commands, `.dev/features/`,
+// `test-fixtures/` + `fixtures/` subtrees. `pharn-dev-*` commands, `.dev/features/`,
 // `.dev/memory-bank/`, and `*.test.*` are NEVER in the copy set.
 //
 // One axis (P3): the capability copy routine.
@@ -76,22 +76,19 @@ export interface InstallCapabilitiesResult {
 
 const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
 
-// Is this absolute source path the floor's test-fixtures dir, or inside it?
+// Is this absolute source path one of the floor's test-apparatus dirs
+// (`test-fixtures/`, `fixtures/`), or inside one?
 //
 // ANCHORED at the floor root, deliberately. cpSync hands the filter an ABSOLUTE
 // path and calls it for the source ROOT too, so a bare segment test on the
 // absolute path would also match an ANCESTOR directory that happens to be named
-// `test-fixtures` — returning false for the root and copying NOTHING, silently
+// `test-fixtures` or `fixtures` — returning false for the root and copying NOTHING, silently
 // shipping no floor at all. Anchoring also makes this the same test, on the same
-// path shape, as the manifest mirror's: both compare a floor-relative posix
-// string. `relative(floorFrom, floorFrom)` is '', so the root is always kept.
-const inFloorFixtures = (floorFrom: string, src: string): boolean => {
-  const rel = toPosix(relative(floorFrom, src));
-  return (
-    rel === FLOOR_TEST_FIXTURES_DIR ||
-    rel.startsWith(`${FLOOR_TEST_FIXTURES_DIR}/`)
-  );
-};
+// path shape, as the manifest mirror's: both call `isFloorTestFixturePath` on a
+// floor-relative posix string. `relative(floorFrom, floorFrom)` is '', so the
+// root is always kept.
+const inFloorFixtures = (floorFrom: string, src: string): boolean =>
+  isFloorTestFixturePath(toPosix(relative(floorFrom, src)));
 
 // Trust (P2): the fetched repo is untrusted, and a recursive cpSync copies
 // symlinks VERBATIM by default — so a malicious clone could plant a symlink
@@ -356,7 +353,7 @@ export function installCapabilities(
     });
   }
 
-  // --- floor checkers (whole dir minus test files + test-fixtures/) ----------
+  // --- floor checkers (whole dir minus test files + test-fixture dirs) -------
   const floorFrom = safeJoin(repoDir, paths.floor);
   if (existsSync(floorFrom) && !isSymlink(floorFrom)) {
     cpSync(floorFrom, safeJoin(projectRoot, paths.floor), {

@@ -80,6 +80,16 @@ function scaffoldRepo(repo: string): void {
   );
   // A near-miss: SEGMENT match, not substring — this one must survive.
   write(join(repo, '.dev/floor/my-test-fixtures.mjs'), 'KEEP ME');
+  // pharn-oss's second test-apparatus dir: cost-ledger transcripts read only by
+  // *.test.mjs. Excluded like test-fixtures/, with the same near-miss and the
+  // same floor-root anchoring (a NESTED dir of either name is kept).
+  write(
+    join(repo, '.dev/floor/fixtures/cost-ledger/single-session.jsonl'),
+    'TRANSCRIPT',
+  );
+  write(join(repo, '.dev/floor/my-fixtures.mjs'), 'KEEP ME TOO');
+  write(join(repo, '.dev/floor/lib/fixtures/keep.json'), 'NESTED');
+  write(join(repo, '.dev/floor/lib/test-fixtures/keep.json'), 'NESTED');
   write(join(repo, '.dev/features/some-feature/PLAN.md'), 'DEVPLAN');
   write(join(repo, '.dev/memory-bank/lessons-learned.md'), 'DEVMB');
 }
@@ -441,6 +451,31 @@ describe('installCapabilities', () => {
     ).toBe(false);
   });
 
+  it('does NOT install the floor fixtures/ subtree', () => {
+    const { proj } = run();
+    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
+    expect(existsSync(join(proj, '.dev/floor/fixtures'))).toBe(false);
+    expect(readFileSync(join(proj, '.dev/floor/my-fixtures.mjs'), 'utf8')).toBe(
+      'KEEP ME TOO',
+    );
+  });
+
+  // Anchored at the floor root: only its DIRECT child of either name is test
+  // apparatus. A deeper dir of that name is ordinary floor content and is kept —
+  // the same for both names.
+  it('keeps a NESTED fixtures/ and test-fixtures/ dir', () => {
+    const { proj } = run();
+    expect(
+      readFileSync(join(proj, '.dev/floor/lib/fixtures/keep.json'), 'utf8'),
+    ).toBe('NESTED');
+    expect(
+      readFileSync(
+        join(proj, '.dev/floor/lib/test-fixtures/keep.json'),
+        'utf8',
+      ),
+    ).toBe('NESTED');
+  });
+
   // SEGMENT, not substring. The scaffold's `my-test-fixtures.mjs` sits beside
   // the fixtures dir and must survive.
   it('still installs a floor file whose NAME merely contains test-fixtures', () => {
@@ -467,6 +502,22 @@ describe('installCapabilities', () => {
       readFileSync(join(proj, '.dev/floor/my-test-fixtures.mjs'), 'utf8'),
     ).toBe('KEEP ME');
     // …and the real subtree is still excluded under that ancestor.
+    expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
+  });
+
+  it('installs the whole floor even when an ANCESTOR dir is named fixtures', () => {
+    const repo = join(tmp.path(), 'fixtures', 'repo');
+    const proj = join(tmp.path(), 'fixtures', 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+
+    installCapabilities(repo, proj, selection());
+
+    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
+    expect(readFileSync(join(proj, '.dev/floor/my-fixtures.mjs'), 'utf8')).toBe(
+      'KEEP ME TOO',
+    );
+    expect(existsSync(join(proj, '.dev/floor/fixtures'))).toBe(false);
     expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
   });
 
@@ -640,6 +691,12 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
       'DELIBERATELY RED',
     );
     write(join(repo, 'pharn/floor/my-test-fixtures.mjs'), 'KEEP ME');
+    write(
+      join(repo, 'pharn/floor/fixtures/cost-ledger/single-session.jsonl'),
+      'TRANSCRIPT',
+    );
+    write(join(repo, 'pharn/floor/my-fixtures.mjs'), 'KEEP ME TOO');
+    write(join(repo, 'pharn/floor/lib/fixtures/keep.json'), 'NESTED');
     // pharn-core: the fixed skill surface the installed /pharn-build cites
     // (seam-resolver + its evals). Copied whole, like pharn-contracts.
     write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'), 'sr');
@@ -799,6 +856,18 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(
       readFileSync(join(proj, 'pharn/floor/my-test-fixtures.mjs'), 'utf8'),
     ).toBe('KEEP ME');
+  });
+
+  it('does NOT install the floor fixtures/ subtree (pharn layout)', () => {
+    const { proj } = run();
+    expect(existsSync(join(proj, 'pharn/floor/validate.mjs'))).toBe(true);
+    expect(existsSync(join(proj, 'pharn/floor/fixtures'))).toBe(false);
+    expect(
+      readFileSync(join(proj, 'pharn/floor/my-fixtures.mjs'), 'utf8'),
+    ).toBe('KEEP ME TOO');
+    expect(
+      readFileSync(join(proj, 'pharn/floor/lib/fixtures/keep.json'), 'utf8'),
+    ).toBe('NESTED');
   });
 
   it('installs upstream LICENSE as pharn/LICENSE (pharn layout)', () => {

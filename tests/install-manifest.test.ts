@@ -70,6 +70,13 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, '.dev/floor/test-fixtures/red/skill.md'));
   write(join(repo, '.dev/floor/test-fixtures/structural/red-1.expected.json'));
   write(join(repo, '.dev/floor/my-test-fixtures.mjs'));
+  // pharn-oss's second test-apparatus dir (cost-ledger transcripts read only by
+  // *.test.mjs), a name-only near-miss, and a NESTED `fixtures/` the
+  // floor-root-anchored rule deliberately keeps.
+  write(join(repo, '.dev/floor/fixtures/cost-ledger/single-session.jsonl'));
+  write(join(repo, '.dev/floor/my-fixtures.mjs'));
+  write(join(repo, '.dev/floor/lib/fixtures/keep.json'));
+  write(join(repo, '.dev/floor/lib/test-fixtures/keep.json'));
   write(join(repo, '.dev/features/some-feature/PLAN.md'));
   write(join(repo, '.dev/memory-bank/lessons-learned.md'));
 }
@@ -102,6 +109,10 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/floor/validate.test.mjs'));
   write(join(repo, 'pharn/floor/test-fixtures/red/skill.md'));
   write(join(repo, 'pharn/floor/my-test-fixtures.mjs'));
+  write(join(repo, 'pharn/floor/fixtures/cost-ledger/single-session.jsonl'));
+  write(join(repo, 'pharn/floor/my-fixtures.mjs'));
+  write(join(repo, 'pharn/floor/lib/fixtures/keep.json'));
+  write(join(repo, 'pharn/floor/lib/test-fixtures/keep.json'));
   // pharn-core: the fixed skill surface (seam-resolver + its evals), copied whole.
   write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'));
   write(join(repo, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'));
@@ -353,7 +364,7 @@ describe('conflictingWriteTargets', () => {
 
 // The floor's test apparatus is excluded from the expected set too, or `status`
 // would drift-track 16 dev files as product and `update` would restore them.
-describe('collectExpectedInstallPaths — floor test-fixtures excluded', () => {
+describe('collectExpectedInstallPaths — floor test-fixtures + fixtures excluded', () => {
   const tmp = useTmpDir();
 
   function keysFor(layout: 'flat' | 'pharn'): string[] {
@@ -372,7 +383,10 @@ describe('collectExpectedInstallPaths — floor test-fixtures excluded', () => {
   it('omits every test-fixtures path but keeps the checkers (flat)', () => {
     const k = keysFor('flat');
     expect(k).toContain('.dev/floor/validate.mjs');
-    expect(k.filter((p) => p.includes('test-fixtures/'))).toEqual([]);
+    // Anchored at the floor root (a NESTED test-fixtures/ is kept, see below).
+    expect(k.filter((p) => p.startsWith('.dev/floor/test-fixtures/'))).toEqual(
+      [],
+    );
     // SEGMENT, not substring: the near-miss sibling survives.
     expect(k).toContain('.dev/floor/my-test-fixtures.mjs');
   });
@@ -380,9 +394,40 @@ describe('collectExpectedInstallPaths — floor test-fixtures excluded', () => {
   it('omits every test-fixtures path but keeps the checkers (pharn)', () => {
     const k = keysFor('pharn');
     expect(k).toContain('pharn/floor/validate.mjs');
-    expect(k.filter((p) => p.includes('test-fixtures/'))).toEqual([]);
+    expect(k.filter((p) => p.startsWith('pharn/floor/test-fixtures/'))).toEqual(
+      [],
+    );
     expect(k).toContain('pharn/floor/my-test-fixtures.mjs');
   });
+
+  // pharn-oss's `fixtures/` (the cost-ledger transcripts) is the same class of
+  // test apparatus: read only by *.test.mjs, so it is not product either.
+  it.each([
+    ['flat', '.dev/floor'],
+    ['pharn', 'pharn/floor'],
+  ] as const)(
+    'omits the floor-root fixtures/ subtree (%s)',
+    (layout, floor) => {
+      const k = keysFor(layout);
+      expect(k.filter((p) => p.startsWith(`${floor}/fixtures/`))).toEqual([]);
+      // SEGMENT, not substring: a file merely NAMED like it survives.
+      expect(k).toContain(`${floor}/my-fixtures.mjs`);
+    },
+  );
+
+  // Same anchoring as `test-fixtures`: only the floor root's DIRECT child is the
+  // test apparatus. A deeper dir of that name is ordinary floor content.
+  it.each([
+    ['flat', '.dev/floor'],
+    ['pharn', 'pharn/floor'],
+  ] as const)(
+    'keeps a NESTED fixtures/ dir, as it keeps a nested test-fixtures/ (%s)',
+    (layout, floor) => {
+      const k = keysFor(layout);
+      expect(k).toContain(`${floor}/lib/fixtures/keep.json`);
+      expect(k).toContain(`${floor}/lib/test-fixtures/keep.json`);
+    },
+  );
 
   // The mirror pin below proves writer and manifest agree — but ONLY if the
   // scaffold actually contains a fixture. Without this guard a future scaffold
@@ -393,10 +438,23 @@ describe('collectExpectedInstallPaths — floor test-fixtures excluded', () => {
     expect(
       existsSync(join(repo, '.dev/floor/test-fixtures/red/skill.md')),
     ).toBe(true);
+    expect(
+      existsSync(
+        join(repo, '.dev/floor/fixtures/cost-ledger/single-session.jsonl'),
+      ),
+    ).toBe(true);
     const pharnRepo = join(tmp.path(), 'pharn-repo');
     scaffoldRepoPharn(pharnRepo);
     expect(
       existsSync(join(pharnRepo, 'pharn/floor/test-fixtures/red/skill.md')),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(
+          pharnRepo,
+          'pharn/floor/fixtures/cost-ledger/single-session.jsonl',
+        ),
+      ),
     ).toBe(true);
   });
 });
