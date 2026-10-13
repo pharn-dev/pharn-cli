@@ -151,6 +151,30 @@ describe('pharn init --yes', () => {
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
+  // F-17: `--yes` composes with `--archetype` — installed and RECORDED for the
+  // flag, the summary printed with its origin.
+  it('`--yes --archetype backend` installs and records the flag’s archetypes', async () => {
+    const { repo, proj } = fixture(tmp.path());
+    await init(repo, proj, { yes: true, archetypes: ['backend'] });
+
+    expect(prompts.select).not.toHaveBeenCalled();
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    const config = JSON.parse(
+      readFileSync(join(proj, 'pharn.config.json'), 'utf8'),
+    ) as { archetypes: string[]; capabilities: { name: string }[] };
+    expect(config.archetypes).toEqual(['backend']);
+    expect(config.capabilities.map((c) => c.name).sort()).toEqual([
+      'a11y',
+      'n-plus-one',
+    ]);
+    const summary = vi
+      .mocked(prompts.note)
+      .mock.calls.map((c) => stripVTControlCharacters(String(c[0])))
+      .find((b) => b.includes('PHARN Install Summary'))!;
+    expect(summary).toMatch(/Archetypes \(--archetype\)\s+backend/);
+    expect(summary).toContain('detection found lib (not used)');
+  });
+
   it('never prompts in a TTY either', async () => {
     setTTY(true, true);
     const { repo, proj } = fixture(tmp.path());

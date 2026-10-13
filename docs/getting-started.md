@@ -54,10 +54,13 @@ npx @pharn-dev/pharn init
 1. **Detect archetypes.** The CLI merges your `package.json` dependency names with a bounded,
    symlink-safe file-tree scan (names only, never file bodies) into an archetype set — `ssr`, `backend`,
    `spa`, `lib` (a project may match several, e.g. Next + Express → `ssr` + `backend`). It shows what it
-   detected. Detection is **JS/TS-shaped**: the signals are npm dependency names plus `next.config.*`,
-   `app/` route handlers, `.tsx`/`.jsx`, `migrations/` and `.sql`. A Python, Go or Rust project produces
-   no signal, resolves to `lib`, and receives the universal capabilities only — the correct outcome, not
-   a failure.
+   detected, and what triggered each one (e.g. `backend ← src/app/api/`). Detection is **JS/TS-shaped**:
+   the signals are npm dependency names, `.tsx`/`.jsx` files, and — in a Next.js app only —
+   `next.config.*`, `app/` route handlers and `app/api`/`pages/api`; a root `api/`, `migrations/` and
+   database `.sql` files count only when the project has a root `package.json`. A Python, Go or Rust
+   project without one produces no signal, resolves to `lib`, and receives the universal capabilities
+   only — the correct outcome, not a failure. If detection gets your project wrong, pass the archetypes
+   yourself: `pharn init --archetype backend` (see [`init`](commands/init.md#choosing-the-archetypes-yourself---archetype)).
 2. **Fetch + resolve.** It downloads the tip of `pharn-dev/pharn-oss` `main` as a tarball, and selects
    the capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the
    rest with a reason. `pharn init --ref latest` installs the newest **verified release** instead — a tag

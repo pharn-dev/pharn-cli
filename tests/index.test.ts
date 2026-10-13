@@ -4,6 +4,7 @@ import { ProcessExit, stubProcessExit } from './helpers.js';
 const runInit = vi.fn(
   async (_opts?: {
     ref?: string;
+    archetypes?: string[];
     yes?: boolean;
     dryRun?: boolean;
     json?: boolean;
@@ -69,18 +70,6 @@ describe('main (argv dispatch)', () => {
     });
     expect(runAdd).not.toHaveBeenCalled();
     expect(runUpdate).not.toHaveBeenCalled();
-  });
-
-  it('accepts `init --archetype` as a no-op alias (archetype is now the default)', async () => {
-    setArgv('init', '--archetype');
-    await main();
-    expect(runInit).toHaveBeenCalledTimes(1);
-    expect(runInit).toHaveBeenCalledWith({
-      ref: undefined,
-      yes: false,
-      dryRun: false,
-      json: false,
-    });
   });
 
   it('routes `add <arg>` to runAdd with the argument', async () => {
@@ -635,7 +624,7 @@ describe('main (argv dispatch)', () => {
   // (`update` now takes `--json`, but only with `--dry-run`: see the
   // cross-flag table below.)
 
-  // `--archetype` is init's retained no-op alias, so it is init's ALONE.
+  // `--archetype` is init's override, so it is init's ALONE.
   it('exits(1) on `status --archetype`', async () => {
     await expectUnsupported(['status', '--archetype'], '--archetype');
   });
@@ -826,6 +815,7 @@ describe('main (argv dispatch)', () => {
     setArgv('init');
     await main();
     expect(Object.keys(runInit.mock.calls[0]![0]!).sort()).toEqual([
+      'archetypes',
       'dryRun',
       'json',
       'ref',
@@ -931,6 +921,155 @@ describe('main (argv dispatch)', () => {
     );
   });
 
+  // -------------------------------------------------------------------------
+  // `--archetype`: init's override of detection. A VALUE-taking option like
+  // `--ref`, held to the same strictness: an exact comma-separated list of the
+  // canonical archetypes, each at most once, `lib` only alone — anything else
+  // refused before the --help/--version short-circuits.
+  // -------------------------------------------------------------------------
+
+  describe('--archetype', () => {
+    it.each<[string, string[]]>([
+      ['ssr', ['ssr']],
+      ['backend', ['backend']],
+      ['spa', ['spa']],
+      ['lib', ['lib']],
+      ['spa,backend', ['backend', 'spa']],
+      ['spa,ssr,backend', ['ssr', 'backend', 'spa']],
+    ])(
+      '`init --archetype %s` threads %j (canonical order)',
+      async (value, expected) => {
+        setArgv('init', '--archetype', value);
+        await main();
+        expect(runInit).toHaveBeenCalledWith({
+          ref: undefined,
+          archetypes: expected,
+          yes: false,
+          dryRun: false,
+          json: false,
+        });
+      },
+    );
+
+    it('accepts the `--archetype=…` form and composes with --ref', async () => {
+      setArgv('init', '--archetype=backend', '--ref', 'latest');
+      await main();
+      expect(runInit).toHaveBeenCalledWith({
+        ref: 'latest',
+        archetypes: ['backend'],
+        yes: false,
+        dryRun: false,
+        json: false,
+      });
+    });
+
+    // The init row's other flags compose with it: the dry run (text and JSON)
+    // and the prompt-free --yes all receive the override.
+    it.each<[string[], Record<string, unknown>]>([
+      [
+        ['init', '--archetype', 'backend', '--dry-run'],
+        { dryRun: true, json: false, yes: false },
+      ],
+      [
+        ['init', '--archetype', 'backend', '--dry-run', '--json'],
+        { dryRun: true, json: true, yes: false },
+      ],
+      [
+        ['init', '--archetype', 'backend', '--yes'],
+        { dryRun: false, json: false, yes: true },
+      ],
+      [
+        ['init', '-y', '--archetype=backend'],
+        { dryRun: false, json: false, yes: true },
+      ],
+      [
+        ['--archetype', 'backend', '--dry-run', '--json'],
+        { dryRun: true, json: true, yes: false },
+      ],
+    ])('composes with the init row: %j', async (args, flags) => {
+      setArgv(...args);
+      await main();
+      expect(runInit).toHaveBeenCalledWith({
+        ref: undefined,
+        archetypes: ['backend'],
+        ...flags,
+      });
+    });
+
+    it('`--archetype x --json` without --dry-run is still Incomplete, not Invalid', async () => {
+      setArgv('init', '--archetype', 'backend', '--json');
+      await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+      expect(stderrText()).toContain('Incomplete option for `init`');
+      expect(runInit).not.toHaveBeenCalled();
+    });
+
+    it('binds its value, so the value is not read as a positional', async () => {
+      setArgv('init', '--archetype', 'backend');
+      await main();
+      expect(runInit).toHaveBeenCalledTimes(1);
+    });
+
+    it('still refuses an extra positional after its value', async () => {
+      setArgv('init', '--archetype', 'backend', 'extra');
+      await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+      expect(stderrText()).toContain('Unexpected argument: "extra"');
+      expect(runInit).not.toHaveBeenCalled();
+    });
+
+    it('passes undefined when absent (detection decides)', async () => {
+      setArgv('init');
+      await main();
+      expect(runInit.mock.calls[0]![0]!.archetypes).toBeUndefined();
+    });
+
+    it.each([
+      [['init', '--archetype']],
+      [['init', '--archetype=']],
+      [['init', '--archetype', '--ref', 'main']],
+      [['init', '--no-archetype']],
+      [['init', '--archetype', 'ssr', '--archetype', 'spa']],
+      [['init', '--archetype', 'bogus']],
+      [['init', '--archetype', 'Backend']],
+      [['init', '--archetype', 'backend,backend']],
+      [['init', '--archetype', 'backend,']],
+      [['init', '--archetype', ',backend']],
+      [['init', '--archetype', 'backend, spa']],
+      [['init', '--archetype', 'lib,backend']],
+      [['init', '--archetype', 'universal']],
+      [['--archetype', 'toString']],
+    ])('refuses an invalid value: %j', async (args) => {
+      setArgv(...args);
+      await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+      expect(runInit).not.toHaveBeenCalled();
+      expect(stderrText()).toContain('Invalid value for --archetype');
+      expect(stderrText()).toContain('"ssr", "backend", "spa"');
+    });
+
+    it('names the offending value, escaped', async () => {
+      setArgv('init', '--archetype', 'ssr\u001b[2J');
+      await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+      expect(stderrText()).toContain('"ssr\\u001b[2J"');
+    });
+
+    it.each([['--help'], ['--version']])(
+      'refuses an invalid value even beside %s',
+      async (flag) => {
+        setArgv('init', flag, '--archetype', 'bogus');
+        await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+        expect(stderrText()).toContain('Invalid value for --archetype');
+      },
+    );
+
+    it.each(['status', 'update', 'add', 'remove', 'list'])(
+      'is refused for `%s`, which reads the recorded archetypes',
+      async (cmd) => {
+        setArgv(cmd, '--archetype', 'ssr');
+        await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+        expect(stderrText()).toContain(`Unsupported option for \`${cmd}\``);
+      },
+    );
+  });
+
   it('scopes every option to its command in the usage text', async () => {
     setArgv('--help');
     await main();
@@ -939,7 +1078,8 @@ describe('main (argv dispatch)', () => {
     expect(printed).toMatch(/--strict\s+status:/);
     expect(printed).toMatch(/--json[^\n]*\n\s+status:/);
     expect(printed).toMatch(/--no-drift\s+status:/);
-    expect(printed).toMatch(/--archetype\s+init:/);
+    expect(printed).toMatch(/--archetype <list>\s+init:/);
+    expect(printed).not.toContain('no-op');
     expect(printed).toMatch(/--ref <ref>\s+init, update:/);
   });
 });

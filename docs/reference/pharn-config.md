@@ -9,20 +9,20 @@ archetypes/capabilities and the pinned commit).
 
 ## Top-level fields (archetype install)
 
-| Field           | Type           | Description                                                                       |     |
-| --------------- | -------------- | --------------------------------------------------------------------------------- | --- |
-| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                     |     |
-| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                               |     |
-| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                               |     |
-| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable               |     |
-| `ref`           | string         | `"latest"` to follow verified releases (`--ref latest`); absent → the tip of main |     |
-| `installedAt`   | string         | ISO timestamp of the install / last update                                        |     |
-| `archetypes`    | array          | Detected project archetypes (`ssr` / `backend` / `spa` / `lib`)                   |     |
-| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                |     |
-| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)             |     |
-| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)           |     |
-| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                      |     |
-| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))         |     |
+| Field           | Type           | Description                                                                                              |     |
+| --------------- | -------------- | -------------------------------------------------------------------------------------------------------- | --- |
+| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                                            |     |
+| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                                      |     |
+| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                                      |     |
+| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                                      |     |
+| `ref`           | string         | `"latest"` to follow verified releases (`--ref latest`); absent → the tip of main                        |     |
+| `installedAt`   | string         | ISO timestamp of the install / last update                                                               |     |
+| `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype` |     |
+| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                       |     |
+| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                                    |     |
+| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)                                  |     |
+| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                             |     |
+| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))                                |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 

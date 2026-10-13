@@ -11,10 +11,20 @@ import { join, resolve } from 'node:path';
 import {
   archetypesFromSignals,
   classifyEntry,
+  evidenceFor,
+  isBaseDir,
+  isNextConfigName,
   mergeSignals,
-  packageSignals,
+  packageFacts,
 } from './archetype.js';
-import type { ArchetypeSignals, ProjectPackages } from './archetype.js';
+import type {
+  ArchetypeEvidence,
+  ArchetypeSignals,
+  ClassifyContext,
+  PackageFacts,
+  ProjectPackages,
+  SignalEvidence,
+} from './archetype.js';
 import type { Archetype } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -29,12 +39,16 @@ import type { Archetype } from '../types.js';
 //   1. package.json dependency NAMES  (readPackageSignals, below)
 //   2. file-tree structural signals   (scanFileTreeSignals, below)
 //
-// Both are untrusted project input (P2). We test NAMES only — dependency key
-// names and file/dir names — for membership against fixed in-code allowlists /
-// patterns; we never execute, interpolate, forward, or log a value, and the
-// tree walk never reads a discovered file's BODY (only package.json is read, as
-// before). The output is a closed `Archetype[]` enum plus a boolean, so no
-// untrusted free text escapes this boundary.
+// Both are local project input (P2). We test NAMES only — dependency key names
+// and file/dir names — for membership against fixed in-code allowlists /
+// patterns; we never execute, interpolate or forward a value, and the tree walk
+// never reads a discovered file's BODY (only package.json is read, as before).
+// The output is a closed `Archetype[]` enum, a boolean, and one piece of
+// EVIDENCE per archetype for the install summary: a dependency name that is an
+// allowlist LITERAL (never the manifest's key bytes), or a project-relative
+// path built from the user's own directory entries. Those paths are display
+// data only — never written to the config, joined into a path, or compared —
+// and every render site passes them through `terminalSafe`.
 //
 // NOTE (human-owned reconciliation, surfaced per P6): ARCHITECTURE.md §5 still
 // phrases detection as "membership over package.json", predating the file-tree
@@ -52,6 +66,8 @@ import type { Archetype } from '../types.js';
 export interface ArchetypeDetection {
   archetypes: Archetype[];
   packageJsonFound: boolean;
+  // One entry per archetype, in the same order (see `evidenceFor`).
+  evidence: ArchetypeEvidence[];
 }
 
 // Directories never recursed into and never classified — heavy or irrelevant
@@ -162,21 +178,58 @@ const MAX_DEPTH = 24;
 const MAX_ENTRIES = 50_000;
 
 /**
- * Walk the project tree once and collect the merged file-tree ArchetypeSignals.
- * The per-entry classification rule is the pure `classifyEntry` (archetype.ts);
- * this function owns only the READING STRATEGY — the bounded, sorted, symlink-safe
- * walk that produces each entry's ancestor `segments` and feeds them in.
+ * What the scan root's package.json tells the walk. `jsProject` (a usable
+ * manifest) gates the language-agnostic backend signals; `nextDependency` is the
+ * root base's Next evidence. A missing manifest is both `false`.
+ */
+export interface RootFacts {
+  jsProject: boolean;
+  nextDependency: boolean;
+}
+
+const NO_PACKAGE_JSON: RootFacts = { jsProject: false, nextDependency: false };
+
+/** The walk's result: the merged tree signals and each signal's first trigger. */
+export interface TreeScan {
+  signals: ArchetypeSignals;
+  evidence: SignalEvidence;
+}
+
+const SIGNAL_KEYS: ReadonlyArray<keyof ArchetypeSignals> = [
+  'ssr',
+  'backend',
+  'clientUi',
+];
+
+/**
+ * Walk the project tree once and collect the merged file-tree signals, plus the
+ * project-relative path of the FIRST entry that raised each one (evidence). The
+ * per-entry classification rule is the pure `classifyEntry` (archetype.ts); this
+ * function owns only the READING STRATEGY — the bounded, sorted, symlink-safe
+ * walk that produces each entry's ancestor `segments` and surroundings (`ctx`).
+ *
+ * Bases: when the walk lists a directory that is a BASE (`isBaseDir` — the root,
+ * `apps/<x>`, `packages/<x>`) it decides that base's Next evidence from the
+ * regular-file names it has just read (a `next.config.*`; for the root also the
+ * `next` dependency), BEFORE any of its entries is classified, and threads it to
+ * the whole subtree. No extra I/O.
  *
  * Deterministic (P5): signals are booleans (OR-merge is order-independent) and
  * per-directory entries are sorted by name before traversal, so even a
- * cap-truncated walk visits the same set on any filesystem. Short-circuits once
- * all three signals are true. Symlinks are never followed or classified
- * (recursion/classification is gated on real files/dirs), so the walk cannot
- * escape `root` via a symlink. A per-directory read error is narrowly caught and
- * that subtree contributes no signal — a deterministic default, not a guess.
+ * cap-truncated walk visits the same set — and records the same first trigger —
+ * on any filesystem. Short-circuits once all three signals are true (they are
+ * the GATED signals, so a short-circuit never rests on one that did not count).
+ * Symlinks are never followed or classified (recursion/classification is gated
+ * on real files/dirs), so the walk cannot escape `root` via a symlink. A
+ * per-directory read error is narrowly caught and that subtree contributes no
+ * signal — a deterministic default, not a guess.
  */
-export function scanFileTreeSignals(root: string): ArchetypeSignals {
+export function scanFileTree(
+  root: string,
+  facts: RootFacts = NO_PACKAGE_JSON,
+): TreeScan {
   let acc: ArchetypeSignals = { ssr: false, backend: false, clientUi: false };
+  const evidence: SignalEvidence = {};
   let budget = MAX_ENTRIES;
 
   const allFound = (): boolean => acc.ssr && acc.backend && acc.clientUi;
@@ -193,6 +246,8 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
     dir: string,
     depth: number,
     segments: readonly string[],
+    names: readonly string[],
+    inherited: ClassifyContext,
   ): void => {
     if (depth > MAX_DEPTH || budget <= 0 || allFound()) return;
     const entries = readEntries(dir).sort((a, b) =>
@@ -201,6 +256,15 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
     const siblingFiles = new Set(
       entries.filter((e) => e.isFile()).map((e) => e.name),
     );
+    const ctx: ClassifyContext = isBaseDir(segments)
+      ? {
+          jsProject: facts.jsProject,
+          baseDepth: segments.length,
+          nextBase:
+            (segments.length === 0 && facts.nextDependency) ||
+            [...siblingFiles].some(isNextConfigName),
+        }
+      : inherited;
     for (const entry of entries) {
       if (budget <= 0 || allFound()) return;
       const name = entry.name;
@@ -212,18 +276,43 @@ export function scanFileTreeSignals(root: string): ArchetypeSignals {
       if (!isDir && name.toLowerCase().startsWith('.env')) continue;
       if (!isDir && !entry.isFile()) continue; // sockets/fifos/etc.: not signals
       budget -= 1;
-      acc = mergeSignals(acc, classifyEntry(name, isDir, segments));
+      const sig = classifyEntry(name, isDir, segments, ctx);
+      for (const key of SIGNAL_KEYS) {
+        if (sig[key] && evidence[key] === undefined) {
+          evidence[key] = [...names, name].join('/') + (isDir ? '/' : '');
+        }
+      }
+      acc = mergeSignals(acc, sig);
       // Recurse with this dir appended to the (lowercased) ancestor chain, so a
-      // child sees its full path context. Determinism is preserved: `segments`
-      // derives from the same sorted, bounded walk (P5).
+      // child sees its full path context; `names` keeps the original spelling
+      // for evidence. Determinism is preserved: both derive from the same
+      // sorted, bounded walk (P5).
       if (isDir) {
-        walk(join(dir, name), depth + 1, [...segments, name.toLowerCase()]);
+        walk(
+          join(dir, name),
+          depth + 1,
+          [...segments, name.toLowerCase()],
+          [...names, name],
+          ctx,
+        );
       }
     }
   };
 
-  walk(root, 0, []);
-  return acc;
+  walk(root, 0, [], [], {
+    jsProject: facts.jsProject,
+    baseDepth: 0,
+    nextBase: false,
+  });
+  return { signals: acc, evidence };
+}
+
+/** The file-tree signals alone (`scanFileTree` without the evidence). */
+export function scanFileTreeSignals(
+  root: string,
+  facts: RootFacts = NO_PACKAGE_JSON,
+): ArchetypeSignals {
+  return scanFileTree(root, facts).signals;
 }
 
 // A package.json larger than this is not one pharn will read (real manifests
@@ -275,19 +364,20 @@ function readPackageJsonText(pkgPath: string): string | null {
 }
 
 /**
- * Read `<cwd>/package.json` and reduce it to its raw ArchetypeSignals, reporting
- * whether a usable manifest was found. Missing file, unusable file (not a
- * regular file, over MAX_PACKAGE_JSON_BYTES), parse error, or a non-object
- * top-level value all yield the empty signal set with `packageJsonFound: false`;
- * a found, parseable object yields its signals with `true`.
+ * Read `<cwd>/package.json` and reduce it to its PackageFacts (signals, their
+ * dependency evidence, the `next` dependency), reporting whether a usable
+ * manifest was found. Missing file, unusable file (not a regular file, over
+ * MAX_PACKAGE_JSON_BYTES), parse error, or a non-object top-level value all
+ * yield the empty facts with `packageJsonFound: false`; a found, parseable
+ * object yields its facts with `true`.
  */
-function readPackageSignals(cwd: string): {
-  pkgSig: ArchetypeSignals;
+function readPackageFacts(cwd: string): {
+  pkg: PackageFacts;
   packageJsonFound: boolean;
 } {
-  const empty = packageSignals({});
+  const empty = packageFacts({});
   const text = readPackageJsonText(resolve(cwd, 'package.json'));
-  if (text === null) return { pkgSig: empty, packageJsonFound: false };
+  if (text === null) return { pkg: empty, packageJsonFound: false };
   try {
     const parsed: unknown = JSON.parse(text);
     if (
@@ -295,32 +385,43 @@ function readPackageSignals(cwd: string): {
       parsed === null ||
       Array.isArray(parsed)
     ) {
-      return { pkgSig: empty, packageJsonFound: false };
+      return { pkg: empty, packageJsonFound: false };
     }
     return {
-      pkgSig: packageSignals(parsed as ProjectPackages),
+      pkg: packageFacts(parsed as ProjectPackages),
       packageJsonFound: true,
     };
   } catch {
-    return { pkgSig: empty, packageJsonFound: false };
+    return { pkg: empty, packageJsonFound: false };
   }
 }
 
 /**
- * Detect a project's archetype set from disk: merge its package.json signals
- * with its file-tree signals, then apply the archetype rule once.
+ * Detect a project's archetype set from disk: read its package.json, walk its
+ * file tree with what the manifest says (a JS project? a `next` dependency?),
+ * merge the two signal sets, then apply the archetype rule once.
  *
- * Deterministic (P5): the same project directory always yields the same result.
- * `packageJsonFound` reports only whether a usable package.json was read (see the
- * interface note); the archetype set reflects BOTH sources — so a project with no
- * manifest but a `.tsx` file is `{ archetypes: ['spa'], packageJsonFound: false }`,
- * and a wholly signal-less project is `{ archetypes: ['lib'], ... }` (the
- * frameworkless base, ARCHITECTURE.md §4). These are defined, deterministic
- * outcomes, not guesses.
+ * Deterministic (P5): the same project directory always yields the same result,
+ * evidence included. `packageJsonFound` reports only whether a usable
+ * package.json was read (see the interface note) — it is also the JS-ecosystem
+ * evidence the walk's language-agnostic backend signals need; the archetype set
+ * reflects BOTH sources — so a project with no manifest but a `.tsx` file is
+ * `{ archetypes: ['spa'], packageJsonFound: false }`, and a wholly signal-less
+ * project is `{ archetypes: ['lib'], ... }` (the frameworkless base,
+ * ARCHITECTURE.md §4). These are defined, deterministic outcomes, not guesses.
  */
 export function detectArchetypesFromProject(cwd: string): ArchetypeDetection {
-  const { pkgSig, packageJsonFound } = readPackageSignals(cwd);
-  const fileSig = scanFileTreeSignals(cwd);
-  const merged = mergeSignals(pkgSig, fileSig);
-  return { archetypes: archetypesFromSignals(merged), packageJsonFound };
+  const { pkg, packageJsonFound } = readPackageFacts(cwd);
+  const tree = scanFileTree(cwd, {
+    jsProject: packageJsonFound,
+    nextDependency: pkg.nextDependency,
+  });
+  const archetypes = archetypesFromSignals(
+    mergeSignals(pkg.signals, tree.signals),
+  );
+  return {
+    archetypes,
+    packageJsonFound,
+    evidence: evidenceFor(archetypes, pkg.evidence, tree.evidence),
+  };
 }

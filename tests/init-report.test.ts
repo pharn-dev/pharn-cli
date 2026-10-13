@@ -15,6 +15,11 @@ const BIDI = String.fromCharCode(0x202e);
 function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
   return {
     archetypes: ['ssr'],
+    archetypeOrigin: {
+      kind: 'detected',
+      evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
+    },
+    previousArchetypes: null,
     channel: 'main',
     source: { kind: 'main' },
     commit: 'a'.repeat(40),
@@ -75,6 +80,9 @@ describe('buildInitReport', () => {
       'skillsVersion',
       'layout',
       'archetypes',
+      'archetypeSource',
+      'detectedArchetypes',
+      'archetypeEvidence',
       'capabilities',
       'unknownCapabilities',
       'targets',
@@ -131,6 +139,72 @@ describe('buildInitReport', () => {
     expect(r.hooks).toBeNull();
     expect(r.config).toEqual({ carriedKeys: ['testResults'] });
     expect(r.settings).toEqual({ preserved: false });
+  });
+
+  // F-17: where the archetypes came from — additive within schemaVersion 1.
+  it('detected: archetypeSource, the evidence, and no detected set', () => {
+    const r = buildInitReport(plan());
+    expect(r.archetypeSource).toBe('detected');
+    expect(r.detectedArchetypes).toBeNull();
+    expect(r.archetypeEvidence).toEqual([
+      { archetype: 'ssr', source: 'dependency', value: 'next' },
+    ]);
+    // The previous-config list is display-only and not part of the contract.
+    expect(Object.keys(r)).not.toContain('previousArchetypes');
+  });
+
+  it('--archetype: archetypeSource "flag", with the unused detection and its evidence', () => {
+    const r = buildInitReport(
+      plan({
+        archetypes: ['backend'],
+        archetypeOrigin: {
+          kind: 'flag',
+          detected: ['ssr', 'backend'],
+          evidence: [
+            { archetype: 'ssr', source: 'dependency', name: 'next' },
+            { archetype: 'backend', source: 'path', path: 'src/app/api/' },
+          ],
+        },
+      }),
+    );
+    expect(r.archetypes).toEqual(['backend']);
+    expect(r.archetypeSource).toBe('flag');
+    expect(r.detectedArchetypes).toEqual(['ssr', 'backend']);
+    expect(r.archetypeEvidence).toEqual([
+      { archetype: 'ssr', source: 'dependency', value: 'next' },
+      { archetype: 'backend', source: 'path', value: 'src/app/api/' },
+    ]);
+  });
+
+  it('lib evidence has a null value; a path is capped and escaped', () => {
+    const lib = buildInitReport(
+      plan({
+        archetypes: ['lib'],
+        archetypeOrigin: {
+          kind: 'detected',
+          evidence: [{ archetype: 'lib', source: 'none' }],
+        },
+      }),
+    );
+    expect(lib.archetypeEvidence).toEqual([
+      { archetype: 'lib', source: 'none', value: null },
+    ]);
+
+    const long = `src/${ESC}[2J${'a'.repeat(400)}.tsx`;
+    const spa = buildInitReport(
+      plan({
+        archetypes: ['spa'],
+        archetypeOrigin: {
+          kind: 'detected',
+          evidence: [{ archetype: 'spa', source: 'path', path: long }],
+        },
+      }),
+    );
+    const value = spa.archetypeEvidence[0]!.value!;
+    expect(value.length).toBeLessThan(long.length);
+    const text = serializeJsonReport(spa);
+    expect(text).not.toContain(ESC);
+    expect(text).toContain('\\u001b');
   });
 
   it('yesWouldProceed is exactly counts.overwrite === 0', () => {

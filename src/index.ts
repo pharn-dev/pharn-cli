@@ -10,6 +10,8 @@ import { runList } from './commands/list.js';
 import { runStatus } from './commands/status.js';
 import { runUninstall } from './commands/uninstall.js';
 import { REF_CHOICES, type RefChoice } from './lib/release.js';
+import { parseArchetypeList } from './lib/archetype.js';
+import type { Archetype } from './types.js';
 import { PHARN_VERSION } from './version.js';
 
 const USAGE = `Pharn - Installs and updates PHARN (a workflow for shipping features right with Claude Code) in your git project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
@@ -27,7 +29,9 @@ Commands:
   uninstall                  Remove the PHARN files pharn wrote and you did not change
 
 Options (each belongs to ONE command; passing it to another is an error):
-      --archetype    init: deprecated no-op — archetype detection is now the default
+      --archetype <list>
+                     init: use these archetypes instead of detecting them — a
+                     comma-separated list of ssr, backend, spa (or lib alone)
       --ref <ref>    init, update: install from "main" (the pharn-oss tip — the default)
                      or "latest" (its newest verified release); recorded
       --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
@@ -70,7 +74,7 @@ const MAX_POSITIONALS = new Map<string, number>([
 // Which flags each command accepts, by the flag's CANONICAL minimist key
 // (`drift`, not `no-drift`). Derived from what each command actually READS —
 // `runAdd(arg)` and `runRemove(arg)` take no options at all, so their rows are
-// empty; `--archetype` is init's retained no-op alias.
+// empty; `--archetype` is init's override of detection.
 //
 // Before this table, minimist declared every flag globally and the dispatch
 // simply did not look at the ones it did not want: `pharn list --strict` was
@@ -140,10 +144,11 @@ const ALIASES: Readonly<Record<string, string>> = {
   y: 'yes',
 };
 
-// The flags in the table above that take a VALUE (`--ref main`) rather than
-// being booleans. Every other flag is a boolean. A flag's kind is a property of
-// the flag, not of the command, so this is a set of names, not a second table.
-const STRING_FLAGS: ReadonlySet<string> = new Set(['ref']);
+// The flags in the table above that take a VALUE (`--ref main`,
+// `--archetype backend`) rather than being booleans. Every other flag is a
+// boolean. A flag's kind is a property of the flag, not of the command, so this
+// is a set of names, not a second table.
+const STRING_FLAGS: ReadonlySet<string> = new Set(['ref', 'archetype']);
 
 // DERIVED, never hand-maintained. A flag declared here but present in no
 // command's row is exactly the shape of the bug above, so the global
@@ -251,8 +256,6 @@ export async function main(): Promise<void> {
     // The value-taking flags are declared here too, so `--ref main` binds
     // `main` to `ref` rather than reading it as a positional.
     string: ['_', ...DECLARED_STRINGS],
-    // `archetype` is retained as a no-op alias for one release: archetype
-    // detection is now init's default, so the flag still parses but is not read.
     // `status` drifts by default; `--no-drift` flips it off. minimist defaults
     // bare booleans to false, so set the on-by-default here explicitly.
     default: { drift: true },
@@ -310,6 +313,20 @@ export async function main(): Promise<void> {
     );
   }
 
+  // `--archetype`'s VALUE, beside `--ref`'s and for the same reason: before the
+  // short-circuits, so `pharn init --help --archetype bogus` refuses too.
+  const archetypes = archetypeOption(argv.archetype);
+  if (archetypes === null) {
+    refuse(
+      'Invalid value for --archetype (expected a comma-separated list of "ssr", "backend", "spa" — or "lib" alone — each at most once)',
+      [
+        typeof argv.archetype === 'string'
+          ? argv.archetype
+          : JSON.stringify(argv.archetype),
+      ],
+    );
+  }
+
   if (argv.version) {
     console.log(PHARN_VERSION);
     return;
@@ -331,6 +348,7 @@ export async function main(): Promise<void> {
     case 'init':
       await runInit({
         ref,
+        archetypes,
         yes: Boolean(argv.yes),
         dryRun: Boolean(argv['dry-run']),
         json: Boolean(argv.json),
@@ -388,6 +406,17 @@ export async function main(): Promise<void> {
 function refOption(value: unknown): RefChoice | undefined | null {
   if (value === undefined) return undefined;
   return REF_CHOICES.find((choice) => choice === value) ?? null;
+}
+
+// `--archetype`: absent → `undefined` (init detects); a string in the exact
+// grammar (`parseArchetypeList`) → those archetypes in canonical order; anything
+// else → `null`, which the dispatch refuses. Like `--ref`, "anything else"
+// covers minimist's `''` (a bare flag, or one followed by another option),
+// `false` (`--no-archetype`) and an ARRAY (the flag passed twice) — exact
+// membership, never a guess (P5).
+function archetypeOption(value: unknown): Archetype[] | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === 'string' ? parseArchetypeList(value) : null;
 }
 
 // Auto-run only when invoked as the CLI entry point (dev: `tsx src/index.ts`,

@@ -1,3 +1,4 @@
+import type { ArchetypeEvidence } from './archetype.js';
 import type { DriftLabel } from './dest-drift.js';
 import type { HookEntry, HookWiringDiff } from './hook-wiring.js';
 import type { InitPlanReport } from './init-plan.js';
@@ -33,6 +34,9 @@ export const INIT_SCHEMA_VERSION = 1;
 // kinds of field.
 const MAX_REASON = 300;
 const MAX_UNKNOWN_FIELD = 200;
+// An evidence path is a name from the user's own tree; the summary caps it at
+// 120 for the terminal, the report at the same 200 as other free text.
+const MAX_EVIDENCE = 200;
 
 export interface InitReport {
   schemaVersion: typeof INIT_SCHEMA_VERSION;
@@ -45,6 +49,20 @@ export interface InitReport {
   skillsVersion: string;
   layout: Layout;
   archetypes: Archetype[];
+  // Where `archetypes` came from: `detected`, or `flag` (`--archetype`).
+  archetypeSource: 'detected' | 'flag';
+  // With `archetypeSource: "flag"`, the set detection found and did not use;
+  // `null` otherwise.
+  detectedArchetypes: Archetype[] | null;
+  // DETECTION's evidence, one entry per detected archetype: the dependency
+  // name (`source: "dependency"`), the first triggering project-relative path
+  // (`"path"`, directories end in `/`), or `null` for `lib` (`"none"`). With
+  // `archetypeSource: "flag"` it describes `detectedArchetypes`.
+  archetypeEvidence: {
+    archetype: Archetype;
+    source: ArchetypeEvidence['source'];
+    value: string | null;
+  }[];
   capabilities: {
     selected: {
       role: SelectedCapability['role'];
@@ -104,6 +122,21 @@ export function buildInitReport(p: InitPlanReport): InitReport {
     skillsVersion: p.skillsVersion,
     layout: p.layout,
     archetypes: [...p.archetypes],
+    archetypeSource: p.archetypeOrigin.kind,
+    detectedArchetypes:
+      p.archetypeOrigin.kind === 'flag'
+        ? [...p.archetypeOrigin.detected]
+        : null,
+    archetypeEvidence: p.archetypeOrigin.evidence.map((e) => ({
+      archetype: e.archetype,
+      source: e.source,
+      value:
+        e.source === 'dependency'
+          ? e.name
+          : e.source === 'path'
+            ? cap(e.path, MAX_EVIDENCE)
+            : null,
+    })),
     capabilities: {
       selected: p.selection.selected.map((c) => ({
         role: c.role,

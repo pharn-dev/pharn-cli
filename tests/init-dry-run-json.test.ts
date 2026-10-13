@@ -130,8 +130,13 @@ describe('runInit --dry-run --json', () => {
   const stderr = (): string =>
     errSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function run(opts: { ref?: 'main' | 'latest' } = {}): Promise<any> {
+  async function run(
+    opts: {
+      ref?: 'main' | 'latest';
+      archetypes?: ('ssr' | 'backend' | 'spa' | 'lib')[];
+    } = {},
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ): Promise<any> {
     await runInit({ ...opts, dryRun: true, json: true });
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(stdoutSpy).not.toHaveBeenCalled();
@@ -166,6 +171,38 @@ describe('runInit --dry-run --json', () => {
     expect(err).not.toMatch(/[│┌└◇●▲■]/);
     return err;
   }
+
+  // F-17: where the archetypes came from, additive within schemaVersion 1.
+  it('reports detection as the archetype source, with its evidence', async () => {
+    const r = await run();
+    expect(r.archetypes).toEqual(['ssr']);
+    expect(r.archetypeSource).toBe('detected');
+    expect(r.detectedArchetypes).toBeNull();
+    expect(r.archetypeEvidence).toEqual([
+      { archetype: 'ssr', source: 'dependency', value: 'next' },
+    ]);
+  });
+
+  it('`--archetype backend --dry-run --json`: plans for the flag, reports the unused detection', async () => {
+    const before = [snapshotTree(proj), snapshotTree(repo)];
+    const r = await run({ archetypes: ['backend'] });
+    expect([snapshotTree(proj), snapshotTree(repo)]).toEqual(before);
+
+    expect(r.archetypes).toEqual(['backend']);
+    expect(r.archetypeSource).toBe('flag');
+    expect(r.detectedArchetypes).toEqual(['ssr']);
+    expect(r.archetypeEvidence).toEqual([
+      { archetype: 'ssr', source: 'dependency', value: 'next' },
+    ]);
+    // Resolved against the FLAG: the backend lens is selected, a11y (ssr/spa)
+    // is skipped.
+    expect(r.capabilities.selected).toEqual([
+      { role: 'lens', name: 'path-traversal', matched: ['backend'] },
+    ]);
+    expect(r.capabilities.skipped).toEqual([
+      expect.objectContaining({ role: 'griller', name: 'a11y' }),
+    ]);
+  });
 
   it('prints one schemaVersion 1 object for a fresh project, writing nothing', async () => {
     const before = [snapshotTree(proj), snapshotTree(repo)];

@@ -80,29 +80,70 @@ export interface ArchetypeSignals {
   clientUi: boolean;
 }
 
-const hasAny = (names: Set<string>, allowlist: Set<string>): boolean => {
+// The FIRST allowlist member present, in allowlist order — never the manifest's
+// key order, so the same project always cites the same dependency (P5).
+const firstOf = (
+  names: Set<string>,
+  allowlist: Set<string>,
+): string | undefined => {
   for (const name of allowlist) {
-    if (names.has(name)) return true;
+    if (names.has(name)) return name;
   }
-  return false;
+  return undefined;
 };
 
 /**
- * Package.json dependency names → raw ArchetypeSignals (membership over the
- * union of `dependencies` and `devDependencies` names). Pure and deterministic.
- * `clientUi` is the ungated "a client-UI lib is present" fact; SSR suppression
- * is applied later, in `archetypesFromSignals`, over the merged signals.
+ * One triggering fact per raw signal, for display: a dependency NAME (an
+ * allowlist literal) or a project-relative path. A key is present only when that
+ * signal fired from that source.
  */
-export function packageSignals(pkg: ProjectPackages): ArchetypeSignals {
+export type SignalEvidence = Partial<Record<keyof ArchetypeSignals, string>>;
+
+/** What package.json contributes: its signals, their evidence, and whether `next` is a dependency. */
+export interface PackageFacts {
+  signals: ArchetypeSignals;
+  evidence: SignalEvidence;
+  // The root base's Next evidence (with a root `next.config.*`): gates the
+  // Next-specific structural rules in classifyEntry.
+  nextDependency: boolean;
+}
+
+/**
+ * Package.json dependency names → raw ArchetypeSignals plus, per signal, the
+ * allowlist member that triggered it (membership over the union of
+ * `dependencies` and `devDependencies` names). Pure and deterministic. The cited
+ * name is the ALLOWLIST's own string, never the manifest's key bytes.
+ */
+export function packageFacts(pkg: ProjectPackages): PackageFacts {
   const names = new Set<string>([
     ...Object.keys(pkg.dependencies ?? {}),
     ...Object.keys(pkg.devDependencies ?? {}),
   ]);
+  const ssr = firstOf(names, SSR_FRAMEWORKS);
+  const backend = firstOf(names, BACKEND_FRAMEWORKS);
+  const clientUi = firstOf(names, CLIENT_UI);
+  const evidence: SignalEvidence = {};
+  if (ssr !== undefined) evidence.ssr = ssr;
+  if (backend !== undefined) evidence.backend = backend;
+  if (clientUi !== undefined) evidence.clientUi = clientUi;
   return {
-    ssr: hasAny(names, SSR_FRAMEWORKS),
-    backend: hasAny(names, BACKEND_FRAMEWORKS),
-    clientUi: hasAny(names, CLIENT_UI),
+    signals: {
+      ssr: ssr !== undefined,
+      backend: backend !== undefined,
+      clientUi: clientUi !== undefined,
+    },
+    evidence,
+    nextDependency: names.has('next'),
   };
+}
+
+/**
+ * Package.json dependency names → raw ArchetypeSignals. `clientUi` is the
+ * ungated "a client-UI lib is present" fact; SSR suppression is applied later,
+ * in `archetypesFromSignals`, over the merged signals.
+ */
+export function packageSignals(pkg: ProjectPackages): ArchetypeSignals {
+  return packageFacts(pkg).signals;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +169,17 @@ const SQL_HOST_DIRS = new Set([
   'sql',
 ]);
 
+// Workspace containers: each DIRECT child (`apps/web`, `packages/site`) is a
+// BASE — a project root of its own inside a monorepo — alongside the scan root.
+// Exactly depth 2, membership only (P5). This keeps a monorepo's Next app
+// (`apps/web/next.config.js`) detected without counting a `next.config.*` at any
+// depth (a docs site's `website/next.config.js` is not the project's framework).
+const WORKSPACE_DIRS = new Set(['apps', 'packages']);
+
+// Where Next reads its routers from, relative to a base: `app/` and `pages/`,
+// or the same under `src/`. Nothing else is a router root.
+const ROUTER_DIRS = new Set(['app', 'pages']);
+
 // Directories where a `.tsx`/`.jsx` file is NOT a client-UI signal: test trees
 // and (server-rendered) email templates. A backend legitimately holds these
 // (react-email templates, `.test.tsx` fixtures) and must not be flipped to `spa`
@@ -148,53 +200,98 @@ const NON_UI_DIRS = new Set([
 const TEST_FIXTURE_RE = /\.(test|spec)\.(tsx|jsx)$/;
 
 /**
+ * Is the directory at `segments` (lowercased, from the scan root) a BASE — the
+ * scan root itself, or a direct child of a workspace container (`apps/<x>`,
+ * `packages/<x>`)? Pure membership.
+ */
+export function isBaseDir(segments: readonly string[]): boolean {
+  if (segments.length === 0) return true;
+  return segments.length === 2 && WORKSPACE_DIRS.has(segments[0]!);
+}
+
+/** A `next.config.*` file name (case-insensitive). */
+export function isNextConfigName(name: string): boolean {
+  return name.toLowerCase().startsWith('next.config.');
+}
+
+/**
+ * What the walk knows about an entry's surroundings. Computed by the reading
+ * strategy (detect-archetype.ts), consumed here as plain data so the rule stays
+ * pure.
+ */
+export interface ClassifyContext {
+  // A usable package.json at the scan root — the JS-ecosystem evidence that the
+  // language-agnostic backend signals (root `api/`, `migrations/`, DB `.sql`)
+  // need. Without it a Python/Go/Rust/Ruby/PHP tree's migrations are not read
+  // as a backend: the backend capabilities PHARN ships match JS/TS code only.
+  jsProject: boolean;
+  // How many leading `segments` are the entry's BASE (0 = the scan root,
+  // 2 = `apps/<x>` | `packages/<x>`).
+  baseDepth: number;
+  // The base has Next evidence: a `next.config.*` directly in it, or — for the
+  // scan root — the `next` dependency.
+  nextBase: boolean;
+}
+
+/**
  * The file-tree signal rule (pure): a single entry NAME + whether it is a
  * directory + its lowercased ancestor-directory `segments` (the path from the
- * scan root to the entry's parent; `[]` at the top level) → the raw signals it
- * contributes. Names are matched case-insensitively so `API/`, `.TSX`,
- * `Next.config.js` behave the same as their lowercase forms across
- * case-insensitive filesystems (P5).
+ * scan root to the entry's parent; `[]` at the top level) + its surroundings
+ * (`ctx`) → the raw signals it contributes. Names are matched case-insensitively
+ * so `API/`, `.TSX`, `Next.config.js` behave the same as their lowercase forms
+ * across case-insensitive filesystems (P5).
  *
- * PATH-CONTEXT (archetype-path-context): a file merely NAMED `x` does not mean
- * the project HAS surface `x`, so each structural signal is scoped to the
- * location where that surface actually lives — the classifier reads `segments`,
- * not just the basename:
- *   - `api/`        → backend only at the top level, or as `pages/api` /
- *                     `app/api` (Next.js). A nested `src/api/` (client fetch
- *                     wrappers) is a FRONTEND convention → no signal.
- *   - `route.*`     → backend only under an App-Router `app/` ancestor (incl.
- *                     `src/app/**`). A client router's `route.ts` → no signal.
- *   - `.sql`        → backend only inside a DB-location dir (SQL_HOST_DIRS). A
- *                     committed `seed.sql`/`queries.sql` elsewhere → no signal.
- *   - `migrations/` → backend at the top level, or under a DB-location ancestor;
- *                     a deep non-DB `src/state/migrations/` → no signal.
- *   - `.tsx`/`.jsx` → client-UI, EXCEPT test fixtures / email templates
- *                     (NON_UI_DIRS, TEST_FIXTURE_RE).
+ * PATH-CONTEXT (archetype-path-context) + PRECISION (detection-precision-
+ * archetype-override): a file merely NAMED `x` does not mean the project HAS
+ * surface `x`, so each structural signal is scoped to where that surface lives:
+ *   - `next.config.*` → ssr only directly in a base (`isBaseDir`).
+ *   - `route.*`       → backend only under an App-Router root of its base
+ *                       (`app/**`, `src/app/**`), and only when that base has
+ *                       Next evidence. A Vue/Angular `src/app/router/route.ts` → none.
+ *   - `api/`          → backend directly under a Next router root of its base
+ *                       (`app/api`, `pages/api`, `src/app/api`, `src/pages/api`)
+ *                       with Next evidence, or at the scan root of a JS project.
+ *                       A frontend's `src/api/` / `src/app/api/` → none.
+ *   - `migrations/`   → backend at the top level or under a DB-location ancestor,
+ *                       in a JS project only.
+ *   - `.sql`          → backend inside a DB-location dir, in a JS project only.
+ *   - `.tsx`/`.jsx`   → client-UI, EXCEPT test fixtures / email templates.
  *
- * This trades a common false POSITIVE (a frontend's `src/api/`, a seed `.sql`, or
- * an email `.tsx` mis-read as backend/spa) for a rarer false NEGATIVE on a
- * nonconventional-but-legitimate layout (e.g. a frameworkless backend serving
- * from `src/api/` with no server-framework dependency, which now relies on its
- * dependency signal to detect as backend). The mechanism stays a deterministic
- * membership test (P5); package.json dependency names remain the primary,
- * location-independent signal (packageSignals, above).
+ * This trades false POSITIVES (an Angular/RTK/Vue `src/app/`, a docs site's
+ * `next.config.js`, a Rails/Flask/Go repo's migrations) for rarer false
+ * NEGATIVES on unconventional layouts — corrected in-product with
+ * `pharn init --archetype`. The mechanism stays a deterministic membership test
+ * (P5); package.json dependency names remain the primary, location-independent
+ * signal (packageFacts, above).
  */
 export function classifyEntry(
   name: string,
   isDir: boolean,
   segments: readonly string[],
+  ctx: ClassifyContext,
 ): ArchetypeSignals {
   const lower = name.toLowerCase();
-  const parent = segments[segments.length - 1]; // immediate parent, or undefined at top level
   const underDbLocation = segments.some((s) => SQL_HOST_DIRS.has(s));
+  // The path from the entry's base to its parent.
+  const rel = segments.slice(ctx.baseDepth);
+  const routerOffset = rel[0] === 'src' ? 1 : 0;
+  const routerDir = rel[routerOffset];
+  // The entry sits directly in a Next router root (`app/`, `src/pages/`, …).
+  const inRouterRoot =
+    rel.length === routerOffset + 1 &&
+    routerDir !== undefined &&
+    ROUTER_DIRS.has(routerDir);
+  // The entry sits anywhere under an App-Router root (`app/**`, `src/app/**`).
+  const underAppRouter = rel.length > routerOffset && routerDir === 'app';
   if (isDir) {
-    // `api/` only in its documented location (top-level, or a `pages`/`app`
-    // parent); `migrations/` only where a DB lives (top-level or DB ancestor).
     const apiBackend =
       lower === 'api' &&
-      (segments.length === 0 || parent === 'pages' || parent === 'app');
+      ((ctx.nextBase && inRouterRoot) ||
+        (segments.length === 0 && ctx.jsProject));
     const migrationsBackend =
-      lower === 'migrations' && (segments.length === 0 || underDbLocation);
+      lower === 'migrations' &&
+      ctx.jsProject &&
+      (segments.length === 0 || underDbLocation);
     return {
       ssr: false,
       backend: apiBackend || migrationsBackend,
@@ -207,13 +304,13 @@ export function classifyEntry(
     lower === 'route.js' ||
     lower === 'route.mjs';
   return {
-    // `next.config.{js,ts,mjs,cjs,…}` → an SSR meta-framework config.
-    ssr: lower.startsWith('next.config.'),
-    // An App-Router route handler (`app/**/route.ts`), or a `.sql` file inside a
-    // DB-location dir, → a backend surface.
+    // `next.config.{js,ts,mjs,cjs,…}` in a base → an SSR meta-framework config.
+    ssr: isNextConfigName(lower) && isBaseDir(segments),
+    // An App-Router route handler of a Next base, or a `.sql` file inside a
+    // DB-location dir of a JS project, → a backend surface.
     backend:
-      (isRouteHandler && segments.includes('app')) ||
-      (lower.endsWith('.sql') && underDbLocation),
+      (isRouteHandler && ctx.nextBase && underAppRouter) ||
+      (lower.endsWith('.sql') && underDbLocation && ctx.jsProject),
     // A `.tsx` / `.jsx` file → a client-UI (frontend) signal, except test
     // fixtures and (server-rendered) email templates.
     clientUi:
@@ -265,4 +362,94 @@ export function archetypesFromSignals(sig: ArchetypeSignals): Archetype[] {
  */
 export function detectArchetypes(pkg: ProjectPackages): Archetype[] {
   return archetypesFromSignals(packageSignals(pkg));
+}
+
+// ---------------------------------------------------------------------------
+// Evidence + the `--archetype` grammar (pure). Evidence is what the install
+// summary prints beside each archetype; the grammar is what `--archetype`
+// accepts. Both range over the same closed archetype list, so they live with
+// the rule that produces archetypes.
+// ---------------------------------------------------------------------------
+
+/** One triggering fact per detected archetype — for display only. */
+export type ArchetypeEvidence =
+  | { archetype: Archetype; source: 'dependency'; name: string }
+  | { archetype: Archetype; source: 'path'; path: string }
+  | { archetype: Archetype; source: 'none' };
+
+// Which raw signal produced each archetype (`lib` has none: it is the absence
+// of every signal).
+const SIGNAL_OF: Readonly<Record<Archetype, keyof ArchetypeSignals | null>> = {
+  ssr: 'ssr',
+  backend: 'backend',
+  spa: 'clientUi',
+  lib: null,
+};
+
+/**
+ * One evidence entry per archetype, in the archetypes' order. A dependency wins
+ * over a path for the same signal (package.json is read first, and is the
+ * primary signal); `lib`, or an archetype with no recorded trigger, cites none.
+ */
+export function evidenceFor(
+  archetypes: readonly Archetype[],
+  fromPackage: SignalEvidence,
+  fromTree: SignalEvidence,
+): ArchetypeEvidence[] {
+  return archetypes.map((archetype) => {
+    const signal = SIGNAL_OF[archetype];
+    const name = signal === null ? undefined : fromPackage[signal];
+    if (name !== undefined) return { archetype, source: 'dependency', name };
+    const path = signal === null ? undefined : fromTree[signal];
+    if (path !== undefined) return { archetype, source: 'path', path };
+    return { archetype, source: 'none' };
+  });
+}
+
+/**
+ * Where an install's archetypes came from — plain data, rendered by the init
+ * summary (`archetypeOriginLines`) and projected into `init --dry-run --json`.
+ * `evidence` is always DETECTION's (one entry per detected archetype); with
+ * `--archetype` it describes the set that was found and not used.
+ */
+export type ArchetypeOrigin =
+  | { kind: 'detected'; evidence: readonly ArchetypeEvidence[] }
+  | {
+      kind: 'flag';
+      detected: readonly Archetype[];
+      evidence: readonly ArchetypeEvidence[];
+    };
+
+const isArchetype = (value: unknown): value is Archetype =>
+  ARCHETYPE_VALUES.some((a) => a === value);
+
+/**
+ * The `--archetype` grammar: a comma-separated list of exact archetype names,
+ * each at most once, with `lib` (the no-signal base) only on its own — the
+ * shapes detection itself can produce. Anything else (an empty segment,
+ * whitespace, another case, a duplicate, an unknown name) → `null`, never a
+ * guess at what was meant (P5). The result is in canonical order.
+ */
+export function parseArchetypeList(value: string): Archetype[] | null {
+  const parts = value.split(',');
+  const picked = new Set<Archetype>();
+  for (const part of parts) {
+    if (!isArchetype(part) || picked.has(part)) return null;
+    picked.add(part);
+  }
+  if (picked.has('lib') && picked.size > 1) return null;
+  return ARCHETYPE_ORDER.filter((a) => picked.has(a));
+}
+
+/**
+ * A config's recorded `archetypes`, for DISPLAY: a non-empty array whose every
+ * element is a canonical archetype → that set in canonical order; anything else
+ * (absent, a string, a non-member, control bytes) → `null`. The config is
+ * hand-editable, so this is a membership test, never a sanitizer.
+ */
+export function recordedArchetypes(value: unknown): Archetype[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  if (!value.every(isArchetype)) return null;
+  const set = new Set<Archetype>(value);
+  return ARCHETYPE_ORDER.filter((a) => set.has(a));
 }

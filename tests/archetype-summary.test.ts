@@ -8,7 +8,7 @@ vi.mock('@clack/prompts', () => ({
   select: vi.fn(),
 }));
 
-const { archetypeSummaryLines, runArchetypeSummary } =
+const { archetypeOriginLines, archetypeSummaryLines, runArchetypeSummary } =
   await import('../src/steps/archetype-summary.js');
 const prompts = await import('@clack/prompts');
 
@@ -92,5 +92,143 @@ describe('archetypeSummaryLines', () => {
     expect(vi.mocked(prompts.note).mock.calls.at(-1)![0]).toBe(
       lines.join('\n'),
     );
+  });
+});
+
+// F-17: where the archetypes came from, one line per archetype. A pure function
+// of plain data, so it renders the same wherever the summary is built.
+describe('archetypeOriginLines', () => {
+  const text = (lines: string[]): string => lines.join('\n');
+
+  it('detected: one evidence line per archetype', () => {
+    const out = text(
+      archetypeOriginLines(['ssr', 'backend'], {
+        kind: 'detected',
+        evidence: [
+          { archetype: 'ssr', source: 'dependency', name: 'next' },
+          {
+            archetype: 'backend',
+            source: 'path',
+            path: 'src/app/api/hello/route.ts',
+          },
+        ],
+      }),
+    );
+    expect(out).toMatch(/Detected archetypes\s+ssr, backend/);
+    expect(out).toMatch(/ssr\s+← next \(package\.json\)/);
+    expect(out).toMatch(/backend\s+← src\/app\/api\/hello\/route\.ts/);
+  });
+
+  it('lib says no framework signal was found', () => {
+    const out = text(
+      archetypeOriginLines(['lib'], {
+        kind: 'detected',
+        evidence: [{ archetype: 'lib', source: 'none' }],
+      }),
+    );
+    expect(out).toMatch(/lib\s+← no framework signal found/);
+  });
+
+  it('strips terminal control characters from an evidence path and caps it', () => {
+    const out = text(
+      archetypeOriginLines(['spa'], {
+        kind: 'detected',
+        evidence: [
+          {
+            archetype: 'spa',
+            source: 'path',
+            path: 'src/\u001b[2J\u202eEvil.tsx',
+          },
+        ],
+      }),
+    );
+    expect(out).toContain('src/[2JEvil.tsx');
+    expect(out).not.toContain('\u001b');
+    expect(out).not.toContain('\u202e');
+
+    const long = `src/${'a'.repeat(300)}.tsx`;
+    const capped = text(
+      archetypeOriginLines(['spa'], {
+        kind: 'detected',
+        evidence: [{ archetype: 'spa', source: 'path', path: long }],
+      }),
+    );
+    expect(capped).toContain('…');
+    expect(capped).not.toContain(long);
+  });
+
+  it('flag: names the source and the unused detection result', () => {
+    const out = text(
+      archetypeOriginLines(['backend'], {
+        kind: 'flag',
+        detected: ['ssr', 'backend'],
+        evidence: [],
+      }),
+    );
+    expect(out).toMatch(/Archetypes \(--archetype\)\s+backend/);
+    expect(out).toContain('detection found ssr, backend (not used)');
+    expect(out).not.toContain('Detected archetypes');
+  });
+
+  it('previously recorded: printed when the set differs, with the flag to keep it', () => {
+    const out = text(
+      archetypeOriginLines(
+        ['ssr'],
+        {
+          kind: 'detected',
+          evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
+        },
+        ['ssr', 'backend'],
+      ),
+    );
+    expect(out).toContain(
+      'previously recorded: ssr, backend — pass --archetype ssr,backend to keep them',
+    );
+  });
+
+  it('previously recorded: silent when the set is the same, or there is none', () => {
+    const origin = {
+      kind: 'detected' as const,
+      evidence: [
+        {
+          archetype: 'ssr' as const,
+          source: 'dependency' as const,
+          name: 'next',
+        },
+        {
+          archetype: 'backend' as const,
+          source: 'dependency' as const,
+          name: 'express',
+        },
+      ],
+    };
+    expect(
+      text(
+        archetypeOriginLines(['ssr', 'backend'], origin, ['backend', 'ssr']),
+      ),
+    ).not.toContain('previously recorded');
+    expect(
+      text(archetypeOriginLines(['ssr', 'backend'], origin, null)),
+    ).not.toContain('previously recorded');
+    expect(
+      text(archetypeOriginLines(['ssr', 'backend'], origin)),
+    ).not.toContain('previously recorded');
+  });
+});
+
+describe('runArchetypeSummary — origin', () => {
+  it('renders the origin lines in place of the bare archetype row', async () => {
+    vi.mocked(prompts.select).mockResolvedValue('install');
+    await runArchetypeSummary(
+      ['backend'],
+      selection,
+      { kind: 'flag', detected: ['spa'], evidence: [] },
+      ['spa'],
+    );
+    const note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
+    expect(note).toContain('Archetypes (--archetype)');
+    expect(note).toContain('detection found spa (not used)');
+    expect(note).toContain('previously recorded: spa');
+    expect(note).toContain('CAPABILITIES SELECTED');
   });
 });

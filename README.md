@@ -274,8 +274,13 @@ Two commands sit outside the pipeline:
 | `pharn --help`              | Show command help.                                                                                                                                                                                                                                                                                                                              |
 | `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                                                                                 |
 
-`init` also accepts `--archetype`, a deprecated no-op kept for one release —
-archetype detection is now the default.
+`init` also takes `--archetype <list>` (for example `--archetype backend` or
+`--archetype ssr,backend`) to install for those archetypes instead of the
+detected ones — the in-product correction for a misdetected project. The value
+must be a comma-separated list of `ssr`, `backend` and `spa`, or `lib` alone,
+each at most once; anything else exits 1. The choice is recorded, so `update`
+keeps it. The install summary shows what triggered each detected archetype
+(`backend ← src/app/api/`), or that they came from the flag.
 
 Three behaviours matter if you script the CLI:
 
@@ -349,10 +354,15 @@ PHARN is intentionally scoped:
   written, and `pharn status` prints the floor beside the Node you are running.
   CI runs on Node 24, and a smoke job starts the packed CLI on exactly 24.2.0.
 - **Archetype detection is JS/TS-shaped.** The signals are `package.json`
-  dependency names plus `next.config.*`, `app/` route handlers, `.tsx`/`.jsx`,
-  `migrations/` and `.sql`. A Python, Go or Rust repo produces no signal,
-  resolves to `lib`, and receives the universal capabilities only — a correct
-  outcome, not a failure.
+  dependency names, `.tsx`/`.jsx` files, and — in a Next.js app only —
+  `next.config.*`, `app/` route handlers and `app/api`/`pages/api`. A root
+  `api/`, a `migrations/` directory and `.sql` files in a database directory
+  count only when the project has a root `package.json`. A Python, Go, Rust,
+  Ruby or PHP repo without one produces no signal, resolves to `lib`, and
+  receives the universal capabilities only — a correct outcome, not a failure.
+  One that also has a root `package.json` (a Vite frontend, or tooling only)
+  can resolve `backend` from its migrations; `pharn init --archetype` corrects
+  either way.
 - It does not scaffold your application or install framework packages.
 - It does not replace tests, human review, or release judgment. It gives those
   activities a structured record and repeatable workflow.

@@ -13,6 +13,8 @@ import {
   type FileRecords,
 } from './install-records.js';
 import { detectLayout } from './layout.js';
+import { recordedArchetypes } from './archetype.js';
+import type { ArchetypeOrigin } from './archetype.js';
 import {
   configFingerprint,
   configPath,
@@ -279,6 +281,12 @@ export interface InitTarget {
 /** What `pharn init --dry-run` found: plain data, JSON-safe. */
 export interface InitPlanReport {
   archetypes: Archetype[];
+  // Where `archetypes` came from: detection (with its evidence) or
+  // `--archetype` (with what detection found instead).
+  archetypeOrigin: ArchetypeOrigin;
+  // The replaced config's `archetypes` reduced to canonical members, or null —
+  // display only (the summary's "previously recorded" line).
+  previousArchetypes: Archetype[] | null;
   channel: RefChoice;
   source: InstallSource;
   commit: string | null;
@@ -326,11 +334,17 @@ export function buildInitPlan(params: {
   source: InstallSource;
   channel: RefChoice;
   archetypes: Archetype[];
+  // Defaults to "detected, no evidence" for a caller that has none.
+  origin?: ArchetypeOrigin;
   index: CapabilityIndex;
   chosen: InitSelection;
 }): InitPlanReport {
   const { repoDir, cwd, sha, source, channel, archetypes, index, chosen } =
     params;
+  const origin: ArchetypeOrigin = params.origin ?? {
+    kind: 'detected',
+    evidence: [],
+  };
   const { selection, carry } = chosen;
   const layout = detectLayout(repoDir);
   const manifest = collectExpectedInstallPaths({
@@ -377,6 +391,8 @@ export function buildInitPlan(params: {
 
   return {
     archetypes,
+    archetypeOrigin: origin,
+    previousArchetypes: recordedArchetypes(chosen.previous.config?.archetypes),
     channel,
     source,
     commit: sha,

@@ -100,7 +100,7 @@ const NO_CARRY: InstallCarry = {
   previousStamp: null,
 };
 
-// The archetype-install apply stage (pharn init --archetype). Copies the
+// The archetype-install apply stage (`pharn init`). Copies the
 // resolved capabilities + product surfaces from the already-fetched `repoDir`,
 // then writes pharn.config.json. Network-free (the commit SHA is passed in by
 // the orchestrator) so it is exercised end-to-end by the fixture test. Mirrors
