@@ -91,6 +91,15 @@ interface ClassifyContext {
 - `src/steps/archetype-summary.ts` — evidence lines / override rendering, terminal-safe; stale "pharn init --archetype" header comment fixed — layer: step
 - `src/lib/validate.ts` — `ARCHETYPE_VALUES` (byte-identical to the F-05 branch, GATE 1 decision 1), `APPLIES_TOKEN_VALUES` derived from it — layer: lib
 - `src/types.ts` — only the two stale "(pharn init --archetype)" comments (if F-05 has not landed first; see OQ1) — layer: types
+- `src/lib/init-plan.ts` — (post-GATE-2 integration with F-07) `InitPlanReport.archetypeOrigin` / `previousArchetypes`; `buildInitPlan` takes the origin — layer: lib
+- `src/lib/init-report.ts` — (post-GATE-2) additive `archetypeSource`, `detectedArchetypes`, `archetypeEvidence` in `init --dry-run --json` (schemaVersion stays 1) — layer: lib
+- `src/steps/install-archetype.ts` — (post-GATE-2, advisory P4) comment-only — layer: step
+- `src/lib/pharn-config.ts` — (post-GATE-2, advisory P4) comment-only — layer: lib
+- `src/lib/constants.ts` — (post-GATE-2, advisory P4) comment-only — layer: lib
+- `tests/init-report.test.ts` — (post-GATE-2) the new JSON fields — layer: tests
+- `tests/init-dry-run-json.test.ts` — (post-GATE-2) `--archetype backend --dry-run --json` — layer: tests
+- `tests/init-dry-run.test.ts` — (post-GATE-2) evidence / override in the text preview — layer: tests
+- `tests/init-yes.test.ts` — (post-GATE-2) `--yes` with `--archetype` — layer: tests
 - `tests/archetype.test.ts` — `classifyEntry` table for every gate (with/without `jsProject`, `nextBase`, base depth, router roots) — layer: tests
 - `tests/detect-archetype.test.ts` — the reviewer fixtures (below), evidence assertions, existing manifest-less cases given the evidence they now need (each keeps its original intent) plus their negative twins; walk-safety suites unchanged and still green — layer: tests
 - `tests/index.test.ts` — `--archetype` block mirroring `--ref` (accepts, normalises order, `--archetype=…` form, refusals incl. beside `--help`, `status --archetype x` still Unsupported, USAGE text); the old no-op test replaced — layer: tests
@@ -194,3 +203,5 @@ GATE 1 passed: approved, with the answers below.
 Coordination constraint (F-07 reworks init in parallel: init `--dry-run/--json/--yes`, `archetypeSummaryLines` extraction, `lib/init-plan.ts`): keep `init.ts` / `archetype-summary.ts` edits small and localized; the evidence / origin rendering lives in ONE pure function taking plain data (`archetypeOriginLines`), so it can slot into `archetypeSummaryLines` later.
 
 Rebase note (2026-10-13): F-05 merged first (`3fedcb8`, #277). The branch was rebased onto `origin/main` `6dae4fe`; the `ARCHETYPE_VALUES` declaration merged identically, so `src/lib/validate.ts` no longer differs from main and this branch now uses the merged declaration. A config with invalid `archetypes` is now refused by `readPharnConfig` (F-05), so init's tolerant `readPreviousConfig` yields no previous config there — the "previously recorded" line is then simply absent, as designed.
+
+Second rebase (2026-10-13, after GATE 2): onto `origin/main` `c8adc6a`, which merged F-07 (#283: init `--dry-run` / `--json` / `--yes`, `archetypeSummaryLines`, `lib/init-plan.ts`, `lib/init-report.ts`) and F-13 (#285: `pharn uninstall`). Integrated, not just resolved, per the coordinator: `--archetype` composes with `--dry-run`, `--dry-run --json` and `--yes`; `archetypeOriginLines` renders inside `archetypeSummaryLines`, so the real run, `--yes` and the text dry run print the same block; `ArchetypeOrigin` moved to `lib/archetype.ts` (a lib may not import a step) and now carries detection's evidence in both variants; the init dry-run JSON gains `archetypeSource`, `detectedArchetypes` and `archetypeEvidence` (explicit projection). The ## Files entries marked "(post-GATE-2)" were added for that work and the advisory P4 comment fix.

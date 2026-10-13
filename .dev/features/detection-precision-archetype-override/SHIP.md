@@ -14,4 +14,8 @@ Ended at: `STOP_CAP` — `cap reached: iter 3 >= cap 3 without floor-GREEN — s
 
 Review: `REVIEW.md` (advisory). Grill: `GRILL.md` (advisory).
 
+## GATE 2 decision and the STOP_CAP reasoning
+
+GATE 2 accepted the increment despite `STOP_CAP`. The reasoning, recorded as given: every failing `test` case in all three iterations was a vitest 5000 ms timeout in a subprocess-spawning suite this increment does not touch (`tests/lint-gate.test.ts`, `tests/publish-workflow.test.ts`, `tests/release-notes.test.ts`), on a shared host with a 1-minute load average of 90-230 where every other agent saw the same timeouts; those files pass 34/34 with a longer timeout; and CI is the authoritative test run. After GATE 2 the branch was rebased onto `c8adc6a` and integrated with F-07/F-13 (see `PLAN.md`); the post-rebase suite (`CI=1 npx vitest run --maxWorkers=2 --testTimeout=120000`) and the static gates were re-run and are reported in the PR.
+
 chain ran; the named floor verdicts are as shown — this is NOT a judgment that the increment is good or wise; that is the human's call at the post-review gate.
