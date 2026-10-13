@@ -114,7 +114,7 @@ const { runAdd } = await import('../src/commands/add.js');
 const prompts = await import('@clack/prompts');
 const { readRecords, writeRecords, RECORDS_FILE } =
   await import('../src/lib/install-records.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 
 function write(path: string, content: string): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -830,7 +830,7 @@ describe('runAdd — pharn.records.json', () => {
     await writeRecords(proj, {
       skillsVersion: '1.0.0',
       commit: null,
-      files: { [EXISTING]: sha256File(join(proj, EXISTING)) },
+      files: { [EXISTING]: contentHash(join(proj, EXISTING)) },
     });
   }
 
@@ -894,9 +894,9 @@ describe('runAdd — pharn.records.json', () => {
     await runAdd('a11y');
 
     expect(store()!.files).toEqual({
-      [EXISTING]: sha256File(join(proj, EXISTING)),
-      [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
-      [CAP_NESTED]: sha256File(join(proj, CAP_NESTED)),
+      [EXISTING]: contentHash(join(proj, EXISTING)),
+      [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+      [CAP_NESTED]: contentHash(join(proj, CAP_NESTED)),
     });
   });
 
@@ -920,7 +920,7 @@ describe('runAdd — pharn.records.json', () => {
     expect((written as PharnConfig).pendingSkillsVersion).toBe('1.1.0');
     expect(store()!.skillsVersion).toBe('1.0.0');
     expect(store()!.commit).toBeNull();
-    expect(store()!.files[CAP_FILE]).toBe(sha256File(join(proj, CAP_FILE)));
+    expect(store()!.files[CAP_FILE]).toBe(contentHash(join(proj, CAP_FILE)));
   });
 
   it('still refuses a clone at a THIRD version, naming the real ways out', async () => {
@@ -1063,9 +1063,9 @@ describe('runAdd — pharn.records.json', () => {
       await runAdd('a11y');
 
       expect(store()!.files).toEqual({
-        [EXISTING]: sha256File(join(proj, EXISTING)),
-        [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
-        [CAP_NESTED]: sha256File(join(proj, CAP_NESTED)),
+        [EXISTING]: contentHash(join(proj, EXISTING)),
+        [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+        [CAP_NESTED]: contentHash(join(proj, CAP_NESTED)),
       });
       // The copy never touches it, so it is neither backed up nor destroyed.
       expect(readFileSync(join(proj, EXTRA), 'utf8')).toBe('my notes');
@@ -1297,7 +1297,7 @@ describe('runAdd — the layout gate', () => {
     await writeRecords(proj, {
       skillsVersion: '1.0.0',
       commit: null,
-      files: { [EXISTING]: sha256File(join(proj, EXISTING)) },
+      files: { [EXISTING]: contentHash(join(proj, EXISTING)) },
     });
     const before = readFileSync(join(proj, RECORDS_FILE), 'utf8');
 
@@ -1390,7 +1390,7 @@ describe('runAdd — the layout gate', () => {
     await writeRecords(proj, {
       skillsVersion: '1.0.0',
       commit: null,
-      files: { [EXISTING]: sha256File(join(proj, EXISTING)) },
+      files: { [EXISTING]: contentHash(join(proj, EXISTING)) },
     });
 
     await runAdd('lens:trust-fence');
@@ -1410,8 +1410,8 @@ describe('runAdd — the layout gate', () => {
     // here. A flat derivation would existsSync `pharn-review/trust-fence`, find
     // nothing, and silently record NOTHING for the capability just installed.
     expect(files).toEqual({
-      [EXISTING]: sha256File(join(proj, EXISTING)),
-      [LENS_FILE]: sha256File(join(proj, LENS_FILE)),
+      [EXISTING]: contentHash(join(proj, EXISTING)),
+      [LENS_FILE]: contentHash(join(proj, LENS_FILE)),
     });
 
     const [, written] = writePharnConfig.mock.calls.at(-1)!;
@@ -1434,7 +1434,7 @@ describe('runAdd — the layout gate', () => {
     await writeRecords(proj, {
       skillsVersion: '1.0.0',
       commit: null,
-      files: { [EXISTING]: sha256File(join(proj, EXISTING)) },
+      files: { [EXISTING]: contentHash(join(proj, EXISTING)) },
     });
     vi.mocked(prompts.groupMultiselect).mockResolvedValue([
       'griller:a11y',

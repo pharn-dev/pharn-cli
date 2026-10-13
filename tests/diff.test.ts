@@ -6,6 +6,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -376,6 +377,129 @@ describe('diffInstalledCapabilities', () => {
         'pharn-pipeline/grillers/a11y/a11y.md',
       ]);
     });
+  });
+
+  // F-16: a project committed and re-checked-out with core.autocrlf=true holds
+  // every installed text file with CRLF line endings. That is not drift.
+  describe('line endings (CRLF vs LF in text files)', () => {
+    // Multi-line bodies, so there ARE line endings to convert.
+    const BODIES: [string, string][] = [
+      ['pharn-pipeline/grillers/a11y/a11y.md', '# a11y\n\nask about focus\n'],
+      ['pharn-review/n-plus-one/n-plus-one.md', '# n+1\nlook for loops\n'],
+      ['.claude/commands/pharn-plan.md', '---\nrole: skill\n---\nplan\n'],
+      ['.claude/hooks/enforce.cjs', "'use strict';\nmodule.exports = 1;\n"],
+      ['CONSTITUTION.md', '# C\n\nP0\nP1\n'],
+      ['pharn-contracts/finding-shape.md', '# finding\nshape\n'],
+      ['.dev/floor/validate.mjs', 'export {};\nconsole.log(1);\n'],
+    ];
+
+    function scaffold(transform: (lf: string) => string): {
+      repo: string;
+      proj: string;
+    } {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      scaffoldClone(repo);
+      for (const [rel, body] of BODIES) {
+        write(join(repo, rel), body);
+        write(join(proj, rel), transform(body));
+      }
+      return { repo, proj };
+    }
+
+    const run = (repo: string, proj: string) =>
+      diffInstalledCapabilities({
+        repoDir: repo,
+        projectRoot: proj,
+        capabilities: caps,
+        layout: 'flat',
+      });
+
+    it('a CRLF copy of every expected file is all ok — nothing modified', () => {
+      const { repo, proj } = scaffold((lf) => lf.replace(/\n/g, '\r\n'));
+      expect(readFileSync(join(proj, 'CONSTITUTION.md'), 'utf8')).toContain(
+        '\r\n',
+      );
+      const r = run(repo, proj);
+      expect(r.modified).toEqual([]);
+      expect(r.missing).toEqual([]);
+      expect(r.okCount).toBe(BODIES.length);
+    });
+
+    it('mixed endings are ok too', () => {
+      const { repo, proj } = scaffold((lf) => lf.replace('\n', '\r\n'));
+      expect(run(repo, proj).modified).toEqual([]);
+    });
+
+    it('a real edit in a CRLF file is still modified', () => {
+      const { repo, proj } = scaffold((lf) => lf.replace(/\n/g, '\r\n'));
+      write(join(proj, 'CONSTITUTION.md'), '# C\r\n\r\nP0 EDITED\r\nP1\r\n');
+      const r = run(repo, proj);
+      expect(r.modified).toEqual(['CONSTITUTION.md']);
+      expect(r.okCount).toBe(BODIES.length - 1);
+    });
+
+    it('a binary file (NUL in its first bytes) is compared byte-for-byte', () => {
+      const { repo, proj } = scaffold((lf) => lf);
+      write(join(repo, 'CONSTITUTION.md'), '\0bin\nary\n');
+      write(join(proj, 'CONSTITUTION.md'), '\0bin\r\nary\r\n');
+      expect(run(repo, proj).modified).toEqual(['CONSTITUTION.md']);
+    });
+
+    // GRILL P1: the real phenomenon, not hand-written CRLF. git converts LF →
+    // CRLF on checkout under core.autocrlf=true on every platform (Linux
+    // included), so this exercises the git half of F-16. It is still NOT a
+    // Windows run.
+    const hasGit = (() => {
+      try {
+        execFileSync('git', ['--version'], { stdio: 'ignore' });
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+
+    it.skipIf(!hasGit)(
+      'a real `git -c core.autocrlf=true` checkout of the project reads as no drift',
+      () => {
+        const { repo, proj } = scaffold((lf) => lf);
+        const git = (...args: string[]): void => {
+          execFileSync(
+            'git',
+            [
+              '-c',
+              'user.name=pharn-test',
+              '-c',
+              'user.email=pharn-test@example.invalid',
+              '-c',
+              'commit.gpgsign=false',
+              '-c',
+              'core.safecrlf=false',
+              ...args,
+            ],
+            {
+              cwd: proj,
+              stdio: 'ignore',
+              env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', HOME: proj },
+            },
+          );
+        };
+        git('init', '-q');
+        git('-c', 'core.autocrlf=false', 'add', '-A');
+        git('-c', 'core.autocrlf=false', 'commit', '-q', '-m', 'install');
+        for (const [rel] of BODIES) rmSync(join(proj, rel));
+        git('-c', 'core.autocrlf=true', 'checkout', '--', '.');
+
+        // The round trip really converted (otherwise this test is vacuous).
+        for (const [rel] of BODIES) {
+          expect(readFileSync(join(proj, rel), 'utf8')).toContain('\r\n');
+        }
+        const r = run(repo, proj);
+        expect(r.modified).toEqual([]);
+        expect(r.missing).toEqual([]);
+        expect(r.okCount).toBe(BODIES.length);
+      },
+    );
   });
 
   // The canonical-hash claim in src/lib/hash.ts ("one canonical implementation

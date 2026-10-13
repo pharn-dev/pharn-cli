@@ -39,7 +39,9 @@ which, and `status` cannot. `status` reads `pharn.records.json` for one thing on
    (run `pharn update`).
 5. **Drift** — derives the set of files your installed capabilities and the fixed product surfaces are
    expected to contribute (mirroring how `init` / `add` / `update` install them, at your recorded
-   layout), then byte-compares each against your project:
+   layout), then compares each file's content against your project (line endings in text files are
+   ignored, so a `core.autocrlf=true` checkout is not drift — see
+   [Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf)):
    - **Differs from `pharn-dev/pharn-oss@<source>` (PHARN-owned)** — files present whose contents differ.
      `pharn update` keeps files you've edited and cleanly upgrades the rest; `--force` overwrites edits
      too (backed up to `.pharn-backup/` first).

@@ -1,6 +1,6 @@
 import { lstatSync } from 'node:fs';
 import { relative } from 'node:path';
-import { sha256File } from './hash.js';
+import { contentHash } from './hash.js';
 import type { FileRecords } from './install-records.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { decideFileAction, type FileDecision } from './update-decision.js';
@@ -68,7 +68,7 @@ import { safeJoin, toPosix } from './validate.js';
 // classifies such a path `unreadable` and skips the write — and the same shape as
 // `add`'s existing version and layout gates: refuse, name the fix, change nothing.
 //
-// Byte-identical is NOT drift — the reading update's table gives row
+// Identical content (contentHash: CRLF≡LF in text) is NOT drift — update's row
 // `identical → no-op`. A drop-then-re-add of unedited files must stay silent, or
 // every such add would litter `.pharn-backup/` with copies of bytes nobody lost.
 //
@@ -168,17 +168,17 @@ export function scanDest(params: {
     if (symlinkComponent(repoDir, srcRel) !== null) continue;
     if (!lstatSync(src, { throwIfNoEntry: false })?.isFile()) continue;
 
-    // sha256File's failure on a path that IS a regular file (EACCES) deliberately
+    // contentHash's failure on a path that IS a regular file (EACCES) deliberately
     // PROPAGATES: it aborts the caller before any write, with the clone cleaned
     // up. Treating an unreadable file as "no drift" would clobber it.
     //
     // `force: true` because both callers overwrite regardless: the question is
     // only which overwrites need a backup, and that is exactly the table's
-    // `backup` bit. Byte-identical is row 2 (no-op), never drift.
+    // `backup` bit. Identical content is row 2 (no-op), never drift.
     const label = driftLabel(
       decideFileAction({
-        diskHash: sha256File(dest),
-        latestHash: sha256File(src),
+        diskHash: contentHash(dest),
+        latestHash: contentHash(src),
         recordedHash:
           records !== null && Object.hasOwn(records, rel)
             ? (records[rel] ?? null)

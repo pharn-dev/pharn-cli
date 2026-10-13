@@ -164,7 +164,8 @@ file's project-relative path:
 Backed up 1 file(s) to .pharn-backup/20260908-141530 before overwriting.
 ```
 
-Files that are already **byte-identical** to upstream are not backed up — re-adding an untouched
+Files that are already **identical** to upstream (line endings aside — see
+[Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf)) are not backed up — re-adding an untouched
 capability stays silent. Files that do not exist yet are simply created, so a normal first-time `add`
 never produces a backup directory. Files that are in the directory but **not** part of the capability
 upstream are never touched by `add`, and are never recorded in

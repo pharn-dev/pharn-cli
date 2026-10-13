@@ -127,7 +127,7 @@ const {
   writeRecords,
   RECORDS_FILE,
 } = await import('../src/lib/install-records.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 const { BACKUP_DIR } = await import('../src/lib/backup.js');
 const { writePharnConfig } = await import('../src/lib/pharn-config.js');
 
@@ -190,7 +190,7 @@ describe('runUpdate --dry-run', () => {
       files: Object.fromEntries(
         [CAP_FILE, DOC, HOOK, CMD].map((rel) => [
           rel,
-          sha256File(join(proj, rel)),
+          contentHash(join(proj, rel)),
         ]),
       ),
     });

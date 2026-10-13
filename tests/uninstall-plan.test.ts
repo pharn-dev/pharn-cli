@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
-import { sha256File } from '../src/lib/hash.js';
+import { contentHash } from '../src/lib/hash.js';
 import { MODELS_RECORD_KEY } from '../src/lib/install-records.js';
 import { planUninstall } from '../src/lib/uninstall-plan.js';
 
@@ -28,7 +28,7 @@ function recorded(
   records: Record<string, string>,
   rel: string,
 ): void {
-  records[rel] = sha256File(write(root, rel));
+  records[rel] = contentHash(write(root, rel));
 }
 
 const HASH = 'a'.repeat(64);
@@ -49,6 +49,23 @@ describe('planUninstall', () => {
     ]);
     expect(plan.edited).toEqual(['CONSTITUTION.md']);
     expect(plan.unsafe).toEqual([]);
+  });
+
+  it('deletes a CRLF copy of a recorded file as unchanged, not kept as edited (F-16)', () => {
+    // A core.autocrlf=true checkout rewrote pharn's LF bytes with CRLF line
+    // endings; nothing else changed, so the file is still provably pharn's.
+    const root = proj();
+    const records: Record<string, string> = {};
+    const rel = 'pharn-review/n-plus-one/n-plus-one.md';
+    records[rel] = contentHash(write(root, rel, '# n+1\nlook for loops\n'));
+    write(root, rel, '# n+1\r\nlook for loops\r\n');
+    write(root, 'CONSTITUTION.md', '# C\nP0\n');
+    records['CONSTITUTION.md'] = contentHash(join(root, 'CONSTITUTION.md'));
+    write(root, 'CONSTITUTION.md', '# C\r\nP0 EDITED\r\n');
+
+    const plan = planUninstall(root, records);
+    expect(plan.delete).toEqual([rel]);
+    expect(plan.edited).toEqual(['CONSTITUTION.md']);
   });
 
   it('never makes an UNRECORDED file a candidate, even inside a capability dir', () => {
@@ -131,7 +148,7 @@ describe('planUninstall', () => {
     symlinkSync(target, join(root, '.claude/hooks/linked.cjs'));
     const plan = planUninstall(root, {
       'pharn-contracts/finding-shape.md': HASH,
-      '.claude/hooks/linked.cjs': sha256File(target),
+      '.claude/hooks/linked.cjs': contentHash(target),
     });
     expect(plan.unverifiable).toEqual([
       '.claude/hooks/linked.cjs',
@@ -175,7 +192,7 @@ describe('planUninstall', () => {
     write(elsewhere, 'pharn-review/a11y/a11y.md');
     symlinkSync(elsewhere, join(root, 'pharn'));
     const plan = planUninstall(root, {
-      'pharn/pharn-review/a11y/a11y.md': sha256File(
+      'pharn/pharn-review/a11y/a11y.md': contentHash(
         join(elsewhere, 'pharn-review/a11y/a11y.md'),
       ),
     });

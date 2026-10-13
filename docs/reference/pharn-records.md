@@ -13,7 +13,7 @@ Source: [`install-records.ts`](../../src/lib/install-records.ts).
 
 **Commit it.** It is part of your project's PHARN state, like `pharn.config.json`. Without a usable
 store, `update` skips every **present** file that differs (`unverifiable`) but still **restores**
-missing ones; byte-identical files are no-ops and have their records refreshed.
+missing ones; files identical to upstream are no-ops and have their records refreshed.
 
 ## Shape
 
@@ -30,15 +30,22 @@ missing ones; byte-identical files are no-ops and have their records refreshed.
 }
 ```
 
-| Field           | Type           | Description                                                                  |
-| --------------- | -------------- | ---------------------------------------------------------------------------- |
-| `schemaVersion` | number         | Matched **exactly**. An unknown value is not guessed at — see below          |
-| `skillsVersion` | string         | The `skillsVersion` in `pharn.config.json` when this store was written       |
-| `commit`        | string \| null | The `commit` in `pharn.config.json` when this store was written              |
-| `files`         | object         | Project-root-relative path → sha256 (lowercase hex) of the bytes that landed |
+| Field           | Type           | Description                                                                               |
+| --------------- | -------------- | ----------------------------------------------------------------------------------------- |
+| `schemaVersion` | number         | Matched **exactly**. An unknown value is not guessed at — see below                       |
+| `skillsVersion` | string         | The `skillsVersion` in `pharn.config.json` when this store was written                    |
+| `commit`        | string \| null | The `commit` in `pharn.config.json` when this store was written                           |
+| `files`         | object         | Project-root-relative path → content hash (lowercase sha256 hex) of the bytes that landed |
 
 Hashes are taken from the **written file**, never from the upstream source, so a record cannot
 disagree with what is actually on disk. Keys are sorted, so the committed file has a reviewable diff.
+
+The hash is a sha256 that ignores line endings in text files: before hashing, each `\r\n` in a file
+whose first 8000 bytes contain no NUL byte is turned into `\n` (a lone `\r` is kept, and a binary
+file is hashed as it is). So a project checked out with `core.autocrlf=true` still matches its
+records, and a change that only swaps line endings is not seen as an edit. For a file with no `\r\n`
+this is the plain sha256 of its bytes, so stores written by earlier versions stay valid. See
+[Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf).
 
 ## Who writes it
 
@@ -91,7 +98,7 @@ differs from upstream, labelling them `unverifiable` — whenever it is:
 
 In every case the consequence for **present** files that differ is the same and it is the safe
 one: `pharn` skips rather than overwrites, and tells you why. **Missing** expected files are still
-restored; files already byte-identical to upstream are no-ops. `pharn update --force` backs up and
+restored; files already identical to upstream are no-ops. `pharn update --force` backs up and
 overwrites the skipped files instead.
 
 ## Pruning

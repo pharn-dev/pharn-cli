@@ -1,5 +1,5 @@
 import { readDiskState } from './apply-update.js';
-import { sha256File } from './hash.js';
+import { contentHash } from './hash.js';
 import { collectExpectedInstallPaths } from './install-manifest.js';
 import type { InstalledCapability, Layout } from '../types.js';
 
@@ -19,7 +19,7 @@ export interface InstallDiff {
   // `modified` (different bytes) or, worse, as `ok` (identical bytes), silently
   // blessing a path that points outside the install. Sorted by `rel`.
   unreadable: { rel: string; reason: string }[];
-  // Files present on disk and byte-identical to upstream.
+  // Files present on disk and identical to upstream (contentHash: CRLF≡LF in text).
   okCount: number;
 }
 
@@ -70,7 +70,7 @@ export function diffInstalledCapabilities(params: {
 // ok while `update` planned a write and aborted on it. It never throws, so one
 // unreadable path can no longer collapse the whole report.
 //
-// The CLONE side is deliberately NOT symmetric: a plain `sha256File`. The
+// The CLONE side is deliberately NOT symmetric: a plain `contentHash`. The
 // manifest only ever emits paths it existsSync-verified in a fresh private temp
 // clone THIS run, and its walkers exclude symlinks — so a clone-side read
 // failure means the clone corrupted mid-run, which is genuinely exceptional and
@@ -90,7 +90,7 @@ function compareExpected(
       missing.push(rel);
     } else if (state.kind === 'unreadable') {
       unreadable.push({ rel, reason: state.reason });
-    } else if (state.hash === sha256File(repoPath)) {
+    } else if (state.hash === contentHash(repoPath)) {
       okCount += 1;
     } else {
       modified.push(rel);

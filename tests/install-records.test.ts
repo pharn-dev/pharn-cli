@@ -94,6 +94,16 @@ describe('buildRecords — hashes the DEST, never the source', () => {
     );
   });
 
+  it('records the LF content hash for a CRLF dest, so a CRLF checkout matches its record (F-16)', () => {
+    const proj = tmp.path();
+    write(join(proj, 'crlf.md'), 'a\r\nb\r\n');
+    write(join(proj, 'bin.dat'), '\0a\r\nb\r\n');
+    const records = buildRecords(proj, ['crlf.md', 'bin.dat']);
+    expect(records['crlf.md']).toBe(sha('a\nb\n'));
+    // Binary (a NUL in the first 8000 bytes) is recorded byte-for-byte.
+    expect(records['bin.dat']).toBe(sha('\0a\r\nb\r\n'));
+  });
+
   it('contributes no record for an absent path or a directory', () => {
     const proj = tmp.path();
     mkdirSync(join(proj, 'adir'), { recursive: true });

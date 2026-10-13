@@ -375,7 +375,7 @@ describe('runStatus --json', () => {
       await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
-    const { sha256File } = await import('../src/lib/hash.js');
+    const { contentHash } = await import('../src/lib/hash.js');
     const root = mkdtempSync(join(tmpdir(), 'pharn-orphans-'));
     try {
       const proj = join(root, 'proj');
@@ -388,7 +388,7 @@ describe('runStatus --json', () => {
           schemaVersion: 1,
           skillsVersion: '1.0.0',
           commit: 'c',
-          files: { [rel]: sha256File(join(proj, rel)) },
+          files: { [rel]: contentHash(join(proj, rel)) },
         }),
       );
       writeFileSync(join(proj, rel), 'MY EDIT');

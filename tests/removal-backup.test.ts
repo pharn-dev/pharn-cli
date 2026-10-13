@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { removalBackupSet } from '../src/lib/removal-backup.js';
-import { sha256File } from '../src/lib/hash.js';
+import { contentHash } from '../src/lib/hash.js';
 import { useTmpDir } from './helpers.js';
 
 const DIR = 'pharn/pharn-review/a11y';
@@ -21,7 +21,7 @@ function write(rel: string, content = 'x'): string {
 // The hash of what actually landed, never one the test invented.
 function recordOf(...rels: string[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const rel of rels) out[rel] = sha256File(join(proj, rel));
+  for (const rel of rels) out[rel] = contentHash(join(proj, rel));
   return out;
 }
 
@@ -54,6 +54,22 @@ describe('removalBackupSet', () => {
     write(`${DIR}/other.md`, 'pharn too');
     const records = recordOf(`${DIR}/a11y.md`, `${DIR}/other.md`);
     write(`${DIR}/a11y.md`, 'pharn, edited by you');
+
+    expect(removalBackupSet(proj, [DIR], records)).toEqual([`${DIR}/a11y.md`]);
+  });
+
+  it('a recorded file re-checked-out with CRLF line endings is NOT backed up (F-16)', () => {
+    write(`${DIR}/a11y.md`, '# a11y\nask\n');
+    const records = recordOf(`${DIR}/a11y.md`);
+    write(`${DIR}/a11y.md`, '# a11y\r\nask\r\n');
+
+    expect(removalBackupSet(proj, [DIR], records)).toEqual([]);
+  });
+
+  it('a recorded CRLF file whose content was edited IS backed up', () => {
+    write(`${DIR}/a11y.md`, '# a11y\nask\n');
+    const records = recordOf(`${DIR}/a11y.md`);
+    write(`${DIR}/a11y.md`, '# a11y\r\nask, edited\r\n');
 
     expect(removalBackupSet(proj, [DIR], records)).toEqual([`${DIR}/a11y.md`]);
   });

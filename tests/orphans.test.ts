@@ -20,7 +20,7 @@ import {
   type Orphan,
 } from '../src/lib/orphans.js';
 import { MODELS_RECORD_KEY } from '../src/lib/install-records.js';
-import { sha256File } from '../src/lib/hash.js';
+import { contentHash } from '../src/lib/hash.js';
 import type { InstalledCapability } from '../src/types.js';
 
 const A11Y: InstalledCapability = { name: 'a11y', role: 'griller' };
@@ -111,13 +111,23 @@ describe('findOrphans', () => {
 
   it('reports a recorded, unexpected file at its recorded hash as unchanged', () => {
     write(tmp.path(), '.claude/commands/pharn-old.md', 'old');
-    const hash = sha256File(join(tmp.path(), '.claude/commands/pharn-old.md'));
+    const hash = contentHash(join(tmp.path(), '.claude/commands/pharn-old.md'));
     const scan = run({ '.claude/commands/pharn-old.md': hash });
     expect(scan.orphans).toEqual([
       { path: '.claude/commands/pharn-old.md', state: 'unchanged' },
     ]);
     // Its record is carried with the PREVIOUS hash.
     expect(scan.records).toEqual({ '.claude/commands/pharn-old.md': hash });
+  });
+
+  it('a CRLF copy of a recorded orphan is still unchanged (F-16: line endings are not an edit)', () => {
+    const rel = '.claude/commands/pharn-old.md';
+    write(tmp.path(), rel, '# old\nbody\n');
+    const hash = contentHash(join(tmp.path(), rel));
+    write(tmp.path(), rel, '# old\r\nbody\r\n');
+    const scan = run({ [rel]: hash });
+    expect(scan.orphans).toEqual([{ path: rel, state: 'unchanged' }]);
+    expect(scan.records).toEqual({ [rel]: hash });
   });
 
   it('reports an edited orphan as edited and carries the old record', () => {
@@ -157,7 +167,7 @@ describe('findOrphans', () => {
     vi.mocked(readDiskState).mockClear();
     write(tmp.path(), 'src/auth.ts', 'secret');
     write(tmp.path(), 'README.md', 'readme');
-    const hash = sha256File(join(tmp.path(), 'src/auth.ts'));
+    const hash = contentHash(join(tmp.path(), 'src/auth.ts'));
     const scan = run({
       'src/auth.ts': hash,
       'README.md': 'a'.repeat(64),

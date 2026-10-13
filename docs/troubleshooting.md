@@ -88,7 +88,8 @@ Exit code is **0** — this is the designed outcome, not a failure. To overwrite
 pharn update --force   # backs up each skipped file to .pharn-backup/<timestamp>/, then overwrites
 ```
 
-Files already byte-identical to upstream are left alone (`ok`). `--force` overwrites the `modified`,
+Files already identical to upstream are left alone (`ok`) — line endings aside, see
+[Line endings](#line-endings-windows-coreautocrlf). `--force` overwrites the `modified`,
 `unrecorded` and `unverifiable` buckets only — `unreadable` paths are refused with
 `--force cannot clear the UNREADABLE paths above.` and must be fixed by hand.
 
@@ -115,7 +116,7 @@ the component.
 `.pharn-backup/<timestamp>/` is not only an `update --force` artefact. Before `pharn add` copies a
 capability, it compares each destination file against the clone and copies every one that **differs**
 into the same backup directory — so re-adding a capability whose files you edited never loses those
-edits. Byte-identical files are not drift and are not backed up. Everything in
+edits. Identical files (line endings aside) are not drift and are not backed up. Everything in
 [`--force` aborted with a backup error](#--force-aborted-with-a-backup-error) applies to `add`
 verbatim, including the abort-with-nothing-touched contract.
 
@@ -135,6 +136,35 @@ symlinked directory, naming the offending component:
 That is deliberate rather than defensive: the copy would write straight through the link and replace
 bytes outside your project, while the backup could not save them. Replace the symlink with a real
 directory (or move it aside) and re-run.
+
+## Line endings (Windows, `core.autocrlf`)
+
+If your project is committed and checked out again with `core.autocrlf=true` (the usual Windows
+setting), git rewrites every installed text file with CRLF (`\r\n`) line endings. `pharn` ignores
+that difference. Every command that compares files does so with one content hash
+([`lib/hash.ts`](../src/lib/hash.ts)) that, for a **text** file, turns each `\r\n` into `\n` before
+hashing: `pharn status` drift, the `pharn update` decision, the `pharn add` and `pharn init` backup
+scans, the `pharn remove` backup set, which files `pharn uninstall` may delete, and the hashes written to
+[`pharn.records.json`](reference/pharn-records.md). So a CRLF checkout of untouched files shows no
+drift, `pharn status --strict` passes, and `pharn update` upgrades the files instead of skipping them.
+
+- **Text or binary.** A file is binary when one of its first 8000 bytes is a NUL byte; every other
+  file is text. Binary files are compared byte for byte.
+- **Only `\r\n` is folded.** A lone `\r` (not followed by `\n`) is kept as it is, so it still counts
+  as a change.
+- **What `pharn` writes.** `pharn` copies upstream's bytes unchanged (upstream ships LF). It does not
+  convert a file you already have: a CRLF file that is already up to date stays CRLF.
+- **Old record stores stay valid.** For a file without `\r\n`, which is every file pharn-oss ships
+  today, the new hash is the same as the old one.
+
+**The cost: an edit that only changes line endings is invisible to `pharn`.** If you convert a
+PHARN-owned file between LF and CRLF and change nothing else, `pharn status` reports it as unchanged,
+`pharn update` may replace it with upstream's file, `pharn add` may overwrite it, and `pharn remove`
+and `pharn uninstall` may delete it, each without a backup. Only the line endings can be lost that way; any other change to
+the file is still detected as before.
+
+This is tested by writing CRLF files and by a real `git -c core.autocrlf=true` checkout, on Linux. CI
+does not run on Windows (see [Contributing](contributing.md)).
 
 ## Prerequisites failed
 

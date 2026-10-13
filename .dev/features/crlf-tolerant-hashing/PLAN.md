@@ -48,12 +48,26 @@ Option (b) (installing a `.gitattributes`) is NOT taken: `pharn/.gitattributes` 
 - `src/lib/install-records.ts` — `buildRecords` writes `contentHash`; header comment — layer: lib
 - `src/lib/removal-backup.ts` — `contentHash`; comment — layer: lib
 - `tests/hash.test.ts` — NEW: unit + differential tests for the primitive — layer: tests
-- `tests/diff.test.ts`, `tests/update-plan.test.ts` (or `tests/update.test.ts`), `tests/dest-drift.test.ts`, `tests/removal-backup.test.ts`, `tests/install-records.test.ts`, `tests/remove.test.ts` — CRLF integration cases (see Evals); record-building helpers in existing tests switched from `sha256File` to `contentHash` where they stand for "what pharn records" (values identical for LF fixtures) — layer: tests
+- `tests/diff.test.ts` — CRLF drift cases + one real `git -c core.autocrlf=true` checkout round-trip (GRILL P1) — layer: tests
+- `tests/update-plan.test.ts` — CRLF-ized recorded files: no-op / upgrade, never a `modified` skip; record helpers → `contentHash` — layer: tests
+- `tests/update.test.ts` — record helpers → `contentHash` where they stand for what pharn records (values identical for LF fixtures) — layer: tests
+- `tests/dest-drift.test.ts` — CRLF copy is not drift — layer: tests
+- `tests/removal-backup.test.ts` — CRLF copy of a recorded file is not backed up — layer: tests
+- `tests/install-records.test.ts` — `buildRecords` over CRLF dest records the LF hash — layer: tests
+- `tests/remove.test.ts` — one integration case; record helpers → `contentHash` — layer: tests
+- `tests/add.test.ts` — record helpers → `contentHash` (values identical for LF fixtures) — layer: tests
+- `tests/overwrite-check.test.ts` — record helpers → `contentHash` — layer: tests
+- `tests/init-archetype.test.ts` — record helpers → `contentHash` — layer: tests
+- `tests/update-dry-run.test.ts` — record helpers → `contentHash` — layer: tests
+- `tests/update-dry-run-json.test.ts` — record helpers → `contentHash` — layer: tests
+- `tests/apply-update.test.ts` — `readDiskState` hash expectations → `contentHash` — layer: tests
 - `docs/troubleshooting.md` — NEW section "Line endings (Windows, `core.autocrlf`)": what is ignored, the text rule, binary files, the stated cost, CI does not run on Windows; the two "byte-identical" sentences (:84, :111) → "identical (line endings aside)" — layer: docs
 - `docs/reference/pharn-records.md` — the `files` row and prose: the hash folds CRLF→LF for text files; old stores stay valid — layer: docs
 - `docs/commands/update.md` — row 2 / :332 note that "identical" ignores CRLF vs LF in text files (link to troubleshooting) — layer: docs
 - `docs/commands/status.md` — the drift description: a CRLF-only difference is not drift — layer: docs
-- `docs/commands/add.md` (:159), `docs/commands/remove.md` (backup set), `docs/commands/init.md` (:169) — "byte-identical" → identical-content wording — layer: docs
+- `docs/commands/add.md` — :159 "byte-identical" → identical-content wording — layer: docs
+- `docs/commands/remove.md` — backup set: a line-ending-only difference is not an edit — layer: docs
+- `docs/commands/init.md` — :169 "Byte-identical" → identical-content wording — layer: docs
 - `docs/contributing.md` — :187 sentence removed (hash.ts now has a test file) + a table row for `hash.test.ts`; note the fix is verified with CRLF fixtures on ubuntu, not on Windows — layer: docs
 - `CLAUDE.md` — where hashing is described (`update`/`status`/`add`/`remove` paragraphs + `lib/hash.ts` mention): `contentHash` is the one comparison hash; Windows still untested in CI — layer: docs
 - `CHANGELOG.md` — `### Fixed` entry under `## [Unreleased]`. No version bump — layer: docs
@@ -125,4 +139,4 @@ GATE 1 passed: every recommended answer accepted.
 5. No `.gitattributes` is installed.
 6. `THREAT-MODEL.md` and `LIMITS.md` are not edited by the agent; exact replacement text is handed over at GATE 2. Docs must state the cost plainly: a line-ending-only edit is invisible to pharn.
 
-Process: `.pharn/writes-scope.json` is restored before every commit and never committed. Edits to `update-plan.ts` are limited to the call-site swap (concurrent F-04 / F-12 work there).
+Process: `## Files` re-listed one path per line (format only, so the `--from-plan` scope parser — which reads the first back-tick path per bullet — covers every file the build touches; the GRILL's two `important` findings are folded into the test lines). `.pharn/writes-scope.json` is restored before every commit and never committed. Edits to `update-plan.ts` are limited to the call-site swap (concurrent F-04 / F-12 work there).

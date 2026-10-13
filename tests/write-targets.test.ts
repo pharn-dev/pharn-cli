@@ -13,7 +13,7 @@ import {
 } from '../src/lib/write-targets.js';
 import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
 import { detectLayout } from '../src/lib/layout.js';
-import { sha256File } from '../src/lib/hash.js';
+import { contentHash } from '../src/lib/hash.js';
 import type { InstalledCapability } from '../src/types.js';
 
 // The ONE computation behind init's overwrite prompt, its --dry-run preview and
@@ -109,7 +109,7 @@ describe('planWriteTargets', () => {
     write(join(proj, 'pharn.config.json'), '{}');
     write(join(tmp.path(), 'orig'), 'ship-old');
     const records = {
-      '.claude/commands/pharn-ship.md': sha256File(join(tmp.path(), 'orig')),
+      '.claude/commands/pharn-ship.md': contentHash(join(tmp.path(), 'orig')),
     };
     const plan = planWriteTargets({
       repoDir: repo,

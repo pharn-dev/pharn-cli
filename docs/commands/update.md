@@ -338,7 +338,12 @@ Evaluated per file, first match wins:
 | 5   | present | available   | no record for this path          | **skip** `unrecorded`   | back up → write |
 | 6   | present | unavailable | —                                | **skip** `unverifiable` | back up → write |
 
-A file that is already byte-identical to upstream (row 2) is never a skip, even with no records — and
+"Identical" in rows 2–4 compares content with line endings ignored in text files: a file that differs
+only by CRLF vs LF line endings (for example after a `core.autocrlf=true` checkout) counts as identical,
+and a line-ending-only edit is not seen as `modified`. See
+[Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf).
+
+A file that is already identical to upstream (row 2) is never a skip, even with no records — and
 its record is refreshed, so a degraded install partially heals itself. Partially: it never recovers
 records for the files that **differ**, which is exactly the set an upgrade needs to touch. Those stay
 skipped until you `--force` them or restore them yourself.
