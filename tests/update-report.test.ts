@@ -31,6 +31,19 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
         reason: 'added',
       },
       { cap: { name: 'legacy', role: 'lens' }, reason: 'kept-manual' },
+      {
+        cap: { name: 'stale', role: 'lens', source: 'auto' },
+        reason: 'dropped-unselected',
+      },
+    ],
+    removals: [
+      {
+        cap: { name: 'stale', role: 'lens', source: 'auto' },
+        reason: 'dropped-unselected',
+        dir: 'pharn/pharn-review/stale',
+        present: true,
+        backups: ['pharn/pharn-review/stale/NOTES.md'],
+      },
     ],
     files: [
       {
@@ -188,8 +201,47 @@ describe('buildUpdateReport — planned', () => {
       changes: [
         { role: 'griller', name: 'a11y', source: 'auto', reason: 'added' },
         { role: 'lens', name: 'legacy', source: null, reason: 'kept-manual' },
+        {
+          role: 'lens',
+          name: 'stale',
+          source: 'auto',
+          reason: 'dropped-unselected',
+        },
+      ],
+      removals: [
+        {
+          role: 'lens',
+          name: 'stale',
+          reason: 'dropped-unselected',
+          dir: 'pharn/pharn-review/stale',
+          present: true,
+          backups: ['pharn/pharn-review/stale/NOTES.md'],
+        },
       ],
     });
+  });
+
+  // F-04: the directories a real run would DELETE are part of the plan, so a
+  // script reading the dry run sees a deletion before it happens. Additive
+  // within schemaVersion 1, and present (as []) on every planned report.
+  it('lists the capability directories a real run would delete, [] when none', () => {
+    const none = buildUpdateReport(
+      input({ plan: planReport({ removals: [] }) }),
+    );
+    expect(none.plan!.capabilities.removals).toEqual([]);
+    expect(Object.keys(r.plan!.capabilities)).toEqual([
+      'count',
+      'changes',
+      'removals',
+    ]);
+    expect(Object.keys(r.plan!.capabilities.removals[0]!)).toEqual([
+      'role',
+      'name',
+      'reason',
+      'dir',
+      'present',
+      'backups',
+    ]);
   });
 
   it('maps layout, frozen and the structured unknown capabilities (never the prose)', () => {
@@ -484,9 +536,27 @@ const sha = (text: string): string =>
   createHash('sha256').update(text).digest('hex');
 
 describe('buildUpdateReport — default output is unchanged', () => {
-  it('serializes the planned fixture to the exact 0.10.0 bytes', () => {
-    const text = serializeJsonReport(buildUpdateReport(input({ force: true })));
-    expect(sha(text)).toBe(
+  // The 0.10.0 fixture had no drop, so its plan carried no removal. The ONE
+  // byte difference since is the additive `plan.capabilities.removals` key
+  // (F-04): strip it and the 0.10.0 bytes come back exactly.
+  it('serializes the planned fixture to the exact 0.10.0 bytes plus the additive removals key', () => {
+    const fixture = planReport();
+    const text = serializeJsonReport(
+      buildUpdateReport(
+        input({
+          force: true,
+          plan: planReport({
+            capabilityChanges: fixture.capabilityChanges.filter(
+              (c) => c.reason !== 'dropped-unselected',
+            ),
+            removals: [],
+          }),
+        }),
+      ),
+    );
+    const removalsKey = /,\n {6}"removals": \[\]/;
+    expect(text).toMatch(removalsKey);
+    expect(sha(text.replace(removalsKey, ''))).toBe(
       '13a9755b35bf7eb73c52357d17572aedeeb61ce1e737026267c17447169f8615',
     );
     expect(text).not.toContain('"compact"');

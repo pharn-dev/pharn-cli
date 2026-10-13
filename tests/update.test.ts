@@ -1591,7 +1591,7 @@ describe('runUpdate (drift-safe)', () => {
     // refreshes its record; DROP leaves it at v1 with its record pruned.
     const STALE_FILE = 'pharn-review/stale/stale.md';
 
-    it('DROPS an auto capability the archetypes no longer select: named, files left at their old bytes, record PRUNED', async () => {
+    it('DROPS an auto capability the archetypes no longer select: named, its directory DELETED, record PRUNED', async () => {
       await installed({
         capabilities: [CAP, { name: 'stale', role: 'lens', source: 'auto' }],
       });
@@ -1615,8 +1615,12 @@ describe('runUpdate (drift-safe)', () => {
         { ...CAP, source: 'auto' },
       ]);
       expect(capNote()).toContain('lens:stale');
-      // It left the manifest: NOT upgraded to the clone's bytes, never deleted.
-      expect(body(STALE_FILE)).toBe('stale v1');
+      // It left the manifest: NOT upgraded to the clone's bytes — and its
+      // directory is gone (F-04): PHARN's commands find capabilities by scanning
+      // the directories, so one left behind would keep running. Its one file was
+      // pharn's own, recorded and unchanged, so nothing needed a backup.
+      expect(existsSync(join(proj, 'pharn-review/stale'))).toBe(false);
+      expect(backupDirs()).toEqual([]);
       // nextRecords is keyed by the manifest just applied, so a path no longer
       // installed is pruned rather than accumulating forever
       // (lib/update-decision.ts). Files outliving their record is exactly why a
@@ -1646,7 +1650,7 @@ describe('runUpdate (drift-safe)', () => {
     // The trap: the install manifest SILENTLY contributes zero paths for a
     // missing capability dir, so without the index-membership filter this entry
     // would live in the config forever as a phantom and nothing would ever say so.
-    it('DROPS a manual entry whose capability is gone upstream — named, contributing zero manifest paths, files left alone', async () => {
+    it('DROPS a manual entry whose capability is gone upstream — named, contributing zero manifest paths, its directory deleted after a backup', async () => {
       await installed({
         capabilities: [CAP, { name: 'gone', role: 'lens', source: 'manual' }],
       });
@@ -1664,8 +1668,213 @@ describe('runUpdate (drift-safe)', () => {
       ]);
       expect(capNote()).toContain('lens:gone');
       expect(capNote()).toContain('no longer exists upstream');
-      // Zero manifest paths ⇒ its file was never a write target, and never deleted.
-      expect(body('pharn-review/gone/gone.md')).toBe('my bytes');
+      // Zero manifest paths ⇒ its file was never a write target; the directory
+      // is deleted with the entry, and the file — pharn has no record of it —
+      // was copied to .pharn-backup/ first.
+      expect(existsSync(join(proj, 'pharn-review/gone'))).toBe(false);
+      const [ts] = backupDirs();
+      expect(
+        readFileSync(
+          join(proj, BACKUP_DIR, ts!, 'pharn-review/gone/gone.md'),
+          'utf8',
+        ),
+      ).toBe('my bytes');
+    });
+
+    // F-04 — what a drop deletes, what it saves first, and what it never touches.
+    describe('deleting a dropped capability', () => {
+      const STALE_DIR = 'pharn-review/stale';
+      const NOTES = `${STALE_DIR}/NOTES.md`;
+
+      // `stale` is installed, recorded, and no longer selected; the user added
+      // NOTES.md inside it.
+      async function droppedStale(
+        over: Partial<PharnConfig> = {},
+      ): Promise<PharnConfig> {
+        const cfg = await installed({
+          capabilities: [CAP, { name: 'stale', role: 'lens', source: 'auto' }],
+          ...over,
+        });
+        write(join(proj, STALE_FILE), 'stale v1');
+        write(join(proj, NOTES), 'my notes');
+        const read = readRecords(proj);
+        if (read.kind !== 'ok') throw new Error('fixture: records unreadable');
+        await writeRecords(proj, {
+          skillsVersion: cfg.skillsVersion,
+          commit: cfg.commit,
+          files: {
+            ...read.store.files,
+            [STALE_FILE]: sha256File(join(proj, STALE_FILE)),
+          },
+        });
+        selectsA11yOnly();
+        return cfg;
+      }
+
+      it('backs up the files pharn cannot prove it wrote, announces it, then deletes the directory', async () => {
+        await droppedStale();
+
+        await runUpdate();
+
+        expect(existsSync(join(proj, STALE_DIR))).toBe(false);
+        const [ts] = backupDirs();
+        const saved = join(proj, BACKUP_DIR, ts!);
+        expect(readFileSync(join(saved, NOTES), 'utf8')).toBe('my notes');
+        // pharn's own unchanged bytes are not "saved" — `add` can write them again.
+        expect(existsSync(join(saved, STALE_FILE))).toBe(false);
+        expect(infoLines()).toContain(
+          `Backed up 1 file(s) to ${BACKUP_DIR}/${ts} before removing.`,
+        );
+        // The store describes nothing under the deleted directory.
+        expect(
+          Object.keys(records() ?? {}).filter((k) => k.startsWith(STALE_DIR)),
+        ).toEqual([]);
+        // The report says what happened, accurately.
+        const text = stripVTControlCharacters(String(capNote()));
+        expect(text).toContain('lens:stale — directory deleted');
+        expect(text).toContain('1 file(s) backed up first');
+        expect(text).not.toContain('left on disk');
+        expect(text).not.toContain('never deletes');
+      });
+
+      it('backs up an EDITED recorded file too', async () => {
+        await droppedStale();
+        write(join(proj, STALE_FILE), 'MY EDIT');
+
+        await runUpdate();
+
+        const [ts] = backupDirs();
+        expect(
+          readFileSync(join(proj, BACKUP_DIR, ts!, STALE_FILE), 'utf8'),
+        ).toBe('MY EDIT');
+      });
+
+      it('backs up every file when the record store is not usable', async () => {
+        await droppedStale();
+        rmSync(join(proj, RECORDS_FILE));
+
+        await runUpdate();
+
+        const [ts] = backupDirs();
+        const saved = join(proj, BACKUP_DIR, ts!);
+        expect(existsSync(join(saved, NOTES))).toBe(true);
+        expect(existsSync(join(saved, STALE_FILE))).toBe(true);
+        expect(existsSync(join(proj, STALE_DIR))).toBe(false);
+      });
+
+      it('makes ONE backup directory for --force overwrites and removals together', async () => {
+        await droppedStale();
+        write(join(proj, DOC), 'MY DOC EDIT'); // a forced overwrite
+
+        await runUpdate({ force: true });
+
+        const dirs = backupDirs();
+        expect(dirs).toHaveLength(1);
+        const saved = join(proj, BACKUP_DIR, dirs[0]!);
+        expect(readFileSync(join(saved, DOC), 'utf8')).toBe('MY DOC EDIT');
+        expect(readFileSync(join(saved, NOTES), 'utf8')).toBe('my notes');
+        expect(infoLines()).toContain(
+          `Backed up 2 file(s) to ${BACKUP_DIR}/${dirs[0]} before overwriting and removing.`,
+        );
+      });
+
+      it('names an already-gone directory as such, and backs up nothing', async () => {
+        await droppedStale();
+        rmSync(join(proj, STALE_DIR), { recursive: true });
+
+        await runUpdate();
+
+        expect(backupDirs()).toEqual([]);
+        expect(stripVTControlCharacters(String(capNote()))).toContain(
+          'lens:stale — already gone',
+        );
+      });
+
+      it('deletes nothing else: a stray file in a KEPT capability, and .claude/settings.json, stay', async () => {
+        await droppedStale();
+        const stray = 'pharn-pipeline/grillers/a11y/MINE.md';
+        write(join(proj, stray), 'kept capability, my file');
+        write(join(proj, '.claude/settings.json'), '{"hooks":{}}\n');
+
+        await runUpdate();
+
+        expect(body(stray)).toBe('kept capability, my file');
+        expect(body('.claude/settings.json')).toBe('{"hooks":{}}\n');
+        expect(existsSync(join(proj, STALE_DIR))).toBe(false);
+      });
+
+      it('refuses the whole run when the backup cannot be made: nothing deleted, config and records untouched', async () => {
+        await droppedStale();
+        const outside = join(tmp.path(), 'outside-backup');
+        mkdirSync(outside, { recursive: true });
+        symlinkSync(outside, join(proj, BACKUP_DIR));
+        const recordsBefore = readFileSync(join(proj, RECORDS_FILE), 'utf8');
+
+        await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+        expect(body(NOTES)).toBe('my notes');
+        expect(body(STALE_FILE)).toBe('stale v1');
+        expect(readPharnConfig(proj)).toBeNull();
+        expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(
+          recordsBefore,
+        );
+        expect(body(DOC)).toBe('constitution v1');
+      });
+
+      it('refuses the whole run when the directory sits behind a symlinked component: nothing written', async () => {
+        await droppedStale();
+        // Move the review subtree outside and link it back in.
+        const outside = join(tmp.path(), 'shared-review');
+        mkdirSync(join(outside, 'stale'), { recursive: true });
+        write(join(outside, 'stale/stale.md'), 'not this project');
+        rmSync(join(proj, 'pharn-review'), { recursive: true });
+        symlinkSync(outside, join(proj, 'pharn-review'));
+
+        await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+        expect(readFileSync(join(outside, 'stale/stale.md'), 'utf8')).toBe(
+          'not this project',
+        );
+        expect(printedLines()).toContain('pharn-review is a symbolic link');
+        expect(printedLines()).not.toContain('PHARN_DEBUG');
+        expect(readPharnConfig(proj)).toBeNull();
+        expect(body(DOC)).toBe('constitution v1');
+        expect(backupDirs()).toEqual([]);
+      });
+
+      // Deletes run BEFORE the writes, so a failing delete leaves no unrecorded
+      // pharn write behind; the abort repeats the backup pointer and says what
+      // may already be gone.
+      it.skipIf(process.getuid?.() === 0)(
+        'a delete that fails stops the run before any write, naming the backup',
+        async () => {
+          await droppedStale();
+          chmodSync(join(proj, STALE_DIR), 0o555); // its entries cannot be unlinked
+          try {
+            await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+          } finally {
+            chmodSync(join(proj, STALE_DIR), 0o755);
+          }
+          expect(body(DOC)).toBe('constitution v1'); // no write happened
+          expect(readPharnConfig(proj)).toBeNull();
+          const text = printedLines();
+          expect(text).toContain('stopped part-way');
+          expect(text).toContain('removed');
+          expect(text).toContain(`${BACKUP_DIR}/${backupDirs()[0]}`);
+        },
+      );
+
+      it('says before the confirm that dropped capabilities are deleted, pointing at --dry-run', async () => {
+        await droppedStale();
+
+        await runUpdate();
+
+        const header = stripVTControlCharacters(
+          String(vi.mocked(prompts.note).mock.calls[0]![0]),
+        );
+        expect(header).toContain('directories are deleted');
+        expect(header).toContain('pharn update --dry-run');
+      });
     });
 
     it('SKIPS a manual capability file the user edited, with the standard report', async () => {

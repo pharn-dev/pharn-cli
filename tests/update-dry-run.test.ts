@@ -324,6 +324,29 @@ describe('runUpdate --dry-run', () => {
       expect(noteBody('ORPHANED')).toContain(CMD);
     });
 
+    // F-04: a real run would DELETE the dropped capability's directory (after
+    // backing up the user's file in it); the preview deletes and backs up
+    // nothing, and lists both.
+    it('over a dropped capability whose directory holds a file of the user’s', async () => {
+      await dryRunLeavesTreeAlone({}, async () => {
+        await installed({
+          capabilities: [CAP, { name: 'stale', role: 'lens', source: 'auto' }],
+        });
+        write(join(proj, 'pharn-review/stale/stale.md'), 'stale v1');
+        write(join(proj, 'pharn-review/stale/NOTES.md'), 'my notes');
+      });
+      expect(existsSync(join(proj, 'pharn-review/stale/NOTES.md'))).toBe(true);
+      expect(noteBody('PLAN')).toContain(
+        'WOULD DELETE — directories of capabilities dropped from your config',
+      );
+      expect(noteBody('PLAN')).toContain('pharn-review/stale/');
+      expect(noteBody('PLAN')).toContain('pharn-review/stale/NOTES.md');
+      expect(noteBody('CAPABILITIES')).toContain(
+        'lens:stale — directory would be deleted (2 file(s) would be backed up first)',
+      );
+      expect(outroText()).toContain('delete 1 directory');
+    });
+
     it('over a layout migration, with a live lock file left untouched', async () => {
       await dryRunLeavesTreeAlone({}, async () => {
         await installed();
@@ -753,6 +776,34 @@ describe('runUpdate --dry-run', () => {
       const backupRoot = join(proj, BACKUP_DIR);
       const stamp = readdirSync(backupRoot)[0]!;
       const backedUp = after
+        .filter(
+          (e) => e.startsWith('f ') && e.includes(`${BACKUP_DIR}/${stamp}/`),
+        )
+        .map((e) => e.split(' ')[1]!.split(`${BACKUP_DIR}/${stamp}/`)[1]!)
+        .sort();
+      expect(backedUp).toEqual(plan.backups);
+    });
+
+    it('deletes and backs up exactly what the preview listed for a dropped capability', async () => {
+      await installed({
+        capabilities: [CAP, { name: 'stale', role: 'lens', source: 'auto' }],
+      });
+      write(join(proj, 'pharn-review/stale/stale.md'), 'stale v1');
+      write(join(proj, 'pharn-review/stale/NOTES.md'), 'my notes');
+
+      await runUpdate({ dryRun: true });
+      const plan = planned();
+      const deletes = noteBody('PLAN')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.endsWith('/'));
+      expect(deletes).toEqual(['pharn-review/stale/']);
+
+      vi.mocked(prompts.note).mockClear();
+      await runUpdate({ yes: true });
+      expect(existsSync(join(proj, 'pharn-review/stale'))).toBe(false);
+      const stamp = readdirSync(join(proj, BACKUP_DIR))[0]!;
+      const backedUp = snapshotTree(proj)
         .filter(
           (e) => e.startsWith('f ') && e.includes(`${BACKUP_DIR}/${stamp}/`),
         )

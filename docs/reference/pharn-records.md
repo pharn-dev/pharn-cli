@@ -49,13 +49,13 @@ this is the plain sha256 of its bytes, so stores written by earlier versions sta
 
 ## Who writes it
 
-| Command     | Effect                                                                                                                                                          |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init`      | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files) |
-| `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                          |
-| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files)   |
-| `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                               |
-| `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                           |
+| Command     | Effect                                                                                                                                                                                                                                                   |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`      | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files)                                                                                          |
+| `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                                                                                                                   |
+| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files). Reads it first to decide what to back up before deleting a dropped capability's directory |
+| `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                                                                                                                        |
+| `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                                                                                                                    |
 
 `.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
 absent.
@@ -117,7 +117,8 @@ until you delete it. That entry is what lets `update` and `status` keep listing 
 they do not. Once the file is gone, the next `update` drops the entry. If upstream ships the path
 again, the entry makes it a clean upgrade instead of an `unrecorded` skip. The entries of a capability
 `update` drops from your config are not kept: those files are named by the membership change, not as
-orphans.
+orphans, and their directory is deleted. Before that delete, `update` reads the store the way `remove`
+does (below): a file at its recorded hash is not backed up, every other file is.
 
 **Frozen capabilities are the deliberate exception.** When a capability's upstream definition becomes
 unreadable, `update` reports it as `kept-frozen`, leaves its files alone, and — because it is absent

@@ -1,4 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
@@ -9,7 +15,8 @@ vi.mock('../src/lib/capability-index.js', () => ({ parseCapabilityIndex }));
 const resolveCapabilities = vi.fn();
 vi.mock('../src/lib/resolve-capabilities.js', () => ({ resolveCapabilities }));
 
-const { buildUpdatePlan } = await import('../src/lib/update-plan.js');
+const { buildUpdatePlan, CapabilityRemovalError } =
+  await import('../src/lib/update-plan.js');
 const { writeRecords } = await import('../src/lib/install-records.js');
 const { contentHash } = await import('../src/lib/hash.js');
 
@@ -365,5 +372,181 @@ describe('buildUpdatePlan', () => {
     expect(report.writes).toEqual(apply.plan.writes);
     expect(report.counts).toEqual(apply.plan.counts);
     expect(readFileSync(join(repo, DOC), 'utf8')).toBe('constitution v2');
+  });
+  // F-04: a capability the merge DROPS from the config must not stay on disk —
+  // PHARN's commands find capabilities by scanning the directories, so a
+  // dropped-but-present directory keeps running. The planner names each one,
+  // with the files a delete would lose; it deletes nothing itself.
+  describe('removals (capabilities dropped from the config)', () => {
+    const STALE = { name: 'stale', role: 'lens' as const };
+    const STALE_DIR = 'pharn-review/stale';
+    const GONE = { name: 'gone', role: 'lens' as const };
+
+    async function withStale(
+      cfg = config({
+        capabilities: [
+          { ...CAP, source: 'auto' },
+          { ...STALE, source: 'auto' },
+        ],
+      }),
+    ): Promise<PharnConfig> {
+      await fixture(cfg);
+      write(join(proj, `${STALE_DIR}/stale.md`), 'stale v1');
+      write(join(proj, `${STALE_DIR}/NOTES.md`), 'my notes');
+      await writeRecords(proj, {
+        skillsVersion: cfg.skillsVersion,
+        commit: cfg.commit,
+        files: {
+          [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
+          [DOC]: sha256File(join(proj, DOC)),
+          [`${STALE_DIR}/stale.md`]: sha256File(
+            join(proj, `${STALE_DIR}/stale.md`),
+          ),
+        },
+      });
+      return cfg;
+    }
+
+    it('plans none when membership does not shrink', async () => {
+      await fixture();
+      expect(plan(config()).report.removals).toEqual([]);
+    });
+
+    it('plans a dropped-unselected capability: present, backing up only what pharn cannot prove it wrote', async () => {
+      const cfg = await withStale();
+      const before = snapshotTree(proj);
+      const { report } = plan(cfg);
+      expect(report.removals).toEqual([
+        {
+          cap: { ...STALE, source: 'auto' },
+          reason: 'dropped-unselected',
+          dir: STALE_DIR,
+          present: true,
+          backups: [`${STALE_DIR}/NOTES.md`],
+        },
+      ]);
+      // Planning deletes and backs up nothing.
+      expect(snapshotTree(proj)).toEqual(before);
+    });
+
+    it('plans a dropped-gone capability (a manual add upstream no longer ships) the same way', async () => {
+      await fixture();
+      write(join(proj, 'pharn-review/gone/gone.md'), 'old');
+      const { report } = plan(
+        config({ capabilities: [CAP, { ...GONE, source: 'manual' }] }),
+      );
+      expect(report.removals).toEqual([
+        {
+          cap: { ...GONE, source: 'manual' },
+          reason: 'dropped-gone',
+          dir: 'pharn-review/gone',
+          present: true,
+          // No record for it → not provably pharn's → backed up.
+          backups: ['pharn-review/gone/gone.md'],
+        },
+      ]);
+    });
+
+    it('backs up every file when there is no usable record store', async () => {
+      const cfg = await withStale();
+      const { report } = plan({ ...cfg, commit: 'c'.repeat(40) }); // stamp mismatch
+      expect(report.removals[0]!.backups).toEqual([
+        `${STALE_DIR}/NOTES.md`,
+        `${STALE_DIR}/stale.md`,
+      ]);
+    });
+
+    it('marks an already-gone directory not present, with nothing to back up', async () => {
+      await fixture();
+      const { report } = plan(
+        config({ capabilities: [CAP, { ...STALE, source: 'auto' }] }),
+      );
+      expect(report.removals).toEqual([
+        expect.objectContaining({ present: false, backups: [] }),
+      ]);
+    });
+
+    it('reads a path below a regular file as not present, not as an error', async () => {
+      await fixture();
+      write(join(proj, 'pharn-review'), 'a file where the subtree would be');
+      const { report } = plan(
+        config({ capabilities: [CAP, { ...STALE, source: 'auto' }] }),
+      );
+      expect(report.removals).toEqual([
+        expect.objectContaining({ present: false, backups: [] }),
+      ]);
+    });
+
+    it('addresses the directory at the layout the CONFIG recorded, not the clone’s', async () => {
+      const cfg = await withStale();
+      write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v2');
+      write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a');
+      write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'c');
+      const { report, apply } = plan(cfg);
+      expect(report.layout).toBe('pharn');
+      expect(report.removals[0]!.dir).toBe(STALE_DIR);
+      expect(apply.removalPaths.lenses).toBe('pharn-review');
+    });
+
+    it('never removes a frozen (kept, unparsed) capability', async () => {
+      const cfg = await withStale();
+      parseCapabilityIndex.mockReturnValue({
+        capabilities: [],
+        unknown: [
+          {
+            name: STALE.name,
+            role: STALE.role,
+            subtree: 'pharn-review',
+            reason: 'bad role',
+          },
+        ],
+      });
+      expect(plan(cfg).report.removals).toEqual([]);
+    });
+
+    it('plans a duplicated config entry once', async () => {
+      const cfg = await withStale(
+        config({
+          capabilities: [
+            CAP,
+            { ...STALE, source: 'auto' },
+            { ...STALE, source: 'auto' },
+          ],
+        }),
+      );
+      expect(plan(cfg).report.removals).toHaveLength(1);
+    });
+
+    it('refuses the whole plan when the directory sits behind a symlinked component', async () => {
+      const cfg = await withStale(
+        config({
+          layout: 'pharn',
+          capabilities: [
+            { ...CAP, source: 'auto' },
+            { ...STALE, source: 'auto' },
+          ],
+        }),
+      );
+      const outside = join(tmp.path(), 'outside');
+      write(join(outside, 'pharn-review/stale/stale.md'), 'not ours');
+      symlinkSync(outside, join(proj, 'pharn'));
+      expect(() => plan(cfg)).toThrow(CapabilityRemovalError);
+      expect(() => plan(cfg)).toThrow(/pharn is a symbolic link/);
+    });
+
+    it.skipIf(process.getuid?.() === 0)(
+      'refuses the whole plan when a file in the directory cannot be read',
+      async () => {
+        const cfg = await withStale();
+        const file = join(proj, `${STALE_DIR}/stale.md`);
+        chmodSync(file, 0o000);
+        try {
+          expect(() => plan(cfg)).toThrow(CapabilityRemovalError);
+          expect(() => plan(cfg)).toThrow(/Nothing was changed/);
+        } finally {
+          chmodSync(file, 0o644);
+        }
+      },
+    );
   });
 });

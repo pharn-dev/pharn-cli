@@ -52,12 +52,14 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 7. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
    latest capability index, then **unions** that result with the capabilities you added by hand.
 8. Decides each expected file with the table below — and your `models` block the same way — backs up
-   anything `--force` is about to overwrite, copies the files it may write, then updates
-   `pharn.records.json` and `pharn.config.json`.
+   anything `--force` is about to overwrite and every file in a dropped capability's directory that
+   `pharn` cannot prove it wrote, **deletes the directories of the capabilities it drops** (see
+   [Dropped capabilities are deleted](#dropped-capabilities-are-deleted)), copies the files it may
+   write, then updates `pharn.records.json` and `pharn.config.json`.
 
 Because `update` re-resolves your archetypes against the latest index, a capability upstream added for
-one of your archetypes since your last install is picked up, and one it removed is dropped — your
-`archetypes` list itself is never changed.
+one of your archetypes since your last install is picked up, and one it removed is dropped — and its
+directory deleted — while your `archetypes` list itself is never changed.
 
 ## Previewing an update
 
@@ -81,7 +83,8 @@ the check that the config did not change under you.
 It prints:
 
 - `PLAN` — the files it would **write** (`restored`, `updated`), under `--force` the ones it would
-  **overwrite** (`modified`, `unrecorded`, `unverifiable`), the files it would **back up** first
+  **overwrite** (`modified`, `unrecorded`, `unverifiable`), the capability directories it would
+  **delete** (`WOULD DELETE`), the files it would **back up** first
   (`.pharn-backup/<timestamp>/` — the timestamp is only known when a real run makes the backup), how
   many are unchanged or skipped, and the channel it would record when `--ref` changes it;
 - the `SKIPPED`, `CAPABILITIES`, `MODELS`, `HOOKS` and `NOT SHIPPED` notes of a real run, worded as
@@ -142,7 +145,7 @@ key. Treat a `status` you do not recognise as "do not apply".
     "layout": "flat",
     "abandonedLayout": null,
     "featuresReadmeRelocation": false,
-    "capabilities": { "count": 12, "changes": [] },
+    "capabilities": { "count": 12, "changes": [], "removals": [] },
     "files": [
       {
         "rel": "CONSTITUTION.md",
@@ -194,24 +197,25 @@ key. Treat a `status` you do not recognise as "do not apply".
 }
 ```
 
-| key                                         | meaning                                                                                                                                                                                                                                                                                                                                                           |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schemaVersion`                             | `1`. Match it exactly. New keys may appear within `1`; a breaking change bumps it. This is a documented contract, not something `pharn` enforces. It versions independently of `pharn status --json`.                                                                                                                                                             |
-| `status`, `force`                           | The outcome above, and whether `--force` was passed.                                                                                                                                                                                                                                                                                                              |
-| `channel`                                   | `main` or `latest`, the channel this run used. `channelChange` is `{from, to}` when `--ref` would switch the recorded channel, else `null`.                                                                                                                                                                                                                       |
-| `source`                                    | `kind` (`main` or `release`) and the release `tag` (else `null`).                                                                                                                                                                                                                                                                                                 |
-| `version`                                   | `installed` (recorded now) and `latest` (upstream). With a plan: `recorded` is the version a real run would record, `withheld` says skips would hold it back, `pending` is the version `pharn add` could still install at (else `null`). All three are `null` without a plan.                                                                                     |
-| `plan.files`                                | Every file the install covers, with the `action` (`write`, `noop`, `skip`), the `label` (`restored`, `updated`, `ok`, or a skip reason `modified`, `unrecorded`, `unverifiable`, `unreadable`), whether `--force` made it a write (`forced`) and whether it would be backed up first (`backup`).                                                                  |
-| `plan.writes`                               | The files a real run would write, in install order. `plan.backups` are the files it would copy to `.pharn-backup/<timestamp>/` first (including `pharn.config.json` when `--force` would replace your `models` block).                                                                                                                                            |
-| `plan.skipped`                              | Skipped files grouped by reason (most actionable first). `plan.counts` are the totals.                                                                                                                                                                                                                                                                            |
-| `plan.capabilities`                         | The `count` after the update and every membership `changes[{role, name, source, reason}]` (`added`, `dropped-unselected`, `dropped-gone`, `kept-manual`, `kept-frozen`).                                                                                                                                                                                          |
-| `plan.models`                               | What would happen to your `models` block: `outcome` (`restored`, `updated`, `ok`, `kept`, `forced`, `upstream-absent`, `upstream-invalid`), its `label`, a `conversion` of an old-format block, and the `problems`/`upstreamReasons`. The block itself is not included.                                                                                           |
-| `plan.hooks`                                | The same comparison as `pharn status --json`: `status`, `missing[]` and `localOnly[]` as `{event, matcher, command, args}`, and `file`/`reason`. `update` never writes your settings files.                                                                                                                                                                       |
-| `plan.absentUpstream`                       | Present **only** when there is one: the declared surfaces the fetched clone ships no file for, at its own layout, as `{surface, path}` (`surface` is `commands`, `hooks`, `trusted-doc`, `license`, `features-readme`, `contracts`, `core` or `floor`) — the `NOT SHIPPED` note. Absent otherwise, so a report without one is byte-identical to earlier releases. |
-| `plan.layout`                               | The layout the install would be recorded at; `abandonedLayout` is the one it would leave behind, and `featuresReadmeRelocation` says a copy of the boundary contract would be left at the project root.                                                                                                                                                           |
-| `frozenCapabilities`, `unknownCapabilities` | Capabilities upstream ships that this CLI cannot read, kept as they are: `role:name` keys, and `{role, name, subtree, reason}`.                                                                                                                                                                                                                                   |
-| `plan.recordsNote`                          | Why `pharn.records.json` could not be used (then every difference is `unverifiable`), else `null`.                                                                                                                                                                                                                                                                |
-| `plan.orphans`                              | Present only when there is at least one: every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). With none, the key is **absent** (not `[]`), so such a report is byte-identical to the one 0.10.0 printed; read it as `plan.orphans ?? []`. Never filtered by `--compact`.          |
+| key                                         | meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schemaVersion`                             | `1`. Match it exactly. New keys may appear within `1`; a breaking change bumps it. This is a documented contract, not something `pharn` enforces. It versions independently of `pharn status --json`.                                                                                                                                                                                                                                                                                                        |
+| `status`, `force`                           | The outcome above, and whether `--force` was passed.                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `channel`                                   | `main` or `latest`, the channel this run used. `channelChange` is `{from, to}` when `--ref` would switch the recorded channel, else `null`.                                                                                                                                                                                                                                                                                                                                                                  |
+| `source`                                    | `kind` (`main` or `release`) and the release `tag` (else `null`).                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `version`                                   | `installed` (recorded now) and `latest` (upstream). With a plan: `recorded` is the version a real run would record, `withheld` says skips would hold it back, `pending` is the version `pharn add` could still install at (else `null`). All three are `null` without a plan.                                                                                                                                                                                                                                |
+| `plan.files`                                | Every file the install covers, with the `action` (`write`, `noop`, `skip`), the `label` (`restored`, `updated`, `ok`, or a skip reason `modified`, `unrecorded`, `unverifiable`, `unreadable`), whether `--force` made it a write (`forced`) and whether it would be backed up first (`backup`).                                                                                                                                                                                                             |
+| `plan.writes`                               | The files a real run would write, in install order. `plan.backups` are the files it would copy to `.pharn-backup/<timestamp>/` first (including `pharn.config.json` when `--force` would replace your `models` block).                                                                                                                                                                                                                                                                                       |
+| `plan.skipped`                              | Skipped files grouped by reason (most actionable first). `plan.counts` are the totals.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `plan.capabilities`                         | The `count` after the update and every membership `changes[{role, name, source, reason}]` (`added`, `dropped-unselected`, `dropped-gone`, `kept-manual`, `kept-frozen`).                                                                                                                                                                                                                                                                                                                                     |
+| `plan.capabilities.removals`                | Present **only** when this update drops at least one capability: one entry per capability whose directory a real run would **delete**, as `{role, name, reason, dir, present, backups}` — `dir` is the directory, `present` says there is anything there, and `backups` are the files in it a real run would copy to `.pharn-backup/<timestamp>/` first. With none, the key is **absent** (not `[]`), so such a report is byte-identical to earlier releases; read it as `plan.capabilities.removals ?? []`. |
+| `plan.models`                               | What would happen to your `models` block: `outcome` (`restored`, `updated`, `ok`, `kept`, `forced`, `upstream-absent`, `upstream-invalid`), its `label`, a `conversion` of an old-format block, and the `problems`/`upstreamReasons`. The block itself is not included.                                                                                                                                                                                                                                      |
+| `plan.hooks`                                | The same comparison as `pharn status --json`: `status`, `missing[]` and `localOnly[]` as `{event, matcher, command, args}`, and `file`/`reason`. `update` never writes your settings files.                                                                                                                                                                                                                                                                                                                  |
+| `plan.absentUpstream`                       | Present **only** when there is one: the declared surfaces the fetched clone ships no file for, at its own layout, as `{surface, path}` (`surface` is `commands`, `hooks`, `trusted-doc`, `license`, `features-readme`, `contracts`, `core` or `floor`) — the `NOT SHIPPED` note. Absent otherwise, so a report without one is byte-identical to earlier releases.                                                                                                                                            |
+| `plan.layout`                               | The layout the install would be recorded at; `abandonedLayout` is the one it would leave behind, and `featuresReadmeRelocation` says a copy of the boundary contract would be left at the project root.                                                                                                                                                                                                                                                                                                      |
+| `frozenCapabilities`, `unknownCapabilities` | Capabilities upstream ships that this CLI cannot read, kept as they are: `role:name` keys, and `{role, name, subtree, reason}`.                                                                                                                                                                                                                                                                                                                                                                              |
+| `plan.recordsNote`                          | Why `pharn.records.json` could not be used (then every difference is `unverifiable`), else `null`.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `plan.orphans`                              | Present only when there is at least one: every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). With none, the key is **absent** (not `[]`), so such a report is byte-identical to the one 0.10.0 printed; read it as `plan.orphans ?? []`. Never filtered by `--compact`.                                                                                                                                                     |
 
 #### `--compact`: leave out the unchanged files
 
@@ -231,8 +235,9 @@ A compact report says so, in two places that exist **only** under `--compact`:
 | `compact`           | `true`, at the top level, on every `status` (the `up-to-date`, `ahead-of-release` and `ahead-of-main` reports too, where `plan` is `null`).              |
 | `plan.filesOmitted` | `{ "action": "noop", "count": N }`: what `plan.files` leaves out. `N` always equals `plan.counts.ok`, so `files.length + N` is the installed-file total. |
 
-To tell the shapes apart, check `compact`: the default report has neither key, is byte-for-byte what
-`pharn` 0.10.0 printed, and always holds the full list. `schemaVersion` stays `1`: nothing is removed or
+To tell the shapes apart, check `compact`: the default report has neither key and always holds the full
+list. It is byte-for-byte what `pharn` 0.10.0 printed apart from one additive key,
+`plan.capabilities.removals`. `schemaVersion` stays `1`: nothing is removed or
 renamed, and the new keys appear only when you ask for them. Every other field, including all of `counts`,
 `writes`, `backups` and `skipped`, is identical in both shapes. `--compact` only helps when most files are
 unchanged; a first install or a restore after deleting files lists every file as a real change in both.
@@ -273,8 +278,45 @@ archetypes — then it re-enters as `auto` and is named under `ADDED`. See
 | `KEPT — your manual add, not selected by your archetypes` | A pre-`source` entry preserved as manual (printed once)         |
 | `KEPT — pharn could not read these upstream this run`     | A capability this pharn version could not parse (see below)     |
 
-If nothing changed, nothing is printed. Removed entries' **files are left on disk** — `update` never
-deletes.
+If nothing changed, nothing is printed. A `REMOVED` line also says what happened to that capability's
+directory: `directory deleted`, `directory deleted (N file(s) backed up first)`, or `already gone`.
+
+### Dropped capabilities are deleted
+
+PHARN's commands find the grillers and lenses they run by **scanning their directories** — not by
+reading `pharn.config.json`. So a capability `update` drops from the config (either `REMOVED` reason
+above) would keep running if its directory stayed, and `pharn remove` could no longer reach it, since
+`remove` addresses what the config lists. `update` therefore **deletes that directory** in the same run,
+inside the project lock, the way [`pharn remove`](remove.md) does:
+
+- **Backed up first.** Every regular file in the directory that is not, provably, `pharn`'s own
+  unchanged bytes is copied to `.pharn-backup/<timestamp>/` before the first delete: a file you added,
+  a file you edited, and **every** file when there is no usable `pharn.records.json`. A file still at the
+  hash `pharn` recorded writing is not copied; `pharn add` can install it again. The backup is named when
+  it is created (`Backed up N file(s) to .pharn-backup/<ts> before removing.`), and it is the same one
+  directory `--force` uses in that run (`before overwriting and removing.`). Symbolic links, FIFOs and
+  sockets inside the directory are not backed up and not followed; the delete removes a link, never its
+  target.
+- **Addressed where it was installed.** The directory is found at the layout `pharn.config.json`
+  recorded, by the capability's validated name, and only ever as a direct child of its role's
+  directory (`pharn-pipeline/grillers/` or `pharn-review/`, under `pharn/` in that layout).
+- **Refused, with nothing changed,** when the path to it crosses a symbolic link (deleting through it
+  would delete files outside the project — delete the directory yourself, then run `update` again), or
+  when a file in it cannot be read (an unreadable file is never assumed to be `pharn`'s). Exit 1.
+- **Before the writes.** The order is backup → delete → copy → `pharn.records.json` →
+  `pharn.config.json`. If the backup fails, nothing is deleted. If a delete fails, nothing has been
+  written yet; the config still lists the capability, so the next `update` drops it again.
+- **Visible beforehand.** The confirm comes before the download, so it cannot name the capabilities;
+  it says that dropped capabilities are deleted and points at `pharn update --dry-run`, which lists each
+  directory under `WOULD DELETE` (and `plan.capabilities.removals` under `--json`).
+
+This is the **only** thing `update` deletes. It never deletes a file upstream stops shipping inside a
+capability it keeps, a tree left behind by a layout change, or anything else, and it never touches
+`.claude/settings.json`. Directories that an older `pharn` left behind when it dropped a capability
+(it removed only the config entry) have no config entry, so `update` cannot find
+them: `pharn list` does not show them, but PHARN still runs them. Delete them by hand. A re-run
+[`pharn init`](init.md) still drops capabilities from the config **without** deleting their
+directories; that is unchanged for now.
 
 > **Named limit — removals are not permanent.** `pharn remove` drops the entry from `capabilities`;
 > it does not record a tombstone. If your archetypes still select that capability, the next `update`
@@ -368,14 +410,15 @@ is named as that directory; the other cases give a generic reason.
   [First update after upgrading](#first-update-after-upgrading)).
 
 Skips **exit 0**. A skip is the outcome you asked for, not a failure. `pharn update` also never
-**deletes**: a file upstream no longer ships stays exactly where it is — and is listed, see
-[Orphaned files](#orphaned-files).
+**deletes a file** it decides about here: a file upstream no longer ships stays exactly where it is — and is listed, see
+[Orphaned files](#orphaned-files). The one thing it deletes is the directory of a capability it drops from
+the config — see [Dropped capabilities are deleted](#dropped-capabilities-are-deleted).
 
 ## Orphaned files
 
 When upstream stops shipping a file `pharn` installed — a `pharn-*` command, a hook, a floor checker, a
-trusted doc, or one file inside a capability you still have — `update` leaves it on disk, because it
-never deletes. Such a file is an **orphan**: `pharn.records.json` says `pharn` wrote it, it is no longer
+trusted doc, or one file inside a capability you still have — `update` leaves it on disk: the only thing
+it deletes is a dropped capability's directory. Such a file is an **orphan**: `pharn.records.json` says `pharn` wrote it, it is no longer
 part of your install, and it is still there. A leftover `.claude/commands/pharn-*.md` is still a live
 slash command, and a leftover hook or checker still runs if anything calls it, so `update` names every
 orphan in an `ORPHANED` note:
@@ -415,7 +458,8 @@ What is **not** listed:
 - Files `pharn` has no record of — an install made before records existed, or files written while
   `pharn.records.json` was unusable. With no usable store, nothing is listed.
 - The files of a capability this update **drops** from your config: that is a membership change, named
-  in the `CAPABILITIES` note.
+  in the `CAPABILITIES` note, and its directory is deleted (see
+  [Dropped capabilities are deleted](#dropped-capabilities-are-deleted)).
 - Anything outside the paths an install can write (`.claude/commands/pharn-*.md`, `.claude/hooks/*.cjs` or `*.mjs`,
   the capability directories, `pharn-contracts/`, `pharn-core/`, the floor directory, the trusted docs,
   the PHARN license and the features `README.md`, in either layout) — even if a hand-edited
@@ -435,8 +479,10 @@ relative path preserved, into:
 ```
 
 The directory is printed when it is created — on **both** paths. If the update then fails part-way
-(a file it cannot write, a config it cannot save), it still names the directory before exiting 1,
-alongside a line telling you some originals may already have been overwritten. That path is your only
+(a directory it cannot delete, a file it cannot write, a config it cannot save), it still names the
+directory before exiting 1, alongside a line telling you some originals may already have been
+overwritten (or removed). The same directory holds the files saved from
+[dropped capabilities](#dropped-capabilities-are-deleted), with or without `--force`. That path is your only
 route back to your pre-overwrite bytes, so it is never withheld at the moment you need it most, and
 earlier runs may have left other timestamped directories beside it.
 
@@ -679,13 +725,13 @@ cite them are the ones affected.
 `update` records the layout of the clone it actually copied from, so `pharn.config.json` can no longer
 disagree with where your files are. If your project was installed with the old flat layout and
 upstream has since moved to `pharn/`, the update installs the `pharn/` tree — and, because `update`
-never deletes, the old top-level copies remain. They are no longer managed by `pharn` (no command
+does not delete the old tree, the old top-level copies remain. They are no longer managed by `pharn` (no command
 addresses them any more), so delete them by hand; the update prints a warning when this happens, and
 the `ORPHANED` note lists every recorded file left behind.
 
 The reverse direction behaves the same way. If your project is recorded at the `pharn/` layout and the
 clone is flat, the update installs the top-level tree and the whole `pharn/` directory — contracts,
-floor scripts, trusted docs, and every capability — is what stays behind. `update` never deletes it, no
+floor scripts, trusted docs, and every capability — is what stays behind. `update` does not delete it, no
 command addresses it any more, and the update prints its own warning naming it. Delete it by hand.
 
 ## A surface pharn-oss does not ship

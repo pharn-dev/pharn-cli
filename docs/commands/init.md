@@ -393,7 +393,11 @@ is open is still saved.
 Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.config.json`) are **kept**:
 `init` installs them again and records them as `manual` — also when your archetypes now select them
 too — as long as upstream still ships them. The summary lists them as "added by hand". One that upstream
-no longer ships is dropped from `pharn.config.json` and named (its files stay on disk). A capability
+no longer ships is dropped from `pharn.config.json` and named; its files stay on disk. So does the
+directory of an automatically selected capability your archetypes no longer select. Unlike
+[`pharn update`](update.md#dropped-capabilities-are-deleted), a re-run `init` does not yet delete the
+directory of a capability it drops — that is unchanged for now. PHARN still runs such a directory, so
+delete it by hand. A capability
 upstream still ships but this pharn [cannot read](update.md#when-pharn-cannot-read-a-capability-upstream)
 is **left as it is**, however it was added: its config entry, files and records are untouched, and it is
 listed in `frozenCapabilities` so the next [`pharn update`](update.md) re-checks it. Top-level keys in
