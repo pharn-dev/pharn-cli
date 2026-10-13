@@ -2494,6 +2494,38 @@ describe('runUpdate (drift-safe)', () => {
       expect(records()![OLD_CMD]).toBeUndefined();
     });
 
+    // With #281, a recorded path that is gone re-opens the same-version early
+    // return. A deleted orphan is such a path until a planned run drops its
+    // record: ONE run (which restores nothing — upstream no longer ships it),
+    // then "Already up to date" again.
+    it('after you delete an orphan at the same version, one run drops its record, then it is up to date', async () => {
+      await installed();
+      rmSync(join(repo, OLD_CMD));
+      await runUpdate();
+      expect(records()![OLD_CMD]).toBeDefined();
+
+      rmSync(join(proj, OLD_CMD));
+      reloadConfig();
+      vi.mocked(prompts.note).mockClear();
+      vi.mocked(prompts.outro).mockClear();
+      await runUpdate();
+      const header = stripVTControlCharacters(
+        String(vi.mocked(prompts.note).mock.calls[0]?.[0] ?? ''),
+      );
+      expect(header).toContain(`${OLD_CMD} is missing`);
+      expect(header).toContain('if upstream still ships it');
+      expect(existsSync(join(proj, OLD_CMD))).toBe(false);
+      expect(records()![OLD_CMD]).toBeUndefined();
+      expect(orphanNote()).toEqual([]);
+
+      reloadConfig();
+      vi.mocked(prompts.outro).mockClear();
+      await runUpdate();
+      expect(String(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0])).toContain(
+        'Already up to date',
+      );
+    });
+
     it('names an edited orphan as EDITED', async () => {
       await installed();
       rmSync(join(repo, OLD_CMD));

@@ -407,7 +407,10 @@ async function runArchetypeUpdate(
         ...(missing !== null
           ? [
               pc.dim(
-                `  ${terminalSafe(missing)} is missing — this run re-applies the install to restore it.`,
+                // "if upstream still ships it": a deleted ORPHAN (lib/orphans.ts)
+                // is a recorded path that is gone too; this run drops its record
+                // instead of restoring it, and the next run early-returns.
+                `  ${terminalSafe(missing)} is missing — this run re-applies the install, restoring it if upstream still ships it.`,
               ),
             ]
           : []),

@@ -397,8 +397,11 @@ is never a skip: it does not withhold the version bump and does not appear in `S
 
 **It stays listed until you delete it.** `update` keeps the orphan's entry in `pharn.records.json` (its
 old hash, unchanged) for as long as the file exists, so every later `update` — and every
-[`pharn status`](status.md#orphaned-files) — still names it. Once the file is gone, its entry is
-dropped. If upstream ships the path again later, the kept entry makes it a clean `updated` instead of an
+[`pharn status`](status.md#orphaned-files) — still names it. Once the file is gone, the next `update`
+drops its entry. At the same skills version that takes one run: the recorded path is now gone, so
+`update` reads it as [missing](#missing-files-at-the-same-skills-version) and runs instead of stopping
+at "Already up to date" — it restores nothing (upstream no longer ships the file), drops the entry, and
+the run after that is up to date again. If upstream ships the path again later, the kept entry makes it a clean `updated` instead of an
 `unrecorded` skip. A re-run `pharn init` keeps those entries too.
 
 What is **not** listed:
@@ -626,7 +629,7 @@ It first checks, locally, whether your install is still complete:
 
 If something is missing, the run goes ahead as a normal update instead of stopping at "Already up to
 date". The header names the first missing path (`CONSTITUTION.md is missing — this run re-applies the
-install to restore it.`), and the per-file table restores it: a missing file is always `restore`d, so
+install, restoring it if upstream still ships it.`), and the per-file table restores it: a missing file is always `restore`d, so
 your edits elsewhere are still kept, and no `--force` is needed. `--dry-run` and `--dry-run --json`
 take the same branch (the JSON `status` is `planned`). After that run the install is complete again and
 the next `update` answers "Already up to date".
