@@ -58,4 +58,18 @@ describe('runGitPrereq', () => {
     expect(() => runGitPrereq()).not.toThrow();
     cwd.mockRestore();
   });
+
+  // `init --dry-run --json`: no clack chrome anywhere, one plain stderr line.
+  it('reports plainly on stderr under { json: true }, with no clack call', () => {
+    const errSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
+    vi.mocked(log.error).mockClear();
+    expect(() => runGitPrereq({ json: true })).toThrow(ProcessExit);
+    cwd.mockRestore();
+    expect(log.error).not.toHaveBeenCalled();
+    expect(String(errSpy.mock.calls[0]![0])).toContain('git init');
+    errSpy.mockRestore();
+  });
 });

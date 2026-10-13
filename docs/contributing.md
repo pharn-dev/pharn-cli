@@ -145,46 +145,48 @@ Two rules that are easy to get wrong:
 
 ## Test map
 
-| Test file                                                                  | Behavior covered                                                                                              |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `detect-archetype.test.ts` / `archetype.test.ts`                           | Archetype detection from `package.json` names + file-tree signals                                             |
-| `capability-index.test.ts`                                                 | Parse/validate the untrusted capability index (frontmatter → typed entries)                                   |
-| `resolve-capabilities.test.ts`                                             | Select capabilities by `applies` against detected archetypes                                                  |
-| `install-capabilities.test.ts`                                             | Copy capability dirs + fixed product surfaces; symlink + path-escape guards                                   |
-| `init.test.ts` / `init-archetype.test.ts`                                  | The archetype init flow end to end                                                                            |
-| `add.test.ts` / `update.test.ts`                                           | `runAdd` (capability add + record merge) and `runUpdate` (drift-safe re-resolve, real-fs fixture)             |
-| `update-decision.test.ts` / `install-records.test.ts`                      | The pure update decision table + planner; the `pharn.records.json` store and its fail-closed validation       |
-| `backup.test.ts` / `apply-update.test.ts`                                  | `.pharn-backup/` creation + abort-before-touch; the per-file writer and its symlink refusals                  |
-| `remove.test.ts` / `removal-backup.test.ts`                                | `runRemove` capability deletion (flat + `pharn/` layouts); which files are backed up before the delete        |
-| `orphans.test.ts`                                                          | Which recorded files are orphaned (install roots, dropped/frozen excluded); the `ORPHANED` note               |
-| `list.test.ts` / `status.test.ts`                                          | Read-only inventory + version/drift audit                                                                     |
-| `diff.test.ts`                                                             | `diffInstalledCapabilities` expected-set derivation + byte compare                                            |
-| `layout.test.ts`                                                           | `detectLayout` / `configLayout` / `layoutPaths`                                                               |
-| `validate.test.ts`                                                         | Allowlists, `..`/control-char rejection, and `safeJoin` containment                                           |
-| `pharn-config.test.ts`                                                     | Round-trip `pharn.config.json`; `loadArchetypeConfigOrExit` legacy reject                                     |
-| `skills-version.test.ts`                                                   | Read/fetch + validate `SKILLS_VERSION`                                                                        |
-| `prereqs.test.ts`                                                          | `.git`-present gate                                                                                           |
-| `overwrite-check.test.ts` / `install-manifest.test.ts`                     | Pre-install write-target conflict check; the shared install manifest (mirror-pinned to `installCapabilities`) |
-| `model-config.test.ts` / `model-config-parity.test.ts`                     | pharn-oss's `models` rules as copied; the copy pinned to pharn-oss's own checker                              |
-| `models-update.test.ts` / `upstream-models.test.ts`                        | `update`'s rows for the `models` block and the old-format conversion; reading pharn-oss's block               |
-| `seam-config.test.ts`                                                      | `seam` config validation                                                                                      |
-| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts`   | helpers; the codeload fetch boundary; banner; format                                                          |
-| `tar-extract.test.ts`                                                      | The ustar reader: strip-1, pax skip, prefix reassembly, and every rejection                                   |
-| `index.test.ts`                                                            | argv dispatch: the per-command option allowlist, the arity gate, and their exit codes                         |
-| `project-lock.test.ts` + `-break` + `-commands`                            | The single-writer lock: acquire/release, stale-break single-winner, and which commands take it                |
-| `min-cli-gate.test.ts` / `semver.test.ts`                                  | The `MIN_CLI` forward-compat gate and its version comparison                                                  |
-| `node-floor.test.ts` / `node-prereq.test.ts`                               | The Node floor verdict (fail-closed) and the `init`/`update` preflight                                        |
-| `release.test.ts`                                                          | The verified-release resolver: tag/commit resolution, every fail-closed refusal, the channel                  |
-| `proxy-env.test.ts` / `proxy-env-format.test.ts`                           | Proxy detection and the warning's rendering + redaction                                                       |
-| `merge-capabilities.test.ts` / `dest-drift.test.ts`                        | The 9-row membership table; `add`'s destination-drift partition (drift vs unsafe)                             |
-| `capability-address.test.ts` / `capability-groups.test.ts`                 | `<role>:<name>` parsing; the grouped inventory rendering                                                      |
-| `capability-picker.test.ts` / `archetype-summary.test.ts`                  | The interactive picker and its TTY gate; the init summary step                                                |
-| `atomic-write.test.ts` / `report-error.test.ts`                            | Temp-then-rename writes; the error reporter and its `PHARN_DEBUG` split                                       |
-| `unknown-capabilities.test.ts` / `constants.test.ts`                       | Control-char stripping for refused upstream names; the path constants                                         |
-| `ci-workflow.test.ts` / `check-composition.test.ts`                        | The six CI job names + runner pair; `npm run check`'s composition                                             |
-| `docs-install-tables.test.ts` / `lint-gate.test.ts` / `dev-script.test.ts` | The README + getting-started install tables; the lint gate; the dev script                                    |
-| `repo-signals.test.ts` / `model-config-format.test.ts`                     | Fetch abort/cleanup signals; the `models` render                                                              |
-| `dist-smoke.test.ts`                                                       | The built bundle, run with `node`: `--version`, `--help`, `status` with no config, option refusals            |
+| Test file                                                                    | Behavior covered                                                                                              |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `detect-archetype.test.ts` / `archetype.test.ts`                             | Archetype detection from `package.json` names + file-tree signals                                             |
+| `capability-index.test.ts`                                                   | Parse/validate the untrusted capability index (frontmatter → typed entries)                                   |
+| `resolve-capabilities.test.ts`                                               | Select capabilities by `applies` against detected archetypes                                                  |
+| `install-capabilities.test.ts`                                               | Copy capability dirs + fixed product surfaces; symlink + path-escape guards                                   |
+| `init.test.ts` / `init-archetype.test.ts`                                    | The archetype init flow end to end                                                                            |
+| `add.test.ts` / `update.test.ts`                                             | `runAdd` (capability add + record merge) and `runUpdate` (drift-safe re-resolve, real-fs fixture)             |
+| `update-decision.test.ts` / `install-records.test.ts`                        | The pure update decision table + planner; the `pharn.records.json` store and its fail-closed validation       |
+| `backup.test.ts` / `apply-update.test.ts`                                    | `.pharn-backup/` creation + abort-before-touch; the per-file writer and its symlink refusals                  |
+| `remove.test.ts` / `removal-backup.test.ts`                                  | `runRemove` capability deletion (flat + `pharn/` layouts); which files are backed up before the delete        |
+| `orphans.test.ts`                                                            | Which recorded files are orphaned (install roots, dropped/frozen excluded); the `ORPHANED` note               |
+| `list.test.ts` / `status.test.ts`                                            | Read-only inventory + version/drift audit                                                                     |
+| `diff.test.ts`                                                               | `diffInstalledCapabilities` expected-set derivation + byte compare                                            |
+| `layout.test.ts`                                                             | `detectLayout` / `configLayout` / `layoutPaths`                                                               |
+| `validate.test.ts`                                                           | Allowlists, `..`/control-char rejection, and `safeJoin` containment                                           |
+| `pharn-config.test.ts`                                                       | Round-trip `pharn.config.json`; `loadArchetypeConfigOrExit` legacy reject                                     |
+| `skills-version.test.ts`                                                     | Read/fetch + validate `SKILLS_VERSION`                                                                        |
+| `prereqs.test.ts`                                                            | `.git`-present gate                                                                                           |
+| `overwrite-check.test.ts` / `install-manifest.test.ts`                       | Pre-install write-target conflict check; the shared install manifest (mirror-pinned to `installCapabilities`) |
+| `model-config.test.ts` / `model-config-parity.test.ts`                       | pharn-oss's `models` rules as copied; the copy pinned to pharn-oss's own checker                              |
+| `models-update.test.ts` / `upstream-models.test.ts`                          | `update`'s rows for the `models` block and the old-format conversion; reading pharn-oss's block               |
+| `seam-config.test.ts`                                                        | `seam` config validation                                                                                      |
+| `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts`     | helpers; the codeload fetch boundary; banner; format                                                          |
+| `tar-extract.test.ts`                                                        | The ustar reader: strip-1, pax skip, prefix reassembly, and every rejection                                   |
+| `index.test.ts`                                                              | argv dispatch: the per-command option allowlist, the arity gate, and their exit codes                         |
+| `project-lock.test.ts` + `-break` + `-commands`                              | The single-writer lock: acquire/release, stale-break single-winner, and which commands take it                |
+| `min-cli-gate.test.ts` / `semver.test.ts`                                    | The `MIN_CLI` forward-compat gate and its version comparison                                                  |
+| `node-floor.test.ts` / `node-prereq.test.ts`                                 | The Node floor verdict (fail-closed) and the `init`/`update` preflight                                        |
+| `release.test.ts`                                                            | The verified-release resolver: tag/commit resolution, every fail-closed refusal, the channel                  |
+| `proxy-env.test.ts` / `proxy-env-format.test.ts`                             | Proxy detection and the warning's rendering + redaction                                                       |
+| `merge-capabilities.test.ts` / `dest-drift.test.ts`                          | The 9-row membership table; `add`'s destination-drift partition (drift vs unsafe)                             |
+| `capability-address.test.ts` / `capability-groups.test.ts`                   | `<role>:<name>` parsing; the grouped inventory rendering                                                      |
+| `capability-picker.test.ts` / `archetype-summary.test.ts`                    | The interactive picker and its TTY gate; the init summary step                                                |
+| `init-dry-run.test.ts` / `init-dry-run-json.test.ts` / `init-report.test.ts` | `init --dry-run`: no write reachable, parity with a real run; the JSON object and its projection              |
+| `init-yes.test.ts` / `write-targets.test.ts`                                 | `init --yes`: installs only where no target exists, re-checked under the lock; the shared target/label plan   |
+| `atomic-write.test.ts` / `report-error.test.ts`                              | Temp-then-rename writes; the error reporter and its `PHARN_DEBUG` split                                       |
+| `unknown-capabilities.test.ts` / `constants.test.ts`                         | Control-char stripping for refused upstream names; the path constants                                         |
+| `ci-workflow.test.ts` / `check-composition.test.ts`                          | The six CI job names + runner pair; `npm run check`'s composition                                             |
+| `docs-install-tables.test.ts` / `lint-gate.test.ts` / `dev-script.test.ts`   | The README + getting-started install tables; the lint gate; the dev script                                    |
+| `repo-signals.test.ts` / `model-config-format.test.ts`                       | Fetch abort/cleanup signals; the `models` render                                                              |
+| `dist-smoke.test.ts`                                                         | The built bundle, run with `node`: `--version`, `--help`, `status` with no config, option refusals            |
 
 `lib/hash.ts` is the one module with no matching test file.
 

@@ -1,20 +1,21 @@
-import { intro, log, note, spinner } from '@clack/prompts';
+import { intro, log, note, outro, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import {
   errorMessage,
   logError,
+  logErrorPlain,
   reportFatal,
+  reportFatalPlain,
   type FatalCause,
 } from '../lib/report-error.js';
-import { REPO_URL } from '../lib/constants.js';
+import { CLAUDE_SETTINGS_FILE, REPO_URL } from '../lib/constants.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
-import { resolveCapabilities } from '../lib/resolve-capabilities.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
   ReleaseResolveError,
@@ -25,40 +26,74 @@ import {
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
+import { hookWiringFails, hookWiringLines } from '../lib/hook-wiring.js';
+import { serializeJsonReport } from '../lib/json-report.js';
+import { terminalSafe } from '../lib/terminal-safe.js';
+import { BACKUP_DIR } from '../lib/backup.js';
+import {
+  buildInitPlan,
+  capabilityKey,
+  resolveInitSelection,
+  type InitCarry,
+  type InitPlanReport,
+} from '../lib/init-plan.js';
+import { buildInitReport } from '../lib/init-report.js';
+import {
+  assertNoExistingTargets,
+  OverwriteRefusedError,
+  targetLines,
+} from '../lib/write-targets.js';
 import { runGitPrereq } from '../steps/prereqs.js';
 import { runNodePrereq } from '../steps/node-prereq.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
-import { runArchetypeSummary } from '../steps/archetype-summary.js';
+import {
+  archetypeSummaryLines,
+  runArchetypeSummary,
+} from '../steps/archetype-summary.js';
 import {
   installManifest,
   preflightInstall,
   reinstallBaseline,
   runInstallArchetype,
-  type InstallCarry,
 } from '../steps/install-archetype.js';
-import {
-  assertConfigFingerprintUnchanged,
-  configFingerprint,
-  readPharnConfig,
-} from '../lib/pharn-config.js';
-import type {
-  CapabilityIndex,
-  InstalledCapability,
-  PharnConfig,
-  Selection,
-} from '../types.js';
+import { assertConfigFingerprintUnchanged } from '../lib/pharn-config.js';
+import type { Archetype } from '../types.js';
 
-export async function runInit(opts: { ref?: RefChoice } = {}): Promise<void> {
-  showBanner();
-  intro('init wizard');
+export interface InitOptions {
+  ref?: RefChoice;
+  // Install without prompts — but ONLY where nothing would be overwritten
+  // (see the TTY gate below).
+  yes?: boolean;
+  // Plan, print, write nothing.
+  dryRun?: boolean;
+  // With `dryRun`: the plan as ONE JSON object on stdout, nothing else.
+  json?: boolean;
+}
+
+export async function runInit(opts: InitOptions = {}): Promise<void> {
+  const yes = opts.yes ?? false;
+  const dryRun = opts.dryRun ?? false;
+  const json = opts.json ?? false;
+  // `--json` is the dry run's machine-readable form and nothing else: the
+  // dispatch refuses it alone, and a direct caller fails closed here rather than
+  // reaching a real install that would print clack chrome into a JSON consumer.
+  if (json && !dryRun) {
+    reportFatalPlain('--json is only available with --dry-run.');
+    process.exit(1);
+  }
+  // Under `--json` NOTHING reaches stdout but the one report: no banner, no clack.
+  if (!json) {
+    showBanner();
+    intro(dryRun ? 'pharn init --dry-run' : 'init wizard');
+  }
 
   // FIRST, before even the git prerequisite: the Node floor is a fact about the
   // environment that nothing later can repair, and an install made on a Node the
   // PHARN floor checkers refuse to run on would fail mid-run. Refuses with
   // nothing written, ahead of every prompt and every network call.
-  runNodePrereq('init');
+  runNodePrereq('init', { json });
 
-  runGitPrereq();
+  runGitPrereq({ json });
 
   // Non-TTY (CI, a pipe) → NEVER prompt into the void: a usage error + exit(1),
   // BEFORE `fetchRepo` (P5 — the terminal fallback is a hard-fail, not a guess).
@@ -71,18 +106,24 @@ export async function runInit(opts: { ref?: RefChoice } = {}): Promise<void> {
   // the more useful "run git init" error, exactly as `update` lets its config
   // error win over this message.
   //
-  // There is deliberately NO `--yes` for init (unlike `update`): init prompts
-  // twice, and the second is the destructive overwrite confirmation. Auto-
-  // confirming file overwrites in a pipeline is precisely the hazard that
-  // prompt exists to prevent, so init has one honest answer here — refuse.
+  // Two runs prompt nothing, so they have nothing to gate. `--dry-run` writes
+  // nothing. `--yes` skips the summary confirm and NEVER answers the second,
+  // destructive one: it installs only when none of init's write targets exists
+  // (so there is nothing to confirm), and otherwise refuses — before the lock
+  // and again under it. Auto-confirming file overwrites in a pipeline is the
+  // hazard that prompt exists to prevent, so `--yes` does not; a re-install
+  // (where `pharn.config.json` always exists) therefore always refuses it and
+  // is pointed at `pharn update`.
   if (
+    !dryRun &&
+    !yes &&
     !interactiveAllowed({
       stdinIsTTY: process.stdin.isTTY,
       stdoutIsTTY: process.stdout.isTTY,
     })
   ) {
     logError(
-      'pharn init is interactive — run it in an interactive terminal. There is deliberately no --yes for init: it confirms before overwriting existing files, and auto-confirming that in a pipeline is what the prompt exists to prevent.',
+      'pharn init is interactive — run it in an interactive terminal. To install without prompts, pass --yes: it installs only into a project where none of its files exists yet, and never overwrites. To see what init would do, pass --dry-run.',
     );
     process.exit(1);
   }
@@ -92,7 +133,19 @@ export async function runInit(opts: { ref?: RefChoice } = {}): Promise<void> {
   // agnostic — no module catalog / manifest fetch. (The legacy module/wizard
   // flow was removed entirely; add/update/status/remove reject a pre-archetype
   // config up front via loadArchetypeConfigOrExit — there is no manifest fallback.)
-  await runInitArchetype(opts.ref ?? 'main');
+  await runInitArchetype({ channel: opts.ref ?? 'main', yes, dryRun, json });
+}
+
+// A spinner that draws nothing, for `--json`: stdout stays the one report.
+function silentSpinner(): Pick<ReturnType<typeof spinner>, 'start' | 'stop'> {
+  return { start: () => undefined, stop: () => undefined };
+}
+
+interface RunMode {
+  channel: RefChoice;
+  yes: boolean;
+  dryRun: boolean;
+  json: boolean;
 }
 
 // schemaVersion-free archetype flow: detect archetypes from the project, fetch
@@ -100,10 +153,17 @@ export async function runInit(opts: { ref?: RefChoice } = {}): Promise<void> {
 // applicable capabilities + product surfaces. The fetched temp clone lives
 // across the interactive summary, so cleanup runs in a finally and every
 // process.exit / cancelAndExit happens AFTER it (Node skips finally on exit).
-async function runInitArchetype(channel: RefChoice): Promise<void> {
+async function runInitArchetype(mode: RunMode): Promise<void> {
+  const { channel, yes, dryRun, json } = mode;
+  // `--json` swaps the sinks, not the logic: diagnostics and failures as plain
+  // stderr lines (stdout empty, exit 1), and no spinner.
+  const warn = json
+    ? (message: string) => logErrorPlain(message)
+    : (message: string) => log.warn(message);
+  const fatal = json ? reportFatalPlain : reportFatal;
   const cwd = process.cwd();
   const { archetypes } = detectArchetypesFromProject(cwd);
-  note(archetypes.join(', '), 'Detected archetypes');
+  if (!json) note(archetypes.join(', '), 'Detected archetypes');
 
   // pharn's fetches go through Node's global fetch, which reads NO proxy
   // environment variable on any platform — so a configured proxy is simply
@@ -114,10 +174,10 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
   // is exactly when the user most needs to have been told.
   const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice));
+    warn(proxyNoticeMessage(proxyNotice));
   }
 
-  const s = spinner();
+  const s = json ? silentSpinner() : spinner();
   s.start(`Fetching PHARN from ${REPO_URL}`);
   let repo: Awaited<ReturnType<typeof fetchRepo>>;
   try {
@@ -128,7 +188,7 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
     repo = await fetchRepo(await resolveSource(channel));
   } catch (err) {
     s.stop('Failed to fetch PHARN');
-    reportFatal(
+    fatal(
       err instanceof ReleaseResolveError
         ? err.message
         : `Could not reach ${REPO_URL}: ${errorMessage(err)}`,
@@ -138,6 +198,11 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
   }
 
   s.stop(`PHARN fetched from ${sourceLabel(repo.source)}`);
+
+  if (dryRun) {
+    await runInitDryRun(repo, cwd, archetypes, channel, json);
+    return;
+  }
 
   let outcome: 'installed' | 'cancelled' = 'cancelled';
   // The ERROR OBJECT, not its message: the reporter needs it to decide whether
@@ -163,46 +228,25 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
       // immediately after the parse and BEFORE the summary the user acts on.
       const unknownWarning = unknownCapabilitiesWarning(index.unknown);
       if (unknownWarning) log.warn(unknownWarning);
-      const resolved = resolveCapabilities(archetypes, index);
-      // A re-run init must not silently drop what the user added by hand, nor
-      // what this CLI merely could not READ upstream: the config it replaces is
-      // carried over by `update`'s own merge rules (carryOver, below).
-      const previous = readPreviousConfig(cwd);
-      const carry = carryOver(previous.config, index, resolved);
-      if (carry.extra.length) {
-        log.info(
-          `Keeping ${carry.extra.length} capabilit${carry.extra.length === 1 ? 'y' : 'ies'} you added by hand: ${carry.extra.map(capabilityKey).join(', ')}.`,
-        );
-      }
-      if (carry.kept.length) {
-        log.info(
-          `Keeping ${carry.kept.length} capabilit${carry.kept.length === 1 ? 'y' : 'ies'} as installed — upstream still ships ${carry.kept.length === 1 ? 'it' : 'them'} but this pharn cannot read ${carry.kept.length === 1 ? 'it' : 'them'} (see above): ${carry.kept.map(capabilityKey).join(', ')}. Files and config entries are left as they are; \`pharn update\` re-checks them.`,
-        );
-      }
-      if (carry.gone.length) {
-        log.warn(
-          `Not keeping ${carry.gone.length} capabilit${carry.gone.length === 1 ? 'y' : 'ies'} you added by hand that upstream no longer ships: ${carry.gone.map(capabilityKey).join(', ')}. ${carry.gone.length === 1 ? 'It is' : 'They are'} dropped from pharn.config.json; the files stay on disk.`,
-        );
-      }
-      const extraKeys = new Set(carry.extra.map(capabilityKey));
-      const selection: Selection = carry.extra.length
-        ? {
-            selected: [
-              ...resolved.selected,
-              ...carry.extra.map((c) => ({
-                name: c.name,
-                role: c.role,
-                matched: 'manual' as const,
-              })),
-            ],
-            // Installed now, so no longer "skipped" by the archetypes.
-            skipped: resolved.skipped.filter(
-              (s) => !extraKeys.has(capabilityKey(s)),
-            ),
-          }
-        : resolved;
+      // The archetypes' selection plus what a re-run carries over from the
+      // config it replaces — the same computation the dry run makes
+      // (lib/init-plan.ts).
+      const { previous, carry, selection } = resolveInitSelection({
+        cwd,
+        archetypes,
+        index,
+      });
+      reportCarry(carry);
 
-      const action = await runArchetypeSummary(archetypes, selection);
+      // `--yes` answers the summary's question ("install?") and nothing else:
+      // the summary is still printed, so a CI log says what was installed.
+      let action: 'install' | 'cancel';
+      if (yes) {
+        note(archetypeSummaryLines(archetypes, selection).join('\n'));
+        action = 'install';
+      } else {
+        action = await runArchetypeSummary(archetypes, selection);
+      }
       // Both prompts return a VALUE and neither exits, so `outcome` stays
       // 'cancelled' and the single cancelAndExit below fires AFTER the finally
       // that disposes of the clone. 'decline' and 'cancel' are indistinguishable
@@ -228,13 +272,28 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
       if (manifest !== null) {
         preflightInstall(repo.dir, cwd, selection, manifest);
       }
-      const overwrite =
-        manifest !== null
-          ? await confirmWriteTargets(repo.dir, cwd, selection, {
-              manifest,
-              records: reinstallBaseline(cwd, carry.previousStamp),
-            })
-          : 'cancel';
+      // `--yes` never answers the overwrite question: where any write target
+      // already exists it refuses (OverwriteRefusedError → exit 1, the clone
+      // cleaned up first, nothing written); otherwise there is no question.
+      let overwrite: Awaited<ReturnType<typeof confirmWriteTargets>> = 'cancel';
+      if (manifest !== null) {
+        const records = reinstallBaseline(cwd, carry.previousStamp);
+        if (yes) {
+          assertNoExistingTargets({
+            repoDir: repo.dir,
+            projectRoot: cwd,
+            capabilities: selection.selected,
+            manifest,
+            records,
+          });
+          overwrite = 'proceed';
+        } else {
+          overwrite = await confirmWriteTargets(repo.dir, cwd, selection, {
+            manifest,
+            records,
+          });
+        }
+      }
       if (manifest !== null && overwrite === 'proceed') {
         // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
         // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
@@ -270,6 +329,18 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
           // (a concurrent `pharn add`) would be silently overwritten. Refuse
           // instead — before the first write, the backup included.
           assertConfigFingerprintUnchanged(cwd, previous.fingerprint, 'init');
+          // The authoritative `--yes` check, under the lock and immediately
+          // before the install: a target that appeared since the check above
+          // refuses here, before the first write (the backup included).
+          if (yes) {
+            assertNoExistingTargets({
+              repoDir: repo.dir,
+              projectRoot: cwd,
+              capabilities: selection.selected,
+              manifest,
+              records: reinstallBaseline(cwd, carry.previousStamp),
+            });
+          }
           return runInstallArchetype(
             repo.dir,
             cwd,
@@ -284,9 +355,13 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
       }
     }
   } catch (err) {
-    // A held lock is a policy refusal, not a crash — same treatment as the
-    // other refusals below: named, actionable, and no PHARN_DEBUG hint.
-    if (err instanceof ProjectLockedError) refusal = err.message;
+    // A held lock — or a `--yes` run that met an existing file — is a policy
+    // refusal, not a crash: named, actionable, and no PHARN_DEBUG hint.
+    if (
+      err instanceof ProjectLockedError ||
+      err instanceof OverwriteRefusedError
+    )
+      refusal = err.message;
     else failure = { err };
   } finally {
     repo.cleanup();
@@ -306,93 +381,187 @@ async function runInitArchetype(channel: RefChoice): Promise<void> {
   if (outcome === 'cancelled') cancelAndExit();
 }
 
-/** A capability's identity everywhere in this CLI: the `role:name` pair. */
-function capabilityKey(cap: { name: string; role: string }): string {
-  return `${cap.role}:${cap.name}`;
+// What a re-run carries over, named before the summary the user acts on — the
+// same three lines in the real run and in the preview.
+function reportCarry(carry: InitCarry): void {
+  if (carry.extra.length) {
+    log.info(
+      `Keeping ${carry.extra.length} capabilit${carry.extra.length === 1 ? 'y' : 'ies'} you added by hand: ${carry.extra.map(capabilityKey).join(', ')}.`,
+    );
+  }
+  if (carry.kept.length) {
+    log.info(
+      `Keeping ${carry.kept.length} capabilit${carry.kept.length === 1 ? 'y' : 'ies'} as installed — upstream still ships ${carry.kept.length === 1 ? 'it' : 'them'} but this pharn cannot read ${carry.kept.length === 1 ? 'it' : 'them'} (see above): ${carry.kept.map(capabilityKey).join(', ')}. Files and config entries are left as they are; \`pharn update\` re-checks them.`,
+    );
+  }
+  if (carry.gone.length) {
+    log.warn(
+      `Not keeping ${carry.gone.length} capabilit${carry.gone.length === 1 ? 'y' : 'ies'} you added by hand that upstream no longer ships: ${carry.gone.map(capabilityKey).join(', ')}. ${carry.gone.length === 1 ? 'It is' : 'They are'} dropped from pharn.config.json; the files stay on disk.`,
+    );
+  }
 }
 
-/**
- * The config a re-run init is about to replace, read TOLERANTLY: init is the
- * command every other one points at for recovery, so an absent, unreadable,
- * invalid or pre-archetype config simply means "nothing to carry over" — never
- * a refusal. The fingerprint is taken FIRST, so a write that lands between the
- * two reads fails the under-lock check (closed) instead of being blessed by it.
- */
-function readPreviousConfig(cwd: string): {
-  fingerprint: string;
-  config: PharnConfig | null;
-} {
-  const fingerprint = configFingerprint(cwd);
-  let config: PharnConfig | null;
+// `--dry-run`: the real run's steps up to its first prompt — MIN_CLI, index,
+// selection, carry-over — then the rest of the plan (manifest, pre-flight,
+// targets, backups, settings, hooks, models: lib/init-plan.ts), printed, exit 0.
+// It writes NOTHING: no prompt, no lock, no fingerprint check, no backup, no
+// copy, no records, no config — none of those functions is reachable from here.
+// The only thing created is the clone's temp dir under the OS temp dir, removed
+// in the finally below exactly as the real run removes it.
+//
+// `--json` swaps the sinks, not the logic: diagnostics and failures on plain
+// stderr (stdout empty, exit 1), and one report on stdout at the end, through a
+// normal return (never `process.exit`, so a large object piped to `jq` is
+// flushed).
+async function runInitDryRun(
+  repo: Awaited<ReturnType<typeof fetchRepo>>,
+  cwd: string,
+  archetypes: Archetype[],
+  channel: RefChoice,
+  json: boolean,
+): Promise<void> {
+  const warn = json
+    ? (message: string) => logErrorPlain(message)
+    : (message: string) => log.warn(message);
+  let plan: InitPlanReport | null = null;
+  let carry: InitCarry | null = null;
+  let failure: FatalCause | null = null;
+  let refusal: string | null = null;
   try {
-    config = readPharnConfig(cwd);
-  } catch {
-    config = null;
+    const gate = minCliGate(repo.dir, PHARN_VERSION);
+    if (gate.warning) warn(gate.warning);
+    if (gate.refusal) {
+      refusal = gate.refusal;
+    } else {
+      const index = parseCapabilityIndex(repo.dir);
+      const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+      if (unknownWarning) warn(unknownWarning);
+      const chosen = resolveInitSelection({ cwd, archetypes, index });
+      carry = chosen.carry;
+      plan = buildInitPlan({
+        repoDir: repo.dir,
+        cwd,
+        sha: repo.sha,
+        source: repo.source,
+        channel,
+        archetypes,
+        index,
+        chosen,
+      });
+    }
+  } catch (err) {
+    failure = { err };
+  } finally {
+    repo.cleanup();
   }
-  return { fingerprint, config };
+
+  // Every exit AFTER the clone's cleanup above (Node skips finally on exit).
+  const fatal = json ? reportFatalPlain : reportFatal;
+  if (refusal) {
+    fatal(refusal);
+    process.exit(1);
+  }
+  if (failure || plan === null || carry === null) {
+    fatal(
+      failure ? errorMessage(failure.err) : 'Planning failed.',
+      failure ?? undefined,
+    );
+    process.exit(1);
+  }
+  if (json) {
+    console.log(serializeJsonReport(buildInitReport(plan)));
+    return;
+  }
+  reportCarry(carry);
+  reportInitDryRun(plan);
 }
 
-interface Carry extends InstallCarry {
-  // Manual entries the index has but the archetypes did not select — added to
-  // the selection so they are installed again (row 6).
-  extra: InstalledCapability[];
-  // Manual entries upstream no longer ships — dropped and NAMED (row 7).
-  gone: InstalledCapability[];
-}
+// The preview: the summary the interactive run would ask about, then a PLAN
+// note — every existing file it would overwrite (marked exactly as the prompt
+// marks them, labelled ones first), the files it would create as a count, the
+// backups, the config — then the HOOKS note a real run would print, and the
+// models outcome.
+function reportInitDryRun(r: InitPlanReport): void {
+  note(archetypeSummaryLines(r.archetypes, r.selection).join('\n'));
 
-/**
- * What a re-run init carries over from the previous config, by `update`'s own
- * membership table (lib/merge-capabilities.ts — cited, not restated, P4). Pure:
- * every branch is a `role:name` set lookup or an exact `source` compare (P5).
- *
- * - Row 0: an entry of ANY source whose capability the fetch could not PARSE
- *   (`index.unknown`) is KEPT verbatim — a parse failure is evidence about
- *   upstream's bytes, not about who asked for it.
- * - Rows 3 and 6: a `manual` entry the index still has stays `manual`, whether
- *   or not the archetypes also select it (sticky).
- * - Row 7: a `manual` entry the index no longer has is dropped — and named.
- * - Everything else (`auto`, or a legacy entry with no `source`) is simply
- *   re-resolved from the archetypes: init starts over. Resolving an ABSENT
- *   source is the merge's job alone, so it is not inferred here.
- *
- * The first entry wins for a duplicated key, as in the merge.
- */
-function carryOver(
-  previous: PharnConfig | null,
-  index: CapabilityIndex,
-  resolved: Selection,
-): Carry {
-  const inIndex = new Set(index.capabilities.map(capabilityKey));
-  const frozen = new Set(index.unknown.map(capabilityKey));
-  const selected = new Set(resolved.selected.map(capabilityKey));
-  const manualKeys = new Set<string>();
-  const kept: InstalledCapability[] = [];
-  const extra: InstalledCapability[] = [];
-  const gone: InstalledCapability[] = [];
-  const seen = new Set<string>();
-  for (const cap of previous?.capabilities ?? []) {
-    const k = capabilityKey(cap);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    if (frozen.has(k)) {
-      kept.push({ ...cap });
-      continue;
-    }
-    if (cap.source !== 'manual') continue;
-    if (!inIndex.has(k)) {
-      gone.push(cap);
-      continue;
-    }
-    manualKeys.add(k);
-    if (!selected.has(k)) extra.push(cap);
+  const labels = new Map(
+    r.targets.flatMap((t) =>
+      t.label === null || t.label === 'rewritten'
+        ? []
+        : [[t.rel, t.label] as const],
+    ),
+  );
+  const lines: string[] = [];
+  if (r.counts.overwrite > 0) {
+    lines.push(`  WOULD OVERWRITE ${r.counts.overwrite} existing file(s)`);
+    lines.push(
+      ...targetLines({
+        conflicts: r.conflicts,
+        labels,
+        configBackedUp: r.configBackedUp,
+      }),
+    );
+  } else {
+    lines.push('  Nothing in your project would be overwritten.');
   }
-  return {
-    manualKeys,
-    kept,
-    extra,
-    gone,
-    previousStamp: previous
-      ? { skillsVersion: previous.skillsVersion, commit: previous.commit }
-      : null,
-  };
+  lines.push('', `  WOULD CREATE ${r.counts.create} file(s)`);
+  if (r.counts.backup > 0) {
+    lines.push(
+      '',
+      `  WOULD BACK UP ${r.counts.backup} file(s) to ${BACKUP_DIR}/<timestamp>/ first — the marked ones above`,
+    );
+  }
+  lines.push(
+    '',
+    `  Would write pharn.config.json (skills v${r.skillsVersion}, ${r.layout} layout, archetypes: ${r.archetypes.join(', ')})`,
+  );
+  // The prompt's own line for the replaced config (steps/overwrite-check.ts).
+  if (r.configBackedUp) {
+    lines.push(
+      `  The existing pharn.config.json would be rewritten (seam and models reset to their defaults); it would be copied to ${BACKUP_DIR}/ first.`,
+    );
+  }
+  if (r.carriedConfigKeys.length > 0) {
+    lines.push(
+      `  Would keep your own pharn.config.json keys: ${r.carriedConfigKeys.map((k) => terminalSafe(k, { max: 200 })).join(', ')}`,
+    );
+  }
+  if (r.settingsPreserved) {
+    lines.push(
+      `  Would preserve the existing ${CLAUDE_SETTINGS_FILE} — pharn never overwrites it.`,
+    );
+  }
+  lines.push(
+    '',
+    r.counts.overwrite === 0
+      ? '  `pharn init --yes` would install (nothing would be overwritten).'
+      : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
+  );
+  note(lines.join('\n'), 'PLAN');
+
+  // The same note a real run prints over a preserved settings.json
+  // (steps/install-archetype.ts), from the same two functions.
+  if (r.hookWiring !== null) {
+    const hookLines = hookWiringLines(r.hookWiring);
+    if (hookLines) {
+      if (hookWiringFails(r.hookWiring))
+        hookLines.push('  `pharn status --strict` fails until they are wired.');
+      note(hookLines.join('\n'), 'HOOKS');
+    }
+  }
+
+  if (r.models.outcome === 'rejected') {
+    log.warn(
+      [
+        "pharn-oss's models block would not be written; this pharn rejects it:",
+        ...r.models.reasons.map(
+          (reason) => `  ${terminalSafe(reason, { max: 300 })}`,
+        ),
+      ].join('\n'),
+    );
+  }
+
+  outro(
+    `Dry run — would create ${r.counts.create} · overwrite ${r.counts.overwrite} · back up ${r.counts.backup}. Nothing was changed. Run \`pharn init\` to apply.`,
+  );
 }

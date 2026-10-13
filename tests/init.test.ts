@@ -93,7 +93,11 @@ vi.mock('../src/lib/min-cli-gate.js', () => ({ minCliGate }));
 const runArchetypeSummary = vi.fn(
   async (): Promise<'install' | 'cancel'> => 'install',
 );
-vi.mock('../src/steps/archetype-summary.js', () => ({ runArchetypeSummary }));
+const archetypeSummaryLines = vi.fn(() => ['summary']);
+vi.mock('../src/steps/archetype-summary.js', () => ({
+  runArchetypeSummary,
+  archetypeSummaryLines,
+}));
 
 const runInstallArchetype = vi.fn(async () => undefined);
 // The install manifest init computes ONCE per run and hands to both the prompt
@@ -914,16 +918,27 @@ describe('runInit (archetype default)', () => {
       expect(runInstallArchetype).not.toHaveBeenCalled();
     });
 
-    it('says init is interactive and names no --yes escape hatch', async () => {
+    it('says init is interactive and names the two ways through', async () => {
       setTTY(false, false);
       await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
 
       const [msg] = vi.mocked(log.error).mock.calls.at(-1)!;
       expect(msg).toContain('interactive terminal');
-      // init deliberately has NO --yes: its second prompt is the destructive
-      // overwrite confirmation, and auto-confirming that in CI is the hazard the
-      // prompt exists to prevent. The message must not offer one.
-      expect(msg).toMatch(/no --yes/);
+      // `--yes` exists now, but it never answers the overwrite question: it
+      // installs only where nothing would be overwritten. The message says so,
+      // so nobody reads it as "auto-confirm".
+      expect(msg).toContain('--yes');
+      expect(msg).toContain('never overwrites');
+      expect(msg).toContain('--dry-run');
+    });
+
+    it('lets --yes and --dry-run through the gate (neither prompts)', async () => {
+      setTTY(false, false);
+      await runInit({ yes: true });
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(runArchetypeSummary).not.toHaveBeenCalled();
+      expect(confirmWriteTargets).not.toHaveBeenCalled();
+      expect(runInstallArchetype).toHaveBeenCalledTimes(1);
     });
 
     it('refuses when only ONE stream is a TTY (both must be)', async () => {

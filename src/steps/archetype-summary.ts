@@ -21,10 +21,15 @@ function describeMatched(
   return matched.join(', ');
 }
 
-export async function runArchetypeSummary(
+/**
+ * The summary note's body: detected archetypes, selected and skipped
+ * capabilities. Exported so `init --dry-run` and `init --yes` print exactly the
+ * summary the interactive run asks about, without the question.
+ */
+export function archetypeSummaryLines(
   archetypes: Archetype[],
   selection: Selection,
-): Promise<ArchetypeSummaryAction> {
+): string[] {
   const lines: string[] = [
     '────────────────────────────────────────',
     '  PHARN Install Summary (archetype)',
@@ -55,8 +60,14 @@ export async function runArchetypeSummary(
     '',
     '────────────────────────────────────────',
   );
+  return lines;
+}
 
-  note(lines.join('\n'));
+export async function runArchetypeSummary(
+  archetypes: Archetype[],
+  selection: Selection,
+): Promise<ArchetypeSummaryAction> {
+  note(archetypeSummaryLines(archetypes, selection).join('\n'));
 
   const action = await select({
     message: 'Ready to install?',

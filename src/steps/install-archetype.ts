@@ -18,18 +18,20 @@ import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { manifestSources, scanDest } from '../lib/dest-drift.js';
 import { createBackup, replacedConfigBackup } from '../lib/backup.js';
-import { readBoundedFile } from '../lib/bounded-read.js';
 import {
   buildRecords,
   MODELS_RECORD_KEY,
   modelsRecordHash,
-  readRecords,
-  recordsBaseline,
   recordsUnderCapabilities,
   writeRecords,
   type FileRecords,
 } from '../lib/install-records.js';
 import { findOrphans } from '../lib/orphans.js';
+import {
+  readCarriedEntries,
+  reinstallBaseline,
+  type InstallCarry,
+} from '../lib/init-plan.js';
 import { checkModelsBlock } from '../lib/model-config.js';
 import {
   modelsLabelLines,
@@ -38,13 +40,8 @@ import {
 import { readUpstreamModels } from '../lib/upstream-models.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
-import {
-  configPath,
-  userOwnedConfigEntries,
-  writePharnConfig,
-} from '../lib/pharn-config.js';
+import { writePharnConfig } from '../lib/pharn-config.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
-import { isPlainObject } from '../lib/validate.js';
 import { PHARN_VERSION } from '../version.js';
 import type {
   Archetype,
@@ -53,32 +50,6 @@ import type {
   PharnConfig,
   Selection,
 } from '../types.js';
-
-/**
- * What a re-run `init` carries over from the config it replaces (built by
- * commands/init.ts, which reads that config tolerantly). Empty for a first
- * install.
- */
-export interface InstallCarry {
-  // `role:name` of every capability the user added by hand (`pharn add` →
-  // `source: 'manual'`) that the fetched index still has — selected by the
-  // archetypes or not. Recorded `manual`, so `pharn update` keeps them (its merge
-  // table, rows 3 and 6); every other installed entry is `auto`.
-  manualKeys: ReadonlySet<string>;
-  // Previous entries, of ANY source, whose capability upstream still ships but
-  // this CLI could not PARSE (`index.unknown`) — `update`'s row 0. Nothing is
-  // copied for them: each is written back VERBATIM, listed in
-  // `frozenCapabilities` so `update` re-checks it, and keeps its records.
-  kept: readonly InstalledCapability[];
-  // The (skillsVersion, commit) of the config being replaced — the stamp the
-  // records store must carry for a kept entry's records to be trusted.
-  previousStamp: { skillsVersion: string; commit: string | null } | null;
-  // Not carried over: the channel THIS run installed from, recorded as the
-  // config's `ref` — `"latest"` for `--ref latest`, absent (the `main`
-  // default) otherwise. A re-run init follows its own flag, never the old
-  // config's channel (lib/release.ts).
-  ref?: 'latest';
-}
 
 /**
  * Every file installing `selection` from `repoDir` writes, dest → source, at
@@ -118,6 +89,11 @@ export function preflightInstall(
 ): void {
   prepareInstall(repoDir, cwd, selection.selected, manifest);
 }
+
+// The carry type and the records baseline live in lib/init-plan.ts (init's
+// planning, shared with `init --dry-run`); re-exported here, where init has
+// always imported them from.
+export { reinstallBaseline, type InstallCarry };
 
 const NO_CARRY: InstallCarry = {
   manualKeys: new Set(),
@@ -409,33 +385,6 @@ export async function runInstallArchetype(
 }
 
 /**
- * The records a re-install tells pharn's bytes from the user's by: the store
- * the install replaces, through `update`'s own gate (`recordsBaseline`) against
- * the stamp of the config it replaces. `null` — a first install, or a store
- * that is absent, corrupt or stamped for another install state — means every
- * file that differs from upstream is `unverifiable`, and so backed up: never
- * minted, never blessed, never guessed about.
- *
- * Keyed by PATH, at the layout of the install that wrote it. A re-install
- * whose clone changed layout (flat → pharn/) writes to new paths, which the
- * project does not have yet, and leaves the old files in place (init never
- * deletes) — so it backs up nothing extra. Only a file of the user's own
- * already at one of the new paths has no record there, and is backed up
- * (`unrecorded`). Pinned by tests/init-archetype.test.ts.
- *
- * Exported for init's prompt (commands/init.ts), which labels the same files
- * before the lock; the scan above, under the lock, is the one that acts.
- */
-export function reinstallBaseline(
-  cwd: string,
-  previousStamp: InstallCarry['previousStamp'],
-): FileRecords | null {
-  return previousStamp === null
-    ? null
-    : recordsBaseline(readRecords(cwd), previousStamp).records;
-}
-
-/**
  * The records of every kept (frozen) capability, carried from the store this
  * install replaces — the pair `update` uses for its frozen entries
  * (`recordsBaseline` + `recordsUnderCapabilities`). A store that is absent,
@@ -453,33 +402,4 @@ function keptRecords(
 ): FileRecords {
   if (carry.kept.length === 0 || baseline === null) return {};
   return recordsUnderCapabilities(baseline, layoutPaths(layout), carry.kept);
-}
-
-/**
- * The user-owned top-level entries (`userOwnedConfigEntries`) of the
- * pharn.config.json this install is about to replace — `{}` on ANY failure.
- * Read TOLERANTLY, like init's readPreviousConfig: init is the command every
- * other one points at for recovery, so an absent, unreadable or unparseable
- * config means "nothing to carry over", never a refusal.
- *
- * Deliberately NOT readPharnConfig, whose verdict is about the keys pharn OWNS:
- * it returns null for a config with no `modules` array — which every other
- * command answers with "Run `pharn init` first" — and throws on a bad `seam`
- * hand-edit. Neither says anything about the user's own keys,
- * and reading through it would drop `testResults` on exactly the recovery path
- * pharn prescribes. So the one requirement is a JSON object at top level — the
- * same shape-only read steps/overwrite-check.ts makes for its one display
- * scalar, and file-local for the same reason: a total-catch reader must not be
- * importable from the module whose point is that it throws.
- */
-function readCarriedEntries(cwd: string): Record<string, unknown> {
-  // Bounded and non-blocking (lib/bounded-read.ts), like every read of this file.
-  const read = readBoundedFile(configPath(cwd));
-  if (read.kind !== 'ok') return {};
-  try {
-    const raw: unknown = JSON.parse(read.bytes.toString('utf8'));
-    return isPlainObject(raw) ? userOwnedConfigEntries(raw) : {};
-  } catch {
-    return {};
-  }
 }

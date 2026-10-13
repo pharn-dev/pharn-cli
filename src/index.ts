@@ -30,12 +30,15 @@ Options (each belongs to ONE command; passing it to another is an error):
                      or "latest" (its newest verified release); recorded
       --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
   -y, --yes          update: skip the confirmation prompt (for CI and scripts)
+                     init: install without prompts — only when no file would be overwritten
       --dry-run      update: show what would change and write nothing
+                     init: show what would be installed and write nothing
       --strict       status: exit 1 on any outdated/modified/missing file
       --no-drift     status: skip the byte-level drift check
       --json         list: emit the inventory as JSON
                      status: emit one JSON report on stdout (diagnostics on stderr)
                      update: with --dry-run, emit the plan as one JSON object
+                     init: with --dry-run, emit the plan as one JSON object
       --compact      update: with --dry-run --json, omit the unchanged files from the plan's file list
   -h, --help         Show this help text
   -v, --version      Show the version number`;
@@ -63,8 +66,8 @@ const MAX_POSITIONALS = new Map<string, number>([
 
 // Which flags each command accepts, by the flag's CANONICAL minimist key
 // (`drift`, not `no-drift`). Derived from what each command actually READS —
-// `runInit()`, `runAdd(arg)` and `runRemove(arg)` take no options at all, so
-// their rows are empty; `--archetype` is init's retained no-op alias.
+// `runAdd(arg)` and `runRemove(arg)` take no options at all, so their rows are
+// empty; `--archetype` is init's retained no-op alias.
 //
 // Before this table, minimist declared every flag globally and the dispatch
 // simply did not look at the ones it did not want: `pharn list --strict` was
@@ -82,7 +85,7 @@ const MAX_POSITIONALS = new Map<string, number>([
 // which is what keeps `pharn bogus --json` on the more useful "Unknown command"
 // path rather than lecturing about a flag on a command that does not exist.
 const ALLOWED_FLAGS = new Map<string, readonly string[]>([
-  ['init', ['archetype', 'ref']],
+  ['init', ['archetype', 'ref', 'yes', 'dry-run', 'json']],
   ['add', []],
   ['remove', []],
   ['rm', []],
@@ -112,6 +115,9 @@ const REQUIRED_WITH = new Map<
       { flag: 'compact', requires: 'json' },
     ],
   ],
+  // `init --json` is likewise the dry run's form: a real init prompts, writes
+  // and prints clack chrome.
+  ['init', [{ flag: 'json', requires: 'dry-run' }]],
 ]);
 
 // Accepted by every command in the table above. They short-circuit below rather
@@ -319,7 +325,12 @@ export async function main(): Promise<void> {
 
   switch (cmd) {
     case 'init':
-      await runInit({ ref });
+      await runInit({
+        ref,
+        yes: Boolean(argv.yes),
+        dryRun: Boolean(argv['dry-run']),
+        json: Boolean(argv.json),
+      });
       return;
     case 'add':
       await runAdd(argv._[1]);

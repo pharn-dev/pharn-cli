@@ -8,7 +8,7 @@ vi.mock('@clack/prompts', () => ({
   select: vi.fn(),
 }));
 
-const { runArchetypeSummary } =
+const { archetypeSummaryLines, runArchetypeSummary } =
   await import('../src/steps/archetype-summary.js');
 const prompts = await import('@clack/prompts');
 
@@ -77,5 +77,20 @@ describe('runArchetypeSummary', () => {
     });
     const note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;
     expect(note).not.toContain('CAPABILITIES SKIPPED');
+  });
+});
+
+// The lines alone, for `init --dry-run` and `init --yes`: the same summary the
+// prompt shows, and no prompt.
+describe('archetypeSummaryLines', () => {
+  it('is exactly the body of the summary note, without prompting', async () => {
+    vi.mocked(prompts.select).mockClear();
+    const lines = archetypeSummaryLines(archetypes, selection);
+    expect(prompts.select).not.toHaveBeenCalled();
+    vi.mocked(prompts.select).mockResolvedValue('install');
+    await runArchetypeSummary(archetypes, selection);
+    expect(vi.mocked(prompts.note).mock.calls.at(-1)![0]).toBe(
+      lines.join('\n'),
+    );
   });
 });

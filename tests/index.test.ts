@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit } from './helpers.js';
 
-const runInit = vi.fn(async (_opts?: { ref?: string }) => undefined);
+const runInit = vi.fn(
+  async (_opts?: {
+    ref?: string;
+    yes?: boolean;
+    dryRun?: boolean;
+    json?: boolean;
+  }) => undefined,
+);
 const runAdd = vi.fn(async (_arg?: string) => undefined);
 const runRemove = vi.fn(async (_arg?: string) => undefined);
 const runUpdate = vi.fn(
@@ -52,7 +59,12 @@ describe('main (argv dispatch)', () => {
     setArgv();
     await main();
     expect(runInit).toHaveBeenCalledTimes(1);
-    expect(runInit).toHaveBeenCalledWith({ ref: undefined });
+    expect(runInit).toHaveBeenCalledWith({
+      ref: undefined,
+      yes: false,
+      dryRun: false,
+      json: false,
+    });
     expect(runAdd).not.toHaveBeenCalled();
     expect(runUpdate).not.toHaveBeenCalled();
   });
@@ -61,7 +73,12 @@ describe('main (argv dispatch)', () => {
     setArgv('init', '--archetype');
     await main();
     expect(runInit).toHaveBeenCalledTimes(1);
-    expect(runInit).toHaveBeenCalledWith({ ref: undefined });
+    expect(runInit).toHaveBeenCalledWith({
+      ref: undefined,
+      yes: false,
+      dryRun: false,
+      json: false,
+    });
   });
 
   it('routes `add <arg>` to runAdd with the argument', async () => {
@@ -179,7 +196,7 @@ describe('main (argv dispatch)', () => {
     );
   });
 
-  it.each(['init', 'add', 'remove', 'list', 'status'])(
+  it.each(['add', 'remove', 'list', 'status'])(
     'refuses `--dry-run` on `%s`',
     async (cmd) => {
       setArgv(cmd, '--dry-run');
@@ -577,8 +594,16 @@ describe('main (argv dispatch)', () => {
 
   // With no command word `cmd` defaults to `init`, so these used to run a FULL
   // INSTALL while ignoring the flag entirely - the sharpest case in the set.
+  // `init` now takes `--json`, but only beside `--dry-run` (REQUIRED_WITH), so
+  // a bare `--json` is refused as INCOMPLETE rather than unsupported — still
+  // exit 1, still no install, still nothing on stdout.
   it('exits(1) on a bare `--json` rather than running a full install', async () => {
-    await expectUnsupported(['--json'], '--json');
+    setArgv('--json');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stdoutText()).toBe('');
+    expect(stderrText()).toContain('Incomplete option for `init`');
+    expect(stderrText()).toContain('--json (needs --dry-run)');
+    noCommandRan();
   });
 
   it('exits(1) on a bare `--force` rather than running a full install', async () => {
@@ -752,7 +777,12 @@ describe('main (argv dispatch)', () => {
 
     setArgv('init');
     await main();
-    expect(Object.keys(runInit.mock.calls[0]![0]!)).toEqual(['ref']);
+    expect(Object.keys(runInit.mock.calls[0]![0]!).sort()).toEqual([
+      'dryRun',
+      'json',
+      'ref',
+      'yes',
+    ]);
 
     setArgv('list', '--json');
     await main();
@@ -1018,6 +1048,66 @@ describe('main (cross-flag requirements)', () => {
       .join('\n');
     expect(printed).toMatch(
       /update: with --dry-run, emit the plan as one JSON object/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `init`'s preview and non-interactive flags: --dry-run, --dry-run --json, and
+// --yes / -y. `--json` needs `--dry-run` here too (REQUIRED_WITH's init row).
+// ---------------------------------------------------------------------------
+describe('main (init --dry-run / --json / --yes)', () => {
+  stubProcessExit();
+  const realArgv = process.argv;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+  const stderr = (): string =>
+    errSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
+
+  beforeEach(() => {
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    process.argv = realArgv;
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    [['init', '--dry-run'], { dryRun: true, json: false, yes: false }],
+    [['init', '--dry-run', '--json'], { dryRun: true, json: true, yes: false }],
+    [['init', '--yes'], { dryRun: false, json: false, yes: true }],
+    [['init', '-y'], { dryRun: false, json: false, yes: true }],
+    [['init', '--yes', '--dry-run'], { dryRun: true, json: false, yes: true }],
+    [['--dry-run'], { dryRun: true, json: false, yes: false }],
+  ] as const)('threads `%j` to runInit', async (argv, expected) => {
+    setArgv(...argv);
+    await main();
+    expect(runInit).toHaveBeenCalledWith({ ref: undefined, ...expected });
+  });
+
+  it.each([
+    ['init', '--json'],
+    ['init', '--json', '--help'],
+    ['init', '--json', '--yes'],
+    ['init', '--dry-run=false', '--json'],
+  ])('refuses `%s %s %s` as an incomplete option', async (...argv) => {
+    setArgv(...argv.filter(Boolean));
+    await expect(main()).rejects.toThrow(new ProcessExit(1));
+    expect(runInit).not.toHaveBeenCalled();
+    expect(console.log).not.toHaveBeenCalled();
+    expect(stderr()).toContain('Incomplete option for `init`');
+    expect(stderr()).toContain('--json (needs --dry-run)');
+  });
+
+  it('documents the init flags in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    const printed = String(vi.mocked(console.log).mock.calls[0]![0]);
+    expect(printed).toMatch(/--yes[^\n]*\n(?:[^\n]*\n)*?\s+init: /);
+    expect(printed).toMatch(/--dry-run[^\n]*\n(?:[^\n]*\n)*?\s+init: /);
+    expect(printed).toMatch(
+      /init: with --dry-run, emit the plan as one JSON object/,
     );
   });
 });
