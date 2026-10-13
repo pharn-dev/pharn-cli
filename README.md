@@ -280,7 +280,7 @@ detected ones — the in-product correction for a misdetected project. The value
 must be a comma-separated list of `ssr`, `backend` and `spa`, or `lib` alone,
 each at most once; anything else exits 1. The choice is recorded, so `update`
 keeps it. The install summary shows what triggered each detected archetype
-(`backend ← src/app/api/hello/route.ts`), or that they came from the flag.
+(`backend ← src/app/api/`), or that they came from the flag.
 
 Three behaviours matter if you script the CLI:
 
