@@ -1,0 +1,44 @@
+{
+  "base": "ff9312f45040a0cb0605f7ee447914db5aca0edc",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/commands/init.md",
+    "docs/contributing.md",
+    "docs/getting-started.md",
+    "docs/roadmap.md",
+    "docs/troubleshooting.md",
+    "src/commands/init.ts",
+    "src/index.ts",
+    "src/lib/init-plan.ts",
+    "src/lib/init-report.ts",
+    "src/lib/write-targets.ts",
+    "src/steps/archetype-summary.ts",
+    "src/steps/install-archetype.ts",
+    "src/steps/overwrite-check.ts",
+    "src/steps/prereqs.ts",
+    "tests/archetype-summary.test.ts",
+    "tests/index.test.ts",
+    "tests/init-dry-run-json.test.ts",
+    "tests/init-dry-run.test.ts",
+    "tests/init-report.test.ts",
+    "tests/init-yes.test.ts",
+    "tests/init.test.ts",
+    "tests/prereqs.test.ts",
+    "tests/write-targets.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
