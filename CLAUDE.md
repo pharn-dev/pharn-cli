@@ -73,7 +73,7 @@ ESM-only (`"type": "module"`, NodeNext). **Relative imports must use `.js` exten
 
 ## Testing
 
-Tests live in `tests/*.test.ts` (vitest, node env). `tests/helpers.ts` provides `stubProcessExit` (turns `process.exit` into a throwable `ProcessExit`), `useTmpDir`, and `CANCEL`. The lib tests build fake fetched-repos on disk to exercise copy/materialize without network. When changing behavior, update the matching test before touching code.
+Tests live in `tests/*.test.ts` (vitest, node env). `tests/helpers.ts` provides `stubProcessExit` (turns `process.exit` into a throwable `ProcessExit`), `useTmpDir`, and `CANCEL`. The lib tests build fake fetched-repos on disk to exercise copy/materialize without network. `tests/dist-smoke.test.ts` is the one suite that runs the SHIPPED bundle: it builds it with `scripts/build.mjs <outfile>` (the same options as `npm run build`, never a copy) into a temp dir laid out like the published package (`dist/index.js` beside a `package.json` copy, `node_modules` linked) and spawns it with `node` — so the required `Test` gate, which never runs `npm run build`, still sees a bundle-only regression (`src/version.ts`'s `require('../package.json')`, an unresolvable external). When changing behavior, update the matching test before touching code.
 
 ## Documentation discipline
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The required `Test` check now runs the shipped bundle (contributors).** `tests/dist-smoke.test.ts` builds the esbuild bundle with `scripts/build.mjs` into a temporary directory laid out like the published package and runs it with `node`: `--version` must print the `package.json` version, `--help` must list every command, `status` with no `pharn.config.json` must exit 1 with the "Run `pharn init` first." message and no stack trace, and an unsupported or unknown option must be refused with exit 1. Before this, every test imported `src/`, so a regression only the bundle has (the `package.json` lookup in `src/version.ts`, an external dependency that no longer resolves) stayed green in `Test`. `scripts/build.mjs` takes an optional output path for this; `npm run build` is unchanged. No network access, and nothing is written inside the repository.
+
 ### Security
 
 - **`pharn.config.json` and `pharn.records.json` can no longer be redirected through a symlink committed beside them.** Both files are written to a temporary file next to them and then renamed into place. That temporary file had a predictable name (`pharn.config.json.<pid>.tmp`) and was opened in a way that followed a symbolic link, so a repository that committed a link at that name could make any `pharn` command that writes the config (or the records store) overwrite a file outside the project that you can write to, and leave `pharn.config.json` itself as a link. The temporary file now gets an unpredictable random name and is created exclusively: an existing entry at the name, a link included, is never opened or followed, and `pharn` tries a fresh name instead (after 8 taken names it stops with an error and writes nothing). File contents and permissions are written exactly as before.
