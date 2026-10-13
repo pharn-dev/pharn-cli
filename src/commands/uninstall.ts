@@ -357,8 +357,8 @@ function danglingHookLines(cwd: string, records: FileRecords): string[] {
   }
   lines.push(
     '',
-    '  pharn never edits these files — remove those entries by hand. Matching is',
-    '  textual: a hook that reaches a removed script another way is not listed.',
+    '  pharn never edits these files — remove those entries by hand.',
+    '  Matching is textual: a hook that reaches a removed script another way is not listed.',
   );
   return lines;
 }
