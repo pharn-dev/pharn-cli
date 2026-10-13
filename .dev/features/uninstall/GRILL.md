@@ -15,13 +15,13 @@ Plan: `.dev/features/uninstall/PLAN.md`. Spec-hash check: `sha256(ARCHITECTURE.m
   rule_id: P2
   severity: important
   file: '.dev/features/uninstall/PLAN.md:41'
-  problem: "The capability-subtree branch of the predicate must constrain the <name> segment (CAPABILITY_NAME_RE) and require at least one segment below it; otherwise a key equal to the subtree itself or a bare capability dir would pass. Records keys are already `..`-free, but the predicate is the defense-in-depth layer and should be tight on its own."
+  problem: 'The capability-subtree branch of the predicate must constrain the <name> segment (CAPABILITY_NAME_RE) and require at least one segment below it; otherwise a key equal to the subtree itself or a bare capability dir would pass. Records keys are already `..`-free, but the predicate is the defense-in-depth layer and should be tight on its own.'
   evidence: 'capability subtree `/<name>/…`'
 - type: FINDING
   rule_id: P0
   severity: important
   file: '.dev/features/uninstall/PLAN.md:46'
-  problem: "The rmdir climb can remove `.claude/` itself (or `pharn/`) when it ends up empty; that is harmless but must be stated in the docs, and the climb must use the same lexical root bound as safeJoin so it can never rmdir the project root or anything above it — test it with a file whose only ancestor chain becomes empty."
+  problem: 'The rmdir climb can remove `.claude/` itself (or `pharn/`) when it ends up empty; that is harmless but must be stated in the docs, and the climb must use the same lexical root bound as safeJoin so it can never rmdir the project root or anything above it — test it with a file whose only ancestor chain becomes empty.'
   evidence: 'never the project root, never above it'
 - type: FINDING
   rule_id: P2

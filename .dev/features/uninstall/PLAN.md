@@ -28,14 +28,14 @@
 
 For every key `rel` in a USABLE record store (excluding `MODELS_RECORD_KEY`):
 
-| condition (evaluated in order)                                    | bucket      | action        |
-| ----------------------------------------------------------------- | ----------- | ------------- |
-| `rel` is not an install-surface path (`isInstallSurfacePath`)     | `outside`   | left, counted |
-| a component of `rel` below the root is a symlink                  | `unsafe`    | REFUSE whole run |
-| absent on disk                                                    | `absent`    | nothing       |
-| present but not a regular file (dir, FIFO, symlinked leaf, …)     | `notFile`   | left, listed  |
-| regular file, `sha256File` ≠ record                               | `edited`    | left, listed  |
-| regular file, `sha256File` = record                               | `delete`    | unlinked      |
+| condition (evaluated in order)                                | bucket    | action           |
+| ------------------------------------------------------------- | --------- | ---------------- |
+| `rel` is not an install-surface path (`isInstallSurfacePath`) | `outside` | left, counted    |
+| a component of `rel` below the root is a symlink              | `unsafe`  | REFUSE whole run |
+| absent on disk                                                | `absent`  | nothing          |
+| present but not a regular file (dir, FIFO, symlinked leaf, …) | `notFile` | left, listed     |
+| regular file, `sha256File` ≠ record                           | `edited`  | left, listed     |
+| regular file, `sha256File` = record                           | `delete`  | unlinked         |
 
 - Files pharn has NO record of are never candidates — the store is the only proof (unrecorded files in pharn's dirs survive, and keep their directory alive).
 - `isInstallSurfacePath(rel, layout)` (NEW, in `install-manifest.ts`, next to the manifest it mirrors): a pure string-membership predicate describing the SHAPE of every path `collectExpectedInstallPaths` can produce at that layout (capability subtree `/<name>/…`, top-level `.claude/commands/pharn-*.md` not `pharn-dev-*`, top-level `.claude/hooks/*.cjs` not `*.test.cjs`, exact docs, license dest, both features-README spellings, `contracts/`, `core/`, `floor/` prefixes). Defense in depth: the store is local and committed, so a hand-edited (or malicious-PR) key like `src/app.ts` with its current hash must not be enough to delete a user file. A key outside the surfaces is left alone and counted. A mirror test pins that every path a real `installCapabilities` run records satisfies the predicate.
@@ -102,6 +102,7 @@ USAGE line `uninstall   Remove PHARN files pharn wrote and you did not change`; 
 ## Evals to write (P1)
 
 Unit — `planUninstall`:
+
 - recorded + unchanged → `delete`; recorded + edited → `edited`; recorded + absent → `absent`
 - recorded path that is a directory / FIFO / symlinked leaf → `notFile` (never hashed, never followed)
 - symlinked intermediate component → `unsafe`
@@ -114,6 +115,7 @@ Unit — `isInstallSurfacePath`: accepts each surface shape; rejects `pharn-dev-
 Unit — `hooksReferencing`: string-form, `$CLAUDE_PROJECT_DIR` form, exec-form args match; unrelated hook not listed; both files read; unreadable file reported; symlinked `.claude/` refused; escaping of control chars.
 
 Integration — `runUninstall` (`--yes` unless stated):
+
 - full install fixture → every recorded unchanged file deleted, empty dirs removed, config + records gone, config backup at `.pharn-backup/<ts>/pharn.config.json` byte-identical, `.pharn.lock` gone, exit normal
 - an edited CONSTITUTION.md and a user file in `pharn/features/my-feature/` → both survive with bytes intact; their dirs survive; listed
 - unrecorded file inside a capability dir → survives, dir survives
@@ -124,7 +126,7 @@ Integration — `runUninstall` (`--yes` unless stated):
 - config changed while the prompt was open → exit 1, nothing deleted
 - unlink failure part-way (read-only dir) → exit 1, config + records intact, re-run finishes the job
 - absent config → behaviour per OQ 3
-Dispatch: `pharn uninstall --force` → "Unsupported option"; `pharn uninstall x` → "Unexpected argument"; `pharn uninstall -y` dispatches with `yes: true`.
+  Dispatch: `pharn uninstall --force` → "Unsupported option"; `pharn uninstall x` → "Unexpected argument"; `pharn uninstall -y` dispatches with `yes: true`.
 
 ## Guarantee audit (P0)
 
