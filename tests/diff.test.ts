@@ -427,7 +427,11 @@ describe('diffInstalledCapabilities', () => {
     });
 
     it('mixed endings are ok too', () => {
-      const { repo, proj } = scaffold((lf) => lf.replace('\n', '\r\n'));
+      // Only the FIRST line ending becomes CRLF, so the file mixes both.
+      const { repo, proj } = scaffold((lf) => {
+        const i = lf.indexOf('\n');
+        return `${lf.slice(0, i)}\r\n${lf.slice(i + 1)}`;
+      });
       expect(run(repo, proj).modified).toEqual([]);
     });
 
