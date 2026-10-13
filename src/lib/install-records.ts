@@ -22,10 +22,14 @@ import type { InstalledCapability } from '../types.js';
 // TRUST (P2): this file is LOCAL but user-editable — untrusted input. It is
 // parsed defensively and any failure degrades to "records unavailable", which is
 // FAIL-CLOSED (update then SKIPS rather than overwrites). Critically, a record
-// KEY is never path-joined: consumers iterate the install manifest and look each
-// manifest-derived key up here, so a hostile key can never drive a filesystem
-// access. A corrupt store is reported BY NAME, never silently collapsed into
-// "absent" (the same lesson lib/pharn-config.ts encodes for `seam`).
+// KEY never drives a WRITE or a delete: consumers iterate the install manifest
+// and look each manifest-derived key up here. The ONE read-side exception is
+// orphan detection (lib/orphans.ts), which lstat/hashes the path a key names —
+// only for a key that passed the ingest rule below, is a member of the
+// install-root set (a path some install could have written), and passes
+// readDiskState's safeJoin + symlink-component + regular-file floor. A corrupt
+// store is reported BY NAME, never silently collapsed into "absent" (the same
+// lesson lib/pharn-config.ts encodes for `seam`).
 //
 // THE STAMP: the store carries the `skillsVersion` + `commit` that
 // `pharn.config.json` holds after the operation that wrote it. Every pharn
@@ -88,11 +92,12 @@ export const SHA256_RE = /^[0-9a-f]{64}$/;
 // collectExpectedInstallPaths (toPosix-normalized, root-relative).
 //
 // The rule remains defense in depth (P2), never containment: a key is COMPARED,
-// never path-joined (see the header), so containment is safeJoin's job and
-// accepting an odd-but-inert name gives up nothing. The corollary is that what it
-// rejects is narrow ON PURPOSE — a posix key holding `..\..\etc\passwd` as one
-// opaque segment reads as an ordinary name here, and is inert for the same reason
-// every other key is.
+// and path-joined only by the guarded orphan read (see the header), so
+// containment is safeJoin's job and accepting an odd-but-inert name gives up
+// nothing. The corollary is that what it rejects is narrow ON PURPOSE — a posix
+// key holding `..\..\etc\passwd` as one opaque segment reads as an ordinary
+// name here, and is inert for the same reason every other key is (at most a
+// contained read of a file by that literal name).
 function isInvalidRecordKey(key: string): boolean {
   // Normalize a COPY to split it; the key itself is stored verbatim, because the
   // manifest supplies the lookups and they are literal string comparisons.

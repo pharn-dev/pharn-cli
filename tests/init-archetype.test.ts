@@ -1278,6 +1278,51 @@ describe('re-running init after an upstream bump — the records decide what is 
     ).toBe('plan v2');
   });
 
+  // F-12: a file upstream stopped shipping keeps its record through a re-run
+  // init, so `update`/`status` still name it; once it is gone, nothing is kept.
+  it('carries the record of a file upstream stopped shipping, while it exists', async () => {
+    const { repo, proj, archetypes, selection } = await installed();
+    const OLD = '.claude/commands/pharn-plan.md';
+    const before = readRecords(proj);
+    if (before.kind !== 'ok') throw new Error('fixture: no records');
+    const recorded = before.store.files[OLD];
+    expect(recorded).toBeDefined();
+    rmSync(join(repo, OLD)); // upstream drops it
+    write(join(repo, 'SKILLS_VERSION'), '1.1.0\n');
+
+    await runInstallArchetype(
+      repo,
+      proj,
+      archetypes,
+      selection,
+      'sha456',
+      carry(STAMP),
+    );
+
+    const after = readRecords(proj);
+    if (after.kind !== 'ok') throw new Error('records unreadable');
+    expect(after.store.files[OLD]).toBe(recorded);
+    expect(readFileSync(join(proj, OLD), 'utf8')).toBe('plan');
+  });
+
+  it('carries no orphan record once the file is gone, or without a usable store', async () => {
+    const { repo, proj, archetypes, selection } = await installed();
+    const OLD = '.claude/commands/pharn-plan.md';
+    rmSync(join(repo, OLD));
+    rmSync(join(proj, OLD));
+    await runInstallArchetype(
+      repo,
+      proj,
+      archetypes,
+      selection,
+      'sha456',
+      carry(STAMP),
+    );
+    const after = readRecords(proj);
+    if (after.kind !== 'ok') throw new Error('records unreadable');
+    expect(after.store.files[OLD]).toBeUndefined();
+  });
+
   it('backs up exactly the ONE file the user changed', async () => {
     const { repo, proj, archetypes, selection } = await installed();
     bumpUpstream(repo);

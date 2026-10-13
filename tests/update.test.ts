@@ -2436,6 +2436,132 @@ describe('runUpdate (drift-safe)', () => {
     expect(body('pharn-pipeline/grillers/a11y/legacy.md')).toBe('mine');
   });
 
+  // F-12: a file upstream stops shipping stays on disk (update never deletes),
+  // and is now NAMED — on this run and every later one, until it is gone.
+  describe('orphaned files (upstream stopped shipping them)', () => {
+    const OLD_CMD = '.claude/commands/pharn-plan.md';
+    const orphanNote = () =>
+      vi
+        .mocked(prompts.note)
+        .mock.calls.filter((c) => c[1] === 'ORPHANED')
+        .map((c) => stripVTControlCharacters(String(c[0])));
+    // The next run starts from what this one wrote.
+    const reloadConfig = () =>
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
+    const nextUpstream = (version: string) => {
+      write(join(repo, 'SKILLS_VERSION'), `${version}\n`);
+      fetchRemoteSkillsVersion.mockResolvedValue(version);
+    };
+
+    it('names an unchanged orphan, keeps the file and its record, and bumps the version', async () => {
+      await installed();
+      const recorded = records()![OLD_CMD];
+      rmSync(join(repo, OLD_CMD));
+
+      await runUpdate();
+
+      expect(body(OLD_CMD)).toBe('plan v1');
+      expect(records()![OLD_CMD]).toBe(recorded);
+      const [text] = orphanNote();
+      expect(text).toContain('UNCHANGED');
+      expect(text).toContain(OLD_CMD);
+      expect(text).toContain('git rm');
+      // Not a skip: the version is not withheld and SKIPPED says nothing.
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+      expect(
+        vi.mocked(prompts.note).mock.calls.some((c) => c[1] === 'SKIPPED'),
+      ).toBe(false);
+    });
+
+    it('keeps listing it on a later run, and drops it once the file is gone', async () => {
+      await installed();
+      rmSync(join(repo, OLD_CMD));
+      await runUpdate();
+
+      reloadConfig();
+      nextUpstream('1.2.0');
+      vi.mocked(prompts.note).mockClear();
+      await runUpdate();
+      expect(orphanNote()[0]).toContain(OLD_CMD);
+      expect(records()![OLD_CMD]).toBeDefined();
+
+      rmSync(join(proj, OLD_CMD));
+      reloadConfig();
+      nextUpstream('1.3.0');
+      vi.mocked(prompts.note).mockClear();
+      await runUpdate();
+      expect(orphanNote()).toEqual([]);
+      expect(records()![OLD_CMD]).toBeUndefined();
+    });
+
+    // With #281, a recorded path that is gone re-opens the same-version early
+    // return. A deleted orphan is such a path until a planned run drops its
+    // record: ONE run (which restores nothing — upstream no longer ships it),
+    // then "Already up to date" again.
+    it('after you delete an orphan at the same version, one run drops its record, then it is up to date', async () => {
+      await installed();
+      rmSync(join(repo, OLD_CMD));
+      await runUpdate();
+      expect(records()![OLD_CMD]).toBeDefined();
+
+      rmSync(join(proj, OLD_CMD));
+      reloadConfig();
+      vi.mocked(prompts.note).mockClear();
+      vi.mocked(prompts.outro).mockClear();
+      await runUpdate();
+      const header = stripVTControlCharacters(
+        String(vi.mocked(prompts.note).mock.calls[0]?.[0] ?? ''),
+      );
+      expect(header).toContain(`${OLD_CMD} is missing`);
+      expect(header).toContain('if upstream still ships it');
+      expect(existsSync(join(proj, OLD_CMD))).toBe(false);
+      expect(records()![OLD_CMD]).toBeUndefined();
+      expect(orphanNote()).toEqual([]);
+
+      reloadConfig();
+      vi.mocked(prompts.outro).mockClear();
+      await runUpdate();
+      expect(String(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0])).toContain(
+        'Already up to date',
+      );
+    });
+
+    it('names an edited orphan as EDITED', async () => {
+      await installed();
+      rmSync(join(repo, OLD_CMD));
+      write(join(proj, OLD_CMD), 'MY EDIT');
+
+      await runUpdate();
+
+      const [text] = orphanNote();
+      expect(text).toContain('EDITED');
+      expect(text).toContain('review before deleting');
+      expect(text).not.toContain('UNCHANGED');
+      expect(body(OLD_CMD)).toBe('MY EDIT');
+    });
+
+    it('upgrades a path upstream ships AGAIN cleanly, from the carried record', async () => {
+      await installed();
+      rmSync(join(repo, OLD_CMD));
+      await runUpdate();
+
+      reloadConfig();
+      nextUpstream('1.2.0');
+      write(join(repo, OLD_CMD), 'plan v3');
+      await runUpdate();
+
+      // Still at the bytes pharn wrote → `updated`, not an `unrecorded` skip.
+      expect(body(OLD_CMD)).toBe('plan v3');
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.2.0');
+    });
+
+    it('prints no ORPHANED note when nothing is orphaned', async () => {
+      await installed();
+      await runUpdate();
+      expect(orphanNote()).toEqual([]);
+    });
+  });
+
   it('never writes .claude/settings.json (user-owned, excluded from the manifest)', async () => {
     await installed();
     write(join(repo, '.claude/settings.json'), '{"upstream":true}');

@@ -315,6 +315,15 @@ describe('runUpdate --dry-run', () => {
       expect(noteBody('MODELS')).toContain('would write');
     });
 
+    it('over an orphaned file, which it names and leaves in place', async () => {
+      await dryRunLeavesTreeAlone({}, async () => {
+        await installed();
+        rmFile(join(repo, CMD)); // upstream stopped shipping it
+      });
+      expect(noteBody('ORPHANED')).toContain('UNCHANGED');
+      expect(noteBody('ORPHANED')).toContain(CMD);
+    });
+
     it('over a layout migration, with a live lock file left untouched', async () => {
       await dryRunLeavesTreeAlone({}, async () => {
         await installed();

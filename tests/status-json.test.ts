@@ -362,6 +362,47 @@ describe('runStatus --json', () => {
     vi.unstubAllEnvs();
   });
 
+  it('carries orphans: null with no usable records, null under --no-drift', async () => {
+    await runStatus({ json: true });
+    expect(report().orphans).toBeNull();
+    out.mockClear();
+    await runStatus({ json: true, drift: false });
+    expect(report().orphans).toBeNull();
+  });
+
+  it('lists orphans from a usable store, and they never fail --strict', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } =
+      await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { sha256File } = await import('../src/lib/hash.js');
+    const root = mkdtempSync(join(tmpdir(), 'pharn-orphans-'));
+    try {
+      const proj = join(root, 'proj');
+      const rel = '.claude/hooks/gone.cjs';
+      mkdirSync(join(proj, '.claude/hooks'), { recursive: true });
+      writeFileSync(join(proj, rel), 'x');
+      writeFileSync(
+        join(proj, 'pharn.records.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          skillsVersion: '1.0.0',
+          commit: 'c',
+          files: { [rel]: sha256File(join(proj, rel)) },
+        }),
+      );
+      writeFileSync(join(proj, rel), 'MY EDIT');
+      vi.spyOn(process, 'cwd').mockReturnValue(proj);
+      fetchRepo.mockResolvedValue({ dir: join(root, 'repo'), cleanup });
+      await runStatus({ json: true, strict: true });
+      expect(report().orphans).toEqual([{ path: rel, state: 'edited' }]);
+      expect(report().strict).toEqual({ enabled: true, failed: false });
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('reports a Node below the floor without failing, even under --strict', async () => {
     setNodeVersion('22.18.0');
     await runStatus({ json: true, strict: true });

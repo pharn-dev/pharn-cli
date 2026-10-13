@@ -642,6 +642,34 @@ describe('runUpdate --dry-run --json', () => {
     });
   });
 
+  describe('orphans', () => {
+    it('lists a file upstream stopped shipping in plan.orphans, and only on stdout', async () => {
+      await installed();
+      rmSync(join(repo, CMD));
+      write(join(proj, CMD), 'MY EDIT');
+      const { json } = await run();
+      expectOnlyTheObject();
+      expect(json.schemaVersion).toBe(1);
+      expect(json.plan.orphans).toEqual([{ path: CMD, state: 'edited' }]);
+      // Not a file decision: no entry, no skip, the version is not withheld.
+      expect(json.plan.files.map((f: { rel: string }) => f.rel)).not.toContain(
+        CMD,
+      );
+      expect(json.version.withheld).toBe(false);
+      // --compact never filters it.
+      logSpy.mockClear();
+      expect((await run({ compact: true })).json.plan.orphans).toEqual(
+        json.plan.orphans,
+      );
+    });
+
+    it('omits plan.orphans when there is none', async () => {
+      await installed();
+      const { json } = await run();
+      expect(json.plan).not.toHaveProperty('orphans');
+    });
+  });
+
   describe('--compact', () => {
     // CAP_FILE and HOOK already match upstream (noop), DOC is a clean upgrade,
     // CMD is an edit that would be skipped.

@@ -29,6 +29,7 @@ import {
   writeRecords,
   type FileRecords,
 } from '../lib/install-records.js';
+import { findOrphans } from '../lib/orphans.js';
 import { checkModelsBlock } from '../lib/model-config.js';
 import {
   modelsLabelLines,
@@ -330,6 +331,16 @@ export async function runInstallArchetype(
     commit,
     files: {
       ...keptRecords(baseline, carry, layout),
+      // Files the replaced install recorded that upstream no longer ships and
+      // that are still on disk keep their record, so `update` and `status`
+      // keep naming them (lib/orphans.ts). Disjoint from the manifest.
+      ...findOrphans({
+        projectRoot: cwd,
+        records: baseline,
+        expected: prepared.manifest,
+        capabilities: [...capabilities, ...carry.kept],
+        frozen: carry.kept,
+      }).records,
       ...buildRecords(cwd, prepared.manifest.keys()),
       // The block pharn just wrote, so `pharn update` can tell it from an edit.
       ...(models !== undefined

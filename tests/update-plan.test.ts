@@ -221,6 +221,82 @@ describe('buildUpdatePlan', () => {
     expect(report.abandonedLayout).toBe('flat');
   });
 
+  describe('orphans (files upstream stopped shipping)', () => {
+    const OLD_CMD = '.claude/commands/pharn-old.md';
+    const OLD_CAP_FILE = 'pharn-pipeline/grillers/a11y/old.md';
+
+    async function withOrphans(cfg = config()): Promise<void> {
+      await fixture(cfg);
+      write(join(proj, OLD_CMD), 'old command');
+      write(join(proj, OLD_CAP_FILE), 'old a11y file');
+      await writeRecords(proj, {
+        skillsVersion: cfg.skillsVersion,
+        commit: cfg.commit,
+        files: {
+          [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
+          [DOC]: sha256File(join(proj, DOC)),
+          [OLD_CMD]: sha256File(join(proj, OLD_CMD)),
+          [OLD_CAP_FILE]: 'f'.repeat(64),
+        },
+      });
+    }
+
+    it('reports them, carries their records, and leaves the decision table alone', async () => {
+      await withOrphans();
+      const { report, apply } = plan(config());
+      expect(report.orphans).toEqual([
+        { path: OLD_CMD, state: 'unchanged' },
+        { path: OLD_CAP_FILE, state: 'edited' },
+      ]);
+      expect(apply.orphanRecords).toEqual({
+        [OLD_CMD]: sha256File(join(proj, OLD_CMD)),
+        [OLD_CAP_FILE]: 'f'.repeat(64),
+      });
+      // Never in the manifest the 6-row table iterates: no file entry, no skip,
+      // no withheld version.
+      expect(report.files.map((f) => f.rel)).not.toContain(OLD_CMD);
+      expect(report.skipped).toEqual([]);
+      expect(report.versionWithheld).toBe(false);
+      expect(apply.plan.nextRecords).not.toHaveProperty(OLD_CMD);
+    });
+
+    it('is empty (and carries nothing) without a usable store', async () => {
+      await withOrphans();
+      const { report, apply } = plan(config({ skillsVersion: '0.9.0' }));
+      expect(report.recordsNote).not.toBeNull();
+      expect(report.orphans).toEqual([]);
+      expect(apply.orphanRecords).toEqual({});
+    });
+
+    it('excludes the files of a capability this run drops', async () => {
+      await withOrphans();
+      resolveCapabilities.mockReturnValue({ selected: [], skipped: [] });
+      const { report, apply } = plan(
+        config({ capabilities: [{ ...CAP, source: 'auto' }] }),
+      );
+      expect(apply.configCapabilities).toEqual([]);
+      expect(report.orphans.map((o) => o.path)).toEqual([OLD_CMD]);
+    });
+
+    it('excludes the files of a frozen capability (carried as frozenRecords)', async () => {
+      await withOrphans();
+      parseCapabilityIndex.mockReturnValue({
+        capabilities: [],
+        unknown: [
+          {
+            name: CAP.name,
+            role: CAP.role,
+            subtree: 'pharn-pipeline/grillers',
+            reason: 'bad role',
+          },
+        ],
+      });
+      const { report, apply } = plan(config());
+      expect(report.orphans.map((o) => o.path)).toEqual([OLD_CMD]);
+      expect(apply.frozenRecords).toHaveProperty(OLD_CAP_FILE);
+    });
+  });
+
   it('shares one path for the real run and the preview: report fields mirror apply', async () => {
     await fixture();
     const { report, apply } = plan(config());

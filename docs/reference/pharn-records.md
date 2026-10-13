@@ -42,15 +42,18 @@ disagree with what is actually on disk. Keys are sorted, so the committed file h
 
 ## Who writes it
 
-| Command  | Effect                                                                                                 |
-| -------- | ------------------------------------------------------------------------------------------------------ |
-| `init`   | Writes the full store — every file the install wrote, and the `models` block when it wrote one         |
-| `add`    | Merges the added capability's files in. Only extends an **already readable** store; it never mints one |
-| `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record  |
-| `remove` | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one      |
+| Command  | Effect                                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`   | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files) |
+| `add`    | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                          |
+| `update` | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files)   |
+| `remove` | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                               |
 
 `.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
 absent.
+
+[`pharn status`](../commands/status.md#orphaned-files) **reads** it for one thing: to find orphaned
+files. Its drift comparison does not use it.
 
 ## The `models` block
 
@@ -60,8 +63,8 @@ whitespace). So re-indenting your config is not an edit, while reordering the bl
 `init` writes it with the block; `update` rewrites it when it writes pharn-oss's block, and carries it
 unchanged when it keeps yours; `add` and `remove` carry it untouched. `update` compares your block
 against it exactly as it compares a file against its record — see
-[update](../commands/update.md#the-models-block). Like every key here, it is only compared, never used
-as a path, and a store without it reads the block as `unrecorded`.
+[update](../commands/update.md#the-models-block). It is only compared, never used as a path, and a
+store without it reads the block as `unrecorded`.
 
 ## When the store is ignored (fail-closed)
 
@@ -73,8 +76,9 @@ differs from upstream, labelling them `unverifiable` — whenever it is:
   16 MiB, invalid JSON, not an object, a missing `files` object, a non-sha256 hash, or a path key
   that is empty, absolute, or has a `..` or `.` path **segment**. The key rule is a segment rule,
   not a substring ban: an ordinary filename that merely _contains_ `..`, such as
-  `migration..v2.md`, is valid, because a key here is only ever compared against the install
-  manifest — never used to build a path. Any one of these invalidates the **whole** store rather than
+  `migration..v2.md`, is valid, because a key here is compared against the install manifest and
+  otherwise only read through the guarded orphan check (see [Trust](#trust)) — never used to write.
+  Any one of these invalidates the **whole** store rather than
   a single entry, and the reason is reported by name so a fixable JSON error is not mistaken for a
   legacy install;
 - **an unknown `schemaVersion`** — a store written by a newer `pharn` is never partially interpreted;
@@ -93,9 +97,18 @@ overwrites the skipped files instead.
 Two commands drop entries, and between them the store never describes bytes that are gone.
 
 `update` writes the store as a fresh map keyed by the manifest it just applied. Entries for paths that
-are no longer part of your install — typically a file dropped upstream — are dropped rather than
-accumulating. Skipped files keep their previous entry, since it still describes what `pharn` wrote
-there.
+are no longer part of your install **and no longer on disk** are dropped rather than accumulating.
+Skipped files keep their previous entry, since it still describes what `pharn` wrote there.
+
+### Orphaned files
+
+**A file upstream stopped shipping that is still in your project keeps its entry**, with its old hash,
+until you delete it. That entry is what lets `update` and `status` keep listing the file as an
+[orphan](../commands/update.md#orphaned-files) — `UNCHANGED` while its bytes still match, `EDITED` once
+they do not. Once the file is gone, the next `update` drops the entry. If upstream ships the path
+again, the entry makes it a clean upgrade instead of an `unrecorded` skip. The entries of a capability
+`update` drops from your config are not kept: those files are named by the membership change, not as
+orphans.
 
 **Frozen capabilities are the deliberate exception.** When a capability's upstream definition becomes
 unreadable, `update` reports it as `kept-frozen`, leaves its files alone, and — because it is absent
@@ -120,8 +133,13 @@ recorded here at its current hash is deleted without a copy, and every other fil
 ## Trust
 
 The file is local but hand-editable, so it is treated as untrusted input: it is parsed defensively,
-and a record **key is never used to build a filesystem path**. `update` iterates its own install
-manifest and looks each path up here, so an invented key cannot cause a read or a write. Editing a
+and a record **key never causes a write or a delete**. `update` iterates its own install manifest and
+looks each path up here, so an invented key cannot cause a write. The one place a key becomes a path is
+orphan detection, and only for a **read** (an `lstat` and a hash): the key must name a path an install
+could have written (`.claude/commands/pharn-*.md`, `.claude/hooks/*.cjs`, a capability directory,
+`pharn-contracts/`, `pharn-core/`, the floor directory, a trusted doc, the PHARN license or the features
+`README.md`, in either layout), stay inside your project, cross no symlink, and be a regular file. Any
+other key is never read and never listed. Editing a
 hash to match your own bytes will make `update` treat that file as pharn's and overwrite it — that is
 your call to make, and it is the only thing such an edit can do.
 

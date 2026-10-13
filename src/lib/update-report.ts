@@ -9,6 +9,7 @@ import type {
   UpdatePlan,
 } from './update-decision.js';
 import type { UpdatePlanReport } from './update-plan.js';
+import type { OrphanState } from './orphans.js';
 import type { Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -120,6 +121,11 @@ export interface UpdateReport {
       reason: string;
     }[];
     recordsNote: string | null;
+    // Recorded files upstream no longer ships, still on disk (lib/orphans.ts).
+    // Present ONLY when there is at least one, so a report with none keeps the
+    // bytes 0.10.0 shipped; additive within schemaVersion 1; never filtered by
+    // `--compact`.
+    orphans?: { path: string; state: OrphanState; reason?: string }[];
   } | null;
 }
 
@@ -218,6 +224,17 @@ function planReport(
       reason: cap(u.reason, MAX_UNKNOWN_FIELD),
     })),
     recordsNote: p.recordsNote === null ? null : cap(p.recordsNote, MAX_REASON),
+    ...(p.orphans.length > 0
+      ? {
+          orphans: p.orphans.map((o) => ({
+            path: o.path,
+            state: o.state,
+            ...(o.reason !== undefined
+              ? { reason: cap(o.reason, MAX_REASON) }
+              : {}),
+          })),
+        }
+      : {}),
   };
 }
 

@@ -24,6 +24,7 @@ import {
 } from './install-records.js';
 import { decideModelsUpdate, type ModelsUpdate } from './models-update.js';
 import { readUpstreamModels } from './upstream-models.js';
+import { findOrphans, type Orphan } from './orphans.js';
 import {
   planUpdate,
   type DiskState,
@@ -89,6 +90,9 @@ export interface UpdatePlanReport {
   unknownWarning: string | null;
   // The structured twin of `unknownWarning`: what the fetch boundary refused.
   unknownCapabilities: UnknownCapability[];
+  // Recorded files upstream no longer ships that are still on disk
+  // (lib/orphans.ts). Reported only; never written, never deleted.
+  orphans: Orphan[];
 }
 
 export interface UpdateApplyInputs {
@@ -102,6 +106,8 @@ export interface UpdateApplyInputs {
   configCapabilities: InstalledCapability[];
   frozen: Set<string>;
   frozenRecords: FileRecords;
+  // The orphans' previous records, carried so they stay listed on later runs.
+  orphanRecords: FileRecords;
   nextSkillsVersion: string;
   nextCommit: string | null;
   frozenKeys: string[];
@@ -233,6 +239,20 @@ export function buildUpdatePlan(input: {
           ),
         );
 
+  // Orphans: recorded files outside the manifest that are still on disk. Their
+  // keys are disjoint from the manifest, so they never reach the decision table
+  // and never withhold the version; their records are carried (lib/orphans.ts).
+  // A capability this run DROPS is excluded — its dir is not "still installed".
+  const orphanScan = findOrphans({
+    projectRoot: cwd,
+    records,
+    expected,
+    capabilities: configCapabilities,
+    frozen: configCapabilities.filter((cap) =>
+      frozen.has(`${cap.role}:${cap.name}`),
+    ),
+  });
+
   // Only KEPT entries count: an unparseable capability this project never had
   // must not pin every future run to a re-fetch. And one the LAST run listed
   // that parses again stays listed while any of ITS files was skipped this run.
@@ -292,6 +312,7 @@ export function buildUpdatePlan(input: {
       recordsNote,
       unknownWarning,
       unknownCapabilities: index.unknown,
+      orphans: orphanScan.orphans,
     },
     apply: {
       expected,
@@ -301,6 +322,7 @@ export function buildUpdatePlan(input: {
       configCapabilities,
       frozen,
       frozenRecords,
+      orphanRecords: orphanScan.records,
       nextSkillsVersion,
       nextCommit,
       frozenKeys,

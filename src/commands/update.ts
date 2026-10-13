@@ -48,6 +48,7 @@ import {
   type ModelsUpdate,
 } from '../lib/models-update.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
+import { orphanNoteLines, type Orphan } from '../lib/orphans.js';
 import type { UpdateLabel, UpdatePlan } from '../lib/update-decision.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
@@ -192,6 +193,8 @@ interface UpdateOutcome {
   // dir its checker is installed under, for the MODELS note.
   models: ModelsUpdate;
   modelsFloor: string;
+  // Recorded files upstream no longer ships, still on disk (lib/orphans.ts).
+  orphans: Orphan[];
 }
 
 async function runArchetypeUpdate(
@@ -404,7 +407,10 @@ async function runArchetypeUpdate(
         ...(missing !== null
           ? [
               pc.dim(
-                `  ${terminalSafe(missing)} is missing — this run re-applies the install to restore it.`,
+                // "if upstream still ships it": a deleted ORPHAN (lib/orphans.ts)
+                // is a recorded path that is gone too; this run drops its record
+                // instead of restoring it, and the next run early-returns.
+                `  ${terminalSafe(missing)} is missing — this run re-applies the install, restoring it if upstream still ships it.`,
               ),
             ]
           : []),
@@ -689,6 +695,9 @@ async function applyPlannedUpdate(
     commit: apply.nextCommit,
     files: {
       ...apply.frozenRecords,
+      // Orphans keep their record while their file exists, so later runs (and
+      // `status`) still name them. Disjoint from the manifest by construction.
+      ...apply.orphanRecords,
       ...plan.nextRecords,
       ...buildRecords(cwd, written),
       // `planUpdate` keys its records by the manifest, which holds no models
@@ -739,6 +748,7 @@ async function applyPlannedUpdate(
     hookWiring: report.hookWiring,
     models,
     modelsFloor: report.modelsFloor,
+    orphans: report.orphans,
   };
 }
 
@@ -777,6 +787,7 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
 
   const forceable = reportSkipped(plan.skipped, false);
+  reportOrphans(outcome.orphans);
 
   // The backup pointer was printed when the backup was created (onBackup).
 
@@ -854,6 +865,14 @@ function reportSkipped(
     note(lines.join('\n'), 'SKIPPED');
   }
   return forceable;
+}
+
+// The ORPHANED note, shared by the real report and the preview: the same
+// words in both, since an orphan is a fact about the project, not about what
+// this run writes. Nothing is printed when there is none.
+function reportOrphans(orphans: readonly Orphan[]): void {
+  const lines = orphanNoteLines(orphans);
+  if (lines) note(lines.join('\n'), 'ORPHANED');
 }
 
 // Both directions are named. `abandonedLayout` has always been computed
@@ -1085,6 +1104,7 @@ function reportDryRun(
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
 
   const forceable = reportSkipped(r.skipped, true);
+  reportOrphans(r.orphans);
   reportLayoutWarnings(r.abandonedLayout, r.featuresReadmeRelocation, true);
 
   if (r.versionWithheld) {

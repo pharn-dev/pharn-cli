@@ -345,8 +345,9 @@ PHARN is intentionally scoped:
 - It does not scaffold your application or install framework packages.
 - It does not replace tests, human review, or release judgment. It gives those
   activities a structured record and repeatable workflow.
-- `status` reports modified, missing, and unreadable PHARN-owned paths;
-  orphaned-file detection is still planned.
+- `status` reports modified, missing, and unreadable PHARN-owned paths, and
+  the files upstream stopped shipping that are still in your project
+  (orphans). Nothing deletes an orphan; that is yours to do by hand.
 
 See the [roadmap](docs/roadmap.md) for shipped versus planned work.
 

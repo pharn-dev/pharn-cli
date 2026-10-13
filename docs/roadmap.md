@@ -16,6 +16,7 @@ What PHARN CLI does today versus what is planned.
 | `pharn list` — read-only inventory of installed archetypes + capabilities (`--json`)                                                                                                                                                                                                                   | Shipped |
 | `pharn status` — read-only version + capability-drift report (modified/missing/unreadable PHARN-owned files; `--strict`, `--no-drift`)                                                                                                                                                                 | Shipped |
 | `pharn.records.json` — a sha256 of every installed file, so `update` can tell pharn's bytes from your edits                                                                                                                                                                                            | Shipped |
+| Orphaned-file detection — `update` and `status` name the files upstream stopped shipping that are still in your project (`ORPHANED` note, `orphans` in `--json`); nothing is deleted                                                                                                                   | Shipped |
 | Drift-safe `update` — per-file decisions, `--force` with `.pharn-backup/<timestamp>/` (also written by `add` and `remove`)                                                                                                                                                                             | Shipped |
 | Single-writer lock (`.pharn.lock`) for `init`/`add`/`remove`/`update`; `list`/`status` never take it                                                                                                                                                                                                   | Shipped |
 | `MIN_CLI` forward-compatibility gate — refuses cleanly when upstream needs a newer CLI                                                                                                                                                                                                                 | Shipped |
@@ -27,13 +28,12 @@ What PHARN CLI does today versus what is planned.
 
 ## Planned
 
-| Capability                                | Description                                                                                                                                                             |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Framework-specific capabilities           | Beyond today's universal + archetype-triggered set                                                                                                                      |
-| Stack scaffolding                         | Install npm packages / generate app code for a detected framework                                                                                                       |
-| Migration for existing projects           | Onboard repos with significant git history (today the CLI only requires a `.git` directory and hard-fails without one; it never inspects history and issues no warning) |
-| Orphaned-file detection in `pharn status` | `status` today reports modified, missing and unreadable PHARN-owned files; flagging files left orphaned after an upstream rename is not built yet                       |
-| Other agents                              | Codex and Cursor in addition to Claude Code                                                                                                                             |
+| Capability                      | Description                                                                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework-specific capabilities | Beyond today's universal + archetype-triggered set                                                                                                                      |
+| Stack scaffolding               | Install npm packages / generate app code for a detected framework                                                                                                       |
+| Migration for existing projects | Onboard repos with significant git history (today the CLI only requires a `.git` directory and hard-fails without one; it never inspects history and issues no warning) |
+| Other agents                    | Codex and Cursor in addition to Claude Code                                                                                                                             |
 
 ## Related
 
