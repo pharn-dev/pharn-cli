@@ -22,6 +22,16 @@ Stages run, in order: `/pharn-dev-plan` → GATE 1 (approved with one change to 
 
 The `test` gate's only failures in all three iterations were in `tests/lint-gate.test.ts` (unchanged by this increment): `Test timed out in 5000ms` on its `eslint --stdin` child processes while the shared host's load average was 50–290. Iteration 2's fix addressed a review finding (the init outro), not this gate; no fix to it exists within the plan's `## Files`. See `VERIFY.md` for the out-of-loop evidence.
 
+## GATE 2 decision (human, 2026-10-13)
+
+Accepted despite `STOP_CAP`. The coordinator's reasoning, recorded as given: the only red was the `lint-gate.test.ts` eslint-spawn timeout on an overloaded host; the same failure hit every other branch built on this machine at the same time, those branches' CI was green, and CI remains the authoritative test run. The `.mjs` `COPY_FILENAME_RE` strictness (an upstream `.mjs` hook named outside the allowlist refuses the run, as a `.cjs` one does) was accepted and stays documented.
+
+## After the rebase onto origin/main (`f196f25`, #275–#285 and #284)
+
+Conflicts resolved keeping both sides' intent; every CHANGELOG entry kept. Added at rebase (declared in `PLAN.md`): `isInstallRootPath` (orphans, `pharn uninstall`) takes `.mjs` hooks through the install's own name filters; `init --dry-run` prints the not-shipped warning and `--dry-run --json` carries `absentUpstream`.
+
+Gates re-run on the rebased head: `format:check` 0, `lint` 0, `lint:md` 0, `typecheck` 0, `CI=1 npx vitest run --maxWorkers=2 --testTimeout=120000` 0 (97 files, 2645 passed, 1 skipped), `npm run test:coverage -- --maxWorkers=2 --testTimeout=120000` 0 (all files 97.96 / 94.57 / 98.28 / 98.71), `npm run build` 0, `node .dev/floor/validate.mjs .` 0. These are informational re-runs, not a fourth loop iteration; the loop verdict above stands.
+
 ## Pointers
 
 - Review (advisory): [`REVIEW.md`](REVIEW.md)
