@@ -43,9 +43,10 @@ const EXPECTED_GATES: ReadonlyMap<string, string> = new Map([
  * The `Build` job's one EXTRA `run:` — it executes the artifact the same job
  * just produced.
  *
- * Nothing else in this repo runs `dist/index.js`: the suite imports `src/`, and
- * `tests/repo-signals.test.ts` spawns tsx against `src/` too. So the bundle's
- * two load-time assumptions shipped unexercised — `src/version.ts`'s
+ * The suite imports `src/`; `tests/dist-smoke.test.ts` runs a bundle it builds
+ * into a temp dir with the same `scripts/build.mjs`, but never the `dist/`
+ * this job produces. This step covers that artifact's two load-time
+ * assumptions — `src/version.ts`'s
  * `require('../package.json')`, correct only at the bundle's depth below the
  * package root, and the three names `scripts/build.mjs` leaves `external` as
  * bare imports. Both resolve while the module graph loads, before a flag is

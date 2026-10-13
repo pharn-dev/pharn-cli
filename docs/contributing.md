@@ -183,6 +183,7 @@ Two rules that are easy to get wrong:
 | `ci-workflow.test.ts` / `check-composition.test.ts`                        | The six CI job names + runner pair; `npm run check`'s composition                                             |
 | `docs-install-tables.test.ts` / `lint-gate.test.ts` / `dev-script.test.ts` | The README + getting-started install tables; the lint gate; the dev script                                    |
 | `repo-signals.test.ts` / `model-config-format.test.ts`                     | Fetch abort/cleanup signals; the `models` render                                                              |
+| `dist-smoke.test.ts`                                                       | The built bundle, run with `node`: `--version`, `--help`, `status` with no config, option refusals            |
 
 `lib/hash.ts` is the one module with no matching test file.
 

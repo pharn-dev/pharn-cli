@@ -124,10 +124,11 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
-      # Execute what the build just produced. Nothing else in this repo runs
-      # `dist/index.js` — the vitest suite imports `src/`, and the one test that
-      # spawns a process spawns tsx against `src/` too — so the BUNDLE's two
-      # load-time assumptions shipped unexercised: `src/version.ts`'s
+      # Execute what the build just produced. The vitest suite imports `src/`;
+      # only `tests/dist-smoke.test.ts` runs a bundle, one it builds into a temp
+      # dir with this same script (so `Test` sees bundle-only regressions too),
+      # never THIS `dist/index.js`. Without these runs the BUNDLE's two
+      # load-time assumptions would ship unexercised here: `src/version.ts`'s
       # `createRequire` + `require('../package.json')`, correct only because the
       # bundle sits at the same depth below the package root as `src/version.ts`,
       # and the three dependency names `scripts/build.mjs` leaves `external`, i.e.
