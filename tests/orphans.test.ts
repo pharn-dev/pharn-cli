@@ -1,8 +1,17 @@
 import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
+
+// The real classifier, wrapped so a test can prove which paths were READ.
+vi.mock('../src/lib/apply-update.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../src/lib/apply-update.js')>();
+  return { ...actual, readDiskState: vi.fn(actual.readDiskState) };
+});
+const { readDiskState } = await import('../src/lib/apply-update.js');
+
 import {
   findOrphans,
   isInstallRootPath,
@@ -145,6 +154,7 @@ describe('findOrphans', () => {
   });
 
   it('never reads a key outside the install roots, even when the file exists', () => {
+    vi.mocked(readDiskState).mockClear();
     write(tmp.path(), 'src/auth.ts', 'secret');
     write(tmp.path(), 'README.md', 'readme');
     const hash = sha256File(join(tmp.path(), 'src/auth.ts'));
@@ -152,8 +162,13 @@ describe('findOrphans', () => {
       'src/auth.ts': hash,
       'README.md': 'a'.repeat(64),
       '.claude/settings.json': 'a'.repeat(64),
+      // One install path, so the spy is shown to be live.
+      '.claude/hooks/gone.cjs': 'a'.repeat(64),
     });
     expect(scan).toEqual({ orphans: [], records: {} });
+    // Only the install path was ever handed to the filesystem read.
+    const read = vi.mocked(readDiskState).mock.calls.map((c) => c[1]);
+    expect(read).toEqual(['.claude/hooks/gone.cjs']);
   });
 
   it('a file of an installed capability upstream stopped shipping is an orphan (both layouts)', () => {
