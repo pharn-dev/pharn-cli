@@ -1,3 +1,5 @@
+import type { ARCHETYPE_VALUES } from './lib/validate.js';
+
 // ---------------------------------------------------------------------------
 // Constitution variants (pharn-core/templates/constitution/CONSTITUTION.*.md)
 // ---------------------------------------------------------------------------
@@ -178,7 +180,7 @@ export type Layout = 'pharn' | 'flat';
 // "membership over package.json", predating the file-tree extension. §5 is trusted
 // + hook-protected (agent cannot edit it); updating its wording is a human call.
 // The mechanism stays deterministic either way (P5).
-export type Archetype = 'ssr' | 'backend' | 'spa' | 'lib';
+export type Archetype = (typeof ARCHETYPE_VALUES)[number];
 
 // One capability in the pharn-oss-published index. pharn-oss owns the
 // authoritative schema; this is pharn's consumer-side shape. `role` is

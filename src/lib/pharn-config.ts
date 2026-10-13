@@ -3,7 +3,9 @@ import { writeJsonAtomic } from './atomic-write.js';
 import { readBoundedFile } from './bounded-read.js';
 import { resolve } from 'node:path';
 import { errorMessage, logError, logErrorPlain } from './report-error.js';
+import { escapeUnsafe, terminalSafe } from './terminal-safe.js';
 import {
+  ARCHETYPE_VALUES,
   assertSafeString,
   CAPABILITY_NAME_RE,
   isPlainObject,
@@ -101,6 +103,60 @@ function validateCapabilitySources(raw: unknown): void {
           (s) => `"${s}"`,
         ).join(' or ')} (found ${JSON.stringify(source)}). ` +
           'Fix it by hand, or delete the field — an absent `source` is valid and the next `pharn update` will set it.',
+      );
+    }
+  });
+}
+
+/**
+ * An archetype config's `archetypes` that is not an array of known archetypes
+ * (`ARCHETYPE_VALUES`). The field drives capability selection
+ * (`resolveCapabilities`) and is printed by `list`/`status`/`update`, so before
+ * this check a hand-edited `"archetypes": "ssr"` crashed those commands with a
+ * raw `TypeError` and a stack, `["bogus"]` silently narrowed what `update`
+ * selects, and an ESC byte in an entry reached the terminal. Every value this
+ * CLI writes comes from detection (`ARCHETYPE_VALUES` members only), so no
+ * config it wrote is newly rejected (P7). ABSENT stays legal — every consumer
+ * reads `config.archetypes ?? []` — and so do `[]` and duplicates (selection is
+ * set membership, as duplicate `capabilities[]` entries are accepted too).
+ */
+export class ArchetypesError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ArchetypesError';
+  }
+}
+
+// The offending value, as visible text that is safe to print: JSON-quoted, every
+// control / format / line-separator character as a `\u` escape (lossless, so the
+// offender stays recognisable), and capped so a huge hand-edit is not echoed
+// whole.
+function describeOffender(value: unknown): string {
+  return terminalSafe(escapeUnsafe(JSON.stringify(value) ?? String(value)), {
+    max: 80,
+  });
+}
+
+/**
+ * Reject an archetype config's present-but-invalid `archetypes`: it must be an
+ * array whose every entry is a string in `ARCHETYPE_VALUES` (enum membership,
+ * P5). Only called for an archetype config (an array `capabilities`) — a
+ * pre-archetype config is rejected up front by `loadArchetypeConfigOrExit`, and
+ * its unused fields keep loading (P7).
+ */
+function validateArchetypes(raw: unknown): void {
+  if (raw === undefined) return;
+  const allowed = ARCHETYPE_VALUES.map((a) => `"${a}"`).join(', ');
+  if (!Array.isArray(raw)) {
+    throw new ArchetypesError(
+      `${CONFIG_FILENAME}: archetypes must be an array of ${allowed} (found ${describeOffender(raw)}). ` +
+        'Fix it by hand (e.g. ["ssr"]).',
+    );
+  }
+  raw.forEach((entry: unknown, i) => {
+    if (!ARCHETYPE_VALUES.some((a) => a === entry)) {
+      throw new ArchetypesError(
+        `${CONFIG_FILENAME}: archetypes[${i}] must be one of ${allowed} (found ${describeOffender(entry)}). Fix it by hand.`,
       );
     }
   });
@@ -286,7 +342,8 @@ export function userOwnedConfigEntries(
  * something this CLI will not act on, and each throws its own NAMED error that
  * PROPAGATES rather than collapsing into the "run init" lie: `ConfigParseError`
  * (not JSON at all), and — validated OUTSIDE the null-returning try —
- * `SeamConfigError`/`CapabilityEntryError`/`CapabilitySourceError` (BUG 1).
+ * `SeamConfigError`/`CapabilityEntryError`/`CapabilitySourceError`/
+ * `ArchetypesError` (BUG 1).
  *
  * `models` is NOT validated here. Its schema is pharn-oss's
  * (lib/model-config.ts), and this CLI must load the format it wrote before
@@ -349,6 +406,9 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // load-mechanics change at all.
   validateCapabilityEntries(raw.capabilities);
   validateCapabilitySources(raw.capabilities);
+  // `archetypes` is checked for an archetype config only (P7: a legacy config's
+  // unused fields still load).
+  if (Array.isArray(raw.capabilities)) validateArchetypes(raw.archetypes);
   const config: PharnConfig = {
     ...(raw as unknown as PharnConfig),
     ...(seam !== undefined ? { seam } : {}),
@@ -522,7 +582,8 @@ export function assertConfigFingerprintUnchanged(
 /**
  * Is `err` a present-but-invalid-config error — a file that IS there and that
  * the user has to fix (unparseable JSON, a hand-edited `seam` block, or a
- * `capabilities[]` entry with an invalid `name`/`role`/`source`) — as opposed
+ * `capabilities[]` entry with an invalid `name`/`role`/`source`, or an
+ * `archetypes` that is not an array of known archetypes) — as opposed
  * to a programming bug? (A `models` block is never one: it is pharn-oss's, and
  * `readPharnConfig` carries it unvalidated.)
  *
@@ -538,12 +599,14 @@ export function isConfigValidationError(
   | ConfigParseError
   | SeamConfigError
   | CapabilityEntryError
-  | CapabilitySourceError {
+  | CapabilitySourceError
+  | ArchetypesError {
   return (
     err instanceof ConfigParseError ||
     err instanceof SeamConfigError ||
     err instanceof CapabilityEntryError ||
-    err instanceof CapabilitySourceError
+    err instanceof CapabilitySourceError ||
+    err instanceof ArchetypesError
   );
 }
 

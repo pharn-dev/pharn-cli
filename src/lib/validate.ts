@@ -32,15 +32,14 @@ export const RELEASE_TAG_RE = /^v(\d+\.\d+\.\d+)$/;
 // Capability `role` frontmatter enum — the two installable kinds shipped today
 // (ARCHITECTURE.md §3.1 role enum, narrowed consumer-side).
 export const ROLE_VALUES = ['griller', 'lens'] as const;
+// The project archetypes — the ONE runtime list (`Archetype` in types.ts is
+// derived from it). Its order is detection's fixed output order (lib/archetype.ts).
+// Read by the `applies` frontmatter enum below and by `pharn.config.json`'s
+// `archetypes` ingest check (lib/pharn-config.ts).
+export const ARCHETYPE_VALUES = ['ssr', 'backend', 'spa', 'lib'] as const;
 // Capability `applies` frontmatter tokens: `universal` (→ always selected) or a
 // project archetype (ssr|backend|spa|lib). Membership, not judgment (P5).
-export const APPLIES_TOKEN_VALUES = [
-  'universal',
-  'ssr',
-  'backend',
-  'spa',
-  'lib',
-] as const;
+export const APPLIES_TOKEN_VALUES = ['universal', ...ARCHETYPE_VALUES] as const;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
 
