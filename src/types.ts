@@ -30,7 +30,7 @@ export interface InstalledSkill {
 // allowlist: CAPABILITY_SOURCES in src/lib/pharn-config.ts.
 export type CapabilitySource = 'auto' | 'manual';
 
-// Archetype install (pharn init --archetype): one selected capability copied into
+// Archetype install (pharn init): one selected capability copied into
 // the project. `name` is the capability's directory basename (the copy target
 // under pharn-pipeline/grillers/ or pharn-review/); `role` selects that subtree.
 export interface InstalledCapability {
@@ -119,7 +119,7 @@ export interface PharnConfig {
   // garbage hand-edit follows the default.
   ref?: 'latest';
   // Legacy (module/wizard) installs record the chosen constitution variant.
-  // Optional: the archetype install (pharn init --archetype) copies pharn-oss's
+  // Optional: the archetype install (pharn init) copies pharn-oss's
   // canonical CONSTITUTION.md verbatim (no variant selection), so it omits this.
   constitution?: Constitution;
   // LEGACY (module/wizard era), like `constitution` above: the wizard asked
@@ -146,7 +146,7 @@ export interface PharnConfig {
   // schemaVersion 2 additions (absent on legacy installs):
   stackAnswers?: Record<string, string>;
   installedSkills?: InstalledSkill[];
-  // Archetype (capability) installs (pharn init --archetype). Additive; absent on
+  // Archetype (capability) installs (pharn init). Additive; absent on
   // legacy module installs. `modules` is [] for an archetype install; these record
   // the detected archetypes and the capabilities copied for them.
   archetypes?: Archetype[];

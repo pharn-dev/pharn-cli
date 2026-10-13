@@ -34,7 +34,34 @@ writes nothing. It never falls back to `main` on its own. See
 switches back. `--ref main` is the default spelled out. Any other value is refused (exit 1). A re-run
 `init` follows its own `--ref`, never the replaced config's.
 
-> The `--archetype` flag is a **deprecated no-op** kept for one release: archetype detection is now the default, so `pharn init --archetype` behaves identically to `pharn init`.
+## Choosing the archetypes yourself: `--archetype`
+
+```bash
+pharn init --archetype backend        # install for `backend` only
+pharn init --archetype ssr,backend    # several, comma-separated
+```
+
+`--archetype` **replaces** detection: the archetypes you name are the ones capabilities are resolved
+against, installed for, and recorded in `pharn.config.json` — so [`pharn update`](update.md), which
+re-resolves the recorded archetypes and never re-detects, keeps your choice. Use it when detection got
+your project wrong (see
+[Detection picked the wrong archetype](../troubleshooting.md#detection-picked-the-wrong-archetype)).
+Detection still runs, and the summary shows what it found, marked `(not used)`.
+
+The value is a comma-separated list of `ssr`, `backend` and `spa`, or `lib` on its own (the
+no-framework base never combines with another), each at most once, spelled exactly — no spaces, no
+other case. The order you write them in does not matter. Anything else — an unknown name, a
+duplicate, an empty entry, a bare `--archetype`, `--no-archetype`, or the flag given twice — is refused
+with exit 1 before anything runs, even beside `--help`.
+
+A re-run `init` **detects again** unless you pass `--archetype` again. When what it is about to install
+differs from the archetypes the config it replaces recorded, the summary says so and names the flag
+that keeps them, e.g. `previously recorded: ssr, backend — pass --archetype ssr,backend to keep them`.
+
+`--archetype` combines with every other `init` option: `pharn init --archetype backend --dry-run`
+previews the install for those archetypes (the same summary block, then the plan),
+`--dry-run --json` reports them with `"archetypeSource": "flag"` (see [JSON output](#json-output)), and
+`--yes` installs for them without prompts, under `--yes`'s usual rule.
 
 ## `init` is interactive by default
 
@@ -57,7 +84,7 @@ leaves your project untouched. Two options run without a terminal, because neith
 
 `init` refuses any other option, such as `--force` or `--compact` (exit 1), and an extra positional
 (`pharn init extra` → `Unexpected argument`). Its options are `--ref` (below), `--dry-run`, `--json`
-(only with `--dry-run`), `--yes` / `-y`, and `--archetype`, the deprecated no-op above.
+(only with `--dry-run`), `--yes` / `-y`, and `--archetype` (above).
 
 A directory with no `.git` still gets its own, more useful error first (see **Prerequisites** below) —
 the interactivity check never masks it.
@@ -125,6 +152,12 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
   "skillsVersion": "6.50.0",
   "layout": "pharn", // or "flat"
   "archetypes": ["ssr"],
+  "archetypeSource": "detected", // or "flag" (--archetype)
+  "detectedArchetypes": null, // with "flag": what detection found and did not use
+  "archetypeEvidence": [
+    // detection's trigger for each archetype it found
+    { "archetype": "ssr", "source": "dependency", "value": "next" }, // "path": "src/app/api/"; "none": null (lib)
+  ],
   "capabilities": {
     "selected": [{ "role": "griller", "name": "a11y", "matched": ["ssr"] }], // or "universal" / "manual"
     "skipped": [{ "role": "lens", "name": "path-traversal", "reason": "…" }],
@@ -156,6 +189,12 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
   "config": { "carriedKeys": ["testResults"] }, // your own keys, by name only
 }
 ```
+
+`archetypeSource`, `detectedArchetypes` and `archetypeEvidence` say where `archetypes` came from.
+`archetypeEvidence` is always detection's — one entry per archetype detection found, with the dependency
+name (`"source": "dependency"`), the first project path that triggered it (`"path"`; a directory ends
+in `/`, capped at 200 characters) or `null` for `lib` (`"none"`) — so under `--archetype` it describes
+`detectedArchetypes`, not `archetypes`.
 
 `label` is `modified`, `unrecorded` or `unverifiable` for a file that would be backed up first (the
 prompt's `(edited)`, `(no pharn record)` and `(differs from upstream)`), `rewritten` for an existing
@@ -260,7 +299,25 @@ Shows the PHARN logo and CLI version.
 
 ### 3. Detect archetypes
 
-Reads `package.json` dependency names and walks the project tree (bounded and symlink-safe, skipping dependencies, VCS metadata, and build/deploy caches — `node_modules`, `.git`, `dist`, `build`, `out`, `coverage`, `storybook-static`, `.next`, `.nuxt`, `.svelte-kit`, `.astro`, `.turbo`, `.vercel`, `.cache`, `.parcel-cache`, and non-JS trees — `__pycache__`, `.yarn`) for structural signals, then reduces both to an `Archetype[]`. Three more names are skipped only where they are another ecosystem's tree, because they are ordinary folder names in a JS project too: `target/` beside a `Cargo.toml`, `pom.xml` or `build.sbt`; `vendor/` beside a `go.mod`, `composer.json` or `Gemfile`; `venv/` or `.venv/` holding a `pyvenv.cfg`. Anywhere else they are scanned like any folder, so a route at `app/target/route.ts` is still detected. Skipping those trees costs the walk nothing, so a large framework cache cannot exhaust its bound and hide your real source; the tradeoff is that a signal file you hand-authored inside one of those directories is not seen. The detected set is shown in a "Detected archetypes" note. Only names are tested against fixed in-code allowlists — no discovered file body is read (other than `package.json`, which must be a regular file of at most 4 MiB — a leading UTF-8 BOM is ignored; anything else counts as no `package.json`) and no untrusted value is executed, interpolated, or logged.
+Reads `package.json` dependency names and walks the project tree (bounded and symlink-safe, skipping dependencies, VCS metadata, and build/deploy caches — `node_modules`, `.git`, `dist`, `build`, `out`, `coverage`, `storybook-static`, `.next`, `.nuxt`, `.svelte-kit`, `.astro`, `.turbo`, `.vercel`, `.cache`, `.parcel-cache`, and non-JS trees — `__pycache__`, `.yarn`) for structural signals, then reduces both to an `Archetype[]`. Three more names are skipped only where they are another ecosystem's tree, because they are ordinary folder names in a JS project too: `target/` beside a `Cargo.toml`, `pom.xml` or `build.sbt`; `vendor/` beside a `go.mod`, `composer.json` or `Gemfile`; `venv/` or `.venv/` holding a `pyvenv.cfg`. Anywhere else they are scanned like any folder, so a route at `app/target/route.ts` is still detected. Skipping those trees costs the walk nothing, so a large framework cache cannot exhaust its bound and hide your real source; the tradeoff is that a signal file you hand-authored inside one of those directories is not seen. The detected set is shown in a "Detected archetypes" note (or, with `--archetype`, the set you gave, labelled `Archetypes (from --archetype)`).
+
+Each structural signal counts only where that surface really lives:
+
+| Signal                                                                                                                         | Counts when                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `next.config.*` → `ssr`                                                                                                        | it sits at the project root, or directly in `apps/<name>/` or `packages/<name>/` (a monorepo app)                                 |
+| `route.ts`/`.tsx`/`.js`/`.mjs` under `app/` or `src/app/` → `backend`                                                          | that root (or that `apps/`/`packages/` app) is a Next.js app: a `next.config.*` beside it, or — at the root — a `next` dependency |
+| an `api/` directory directly in `app/`, `pages/`, `src/app/`, `src/pages/` → `backend`                                         | the same Next.js condition                                                                                                        |
+| an `api/` directory at the project root → `backend`                                                                            | the project has a root `package.json`                                                                                             |
+| a `migrations/` directory (at the root, or under `db/`, `database/`, `prisma/`, `drizzle/`, `sql/`, `migrations/`) → `backend` | the project has a root `package.json`                                                                                             |
+| a `.sql` file under one of those database directories → `backend`                                                              | the project has a root `package.json`                                                                                             |
+| a `.tsx`/`.jsx` file outside test and email-template folders → `spa` (unless `ssr`)                                            | always                                                                                                                            |
+
+So an Angular, Vue or RTK Query `src/app/`, or a library's Next.js docs site in `website/`, no longer
+reads as a server, and a Python, Go, Rust, Ruby or PHP project's migrations no longer read as a
+JavaScript backend — those projects have no root `package.json`. One that does (a Laravel or Rails app
+with a Vite frontend, or a `package.json` kept only for tooling) still resolves `backend` from its
+migrations; correct it with `--archetype`. Only names are tested against fixed in-code allowlists — no discovered file body is read (other than `package.json`, which must be a regular file of at most 4 MiB — a leading UTF-8 BOM is ignored; anything else counts as no `package.json`) and no untrusted value is executed, interpolated, or logged.
 
 ### 4. Fetch PHARN
 
@@ -277,7 +334,21 @@ Parses the capability index from the fetched clone and selects the capabilities 
 
 ### 6. Summary
 
-Lists the **selected** capabilities (name, role, and why — `universal` or the matched archetype) and the **skipped** ones (with reason). Then:
+Shows the archetypes and **what triggered each one** — a dependency or the first matching path, for
+example:
+
+```text
+Detected archetypes         ssr, backend
+    ssr     ← next (package.json)
+    backend ← src/app/api/
+```
+
+`lib` reads `← no framework signal found`. With `--archetype` the block shows your list and
+`detection found … (not used)` instead; on a re-run whose archetypes differ from the replaced config's,
+a `previously recorded: …` line follows (see `--archetype` above). Paths are printed with terminal
+control characters removed and are cut at 120 characters.
+
+Then it lists the **selected** capabilities (name, role, and why — `universal` or the matched archetype) and the **skipped** ones (with reason), and asks:
 
 | Action       | Result                                                    |
 | ------------ | --------------------------------------------------------- |

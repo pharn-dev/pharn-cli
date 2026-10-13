@@ -10,12 +10,21 @@ import {
   scanFileTreeSignals,
 } from '../src/lib/detect-archetype.js';
 import type { ArchetypeDetection } from '../src/lib/detect-archetype.js';
+
+// The archetype verdict without its evidence (evidence has its own suite below).
+type Detected = Omit<ArchetypeDetection, 'evidence'>;
 import { classifyEntry } from '../src/lib/archetype.js';
 import { useTmpDir } from './helpers.js';
 
 // Write a package.json (the given value, serialized) into `dir`.
 function writePkg(dir: string, pkg: unknown): void {
   writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg));
+}
+
+// Detect, keeping only the archetypes + packageJsonFound (the verdict).
+function detect(dir: string): Detected {
+  const { archetypes, packageJsonFound } = detectArchetypesFromProject(dir);
+  return { archetypes, packageJsonFound };
 }
 
 // Create an (empty) file at `rel` under `dir`, making parent dirs as needed.
@@ -33,7 +42,7 @@ describe('detectArchetypesFromProject', () => {
   // A found package.json (and NO other files) → packageJsonFound: true;
   // archetypes per its deps. These assert the file-tree scan adds nothing when
   // only a package.json is present (backward compatibility).
-  it.each<[string, Record<string, unknown>, ArchetypeDetection]>([
+  it.each<[string, Record<string, unknown>, Detected]>([
     [
       'next → ssr',
       { dependencies: { next: '15' } },
@@ -77,12 +86,12 @@ describe('detectArchetypesFromProject', () => {
     ],
   ])('%s', (_label, pkg, expected) => {
     writePkg(tmp.path(), pkg);
-    expect(detectArchetypesFromProject(tmp.path())).toEqual(expected);
+    expect(detect(tmp.path())).toEqual(expected);
   });
 
   it('reads frameworks from devDependencies too (deps ∪ devDeps)', () => {
     writePkg(tmp.path(), { devDependencies: { next: '15' } });
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['ssr'],
       packageJsonFound: true,
     });
@@ -92,7 +101,7 @@ describe('detectArchetypesFromProject', () => {
   // found-but-frameworkless project (packageJsonFound: true, above). With no
   // file signals either, both carry archetypes ['lib'].
   it('missing package.json → packageJsonFound: false (distinct from frameworkless)', () => {
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -100,7 +109,7 @@ describe('detectArchetypesFromProject', () => {
 
   it('malformed package.json → packageJsonFound: false', () => {
     writeFileSync(join(tmp.path(), 'package.json'), '{ not json');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -108,7 +117,7 @@ describe('detectArchetypesFromProject', () => {
 
   it('non-object top-level (a JSON array) → packageJsonFound: false', () => {
     writeFileSync(join(tmp.path(), 'package.json'), JSON.stringify([1, 2, 3]));
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -291,7 +300,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   // coupling: packageJsonFound:false no longer implies archetypes ['lib'].
   it('.tsx present, no package.json → spa (detected from files, found:false)', () => {
     touch(tmp.path(), 'src/App.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: false,
     });
@@ -300,33 +309,56 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   it('.jsx present with a non-framework package.json → spa (found:true)', () => {
     writePkg(tmp.path(), { name: 'x', version: '1.0.0' });
     touch(tmp.path(), 'Button.jsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: true,
     });
   });
 
   // Pure-backend tree → backend, NEVER spa (the required inverse of the headline).
-  it('api/ dir, no .tsx, no package.json → backend, not spa', () => {
+  // A root api/ dir is a backend signal in a JS project (a usable package.json).
+  it('api/ dir in a JS project, no .tsx → backend, not spa', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'api/users.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend'],
+      packageJsonFound: true,
+    });
+  });
+
+  // detection-precision: with no package.json a root api/ dir is no signal — a
+  // Go repo's api/ (OpenAPI specs) is not a backend PHARN's lenses can read.
+  it('api/ dir, no package.json → lib (needs JS-ecosystem evidence)', () => {
+    touch(tmp.path(), 'api/users.ts');
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['lib'],
       packageJsonFound: false,
     });
   });
 
   it('next.config.js in tree, no next dep → ssr', () => {
     touch(tmp.path(), 'next.config.js');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['ssr'],
       packageJsonFound: false,
     });
   });
 
-  it('app/**/route.ts handler → backend', () => {
+  it('app/**/route.ts handler of a Next app → backend', () => {
+    writePkg(tmp.path(), { dependencies: { next: '15' } });
     touch(tmp.path(), 'app/users/route.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
-      archetypes: ['backend'],
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['ssr', 'backend'],
+      packageJsonFound: true,
+    });
+  });
+
+  // detection-precision: with no Next evidence an app/**/route.ts is not a
+  // route handler (a client router's route.ts, a non-JS repo's app/ dir).
+  it('app/**/route.ts with no Next evidence → lib', () => {
+    touch(tmp.path(), 'app/users/route.ts');
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['lib'],
       packageJsonFound: false,
     });
   });
@@ -338,7 +370,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   it('react dep + next.config in tree → ssr only (spa suppressed by merged signal)', () => {
     writePkg(tmp.path(), { dependencies: { react: '18' } });
     touch(tmp.path(), 'next.config.mjs');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['ssr'],
       packageJsonFound: true,
     });
@@ -347,7 +379,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   it('express dep + .tsx in tree → backend + spa (merge is additive)', () => {
     writePkg(tmp.path(), { dependencies: { express: '4' } });
     touch(tmp.path(), 'web/App.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend', 'spa'],
       packageJsonFound: true,
     });
@@ -356,7 +388,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   // Bounded walk — skip-list. A signal buried in a skipped dir must not count.
   it('.tsx under node_modules/ is skipped → lib', () => {
     touch(tmp.path(), 'node_modules/react-dom/index.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -364,7 +396,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
 
   it('.jsx under dist/ is skipped → lib', () => {
     touch(tmp.path(), 'dist/bundle.jsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -374,12 +406,13 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   // to `backend` — a DB concern folds onto the backend archetype (the enum has no
   // `db` member). archetype-path-context scopes WHERE these count (see the
   // path-context block below); both fixtures here are in-location.
-  it('.sql files and a migrations/ dir → backend', () => {
+  it('.sql files and a migrations/ dir in a JS project → backend', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'db/schema.sql');
     touch(tmp.path(), 'migrations/001_init.sql');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend'],
-      packageJsonFound: false,
+      packageJsonFound: true,
     });
   });
 
@@ -388,7 +421,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   // longer fires (was ['backend'] under the earlier "anywhere" rule).
   it('a lone .sql file outside a DB dir → lib (not backend)', () => {
     touch(tmp.path(), 'queries.sql');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -397,9 +430,21 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   // The migrations/ DIR signal in isolation (a non-.sql migration file, so the
   // dir — not a .sql file — is what triggers backend).
   it('a migrations/ dir with a non-.sql migration → backend', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'migrations/001_init.js');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend'],
+      packageJsonFound: true,
+    });
+  });
+
+  // detection-precision: the same tree with no package.json is a non-JS repo's
+  // migrations (Flask-Migrate, golang-migrate, sqlx) → no signal.
+  it('migrations/ and db/*.sql with no package.json → lib', () => {
+    touch(tmp.path(), 'migrations/001_init.sql');
+    touch(tmp.path(), 'db/schema.sql');
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['lib'],
       packageJsonFound: false,
     });
   });
@@ -409,7 +454,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   it('a root .sql file + a .tsx file → spa only (root .sql no longer backend)', () => {
     touch(tmp.path(), 'schema.sql');
     touch(tmp.path(), 'App.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: false,
     });
@@ -418,45 +463,52 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
   // Merge preserved with a DB-LOCATED `.sql`: db/schema.sql (backend) + a .tsx
   // (spa) → backend + spa, in ARCHETYPE_ORDER.
   it('a db/ .sql file + a .tsx file → backend + spa', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'db/schema.sql');
     touch(tmp.path(), 'web/App.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend', 'spa'],
-      packageJsonFound: false,
+      packageJsonFound: true,
     });
   });
 
   // Merge: a DB signal does NOT suppress ssr — a Next app with migrations is
   // ssr + backend (the SSR suppression only gates the spa signal).
   it('a migrations/ dir + next.config.js → ssr + backend', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'migrations/001_init.sql');
     touch(tmp.path(), 'next.config.js');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['ssr', 'backend'],
-      packageJsonFound: false,
+      packageJsonFound: true,
     });
   });
 
   // Case-insensitive name membership (case-insensitive filesystems / odd casing).
   it('matches names case-insensitively (Widget.TSX → spa)', () => {
     touch(tmp.path(), 'Components/Widget.TSX');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: false,
     });
   });
 
   it('is deterministic on a multi-signal tree', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'App.tsx');
     touch(tmp.path(), 'next.config.js');
     mkdirSync(join(tmp.path(), 'api'), { recursive: true });
     // ssr (next.config) + backend (api dir); clientUi suppressed by ssr.
-    const expected: ArchetypeDetection = {
+    const expected: Detected = {
       archetypes: ['ssr', 'backend'],
-      packageJsonFound: false,
+      packageJsonFound: true,
     };
-    expect(detectArchetypesFromProject(tmp.path())).toEqual(expected);
-    expect(detectArchetypesFromProject(tmp.path())).toEqual(expected);
+    expect(detect(tmp.path())).toEqual(expected);
+    expect(detect(tmp.path())).toEqual(expected);
+    // Evidence is deterministic too.
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual(
+      detectArchetypesFromProject(tmp.path()).evidence,
+    );
   });
 
   // Symlinks are never followed or classified — a symlink whose NAME would match
@@ -474,7 +526,7 @@ describe('detectArchetypesFromProject — file-tree scanning', () => {
       // no symlink privilege on this platform — property untested here.
     }
     if (!symlinked) return;
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -491,7 +543,7 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   it('react dep + src/api/ (client wrappers) → spa only (src/api not backend)', () => {
     writePkg(tmp.path(), { dependencies: { react: '18' } });
     touch(tmp.path(), 'src/api/client.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: true,
     });
@@ -500,7 +552,7 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   // src/api/ in isolation (no dep, no other signal) → lib, never backend.
   it('a lone src/api/ dir → lib (nested api is not a backend signal)', () => {
     touch(tmp.path(), 'src/api/users.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -511,28 +563,30 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   it('express + react deps + src/api/ → backend + spa (backend from express)', () => {
     writePkg(tmp.path(), { dependencies: { express: '4', react: '18' } });
     touch(tmp.path(), 'src/api/client.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend', 'spa'],
       packageJsonFound: true,
     });
   });
 
   // Legit backend api location still fires: Pages-Router `pages/api`.
-  it('pages/api/ (Pages Router) → backend', () => {
+  it('pages/api/ (Pages Router) of a Next app → backend', () => {
+    writePkg(tmp.path(), { dependencies: { next: '15' } });
     touch(tmp.path(), 'pages/api/users.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
-      archetypes: ['backend'],
-      packageJsonFound: false,
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['ssr', 'backend'],
+      packageJsonFound: true,
     });
   });
 
   // App-Router `app/api` folder → backend (the api dir whose immediate parent is
   // `app`). A non-route file isolates the api-DIR rule (parent === 'app') from the
   // route.ts rule.
-  it('app/api/ (App Router api folder) → backend (parent app)', () => {
+  it('app/api/ (App Router api folder) of a Next app → backend (parent app)', () => {
+    touch(tmp.path(), 'next.config.js');
     touch(tmp.path(), 'app/api/health.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
-      archetypes: ['backend'],
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['ssr', 'backend'],
       packageJsonFound: false,
     });
   });
@@ -543,18 +597,19 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   it('vue dep + src/router/route.ts (client router) → spa only (not backend)', () => {
     writePkg(tmp.path(), { dependencies: { vue: '3' } });
     touch(tmp.path(), 'src/router/route.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: true,
     });
   });
 
   // An App-Router handler under src/app/** still fires (app ancestor, nested).
-  it('src/app/users/route.ts → backend (App-Router ancestor under src/)', () => {
+  it('src/app/users/route.ts of a Next app → backend (App-Router root under src/)', () => {
+    writePkg(tmp.path(), { dependencies: { next: '15' } });
     touch(tmp.path(), 'src/app/users/route.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
-      archetypes: ['backend'],
-      packageJsonFound: false,
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['ssr', 'backend'],
+      packageJsonFound: true,
     });
   });
 
@@ -564,18 +619,19 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   it('react dep + root seed.sql → spa only (committed seed is not backend)', () => {
     writePkg(tmp.path(), { dependencies: { react: '18' } });
     touch(tmp.path(), 'seed.sql');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: true,
     });
   });
 
   // A DB-located .sql → backend.
-  it('db/seed.sql → backend (.sql inside a DB-location dir)', () => {
+  it('db/seed.sql in a JS project → backend (.sql inside a DB-location dir)', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'db/seed.sql');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend'],
-      packageJsonFound: false,
+      packageJsonFound: true,
     });
   });
 
@@ -584,18 +640,19 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   it('react dep + src/state/migrations/ (non-DB) → spa only (migrations scoped)', () => {
     writePkg(tmp.path(), { dependencies: { react: '18' } });
     touch(tmp.path(), 'src/state/migrations/v1.ts');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: true,
     });
   });
 
   // GATE-1 Q2: a migrations/ dir UNDER a DB-location ancestor (prisma/) → backend.
-  it('prisma/migrations/ → backend (migrations under a DB ancestor)', () => {
+  it('prisma/migrations/ in a JS project → backend (migrations under a DB ancestor)', () => {
+    writePkg(tmp.path(), { name: 'x' });
     touch(tmp.path(), 'prisma/migrations/001_init.sql');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend'],
-      packageJsonFound: false,
+      packageJsonFound: true,
     });
   });
 
@@ -605,7 +662,7 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   it('express dep + emails/Welcome.tsx → backend only (email template not spa)', () => {
     writePkg(tmp.path(), { dependencies: { express: '4' } });
     touch(tmp.path(), 'emails/Welcome.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['backend'],
       packageJsonFound: true,
     });
@@ -614,7 +671,7 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   // A real component still yields spa (the required inverse).
   it('components/Button.tsx (real component) → spa', () => {
     touch(tmp.path(), 'components/Button.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: false,
     });
@@ -623,7 +680,7 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   // A *.test.tsx fixture alone is not a UI signal (basename regex).
   it('a lone Button.test.tsx fixture → lib (test fixture, not spa)', () => {
     touch(tmp.path(), 'src/Button.test.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -632,7 +689,7 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   // grill #2 coverage: the `.spec.jsx` arm of the fixture regex.
   it('a lone widget.spec.jsx fixture → lib (spec fixture, not spa)', () => {
     touch(tmp.path(), 'widget.spec.jsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -641,7 +698,7 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
   // grill #2 coverage: a `.tsx` under a tests/ tree (NON_UI_DIRS member).
   it('a .tsx under tests/ → lib (test tree excluded)', () => {
     touch(tmp.path(), 'tests/Example.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
@@ -655,12 +712,12 @@ describe('detectArchetypesFromProject — path-context scoping (archetype-path-c
     touch(tmp.path(), 'emails/Welcome.tsx');
     // react → spa; db/schema.sql → backend; src/api & emails/*.tsx contribute
     // nothing. → backend + spa (ARCHETYPE_ORDER), stable across runs.
-    const expected: ArchetypeDetection = {
+    const expected: Detected = {
       archetypes: ['backend', 'spa'],
       packageJsonFound: true,
     };
-    expect(detectArchetypesFromProject(tmp.path())).toEqual(expected);
-    expect(detectArchetypesFromProject(tmp.path())).toEqual(expected);
+    expect(detect(tmp.path())).toEqual(expected);
+    expect(detect(tmp.path())).toEqual(expected);
   });
 });
 
@@ -678,7 +735,12 @@ describe('scanFileTreeSignals', () => {
   it('collects clientUi from a .tsx and backend from an api/ dir', () => {
     touch(tmp.path(), 'src/Page.tsx');
     mkdirSync(join(tmp.path(), 'api'), { recursive: true });
-    expect(scanFileTreeSignals(tmp.path())).toEqual({
+    expect(
+      scanFileTreeSignals(tmp.path(), {
+        jsProject: true,
+        nextDependency: false,
+      }),
+    ).toEqual({
       ssr: false,
       backend: true,
       clientUi: true,
@@ -760,7 +822,14 @@ describe('SKIP_DIRS — classification neutrality (classifyEntry)', () => {
 
   describe.each([...SKIP_DIRS, ...ECOSYSTEM_DIRS.keys()])('%s', (dir) => {
     it.each(CONTEXTS)('produces no signal %s', (_label, segments) => {
-      expect(classifyEntry(dir, true, segments)).toEqual(NO_SIGNAL);
+      // The most permissive surroundings: a JS project whose root is a Next app.
+      expect(
+        classifyEntry(dir, true, segments, {
+          jsProject: true,
+          baseDepth: 0,
+          nextBase: true,
+        }),
+      ).toEqual(NO_SIGNAL);
     });
   });
 });
@@ -773,13 +842,13 @@ describe('SKIP_DIRS — a signal inside a skipped dir never counts', () => {
 
   it.each([...SKIP_DIRS])('%s/ is skipped', (dir) => {
     touch(tmp.path(), join(dir, 'Widget.tsx'));
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
     // Paired control: the same basename outside the skipped dir DOES signal.
     touch(tmp.path(), 'src/Widget.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: false,
     });
@@ -790,14 +859,289 @@ describe('SKIP_DIRS — a signal inside a skipped dir never counts', () => {
   // 'matches names case-insensitively (Widget.TSX → spa)' above).
   it.each([...SKIP_DIRS])('%s/ is skipped case-insensitively', (dir) => {
     touch(tmp.path(), join(dir.toUpperCase(), 'Widget.tsx'));
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['lib'],
       packageJsonFound: false,
     });
     touch(tmp.path(), 'src/Widget.tsx');
-    expect(detectArchetypesFromProject(tmp.path())).toEqual({
+    expect(detect(tmp.path())).toEqual({
       archetypes: ['spa'],
       packageJsonFound: false,
     });
+  });
+});
+
+// detection-precision-archetype-override (F-06). The reviewer's fixtures, each a
+// real project shape: the Next-specific rules fire only in a Next base's router
+// roots, `next.config.*` only directly in a base, and the language-agnostic
+// backend signals only in a JS project. `files` are touched; `pkg` (when given)
+// is the root package.json.
+describe('detectArchetypesFromProject — precision fixtures (F-06)', () => {
+  const tmp = useTmpDir();
+
+  it.each<
+    [string, Record<string, unknown> | null, string[], Detected['archetypes']]
+  >([
+    // Frontends whose src/app/ is NOT a Next App Router.
+    [
+      'Angular src/app/ with an api/ service folder → spa',
+      { dependencies: { '@angular/core': '19' } },
+      ['src/app/app.component.ts', 'src/app/api/users.service.ts'],
+      ['spa'],
+    ],
+    [
+      'Vite + React + RTK Query src/app/api/ → spa',
+      { dependencies: { react: '19', '@reduxjs/toolkit': '2' } },
+      ['src/App.tsx', 'src/app/store.ts', 'src/app/api/apiSlice.ts'],
+      ['spa'],
+    ],
+    [
+      'Vue src/app/router/route.ts → spa',
+      { dependencies: { vue: '3' } },
+      ['src/App.vue', 'src/app/router/route.ts'],
+      ['spa'],
+    ],
+    // A docs site inside a library is not the project's framework.
+    [
+      'lib with a Next docs site in website/ → spa (not ssr)',
+      { devDependencies: { tsup: '8', typescript: '5' } },
+      ['src/index.ts', 'website/next.config.js', 'website/pages/index.tsx'],
+      ['spa'],
+    ],
+    [
+      'lib with docs/pages/api/, no manifest → lib',
+      null,
+      ['src/index.ts', 'docs/pages/api/search.ts'],
+      ['lib'],
+    ],
+    // Non-JS backends: no package.json → no structural backend signal.
+    [
+      'Flask-Migrate → lib',
+      null,
+      [
+        'pyproject.toml',
+        'app/__init__.py',
+        'migrations/env.py',
+        'migrations/versions/0001_init.py',
+      ],
+      ['lib'],
+    ],
+    [
+      'golang-migrate → lib',
+      null,
+      ['go.mod', 'main.go', 'migrations/001_init.up.sql'],
+      ['lib'],
+    ],
+    [
+      'Rust sqlx → lib',
+      null,
+      ['Cargo.toml', 'src/main.rs', 'migrations/20240101_init.sql'],
+      ['lib'],
+    ],
+    [
+      'Rails (grape app/api, db/structure.sql) → lib',
+      null,
+      ['Gemfile', 'db/structure.sql', 'app/api/v1/users.rb'],
+      ['lib'],
+    ],
+    [
+      'Laravel → lib',
+      null,
+      ['composer.json', 'database/migrations/2024_01_01_create_users.php'],
+      ['lib'],
+    ],
+    [
+      'Laravel with a React frontend → spa',
+      null,
+      [
+        'composer.json',
+        'database/migrations/2024_01_01_create_users.php',
+        'resources/js/app.jsx',
+      ],
+      ['spa'],
+    ],
+    // The documented residual: a root package.json (Vite, or only tooling) makes
+    // it a JS project, so its migrations count.
+    [
+      'Laravel WITH a root package.json → backend (documented residual)',
+      { devDependencies: { vite: '6', 'laravel-vite-plugin': '1' } },
+      ['composer.json', 'database/migrations/2024_01_01_create_users.php'],
+      ['backend'],
+    ],
+    // Genuine Next apps keep both signals.
+    [
+      'Next App Router (next dep + config) → ssr + backend',
+      { dependencies: { next: '15', react: '19' } },
+      ['next.config.js', 'app/page.tsx', 'app/api/users/route.ts'],
+      ['ssr', 'backend'],
+    ],
+    [
+      'Next under src/app, dep only (no config) → ssr + backend',
+      { dependencies: { next: '15' } },
+      ['src/app/page.tsx', 'src/app/api/hello/route.ts'],
+      ['ssr', 'backend'],
+    ],
+    [
+      'Next Pages Router, config only (no manifest) → ssr + backend',
+      null,
+      ['next.config.js', 'pages/index.tsx', 'pages/api/users.ts'],
+      ['ssr', 'backend'],
+    ],
+    [
+      'Next Pages Router under src/pages → ssr + backend',
+      { dependencies: { next: '15' } },
+      ['src/pages/index.tsx', 'src/pages/api/users.ts'],
+      ['ssr', 'backend'],
+    ],
+    [
+      'upper-case Next.Config.JS + App/API/ROUTE.TS → ssr + backend',
+      null,
+      ['Next.Config.JS', 'App/API/ROUTE.TS'],
+      ['ssr', 'backend'],
+    ],
+    // Monorepo bases: apps/<x>, packages/<x>.
+    [
+      'monorepo apps/web Next app → ssr + backend',
+      { private: true, devDependencies: { turbo: '2' } },
+      ['apps/web/next.config.js', 'apps/web/app/api/x/route.ts'],
+      ['ssr', 'backend'],
+    ],
+    [
+      'monorepo packages/web next.config → ssr',
+      { private: true, devDependencies: { turbo: '2' } },
+      ['packages/web/next.config.js', 'packages/web/app/page.tsx'],
+      ['ssr'],
+    ],
+    [
+      'monorepo: an Angular apps/admin beside a Next apps/web adds no backend',
+      { private: true, devDependencies: { turbo: '2' } },
+      [
+        'apps/web/next.config.js',
+        'apps/web/app/page.tsx',
+        'apps/admin/src/app/api/users.service.ts',
+      ],
+      ['ssr'],
+    ],
+    // next.config.* outside a base.
+    [
+      'src/next.config.js → not ssr',
+      { name: 'x' },
+      ['src/next.config.js', 'src/App.tsx'],
+      ['spa'],
+    ],
+    [
+      'apps/web/nested/next.config.js → not ssr',
+      { name: 'x' },
+      ['apps/web/nested/next.config.js'],
+      ['lib'],
+    ],
+    // JS backends with no framework dependency keep their structural signals.
+    [
+      'JS project + migrations/*.sql → backend',
+      { name: 'svc' },
+      ['migrations/001.sql'],
+      ['backend'],
+    ],
+    [
+      'JS project + root api/ (Vercel functions) → backend',
+      { name: 'svc' },
+      ['api/hello.ts'],
+      ['backend'],
+    ],
+  ])('%s', (_label, pkg, files, archetypes) => {
+    if (pkg !== null) writePkg(tmp.path(), pkg);
+    for (const f of files) touch(tmp.path(), f);
+    expect(detect(tmp.path()).archetypes).toEqual(archetypes);
+  });
+
+  // GRILL P5: the base's Next evidence is decided from the names already read,
+  // BEFORE its entries are classified — `app/` sorts before `next.config.js`, so
+  // a decision made while iterating would miss this route.
+  it('decides a base’s Next evidence before classifying app/ (which sorts first)', () => {
+    touch(tmp.path(), 'app/api/x/route.ts');
+    touch(tmp.path(), 'next.config.mjs');
+    expect(detect(tmp.path()).archetypes).toEqual(['ssr', 'backend']);
+  });
+
+  it('a symlinked next.config.* is not Next evidence (symlinks are never classified)', () => {
+    let symlinked = false;
+    try {
+      symlinkSync(
+        join(tmp.path(), 'no-such-target'),
+        join(tmp.path(), 'next.config.js'),
+      );
+      symlinked = true;
+    } catch {
+      // no symlink privilege on this platform — property untested here.
+    }
+    if (!symlinked) return;
+    touch(tmp.path(), 'app/api/x/route.ts');
+    expect(detect(tmp.path()).archetypes).toEqual(['lib']);
+  });
+});
+
+// F-17: one piece of evidence per archetype, for the install summary.
+describe('detectArchetypesFromProject — evidence', () => {
+  const tmp = useTmpDir();
+
+  it('cites a dependency over a path for the same signal', () => {
+    writePkg(tmp.path(), { dependencies: { next: '15' } });
+    touch(tmp.path(), 'next.config.js');
+    touch(tmp.path(), 'src/app/api/hello/route.ts');
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'ssr', source: 'dependency', name: 'next' },
+      {
+        archetype: 'backend',
+        source: 'path',
+        // The api/ DIR under the router root is the first trigger (preorder).
+        path: 'src/app/api/',
+      },
+    ]);
+  });
+
+  it('cites a path when no dependency raised the signal, in original case', () => {
+    touch(tmp.path(), 'Next.Config.JS');
+    touch(tmp.path(), 'App/Users/ROUTE.TS');
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'ssr', source: 'path', path: 'Next.Config.JS' },
+      { archetype: 'backend', source: 'path', path: 'App/Users/ROUTE.TS' },
+    ]);
+  });
+
+  // GRILL P1: preorder — a DIRECTORY signal is recorded before the files under
+  // it, and the first trigger in sorted order wins.
+  it('a directory trigger is cited with a trailing slash, before files under it', () => {
+    writePkg(tmp.path(), { name: 'x' });
+    touch(tmp.path(), 'migrations/001.sql');
+    touch(tmp.path(), 'db/schema.sql');
+    // `db` sorts before `migrations`; db/ itself is no signal, db/schema.sql is.
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'backend', source: 'path', path: 'db/schema.sql' },
+    ]);
+  });
+
+  it('migrations/ (the dir) is cited before migrations/001.sql', () => {
+    writePkg(tmp.path(), { name: 'x' });
+    touch(tmp.path(), 'migrations/001.sql');
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'backend', source: 'path', path: 'migrations/' },
+    ]);
+  });
+
+  it('spa cites the client-UI trigger; a suppressed spa cites nothing', () => {
+    touch(tmp.path(), 'src/App.tsx');
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'spa', source: 'path', path: 'src/App.tsx' },
+    ]);
+    writePkg(tmp.path(), { dependencies: { next: '15' } });
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'ssr', source: 'dependency', name: 'next' },
+    ]);
+  });
+
+  it('lib cites nothing', () => {
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'lib', source: 'none' },
+    ]);
   });
 });

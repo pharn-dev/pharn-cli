@@ -30,7 +30,11 @@ vi.mock('../src/lib/banner.js', () => ({ showBanner: vi.fn() }));
 const runGitPrereq = vi.fn();
 vi.mock('../src/steps/prereqs.js', () => ({ runGitPrereq }));
 
-const detectArchetypesFromProject = vi.fn(() => ({ archetypes: ['ssr'] }));
+const detectArchetypesFromProject = vi.fn(() => ({
+  archetypes: ['ssr'],
+  packageJsonFound: true,
+  evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
+}));
 vi.mock('../src/lib/detect-archetype.js', () => ({
   detectArchetypesFromProject,
 }));
@@ -120,7 +124,7 @@ const confirmWriteTargets = vi.fn(async () => 'proceed' as string);
 vi.mock('../src/steps/overwrite-check.js', () => ({ confirmWriteTargets }));
 
 const { runInit } = await import('../src/commands/init.js');
-const { log } = await import('@clack/prompts');
+const { log, note } = await import('@clack/prompts');
 
 describe('runInit (archetype default)', () => {
   stubProcessExit();
@@ -526,6 +530,111 @@ describe('runInit (archetype default)', () => {
         expect(runInstallArchetype).not.toHaveBeenCalled();
       });
     });
+  });
+
+  // F-17: `--archetype` replaces detection; the summary is told where the
+  // archetypes came from, and what the replaced config recorded.
+  describe('archetype origin', () => {
+    const tmp = useTmpDir();
+    const summaryArgs = () =>
+      runArchetypeSummary.mock.calls[0] as unknown as [
+        unknown,
+        unknown,
+        unknown,
+        unknown,
+      ];
+
+    beforeEach(() => {
+      runArchetypeSummary.mockResolvedValue('install');
+      confirmWriteTargets.mockResolvedValue('proceed');
+      vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
+    });
+    afterEach(() => {
+      vi.mocked(process.cwd).mockRestore();
+    });
+
+    it('detected: hands the evidence to the summary and labels the note', async () => {
+      await runInit();
+
+      expect(summaryArgs()[0]).toEqual(['ssr']);
+      expect(summaryArgs()[2]).toEqual({
+        kind: 'detected',
+        evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
+      });
+      expect(summaryArgs()[3]).toBeNull();
+      expect(note).toHaveBeenCalledWith('ssr', 'Detected archetypes');
+    });
+
+    it('--archetype replaces detection end to end: resolve, summary, install', async () => {
+      await runInit({ archetypes: ['backend', 'spa'] });
+
+      // Detection still runs, so the summary can show what it found.
+      expect(detectArchetypesFromProject).toHaveBeenCalledTimes(1);
+      expect(resolveCapabilities).toHaveBeenCalledWith(
+        ['backend', 'spa'],
+        expect.anything(),
+      );
+      expect(summaryArgs()[0]).toEqual(['backend', 'spa']);
+      expect(summaryArgs()[2]).toEqual({
+        kind: 'flag',
+        detected: ['ssr'],
+        evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
+      });
+      expect(
+        (runInstallArchetype.mock.calls[0] as unknown as unknown[])[2],
+      ).toEqual(['backend', 'spa']);
+      expect(note).toHaveBeenCalledWith(
+        'backend, spa',
+        'Archetypes (from --archetype)',
+      );
+    });
+
+    it('passes the replaced config’s recorded archetypes, as canonical members', async () => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify({
+          pharnVersion: '0.5.0',
+          skillsVersion: '1.0.0',
+          repo: 'pharn-dev/pharn-oss',
+          commit: null,
+          modules: [],
+          installedAt: '2026-09-24T00:00:00.000Z',
+          archetypes: ['spa', 'backend'],
+          capabilities: [],
+        }),
+      );
+
+      await runInit();
+
+      expect(summaryArgs()[3]).toEqual(['backend', 'spa']);
+    });
+
+    it.each<[string, unknown]>([
+      ['a string', 'backend'],
+      ['a non-member', ['backend', 'bogus']],
+      ['control bytes', ['ssr\u001b[2J']],
+    ])(
+      'shows no recorded list when the replaced config holds %s',
+      async (_l, value) => {
+        writeFileSync(
+          join(tmp.path(), 'pharn.config.json'),
+          JSON.stringify({
+            pharnVersion: '0.5.0',
+            skillsVersion: '1.0.0',
+            repo: 'pharn-dev/pharn-oss',
+            commit: null,
+            modules: [],
+            installedAt: '2026-09-24T00:00:00.000Z',
+            archetypes: value,
+            capabilities: [],
+          }),
+        );
+
+        await runInit();
+
+        expect(summaryArgs()[3]).toBeNull();
+      },
+    );
   });
 
   it('drives the archetype flow and installs — no module/manifest fetch', async () => {

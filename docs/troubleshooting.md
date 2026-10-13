@@ -169,14 +169,41 @@ Printed on **stderr**; exits with code **1**.
 ### My Python / Go / Rust project detected as `lib`
 
 That is the correct outcome, not a failure. Archetype detection is **JS/TS-shaped**: the signals are
-`package.json` dependency names plus `next.config.*`, `app/` route handlers, `.tsx`/`.jsx`,
-`migrations/` and `.sql`. A repo with none of those produces no signal and resolves to `lib`, which
-installs the **universal** capabilities — the ones that apply to any codebase. Use
-[`pharn add`](commands/add.md) to install any others you want.
+`package.json` dependency names, `.tsx`/`.jsx` files, and — in a Next.js app only — `next.config.*`,
+`app/` route handlers and `app/api`/`pages/api`. A root `api/`, a `migrations/` directory and `.sql`
+files in a database directory count only when the project has a root `package.json`, so a Flask, Go,
+Rust, Rails or Laravel project without one produces no signal and resolves to `lib`, which installs the
+**universal** capabilities — the ones that apply to any codebase. (The backend capabilities PHARN ships
+match JavaScript/TypeScript code.) Use [`pharn add`](commands/add.md) to install any others you want,
+or [`--archetype`](#detection-picked-the-wrong-archetype) to install for an archetype anyway.
+
+A non-JS project that **does** have a root `package.json` — a Laravel or Rails app with a Vite
+frontend, or a `package.json` kept only for tooling — counts as a JS project, so its `migrations/` or
+`db/*.sql` resolve `backend`. Correct that the same way.
+
+### Detection picked the wrong archetype
+
+The install summary shows what triggered each archetype, for example `backend ← src/app/api/` or
+`ssr ← next (package.json)`, so you can see why. To install for the archetypes you want instead, re-run
+`init` with them:
+
+```bash
+pharn init --archetype spa
+pharn init --archetype ssr,backend
+```
+
+`--archetype` replaces detection (the summary still shows what detection found, marked `(not used)`),
+and the archetypes are recorded in `pharn.config.json`, so `pharn update` keeps them. A later re-run of
+`pharn init` detects again unless you pass `--archetype` again; when the result differs from what was
+recorded, the summary prints `previously recorded: … — pass --archetype … to keep them`. See
+[`init`](commands/init.md#choosing-the-archetypes-yourself---archetype) for the accepted values.
+
+To keep a single capability without changing archetypes, use [`pharn add`](commands/add.md) /
+[`pharn remove`](commands/remove.md).
 
 ### Monorepos / workspaces
 
-`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there and runs a bounded, symlink-safe file-tree scan from it for archetype detection, then installs into that directory. The scan skips heavy or generated trees (`node_modules`, `dist`, `build`, `.next`, `out`, `coverage`, framework caches, and non-JS trees such as a Python virtualenv, or `vendor`/`target` beside the build file that owns them — a `target/` or `vendor/` folder of your own is scanned), so in a workspace it still sees `apps/` and `packages/`. It does not walk up to a workspace root or into workspace packages. In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
+`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there and runs a bounded, symlink-safe file-tree scan from it for archetype detection, then installs into that directory. The scan skips heavy or generated trees (`node_modules`, `dist`, `build`, `.next`, `out`, `coverage`, framework caches, and non-JS trees such as a Python virtualenv, or `vendor`/`target` beside the build file that owns them — a `target/` or `vendor/` folder of your own is scanned), so in a workspace it still sees `apps/` and `packages/`: a `next.config.*` directly in `apps/<name>/` or `packages/<name>/` marks a Next.js app there, and that app's `app/` route handlers and `app/api`/`pages/api` then count too (a `next.config.*` anywhere else, such as a docs site's `website/next.config.js`, does not). It does not walk up to a workspace root or read the workspace packages' own `package.json` files, so a framework that only a package's `package.json` names is not seen — pass it with [`--archetype`](#detection-picked-the-wrong-archetype). In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
 
 ## Overwrite warnings
 
@@ -643,15 +670,15 @@ Usage: ...
 
 Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
 
-| command         | options it accepts                                                                              |
-| --------------- | ----------------------------------------------------------------------------------------------- |
-| `init`          | `--ref`, `--dry-run`, `--json` (only with `--dry-run`), `--yes` / `-y`, `--archetype` (a no-op) |
-| `add`           | none                                                                                            |
-| `remove` / `rm` | none                                                                                            |
-| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run`, `--json` (only with `--dry-run`)               |
-| `list`          | `--json`                                                                                        |
-| `status`        | `--strict`, `--no-drift`, `--json`                                                              |
-| _any_           | `--help` / `-h`, `--version` / `-v`                                                             |
+| command         | options it accepts                                                                           |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| `init`          | `--ref`, `--dry-run`, `--json` (only with `--dry-run`), `--yes` / `-y`, `--archetype <list>` |
+| `add`           | none                                                                                         |
+| `remove` / `rm` | none                                                                                         |
+| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run`, `--json` (only with `--dry-run`)            |
+| `list`          | `--json`                                                                                     |
+| `status`        | `--strict`, `--no-drift`, `--json`                                                           |
+| _any_           | `--help` / `-h`, `--version` / `-v`                                                          |
 
 The message goes to stderr with the usage text and exits **1**, exactly like `Unknown option` — the
 label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for

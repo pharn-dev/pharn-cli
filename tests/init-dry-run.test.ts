@@ -206,6 +206,35 @@ describe('pharn init --dry-run', () => {
     // Off a TTY: a preview prompts nothing, so it has nothing to gate.
     beforeEach(() => setTTY(undefined, undefined));
 
+    // F-17: the text preview prints the same archetype block as the real run.
+    it('prints the detection evidence in the summary', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      await init(repo, proj, { dryRun: true });
+      const summary = vi
+        .mocked(prompts.note)
+        .mock.calls.map((c) => stripVTControlCharacters(String(c[0])))
+        .find((b) => b.includes('PHARN Install Summary'))!;
+      expect(summary).toMatch(/Detected archetypes\s+ssr/);
+      expect(summary).toMatch(/ssr\s+← next \(package\.json\)/);
+      noWriteReached();
+    });
+
+    it('`--archetype backend --dry-run` previews for the flag and names the unused detection', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      const before = [snapshotTree(proj), snapshotTree(repo)];
+      await init(repo, proj, { dryRun: true, archetypes: ['backend'] });
+      expect([snapshotTree(proj), snapshotTree(repo)]).toEqual(before);
+      const summary = vi
+        .mocked(prompts.note)
+        .mock.calls.map((c) => stripVTControlCharacters(String(c[0])))
+        .find((b) => b.includes('PHARN Install Summary'))!;
+      expect(summary).toMatch(/Archetypes \(--archetype\)\s+backend/);
+      expect(summary).toContain('detection found ssr (not used)');
+      expect(summary).toContain('path-traversal (lens)');
+      expect(notes('PLAN').join('\n')).toContain('archetypes: backend');
+      noWriteReached();
+    });
+
     it('previews the install, writes nothing, and needs no terminal', async () => {
       const { repo, proj } = fixture(tmp.path());
       const before = [snapshotTree(proj), snapshotTree(repo)];

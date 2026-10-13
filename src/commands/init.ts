@@ -11,6 +11,8 @@ import {
 } from '../lib/report-error.js';
 import { CLAUDE_SETTINGS_FILE, REPO_URL } from '../lib/constants.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
+import { recordedArchetypes } from '../lib/archetype.js';
+import type { ArchetypeOrigin } from '../lib/archetype.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
@@ -61,6 +63,8 @@ import type { Archetype } from '../types.js';
 
 export interface InitOptions {
   ref?: RefChoice;
+  // `--archetype`: install for these instead of the detected archetypes.
+  archetypes?: Archetype[];
   // Install without prompts — but ONLY where nothing would be overwritten
   // (see the TTY gate below).
   yes?: boolean;
@@ -133,7 +137,13 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
   // agnostic — no module catalog / manifest fetch. (The legacy module/wizard
   // flow was removed entirely; add/update/status/remove reject a pre-archetype
   // config up front via loadArchetypeConfigOrExit — there is no manifest fallback.)
-  await runInitArchetype({ channel: opts.ref ?? 'main', yes, dryRun, json });
+  await runInitArchetype({
+    channel: opts.ref ?? 'main',
+    override: opts.archetypes,
+    yes,
+    dryRun,
+    json,
+  });
 }
 
 // A spinner that draws nothing, for `--json`: stdout stays the one report.
@@ -143,6 +153,7 @@ function silentSpinner(): Pick<ReturnType<typeof spinner>, 'start' | 'stop'> {
 
 interface RunMode {
   channel: RefChoice;
+  override: Archetype[] | undefined;
   yes: boolean;
   dryRun: boolean;
   json: boolean;
@@ -154,7 +165,7 @@ interface RunMode {
 // across the interactive summary, so cleanup runs in a finally and every
 // process.exit / cancelAndExit happens AFTER it (Node skips finally on exit).
 async function runInitArchetype(mode: RunMode): Promise<void> {
-  const { channel, yes, dryRun, json } = mode;
+  const { channel, override, yes, dryRun, json } = mode;
   // `--json` swaps the sinks, not the logic: diagnostics and failures as plain
   // stderr lines (stdout empty, exit 1), and no spinner.
   const warn = json
@@ -162,8 +173,24 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     : (message: string) => log.warn(message);
   const fatal = json ? reportFatalPlain : reportFatal;
   const cwd = process.cwd();
-  const { archetypes } = detectArchetypesFromProject(cwd);
-  if (!json) note(archetypes.join(', '), 'Detected archetypes');
+  // `--archetype` REPLACES detection: it is what is resolved, installed and
+  // recorded (so `update` keeps it). Detection still runs — local and bounded —
+  // so the summary and the dry-run report can show what it would have chosen.
+  const detection = detectArchetypesFromProject(cwd);
+  const archetypes = override ?? detection.archetypes;
+  const origin: ArchetypeOrigin = override
+    ? {
+        kind: 'flag',
+        detected: detection.archetypes,
+        evidence: detection.evidence,
+      }
+    : { kind: 'detected', evidence: detection.evidence };
+  if (!json) {
+    note(
+      archetypes.join(', '),
+      override ? 'Archetypes (from --archetype)' : 'Detected archetypes',
+    );
+  }
 
   // pharn's fetches go through Node's global fetch, which reads NO proxy
   // environment variable on any platform — so a configured proxy is simply
@@ -200,7 +227,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
   s.stop(`PHARN fetched from ${sourceLabel(repo.source)}`);
 
   if (dryRun) {
-    await runInitDryRun(repo, cwd, archetypes, channel, json);
+    await runInitDryRun(repo, cwd, archetypes, origin, channel, json);
     return;
   }
 
@@ -237,15 +264,28 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         index,
       });
       reportCarry(carry);
+      // What the replaced config recorded, for display only: a re-run
+      // re-detects, and the summary names a different recorded set so an
+      // earlier `--archetype` never disappears silently.
+      const recorded = recordedArchetypes(previous.config?.archetypes);
 
       // `--yes` answers the summary's question ("install?") and nothing else:
       // the summary is still printed, so a CI log says what was installed.
       let action: 'install' | 'cancel';
       if (yes) {
-        note(archetypeSummaryLines(archetypes, selection).join('\n'));
+        note(
+          archetypeSummaryLines(archetypes, selection, origin, recorded).join(
+            '\n',
+          ),
+        );
         action = 'install';
       } else {
-        action = await runArchetypeSummary(archetypes, selection);
+        action = await runArchetypeSummary(
+          archetypes,
+          selection,
+          origin,
+          recorded,
+        );
       }
       // Both prompts return a VALUE and neither exits, so `outcome` stays
       // 'cancelled' and the single cancelAndExit below fires AFTER the finally
@@ -417,6 +457,7 @@ async function runInitDryRun(
   repo: Awaited<ReturnType<typeof fetchRepo>>,
   cwd: string,
   archetypes: Archetype[],
+  origin: ArchetypeOrigin,
   channel: RefChoice,
   json: boolean,
 ): Promise<void> {
@@ -445,6 +486,7 @@ async function runInitDryRun(
         source: repo.source,
         channel,
         archetypes,
+        origin,
         index,
         chosen,
       });
@@ -482,7 +524,14 @@ async function runInitDryRun(
 // backups, the config — then the HOOKS note a real run would print, and the
 // models outcome.
 function reportInitDryRun(r: InitPlanReport): void {
-  note(archetypeSummaryLines(r.archetypes, r.selection).join('\n'));
+  note(
+    archetypeSummaryLines(
+      r.archetypes,
+      r.selection,
+      r.archetypeOrigin,
+      r.previousArchetypes,
+    ).join('\n'),
+  );
 
   const labels = new Map(
     r.targets.flatMap((t) =>
