@@ -631,7 +631,7 @@ export async function writePharnConfig(
 
 /**
  * Is this an archetype (capability) install vs. a legacy module install?
- * Deterministic membership (P5): the archetype install (`pharn init --archetype`)
+ * Deterministic membership (P5): the archetype install (`pharn init`)
  * always writes a `capabilities` array; a legacy module config never does — so
  * the presence of `capabilities` is the marker. An empty `modules: []` alone is
  * NOT the marker (a module install can legitimately resolve to few modules).

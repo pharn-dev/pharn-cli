@@ -10,7 +10,7 @@ export const REPO_URL = 'github.com/pharn-dev/pharn-oss';
 export const FIRST_FEATURE_COMMAND = '/pharn-spec';
 
 // ---------------------------------------------------------------------------
-// Archetype (capability) install (pharn init --archetype). Repo-relative source
+// Archetype (capability) install (`pharn init`). Repo-relative source
 // paths in the fetched pharn-oss clone. Each capability lives at
 // `<subtree>/<name>/<name>.md`; the install mirrors these paths (and the .claude
 // surfaces) into the user's project root so the copied product commands' own
