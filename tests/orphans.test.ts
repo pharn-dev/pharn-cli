@@ -69,6 +69,9 @@ describe('isInstallRootPath', () => {
     // directly under a capability subtree, not inside a capability dir
     'pharn-review/README.md',
     'pharn/pharn-pipeline/grillers/notes.md',
+    // a capability dir itself, not a file inside it
+    'pharn-review/a11y/',
+    'pharn-pipeline/grillers//x.md',
     // a prefix that only LOOKS like a root
     'pharn-contracts-old/x.md',
     '.dev/floorplan/x.md',
