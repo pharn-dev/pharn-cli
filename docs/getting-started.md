@@ -7,14 +7,16 @@ PHARN does not scaffold your app. You create your project (e.g. with `create-nex
 | Requirement          | How PHARN checks                                                                                                    | When                                                     |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | Git                  | A `.git` directory exists in the project root                                                                       | Always — checked up front, before detection              |
-| Interactive terminal | `process.stdin`/`stdout` are TTYs                                                                                   | Right after the git check, before any fetch              |
+| Interactive terminal | `process.stdin`/`stdout` are TTYs (not for `init --dry-run` or `init --yes`)                                        | Right after the git check, before any fetch              |
 | Node                 | **24.2.0 or newer**: `engines.node` declares it, and `init` / `update` refuse on an older Node, writing nothing     | First thing in `init` and `update`, before the git check |
 | Node (floor)         | The same 24.2.0 applies to the installed `pharn/floor/*.mjs` (`import.meta.main`); they refuse to run on older Node | When you run `/pharn-*` pipeline commands                |
 
-`.git` is required for every install. So is a real terminal: `pharn init` **exits 1** rather than
-rendering a prompt into a dead stream, and there is deliberately no `--yes` for it — its second prompt
-is the destructive overwrite confirmation. (`pharn update` behaves the same way, and `update --yes` is
-the supported way through in CI.) `pharn init` then detects your project's archetype(s) from
+`.git` is required for every install. So is a real terminal, for a plain `pharn init`: it **exits 1**
+rather than rendering a prompt into a dead stream. Two forms need none. `pharn init --dry-run` previews
+the install and writes nothing. `pharn init --yes` installs without prompts, but only into a project
+where none of its files exists yet: it never answers the overwrite confirmation, so anywhere it would
+overwrite something it exits 1 instead (a re-install always does — use `pharn update`). (`pharn update`
+also refuses off a TTY, and `update --yes` is the supported way through in CI.) `pharn init` then detects your project's archetype(s) from
 `package.json` dependency names plus a bounded file-tree scan — there is no stack-pack selection and no
 package prerequisite to satisfy. See [Troubleshooting](troubleshooting.md).
 

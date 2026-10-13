@@ -264,7 +264,7 @@ Two commands sit outside the pipeline:
 
 | Command                     | Description                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pharn init`                | Detect archetypes and install matching capabilities. This is also the default when no command is given.                                                                                                                                                                                                                                         |
+| `pharn init`                | Detect archetypes and install matching capabilities. This is also the default when no command is given. `--dry-run` prints what it would install and writes nothing (add `--json` for one machine-readable object); `--yes`/`-y` installs without prompts, but only when no file would be overwritten.                                          |
 | `pharn add [capability]`    | Add one capability manually, for example `a11y` or `lens:n-plus-one`. With no argument, opens an interactive picker.                                                                                                                                                                                                                            |
 | `pharn remove [capability]` | Remove one installed capability. With no argument, opens an interactive picker.                                                                                                                                                                                                                                                                 |
 | `pharn update`              | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt; `--dry-run` prints what it would do and writes nothing (add `--json` for the plan as one machine-readable object, and `--compact` to leave the unchanged files out of it). |
@@ -282,10 +282,12 @@ Three behaviours matter if you script the CLI:
   ``Unsupported option for `status`: "--force"`` to stderr with the usage text
   and exits **1**; an extra positional is refused the same way. Both previously
   parsed, were silently dropped, and exited 0.
-- **`init` and `update` are interactive-only.** Off a TTY they exit 1 rather
-  than prompting into a dead stream. `update --yes` is the way through in CI;
-  `init` deliberately has no `--yes`, because its second prompt is the
-  destructive overwrite confirmation.
+- **`init` and `update` prompt.** Off a TTY a plain run exits 1 rather than
+  prompting into a dead stream. `update --yes` is the way through in CI. For
+  `init`, `--yes` skips the summary confirm but never the overwrite one: it
+  installs only into a project where none of its files exists yet, and
+  otherwise exits 1 — so a re-install always refuses it (use `update`). Both
+  commands' `--dry-run` needs no terminal and writes nothing.
 - **One writer at a time.** `init`, `add`, `remove` and `update` take an
   advisory lock at `.pharn.lock`; a second run refuses rather than queueing.
   `add`, `remove` and `update` also re-read `pharn.config.json` once they hold

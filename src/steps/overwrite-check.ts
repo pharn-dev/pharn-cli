@@ -1,16 +1,17 @@
 import { confirm, isCancel, log } from '@clack/prompts';
 import {
   collectExpectedInstallPaths,
-  conflictingWriteTargets,
   PHARN_CONFIG_FILE,
 } from '../lib/install-manifest.js';
 import { detectLayout } from '../lib/layout.js';
+import type { DriftLabel } from '../lib/dest-drift.js';
 import {
-  manifestSources,
-  scanDest,
-  type DriftLabel,
-} from '../lib/dest-drift.js';
-import { BACKUP_DIR, replacedConfigBackup } from '../lib/backup.js';
+  DRIFT_LABEL_ORDER,
+  MAX_LISTED,
+  planWriteTargets,
+  targetLines,
+} from '../lib/write-targets.js';
+import { BACKUP_DIR } from '../lib/backup.js';
 import { readBoundedFile } from '../lib/bounded-read.js';
 import type { FileRecords } from '../lib/install-records.js';
 import { safeJoin, VERSION_RE } from '../lib/validate.js';
@@ -37,9 +38,8 @@ import type { Selection } from '../types.js';
 // never executed. One axis (P3): the write-target conflict init stage.
 // ---------------------------------------------------------------------------
 
-// Cap the listed paths so a full re-install (which conflicts on hundreds of files)
-// stays readable; the count of the remainder is still surfaced.
-export const MAX_LISTED = 10;
+// The list cap, shared with init's --yes refusal (lib/write-targets.ts).
+export { MAX_LISTED };
 
 // The `skillsVersion` the project's own pharn.config.json records, or null when
 // there is not one worth showing. Cosmetic input, cosmetic failure.
@@ -99,21 +99,6 @@ function recordedSkillsVersion(cwd: string): string | null {
  */
 export type WriteTargetsAction = 'proceed' | 'decline' | 'cancel';
 
-// How each backed-up file is marked in the list, and in what order the groups
-// come — update's skip order, most actionable first (lib/update-decision.ts).
-const MARKERS: Record<DriftLabel, string> = {
-  modified: '(edited)',
-  unrecorded: '(no pharn record)',
-  unverifiable: '(differs from upstream)',
-};
-// The existing pharn.config.json: not drift, but rewritten — and backed up.
-const CONFIG_MARKER = '(will be rewritten — backed up first)';
-const LABEL_ORDER: readonly DriftLabel[] = [
-  'modified',
-  'unrecorded',
-  'unverifiable',
-];
-
 // One line per group: WHY these files are backed up. "Your edits" is claimed
 // only where pharn can show it — a file that changed since pharn recorded
 // writing it; without a usable records store the line says so instead.
@@ -149,71 +134,39 @@ export async function confirmWriteTargets(
   selection: Selection,
   context: WriteTargetsContext = {},
 ): Promise<WriteTargetsAction> {
-  const layout = detectLayout(repoDir);
   const manifest =
     context.manifest ??
     collectExpectedInstallPaths({
       repoDir,
       capabilities: selection.selected,
-      layout,
+      layout: detectLayout(repoDir),
     });
-  const conflicts = conflictingWriteTargets({
-    repoDir,
-    projectRoot: cwd,
-    capabilities: selection.selected,
-    layout,
-    expected: manifest,
-  });
-  if (conflicts.length === 0) return 'proceed'; // zero friction — nothing to overwrite
-
-  // Which of those the install will back up — the files `update` would have
-  // SKIPPED (lib/dest-drift.ts, through update's own table): changed since
-  // pharn wrote them, not recorded, or not verifiable. A file still at the hash
-  // pharn recorded is pharn's own bytes, merely outdated: not marked, not
-  // backed up. Each is compared with its real source (the mapped LICENSE).
-  // They are listed first (a 400-path list capped at 10 used to hide them).
+  // Which targets exist, which of them the install will back up (the files
+  // `update` would have SKIPPED), and the order to list them in — one
+  // computation shared with `init --dry-run` and `init --yes`
+  // (lib/write-targets.ts). A file still at the hash pharn recorded is pharn's
+  // own bytes, merely outdated: not marked, not backed up.
   //
   // ADVISORY: runInstallArchetype re-scans under the lock, immediately before
   // the copy, and that scan is the one that backs files up — this snapshot
   // only labels the list. `pharn.config.json` is outside the manifest (init
   // regenerates it), so it is never scanned: an existing one is marked on its
-  // own below, and always backed up.
-  const { labels } = scanDest({
+  // own (`configBackedUp`), ranked right after the labelled files so the
+  // MAX_LISTED cap cannot hide it, and always backed up.
+  const { conflicts, labels, configBackedUp } = planWriteTargets({
     repoDir,
     projectRoot: cwd,
-    rels: conflicts.filter((p) => manifest.has(p)),
-    sources: manifestSources(repoDir, manifest),
+    capabilities: selection.selected,
+    manifest,
     records: context.records ?? null,
   });
-  // The existing config is rewritten (`seam` and `models` reset) and always
-  // backed up first — the same predicate the install acts on. Ranked right
-  // after the labelled files, so the MAX_LISTED cap cannot hide it.
-  const configBackedUp =
-    conflicts.includes(PHARN_CONFIG_FILE) &&
-    replacedConfigBackup(cwd).length > 0;
-  const rank = (p: string): number => {
-    const label = labels.get(p);
-    if (label !== undefined) return LABEL_ORDER.indexOf(label);
-    return configBackedUp && p === PHARN_CONFIG_FILE
-      ? LABEL_ORDER.length
-      : LABEL_ORDER.length + 1;
-  };
-  // A stable sort over the already-sorted conflicts: grouped by label, then by
-  // path within a group (P5 — deterministic output).
-  const ordered = [...conflicts].sort((a, b) => rank(a) - rank(b));
-  const shown = ordered.slice(0, MAX_LISTED);
-  const more = ordered.length - shown.length;
-  const list = shown
-    .map((p) => {
-      const label = labels.get(p);
-      if (label !== undefined) return `  • ${p} ${MARKERS[label]}`;
-      return configBackedUp && p === PHARN_CONFIG_FILE
-        ? `  • ${p} ${CONFIG_MARKER}`
-        : `  • ${p}`;
-    })
-    .join('\n');
-  const tail = more > 0 ? `\n  …and ${more} more` : '';
-  const counts = LABEL_ORDER.map(
+  if (conflicts.length === 0) return 'proceed'; // zero friction — nothing to overwrite
+
+  const list = targetLines(
+    { conflicts, labels, configBackedUp },
+    MAX_LISTED,
+  ).join('\n');
+  const counts = DRIFT_LABEL_ORDER.map(
     (label) =>
       [label, [...labels.values()].filter((l) => l === label).length] as const,
   ).filter(([, n]) => n > 0);
@@ -239,7 +192,7 @@ export async function confirmWriteTargets(
   // steps/archetype-summary.ts: every helper there ends in cancelAndExit, and
   // this stage's whole contract is that it does not exit.
   log.warn(
-    `${intro} These paths already exist and may be overwritten:\n${list}${tail}${editsLine}${configLine}`,
+    `${intro} These paths already exist and may be overwritten:\n${list}${editsLine}${configLine}`,
   );
   const result = await confirm({
     message: 'Continue and overwrite?',

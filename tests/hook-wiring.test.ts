@@ -9,6 +9,7 @@ import {
   hookEntries,
   hookWiringFails,
   hookWiringLines,
+  preservedSettingsHookLines,
 } from '../src/lib/hook-wiring.js';
 
 // PHARN-04: upstream re-wired its hooks twice (6.1.0 CLAUDE_PROJECT_DIR anchoring,
@@ -446,5 +447,42 @@ describe('HOOKS note — the printed hook satisfies the check when pasted', () =
       status: 'match',
       missing: [],
     });
+  });
+});
+
+// init's note over a preserved settings.json — one composition for the real
+// run and the dry run (steps/install-archetype.ts, commands/init.ts).
+describe('preservedSettingsHookLines', () => {
+  const entry = { event: 'Stop', matcher: '', command: 'node', args: ['x'] };
+
+  it('is null when there is nothing to say', () => {
+    expect(
+      preservedSettingsHookLines({ status: 'match', missing: [] }),
+    ).toBeNull();
+    expect(
+      preservedSettingsHookLines({ status: 'no-upstream', missing: [] }),
+    ).toBeNull();
+  });
+
+  it('adds the --strict consequence exactly when the diff fails --strict', () => {
+    const missing = preservedSettingsHookLines({
+      status: 'missing',
+      missing: [entry],
+    })!;
+    expect(missing.slice(0, -1)).toEqual(
+      hookWiringLines({ status: 'missing', missing: [entry] }),
+    );
+    expect(missing.at(-1)).toBe(
+      '  `pharn status --strict` fails until they are wired.',
+    );
+
+    const localOnly = {
+      status: 'local-only' as const,
+      missing: [],
+      localOnly: [entry],
+    };
+    expect(preservedSettingsHookLines(localOnly)).toEqual(
+      hookWiringLines(localOnly),
+    );
   });
 });
