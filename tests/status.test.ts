@@ -164,6 +164,24 @@ describe('runStatus (archetype)', () => {
       expect(plain('VERSION')).not.toContain('update available');
     });
 
+    // pharn-oss main moved BACK (its SKILLS_VERSION reverted): the install is
+    // ahead of the tip. `pharn update` refuses that downgrade without --force,
+    // so --strict must not demand it either — the release channel's rule.
+    it('reports an install AHEAD of main as ahead, and --strict passes', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(
+        config({ skillsVersion: '1.2.0' }),
+      );
+      fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
+
+      await runStatus({ drift: false, strict: true });
+
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(plain('VERSION')).toContain('ahead of pharn-oss main (v1.1.0)');
+      expect(plain('VERSION')).toContain('pharn update --force');
+      expect(plain('VERSION')).not.toContain('update available');
+      expect(plain('VERSION')).not.toContain('verified release');
+    });
+
     it('still reports a BEHIND install as outdated, and --strict fails', async () => {
       fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
 

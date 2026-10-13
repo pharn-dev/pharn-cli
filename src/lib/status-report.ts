@@ -159,7 +159,6 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
   const { ahead, outdated } = versionStatus({
     installed: config.skillsVersion,
     latest: input.latest,
-    source: input.source,
   });
   return {
     schemaVersion: STATUS_SCHEMA_VERSION,

@@ -376,6 +376,25 @@ describe('runUpdate --dry-run', () => {
       expect(fetchRepo).not.toHaveBeenCalled();
     });
 
+    it('reports an install ahead of main (main moved back) and exits 0, nothing written', async () => {
+      await installed({ skillsVersion: '2.0.0' });
+      const before = snapshotTree(proj);
+      await runUpdate({ dryRun: true });
+      expect(outroText()).toContain(
+        'newer than pharn-oss main (v1.1.0) — main has moved back',
+      );
+      expect(outroText()).toContain('pharn update --force');
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(snapshotTree(proj)).toEqual(before);
+    });
+
+    it('previews the downgrade from main under --force', async () => {
+      await installed({ skillsVersion: '2.0.0' });
+      await runUpdate({ dryRun: true, force: true });
+      expect(fetchRepo).toHaveBeenCalled();
+      expect(outroText()).toContain('Dry run');
+    });
+
     it('exits 1 when the release cannot be resolved', async () => {
       await installed();
       resolveSource.mockRejectedValueOnce(

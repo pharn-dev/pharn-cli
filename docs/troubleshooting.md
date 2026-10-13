@@ -8,6 +8,7 @@
 | Capability fetch / install failure                                                                      | 1         |
 | No verified pharn-oss release could be resolved (none published, unreachable, rate-limited)             | 1         |
 | `update --ref latest` on an install ahead of the newest verified release (nothing changed)              | 0         |
+| `update` on an install ahead of pharn-oss `main`, after `main` moved back (nothing changed)             | 0         |
 | An invalid `--ref` value                                                                                | 1         |
 | Unknown command                                                                                         | 1         |
 | Unknown option, an option the command does not take, or an unexpected extra argument                    | 1         |
@@ -50,7 +51,7 @@ goes to stderr, and the exit code is 1. So stdout is either one object or nothin
 half-written object or an error string. `pharn status --json` keeps the same contract (one report or
 nothing), with one addition: with `--strict`, a finding still prints the report and exits 1 — see
 [`pharn status`](commands/status.md#json-output). So does `pharn update --dry-run --json`, which prints
-the plan (or the `up-to-date` / `ahead-of-release` outcome as its `status` field) and exits 0 — see
+the plan (or the `up-to-date` / `ahead-of-release` / `ahead-of-main` outcome as its `status` field) and exits 0 — see
 [`pharn update`](commands/update.md#json-output). `--json` alone, without `--dry-run`, is refused
 with an `Incomplete option for` error, exit 1; so is `--compact` (which leaves the unchanged files out of
 the plan's file list) without `--json`.

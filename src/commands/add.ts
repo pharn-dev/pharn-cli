@@ -43,7 +43,7 @@ import {
   sourceLabel,
   type InstallSource,
 } from '../lib/release.js';
-import { compareVersionCore } from '../lib/semver.js';
+import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
@@ -105,10 +105,11 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
 // could never finish while the edit stayed, and this message sent the user back
 // to `update` in a loop.
 //
-// One case gets its own wording: an install AHEAD of the newest verified release
-// (made from `main`, as every install before 0.9.0 was). Sending that user to
-// `pharn update` would loop — `update` refuses to downgrade without `--force` —
-// so the message names the two real ways forward instead.
+// One case gets its own wording: an install AHEAD of the source it follows
+// (lib/version-status.ts) — of the newest verified release (made from `main`, as
+// every install before 0.9.0 was), or of main itself (main moved back). Sending
+// that user to `pharn update` would loop — `update` refuses to downgrade without
+// `--force` — so the message names the real ways forward instead.
 function versionGate(
   repoDir: string,
   config: PharnConfig,
@@ -118,10 +119,11 @@ function versionGate(
   if (fetched === config.skillsVersion) return null;
   if (fetched === config.pendingSkillsVersion) return null;
   if (
-    source.kind === 'release' &&
-    compareVersionCore(config.skillsVersion, fetched) === 1
+    versionStatus({ installed: config.skillsVersion, latest: fetched }).ahead
   ) {
-    return `Your install (skills v${config.skillsVersion}) is ahead of the latest verified ${REPO_URL} release (${source.tag}) — it came from pharn-oss main, and \`pharn add\` installs only at the version your project is already on. Run \`pharn update --ref main\` to follow main (\`pharn add\` then fetches from it too), or wait for a release at v${config.skillsVersion}.`;
+    return source.kind === 'release'
+      ? `Your install (skills v${config.skillsVersion}) is ahead of the latest verified ${REPO_URL} release (${source.tag}) — it came from pharn-oss main, and \`pharn add\` installs only at the version your project is already on. Run \`pharn update --ref main\` to follow main (\`pharn add\` then fetches from it too), or wait for a release at v${config.skillsVersion}.`
+      : `Your install (skills v${config.skillsVersion}) is newer than ${REPO_URL} main (v${fetched}) — pharn-oss main has moved back to an older version, and \`pharn add\` installs only at the version your project is already on. Wait for main to reach v${config.skillsVersion} again, or run \`pharn update --force\` to downgrade to v${fetched} first (it backs up the files you edited to .pharn-backup/), then re-run \`pharn add\`.`;
   }
   const base = `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on`;
   return config.pendingSkillsVersion === undefined

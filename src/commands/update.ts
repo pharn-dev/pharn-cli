@@ -57,7 +57,7 @@ import {
   type InstallSource,
   type RefChoice,
 } from '../lib/release.js';
-import { compareVersionCore } from '../lib/semver.js';
+import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { fetchRemoteSkillsVersion } from '../lib/skills-version.js';
@@ -278,23 +278,44 @@ async function runArchetypeUpdate(
     );
   };
 
-  // AHEAD OF THE RELEASE: an install made from `main` (the default channel)
-  // switched to `--ref latest` can hold a NEWER version than the newest verified release — it
-  // took a merge whose release had not been cut yet. Applying the release would
-  // be a DOWNGRADE presented as an update, so it is refused unless asked for:
-  // `--force` already means "make my tree match upstream", and here upstream is
-  // the release. Not ahead (or a version either side cannot order) → as before.
-  if (
-    source.kind === 'release' &&
-    !force &&
-    compareVersionCore(config.skillsVersion, latest) === 1
-  ) {
+  // AHEAD OF THE SOURCE: applying an OLDER upstream would be a DOWNGRADE
+  // presented as an update ("v2.0.0 → v1.0.0" over every file), so it is
+  // refused unless asked for: `--force` already means "make my tree match
+  // upstream". Both channels can be ahead (lib/version-status.ts — the ONE
+  // comparison `status` uses too, so the two never disagree):
+  // - the release channel: an install made from `main` switched to `--ref
+  //   latest` before the release at its version was cut;
+  // - the `main` channel: pharn-oss main moved BACK (a revert of its
+  //   SKILLS_VERSION).
+  // A `pendingSkillsVersion` counts as well: every file but the user's kept
+  // edits is at it, so stepping those files back to an older upstream is the
+  // same downgrade even when the recorded `skillsVersion` is older.
+  // This runs BEFORE the same-version early return and everything that
+  // re-opens it (a frozen-capability re-check, an old-format models block, a
+  // `--ref` switch), so none of them can carry the downgrade in. Not ahead (or a
+  // version either side cannot order) → as before.
+  const aheadOf = force
+    ? null
+    : ([config.pendingSkillsVersion, config.skillsVersion].find(
+        (held) =>
+          held !== undefined &&
+          versionStatus({ installed: held, latest }).ahead,
+      ) ?? null);
+  if (aheadOf !== null) {
     if (json) {
-      emitEarlyReturn('ahead-of-release');
+      emitEarlyReturn(
+        source.kind === 'release' ? 'ahead-of-release' : 'ahead-of-main',
+      );
       return;
     }
+    const held =
+      aheadOf === config.skillsVersion
+        ? `skills v${config.skillsVersion}`
+        : `skills v${config.skillsVersion}, every file you did not edit at v${aheadOf}`;
     outro(
-      `Your install (skills v${config.skillsVersion}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` switches back to main; \`pharn update --force\` goes back to ${source.tag}.`,
+      source.kind === 'release'
+        ? `Your install (${held}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` switches back to main; \`pharn update --force\` goes back to ${source.tag}.`
+        : `Your install (${held}) is newer than pharn-oss main (v${latest}) — main has moved back to an older version. Nothing changed. \`pharn update --force\` downgrades to v${latest}; otherwise wait for main to move forward again.`,
     );
     return;
   }

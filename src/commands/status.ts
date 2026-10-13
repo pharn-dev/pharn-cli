@@ -306,10 +306,11 @@ async function runArchetypeStatus(
 // VERSION note for an archetype install: skillsVersion currency + a summary of
 // the detected archetypes and installed capability count. Returns outdated.
 //
-// AHEAD is not outdated: an install made from `main` can hold a version newer
-// than the newest verified release, and `pharn update` refuses to downgrade it
-// without `--force` — so `--strict` must not fail on it either, or CI would
-// demand a run that does nothing.
+// AHEAD is not outdated (lib/version-status.ts): the install is newer than the
+// source it follows — ahead of the newest verified release (installed from
+// main, then switched), or ahead of main itself (main moved back) — and
+// `pharn update` refuses that downgrade without `--force`, so `--strict` must
+// not fail on it either, or CI would demand a run that does nothing.
 function printArchetypeVersion(
   config: PharnConfig,
   latest: string,
@@ -318,10 +319,13 @@ function printArchetypeVersion(
   const { ahead, outdated } = versionStatus({
     installed: config.skillsVersion,
     latest,
-    source,
   });
+  const aheadNote =
+    source.kind === 'release'
+      ? `(ahead of the latest verified release v${latest} — installed from main)`
+      : `(ahead of pharn-oss main (v${latest}) — main has moved back; \`pharn update --force\` downgrades)`;
   const skillsLine = ahead
-    ? `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim(`(ahead of the latest verified release v${latest} — installed from main)`)}`
+    ? `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim(aheadNote)}`
     : outdated
       ? `${row('Skills version', `v${config.skillsVersion} → v${latest}`)} ${pc.dim('(update available, run `pharn update`)')}`
       : `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim('(up to date)')}`;

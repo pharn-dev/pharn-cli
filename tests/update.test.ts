@@ -1021,12 +1021,132 @@ describe('runUpdate (drift-safe)', () => {
       expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
     });
 
-    it('never applies the ahead guard on main — main is not a release', async () => {
-      await installed({ skillsVersion: '1.2.0' });
+    // F-15: pharn-oss main can move BACK — a revert of its SKILLS_VERSION. The
+    // install is then ahead of the tip, and applying the tip would be the same
+    // downgrade presented as an update (`v1.2.0 → v1.1.0` over every file), so
+    // the main channel gets the release channel's guard: refused, exit 0,
+    // nothing changed, unless `--force`.
+    describe('an install AHEAD of main (main moved back)', () => {
+      const outroText = (): string =>
+        String(vi.mocked(prompts.outro).mock.calls.at(-1)![0]);
 
-      await runUpdate();
+      it('refuses the downgrade without --force: exit 0, nothing fetched or written', async () => {
+        await installed({ skillsVersion: '1.2.0' });
 
-      expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+        await runUpdate();
+
+        expect(resolveSource).toHaveBeenCalledWith('main');
+        expect(outroText()).toContain(
+          'newer than pharn-oss main (v1.1.0) — main has moved back',
+        );
+        expect(outroText()).toContain('skills v1.2.0');
+        expect(outroText()).toContain('Nothing changed');
+        expect(outroText()).toContain('pharn update --force');
+        expect(prompts.confirm).not.toHaveBeenCalled();
+        expect(fetchRepo).not.toHaveBeenCalled();
+        expect(body(DOC)).toBe('constitution v1');
+        expect(readPharnConfig(proj)).toBeNull();
+      });
+
+      it('--force downgrades to main as before', async () => {
+        await installed({ skillsVersion: '1.2.0' });
+
+        await runUpdate({ force: true });
+
+        expect(fetchRepo).toHaveBeenCalledWith({ kind: 'main' });
+        expect(body(DOC)).toBe('constitution v2');
+        expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+      });
+
+      it('--yes skips the confirm, never the guard', async () => {
+        await installed({ skillsVersion: '1.2.0' });
+
+        await runUpdate({ yes: true });
+
+        expect(fetchRepo).not.toHaveBeenCalled();
+        expect(readPharnConfig(proj)).toBeNull();
+      });
+
+      // A pending version is what every file but the user's kept edits is at;
+      // stepping those files back to an older tip is the same downgrade, even
+      // though the recorded `skillsVersion` is older than the tip.
+      it('refuses when the PENDING version is ahead of main', async () => {
+        await installed({
+          skillsVersion: '1.0.0',
+          pendingSkillsVersion: '1.2.0',
+        });
+
+        await runUpdate();
+
+        expect(outroText()).toContain('newer than pharn-oss main (v1.1.0)');
+        expect(outroText()).toContain('v1.2.0');
+        expect(fetchRepo).not.toHaveBeenCalled();
+        expect(readPharnConfig(proj)).toBeNull();
+      });
+
+      it('still upgrades when the pending version is BEHIND main', async () => {
+        await installed({
+          skillsVersion: '1.0.0',
+          pendingSkillsVersion: '1.0.5',
+        });
+
+        await runUpdate();
+
+        expect(fetchRepo).toHaveBeenCalled();
+        expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+      });
+
+      // The guard runs BEFORE everything that re-opens the same-version early
+      // return, so none of them can sneak the downgrade in.
+      it('runs before a frozen-capability re-check', async () => {
+        await installed({
+          skillsVersion: '1.2.0',
+          frozenCapabilities: ['griller:backwards-compat'],
+        });
+
+        await runUpdate();
+
+        expect(outroText()).toContain('newer than pharn-oss main');
+        expect(fetchRepo).not.toHaveBeenCalled();
+      });
+
+      it('runs before an old-format models conversion', async () => {
+        await installed({
+          skillsVersion: '1.2.0',
+          models: {
+            default: { model: 'sonnet-5', effort: 'high' },
+            stages: { plan: { model: 'opus-4-8', effort: 'max' } },
+          },
+        });
+
+        await runUpdate();
+
+        expect(outroText()).toContain('newer than pharn-oss main');
+        expect(fetchRepo).not.toHaveBeenCalled();
+      });
+
+      it('runs before a channel switch: `--ref main` on a release install is not recorded', async () => {
+        const config = await installed({
+          skillsVersion: '1.2.0',
+          ref: 'latest',
+        });
+        await writePharnConfig(proj, config);
+
+        await runUpdate({ ref: 'main' });
+
+        expect(resolveSource).toHaveBeenCalledWith('main');
+        expect(outroText()).toContain('newer than pharn-oss main');
+        expect(fetchRepo).not.toHaveBeenCalled();
+        expect(readPharnConfig(proj)!.ref).toBe('latest');
+      });
+
+      it('an equal version is still "Already up to date", never ahead', async () => {
+        await installed({ skillsVersion: '1.1.0' });
+
+        await runUpdate();
+
+        expect(outroText()).toBe('Already up to date (skills v1.1.0).');
+      });
     });
 
     it('--ref main switches a release install back to main', async () => {

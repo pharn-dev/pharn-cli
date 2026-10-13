@@ -39,7 +39,9 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 4. Resolves what to update to — the tip of `pharn-dev/pharn-oss` `main`, or the newest **verified
    release** for an install that follows releases (see [Release channel](#release-channel)) — and
    compares its version to your recorded `skillsVersion`. A release that cannot be resolved stops the run
-   (exit 1). An install **ahead** of the newest release is left as it is (exit 0) unless you pass `--force`.
+   (exit 1). An install **ahead** of that source — newer than the newest release, or newer than `main`
+   when `main` has moved back to an older version — is left as it is (exit 0) unless you pass `--force`
+   (see [An install ahead of its source](#an-install-ahead-of-its-source)).
 5. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
    re-applies upstream at the current version, or your `models` block is still in the format `pharn`
    wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)).
@@ -70,7 +72,7 @@ asks to confirm (`--yes` is accepted and does nothing). Use it to look before yo
 terminal, or from a script or an agent that wants to read the plan first.
 
 What it still does, exactly like a real run: the Node check, the config load, resolving the source
-(`--ref`), the "ahead of the release" and "Already up to date" early returns (reported, exit 0), the
+(`--ref`), the "ahead of the release", "ahead of main" and "Already up to date" early returns (reported, exit 0), the
 clone, and the `MIN_CLI` gate (a refusal exits 1). What it skips: the confirm, the project lock and
 the check that the config did not change under you.
 
@@ -111,6 +113,10 @@ The outcome is the `status` field, not prose:
 | `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                            | object |
 | `up-to-date`       | "Already up to date": the installed version is the latest, and nothing (`--force`, a kept unreadable capability, an old `models` block, a channel switch) re-opens the run. | `null` |
 | `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                      | `null` |
+| `ahead-of-main`    | Your install is newer than pharn-oss `main` — `main` moved back to an older version; a real run changes nothing without `--force`.                                          | `null` |
+
+`ahead-of-main` was added without a `schemaVersion` bump (it stays `1`): an additive value, like a new
+key. Treat a `status` you do not recognise as "do not apply".
 
 ```json
 {
@@ -218,7 +224,7 @@ A compact report says so, in two places that exist **only** under `--compact`:
 
 | key                 | meaning                                                                                                                                                  |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `compact`           | `true`, at the top level, on every `status` (the `up-to-date` and `ahead-of-release` reports too, where `plan` is `null`).                               |
+| `compact`           | `true`, at the top level, on every `status` (the `up-to-date`, `ahead-of-release` and `ahead-of-main` reports too, where `plan` is `null`).              |
 | `plan.filesOmitted` | `{ "action": "noop", "count": N }`: what `plan.files` leaves out. `N` always equals `plan.counts.ok`, so `files.length + N` is the installed-file total. |
 
 To tell the shapes apart, check `compact`: the default report has neither key, is byte-for-byte what
@@ -402,7 +408,32 @@ at, never a commit whose CI is unfinished, cancelled or red.
 - **Ahead of the release.** An install made from `main` can be newer than the newest release. Applying
   the release would be a downgrade, so `update --ref latest` says so and exits 0 without changing
   anything. `--ref main` switches back to `main`; `--force` goes back to the release (backing up your
-  edits as usual).
+  edits as usual). See [An install ahead of its source](#an-install-ahead-of-its-source).
+
+### An install ahead of its source
+
+`update` never moves your install to an **older** version without being asked. On either channel, when
+the version you have is newer than the one the source offers, it reports that, changes nothing, and
+exits 0:
+
+- **On `--ref latest`** — the install came from `main` and the release at its version is not cut yet
+  (above).
+- **On `main`** — pharn-oss `main` has **moved back**: a revert took its `SKILLS_VERSION` below the one
+  you installed from it. Without this check, `update` would have shown `v2.0.0 → v1.0.0` and applied the
+  older files over every clean one. It now prints
+  `Your install (skills v2.0.0) is newer than pharn-oss main (v1.0.0) — main has moved back to an older version. Nothing changed.`
+  Wait for `main` to move forward again, or pass `--force` to downgrade (your edits are backed up first,
+  as usual).
+
+A `pendingSkillsVersion` counts too: when the last run withheld the version bump only because of your kept
+edits, every other file is already at that version, so an upstream older than it is refused the same way
+even if your recorded `skillsVersion` is older still. The check runs before the "Already up to date"
+early return and before everything that re-opens it (a kept unreadable capability, an old `models` block,
+a `--ref` switch) — so `update --ref main` on a release install that is ahead of `main` changes nothing,
+the switch included. `--dry-run` reports the same outcome, and `--dry-run --json` reports it as `status`
+`ahead-of-release` or `ahead-of-main` with `plan: null`. `--yes` does not skip it; only `--force` does.
+`pharn status` reports such an install as **ahead**, not outdated, and `--strict` does not fail on it.
+A version that cannot be ordered (not a plain `X.Y.Z`) is never treated as ahead.
 
 ## The `models` block
 

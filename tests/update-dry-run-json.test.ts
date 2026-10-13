@@ -602,6 +602,29 @@ describe('runUpdate --dry-run --json', () => {
       expect(fetchRepo).not.toHaveBeenCalled();
     });
 
+    // F-15: main moved BACK. Not `ahead-of-release` — there is no release here —
+    // but its own additive value, with the same exit and `plan: null`.
+    it('ahead-of-main: plan null, source main, exit 0', async () => {
+      await installed({ skillsVersion: '2.0.0' });
+      const { json } = await run();
+      expectOnlyTheObject();
+      expect(json).toMatchObject({
+        schemaVersion: 1,
+        status: 'ahead-of-main',
+        plan: null,
+        channel: 'main',
+        source: { kind: 'main', tag: null },
+        version: { installed: '2.0.0', latest: '1.1.0' },
+      });
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    it('--force makes an install ahead of main plannable', async () => {
+      await installed({ skillsVersion: '2.0.0' });
+      const { json } = await run({ force: true });
+      expect(json.status).toBe('planned');
+    });
+
     it('--force makes an ahead install plannable', async () => {
       await installed({ skillsVersion: '2.0.0' });
       const { json } = await run({ ref: 'latest', force: true });
@@ -665,7 +688,7 @@ describe('runUpdate --dry-run --json', () => {
       ).toBe(false);
     });
 
-    it('marks up-to-date and ahead-of-release, with a null plan', async () => {
+    it('marks up-to-date, ahead-of-release and ahead-of-main, with a null plan', async () => {
       await installed({ skillsVersion: '1.1.0' });
       const upToDate = (await run({ compact: true })).json;
       expect(upToDate).toMatchObject({
@@ -679,6 +702,13 @@ describe('runUpdate --dry-run --json', () => {
       const ahead = (await run({ compact: true, ref: 'latest' })).json;
       expect(ahead).toMatchObject({
         status: 'ahead-of-release',
+        compact: true,
+        plan: null,
+      });
+      logSpy.mockClear();
+      const aheadOfMain = (await run({ compact: true })).json;
+      expect(aheadOfMain).toMatchObject({
+        status: 'ahead-of-main',
         compact: true,
         plan: null,
       });
