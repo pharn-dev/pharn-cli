@@ -6,6 +6,7 @@ import {
   stubProcessExit,
 } from './helpers.js';
 import type { HookWiringDiff } from '../src/lib/hook-wiring.js';
+import type { AbsentSurface } from '../src/lib/install-manifest.js';
 import type { CapabilityIndex, PharnConfig } from '../src/types.js';
 
 // `status --json` must put NOTHING on stdout but the one report: every clack
@@ -56,6 +57,15 @@ vi.mock('../src/lib/hook-wiring.js', async () => ({
     '../src/lib/hook-wiring.js',
   )),
   diffHookWiring,
+}));
+
+// The surface accounting is a seam here (pinned in install-manifest.test.ts).
+const absentInstallSurfaces = vi.fn((): AbsentSurface[] => []);
+vi.mock('../src/lib/install-manifest.js', async () => ({
+  ...(await vi.importActual<typeof import('../src/lib/install-manifest.js')>(
+    '../src/lib/install-manifest.js',
+  )),
+  absentInstallSurfaces,
 }));
 
 const loadArchetypeConfigOrExit = vi.fn();
@@ -256,6 +266,29 @@ describe('runStatus --json', () => {
       expect(process.exitCode).toBe(1);
       expect(out).toHaveBeenCalledTimes(1);
       expect(report().strict).toEqual({ enabled: true, failed: true });
+    });
+
+    // F-10: a declared surface upstream ships no file for is reported as data
+    // and fails --strict on its own; the layout pair is reported and does not.
+    it('exit code 1 on a surface upstream does not ship, listed in drift.absentUpstream', async () => {
+      absentInstallSurfaces.mockReturnValueOnce([
+        { surface: 'floor', path: 'pharn/floor' },
+      ]);
+      await runStatus({ json: true, strict: true });
+      expect(process.exitCode).toBe(1);
+      expect(report().drift.absentUpstream).toEqual([
+        { surface: 'floor', path: 'pharn/floor' },
+      ]);
+      expect(report().strict).toEqual({ enabled: true, failed: true });
+    });
+
+    it('reports the recorded and upstream layout; a mismatch alone leaves the code 0', async () => {
+      // '/repo' does not exist, so the clone reads as flat; the config says pharn.
+      loadArchetypeConfigOrExit.mockReturnValue(config({ layout: 'pharn' }));
+      await runStatus({ json: true, strict: true });
+      expect(report().layout).toEqual({ recorded: 'pharn', upstream: 'flat' });
+      expect(report().drift.absentUpstream).toEqual([]);
+      expect(process.exitCode).toBeUndefined();
     });
 
     it('exit code 1 when outdated', async () => {

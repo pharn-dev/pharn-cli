@@ -78,6 +78,7 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
         { event: 'Stop', matcher: '', command: 'node', args: ['h.cjs'] },
       ],
     },
+    absentUpstream: [],
     recordsNote: 'records were left by another tool',
     unknownWarning: 'prose that must not be in the JSON',
     unknownCapabilities: [
@@ -245,6 +246,37 @@ describe('buildUpdateReport — planned', () => {
 
   // The projection is an allowlist: a field added to UpdatePlanReport later must
   // not become public contract by accident. These key sets ARE the contract.
+  // F-10: the declared surfaces the clone ships no file for, as data. Present
+  // ONLY when there is one, so a report with none stays byte-identical to the
+  // one 0.10.0 shipped (pinned below).
+  it('omits absentUpstream when the clone ships every declared surface', () => {
+    expect('absentUpstream' in r.plan!).toBe(false);
+  });
+
+  it('projects absentUpstream as {surface, path} rows after hooks, path capped', () => {
+    const withAbsent = buildUpdateReport(
+      input({
+        plan: planReport({
+          absentUpstream: [
+            { surface: 'hooks', path: '.claude/hooks' },
+            { surface: 'floor', path: 'x'.repeat(500) },
+          ],
+        }),
+      }),
+    );
+    const keys = Object.keys(withAbsent.plan!);
+    expect(keys.indexOf('absentUpstream')).toBe(keys.indexOf('hooks') + 1);
+    expect(withAbsent.plan!.absentUpstream![0]).toEqual({
+      surface: 'hooks',
+      path: '.claude/hooks',
+    });
+    expect(withAbsent.plan!.absentUpstream![1]!.path.length).toBeLessThan(500);
+    expect(Object.keys(withAbsent.plan!.absentUpstream![1]!)).toEqual([
+      'surface',
+      'path',
+    ]);
+  });
+
   it('exposes exactly the documented keys at every level', () => {
     expect(Object.keys(r)).toEqual([
       'schemaVersion',

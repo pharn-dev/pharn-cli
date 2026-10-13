@@ -491,6 +491,22 @@ describe('runUpdate --dry-run --json', () => {
       });
     });
 
+    // F-10: the declared surfaces the clone ships no file for, structured.
+    it('lists the declared surfaces the clone does not ship as absentUpstream', async () => {
+      await installed();
+      const { json } = await run();
+      const absent = json.plan.absentUpstream as {
+        surface: string;
+        path: string;
+      }[];
+      expect(absent).toContainEqual({
+        surface: 'contracts',
+        path: 'pharn-contracts',
+      });
+      expect(absent).toContainEqual({ surface: 'floor', path: '.dev/floor' });
+      expect(absent.map((a) => a.surface)).not.toContain('hooks');
+    });
+
     it('reports the features README relocation', async () => {
       await installed();
       const read = readRecords(proj);

@@ -13,7 +13,11 @@ import {
   installCapabilities,
   prepareInstall,
 } from '../lib/install-capabilities.js';
-import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
+import {
+  absentInstallSurfaces,
+  collectExpectedInstallPaths,
+} from '../lib/install-manifest.js';
+import { absentSurfaceLines } from '../lib/absent-surfaces.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { manifestSources, scanDest } from '../lib/dest-drift.js';
 import { createBackup, replacedConfigBackup } from '../lib/backup.js';
@@ -227,24 +231,23 @@ export async function runInstallArchetype(
   const models =
     upstreamModels.kind === 'ok' ? upstreamModels.block : undefined;
 
-  // Which trusted docs the fetched repo did NOT ship at their expected path. A
-  // set difference over two CLI-owned string arrays — the expected list from the
-  // layout resolver, the written list from the copy routine itself, so a doc can
-  // only be "missing" here because its existence guard rejected it.
-  //
-  // The guard is deliberate (an older clone that predates a doc must still
-  // install, P7), but its silence is not: two docs were absent from every pharn
-  // install while the outro reported "docs written" regardless. Naming them is
-  // the whole point — the copy is still a no-op, it just no longer reads as
-  // success.
-  const docsMissing = layoutPaths(layout).docs.filter(
-    (doc) => !docsWritten.includes(doc),
+  // Every declared product surface the fetched repo shipped NO file for —
+  // commands, hooks, each trusted doc, the LICENSE, the features README,
+  // contracts, core, floor (lib/install-manifest.ts → absentInstallSurfaces,
+  // the same enumeration the copy's manifest comes from). Each copy is
+  // existence-guarded on purpose (an older or reorganized clone must still
+  // install, P7), but its silence was the defect: two docs were absent from
+  // every install while the outro said "docs written", and a relocated
+  // surface — or an `.mjs` hook — was dropped with no word at all. Warned, never
+  // fatal: upstream's MIN_CLI is the lever for refusing a too-old CLI.
+  const absent = absentInstallSurfaces({ repoDir, layout });
+  const absentLines = absentSurfaceLines(absent);
+  if (absentLines) log.warn(absentLines.join('\n'));
+  // The `.claude/` surfaces that actually landed, for the outro: never claim
+  // a surface the warning above just named as not shipped.
+  const claudeWritten = (['commands', 'hooks'] as const).filter(
+    (surface) => !absent.some((a) => a.surface === surface),
   );
-  if (docsMissing.length) {
-    log.warn(
-      `The fetched repo shipped no ${docsMissing.join(', ')} — not installed. Installed commands and checkers that cite ${docsMissing.length === 1 ? 'it' : 'them'} by path will not resolve.`,
-    );
-  }
 
   const frozenCapabilities = [
     ...new Set(carry.kept.map((c) => `${c.role}:${c.name}`)),
@@ -365,7 +368,9 @@ export async function runInstallArchetype(
   outro(
     [
       `${check} ${capabilities.length} capabilit${capabilities.length === 1 ? 'y' : 'ies'} installed → ${pc.dim(`(${grillers} griller${grillers === 1 ? '' : 's'}, ${lenses} lens${lenses === 1 ? '' : 'es'})`)}`,
-      `${check} PHARN commands + hooks written → ${pc.dim('.claude/')}`,
+      claudeWritten.length
+        ? `${check} PHARN ${claudeWritten.join(' + ')} written → ${pc.dim('.claude/')}`
+        : `${pc.yellow('!')} no PHARN commands or hooks written ${pc.dim('(the fetched repo shipped none)')}`,
       docsLine,
       `${check} pharn.config.json written ${pc.dim(`(skills v${skillsVersion}, archetypes: ${archetypes.join(', ')})`)}`,
       `${pc.dim(`Done in ${elapsed}s`)}`,

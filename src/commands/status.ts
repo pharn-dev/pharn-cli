@@ -23,7 +23,11 @@ import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import type { InstallDiff } from '../lib/diff.js';
 import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
-import { collectExpectedInstallPaths } from '../lib/install-manifest.js';
+import {
+  absentInstallSurfaces,
+  collectExpectedInstallPaths,
+  type AbsentSurface,
+} from '../lib/install-manifest.js';
 import { readRecords, recordsBaseline } from '../lib/install-records.js';
 import { findOrphans, orphanNoteLines, type Orphan } from '../lib/orphans.js';
 import { row } from '../lib/format.js';
@@ -47,7 +51,7 @@ import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
 } from '../lib/skills-version.js';
-import type { InstalledCapability, PharnConfig } from '../types.js';
+import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 
 /**
  * Read-only audit of an archetype install: is it current (version section) and
@@ -155,6 +159,9 @@ async function runArchetypeStatusJson(
       ),
       layout: configLayout(config),
     });
+    // At the CLONE's own layout: "absent" means upstream ships nothing there,
+    // never "the install is recorded at another layout" (that is `layout`).
+    const upstreamLayout = detectLayout(repo.dir);
     report = buildStatusReport({
       node,
       config,
@@ -166,6 +173,11 @@ async function runArchetypeStatusJson(
         hooks: diffHookWiring(repo.dir, cwd),
         unknown: index.unknown,
         orphans: statusOrphans(repo.dir, cwd, config, frozen),
+        absentUpstream: absentInstallSurfaces({
+          repoDir: repo.dir,
+          layout: upstreamLayout,
+        }),
+        upstreamLayout,
       },
       strict,
     });
@@ -287,7 +299,16 @@ async function runArchetypeStatus(
       ),
       layout: configLayout(config),
     });
-    printDriftSection(result, sourceLabel(repo.source));
+    // The declared product surfaces upstream ships NO file for, at the CLONE's
+    // own layout — so the label means exactly that. A recorded layout that
+    // differs from it is the LAYOUT note's to say, and is not a --strict input.
+    const upstreamLayout = detectLayout(repo.dir);
+    const absentUpstream = absentInstallSurfaces({
+      repoDir: repo.dir,
+      layout: upstreamLayout,
+    });
+    printLayoutNote(configLayout(config), upstreamLayout);
+    printDriftSection(result, absentUpstream, sourceLabel(repo.source));
     // ORPHANED: report only — never a --strict input (no pharn command can
     // clear one; update never deletes).
     const orphanLines = orphanNoteLines(
@@ -299,7 +320,10 @@ async function runArchetypeStatus(
     const hooks = diffHookWiring(repo.dir, cwd);
     const hookLines = hookWiringLines(hooks);
     if (hookLines) note(hookLines.join('\n'), 'HOOKS');
-    if (strict && strictFails({ outdated, diff: result, hooks })) {
+    if (
+      strict &&
+      strictFails({ outdated, diff: result, hooks, absentUpstream })
+    ) {
       exitCode = 1;
     }
   } catch (err) {
@@ -436,14 +460,36 @@ function statusOrphans(
   }).orphans;
 }
 
-// DRIFT note: differing, missing and unreadable PHARN-owned files, or a clean
-// bill. Takes the InstallDiff type rather than an inline structural literal, so
-// a partition added to the diff cannot be silently left unrendered here.
-function printDriftSection(result: InstallDiff, ref: string): void {
+// LAYOUT note: the install is recorded at a layout the fetched clone no longer
+// ships. Advisory and never a --strict input: the drift check still compares
+// the files at the recorded layout, and `pharn update` is what moves the
+// install (it records the clone's layout). Nothing printed when they agree.
+function printLayoutNote(recorded: Layout, upstream: Layout): void {
+  if (recorded === upstream) return;
+  note(
+    [
+      `Recorded at the ${recorded} layout; pharn-oss now ships the ${upstream} layout.`,
+      pc.dim('`pharn update` moves the install to it. Until then the drift'),
+      pc.dim(`check compares your files at the ${recorded} layout's paths.`),
+    ].join('\n'),
+    'LAYOUT',
+  );
+}
+
+// DRIFT note: differing, missing and unreadable PHARN-owned files, the declared
+// surfaces upstream ships nothing for, or a clean bill. Takes the InstallDiff
+// type rather than an inline structural literal, so a partition added to the
+// diff cannot be silently left unrendered here.
+function printDriftSection(
+  result: InstallDiff,
+  absentUpstream: readonly AbsentSurface[],
+  ref: string,
+): void {
   if (
     result.modified.length === 0 &&
     result.missing.length === 0 &&
-    result.unreadable.length === 0
+    result.unreadable.length === 0 &&
+    absentUpstream.length === 0
   ) {
     note(`No drift — ${result.okCount} file(s) match ${ref}.`, 'DRIFT');
     return;
@@ -497,6 +543,21 @@ function printDriftSection(result: InstallDiff, ref: string): void {
       ),
       pc.dim('  Inspect each path by hand — a directory, a symlink, or an'),
       pc.dim('  unreadable file sits where pharn expects a regular file.'),
+    );
+  }
+  if (absentUpstream.length) {
+    // Not a file of the project's: a surface the install declares and the
+    // clone ships no file for, so nothing was installed there. No pharn
+    // command can fix it — upstream moved or dropped it.
+    if (lines.length) lines.push('');
+    lines.push(`  NOT SHIPPED UPSTREAM — ${ref} has no file here`);
+    for (const { surface, path } of absentUpstream) {
+      lines.push(`  ${terminalSafe(path, { max: 200 })} (${surface})`);
+    }
+    lines.push(
+      pc.dim('  Installed commands, hooks and checkers that use these will'),
+      pc.dim('  not find them. If pharn-oss moved them, a newer pharn may'),
+      pc.dim('  know where: npm i -g @pharn-dev/pharn@latest'),
     );
   }
   lines.push('', pc.dim(`  ${result.okCount} file(s) match ${ref}.`));

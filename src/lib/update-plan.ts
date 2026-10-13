@@ -5,7 +5,11 @@ import {
   mergeCapabilities,
   type CapabilityChange,
 } from './merge-capabilities.js';
-import { collectExpectedInstallPaths } from './install-manifest.js';
+import {
+  absentInstallSurfaces,
+  collectExpectedInstallPaths,
+  type AbsentSurface,
+} from './install-manifest.js';
 import { readDiskState } from './apply-update.js';
 import { contentHash } from './hash.js';
 import {
@@ -86,6 +90,10 @@ export interface UpdatePlanReport {
   models: ModelsUpdate;
   modelsFloor: string;
   hookWiring: HookWiringDiff;
+  // The declared product surfaces the clone ships no file for, at its own
+  // layout (absentInstallSurfaces). Reported, never a skip: it withholds
+  // nothing, since no file on disk was left behind by it.
+  absentUpstream: AbsentSurface[];
   recordsNote: string | null;
   unknownWarning: string | null;
   // The structured twin of `unknownWarning`: what the fetch boundary refused.
@@ -309,6 +317,7 @@ export function buildUpdatePlan(input: {
       // Read-only, never throws, and `update` never writes the settings files it
       // reads, so the answer is the same before and after the writes.
       hookWiring: diffHookWiring(repoDir, cwd),
+      absentUpstream: absentInstallSurfaces({ repoDir, layout }),
       recordsNote,
       unknownWarning,
       unknownCapabilities: index.unknown,

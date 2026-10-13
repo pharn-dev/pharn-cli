@@ -380,6 +380,18 @@ describe('pharn init --dry-run', () => {
   describe('warnings in the text preview', () => {
     beforeEach(() => setTTY(undefined, undefined));
 
+    // F-10: the same not-shipped warning a real run prints, worded as a preview.
+    it('warns about every declared surface the clone does not ship, as a real run would', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      await init(repo, proj, { dryRun: true });
+      const warned = logged('warn');
+      expect(warned).toContain('so pharn would not install them:');
+      expect(warned).toContain('LIMITS.md (trusted-doc)');
+      expect(warned).toContain('features/README.md (features-readme)');
+      expect(warned).not.toContain('(hooks)');
+      expect(warned).not.toContain('(contracts)');
+    });
+
     it('names an upstream capability this pharn cannot read, through clack', async () => {
       const { repo, proj } = fixture(tmp.path());
       // No markdown file of its own name: refused at the fetch boundary.

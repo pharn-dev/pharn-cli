@@ -61,12 +61,37 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     settingsPreserved: false,
     hookWiring: null,
     models: { outcome: 'copy', reasons: [] },
+    absentUpstream: [],
     carriedConfigKeys: ['testResults'],
     ...over,
   };
 }
 
 describe('buildInitReport', () => {
+  // F-10: the declared surfaces the clone ships no file for — present ONLY when
+  // there is one (as in `update --dry-run --json`), after `hooks`, path capped.
+  it('omits absentUpstream when nothing is absent', () => {
+    expect('absentUpstream' in buildInitReport(plan())).toBe(false);
+  });
+
+  it('carries absentUpstream after hooks when a surface is absent', () => {
+    const r = buildInitReport(
+      plan({
+        absentUpstream: [
+          { surface: 'hooks', path: '.claude/hooks' },
+          { surface: 'floor', path: 'f'.repeat(500) },
+        ],
+      }),
+    );
+    const keys = Object.keys(r);
+    expect(keys.indexOf('absentUpstream')).toBe(keys.indexOf('hooks') + 1);
+    expect(r.absentUpstream![0]).toEqual({
+      surface: 'hooks',
+      path: '.claude/hooks',
+    });
+    expect(r.absentUpstream![1]!.path.length).toBeLessThan(500);
+  });
+
   it('carries the contract fields, and nothing internal', () => {
     const r = buildInitReport(plan());
     expect(Object.keys(r)).toEqual([

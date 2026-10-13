@@ -355,7 +355,7 @@ Then it lists the **selected** capabilities (name, role, and why — `universal`
 | Yes, install | Copy the capabilities + product surfaces and write config |
 | Cancel       | Exit 0; nothing written                                   |
 
-After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs` hooks, `pharn/features/README.md`, the contracts, core and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. When `pharn.config.json` is one of them, the warning also names the `skillsVersion` your existing config records, so you can see which version you are about to replace (read locally, never fetched; the clause is simply omitted if that file cannot be read). If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check.
+After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs`/`.mjs` hooks, `pharn/features/README.md`, the contracts, core and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. When `pharn.config.json` is one of them, the warning also names the `skillsVersion` your existing config records, so you can see which version you are about to replace (read locally, never fetched; the clause is simply omitted if that file cannot be read). If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check.
 
 **Re-running `init` over an existing install.** `init` overwrites every file it installs, so before it
 does, it copies the ones you could lose to `.pharn-backup/<timestamp>/` and prints that directory as soon
@@ -422,7 +422,7 @@ settings file — and is refused only when its target does not exist. See
 | Action                     | Behavior                                                                                                                                                                                                                                                           |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                     |
-| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs` hooks, the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files, `test-fixtures/` and `fixtures/`)                            |
+| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files, `test-fixtures/` and `fixtures/`)    |
 | Preserve settings          | An existing `.claude/settings.json` is **never** overwritten or merged; a `HOOKS` note lists every PHARN hook it does not wire ([below](#an-existing-claudesettingsjson))                                                                                          |
 | Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
@@ -434,6 +434,34 @@ The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`,
 the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
 that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and
 publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
+
+#### A surface pharn-oss does not ship
+
+Every product surface `init` copies is optional on the way in: a clone that lacks one still installs.
+What `init` does not do is stay quiet about it. After the copy, it warns once, naming every declared
+surface the fetched clone ships **no file** for — the commands, the hooks, each trusted doc, pharn's
+`LICENSE` copy, `features/README.md`, and the contracts, `pharn-core` and floor dirs — by path and kind:
+
+```text
+pharn-oss ships nothing at these paths, so pharn did not install them:
+  .claude/hooks (hooks)
+  pharn/pharn-contracts (contracts)
+Installed commands, hooks and checkers that use them will not find them.
+If pharn-oss moved them, a newer pharn may know where:
+  npm i -g @pharn-dev/pharn@latest
+```
+
+`--dry-run` prints the same warning, and `--dry-run --json` carries the same list as `absentUpstream`
+(`[{surface, path}]`, present only when there is one). The closing summary names only the `.claude/`
+surfaces that landed (`PHARN commands written`, say, when no hooks did). It is a warning, never a
+refusal: the install, `pharn.config.json` and `pharn.records.json` complete as usual, `--yes` is not
+refused by it, and [`pharn status --strict`](status.md) fails while any surface is missing upstream. A
+directory that ships files, but none `init` takes (hooks with an extension other than `.cjs` or `.mjs`,
+say), counts as not shipped. An `.mjs` hook's name is held to the same filename allowlist as a `.cjs`
+one, so a name outside it refuses the install. The list of declared surfaces is pharn's own and closed
+(a surface pharn-oss adds is neither installed nor reported), and it is checked per surface, not per
+file: a hook wired in `settings.json` whose script is missing from a hooks directory that still ships
+other hooks is not reported.
 
 #### An existing `.claude/settings.json`
 

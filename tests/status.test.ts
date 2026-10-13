@@ -9,6 +9,7 @@ import {
   stubProcessExit,
   useTmpDir,
 } from './helpers.js';
+import type { AbsentSurface } from '../src/lib/install-manifest.js';
 import type { CapabilityIndex, PharnConfig } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -60,6 +61,17 @@ const parseCapabilityIndex = vi.fn((): CapabilityIndex => ({
   unknown: [],
 }));
 vi.mock('../src/lib/capability-index.js', () => ({ parseCapabilityIndex }));
+
+// The surface accounting runs on the clone; its own behaviour is pinned in
+// tests/install-manifest.test.ts. Here it is a seam: nothing absent unless a
+// test says so.
+const absentInstallSurfaces = vi.fn((): AbsentSurface[] => []);
+vi.mock('../src/lib/install-manifest.js', async () => ({
+  ...(await vi.importActual<typeof import('../src/lib/install-manifest.js')>(
+    '../src/lib/install-manifest.js',
+  )),
+  absentInstallSurfaces,
+}));
 
 const loadArchetypeConfigOrExit = vi.fn();
 vi.mock('../src/lib/pharn-config.js', () => ({ loadArchetypeConfigOrExit }));
@@ -1091,5 +1103,89 @@ describe('runStatus — ORPHANED', () => {
     fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
     await runStatus({ drift: false });
     expect(noteBody('ORPHANED')).toBe('');
+  });
+});
+
+// F-10: a declared product surface the clone ships NO file for is named in the
+// DRIFT note and fails --strict. It is computed at the CLONE's own layout, so it
+// means exactly "upstream ships nothing there" — a recorded layout that differs
+// from upstream's is a separate, advisory LAYOUT note, and not a --strict input.
+describe('runStatus — NOT SHIPPED UPSTREAM and LAYOUT (F-10)', () => {
+  stubProcessExit();
+  const tmp = useTmpDir();
+  let repo = '';
+  const plain = (title: string): string =>
+    stripVTControlCharacters(noteBody(title));
+  const ABSENT: AbsentSurface[] = [
+    { surface: 'hooks', path: '.claude/hooks' },
+    { surface: 'contracts', path: 'pharn/pharn-contracts' },
+  ];
+
+  beforeEach(() => {
+    repo = join(tmp.path(), 'repo');
+    mkdirSync(repo, { recursive: true });
+    vi.spyOn(process, 'cwd').mockReturnValue('/proj');
+    loadArchetypeConfigOrExit.mockReturnValue(config());
+    fetchRepo.mockResolvedValue({ dir: repo, cleanup: vi.fn() });
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(CLEAN);
+    absentInstallSurfaces.mockReturnValue([]);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('names each absent surface in the DRIFT note — and is not "No drift"', async () => {
+    absentInstallSurfaces.mockReturnValue(ABSENT);
+    await runStatus({});
+    const drift = plain('DRIFT');
+    expect(drift).toContain('NOT SHIPPED UPSTREAM');
+    expect(drift).toContain('.claude/hooks (hooks)');
+    expect(drift).toContain('pharn/pharn-contracts (contracts)');
+    expect(drift).not.toContain('No drift');
+  });
+
+  it('exits 0 without --strict, and 1 under --strict when it is the ONLY finding', async () => {
+    absentInstallSurfaces.mockReturnValue(ABSENT);
+    await runStatus({});
+    await expect(runStatus({ strict: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+  });
+
+  it('accounts at the CLONE layout, not the recorded one', async () => {
+    mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
+    loadArchetypeConfigOrExit.mockReturnValue(config({ layout: 'flat' }));
+    await runStatus({});
+    expect(absentInstallSurfaces).toHaveBeenCalledWith({
+      repoDir: repo,
+      layout: 'pharn',
+    });
+    // The file diff still addresses the project at its recorded layout.
+    expect(diffInstalledCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ layout: 'flat' }),
+    );
+  });
+
+  it('a recorded layout upstream no longer ships is a LAYOUT note, and --strict stays 0', async () => {
+    mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
+    loadArchetypeConfigOrExit.mockReturnValue(config({ layout: 'flat' }));
+    await runStatus({ strict: true });
+    const layout = plain('LAYOUT');
+    expect(layout).toContain('flat');
+    expect(layout).toContain('pharn');
+    expect(layout).toContain('pharn update');
+    expect(plain('DRIFT')).toContain('No drift');
+  });
+
+  it("prints no LAYOUT note when the recorded layout is upstream's", async () => {
+    await runStatus({});
+    expect(
+      vi.mocked(prompts.note).mock.calls.some((c) => c[1] === 'LAYOUT'),
+    ).toBe(false);
+  });
+
+  it('--no-drift fetches no clone and accounts nothing', async () => {
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+    await runStatus({ drift: false, strict: true });
+    expect(absentInstallSurfaces).not.toHaveBeenCalled();
   });
 });
