@@ -1,4 +1,6 @@
-import { chmod, lstat, unlink, writeFile, rename } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { chmod, lstat, open, rename, unlink } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 
 // ---------------------------------------------------------------------------
 // Atomic replacement of a CLI-owned JSON file — `pharn.config.json` and
@@ -24,8 +26,20 @@ import { chmod, lstat, unlink, writeFile, rename } from 'node:fs/promises';
 // ---------------------------------------------------------------------------
 
 /**
+ * How many candidate temp names `writeJsonAtomic` tries before giving up. Each
+ * candidate carries a fresh {@link TMP_NONCE_BYTES}-byte random nonce, so an
+ * `EEXIST` on an honest run is practically unreachable; the bound exists so a
+ * broken random source (or a test stubbing one) fails with a named error
+ * instead of looping forever.
+ */
+export const TMP_CREATE_ATTEMPTS = 8;
+
+/** Random bytes in each temp name's nonce (hex-encoded, so 2x the characters). */
+export const TMP_NONCE_BYTES = 16;
+
+/**
  * The temp path `writeJsonAtomic` writes before renaming: a SIBLING of the
- * target, in the same directory.
+ * target, in the same directory, named `<target>.<pid>.<nonce>.tmp`.
  *
  * The sibling placement is a precondition, not a style choice — `rename(2)` is
  * atomic only WITHIN a filesystem, and a cross-device rename fails `EXDEV`
@@ -33,19 +47,61 @@ import { chmod, lstat, unlink, writeFile, rename } from 'node:fs/promises';
  * makes that unreachable, and it is also what keeps Node's `rename` able to
  * replace an existing destination on win32.
  *
- * The pid in the name means two concurrent `pharn` processes get distinct temps,
- * so neither can truncate the other's. That is a COLLISION property only — it is
- * NOT mutual exclusion over the target, which nothing here provides.
+ * The NONCE is what makes the name unpredictable. The target sits in the
+ * user's checkout, which may be hostile: a predictable temp name
+ * (`<target>.<pid>.tmp` until this was fixed) could be committed in advance as a
+ * SYMLINK, and a plain `writeFile` would follow it — truncating whatever file
+ * outside the project it pointed at — before the `rename` installed the link
+ * over the config. The nonce is defence in depth; the actual floor is the
+ * exclusive create in `writeJsonAtomic`, which refuses ANY pre-existing entry
+ * at the name, a symlink included, without following it.
+ *
+ * The pid keeps two concurrent `pharn` processes' temps apart even if a nonce
+ * repeated. That is a COLLISION property only — it is NOT mutual exclusion over
+ * the target, which nothing here provides.
  */
-export function tmpPathFor(target: string): string {
-  return `${target}.${process.pid}.tmp`;
+export function tmpPathFor(target: string, nonce: string): string {
+  return `${target}.${process.pid}.${nonce}.tmp`;
+}
+
+/** A fresh, unpredictable temp-name nonce. */
+function freshNonce(): string {
+  return randomBytes(TMP_NONCE_BYTES).toString('hex');
 }
 
 /**
- * Serialize `value` to `target` atomically: write a sibling temp, then rename it
- * over the target. Bytes are exactly what a plain `writeFile` produced —
- * `JSON.stringify(value, null, 2)` plus a trailing newline, utf8 — so no caller's
- * byte assertions change.
+ * Create a temp sibling of `target` EXCLUSIVELY and return its path and handle.
+ *
+ * `wx` is `O_CREAT | O_EXCL`: the open fails `EEXIST` when ANYTHING already sits
+ * at the name — a regular file, a directory, a dangling or live symlink — and
+ * it never follows a symlink in the last component (POSIX). That, not the
+ * nonce, is what keeps a planted link from redirecting the write. On `EEXIST`
+ * the next candidate gets a fresh nonce; the pre-existing entry is left exactly
+ * as found (it is not ours to delete). Any other open error is thrown as is.
+ */
+async function createExclusiveTemp(
+  target: string,
+): Promise<{ tmp: string; handle: FileHandle }> {
+  for (let attempt = 0; attempt < TMP_CREATE_ATTEMPTS; attempt++) {
+    const tmp = tmpPathFor(target, freshNonce());
+    try {
+      return { tmp, handle: await open(tmp, 'wx') };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  const err = new Error(
+    `Could not create a temporary file beside ${target}: ${TMP_CREATE_ATTEMPTS} randomly named candidates all already existed. Nothing was written; ${target} is unchanged.`,
+  ) as NodeJS.ErrnoException;
+  err.code = 'EEXIST';
+  throw err;
+}
+
+/**
+ * Serialize `value` to `target` atomically: create a sibling temp exclusively,
+ * write it, then rename it over the target. Bytes are exactly what a plain
+ * `writeFile` produced — `JSON.stringify(value, null, 2)` plus a trailing
+ * newline, utf8 — so no caller's byte assertions change.
  *
  * `rename` swaps in a NEW inode, so the previous file's permission bits would
  * otherwise be discarded and replaced by whatever the umask gives (a `0600`
@@ -59,21 +115,31 @@ export function tmpPathFor(target: string): string {
  * plain `writeFile` this replaced, which followed the link. It is the same
  * posture the rest of the CLI takes toward symlinks (never followed), and it
  * keeps the write inside the project root — named here rather than left to be
- * discovered.
+ * discovered. The TEMP is never followed either (see `createExclusiveTemp`).
  *
- * On any failure the temp is unlinked BEST-EFFORT and the original error is
- * rethrown. The unlink's own error is deliberately swallowed: a cleanup failure
- * must never mask the cause. Best-effort is the honest word — a SIGKILL between
- * the write and the unlink can still leave a temp behind. The guarantee is about
- * the TARGET (replaced or untouched), not about litter.
+ * On any failure AFTER the temp was created, it is unlinked BEST-EFFORT and the
+ * original error is rethrown. Only a temp THIS call created is ever unlinked —
+ * an entry that was already at a candidate name (another process's temp, a
+ * planted link) is never touched. The unlink's own error is deliberately
+ * swallowed: a cleanup failure must never mask the cause. Best-effort is the
+ * honest word — a SIGKILL between the create and the unlink can still leave a
+ * temp behind. The guarantee is about the TARGET (replaced or untouched), not
+ * about litter.
  */
 export async function writeJsonAtomic(
   target: string,
   value: unknown,
 ): Promise<void> {
-  const tmp = tmpPathFor(target);
+  const { tmp, handle } = await createExclusiveTemp(target);
   try {
-    await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    try {
+      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    } catch (err) {
+      // The write's error is the cause; a close error here must not mask it.
+      await handle.close().catch(() => {});
+      throw err;
+    }
+    await handle.close();
     const prev = await lstat(target).catch(() => null);
     if (prev?.isFile()) await chmod(tmp, prev.mode & 0o777).catch(() => {});
     await rename(tmp, target);

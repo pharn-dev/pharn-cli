@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`pharn.config.json` and `pharn.records.json` can no longer be redirected through a symlink committed beside them.** Both files are written to a temporary file next to them and then renamed into place. That temporary file had a predictable name (`pharn.config.json.<pid>.tmp`) and was opened in a way that followed a symbolic link, so a repository that committed a link at that name could make any `pharn` command that writes the config (or the records store) overwrite a file outside the project that you can write to, and leave `pharn.config.json` itself as a link. The temporary file now gets an unpredictable random name and is created exclusively: an existing entry at the name, a link included, is never opened or followed, and `pharn` tries a fresh name instead (after 8 taken names it stops with an error and writes nothing). File contents and permissions are written exactly as before.
+
 ### Fixed
 
 - **The floor's `fixtures/` are no longer installed into your project.** pharn-oss added a second test-apparatus directory to its floor, `pharn/floor/fixtures/` (13 cost-ledger transcript files), read only by the floor's `*.test.mjs` files — which `pharn` already leaves out. `pharn` excluded only `test-fixtures/` by name, so every install copied these 13 files, `pharn status` drift-tracked them as product, and `pharn update` restored them if you deleted them. `fixtures/` is now excluded exactly like `test-fixtures/`: on the copy side and the expected-file side together, matched only as the floor directory's direct child, so a file merely named `my-fixtures.mjs` or a deeper `lib/fixtures/` directory is unaffected. **Already-installed copies stay** — `pharn update` never deletes — but they drop out of the tracked set: deleting `fixtures/` under your installed floor is safe, and `pharn` will neither restore it nor report it missing.

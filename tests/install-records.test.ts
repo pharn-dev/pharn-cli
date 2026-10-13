@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   mkdirSync,
   readFileSync,
@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   buildRecords,
@@ -22,8 +22,26 @@ import {
   RECORDS_SCHEMA_VERSION,
   writeRecords,
 } from '../src/lib/install-records.js';
-import { tmpPathFor } from '../src/lib/atomic-write.js';
+import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
 import type { UpdateLabel } from '../src/lib/update-decision.js';
+
+// The atomic write's temp name carries a random nonce. It is wrapped (not
+// replaced) so only the test that needs a predictable name pins one, to plant
+// a blocker at the name pharn will actually try.
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  return { ...actual, randomBytes: vi.fn(actual.randomBytes) };
+});
+
+/** Pin the temp nonce for one test and return the temp path it yields. */
+function pinTmpPath(target: string): string {
+  const nonce = Buffer.alloc(TMP_NONCE_BYTES, 0x5a);
+  // `randomBytes` is overloaded (sync + callback); this is the sync shape.
+  vi.mocked(randomBytes).mockImplementation(
+    (() => nonce) as unknown as typeof randomBytes,
+  );
+  return tmpPathFor(target, nonce.toString('hex'));
+}
 
 const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 
@@ -513,6 +531,9 @@ describe('writeRecords — atomic replacement', () => {
   const tmp = useTmpDir();
   const proj = () => tmp.path();
   const storeFile = () => join(proj(), RECORDS_FILE);
+  afterEach(() => {
+    vi.mocked(randomBytes).mockReset();
+  });
 
   it('writes the same bytes as before: 2-space JSON + trailing newline', async () => {
     const files = { 'a.md': sha('a') };
@@ -534,7 +555,7 @@ describe('writeRecords — atomic replacement', () => {
 
   it('leaves the previous store intact and readable when the write fails', async () => {
     await writeRecords(proj(), { ...STAMP, files: { 'a.md': sha('a') } });
-    mkdirSync(tmpPathFor(storeFile()), { recursive: true });
+    mkdirSync(pinTmpPath(storeFile()), { recursive: true });
 
     await expect(
       writeRecords(proj(), { ...STAMP, files: { 'b.md': sha('b') } }),
