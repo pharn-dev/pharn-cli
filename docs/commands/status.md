@@ -83,9 +83,11 @@ Distinguishing those two needs the install records, which only `update` reads.
 
 The comparison is always against the source the install follows — `@main`, or the newest verified
 release (`pharn-dev/pharn-oss@v6.54.1`, say) for an install that records `"ref": "latest"` — the same
-source `update` would install, not the `commit` pinned in your config. An install **ahead** of the newest
-release (made from `main`, then switched with `--ref latest`) is reported as ahead, not outdated, and does not fail `--strict`; its drift
-section compares against the older release. Note that `update` derives its file set from the layout of the clone it
+source `update` would install, not the `commit` pinned in your config. An install **ahead** of the
+source it follows — newer than the newest release (made from `main`, then switched with `--ref latest`),
+or newer than `main` itself (when `main` has moved back to an older version) — is reported as ahead, not
+outdated, and does not fail `--strict`, because `pharn update` will not downgrade it without `--force`;
+its drift section compares against the older source. Note that `update` derives its file set from the layout of the clone it
 fetches, so a project mid-way through a layout migration can show little drift here while `update` has
 a whole tree to relocate.
 
@@ -129,18 +131,18 @@ files, an unwired upstream hook). The report's `strict.failed` says the same thi
 }
 ```
 
-| key                   | meaning                                                                                                                                                                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schemaVersion`       | `1`. Match it exactly. New keys may appear within `1`; a breaking change bumps it. This is a documented contract, not something `pharn` enforces.                                                                                           |
-| `node`                | The floor (`>= 24.2.0`), the running Node (`null` if it reports none), and `status`: `ok`, `below` or `unparseable`. Reported, never a `--strict` input.                                                                                    |
-| `version`             | Installed and latest skills versions, the `channel` (`main` or `latest`), the `source` (`kind` `main` or `release`, with the release `tag`), `ahead` (newer than the newest verified release — not outdated) and `outdated`.                |
-| `archetypes`          | The recorded archetypes.                                                                                                                                                                                                                    |
-| `capabilities`        | `count` of installed capabilities (the list is `pharn list --json`).                                                                                                                                                                        |
-| `drift`               | `modified[]`, `missing[]`, `unreadable[{rel, reason}]` and `okCount`, as in the `DRIFT` note. **`null` under `--no-drift`.**                                                                                                                |
-| `hooks`               | `status` (`match`, `local-only`, `missing`, `no-upstream`, `project-absent`, `unreadable`), the `missing[]` and `localOnly[]` hooks as `{event, matcher, command, args}`, and `file`/`reason` (else `null`). **`null` under `--no-drift`.** |
-| `models`              | `null` without a `models` block; otherwise `conversionNeeded`, a `verdict` (`valid`, `no-stages`, `invalid`, `old-format`), `stages[{stage, model, effort, viaDefault}]` when valid, or `reds[{kind, detail}]` when invalid.                |
-| `unknownCapabilities` | Upstream capabilities the CLI could not read and skipped: `{role, name, subtree, reason}`. **`null` under `--no-drift`.**                                                                                                                   |
-| `strict`              | `enabled` (`--strict` passed) and `failed` (it would exit `1`).                                                                                                                                                                             |
+| key                   | meaning                                                                                                                                                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion`       | `1`. Match it exactly. New keys may appear within `1`; a breaking change bumps it. This is a documented contract, not something `pharn` enforces.                                                                                                                                 |
+| `node`                | The floor (`>= 24.2.0`), the running Node (`null` if it reports none), and `status`: `ok`, `below` or `unparseable`. Reported, never a `--strict` input.                                                                                                                          |
+| `version`             | Installed and latest skills versions, the `channel` (`main` or `latest`), the `source` (`kind` `main` or `release`, with the release `tag`), `ahead` (newer than the source it follows — the newest verified release, or a `main` that moved back — not outdated) and `outdated`. |
+| `archetypes`          | The recorded archetypes.                                                                                                                                                                                                                                                          |
+| `capabilities`        | `count` of installed capabilities (the list is `pharn list --json`).                                                                                                                                                                                                              |
+| `drift`               | `modified[]`, `missing[]`, `unreadable[{rel, reason}]` and `okCount`, as in the `DRIFT` note. **`null` under `--no-drift`.**                                                                                                                                                      |
+| `hooks`               | `status` (`match`, `local-only`, `missing`, `no-upstream`, `project-absent`, `unreadable`), the `missing[]` and `localOnly[]` hooks as `{event, matcher, command, args}`, and `file`/`reason` (else `null`). **`null` under `--no-drift`.**                                       |
+| `models`              | `null` without a `models` block; otherwise `conversionNeeded`, a `verdict` (`valid`, `no-stages`, `invalid`, `old-format`), `stages[{stage, model, effort, viaDefault}]` when valid, or `reds[{kind, detail}]` when invalid.                                                      |
+| `unknownCapabilities` | Upstream capabilities the CLI could not read and skipped: `{role, name, subtree, reason}`. **`null` under `--no-drift`.**                                                                                                                                                         |
+| `strict`              | `enabled` (`--strict` passed) and `failed` (it would exit `1`).                                                                                                                                                                                                                   |
 
 **Treat every string as data.** Paths, reasons, hook commands, capability names and the `models` block's
 own words come from the upstream clone or your project files, not from `pharn`. Characters a terminal

@@ -39,7 +39,11 @@ export const UPDATE_SCHEMA_VERSION = 1;
 const MAX_REASON = 300;
 const MAX_UNKNOWN_FIELD = 200;
 
-export type UpdateStatus = 'planned' | 'up-to-date' | 'ahead-of-release';
+// `ahead-of-release` / `ahead-of-main`: the install is newer than the source it
+// follows (the newest verified release, or a main that moved back) and a real
+// run would change nothing without `--force`.
+export type UpdateStatus =
+  'planned' | 'up-to-date' | 'ahead-of-release' | 'ahead-of-main';
 
 export interface UpdateReport {
   schemaVersion: typeof UPDATE_SCHEMA_VERSION;
@@ -49,7 +53,7 @@ export interface UpdateReport {
   // `plan.files` may then be filtered, see `plan.filesOmitted`. Absent in the
   // default report, which is byte-identical to the one 0.10.0 shipped.
   compact?: true;
-  // `planned` ⇒ `plan` is set; the two early returns ⇒ `plan` is null.
+  // `planned` ⇒ `plan` is set; the early returns ⇒ `plan` is null.
   status: UpdateStatus;
   force: boolean;
   channel: RefChoice;

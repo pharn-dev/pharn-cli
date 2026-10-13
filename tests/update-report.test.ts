@@ -305,7 +305,7 @@ describe('buildUpdateReport — planned', () => {
 });
 
 describe('buildUpdateReport — early returns and channel', () => {
-  it.each(['up-to-date', 'ahead-of-release'] as const)(
+  it.each(['up-to-date', 'ahead-of-release', 'ahead-of-main'] as const)(
     '%s has plan:null and null plan-derived versions',
     (status) => {
       const r = buildUpdateReport(input({ status, plan: null }));
@@ -495,7 +495,11 @@ describe('buildUpdateReport — compact', () => {
   });
 
   it('marks an early return too, with a null plan', () => {
-    for (const status of ['up-to-date', 'ahead-of-release'] as const) {
+    for (const status of [
+      'up-to-date',
+      'ahead-of-release',
+      'ahead-of-main',
+    ] as const) {
       const r = buildUpdateReport(input({ status, plan: null, compact: true }));
       expect(r.compact).toBe(true);
       expect(r.plan).toBeNull();

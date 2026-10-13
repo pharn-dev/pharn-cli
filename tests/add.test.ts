@@ -659,9 +659,11 @@ describe('runAdd (archetype)', () => {
   });
 
   it('refuses symmetrically when the clone is OLDER than the config', async () => {
-    // A rollback or a hand edit. The gate fires on `!==`, never `<`, so this must
-    // read the same as the ahead case — never a guessed direction. On the `main`
-    // channel: there, an older clone has no release to explain it.
+    // A rollback or a hand edit. The gate fires on `!==`, never `<`, so it
+    // refuses this the same as a newer clone. On the `main` channel an older
+    // clone means main moved BACK — and `pharn update` refuses that downgrade
+    // without `--force` (F-15), so "run `pharn update` first" would loop: the
+    // message names the real ways forward instead.
     loadArchetypeConfigOrExit.mockReturnValue({
       ...archConfig(),
       ref: 'main',
@@ -673,7 +675,9 @@ describe('runAdd (archetype)', () => {
 
     expect(lastError()).toContain('v1.0.0');
     expect(lastError()).toContain('v0.9.0');
-    expect(lastError()).toContain('pharn update');
+    expect(lastError()).toContain('pharn-oss main has moved back');
+    expect(lastError()).toContain('pharn update --force');
+    expect(lastError()).not.toContain('run `pharn update` first');
     expect(installCapabilityDirs).not.toHaveBeenCalled();
   });
 

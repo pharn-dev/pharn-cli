@@ -196,6 +196,23 @@ describe('runStatus --json', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
+  it('reports an install AHEAD of main as ahead, not outdated, and --strict passes', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      config({ skillsVersion: '1.2.0' }),
+    );
+    fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
+    await runStatus({ json: true, drift: false, strict: true });
+    expect(report().version).toMatchObject({
+      channel: 'main',
+      source: { kind: 'main', tag: null },
+      installed: '1.2.0',
+      latest: '1.1.0',
+      ahead: true,
+      outdated: false,
+    });
+    expect(process.exitCode).toBeUndefined();
+  });
+
   it('excludes a frozen capability from the diff and lists it as unknown', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(
       config({

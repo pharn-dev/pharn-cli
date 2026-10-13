@@ -94,6 +94,14 @@ applied as `pendingSkillsVersion` in `pharn.config.json` — every other file is
 upstream has moved on again, the refusal names the ways out: run `pharn update`, and if it keeps
 skipping your edits, revert them or run `pharn update --force` (which backs them up first).
 
+**An install ahead of its source.** When your install is **newer** than what `add` cloned — the
+newest release is older (an install made from `main`, then switched to `--ref latest`), or pharn-oss
+`main` itself has moved back to an older version — `pharn update` would not help: it refuses that
+downgrade without `--force` (see
+[An install ahead of its source](update.md#an-install-ahead-of-its-source)). So the refusal names the
+real ways out instead: on a release install, `pharn update --ref main` or waiting for the release; on
+`main`, waiting for `main` to move forward again or `pharn update --force` to downgrade first.
+
 **Known limit.** There is no way to add a capability to a deliberately-pinned older install — `add`
 has no `--force`, and `pharn update` is the only resolution. Matching versions is the condition under
 which `add` can promise anything about the tree it is adding to.
