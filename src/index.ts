@@ -8,6 +8,7 @@ import { runRemove } from './commands/remove.js';
 import { runUpdate } from './commands/update.js';
 import { runList } from './commands/list.js';
 import { runStatus } from './commands/status.js';
+import { runUninstall } from './commands/uninstall.js';
 import { REF_CHOICES, type RefChoice } from './lib/release.js';
 import { PHARN_VERSION } from './version.js';
 
@@ -23,13 +24,14 @@ Commands:
   update                     Re-fetch installed capabilities at the latest version
   list                       List installed archetypes + capabilities
   status                     Show version + local-drift status (read-only)
+  uninstall                  Remove the PHARN files pharn wrote and you did not change
 
 Options (each belongs to ONE command; passing it to another is an error):
       --archetype    init: deprecated no-op — archetype detection is now the default
       --ref <ref>    init, update: install from "main" (the pharn-oss tip — the default)
                      or "latest" (its newest verified release); recorded
       --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
-  -y, --yes          update: skip the confirmation prompt (for CI and scripts)
+  -y, --yes          update, uninstall: skip the confirmation prompt (for CI and scripts)
                      init: install without prompts — only when no file would be overwritten
       --dry-run      update: show what would change and write nothing
                      init: show what would be installed and write nothing
@@ -59,6 +61,7 @@ const MAX_POSITIONALS = new Map<string, number>([
   ['update', 1],
   ['list', 1],
   ['status', 1],
+  ['uninstall', 1],
   ['add', 2],
   ['remove', 2],
   ['rm', 2],
@@ -92,6 +95,7 @@ const ALLOWED_FLAGS = new Map<string, readonly string[]>([
   ['update', ['force', 'yes', 'ref', 'dry-run', 'json', 'compact']],
   ['list', ['json']],
   ['status', ['strict', 'drift', 'json']],
+  ['uninstall', ['yes']],
 ]);
 
 // Flags that are only valid TOGETHER with another flag, per command: `{ flag,
@@ -278,7 +282,7 @@ export async function main(): Promise<void> {
   // A command absent from the table is not checked at all, so `pharn bogus
   // --json` still reaches the "Unknown command" default below. That absence is
   // also what makes the interpolated `cmd` in the label safe: it is only
-  // reachable once the Map lookup has hit, so it is one of the seven literal
+  // reachable once the Map lookup has hit, so it is one of the table's literal
   // keys rather than arbitrary argv (P2).
   const allowedFlags = ALLOWED_FLAGS.get(cmd);
   if (allowedFlags !== undefined) {
@@ -365,6 +369,9 @@ export async function main(): Promise<void> {
         drift: argv.drift !== false,
         json: Boolean(argv.json),
       });
+      return;
+    case 'uninstall':
+      await runUninstall({ yes: Boolean(argv.yes) });
       return;
     default:
       console.error(`Unknown command: ${cmd}\n`);

@@ -22,14 +22,16 @@ import type { InstalledCapability } from '../types.js';
 // TRUST (P2): this file is LOCAL but user-editable — untrusted input. It is
 // parsed defensively and any failure degrades to "records unavailable", which is
 // FAIL-CLOSED (update then SKIPS rather than overwrites). Critically, a record
-// KEY never drives a WRITE or a delete: consumers iterate the install manifest
-// and look each manifest-derived key up here. The ONE read-side exception is
-// orphan detection (lib/orphans.ts), which lstat/hashes the path a key names —
+// KEY never drives a WRITE: consumers iterate the install manifest and look
+// each manifest-derived key up here. Two consumers turn a key into a path, both
 // only for a key that passed the ingest rule below, is a member of the
-// install-root set (a path some install could have written), and passes
-// readDiskState's safeJoin + symlink-component + regular-file floor. A corrupt
-// store is reported BY NAME, never silently collapsed into "absent" (the same
-// lesson lib/pharn-config.ts encodes for `seam`).
+// install-root set (isInstallRootPath, lib/orphans.ts — a path some install
+// could have written), and passes a safeJoin + symlink-component +
+// regular-file floor: orphan detection (lib/orphans.ts) READS it (lstat +
+// hash), and `pharn uninstall` (lib/uninstall-plan.ts) DELETES it — and only
+// when its bytes still match the recorded hash. A corrupt store is reported BY
+// NAME, never silently collapsed into "absent" (the same lesson
+// lib/pharn-config.ts encodes for `seam`).
 //
 // THE STAMP: the store carries the `skillsVersion` + `commit` that
 // `pharn.config.json` holds after the operation that wrote it. Every pharn

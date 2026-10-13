@@ -30,9 +30,11 @@ import { isPlainObject, safeJoin } from './validate.js';
 // (a FIFO is refused, not waited on), regular files only, JSON-parsed, never
 // executed. Upstream's may not be a symlink at any component. A project file
 // may be a symlinked FILE (a dotfiles-managed settings.json — Claude Code reads
-// through it too); a symlinked `.claude/` directory is still refused. Project
-// content is never printed: only UPSTREAM entries reach a terminal, escaped and
-// capped by `displayHook`.
+// through it too); a symlinked `.claude/` directory is still refused. The drift
+// report prints only UPSTREAM entries. `hooksReferencing` (for `pharn uninstall`)
+// is the one reader that prints PROJECT entries — the user's own hooks, shown
+// back so they can unwire them — and it too renders every one through
+// `displayHook`, escaped and capped.
 //
 // Determinism (P5): an entry is `Event · matcher · command · args` compared as
 // an exact string. Equality is TEXTUAL — a user's equivalent rewrite of a hook
@@ -233,6 +235,47 @@ export function diffHookWiring(
   if (missing.length) return { status: 'missing', missing };
   if (localOnly.length) return { status: 'local-only', missing, localOnly };
   return { status: 'match', missing };
+}
+
+/** The project's hook entries that mention a script, per settings file. */
+export type HookReference =
+  | { file: string; kind: 'ok'; entries: HookEntry[] }
+  | { file: string; kind: 'unreadable'; reason: string };
+
+/**
+ * The hooks wired in the project's `.claude/settings.json` and
+ * `.claude/settings.local.json` whose `command` or any `args` element CONTAINS
+ * one of `scriptRels` (project-relative paths, e.g. `.claude/hooks/x.cjs`) — the
+ * wiring `pharn uninstall` leaves pointing at a script it removed. A substring
+ * test, so the plain, the `$CLAUDE_PROJECT_DIR`-anchored and the exec (`args`)
+ * forms all match. TEXTUAL (advisory): a hook that reaches the script through a
+ * wrapper or a differently spelled path is not found.
+ *
+ * Read-only, and the files are read exactly as `diffHookWiring` reads them.
+ * Files with no matching entry, and absent files, are omitted; an unreadable
+ * file is reported, since it could wire anything.
+ */
+export function hooksReferencing(
+  projectRoot: string,
+  scriptRels: readonly string[],
+): HookReference[] {
+  if (scriptRels.length === 0) return [];
+  const mentions = (text: string): boolean =>
+    scriptRels.some((rel) => text.includes(rel));
+  const out: HookReference[] = [];
+  for (const file of [CLAUDE_SETTINGS_FILE, LOCAL_SETTINGS_FILE]) {
+    const read = readSettings(projectRoot, file, true);
+    if (read.kind === 'absent') continue;
+    if (read.kind === 'unreadable') {
+      out.push({ file, kind: 'unreadable', reason: read.reason });
+      continue;
+    }
+    const entries = (hookEntries(read.value) ?? []).filter(
+      (e) => mentions(e.command) || e.args.some(mentions),
+    );
+    if (entries.length > 0) out.push({ file, kind: 'ok', entries });
+  }
+  return out;
 }
 
 /**

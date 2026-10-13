@@ -156,6 +156,7 @@ Two rules that are easy to get wrong:
 | `update-decision.test.ts` / `install-records.test.ts`                        | The pure update decision table + planner; the `pharn.records.json` store and its fail-closed validation       |
 | `backup.test.ts` / `apply-update.test.ts`                                    | `.pharn-backup/` creation + abort-before-touch; the per-file writer and its symlink refusals                  |
 | `remove.test.ts` / `removal-backup.test.ts`                                  | `runRemove` capability deletion (flat + `pharn/` layouts); which files are backed up before the delete        |
+| `uninstall.test.ts` / `uninstall-plan.test.ts`                               | `runUninstall` end to end (refusals, confirm, lock, resumable failure); which recorded files may be deleted   |
 | `orphans.test.ts`                                                            | Which recorded files are orphaned (install roots, dropped/frozen excluded); the `ORPHANED` note               |
 | `list.test.ts` / `status.test.ts`                                            | Read-only inventory + version/drift audit                                                                     |
 | `diff.test.ts`                                                               | `diffInstalledCapabilities` expected-set derivation + byte compare                                            |

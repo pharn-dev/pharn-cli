@@ -30,6 +30,8 @@ vi.mock('../src/commands/remove.js', () => ({ runRemove }));
 vi.mock('../src/commands/update.js', () => ({ runUpdate }));
 vi.mock('../src/commands/list.js', () => ({ runList }));
 vi.mock('../src/commands/status.js', () => ({ runStatus }));
+const runUninstall = vi.fn(async (_opts?: { yes?: boolean }) => undefined);
+vi.mock('../src/commands/uninstall.js', () => ({ runUninstall }));
 
 // Importing the module does not auto-run main(): under vitest, argv[1] is the
 // test runner, not this module, so the isEntryPoint() guard is false.
@@ -99,6 +101,29 @@ describe('main (argv dispatch)', () => {
     // The exact-arity check: `toHaveBeenCalledWith` already rejects an extra
     // argument, but this names the contract the dispatcher is being held to.
     expect(runRemove.mock.calls[0]).toHaveLength(1);
+  });
+
+  it('routes `uninstall` to runUninstall, without --yes by default', async () => {
+    setArgv('uninstall');
+    await main();
+    expect(runUninstall).toHaveBeenCalledWith({ yes: false });
+  });
+
+  it('passes `uninstall --yes` and its `-y` alias through', async () => {
+    setArgv('uninstall', '--yes');
+    await main();
+    setArgv('uninstall', '-y');
+    await main();
+    expect(runUninstall.mock.calls).toEqual([[{ yes: true }], [{ yes: true }]]);
+  });
+
+  it('lists `uninstall` in the usage text', async () => {
+    setArgv('--help');
+    await main();
+    expect(String(logSpy.mock.calls[0]![0])).toMatch(/^\s+uninstall\s+/m);
+    expect(String(logSpy.mock.calls[0]![0])).toContain(
+      'update, uninstall: skip the confirmation prompt',
+    );
   });
 
   it('routes the `rm` alias to runRemove', async () => {
@@ -235,14 +260,14 @@ describe('main (argv dispatch)', () => {
     });
   });
 
-  it('documents --yes as an update flag in the usage text', async () => {
+  it('documents --yes as an update and uninstall flag in the usage text', async () => {
     setArgv('--help');
     await main();
     const printed = logSpy.mock.calls
       .map((c: unknown[]) => String(c[0] ?? ''))
       .join('\n');
-    // Scoped to its command, like --force: `init` deliberately has no --yes.
-    expect(printed).toMatch(/-y, --yes\s+update:/);
+    // Scoped to its commands, like --force: `init` deliberately has no --yes.
+    expect(printed).toMatch(/-y, --yes\s+update, uninstall:/);
   });
 
   it('documents --force as an update flag in the usage text', async () => {
@@ -402,6 +427,7 @@ describe('main (argv dispatch)', () => {
     expect(runUpdate).not.toHaveBeenCalled();
     expect(runList).not.toHaveBeenCalled();
     expect(runStatus).not.toHaveBeenCalled();
+    expect(runUninstall).not.toHaveBeenCalled();
   };
   const stderrText = (): string =>
     errSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? '')).join('\n');
@@ -576,6 +602,28 @@ describe('main (argv dispatch)', () => {
 
   it('exits(1) on the `-y` alias for `remove` too', async () => {
     await expectUnsupported(['remove', 'a11y', '-y'], '-y');
+  });
+
+  // `uninstall` takes `--yes` and nothing else: no `--force`, no `--json`,
+  // no `--dry-run` (its confirm's PLAN note is the preview).
+  it('exits(1) on `uninstall --force`', async () => {
+    await expectUnsupported(['uninstall', '--force'], '--force');
+  });
+
+  it('exits(1) on `uninstall --dry-run`', async () => {
+    await expectUnsupported(['uninstall', '--dry-run'], '--dry-run');
+  });
+
+  it('exits(1) on `uninstall --ref main`', async () => {
+    await expectUnsupported(['uninstall', '--ref', 'main'], '--ref');
+  });
+
+  it('exits(1) on an extra positional to `uninstall`', async () => {
+    setArgv('uninstall', 'everything');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(stderrText()).toContain('Unexpected argument');
+    expect(stderrText()).toContain('everything');
+    noCommandRan();
   });
 
   it('exits(1) on `init --force`', async () => {

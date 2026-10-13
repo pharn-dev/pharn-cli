@@ -26,6 +26,8 @@
 | `update --json` without `--dry-run`                                                                     | 1         |
 | `update --compact` without `--json`                                                                     | 1         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
+| `uninstall` refused, or stopped part-way (see [`uninstall`](commands/uninstall.md))                     | 1         |
+| `uninstall` with no `pharn.config.json` at all (nothing to uninstall)                                   | 0         |
 | User cancel at summary, or overwrite declined                                                           | 0         |
 | Successful install                                                                                      | 0         |
 
@@ -444,8 +446,8 @@ The directory is shared with any other tool that uses `degit`, so if you use one
 
 ## Another pharn process is running
 
-`init`, `add`, `remove` and `update` take a single-writer lock on the project before they write
-anything, and refuse rather than queue:
+`init`, `add`, `remove`, `update` and `uninstall` take a single-writer lock on the project before
+they write anything, and refuse rather than queue:
 
 ```text
 ■  Another pharn process is writing to this project: pharn update (pid 4821 on my-laptop,
@@ -671,6 +673,32 @@ as ``Incomplete option for `init` ``; pass `pharn init --dry-run --json`. See
 
 Note that only the option _name_ is checked. `pharn list --json=false` is still accepted (`--json` is
 a `list` option) and still prints human-readable output — pass the bare `--json` for JSON.
+
+## Removing PHARN by hand
+
+[`pharn uninstall`](commands/uninstall.md) removes PHARN for you whenever `pharn.records.json` is usable.
+When it refuses because the store is missing, corrupt, or written for a different install state, nothing
+can be proven to be `pharn`'s, so the removal is yours to do. The steps below remove what an install
+writes; **review each path before deleting it** — anything you wrote yourself is yours to keep.
+
+1. **Find what the install added.** If you committed the install, `git log --diff-filter=A -- pharn.config.json`
+   names the commit, and `git show --stat <commit>` lists every file it added. `git diff <commit> -- <path>`
+   shows whether you changed one since.
+2. **Delete the installed surfaces** (paths for the default `pharn` layout; a `flat` install keeps the
+   same names at the project root — `pharn-review/`, `pharn-pipeline/`, `pharn-contracts/`, `.dev/floor/`,
+   `features/README.md`, `PHARN-LICENSE`, and the four trusted docs):
+   - `pharn/pharn-pipeline/`, `pharn/pharn-review/`, `pharn/pharn-contracts/`, `pharn/pharn-core/`,
+     `pharn/floor/`
+   - `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`, `THREAT-MODEL.md`, `LIMITS.md`, `pharn/LICENSE`,
+     `pharn/features/README.md` — but **not** your own `pharn/features/<feature>/` folders
+   - the `pharn-*.md` files in `.claude/commands/` (not `pharn-dev-*`, and none of your own commands)
+   - the hook scripts PHARN installed in `.claude/hooks/`
+3. **Unwire the hooks.** Remove the entries in `.claude/settings.json` (and `.claude/settings.local.json`)
+   whose command runs one of the scripts you deleted. If `pharn init` created `settings.json` and you never
+   added anything to it, you can delete the file.
+4. **Delete pharn's own files:** `pharn.config.json`, `pharn.records.json`, and `.pharn.lock` if it exists
+   and no `pharn` command is running. `.pharn/` is runtime scratch written while PHARN commands run, and
+   `.pharn-backup/` holds backups `pharn` made — delete them once you no longer need them.
 
 ## Local development issues
 

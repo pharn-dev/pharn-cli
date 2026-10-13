@@ -1,0 +1,37 @@
+{
+  "base": "5fc4e463c64aad6bf8e95b12221d395ce24904fb",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/README.md",
+    "docs/commands/uninstall.md",
+    "docs/contributing.md",
+    "docs/reference/pharn-records.md",
+    "docs/troubleshooting.md",
+    "src/commands/uninstall.ts",
+    "src/index.ts",
+    "src/lib/hook-wiring.ts",
+    "src/lib/install-records.ts",
+    "src/lib/orphans.ts",
+    "src/lib/uninstall-plan.ts",
+    "tests/hook-wiring.test.ts",
+    "tests/index.test.ts",
+    "tests/install-manifest.test.ts",
+    "tests/uninstall-plan.test.ts",
+    "tests/uninstall.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

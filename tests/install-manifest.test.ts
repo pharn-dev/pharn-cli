@@ -20,6 +20,7 @@ import {
   installCapabilityDirs,
 } from '../src/lib/install-capabilities.js';
 import { applyWrites } from '../src/lib/apply-update.js';
+import { isInstallRootPath } from '../src/lib/orphans.js';
 import { BACKUP_DIR } from '../src/lib/backup.js';
 import { RECORDS_FILE } from '../src/lib/install-records.js';
 import { layoutPaths } from '../src/lib/layout.js';
@@ -933,5 +934,59 @@ describe('collectExpectedInstallPaths — command/hook filename floor (P2)', () 
     ]) {
       expect(keys).toContain(rel);
     }
+  });
+});
+
+// `pharn uninstall` (and orphan detection) has no clone, so it bounds what it
+// may touch with isInstallRootPath, a pure predicate over the SHAPE of an
+// install path. Pinned here against a REAL install in both layouts: every path
+// the install writes must pass, or uninstall would silently leave it.
+describe('isInstallRootPath ⟷ installCapabilities (mirror)', () => {
+  const tmp = useTmpDir();
+
+  function installedPaths(
+    layout: 'flat' | 'pharn',
+    scaffold: (r: string) => void,
+  ): string[] {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffold(repo);
+    installCapabilities(repo, proj, selection());
+    return [
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout,
+      }).keys(),
+    ];
+  }
+
+  it('accepts every path a real flat install writes', () => {
+    const paths = installedPaths('flat', scaffoldRepo);
+    expect(paths.length).toBeGreaterThan(10);
+    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
+  });
+
+  it('accepts every path a real pharn-layout install writes', () => {
+    const paths = installedPaths('pharn', scaffoldRepoPharn);
+    expect(paths).toContain('pharn/pharn-core/seam-resolver/seam-resolver.md');
+    expect(paths).toContain('pharn/LICENSE');
+    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
+  });
+
+  it('accepts the root features README a pre-relocation pharn clone ships', () => {
+    const paths = installedPaths('pharn', (repo) => {
+      scaffoldRepoPharn(repo);
+      rmSync(join(repo, 'pharn/features'), { recursive: true });
+      write(join(repo, 'features/README.md'));
+    });
+    expect(paths).toContain('features/README.md');
+    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
+  });
+
+  it("never accepts the user's own feature work beside the features README", () => {
+    expect(isInstallRootPath('pharn/features/my-feature/PLAN.md')).toBe(false);
+    expect(isInstallRootPath('features/my-feature/PLAN.md')).toBe(false);
   });
 });

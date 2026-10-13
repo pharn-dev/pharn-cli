@@ -23,9 +23,11 @@ import type { InstalledCapability } from '../types.js';
 // (the record still describes bytes pharn wrote) — that is what keeps an orphan
 // listed on later runs. Its record is dropped once the file is gone.
 //
-// TRUST (P2): `pharn.records.json` is local and hand-editable, and this is the
-// ONE place a record KEY becomes a filesystem path. It does so only for a READ,
-// and only when the key
+// TRUST (P2): `pharn.records.json` is local and hand-editable, and this is one
+// of the TWO places a record KEY becomes a filesystem path (the other is
+// `pharn uninstall`, lib/uninstall-plan.ts, which deletes under the same
+// isInstallRootPath bound and only at a matching hash). Here it does so only for
+// a READ, and only when the key
 //   1. passed the store's ingest rule (lib/install-records.ts — no `..`/`.`
 //      segment, not absolute),
 //   2. is a member of the install-root set below (a path some install, in
