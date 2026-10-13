@@ -1,4 +1,4 @@
-import { replacedConfigBackup } from './backup.js';
+import { BACKUP_DIR, replacedConfigBackup } from './backup.js';
 import {
   conflictingWriteTargets,
   PHARN_CONFIG_FILE,
@@ -6,6 +6,7 @@ import {
 import { detectLayout } from './layout.js';
 import { manifestSources, scanDest, type DriftLabel } from './dest-drift.js';
 import type { FileRecords } from './install-records.js';
+import type { CapabilityRemoval } from './capability-removal.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,12 @@ export interface WriteTargetsPlan {
    * install acts on (replacedConfigBackup).
    */
   configBackedUp: boolean;
+  /**
+   * The capability directories this re-install deletes (dropped from the
+   * config, lib/capability-removal.ts) — passed through, so the prompt, the
+   * dry run and `--yes` judge the same set. Empty for a first install.
+   */
+  removals: readonly CapabilityRemoval[];
 }
 
 export interface WriteTargetsParams {
@@ -67,10 +74,14 @@ export interface WriteTargetsParams {
   // The records baseline of the install being replaced, or null when there is
   // none to trust (then every differing file is `unverifiable`).
   records: FileRecords | null;
+  // The removal plan of the dropped capabilities (lib/init-plan.ts →
+  // planInitRemovals); absent → none.
+  removals?: readonly CapabilityRemoval[];
 }
 
 export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
   const { repoDir, projectRoot, capabilities, manifest, records } = params;
+  const removals = params.removals ?? [];
   const conflicts = conflictingWriteTargets({
     repoDir,
     projectRoot,
@@ -79,7 +90,7 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
     expected: manifest,
   });
   if (conflicts.length === 0)
-    return { conflicts, labels: new Map(), configBackedUp: false };
+    return { conflicts, labels: new Map(), configBackedUp: false, removals };
 
   // Which of those the install would back up — the files `update` would have
   // SKIPPED: changed since pharn wrote them, not recorded, or not verifiable.
@@ -109,7 +120,25 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
     conflicts: [...conflicts].sort((a, b) => rank(a) - rank(b)),
     labels,
     configBackedUp,
+    removals,
   };
+}
+
+/**
+ * The display lines for the directories a re-install would DELETE — only the
+ * ones that exist (an already-gone directory deletes nothing) — each with the
+ * number of its files that would be backed up first. Paths are validated
+ * capability names under their role subtree; displayed as data.
+ */
+export function removalLines(removals: readonly CapabilityRemoval[]): string[] {
+  return removals
+    .filter((r) => r.present)
+    .map((r) => {
+      const n = r.backups.length;
+      return n === 0
+        ? `  • ${r.dir}/ (${r.cap.role}:${r.cap.name})`
+        : `  • ${r.dir}/ (${r.cap.role}:${r.cap.name} — ${n} file(s) backed up to ${BACKUP_DIR}/ first)`;
+    });
 }
 
 /**
@@ -119,7 +148,10 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
  * already path-contained (lib/install-manifest.ts); they are displayed as data,
  * never executed.
  */
-export function targetLines(plan: WriteTargetsPlan, max?: number): string[] {
+export function targetLines(
+  plan: Pick<WriteTargetsPlan, 'conflicts' | 'labels' | 'configBackedUp'>,
+  max?: number,
+): string[] {
   const { conflicts: paths, labels, configBackedUp } = plan;
   const shown = max === undefined ? paths : paths.slice(0, max);
   const lines = shown.map((p) => {
@@ -155,6 +187,18 @@ export class OverwriteRefusedError extends Error {
  */
 export function assertNoExistingTargets(params: WriteTargetsParams): void {
   const plan = planWriteTargets(params);
+  // `--yes` never deletes either: a re-install that would delete the directory
+  // of a capability it drops needs the interactive confirm, which lists them.
+  const deletes = removalLines(plan.removals);
+  if (deletes.length > 0) {
+    throw new OverwriteRefusedError(
+      [
+        `pharn init --yes never deletes, and this install would delete ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} it drops from pharn.config.json:`,
+        ...deletes,
+        'Run `pharn init` in a terminal to review and confirm, `pharn init --dry-run` to see the whole plan, or `pharn update` to refresh an existing install.',
+      ].join('\n'),
+    );
+  }
   if (plan.conflicts.length === 0) return;
   const n = plan.conflicts.length;
   throw new OverwriteRefusedError(

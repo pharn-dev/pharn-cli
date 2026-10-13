@@ -327,6 +327,48 @@ describe('pharn init --dry-run', () => {
       ]);
     });
 
+    // F-04: a capability the re-install drops has its directory listed under
+    // WOULD DELETE — and the preview deletes nothing; the real run then deletes
+    // exactly it, backing up the user's file.
+    it('lists a dropped capability’s directory under WOULD DELETE, deletes nothing, and the real run matches', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      await init(repo, proj, { archetypes: ['backend'] });
+      write(join(proj, 'pharn-review/path-traversal/NOTES.md'), 'mine');
+      vi.clearAllMocks();
+
+      const before = snapshotTree(proj);
+      await init(repo, proj, { dryRun: true }); // detection: ssr
+      expect(snapshotTree(proj)).toEqual(before);
+      noWriteReached();
+
+      const plan = notes('PLAN')[0]!;
+      expect(plan).toContain('WOULD DELETE 1 capability directory');
+      expect(plan).toContain(
+        'pharn-review/path-traversal/ (lens:path-traversal — 1 file(s)',
+      );
+      expect(plan).toContain(
+        '`pharn init --yes` would refuse: 1 capability directory would be deleted.',
+      );
+      expect(outro()).toContain('delete 1 directory');
+      expect(logged('warn')).toContain(
+        'your archetypes no longer select: lens:path-traversal',
+      );
+
+      await init(repo, proj);
+      expect(existsSync(join(proj, 'pharn-review/path-traversal'))).toBe(false);
+      const backups = readdirSync(join(proj, BACKUP_DIR));
+      expect(
+        existsSync(
+          join(
+            proj,
+            BACKUP_DIR,
+            backups[0]!,
+            'pharn-review/path-traversal/NOTES.md',
+          ),
+        ),
+      ).toBe(true);
+    });
+
     it('names the hand-added capability it would keep, and the user keys it would carry, terminal-safe', async () => {
       const { repo, proj } = fixture(tmp.path());
       write(

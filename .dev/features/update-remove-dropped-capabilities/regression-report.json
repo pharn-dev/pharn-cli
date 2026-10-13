@@ -1,0 +1,60 @@
+{
+  "base": "7f1b727b1b29d44ddc2985fa94740349f44e42b9",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/commands/add.md",
+    "docs/commands/init.md",
+    "docs/commands/list.md",
+    "docs/commands/update.md",
+    "docs/contributing.md",
+    "docs/reference/pharn-config.md",
+    "docs/reference/pharn-records.md",
+    "docs/troubleshooting.md",
+    "src/commands/add.ts",
+    "src/commands/init.ts",
+    "src/commands/remove.ts",
+    "src/commands/update.ts",
+    "src/lib/capability-dir.ts",
+    "src/lib/capability-removal.ts",
+    "src/lib/dest-drift.ts",
+    "src/lib/init-plan.ts",
+    "src/lib/init-report.ts",
+    "src/lib/merge-capabilities.ts",
+    "src/lib/orphans.ts",
+    "src/lib/update-plan.ts",
+    "src/lib/update-report.ts",
+    "src/lib/write-targets.ts",
+    "src/steps/install-archetype.ts",
+    "src/steps/overwrite-check.ts",
+    "tests/capability-dir.test.ts",
+    "tests/capability-removal.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/init-dry-run-json.test.ts",
+    "tests/init-dry-run.test.ts",
+    "tests/init-report.test.ts",
+    "tests/init-yes.test.ts",
+    "tests/init.test.ts",
+    "tests/overwrite-check.test.ts",
+    "tests/update-dry-run-json.test.ts",
+    "tests/update-dry-run.test.ts",
+    "tests/update-plan.test.ts",
+    "tests/update-report.test.ts",
+    "tests/update.test.ts",
+    "tests/write-targets.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

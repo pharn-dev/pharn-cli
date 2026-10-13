@@ -112,7 +112,8 @@ It prints:
   prompt uses (`(edited)`, `(no pharn record)`, `(differs from upstream)`, and
   `(will be rewritten — backed up first)` on an existing `pharn.config.json` — see
   [Re-running `init`](#6-summary)), marked files first; the number of files it would **create**; the
-  files it would back up first, the existing `pharn.config.json` included; the `pharn.config.json` it
+  directories of [dropped capabilities](#dropped-capabilities-are-deleted) it would **delete**
+  (`WOULD DELETE`); the files it would back up first, the existing `pharn.config.json` included; the `pharn.config.json` it
   would write (noting that an existing one's `seam` and `models` would be reset), and which of your own
   keys in it would be kept; whether your `.claude/settings.json` would be preserved; and whether
   `pharn init --yes` would install or refuse;
@@ -176,7 +177,7 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
   ],
   "backups": [".claude/commands/pharn-plan.md", "pharn.config.json"], // copied to .pharn-backup/<timestamp>/ first
   "counts": { "create": 451, "overwrite": 2, "backup": 2 },
-  "yesWouldProceed": false, // exactly counts.overwrite === 0
+  "yesWouldProceed": false, // nothing overwritten and no directory deleted
   "settings": { "preserved": true },
   "hooks": {
     "status": "missing",
@@ -195,6 +196,14 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
 name (`"source": "dependency"`), the first project path that triggered it (`"path"`; a directory ends
 in `/`, capped at 200 characters) or `null` for `lib` (`"none"`) — so under `--archetype` it describes
 `detectedArchetypes`, not `archetypes`.
+
+`capabilities.removals` is present **only** when the install would drop a capability whose directory it
+deletes ([above](#dropped-capabilities-are-deleted)) — read it as `capabilities.removals ?? []`; with
+none the key is absent, so the report is byte-identical to earlier releases. Each entry is
+`{role, name, reason, dir, present, backups}`, as in
+[`pharn update --dry-run --json`](update.md#json-output): `reason` is `dropped-unselected` or
+`dropped-gone`, `present` says there is anything at `dir`, and `backups` are its files that would be
+copied first (they are in the top-level `backups` too).
 
 `label` is `modified`, `unrecorded` or `unverifiable` for a file that would be backed up first (the
 prompt's `(edited)`, `(no pharn record)` and `(differs from upstream)`), `rewritten` for an existing
@@ -217,7 +226,9 @@ pharn --yes        # the same (and pharn -y): with no command word, pharn runs i
 installs **only if none of the files it would write exists yet** — `pharn.config.json` included. If any
 does, it **exits 1** having written nothing, lists them with the overwrite prompt's marks, and names the
 ways forward: `pharn init` in a terminal to review and confirm the overwrite, `pharn init --dry-run` to
-see the whole plan, or `pharn update`.
+see the whole plan, or `pharn update`. It also refuses, the same way, when the install would
+[delete the directory of a capability it drops](#dropped-capabilities-are-deleted): `--yes` never
+deletes.
 
 `--yes` never answers the overwrite question. That confirmation is the one that protects your files, and
 auto-confirming it in a pipeline is the hazard it exists to prevent — so `--yes` only runs where there
@@ -393,7 +404,8 @@ is open is still saved.
 Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.config.json`) are **kept**:
 `init` installs them again and records them as `manual` — also when your archetypes now select them
 too — as long as upstream still ships them. The summary lists them as "added by hand". One that upstream
-no longer ships is dropped from `pharn.config.json` and named (its files stay on disk). A capability
+no longer ships is dropped from `pharn.config.json` and named. See
+[Dropped capabilities are deleted](#dropped-capabilities-are-deleted) for what happens to its directory. A capability
 upstream still ships but this pharn [cannot read](update.md#when-pharn-cannot-read-a-capability-upstream)
 is **left as it is**, however it was added: its config entry, files and records are untouched, and it is
 listed in `frozenCapabilities` so the next [`pharn update`](update.md) re-checks it. Top-level keys in
@@ -416,6 +428,34 @@ install writes nothing: no files, no config, no records and no `.pharn-backup/`.
 `.claude/settings.json` is fine while it points at an existing file — `init` never writes an existing
 settings file — and is refused only when its target does not exist. See
 [Something in your project is in the way](../troubleshooting.md#something-in-your-project-is-in-the-way).
+
+#### Dropped capabilities are deleted
+
+A re-run `init` drops from `pharn.config.json` every capability of the install it replaces that it does
+not install again: one you added by hand that upstream no longer ships, an automatically selected one
+your archetypes no longer select, and a legacy entry (written before `source` existed) they no longer
+select. Each is **named** before the summary. PHARN's commands run every capability **directory** on
+disk, not what the config lists, so `init` also **deletes that directory** — the same treatment
+[`pharn update`](update.md#dropped-capabilities-are-deleted) gives the capabilities it drops:
+
+- **Listed first.** The overwrite prompt lists each directory under "will be DELETED", with how many of
+  its files would be backed up, and asks (default No) even when nothing would be overwritten. Declining
+  deletes nothing. `init --dry-run` lists them under `WOULD DELETE`, and `--dry-run --json` in
+  `capabilities.removals`.
+- **Backed up first.** Every regular file in the directory that is not, provably, pharn's own unchanged
+  bytes (judged against the records of the install being replaced) is copied into the run's one
+  `.pharn-backup/<timestamp>/` directory before anything is deleted
+  (`Backed up N file(s) to … before overwriting and removing.`).
+- **Addressed where it was installed**, at the layout the replaced config recorded, by its validated
+  name, never through a symbolic link: a directory whose path crosses one refuses the whole install
+  (exit 1, nothing written).
+- **`--yes` refuses** a re-install that would delete a directory (it never deletes without the
+  interactive confirm). A re-install refuses under `--yes` anyway, since `pharn.config.json` exists.
+- **Before the copy**, under the project lock, after the destination check and the backup — and planned
+  again there, so the prompt's list is a preview and that plan is the one acted on.
+
+Directories an older `pharn` left behind when it dropped a capability have no config entry, so `init`
+cannot find them; PHARN still runs them. Delete them by hand.
 
 ### 7. Install
 

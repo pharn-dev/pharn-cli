@@ -1703,6 +1703,171 @@ describe('`pharn init` run twice, through the real steps', () => {
   });
 });
 
+// F-04: a re-run init that DROPS a capability from the config deletes its
+// directory — PHARN runs every capability directory on disk — after backing up
+// what pharn cannot prove it wrote, in the one backup the install makes. Listed
+// in the overwrite prompt first; declining deletes nothing.
+describe('`pharn init` re-run over a capability it drops', () => {
+  const tmp = useTmpDir();
+  stubProcessExit();
+  beforeEach(() => setTTY(true, true));
+  afterEach(() => {
+    restoreTTY();
+    vi.mocked(prompts.confirm).mockResolvedValue(true);
+  });
+
+  const LENS_DIR = 'pharn-review/n-plus-one';
+
+  function fixture(): { repo: string; proj: string } {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(repo, 'LICENSE'), 'Apache-2.0');
+    write(
+      join(proj, 'package.json'),
+      JSON.stringify({ dependencies: { next: '14.0.0' } }),
+    );
+    mkdirSync(join(proj, '.git'));
+    return { repo, proj };
+  }
+
+  async function init(repo: string, proj: string, sha: string): Promise<void> {
+    fetchRepo.mockResolvedValue({ dir: repo, sha, cleanup: vi.fn() });
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(proj);
+    try {
+      await runInit();
+    } finally {
+      cwd.mockRestore();
+    }
+  }
+
+  // Upstream narrows n-plus-one to backend: an ssr project no longer selects it.
+  function narrowLens(repo: string): void {
+    write(join(repo, `${LENS_DIR}/n-plus-one.md`), cap('lens', '["backend"]'));
+  }
+
+  const warnings = (): string =>
+    vi
+      .mocked(prompts.log.warn)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+
+  it('lists the directory in the prompt, backs up the user’s file, deletes it, and records nothing under it', async () => {
+    const { repo, proj } = fixture();
+    await init(repo, proj, 'sha123');
+    expect(readPharnConfig(proj)!.capabilities).toContainEqual(
+      expect.objectContaining({ name: 'n-plus-one', source: 'auto' }),
+    );
+    narrowLens(repo);
+    write(join(proj, `${LENS_DIR}/NOTES.md`), 'my notes');
+    vi.mocked(prompts.log.warn).mockClear();
+    vi.mocked(prompts.log.info).mockClear();
+    vi.mocked(prompts.confirm).mockClear();
+
+    await init(repo, proj, 'sha456');
+
+    // Named before the summary, listed in the prompt, asked once.
+    expect(warnings()).toContain(
+      'your archetypes no longer select: lens:n-plus-one',
+    );
+    expect(warnings()).toContain('will be DELETED');
+    expect(warnings()).toContain(`${LENS_DIR}/ (lens:n-plus-one — 1 file(s)`);
+    expect(prompts.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Continue, overwrite and delete?' }),
+    );
+    // Deleted, the user's file saved in the run's one backup with the config.
+    expect(existsSync(join(proj, LENS_DIR))).toBe(false);
+    expect(backedUp(proj)).toEqual([
+      `${LENS_DIR}/NOTES.md`,
+      'pharn.config.json',
+    ]);
+    const info = vi
+      .mocked(prompts.log.info)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(info).toContain('before overwriting and removing.');
+    expect(info).toContain(
+      `Deleted 1 capability directory no longer installed: ${LENS_DIR}/.`,
+    );
+    // The config and the store describe nothing under it.
+    expect(
+      readPharnConfig(proj)!.capabilities!.map((c) => c.name),
+    ).not.toContain('n-plus-one');
+    const read = readRecords(proj);
+    if (read.kind !== 'ok') throw new Error('records unreadable');
+    expect(
+      Object.keys(read.store.files).filter((k) => k.startsWith(LENS_DIR)),
+    ).toEqual([]);
+  });
+
+  it('deletes a gone manual capability’s directory too', async () => {
+    const { repo, proj } = fixture();
+    await init(repo, proj, 'sha123');
+    const config = readPharnConfig(proj)!;
+    write(
+      join(proj, 'pharn.config.json'),
+      JSON.stringify({
+        ...config,
+        capabilities: [
+          ...config.capabilities!,
+          { name: 'retired', role: 'lens', source: 'manual' },
+        ],
+      }),
+    );
+    write(join(proj, 'pharn-review/retired/retired.md'), 'old upstream bytes');
+
+    await init(repo, proj, 'sha456');
+
+    expect(existsSync(join(proj, 'pharn-review/retired'))).toBe(false);
+    expect(backedUp(proj)).toContain('pharn-review/retired/retired.md');
+    expect(warnings()).toContain('upstream no longer ships: lens:retired');
+  });
+
+  it('declining the prompt deletes nothing and writes nothing', async () => {
+    const { repo, proj } = fixture();
+    await init(repo, proj, 'sha123');
+    narrowLens(repo);
+    write(join(proj, `${LENS_DIR}/NOTES.md`), 'my notes');
+    vi.mocked(prompts.confirm).mockResolvedValue(false);
+
+    await expect(init(repo, proj, 'sha456')).rejects.toMatchObject(
+      new ProcessExit(0),
+    );
+
+    expect(readFileSync(join(proj, `${LENS_DIR}/NOTES.md`), 'utf8')).toBe(
+      'my notes',
+    );
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(readPharnConfig(proj)!.commit).toBe('sha123');
+  });
+
+  it('refuses, writing nothing, when the dropped directory sits behind a symlinked component', async () => {
+    const { repo, proj } = fixture();
+    await init(repo, proj, 'sha123');
+    narrowLens(repo);
+    const outside = join(tmp.path(), 'shared-review');
+    write(join(outside, 'n-plus-one/n-plus-one.md'), 'not this project');
+    rmSync(join(proj, 'pharn-review'), { recursive: true });
+    symlinkSync(outside, join(proj, 'pharn-review'));
+    vi.mocked(prompts.confirm).mockClear();
+    vi.mocked(prompts.log.error).mockClear();
+
+    await expect(init(repo, proj, 'sha456')).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(String(vi.mocked(prompts.log.error).mock.calls.at(-1)?.[0])).toMatch(
+      /Refusing to init: n-plus-one \(lens\) is no longer installed[\s\S]*pharn-review is a symbolic link/,
+    );
+    expect(
+      readFileSync(join(outside, 'n-plus-one/n-plus-one.md'), 'utf8'),
+    ).toBe('not this project');
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(readPharnConfig(proj)!.commit).toBe('sha123');
+  });
+});
+
 // F-02: a brownfield project — one already using Claude Code — keeps its
 // `.claude/settings.json` (never overwritten, never merged). init used to say
 // only "compare it against pharn-oss", then deleted the clone, leaving nothing

@@ -18,10 +18,11 @@ import { safeJoin, toPosix } from './validate.js';
 //   unsafe[]  — the dest path crosses a SYMLINKED component. These must not be
 //               copied at all: see below. `add` refuses the whole install.
 //
-// Two callers. `pharn add` — which had no edit protection at all, while `update`
-// itself manufactures the sequence that makes one necessary: a dropped
-// capability's files are LEFT on disk (update never deletes), the user edits
-// them, and a later `add` of that capability is not a config no-op. And a
+// Two callers. `pharn add` — which had no edit protection at all, while a
+// capability directory can outlive its config entry (left by a pharn older than
+// the fix that made `update` and a re-run `init` delete the directories they
+// drop, or created by hand), the user edits it, and a later `add` of
+// that capability is not a config no-op. And a
 // re-run `pharn init`, which overwrites everything it installs: its prompt marks
 // these files (steps/overwrite-check.ts) and its install step backs them up
 // (steps/install-archetype.ts).

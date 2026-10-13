@@ -4,7 +4,14 @@ import { resolveCapabilities } from './resolve-capabilities.js';
 import {
   mergeCapabilities,
   type CapabilityChange,
+  type CapabilityChangeReason,
 } from './merge-capabilities.js';
+import {
+  CapabilityRemovalError,
+  planCapabilityRemovals,
+  type CapabilityRemoval,
+  type DropReason,
+} from './capability-removal.js';
 import {
   absentInstallSurfaces,
   collectExpectedInstallPaths,
@@ -18,6 +25,7 @@ import {
   detectLayout,
   layoutPaths,
   resolveFeaturesReadme,
+  type LayoutPaths,
 } from './layout.js';
 import {
   MODELS_RECORD_KEY,
@@ -64,6 +72,21 @@ export const USER_EDIT_SKIPS = new Set<UpdateLabel | 'unreadable'>([
   'unrecorded',
 ]);
 
+// The two merge outcomes that take an entry OUT of the config (rows 5, 7, 9 of
+// lib/merge-capabilities.ts). Membership on the reason enum (P5): a reason not
+// in this set never deletes anything.
+const DROP_REASONS = new Set<CapabilityChangeReason>([
+  'dropped-unselected',
+  'dropped-gone',
+]);
+
+function isDrop(reason: CapabilityChangeReason): reason is DropReason {
+  return DROP_REASONS.has(reason);
+}
+
+// The removal plan is shared with a re-run `init` (lib/capability-removal.ts).
+export { CapabilityRemovalError, type CapabilityRemoval };
+
 export interface UpdatePlanReport {
   // The version recorded before this run, and the one upstream ships.
   currentVersion: string;
@@ -80,6 +103,8 @@ export interface UpdatePlanReport {
   abandonedLayout: Layout | null;
   featuresReadmeRelocation: boolean;
   capabilityChanges: CapabilityChange[];
+  // The directories this run deletes — one per capability it drops.
+  removals: CapabilityRemoval[];
   files: PlannedFile[];
   writes: string[];
   // Rels that would be copied to `.pharn-backup/` first; includes
@@ -119,6 +144,8 @@ export interface UpdateApplyInputs {
   nextSkillsVersion: string;
   nextCommit: string | null;
   frozenKeys: string[];
+  // The paths the removals are addressed at (the config's recorded layout).
+  removalPaths: LayoutPaths;
 }
 
 export interface PlannedUpdate {
@@ -196,6 +223,20 @@ export function buildUpdatePlan(input: {
   });
 
   const plan = planUpdate({ latestHashes, diskStates, records, force });
+
+  // What the drops delete, judged against the same record baseline. In the
+  // real run this runs under the project lock immediately before the writes, so
+  // it is the authoritative answer, not a preview of one.
+  const removalPaths = layoutPaths(previousLayout);
+  const removals = planCapabilityRemovals({
+    cwd,
+    paths: removalPaths,
+    drops: merged.changes.flatMap(({ cap, reason }) =>
+      isDrop(reason) ? [{ cap, reason }] : [],
+    ),
+    records,
+    command: 'update',
+  });
 
   // The `models` block goes through the same rows, over its hash instead of a
   // file's (lib/models-update.ts).
@@ -307,6 +348,7 @@ export function buildUpdatePlan(input: {
         FEATURES_README in records &&
         resolveFeaturesReadme(repoDir, layout) !== FEATURES_README,
       capabilityChanges: merged.changes,
+      removals,
       files: plan.files,
       writes: plan.writes,
       backups,
@@ -335,6 +377,7 @@ export function buildUpdatePlan(input: {
       nextSkillsVersion,
       nextCommit,
       frozenKeys,
+      removalPaths,
     },
   };
 }

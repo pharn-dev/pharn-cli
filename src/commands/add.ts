@@ -589,10 +589,10 @@ async function resolveArchetypeAdd(
 
   // DESTINATION-DRIFT PROTECTION. `add` was the only write path with none of the
   // product's three edit-protections: no prompt (init's confirmWriteTargets), no
-  // per-file skip (update's records table), no backup (update --force). And the
-  // destructive sequence is one `update` MANUFACTURES and announces: a
-  // dropped-unselected capability's files are left on disk ("update never
-  // deletes"), the user edits them, and a later `add` of that capability is not a
+  // per-file skip (update's records table), no backup (update --force). And a
+  // capability directory can hold edited bytes without a config entry: one left
+  // behind by a pharn older than the fix that made `update` and a re-run `init`
+  // delete the directories they drop, or one the user created by hand. A later `add` of that capability is not a
   // config no-op — so cpSync's `force: true` replaced the edits with pristine
   // upstream bytes, unrecoverably.
   //

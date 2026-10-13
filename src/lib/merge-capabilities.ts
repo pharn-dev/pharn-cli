@@ -223,8 +223,11 @@ export function mergeCapabilities(
       continue;
     }
 
-    // Row 5 — pharn chose it, pharn un-chooses it. Its FILES are left on disk:
-    // `update` never deletes.
+    // Row 5 — pharn chose it, pharn un-chooses it. This module only decides
+    // membership; `update` then DELETES its directory (lib/update-plan.ts →
+    // removals), after backing up what pharn cannot prove it wrote — PHARN's
+    // commands find capabilities by scanning the directories, so one left on
+    // disk would keep running.
     if (cap.source === 'auto') {
       changes.push({ cap, reason: 'dropped-unselected' });
       continue;
@@ -244,7 +247,8 @@ export function mergeCapabilities(
     // Dropped from the config rather than kept as a phantom pointing at nothing,
     // and NAMED — the install manifest silently contributes zero paths for a
     // missing capability dir (lib/install-manifest.ts, addDir's lstat guard), so
-    // nothing else in the system would ever surface it. Its files stay on disk.
+    // nothing else in the system would ever surface it. Like row 5, `update`
+    // deletes its directory (backing up first) — the same treatment.
     if (!inIndex.has(k)) {
       changes.push({ cap: inferred, reason: 'dropped-gone' });
       continue;

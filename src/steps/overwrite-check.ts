@@ -9,8 +9,10 @@ import {
   DRIFT_LABEL_ORDER,
   MAX_LISTED,
   planWriteTargets,
+  removalLines,
   targetLines,
 } from '../lib/write-targets.js';
+import type { CapabilityRemoval } from '../lib/capability-removal.js';
 import { BACKUP_DIR } from '../lib/backup.js';
 import { readBoundedFile } from '../lib/bounded-read.js';
 import type { FileRecords } from '../lib/install-records.js';
@@ -124,6 +126,10 @@ function labelLine(label: DriftLabel, n: number): string {
 export interface WriteTargetsContext {
   manifest?: ReadonlyMap<string, string>;
   records?: FileRecords | null;
+  // The dropped capabilities' directories this install would delete
+  // (lib/init-plan.ts → planInitRemovals). Listed in the same prompt; with any
+  // to delete, the prompt is shown even when nothing would be overwritten.
+  removals?: readonly CapabilityRemoval[];
 }
 
 // 'proceed' when there is nothing to overwrite or the user confirmed;
@@ -153,14 +159,34 @@ export async function confirmWriteTargets(
   // regenerates it), so it is never scanned: an existing one is marked on its
   // own (`configBackedUp`), ranked right after the labelled files so the
   // MAX_LISTED cap cannot hide it, and always backed up.
-  const { conflicts, labels, configBackedUp } = planWriteTargets({
+  const { conflicts, labels, configBackedUp, removals } = planWriteTargets({
     repoDir,
     projectRoot: cwd,
     capabilities: selection.selected,
     manifest,
     records: context.records ?? null,
+    removals: context.removals,
   });
-  if (conflicts.length === 0) return 'proceed'; // zero friction — nothing to overwrite
+  const deletes = removalLines(removals);
+  // Zero friction — nothing to overwrite and nothing to delete. A deletion is
+  // destructive on its own, so it always asks.
+  if (conflicts.length === 0 && deletes.length === 0) return 'proceed';
+  const deleteBackups = removals
+    .filter((r) => r.present)
+    .reduce((n, r) => n + r.backups.length, 0);
+  const deleteBlock =
+    deletes.length > 0
+      ? `${conflicts.length > 0 ? '\n' : ''}These capability directories are no longer selected and will be DELETED (pharn runs every capability directory on disk):\n${deletes.join('\n')}${deleteBackups > 0 ? `\n${deleteBackups} file(s) in them pharn did not write will be copied to ${BACKUP_DIR}/ first.` : ''}`
+      : '';
+  if (conflicts.length === 0) {
+    log.warn(`PHARN installs into your existing project. ${deleteBlock}`);
+    const result = await confirm({
+      message: 'Continue and delete them?',
+      initialValue: false,
+    });
+    if (isCancel(result)) return 'cancel';
+    return result === true ? 'proceed' : 'decline';
+  }
 
   const list = targetLines(
     { conflicts, labels, configBackedUp },
@@ -192,10 +218,13 @@ export async function confirmWriteTargets(
   // steps/archetype-summary.ts: every helper there ends in cancelAndExit, and
   // this stage's whole contract is that it does not exit.
   log.warn(
-    `${intro} These paths already exist and may be overwritten:\n${list}${editsLine}${configLine}`,
+    `${intro} These paths already exist and may be overwritten:\n${list}${editsLine}${configLine}${deleteBlock ? `\n${deleteBlock}` : ''}`,
   );
   const result = await confirm({
-    message: 'Continue and overwrite?',
+    message:
+      deletes.length > 0
+        ? 'Continue, overwrite and delete?'
+        : 'Continue and overwrite?',
     initialValue: false,
   });
   if (isCancel(result)) return 'cancel';

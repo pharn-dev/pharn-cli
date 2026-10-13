@@ -3,9 +3,12 @@ import { absentSurfaceLines } from '../lib/absent-surfaces.js';
 import type { AbsentSurface } from '../lib/install-manifest.js';
 import {
   buildUpdatePlan,
+  CapabilityRemovalError,
+  type CapabilityRemoval,
   type PlannedUpdate,
   type UpdatePlanReport,
 } from '../lib/update-plan.js';
+import { deleteCapabilityDir } from '../lib/capability-dir.js';
 import {
   confirm,
   intro,
@@ -81,6 +84,13 @@ import type { Layout, PharnConfig } from '../types.js';
 // anything it cannot prove pristine is SKIPPED and reported, never overwritten.
 // `--force` overwrites the skip buckets after copying each file to
 // `.pharn-backup/<timestamp>/`.
+//
+// The ONE thing it deletes: the directory of a capability it drops from the
+// config (merge rows 5/7/9) — after backing up every file in it pharn cannot
+// prove it wrote. PHARN's commands find capabilities by scanning those
+// directories, so a dropped entry whose directory stayed would keep running, and
+// `pharn remove` could no longer reach it. Nothing else is ever deleted, and
+// `.claude/settings.json` is never written.
 export async function runUpdate(
   opts: {
     force?: boolean;
@@ -167,7 +177,12 @@ export async function runUpdate(
 interface Backup {
   dir: string;
   count: number;
+  // What the copies were made ahead of — the notice says it, and the abort
+  // line says what may already be gone.
+  action: BackupAction;
 }
+
+type BackupAction = 'overwriting' | 'removing' | 'overwriting and removing';
 
 // The outcome of the fetch+apply phase, assembled inside the try so cleanup can
 // run in the finally and every process.exit happens AFTER it (Node skips finally
@@ -182,6 +197,8 @@ interface UpdateOutcome {
   // Every difference between the previous and next `capabilities` membership.
   // Empty ⇒ nothing changed ⇒ nothing is printed about capabilities at all.
   capabilityChanges: CapabilityChange[];
+  // The directories deleted for the capabilities this run dropped.
+  removals: CapabilityRemoval[];
   plan: UpdatePlan;
   backup: Backup | null;
   recordsNote: string | null;
@@ -422,6 +439,18 @@ async function runArchetypeUpdate(
         pc.dim(
           '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
         ),
+        // The real run's confirm comes before the fetch, so it cannot name the
+        // capabilities a drop deletes; the dry run can, and this says so.
+        ...(dryRun
+          ? []
+          : [
+              pc.dim(
+                '  Capabilities no longer selected are removed: their directories are deleted',
+              ),
+              pc.dim(
+                '  (files pharn did not write are backed up first). `pharn update --dry-run` lists them.',
+              ),
+            ]),
         ...(dryRun
           ? [pc.dim('  Preview only — nothing will be written.')]
           : []),
@@ -587,7 +616,14 @@ async function runArchetypeUpdate(
     //
     // `?.` because a lock refusal is thrown before `fn` runs, so there is no
     // spinner to stop — stopping one that never started would paint a stray frame.
-    if (err instanceof ProjectLockedError) {
+    //
+    // A drop whose directory cannot be deleted safely (a symlink on the way, an
+    // unreadable file) is refused by the PLANNER, before any write — the same
+    // kind of named refusal.
+    if (
+      err instanceof ProjectLockedError ||
+      err instanceof CapabilityRemovalError
+    ) {
       spinnerRef.current?.stop('Update refused');
       refusalRef.current = err.message;
     } else {
@@ -652,11 +688,41 @@ async function applyPlannedUpdate(
   // run that dies there has already moved the user's bytes into that directory.
   // A `--force` over the user's models block backs up the whole config: the
   // block lives inside it (`report.backups` already includes it).
+  //
+  // ONE backup directory per run: the `--force` casualties AND every file in a
+  // dropped capability's directory that pharn cannot prove it wrote
+  // (`removals[].backups`). The two sets are disjoint by construction (the
+  // manifest holds no dropped capability), and de-duplicated anyway.
+  const removalBackups = report.removals.flatMap((r) => r.backups);
+  const backupRels = [...new Set([...report.backups, ...removalBackups])];
+  // "removing" whenever a directory will be deleted — even one whose files are
+  // all pharn's own and need no copy — so an aborted run never under-reports
+  // what may already be gone.
+  const deletes = report.removals.some((r) => r.present);
   const backup: Backup | null =
-    report.backups.length > 0
-      ? { dir: createBackup(cwd, report.backups), count: report.backups.length }
+    backupRels.length > 0
+      ? {
+          dir: createBackup(cwd, backupRels),
+          count: backupRels.length,
+          action: backupAction(report.backups.length > 0, deletes),
+        }
       : null;
   if (backup) onBackup(backup);
+
+  // The capability directories this run drops, deleted BEFORE the writes — on
+  // purpose. A delete that failed AFTER the writes would leave pharn-written
+  // files whose records are never stored (only an ApplyError carries what was
+  // written), and the next run would read them as the user's edits and skip
+  // them forever. Failing here leaves only the backup and some deleted
+  // directories; the config still lists those entries, so the next run drops
+  // them again (an absent directory has nothing to save). The planner already
+  // refused a symlinked component and every unreadable file, under this lock.
+  // Their records need no prune: `plan.nextRecords` is keyed by the manifest,
+  // which holds no dropped capability.
+  for (const removal of report.removals) {
+    if (removal.present)
+      deleteCapabilityDir(cwd, apply.removalPaths, removal.cap);
+  }
 
   let written: string[];
   try {
@@ -744,6 +810,7 @@ async function applyPlannedUpdate(
     recordedVersion: report.recordedVersion,
     capCount: report.capCount,
     capabilityChanges: report.capabilityChanges,
+    removals: report.removals,
     plan,
     backup,
     recordsNote: report.recordsNote,
@@ -784,7 +851,7 @@ function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
 
   if (recordsNote) log.warn(`⚠ ${recordsNote}`);
 
-  reportCapabilityChanges(outcome.capabilityChanges);
+  reportCapabilityChanges(outcome.capabilityChanges, outcome.removals, false);
   reportModels(outcome.models, outcome.modelsFloor, outcome.backup);
 
   const hookLines = outcome.hookWiring
@@ -997,8 +1064,15 @@ async function fetchAndPlan(
       repo.cleanup();
     }
   } catch (err) {
-    spin.stop('Planning failed');
-    outcome = { kind: 'failed', failure: { err } };
+    // The planner's refusal to delete a dropped capability's directory is a
+    // policy refusal, exactly as the real run reports it.
+    if (err instanceof CapabilityRemovalError) {
+      spin.stop('Update refused');
+      outcome = { kind: 'refused', refusal: err.message };
+    } else {
+      spin.stop('Planning failed');
+      outcome = { kind: 'failed', failure: { err } };
+    }
   }
   return outcome;
 }
@@ -1090,6 +1164,16 @@ function reportDryRun(
         .map((f) => f.rel),
     })),
   ];
+  const deletes = r.removals.filter((removal) => removal.present);
+  sections.push({
+    heading:
+      'WOULD DELETE — directories of capabilities dropped from your config',
+    rels: deletes.map((removal) => `${removal.dir}/`),
+  });
+  // The one backup directory a real run makes holds both sets.
+  const backupRels = [
+    ...new Set([...r.backups, ...r.removals.flatMap((x) => x.backups)]),
+  ];
   const lines: string[] = [];
   for (const { heading, rels } of sections) {
     if (rels.length === 0) continue;
@@ -1097,14 +1181,15 @@ function reportDryRun(
     for (const rel of rels) lines.push(`  ${rel}`);
     lines.push('');
   }
-  if (r.backups.length > 0) {
+  if (backupRels.length > 0) {
     lines.push(
-      `  WOULD BACK UP ${r.backups.length} file(s) to ${BACKUP_DIR}/<timestamp>/ first`,
+      `  WOULD BACK UP ${backupRels.length} file(s) to ${BACKUP_DIR}/<timestamp>/ first`,
     );
-    for (const rel of r.backups) lines.push(`  ${rel}`);
+    for (const rel of backupRels) lines.push(`  ${rel}`);
     lines.push('');
   }
-  if (writes.length === 0) lines.push('  Nothing would be written.', '');
+  if (writes.length === 0 && deletes.length === 0)
+    lines.push('  Nothing would be written.', '');
   lines.push(
     `  UNCHANGED ${r.counts.ok} file(s) · SKIPPED ${r.counts.skipped} file(s)`,
   );
@@ -1113,7 +1198,7 @@ function reportDryRun(
   }
   note(lines.join('\n'), 'PLAN');
 
-  reportCapabilityChanges(r.capabilityChanges);
+  reportCapabilityChanges(r.capabilityChanges, r.removals, true);
   reportModels(r.models, r.modelsFloor, null, true);
 
   const hookLines = hookWiringLines(r.hookWiring);
@@ -1143,7 +1228,7 @@ function reportDryRun(
   }
 
   outro(
-    `Dry run — would write ${writes.length} · back up ${r.backups.length} · unchanged ${r.counts.ok} · skipped ${r.counts.skipped}. Nothing was changed. Run \`pharn update${force ? ' --force' : ''}\` to apply.`,
+    `Dry run — would write ${writes.length}${deletes.length > 0 ? ` · delete ${deletes.length} director${deletes.length === 1 ? 'y' : 'ies'}` : ''} · back up ${backupRels.length} · unchanged ${r.counts.ok} · skipped ${r.counts.skipped}. Nothing was changed. Run \`pharn update${force ? ' --force' : ''}\` to apply.`,
   );
 }
 
@@ -1163,12 +1248,12 @@ function printBackupNotice(backup: Backup, opts: { aborted: boolean }): void {
     // Said plainly, because the tree is now in a state the user did not ask for:
     // the run stopped between the first overwrite and the last.
     log.warn(
-      'The update stopped part-way — some originals may already have been overwritten.',
+      `The update stopped part-way — some originals may already have been ${ABORTED_PHRASE[backup.action]}.`,
       { output },
     );
   }
   log.info(
-    `Backed up ${backup.count} file(s) to ${backup.dir} before overwriting.`,
+    `Backed up ${backup.count} file(s) to ${backup.dir} before ${backup.action}.`,
     { output },
   );
   // Advice, not a pointer: said once, when the backup is made. On an abort the
@@ -1180,6 +1265,20 @@ function printBackupNotice(backup: Backup, opts: { aborted: boolean }): void {
     );
   }
 }
+
+// What a backup was made ahead of: overwrites (`--force` casualties) and/or
+// directory deletes. Two booleans, no third case; with neither, no backup exists
+// (a backup always has a reason, so `overwriting` is the honest default).
+function backupAction(overwrites: boolean, removals: boolean): BackupAction {
+  if (overwrites && removals) return 'overwriting and removing';
+  return removals ? 'removing' : 'overwriting';
+}
+
+const ABORTED_PHRASE: Record<BackupAction, string> = {
+  overwriting: 'overwritten',
+  removing: 'removed',
+  'overwriting and removing': 'overwritten or removed',
+};
 
 // The order change groups are reported in — additions first, then departures,
 // then the one-time legacy tagging (P5: deterministic output, never dependent on
@@ -1212,29 +1311,65 @@ const CHANGE_ORDER: { reason: CapabilityChange['reason']; heading: string }[] =
 // Name EVERY membership change. This is the whole point of the merge: before it,
 // a manual add could vanish and a removal could resurrect without a word. Zero
 // changes prints NOTHING — a steady-state update stays as quiet as it was.
-function reportCapabilityChanges(changes: CapabilityChange[]): void {
+//
+// A REMOVED line also says what happened to the directory (`removals`, keyed by
+// `role:name`): deleted, deleted after a backup, or already gone. `preview`
+// switches the tense for the dry run.
+function reportCapabilityChanges(
+  changes: CapabilityChange[],
+  removals: readonly CapabilityRemoval[],
+  preview: boolean,
+): void {
   if (changes.length === 0) return;
 
+  const removalOf = new Map(
+    removals.map((r) => [`${r.cap.role}:${r.cap.name}`, r]),
+  );
   const lines: string[] = [];
   for (const { reason, heading } of CHANGE_ORDER) {
     const inGroup = changes.filter((c) => c.reason === reason);
     if (inGroup.length === 0) continue;
     lines.push(`  ${heading}`);
-    for (const { cap } of inGroup) lines.push(`  ${cap.role}:${cap.name}`);
+    for (const { cap } of inGroup) {
+      const key = `${cap.role}:${cap.name}`;
+      const removal = removalOf.get(key);
+      lines.push(
+        removal === undefined
+          ? `  ${key}`
+          : `  ${key} — ${removalPhrase(removal, preview)}`,
+      );
+    }
     lines.push('');
   }
-  if (
-    changes.some(
-      (c) => c.reason === 'dropped-unselected' || c.reason === 'dropped-gone',
-    )
-  ) {
+  if (removals.length > 0) {
     lines.push(
       pc.dim(
-        '  Removed capabilities’ files are left on disk — pharn update never deletes.',
+        preview
+          ? '  Removed capabilities’ directories would be deleted, so PHARN would no longer run them.'
+          : '  Removed capabilities’ directories are deleted, so PHARN no longer runs them.',
       ),
     );
+    if (removals.some((r) => r.backups.length > 0)) {
+      lines.push(
+        pc.dim(
+          preview
+            ? `  Files in them pharn did not write would be copied to ${BACKUP_DIR}/ first.`
+            : `  Files in them pharn did not write were copied to ${BACKUP_DIR}/ first.`,
+        ),
+      );
+    }
   }
   note(lines.join('\n'), 'CAPABILITIES');
+}
+
+function removalPhrase(removal: CapabilityRemoval, preview: boolean): string {
+  if (!removal.present) return 'already gone';
+  const n = removal.backups.length;
+  const deleted = preview ? 'directory would be deleted' : 'directory deleted';
+  if (n === 0) return deleted;
+  return preview
+    ? `${deleted} (${n} file(s) would be backed up first)`
+    : `${deleted} (${n} file(s) backed up first)`;
 }
 
 // The MODELS note: what happened to the `models` block, for every outcome but

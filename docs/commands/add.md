@@ -174,10 +174,13 @@ copied. If you later [`pharn remove`](remove.md) that capability, those files ar
 `.pharn-backup/<timestamp>/` before its directory is deleted — see
 [What is backed up before the delete](remove.md#what-is-backed-up-before-the-delete).
 
-**Why this exists.** [`pharn update`](update.md) never deletes: when a capability stops being
-selected, its directory is left on disk and the report says so. If you then edit those files and
-later run `pharn add <name>` for that same capability, the add is not a no-op — the config entry is
-gone — so the copy lands on your edits. The backup is what makes that recoverable.
+**Why this exists.** A capability directory can outlive its config entry: an older `pharn update` or
+re-run `pharn init` dropped a capability from `pharn.config.json` and left its directory on disk (both
+now delete it, after backing up your files — see
+[Dropped capabilities are deleted](update.md#dropped-capabilities-are-deleted)), and you can create one
+by hand. If you edit those files and later run `pharn add <name>` for that same
+capability, the add is not a no-op — the config entry is gone — so the copy lands on your edits. The
+backup is what makes that recoverable.
 
 If the backup itself cannot be written (for example `.pharn-backup` is a symlink, or a file to be
 saved sits under one), `add` **aborts before copying anything** and your files are left exactly as

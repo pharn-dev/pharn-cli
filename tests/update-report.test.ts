@@ -32,6 +32,7 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
       },
       { cap: { name: 'legacy', role: 'lens' }, reason: 'kept-manual' },
     ],
+    removals: [],
     files: [
       {
         rel: 'a.md',
@@ -190,6 +191,51 @@ describe('buildUpdateReport — planned', () => {
         { role: 'lens', name: 'legacy', source: null, reason: 'kept-manual' },
       ],
     });
+  });
+
+  // F-04: the directories a real run would DELETE are part of the plan, so a
+  // script reading the dry run sees a deletion before it happens. Additive
+  // within schemaVersion 1, and ABSENT when nothing is dropped (read it as
+  // `?? []`), like `plan.orphans` and `plan.absentUpstream`.
+  it('lists the capability directories a real run would delete, and omits the key when none', () => {
+    expect(r.plan!.capabilities).not.toHaveProperty('removals');
+    expect(Object.keys(r.plan!.capabilities)).toEqual(['count', 'changes']);
+    const dropped = buildUpdateReport(
+      input({
+        plan: planReport({
+          capabilityChanges: [
+            {
+              cap: { name: 'stale', role: 'lens', source: 'auto' },
+              reason: 'dropped-unselected',
+            },
+          ],
+          removals: [
+            {
+              cap: { name: 'stale', role: 'lens', source: 'auto' },
+              reason: 'dropped-unselected',
+              dir: 'pharn/pharn-review/stale',
+              present: true,
+              backups: ['pharn/pharn-review/stale/NOTES.md'],
+            },
+          ],
+        }),
+      }),
+    );
+    expect(dropped.plan!.capabilities.removals).toEqual([
+      {
+        role: 'lens',
+        name: 'stale',
+        reason: 'dropped-unselected',
+        dir: 'pharn/pharn-review/stale',
+        present: true,
+        backups: ['pharn/pharn-review/stale/NOTES.md'],
+      },
+    ]);
+    expect(Object.keys(dropped.plan!.capabilities)).toEqual([
+      'count',
+      'changes',
+      'removals',
+    ]);
   });
 
   it('maps layout, frozen and the structured unknown capabilities (never the prose)', () => {

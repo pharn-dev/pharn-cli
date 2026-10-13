@@ -1,4 +1,10 @@
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -357,6 +363,94 @@ describe('runInit (archetype default)', () => {
       expect(carry.kept).toEqual([]);
     });
 
+    // F-04: every entry a re-run drops is listed (its directory is deleted by
+    // the install), NAMED before the summary — the auto/legacy drops used to be
+    // silent — and handed to the overwrite prompt as a removal.
+    it('lists every dropped entry, names them, and hands their directories to the prompt', async () => {
+      const dir = tmp.path();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      writeConfig(dir, {
+        ...baseConfig,
+        capabilities: [
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'old-auto', role: 'griller', source: 'auto' },
+          { name: 'path-traversal', role: 'lens' }, // legacy, index has it
+          { name: 'legacy-gone', role: 'lens' }, // legacy, index does not
+          { name: 'gone-now', role: 'lens', source: 'manual' },
+        ],
+      });
+      mkdirSync(join(dir, 'pharn-pipeline/grillers/old-auto'), {
+        recursive: true,
+      });
+      writeFileSync(
+        join(dir, 'pharn-pipeline/grillers/old-auto/NOTES.md'),
+        'mine',
+      );
+
+      await runInit();
+
+      const call = runInstallArchetype.mock.calls[0] as unknown as unknown[];
+      const carry = call[5] as {
+        dropped: { cap: { name: string }; reason: string }[];
+        previousLayout: string;
+      };
+      expect(carry.dropped.map((d) => [d.cap.name, d.reason])).toEqual([
+        ['old-auto', 'dropped-unselected'],
+        ['path-traversal', 'dropped-unselected'],
+        ['legacy-gone', 'dropped-gone'],
+        ['gone-now', 'dropped-gone'],
+      ]);
+      expect(carry.previousLayout).toBe('flat');
+      expect(warned()).toContain(
+        'your archetypes no longer select (or upstream no longer ships): griller:old-auto, lens:path-traversal, lens:legacy-gone',
+      );
+      expect(warned()).toContain('directories are deleted');
+      expect(warned()).not.toContain('files stay on disk');
+      const context = (
+        confirmWriteTargets.mock.calls[0] as unknown as unknown[]
+      )[3] as {
+        removals: { dir: string; present: boolean; backups: string[] }[];
+      };
+      expect(context.removals).toContainEqual(
+        expect.objectContaining({
+          dir: 'pharn-pipeline/grillers/old-auto',
+          present: true,
+          backups: ['pharn-pipeline/grillers/old-auto/NOTES.md'],
+        }),
+      );
+    });
+
+    it('refuses, writing nothing, when a dropped directory sits behind a symlink', async () => {
+      const dir = tmp.path();
+      vi.spyOn(process, 'cwd').mockReturnValue(dir);
+      writeConfig(dir, {
+        ...baseConfig,
+        capabilities: [
+          { name: 'a11y', role: 'griller', source: 'auto' },
+          { name: 'old-auto', role: 'griller', source: 'auto' },
+        ],
+      });
+      const outside = join(dir, '..', `outside-${Date.now()}`);
+      mkdirSync(join(outside, 'grillers/old-auto'), { recursive: true });
+      mkdirSync(join(dir, 'pharn-pipeline'), { recursive: true });
+      symlinkSync(
+        join(outside, 'grillers'),
+        join(dir, 'pharn-pipeline/grillers'),
+      );
+
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(runInstallArchetype).not.toHaveBeenCalled();
+      expect(confirmWriteTargets).not.toHaveBeenCalled();
+      const errorText = vi
+        .mocked(log.error)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n');
+      expect(errorText).toContain('pharn-pipeline/grillers is a symbolic link');
+      expect(errorText).not.toContain('PHARN_DEBUG');
+      expect(cleanup).toHaveBeenCalled();
+    });
+
     // update's merge row 3: sticky manual. This used to be recorded `auto`, so a
     // later archetype change let `update` drop what the user asked for by name.
     it('keeps a manual entry manual when the archetypes ALSO select it', async () => {
@@ -667,7 +761,7 @@ describe('runInit (archetype default)', () => {
       '/fake/repo',
       expect.any(String),
       { selected: [], skipped: [] },
-      { manifest, records: null },
+      { manifest, records: null, removals: [] },
     );
     const promptContext = (
       confirmWriteTargets.mock.calls[0] as unknown as unknown[]

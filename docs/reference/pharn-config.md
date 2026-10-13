@@ -4,8 +4,13 @@ Written to the project root on a successful `pharn init`, and updated by `pharn 
 Source: [`pharn-config.ts`](../../src/lib/pharn-config.ts) and
 [`install-archetype.ts`](../../src/steps/install-archetype.ts).
 
-PHARN skills in your project read this file at runtime (e.g. to discover the installed
-archetypes/capabilities and the pinned commit).
+It is the CLI's record of what it installed. PHARN's commands in your project do **not** read
+`capabilities` to decide which grillers and lenses run: they scan the capability directories on disk
+(`pharn-pipeline/grillers/`, `pharn-review/`, under `pharn/` in that layout). So a capability's
+directory, not its entry here, is what makes it run — which is why `pharn remove` and
+[`pharn update`](../commands/update.md#dropped-capabilities-are-deleted) delete the directory of a
+capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `models` block (see
+[Models](#models)).
 
 ## Top-level fields (archetype install)
 

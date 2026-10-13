@@ -8,7 +8,7 @@ import type {
   UpdateLabel,
   UpdatePlan,
 } from './update-decision.js';
-import type { UpdatePlanReport } from './update-plan.js';
+import type { CapabilityRemoval, UpdatePlanReport } from './update-plan.js';
 import type { OrphanState } from './orphans.js';
 import type { InstallSurface } from './install-manifest.js';
 import type { Layout } from '../types.js';
@@ -82,6 +82,18 @@ export interface UpdateReport {
         name: string;
         source: 'auto' | 'manual' | null;
         reason: CapabilityChange['reason'];
+      }[];
+      // The capability directories a real run would DELETE — one per entry it
+      // drops from the config — and the files it would back up first. Present
+      // ONLY when there is one (read it as `?? []`), so a report without a drop
+      // stays byte-identical to earlier releases; added within 1.
+      removals?: {
+        role: CapabilityRemoval['cap']['role'];
+        name: string;
+        reason: CapabilityRemoval['reason'];
+        dir: string;
+        present: boolean;
+        backups: string[];
       }[];
     };
     files: {
@@ -172,6 +184,18 @@ function planReport(
         source: c.cap.source ?? null,
         reason: c.reason,
       })),
+      ...(p.removals.length > 0
+        ? {
+            removals: p.removals.map((r) => ({
+              role: r.cap.role,
+              name: r.cap.name,
+              reason: r.reason,
+              dir: r.dir,
+              present: r.present,
+              backups: [...r.backups],
+            })),
+          }
+        : {}),
     },
     files: kept.map((f) => ({
       rel: f.rel,

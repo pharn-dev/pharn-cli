@@ -1,4 +1,10 @@
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -278,6 +284,45 @@ describe('runInit --dry-run --json', () => {
     expect(r.config).toEqual({ carriedKeys: ['testResults'] });
     expect(r.settings).toEqual({ preserved: true });
     expect(r.hooks).toMatchObject({ status: 'no-upstream' });
+  });
+
+  // F-04: the directory a re-install would delete — absent when none.
+  it('lists the capability directory a re-install would delete, with its backups, and omits the key otherwise', async () => {
+    const fresh = await run();
+    expect(fresh.capabilities).not.toHaveProperty('removals');
+    vi.clearAllMocks();
+    logSpy.mockClear();
+
+    write(
+      join(proj, 'pharn.config.json'),
+      JSON.stringify({
+        pharnVersion: '0.12.0',
+        skillsVersion: '1.0.0',
+        repo: 'pharn-dev/pharn-oss',
+        commit: null,
+        modules: [],
+        installedAt: '2026-10-01T00:00:00.000Z',
+        archetypes: ['ssr'],
+        capabilities: [{ name: 'stale', role: 'lens', source: 'auto' }],
+        layout: 'flat',
+      }),
+    );
+    write(join(proj, 'pharn-review/stale/NOTES.md'), 'mine');
+    const r = await run();
+    expect(r.capabilities.removals).toEqual([
+      {
+        role: 'lens',
+        name: 'stale',
+        reason: 'dropped-unselected',
+        dir: 'pharn-review/stale',
+        present: true,
+        backups: ['pharn-review/stale/NOTES.md'],
+      },
+    ]);
+    expect(r.backups).toContain('pharn-review/stale/NOTES.md');
+    expect(r.yesWouldProceed).toBe(false);
+    // Planned, not done.
+    expect(existsSync(join(proj, 'pharn-review/stale/NOTES.md'))).toBe(true);
   });
 
   it('records the release channel and its tag', async () => {

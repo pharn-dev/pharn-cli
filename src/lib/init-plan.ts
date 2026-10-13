@@ -14,7 +14,13 @@ import {
   recordsBaseline,
   type FileRecords,
 } from './install-records.js';
-import { detectLayout } from './layout.js';
+import { configLayout, detectLayout, layoutPaths } from './layout.js';
+import {
+  planCapabilityRemovals,
+  removalBackups,
+  type CapabilityDrop,
+  type CapabilityRemoval,
+} from './capability-removal.js';
 import { recordedArchetypes } from './archetype.js';
 import type { ArchetypeOrigin } from './archetype.js';
 import {
@@ -80,6 +86,13 @@ export interface InstallCarry {
   // default) otherwise. A re-run init follows its own flag, never the old
   // config's channel (lib/release.ts).
   ref?: 'latest';
+  // Previous entries this install DROPS from the config (carryOver below) —
+  // their directories are deleted under the lock, after a backup
+  // (lib/capability-removal.ts). Absent/empty for a first install.
+  dropped?: readonly CapabilityDrop[];
+  // The layout the replaced config recorded — where the dropped capabilities'
+  // directories are, and how their records are keyed.
+  previousLayout?: Layout;
 }
 
 export interface InitCarry extends InstallCarry {
@@ -88,6 +101,10 @@ export interface InitCarry extends InstallCarry {
   extra: InstalledCapability[];
   // Manual entries upstream no longer ships — dropped and NAMED (row 7).
   gone: InstalledCapability[];
+  // EVERY previous entry this install drops: `gone` above, plus `auto` and
+  // source-less entries the archetypes no longer select. Never a kept
+  // (frozen) entry, never one installed again.
+  dropped: CapabilityDrop[];
 }
 
 /** A capability's identity everywhere in this CLI: the `role:name` pair. */
@@ -133,6 +150,13 @@ export function readPreviousConfig(cwd: string): PreviousConfig {
  *   re-resolved from the archetypes: init starts over. Resolving an ABSENT
  *   source is the merge's job alone, so it is not inferred here.
  *
+ * `dropped` lists every previous entry that does not survive: a `gone` manual
+ * entry (`dropped-gone`), an `auto` entry the archetypes no longer select
+ * (`dropped-unselected`, as update's row 5), and a source-less entry they no
+ * longer select (`dropped-unselected` while the index has it, else
+ * `dropped-gone`). Its directory is deleted by the install (after a backup) —
+ * PHARN runs whatever capability directories are on disk.
+ *
  * The first entry wins for a duplicated key, as in the merge.
  */
 export function carryOver(
@@ -147,6 +171,7 @@ export function carryOver(
   const kept: InstalledCapability[] = [];
   const extra: InstalledCapability[] = [];
   const gone: InstalledCapability[] = [];
+  const dropped: CapabilityDrop[] = [];
   const seen = new Set<string>();
   for (const cap of previous?.capabilities ?? []) {
     const k = capabilityKey(cap);
@@ -156,9 +181,21 @@ export function carryOver(
       kept.push({ ...cap });
       continue;
     }
-    if (cap.source !== 'manual') continue;
+    if (cap.source !== 'manual') {
+      if (!selected.has(k)) {
+        dropped.push({
+          cap,
+          reason:
+            cap.source === 'auto' || inIndex.has(k)
+              ? 'dropped-unselected'
+              : 'dropped-gone',
+        });
+      }
+      continue;
+    }
     if (!inIndex.has(k)) {
       gone.push(cap);
+      dropped.push({ cap, reason: 'dropped-gone' });
       continue;
     }
     manualKeys.add(k);
@@ -169,10 +206,35 @@ export function carryOver(
     kept,
     extra,
     gone,
+    dropped,
     previousStamp: previous
       ? { skillsVersion: previous.skillsVersion, commit: previous.commit }
       : null,
+    ...(previous ? { previousLayout: configLayout(previous) } : {}),
   };
+}
+
+/**
+ * The directories this re-install deletes — one per dropped capability, at the
+ * layout the replaced config recorded — and the files it saves first, judged
+ * against the reinstall baseline. Reads only; throws CapabilityRemovalError (a
+ * named refusal) for a symlinked component or an unreadable file. The real run
+ * plans it before its prompt and AGAIN under the lock (steps/install-archetype.ts),
+ * where it is authoritative.
+ */
+export function planInitRemovals(
+  cwd: string,
+  carry: InstallCarry,
+): CapabilityRemoval[] {
+  const drops = carry.dropped ?? [];
+  if (drops.length === 0) return [];
+  return planCapabilityRemovals({
+    cwd,
+    paths: layoutPaths(carry.previousLayout ?? 'flat'),
+    drops,
+    records: reinstallBaseline(cwd, carry.previousStamp),
+    command: 'init',
+  });
 }
 
 export interface InitSelection {
@@ -226,8 +288,9 @@ export function resolveInitSelection(params: {
  *
  * Keyed by PATH, at the layout of the install that wrote it. A re-install
  * whose clone changed layout (flat → pharn/) writes to new paths, which the
- * project does not have yet, and leaves the old files in place (init never
- * deletes) — so it backs up nothing extra. Only a file of the user's own
+ * project does not have yet, and leaves the old files in place (init deletes
+ * only the directories of capabilities it drops) — so it backs up nothing
+ * extra. Only a file of the user's own
  * already at one of the new paths has no record there, and is backed up
  * (`unrecorded`). Pinned by tests/init-archetype.test.ts.
  */
@@ -309,7 +372,11 @@ export interface InitPlanReport {
   conflicts: string[];
   // An existing pharn.config.json would be rewritten, and backed up first.
   configBackedUp: boolean;
-  // What the install would copy to `.pharn-backup/<timestamp>/` first.
+  // The capability directories it would delete (dropped from the config), and
+  // what it would back up from them first.
+  removals: CapabilityRemoval[];
+  // What the install would copy to `.pharn-backup/<timestamp>/` first —
+  // overwrites, the replaced config, and the removals' files.
   backups: string[];
   counts: { create: number; overwrite: number; backup: number };
   settingsPreserved: boolean;
@@ -361,6 +428,8 @@ export function buildInitPlan(params: {
   // The destination pre-flight a real run makes before its overwrite prompt:
   // a project the install could not finish in is refused here too.
   prepareInstall(repoDir, cwd, selection.selected, manifest);
+  // The dropped capabilities' directories, refused as a real run refuses them.
+  const removals = planInitRemovals(cwd, carry);
 
   const { conflicts, labels, configBackedUp } = planWriteTargets({
     repoDir,
@@ -386,8 +455,11 @@ export function buildInitPlan(params: {
   // What runInstallArchetype backs up under the lock: the drifted files, then
   // the replaced config (steps/install-archetype.ts).
   const backups = [
-    ...[...labels.keys()].sort(),
-    ...(configBackedUp ? [PHARN_CONFIG_FILE] : []),
+    ...new Set([
+      ...[...labels.keys()].sort(),
+      ...(configBackedUp ? [PHARN_CONFIG_FILE] : []),
+      ...removalBackups(removals),
+    ]),
   ];
 
   // `existsSync` FOLLOWS a link, exactly as the install's own test does
@@ -415,6 +487,7 @@ export function buildInitPlan(params: {
     targets,
     conflicts,
     configBackedUp,
+    removals,
     backups,
     counts: {
       create: targets.length - existing.size,

@@ -35,6 +35,7 @@ import { BACKUP_DIR } from '../lib/backup.js';
 import {
   buildInitPlan,
   capabilityKey,
+  planInitRemovals,
   resolveInitSelection,
   type InitCarry,
   type InitPlanReport,
@@ -43,8 +44,10 @@ import { buildInitReport } from '../lib/init-report.js';
 import {
   assertNoExistingTargets,
   OverwriteRefusedError,
+  removalLines,
   targetLines,
 } from '../lib/write-targets.js';
+import { CapabilityRemovalError } from '../lib/capability-removal.js';
 import { runGitPrereq } from '../steps/prereqs.js';
 import { runNodePrereq } from '../steps/node-prereq.js';
 import { confirmWriteTargets } from '../steps/overwrite-check.js';
@@ -319,19 +322,27 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       let overwrite: Awaited<ReturnType<typeof confirmWriteTargets>> = 'cancel';
       if (manifest !== null) {
         const records = reinstallBaseline(cwd, carry.previousStamp);
+        // The dropped capabilities' directories this install would delete —
+        // listed in the prompt, and refused here (CapabilityRemovalError, a
+        // named refusal, nothing written) when one sits behind a symlink or
+        // holds a file that cannot be read. Planned again under the lock.
+        const removals = planInitRemovals(cwd, carry);
         if (yes) {
+          // `--yes` never deletes: any removal refuses, as any overwrite does.
           assertNoExistingTargets({
             repoDir: repo.dir,
             projectRoot: cwd,
             capabilities: selection.selected,
             manifest,
             records,
+            removals,
           });
           overwrite = 'proceed';
         } else {
           overwrite = await confirmWriteTargets(repo.dir, cwd, selection, {
             manifest,
             records,
+            removals,
           });
         }
       }
@@ -380,6 +391,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
               capabilities: selection.selected,
               manifest,
               records: reinstallBaseline(cwd, carry.previousStamp),
+              removals: planInitRemovals(cwd, carry),
             });
           }
           return runInstallArchetype(
@@ -400,7 +412,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     // refusal, not a crash: named, actionable, and no PHARN_DEBUG hint.
     if (
       err instanceof ProjectLockedError ||
-      err instanceof OverwriteRefusedError
+      err instanceof OverwriteRefusedError ||
+      err instanceof CapabilityRemovalError
     )
       refusal = err.message;
     else failure = { err };
@@ -437,7 +450,19 @@ function reportCarry(carry: InitCarry): void {
   }
   if (carry.gone.length) {
     log.warn(
-      `Not keeping ${carry.gone.length} capabilit${carry.gone.length === 1 ? 'y' : 'ies'} you added by hand that upstream no longer ships: ${carry.gone.map(capabilityKey).join(', ')}. ${carry.gone.length === 1 ? 'It is' : 'They are'} dropped from pharn.config.json; the files stay on disk.`,
+      `Not keeping ${carry.gone.length} capabilit${carry.gone.length === 1 ? 'y' : 'ies'} you added by hand that upstream no longer ships: ${carry.gone.map(capabilityKey).join(', ')}. ${carry.gone.length === 1 ? 'It is' : 'They are'} dropped from pharn.config.json, and ${carry.gone.length === 1 ? 'its directory is' : 'their directories are'} deleted (files pharn did not write are backed up first).`,
+    );
+  }
+  // The rest of what this install drops — `auto` (and source-less) entries the
+  // archetypes no longer select. Silent before; named, since their directories
+  // are deleted too.
+  const goneKeys = new Set(carry.gone.map(capabilityKey));
+  const unselected = carry.dropped.filter(
+    (d) => !goneKeys.has(capabilityKey(d.cap)),
+  );
+  if (unselected.length) {
+    log.warn(
+      `Not keeping ${unselected.length} capabilit${unselected.length === 1 ? 'y' : 'ies'} your archetypes no longer select${unselected.some((d) => d.reason === 'dropped-gone') ? ' (or upstream no longer ships)' : ''}: ${unselected.map((d) => capabilityKey(d.cap)).join(', ')}. ${unselected.length === 1 ? 'It is' : 'They are'} dropped from pharn.config.json, and ${unselected.length === 1 ? 'its directory is' : 'their directories are'} deleted (files pharn did not write are backed up first).`,
     );
   }
 }
@@ -493,7 +518,10 @@ async function runInitDryRun(
       });
     }
   } catch (err) {
-    failure = { err };
+    // A dropped capability's directory the real run would refuse to delete is
+    // reported as the same named refusal.
+    if (err instanceof CapabilityRemovalError) refusal = err.message;
+    else failure = { err };
   } finally {
     repo.cleanup();
   }
@@ -555,10 +583,18 @@ function reportInitDryRun(r: InitPlanReport): void {
     lines.push('  Nothing in your project would be overwritten.');
   }
   lines.push('', `  WOULD CREATE ${r.counts.create} file(s)`);
+  const deletes = removalLines(r.removals);
+  if (deletes.length > 0) {
+    lines.push(
+      '',
+      `  WOULD DELETE ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} dropped from your config`,
+      ...deletes,
+    );
+  }
   if (r.counts.backup > 0) {
     lines.push(
       '',
-      `  WOULD BACK UP ${r.counts.backup} file(s) to ${BACKUP_DIR}/<timestamp>/ first — the marked ones above`,
+      `  WOULD BACK UP ${r.counts.backup} file(s) to ${BACKUP_DIR}/<timestamp>/ first — the marked ones above${deletes.length > 0 ? ' and the deleted directories’ files pharn did not write' : ''}`,
     );
   }
   lines.push(
@@ -583,9 +619,11 @@ function reportInitDryRun(r: InitPlanReport): void {
   }
   lines.push(
     '',
-    r.counts.overwrite === 0
-      ? '  `pharn init --yes` would install (nothing would be overwritten).'
-      : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
+    deletes.length > 0
+      ? `  \`pharn init --yes\` would refuse: ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} would be deleted.`
+      : r.counts.overwrite === 0
+        ? '  `pharn init --yes` would install (nothing would be overwritten).'
+        : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
   );
   note(lines.join('\n'), 'PLAN');
 
@@ -611,6 +649,6 @@ function reportInitDryRun(r: InitPlanReport): void {
   }
 
   outro(
-    `Dry run — would create ${r.counts.create} · overwrite ${r.counts.overwrite} · back up ${r.counts.backup}. Nothing was changed. Run \`pharn init\` to apply.`,
+    `Dry run — would create ${r.counts.create} · overwrite ${r.counts.overwrite}${deletes.length > 0 ? ` · delete ${deletes.length} director${deletes.length === 1 ? 'y' : 'ies'}` : ''} · back up ${r.counts.backup}. Nothing was changed. Run \`pharn init\` to apply.`,
   );
 }

@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -447,6 +448,40 @@ describe('runUpdate --dry-run --json', () => {
       });
     });
 
+    // F-04: the directory a real run would delete, and the files it would back
+    // up first — additive within schemaVersion 1.
+    it('lists the capability directory a real run would delete, with its backups', async () => {
+      await installed({
+        capabilities: [CAP, { name: 'stale', role: 'lens', source: 'auto' }],
+      });
+      write(join(proj, 'pharn-review/stale/stale.md'), 'stale v1');
+      write(join(proj, 'pharn-review/stale/NOTES.md'), 'my notes');
+      const { json } = await run();
+      expectOnlyTheObject();
+      expect(json.schemaVersion).toBe(1);
+      expect(json.plan.capabilities.removals).toEqual([
+        {
+          role: 'lens',
+          name: 'stale',
+          reason: 'dropped-unselected',
+          dir: 'pharn-review/stale',
+          present: true,
+          backups: [
+            'pharn-review/stale/NOTES.md',
+            'pharn-review/stale/stale.md',
+          ],
+        },
+      ]);
+      // Planned, not done.
+      expect(existsSync(join(proj, 'pharn-review/stale/NOTES.md'))).toBe(true);
+    });
+
+    it('omits the removals key when nothing is dropped', async () => {
+      await installed();
+      const { json } = await run();
+      expect(json.plan.capabilities).not.toHaveProperty('removals');
+    });
+
     it('names a frozen capability, structured, and keeps it out of the plan', async () => {
       const FROZEN = { name: 'backwards-compat', role: 'griller' as const };
       const FILE =
@@ -826,6 +861,19 @@ describe('runUpdate --dry-run --json', () => {
       await installed();
       rmSync(join(repo, 'SKILLS_VERSION'));
       await expectFailure();
+      expect(cleanup).toHaveBeenCalled();
+    });
+
+    it('a dropped capability behind a symlinked component: refused, no PHARN_DEBUG hint', async () => {
+      await installed({
+        capabilities: [CAP, { name: 'stale', role: 'lens', source: 'auto' }],
+      });
+      const outside = join(tmp.path(), 'shared-review');
+      write(join(outside, 'stale/stale.md'), 'not this project');
+      symlinkSync(outside, join(proj, 'pharn-review'));
+      const err = await expectFailure();
+      expect(err).toContain('pharn-review is a symbolic link');
+      expect(err).not.toContain('PHARN_DEBUG');
       expect(cleanup).toHaveBeenCalled();
     });
 

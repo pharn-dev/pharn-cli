@@ -1,4 +1,3 @@
-import { existsSync, rmSync } from 'node:fs';
 import {
   confirm,
   groupMultiselect,
@@ -9,12 +8,13 @@ import {
 } from '@clack/prompts';
 import pc from 'picocolors';
 import { cancelAndExit } from '../lib/confirm.js';
+import { configLayout, layoutPaths, type LayoutPaths } from '../lib/layout.js';
 import {
-  capabilitySubtree,
-  configLayout,
-  layoutPaths,
-  type LayoutPaths,
-} from '../lib/layout.js';
+  capabilityDir,
+  capabilityRelDir,
+  deleteCapabilityDir,
+  linkedComponent,
+} from '../lib/capability-dir.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { errorMessage, logError } from '../lib/report-error.js';
 import { createBackup } from '../lib/backup.js';
@@ -23,8 +23,6 @@ import {
   buildRemoveSelection,
   interactiveAllowed,
 } from '../lib/capability-picker.js';
-import { safeChildJoin, safeJoin } from '../lib/validate.js';
-import { findSymlinkComponent } from '../lib/symlink-guard.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
   assertConfigUnchanged,
@@ -111,37 +109,14 @@ async function removeCapability(
   await removeNamed(cwd, config, installed, arg);
 }
 
-// Delete one capability's isolated dir at the project's recorded layout (flat OR
-// pharn/), returning whether the dir existed. The shared per-name delete path —
-// the named remove and the picker loop both call it, so the two never diverge.
-// The target must be a STRICT child of the role subtree (safeChildJoin), not
-// merely inside the project (safeJoin): names are already validated at config
-// ingest, and this is the second, independent floor under a recursive delete.
-function deleteCapabilityDir(
-  cwd: string,
-  paths: LayoutPaths,
-  target: InstalledCapability,
-): boolean {
-  const dir = capabilityDir(cwd, paths, target);
-  const existed = existsSync(dir);
-  if (existed) rmSync(dir, { recursive: true, force: true });
-  return existed;
-}
-
-// The absolute directory a target addresses — a STRICT child of its role
-// subtree, or a `Refusing path` throw. Shared by the delete and the backup scan,
-// so the scan can never read (or back up) more than the delete would remove: a
-// hand-edited `..` name is refused here, before either runs.
-function capabilityDir(
-  cwd: string,
-  paths: LayoutPaths,
-  target: InstalledCapability,
-): string {
-  return safeChildJoin(
-    safeJoin(cwd, capabilitySubtree(paths, target.role)),
-    target.name,
-  );
-}
+// The per-name delete path (deleteCapabilityDir), its strict-child addressing
+// (capabilityDir) and the symlink walk (linkedComponent) live in
+// lib/capability-dir.ts, shared with `pharn update` — which deletes the
+// directory of a capability it drops from the config — so the two commands can
+// never disagree about which directory a capability is, or how it may go. The
+// backup scan below addresses targets through the same capabilityDir, so it can
+// never read (or back up) more than the delete would remove: a hand-edited `..`
+// name is refused there, before either runs.
 
 // Copy every file the coming delete would lose — anything in the target
 // directories that is not provably pharn-written-and-unchanged against a usable
@@ -214,12 +189,7 @@ function refuseSymlinkedTargets(
   targets: InstalledCapability[],
 ): void {
   for (const target of targets) {
-    let linked: string | null;
-    try {
-      linked = findSymlinkComponent(cwd, capabilityRelDir(paths, target));
-    } catch {
-      linked = null;
-    }
+    const linked = linkedComponent(cwd, paths, target);
     if (linked !== null) {
       logError(
         `Refusing to remove ${target.name} (${target.role}): ${linked} is a symbolic link, so deleting through it would delete files OUTSIDE the project. Nothing was removed. Delete the directory yourself if that is what you want.`,
@@ -229,17 +199,11 @@ function refuseSymlinkedTargets(
   }
 }
 
-// One source for the capability dir. The delete addresses the filesystem and
-// the prune addresses the record store; they MUST name the same directory, and
-// sharing this (and, through it, layout.ts's capabilitySubtree — the one role →
-// subtree mapping) makes that true by construction rather than by two copies
-// staying in sync.
-function capabilityRelDir(
-  paths: LayoutPaths,
-  capability: InstalledCapability,
-): string {
-  return `${capabilitySubtree(paths, capability.role)}/${capability.name}`;
-}
+// One source for the capability dir (lib/capability-dir.ts → capabilityRelDir).
+// The delete addresses the filesystem and the prune addresses the record store;
+// they MUST name the same directory, and sharing it (and, through it, layout.ts's
+// capabilitySubtree — the one role → subtree mapping) makes that true by
+// construction rather than by two copies staying in sync.
 
 // Drop the removed capabilities' entries from `pharn.records.json`, so `remove`
 // honors the same sentence `update` does: the store describes only files pharn
