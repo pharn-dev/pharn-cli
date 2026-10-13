@@ -145,7 +145,7 @@ key. Treat a `status` you do not recognise as "do not apply".
     "layout": "flat",
     "abandonedLayout": null,
     "featuresReadmeRelocation": false,
-    "capabilities": { "count": 12, "changes": [], "removals": [] },
+    "capabilities": { "count": 12, "changes": [] },
     "files": [
       {
         "rel": "CONSTITUTION.md",
@@ -235,9 +235,8 @@ A compact report says so, in two places that exist **only** under `--compact`:
 | `compact`           | `true`, at the top level, on every `status` (the `up-to-date`, `ahead-of-release` and `ahead-of-main` reports too, where `plan` is `null`).              |
 | `plan.filesOmitted` | `{ "action": "noop", "count": N }`: what `plan.files` leaves out. `N` always equals `plan.counts.ok`, so `files.length + N` is the installed-file total. |
 
-To tell the shapes apart, check `compact`: the default report has neither key and always holds the full
-list. It is byte-for-byte what `pharn` 0.10.0 printed apart from one additive key,
-`plan.capabilities.removals`. `schemaVersion` stays `1`: nothing is removed or
+To tell the shapes apart, check `compact`: the default report has neither key, is byte-for-byte what
+`pharn` 0.10.0 printed, and always holds the full list. `schemaVersion` stays `1`: nothing is removed or
 renamed, and the new keys appear only when you ask for them. Every other field, including all of `counts`,
 `writes`, `backups` and `skipped`, is identical in both shapes. `--compact` only helps when most files are
 unchanged; a first install or a restore after deleting files lists every file as a real change in both.

@@ -1704,7 +1704,7 @@ describe('runUpdate (drift-safe)', () => {
           commit: cfg.commit,
           files: {
             ...read.store.files,
-            [STALE_FILE]: sha256File(join(proj, STALE_FILE)),
+            [STALE_FILE]: contentHash(join(proj, STALE_FILE)),
           },
         });
         selectsA11yOnly();
@@ -1735,6 +1735,24 @@ describe('runUpdate (drift-safe)', () => {
         expect(text).toContain('1 file(s) backed up first');
         expect(text).not.toContain('left on disk');
         expect(text).not.toContain('never deletes');
+      });
+
+      // F-12 composes with F-04: a dropped capability's recorded files are
+      // never orphans (findOrphans skips capabilities outside the next config),
+      // and its directory is deleted — so nothing of it is left to report.
+      it('never reports a dropped capability’s files as orphans', async () => {
+        await droppedStale();
+
+        await runUpdate();
+
+        const orphaned = vi
+          .mocked(prompts.note)
+          .mock.calls.find((c) => c[1] === 'ORPHANED')?.[0];
+        expect(String(orphaned ?? '')).not.toContain(STALE_DIR);
+        expect(existsSync(join(proj, STALE_DIR))).toBe(false);
+        expect(
+          Object.keys(records() ?? {}).filter((k) => k.startsWith(STALE_DIR)),
+        ).toEqual([]);
       });
 
       it('backs up an EDITED recorded file too', async () => {

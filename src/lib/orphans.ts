@@ -13,7 +13,9 @@ import type { InstalledCapability } from '../types.js';
 // ---------------------------------------------------------------------------
 // Orphaned files — the files pharn RECORDED writing that the install no longer
 // owns: upstream stopped shipping them, but they are still on disk. `update`
-// never deletes, so without this they would sit in `.claude/commands/` (still
+// never deletes them (the only thing it deletes is the directory of a capability
+// it DROPS — lib/update-plan.ts removals — and those keys are excluded here, so
+// the two never overlap), so without this they would sit in `.claude/commands/` (still
 // live slash commands), `.claude/hooks/` or the floor dir forever, and nothing
 // would ever name them again once their records were pruned.
 //

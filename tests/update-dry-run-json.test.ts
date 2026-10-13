@@ -476,10 +476,10 @@ describe('runUpdate --dry-run --json', () => {
       expect(existsSync(join(proj, 'pharn-review/stale/NOTES.md'))).toBe(true);
     });
 
-    it('carries an empty removals list when nothing is dropped', async () => {
+    it('omits the removals key when nothing is dropped', async () => {
       await installed();
       const { json } = await run();
-      expect(json.plan.capabilities.removals).toEqual([]);
+      expect(json.plan.capabilities).not.toHaveProperty('removals');
     });
 
     it('names a frozen capability, structured, and keeps it out of the plan', async () => {

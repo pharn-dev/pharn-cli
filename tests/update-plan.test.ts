@@ -397,9 +397,9 @@ describe('buildUpdatePlan', () => {
         skillsVersion: cfg.skillsVersion,
         commit: cfg.commit,
         files: {
-          [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
-          [DOC]: sha256File(join(proj, DOC)),
-          [`${STALE_DIR}/stale.md`]: sha256File(
+          [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+          [DOC]: contentHash(join(proj, DOC)),
+          [`${STALE_DIR}/stale.md`]: contentHash(
             join(proj, `${STALE_DIR}/stale.md`),
           ),
         },

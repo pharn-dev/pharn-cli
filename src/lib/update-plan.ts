@@ -1,19 +1,17 @@
 import { parseCapabilityIndex } from './capability-index.js';
 import { unknownCapabilitiesWarning } from './unknown-capabilities.js';
 import { resolveCapabilities } from './resolve-capabilities.js';
-import { existsSync } from 'node:fs';
 import {
   mergeCapabilities,
   type CapabilityChange,
   type CapabilityChangeReason,
 } from './merge-capabilities.js';
 import {
-  capabilityDir,
-  capabilityRelDir,
-  linkedComponent,
-} from './capability-dir.js';
-import { removalBackupSet } from './removal-backup.js';
-import { errorMessage } from './report-error.js';
+  CapabilityRemovalError,
+  planCapabilityRemovals,
+  type CapabilityRemoval,
+  type DropReason,
+} from './capability-removal.js';
 import {
   absentInstallSurfaces,
   collectExpectedInstallPaths,
@@ -82,44 +80,12 @@ const DROP_REASONS = new Set<CapabilityChangeReason>([
   'dropped-gone',
 ]);
 
-function isDrop(
-  reason: CapabilityChangeReason,
-): reason is CapabilityRemoval['reason'] {
+function isDrop(reason: CapabilityChangeReason): reason is DropReason {
   return DROP_REASONS.has(reason);
 }
 
-/**
- * A capability this run drops from the config, and so deletes from disk: PHARN's
- * commands find capabilities by scanning their directories, not by reading
- * `pharn.config.json`, so a dropped entry whose directory stayed would keep
- * running — and, with no config entry, `pharn remove` could no longer reach it.
- */
-export interface CapabilityRemoval {
-  cap: InstalledCapability;
-  reason: 'dropped-unselected' | 'dropped-gone';
-  // `<subtree>/<name>` at the layout the CONFIG recorded — where it was
-  // installed, where `remove` addresses it, and how its records are keyed.
-  dir: string;
-  // Whether there is anything at that address to delete.
-  present: boolean;
-  // Project-relative files copied to `.pharn-backup/` before the delete: every
-  // regular file in it that is not provably pharn's own unchanged bytes
-  // (lib/removal-backup.ts). Sorted.
-  backups: string[];
-}
-
-/**
- * The run must not delete a dropped capability's directory: a symlinked
- * component on the way to it, or a file in it that cannot be checked. Thrown by
- * the PLANNER, so it fires before anything is written; the message is complete
- * and user-facing (a refusal, not a crash).
- */
-export class CapabilityRemovalError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CapabilityRemovalError';
-  }
-}
+// The removal plan is shared with a re-run `init` (lib/capability-removal.ts).
+export { CapabilityRemovalError, type CapabilityRemoval };
 
 export interface UpdatePlanReport {
   // The version recorded before this run, and the one upstream ships.
@@ -262,7 +228,15 @@ export function buildUpdatePlan(input: {
   // real run this runs under the project lock immediately before the writes, so
   // it is the authoritative answer, not a preview of one.
   const removalPaths = layoutPaths(previousLayout);
-  const removals = planRemovals(cwd, removalPaths, merged.changes, records);
+  const removals = planCapabilityRemovals({
+    cwd,
+    paths: removalPaths,
+    drops: merged.changes.flatMap(({ cap, reason }) =>
+      isDrop(reason) ? [{ cap, reason }] : [],
+    ),
+    records,
+    command: 'update',
+  });
 
   // The `models` block goes through the same rows, over its hash instead of a
   // file's (lib/models-update.ts).
@@ -406,59 +380,4 @@ export function buildUpdatePlan(input: {
       removalPaths,
     },
   };
-}
-
-/**
- * One removal per capability the merge DROPPED (first per `role:name` — a
- * duplicated config entry is one directory). Reads only.
- *
- * Refuses (CapabilityRemovalError) rather than plan a delete it cannot make
- * safely: a symlinked component on the way (`rmSync` would follow it out of the
- * project), or a file it cannot read (an unreadable file must never be treated
- * as "pharn's own, safe to delete" — fail closed). A path below a regular file
- * cannot hold a directory, so it is simply not present.
- */
-function planRemovals(
-  cwd: string,
-  paths: LayoutPaths,
-  changes: readonly CapabilityChange[],
-  records: FileRecords | null,
-): CapabilityRemoval[] {
-  const removals: CapabilityRemoval[] = [];
-  const seen = new Set<string>();
-  for (const change of changes) {
-    const { cap, reason } = change;
-    if (!isDrop(reason)) continue;
-    const key = `${cap.role}:${cap.name}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const label = `${cap.name} (${cap.role})`;
-    // A refused name keeps its own `Refusing path` error (strict child).
-    const abs = capabilityDir(cwd, paths, cap);
-    const dir = capabilityRelDir(paths, cap);
-    const linked = linkedComponent(cwd, paths, cap);
-    if (linked !== null) {
-      throw new CapabilityRemovalError(
-        `Refusing to update: ${label} is no longer installed, so its directory ${dir} would be deleted — but ${linked} is a symbolic link, and deleting through it would delete files OUTSIDE the project. Nothing was changed. Delete ${dir} yourself, then run \`pharn update\` again.`,
-      );
-    }
-    let present: boolean;
-    let backups: string[];
-    try {
-      present = existsSync(abs);
-      backups = present ? removalBackupSet(cwd, [dir], records) : [];
-    } catch (err) {
-      throw new CapabilityRemovalError(
-        `Could not check the files in ${label} before removing it: ${errorMessage(err).replace(/\.$/, '')}. Nothing was changed.`,
-      );
-    }
-    removals.push({
-      cap,
-      reason,
-      dir,
-      present,
-      backups,
-    });
-  }
-  return removals;
 }

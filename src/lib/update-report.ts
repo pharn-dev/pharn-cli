@@ -84,9 +84,10 @@ export interface UpdateReport {
         reason: CapabilityChange['reason'];
       }[];
       // The capability directories a real run would DELETE — one per entry it
-      // drops from the config — and the files it would back up first. Always
-      // present in a planned report (`[]` when none); added within 1.
-      removals: {
+      // drops from the config — and the files it would back up first. Present
+      // ONLY when there is one (read it as `?? []`), so a report without a drop
+      // stays byte-identical to earlier releases; added within 1.
+      removals?: {
         role: CapabilityRemoval['cap']['role'];
         name: string;
         reason: CapabilityRemoval['reason'];
@@ -183,14 +184,18 @@ function planReport(
         source: c.cap.source ?? null,
         reason: c.reason,
       })),
-      removals: p.removals.map((r) => ({
-        role: r.cap.role,
-        name: r.cap.name,
-        reason: r.reason,
-        dir: r.dir,
-        present: r.present,
-        backups: [...r.backups],
-      })),
+      ...(p.removals.length > 0
+        ? {
+            removals: p.removals.map((r) => ({
+              role: r.cap.role,
+              name: r.cap.name,
+              reason: r.reason,
+              dir: r.dir,
+              present: r.present,
+              backups: [...r.backups],
+            })),
+          }
+        : {}),
     },
     files: kept.map((f) => ({
       rel: f.rel,

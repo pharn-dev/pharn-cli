@@ -121,3 +121,41 @@ GATE 1 passed with one scope change.
 5. One backup dir per run; notice "before overwriting." / "before removing." / "before overwriting and removing.".
 6. `LIMITS.md` not edited by the agent; replacement text for `:71` handed over at GATE 2.
 7. Order inside the lock: backup → capability deletes → file writes → records → config.
+
+## GATE 2 changes (2026-10-13) — the init half joins this PR
+
+Approved at GATE 2 with three changes; the init refactor (#283: `lib/init-plan.ts`, `lib/init-report.ts`, `lib/write-targets.ts`, init `--dry-run`/`--json`/`--yes`) has merged, so the init half is built here.
+
+1. **JSON convention.** `update`'s `plan.capabilities.removals` is ABSENT when empty (as `plan.orphans` / `plan.absentUpstream`); the original 0.10.0 byte-pin test is restored unchanged; docs say "read it as `?? []`". init's new field follows the same rule.
+2. **Rebased** onto origin/main (#275–#287). Composition with F-12 orphans (#282): `findOrphans` skips keys under a capability outside the next `capabilities`, which is exactly the set `removals` deletes — disjoint by construction; pinned by a test.
+3. **init half (design):**
+   - `src/lib/capability-removal.ts` (NEW, one axis: which dropped capability directories a run deletes and what it saves first): `CapabilityRemoval`, `CapabilityRemovalError`, `planCapabilityRemovals(cwd, paths, drops, records)` — moved out of `update-plan.ts` (which re-exports the types) so update and init share one copy.
+   - `carryOver` returns `dropped: {cap, reason}[]` — every previous entry (first per key, never frozen) not in the final selection: `auto` not re-selected (`dropped-unselected`), source-less legacy not re-selected (`dropped-unselected` if the index has it, else `dropped-gone`), `gone` manual (`dropped-gone`). `InstallCarry` gains `dropped` and `previousLayout` (`configLayout(previous)`).
+   - Before the prompt: `planCapabilityRemovals` at `layoutPaths(previousLayout)` against `reinstallBaseline` — a symlinked component or unreadable file → `CapabilityRemovalError`, a named refusal (exit 1, nothing written).
+   - `planWriteTargets` carries the removals; `confirmWriteTargets` lists "will be DELETED (N file(s) … backed up first)" and prompts even with zero conflicts.
+   - `init --yes` REFUSES when there are removals (`OverwriteRefusedError`, before the lock and under it): it never deletes without the interactive confirm.
+   - `init --dry-run`: PLAN note `WOULD DELETE`, backups/counts include removal backups, `--yes would refuse`; `--dry-run --json` adds `capabilities.removals` (absent when empty).
+   - `runInstallArchetype`, under the lock: pre-flight → re-plan removals (authoritative) → ONE `createBackup` over drift ∪ replaced config ∪ removal backups (notice "before overwriting and removing.") → delete → copy → records → config.
+   - The silent drops (`auto` / legacy not re-selected) are now named before the summary; "its files stay on disk" / "init still leaves them" text is corrected everywhere.
+
+### Files (init half)
+
+- `src/lib/capability-removal.ts` — NEW: shared removal planning — layer: lib
+- `src/lib/update-plan.ts` — use/re-export the shared module — layer: lib
+- `src/lib/init-plan.ts` — `carryOver` → `dropped`; `InstallCarry.dropped`/`previousLayout`; `buildInitPlan` → `removals` — layer: lib
+- `src/lib/init-report.ts` — additive `capabilities.removals` (absent when empty); backups/counts/yesWouldProceed — layer: lib
+- `src/lib/write-targets.ts` — removals in the plan, `removalLines`, `--yes` refusal — layer: lib
+- `src/steps/overwrite-check.ts` — list deletions; prompt with zero conflicts — layer: steps
+- `src/steps/install-archetype.ts` — under-lock re-plan, one backup, delete before copy — layer: steps
+- `src/commands/init.ts` — plan removals before the prompt, refusal handling, naming the drops, dry-run text — layer: command
+- `src/lib/orphans.ts` — comment only (disjoint from removals) — layer: lib
+- `tests/capability-removal.test.ts` — NEW — layer: tests
+- `tests/init-plan.test.ts`, `tests/init-archetype.test.ts`, `tests/init.test.ts`, `tests/init-dry-run.test.ts`, `tests/init-dry-run-json.test.ts`, `tests/init-report.test.ts`, `tests/init-yes.test.ts`, `tests/write-targets.test.ts`, `tests/overwrite-check.test.ts` — layer: tests
+- `docs/commands/init.md`, `docs/commands/update.md`, `docs/commands/add.md`, `docs/commands/list.md`, `docs/reference/pharn-records.md`, `docs/troubleshooting.md`, `docs/contributing.md`, `README.md`, `CLAUDE.md`, `CHANGELOG.md` — layer: docs
+
+### Evals (init half)
+
+- carryOver: `auto` not re-selected → dropped-unselected; `gone` manual → dropped-gone; legacy not re-selected in/out of index; frozen and re-selected never dropped; duplicates once.
+- re-run init: a no-longer-selected `auto` dir and a gone manual dir are deleted, a user file in them backed up (one backup dir, "before overwriting and removing."), records/config lack them; the prompt lists them under "will be DELETED"; declining deletes nothing; a symlinked `pharn/` component refuses with nothing written; the prompt appears with zero conflicts.
+- `init --yes` with removals → refusal, nothing written.
+- `init --dry-run` lists WOULD DELETE and writes nothing (whole-tree snapshot); `--json` has `capabilities.removals` only when non-empty.
