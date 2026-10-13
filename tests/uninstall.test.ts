@@ -221,6 +221,34 @@ describe('runUninstall', () => {
     expect(hooks).toContain('pharn never edits these files');
   });
 
+  it('ignores a recorded hooks key that is not an install path', async () => {
+    await install(
+      FLAT_FILES.filter((f) => !f.startsWith('.claude/hooks/')),
+      config(),
+      // Recorded, absent, and wired — but `*.test.cjs` is never installed.
+      { '.claude/hooks/protect-trusted-paths.test.cjs': 'd'.repeat(64) },
+    );
+    write(
+      '.claude/settings.json',
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'node .claude/hooks/protect-trusted-paths.test.cjs',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    await runUninstall({ yes: true });
+    expect(notes('HOOKS')).toBe('');
+  });
+
   it('prints no HOOKS note when no wired hook runs a removed script', async () => {
     await install(FLAT_FILES.filter((f) => !f.startsWith('.claude/hooks/')));
     await runUninstall({ yes: true });
