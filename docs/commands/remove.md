@@ -59,8 +59,10 @@ A capability directory can hold more than `pharn` put there — notes you added,
 file. Before deleting anything, `remove` checks every regular file in each directory it is about to
 delete against [`pharn.records.json`](../reference/pharn-records.md):
 
-- A file whose path is recorded **and** whose bytes still match the recorded hash is `pharn`'s own,
-  unchanged — it is deleted without a copy (the next install can write it again).
+- A file whose path is recorded **and** whose content still matches the recorded hash is `pharn`'s
+  own, unchanged — it is deleted without a copy (the next install can write it again). Line endings in
+  text files are ignored, so a file that only changed from LF to CRLF (or back) is deleted without a
+  copy too — see [Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf).
 - **Every other file is copied first**: a file you added, a recorded file you edited, and — when the
   store is absent, unreadable, or stamped for a different install state — every file in the directory,
   because then nothing can be proven.

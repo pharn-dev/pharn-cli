@@ -48,7 +48,7 @@ const prompts = await import('@clack/prompts');
 // assertion below is about bytes that actually landed on disk.
 const { readRecords, writeRecords, RECORDS_FILE } =
   await import('../src/lib/install-records.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 
 function write(path: string, content = 'x'): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -636,7 +636,7 @@ describe('runRemove (archetype)', () => {
       const files: Record<string, string> = {};
       for (const rel of rels) {
         write(join(proj, rel), `${rel} bytes`);
-        files[rel] = sha256File(join(proj, rel));
+        files[rel] = contentHash(join(proj, rel));
       }
       await writeRecords(proj, {
         skillsVersion: '1.0.0', // matches archConfig()
@@ -662,8 +662,8 @@ describe('runRemove (archetype)', () => {
       );
       await seedStore([A11Y, A11Y_NESTED, LENS, DOC]);
       const survivors = {
-        [LENS]: sha256File(join(proj, LENS)),
-        [DOC]: sha256File(join(proj, DOC)),
+        [LENS]: contentHash(join(proj, LENS)),
+        [DOC]: contentHash(join(proj, DOC)),
       };
 
       await runRemove('a11y');
@@ -685,7 +685,7 @@ describe('runRemove (archetype)', () => {
         ]),
       );
       await seedStore([A11Y, EXTENDED]);
-      const extendedHash = sha256File(join(proj, EXTENDED));
+      const extendedHash = contentHash(join(proj, EXTENDED));
 
       await runRemove('a11y');
 
@@ -783,7 +783,7 @@ describe('runRemove (archetype)', () => {
         archConfig([{ name: 'a11y', role: 'griller' }]),
       );
       await seedStore([A11Y, A11Y_NESTED, DOC]);
-      const docHash = sha256File(join(proj, DOC));
+      const docHash = contentHash(join(proj, DOC));
       // Delete the files behind pharn's back, leaving only the records.
       rmSync(join(proj, 'pharn-pipeline/grillers/a11y'), {
         recursive: true,
@@ -819,7 +819,7 @@ describe('runRemove (archetype)', () => {
           schemaVersion: 1,
           skillsVersion: '1.0.0',
           commit: 'old',
-          files: { [LENS]: sha256File(join(proj, LENS)) },
+          files: { [LENS]: contentHash(join(proj, LENS)) },
         }),
       );
       const before = storeBytes();
@@ -840,7 +840,7 @@ describe('runRemove (archetype)', () => {
         ]),
       );
       await seedStore([A11Y, A11Y_NESTED, LENS, DOC]);
-      const docHash = sha256File(join(proj, DOC));
+      const docHash = contentHash(join(proj, DOC));
       setTTY(true, true);
       vi.mocked(prompts.groupMultiselect).mockResolvedValue([
         'griller:a11y',
@@ -902,7 +902,7 @@ describe('runRemove (archetype)', () => {
       const files: Record<string, string> = {};
       for (const rel of rels) {
         write(join(proj, rel), `${rel} pharn bytes`);
-        files[rel] = sha256File(join(proj, rel));
+        files[rel] = contentHash(join(proj, rel));
       }
       await writeRecords(proj, {
         skillsVersion: '1.0.0',
@@ -994,6 +994,29 @@ describe('runRemove (archetype)', () => {
       expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
       expect(infoLines()).not.toContain('Backed up');
       expect(existsSync(join(proj, DIR))).toBe(false);
+    });
+
+    it('recorded files re-checked-out with CRLF line endings are not backed up (F-16)', async () => {
+      lensConfig();
+      // pharn wrote (and recorded) LF bytes; a core.autocrlf=true checkout then
+      // turned them into CRLF.
+      const files: Record<string, string> = {};
+      for (const rel of [PERSONA, CASE]) {
+        write(join(proj, rel), `${rel}\npharn bytes\n`);
+        files[rel] = contentHash(join(proj, rel));
+        write(join(proj, rel), `${rel}\r\npharn bytes\r\n`);
+      }
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: 'old',
+        files,
+      });
+
+      await runRemove('a11y');
+
+      expect(existsSync(join(proj, DIR))).toBe(false);
+      expect(backupDirs()).toEqual([]);
+      expect(infoLines()).not.toMatch(/Backed up/);
     });
 
     it('no record store → every file in the dir is backed up', async () => {

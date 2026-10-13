@@ -13,7 +13,7 @@ import {
   ApplyError,
   readDiskState,
 } from '../src/lib/apply-update.js';
-import { sha256File } from '../src/lib/hash.js';
+import { contentHash } from '../src/lib/hash.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -32,7 +32,7 @@ describe('readDiskState — the disk side of the decision table', () => {
     write(join(proj, 'a.md'), 'bytes');
     expect(readDiskState(proj, 'a.md')).toEqual({
       kind: 'file',
-      hash: sha256File(join(proj, 'a.md')),
+      hash: contentHash(join(proj, 'a.md')),
     });
   });
 

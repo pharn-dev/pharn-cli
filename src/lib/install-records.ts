@@ -3,14 +3,14 @@ import { lstatSync } from 'node:fs';
 import { writeJsonAtomic } from './atomic-write.js';
 import { readBoundedFile } from './bounded-read.js';
 import { resolve } from 'node:path';
-import { sha256File } from './hash.js';
+import { contentHash } from './hash.js';
 import { isPlainObject, safeJoin, toPosix } from './validate.js';
 import { capabilitySubtree, type LayoutPaths } from './layout.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // The install record store — `pharn.records.json`, a CLI-owned sidecar next to
-// `pharn.config.json` recording sha256(dest bytes) for every PHARN-owned file an
+// `pharn.config.json` recording contentHash(dest) for every PHARN-owned file an
 // install wrote. It is the BASELINE `pharn update` compares against so it can
 // tell "pharn wrote these bytes" from "the user edited this file" and refuse to
 // destroy the latter (lib/update-decision.ts).
@@ -123,7 +123,7 @@ function isInvalidRecordKey(key: string): boolean {
 // toPosix has run. Enum/regex floor (P0), matching SHA256_RE's style.
 const DRIVE_ABSOLUTE_RE = /^[A-Za-z]:\//;
 
-/** rel path (posix) → sha256 of the bytes pharn wrote there. */
+/** rel path (posix) → contentHash (lib/hash.ts) of the bytes pharn wrote there. */
 export type FileRecords = Record<string, string>;
 
 export interface RecordStore {
@@ -369,7 +369,7 @@ export function buildRecords(
       continue;
     }
     if (!stat?.isFile()) continue;
-    files[rel] = sha256File(dest);
+    files[rel] = contentHash(dest);
   }
   return files;
 }

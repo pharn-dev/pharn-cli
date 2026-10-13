@@ -1,5 +1,5 @@
 import { lstatSync, readdirSync } from 'node:fs';
-import { sha256File } from './hash.js';
+import { contentHash } from './hash.js';
 import type { FileRecords } from './install-records.js';
 import { safeJoin } from './validate.js';
 
@@ -11,10 +11,10 @@ import { safeJoin } from './validate.js';
 // `.pharn-backup/<ts>/` (lib/backup.ts) before the delete, so the removal stops
 // being final for anything that is not provably pharn's own bytes.
 //
-// The rule is one membership test and one byte comparison (P5):
+// The rule is one membership test and one content-hash comparison (P5):
 //
 //   kept OUT of the set  — the path is a key in a USABLE record store and the
-//                          file's sha256 equals the recorded hash: pharn wrote
+//                          file's contentHash equals the record: pharn wrote
 //                          exactly these bytes, and the next install can write
 //                          them again.
 //   IN the set           — everything else: a file pharn has no record of, a
@@ -97,5 +97,5 @@ function provablyPharns(
   records: FileRecords | null,
 ): boolean {
   if (records === null || !Object.hasOwn(records, rel)) return false;
-  return sha256File(safeJoin(projectRoot, rel)) === records[rel];
+  return contentHash(safeJoin(projectRoot, rel)) === records[rel];
 }

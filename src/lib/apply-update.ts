@@ -1,6 +1,6 @@
 import { copyFileSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { sha256File } from './hash.js';
+import { contentHash } from './hash.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { ManifestValidationError, safeJoin, toPosix } from './validate.js';
 import type { DiskState } from './update-decision.js';
@@ -84,7 +84,7 @@ export function readDiskState(projectRoot: string, rel: string): DiskState {
     return { kind: 'unreadable', reason: 'the path is not a regular file' };
   }
   try {
-    return { kind: 'file', hash: sha256File(dest) };
+    return { kind: 'file', hash: contentHash(dest) };
   } catch {
     return { kind: 'unreadable', reason: 'the file could not be read' };
   }

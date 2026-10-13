@@ -91,7 +91,7 @@ const { MODELS_RECORD_KEY, modelsRecordHash, readRecords, writeRecords } =
   await import('../src/lib/install-records.js');
 const { collectExpectedInstallPaths } =
   await import('../src/lib/install-manifest.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 const { runInit } = await import('../src/commands/init.js');
 const { displayHook } = await import('../src/lib/hook-wiring.js');
 const prompts = await import('@clack/prompts');
@@ -320,7 +320,7 @@ describe('archetype install (fixture e2e)', () => {
     // Each hash describes the bytes that actually LANDED (the dest), which is
     // what makes the record un-fakeable by a bad source read.
     for (const rel of expected.keys()) {
-      expect(read.store.files[rel]).toBe(sha256File(join(proj, rel)));
+      expect(read.store.files[rel]).toBe(contentHash(join(proj, rel)));
     }
 
     // The stamp matches the config written beside it — that pairing is what
@@ -852,7 +852,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
         ...read.store,
         files: {
           ...read.store.files,
-          [PERF_FILE]: sha256File(join(proj, PERF_FILE)),
+          [PERF_FILE]: contentHash(join(proj, PERF_FILE)),
         },
       });
       return first;
@@ -862,7 +862,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       const repo = join(tmp.path(), 'repo');
       const proj = join(tmp.path(), 'proj');
       const { archetypes, selection } = await withPerfInstalled(repo, proj);
-      const perfHash = sha256File(join(proj, PERF_FILE));
+      const perfHash = contentHash(join(proj, PERF_FILE));
 
       await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
         manualKeys: new Set(),

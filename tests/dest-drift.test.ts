@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { manifestSources, scanDest } from '../src/lib/dest-drift.js';
-import { sha256File } from '../src/lib/hash.js';
+import { contentHash } from '../src/lib/hash.js';
 
 // ---------------------------------------------------------------------------
 // The destination-drift set — the files `pharn add`'s copy is about to overwrite
@@ -56,6 +56,28 @@ describe('scanDest', () => {
     ).toEqual([]);
   });
 
+  it('does NOT report a CRLF copy of the clone file — line endings are not drift (F-16)', () => {
+    // A project re-checked-out with core.autocrlf=true. The copy would rewrite
+    // only the line endings; nothing the user wrote is lost.
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'line one\nline two\n');
+    write(join(proj, REL), 'line one\r\nline two\r\n');
+
+    expect(
+      scanDest({ repoDir: repo, projectRoot: proj, rels: [REL] }).drifted,
+    ).toEqual([]);
+  });
+
+  it('still reports a CRLF file whose content was edited', () => {
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'line one\nline two\n');
+    write(join(proj, REL), 'line one\r\nMY EDIT\r\n');
+
+    expect(
+      scanDest({ repoDir: repo, projectRoot: proj, rels: [REL] }).drifted,
+    ).toEqual([REL]);
+  });
+
   it('does NOT report a destination that does not exist', () => {
     // Nothing to lose: the copy CREATES this file. The overwhelmingly common
     // case — a fresh add — must produce no backup directory at all.
@@ -105,7 +127,7 @@ describe('scanDest', () => {
   });
 
   it('marks a symlinked DESTINATION file UNSAFE — never drift', () => {
-    // sha256File reads through a link (lib/hash.ts), so hashing it would compare
+    // contentHash reads through a link (lib/hash.ts), so hashing it would compare
     // — and then back up — the LINK TARGET's bytes. And cpSync REPLACES the link
     // with a regular file, so the user loses it silently. Neither outcome is a
     // backup, so the path is refused rather than skipped.
@@ -282,7 +304,7 @@ describe("scanDest — the records baseline (update's table)", () => {
   function hashOf(content: string): string {
     const p = join(tmp.path(), 'hash-me');
     writeFileSync(p, content);
-    return sha256File(p);
+    return contentHash(p);
   }
 
   it('does NOT report a file still at its recorded hash — an upstream bump is not an edit', () => {
@@ -313,6 +335,21 @@ describe("scanDest — the records baseline (update's table)", () => {
     });
     expect(scan.drifted).toEqual([REL]);
     expect(scan.labels.get(REL)).toBe('modified');
+  });
+
+  it("a CRLF copy of the recorded bytes is still pharn's — a clean upgrade, not an edit (F-16)", () => {
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'upstream v2\n');
+    write(join(proj, REL), 'upstream v1\r\n');
+
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: [REL],
+      records: { [REL]: hashOf('upstream v1\n') },
+    });
+    expect(scan.drifted).toEqual([]);
+    expect(scan.labels.size).toBe(0);
   });
 
   it('reports a differing file the records do not cover as `unrecorded`', () => {

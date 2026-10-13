@@ -64,7 +64,7 @@ export interface FileDecision {
  * | 5 | present | available   | no record for this path   | SKIP unrecorded| backup→WRITE |
  * | 6 | present | unavailable | —                         | SKIP unverif.  | backup→WRITE |
  *
- * Row 2 deliberately precedes the record rows: a file already byte-identical to
+ * Row 2 deliberately precedes the record rows: a file already identical by `contentHash` to
  * upstream is never a skip — even with no records — and its record is refreshed,
  * which is how a degraded install partially heals. (Partially: it never recovers
  * records for the files that DIFFER, which is exactly the set an upgrade needs

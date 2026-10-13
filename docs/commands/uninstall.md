@@ -22,7 +22,10 @@ hold:
   file an older install left at the other layout, or one upstream has since stopped shipping (an
   [orphan](../reference/pharn-records.md#orphaned-files)), is covered too;
 - it is a regular file, reached without passing through a symbolic-linked directory;
-- its bytes still match the recorded sha256 — `pharn` wrote exactly this, and nobody changed it.
+- its content still matches the recorded hash — `pharn` wrote exactly this, and nobody changed it.
+  Line endings in text files are ignored, so a file that only went from LF to CRLF (for example
+  after a `core.autocrlf=true` checkout) is still deleted — see
+  [Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf).
 
 Then each directory left **empty** is removed, deepest first, up to (never including) the project root.
 A directory that still holds anything is left — so your own `pharn/features/<feature>/` work, a file you

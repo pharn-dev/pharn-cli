@@ -297,7 +297,7 @@ files **first**, marked, and says how many there are of each kind:
 | `(edited)`                | The file changed since pharn wrote it — your edit                                                                                          | Yes       |
 | `(no pharn record)`       | It differs from upstream and the records have no entry for it                                                                              | Yes       |
 | `(differs from upstream)` | It differs from upstream, and there is no usable `pharn.records.json` to tell your edits from upstream changes, so every difference counts | Yes       |
-| _(not marked)_            | Byte-identical to upstream, or still exactly what pharn wrote (upstream simply moved on) — a clean upgrade                                 | No        |
+| _(not marked)_            | Identical to upstream (line endings aside), or still exactly what pharn wrote (upstream simply moved on) — a clean upgrade                 | No        |
 
 `pharn.config.json` is listed and backed up on its own terms. `init` **rewrites** it from its own
 fields, so when one exists (as a regular file) it is always copied to the same `.pharn-backup/<timestamp>/`

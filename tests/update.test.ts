@@ -120,7 +120,7 @@ const {
   writeRecords,
   RECORDS_FILE,
 } = await import('../src/lib/install-records.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 const { BACKUP_DIR } = await import('../src/lib/backup.js');
 const { readPharnConfig, writePharnConfig } =
   await import('../src/lib/pharn-config.js');
@@ -189,10 +189,10 @@ describe('runUpdate (drift-safe)', () => {
       skillsVersion: config.skillsVersion,
       commit: config.commit,
       files: {
-        [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
-        [DOC]: sha256File(join(proj, DOC)),
-        [HOOK]: sha256File(join(proj, HOOK)),
-        ['.claude/commands/pharn-plan.md']: sha256File(
+        [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+        [DOC]: contentHash(join(proj, DOC)),
+        [HOOK]: contentHash(join(proj, HOOK)),
+        ['.claude/commands/pharn-plan.md']: contentHash(
           join(proj, '.claude/commands/pharn-plan.md'),
         ),
       },
@@ -682,7 +682,7 @@ describe('runUpdate (drift-safe)', () => {
       expect(fetchRepo).toHaveBeenCalledTimes(1);
       expect(noteText()).toContain(`${DOC} is missing`);
       expect(body(DOC)).toBe('constitution v2');
-      expect(records()![DOC]).toBe(sha256File(join(proj, DOC)));
+      expect(records()![DOC]).toBe(contentHash(join(proj, DOC)));
       expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
       expect(backupDirs()).toEqual([]);
     });
@@ -839,7 +839,7 @@ describe('runUpdate (drift-safe)', () => {
       // The record store is byte-stable AND still describes the disk: a store
       // that had drifted from the files would satisfy only the first half.
       expect(records()).toEqual(recorded);
-      expect(records()![DOC]).toBe(sha256File(join(proj, DOC)));
+      expect(records()![DOC]).toBe(contentHash(join(proj, DOC)));
       expect(backupDirs()).toEqual([]);
     });
 
@@ -862,7 +862,7 @@ describe('runUpdate (drift-safe)', () => {
       expect(body(DOC)).toBe('constitution v1');
       expect(body(CAP_FILE)).toBe('a11y v1');
       expect(records()).toEqual(recorded);
-      expect(records()![DOC]).toBe(sha256File(join(proj, DOC)));
+      expect(records()![DOC]).toBe(contentHash(join(proj, DOC)));
       expect(backupDirs()).toEqual([]);
     });
   });
@@ -1049,7 +1049,7 @@ describe('runUpdate (drift-safe)', () => {
 
     expect(body(CAP_FILE)).toBe('a11y v2');
     expect(body(DOC)).toBe('constitution v2');
-    expect(records()?.[DOC]).toBe(sha256File(join(repo, DOC)));
+    expect(records()?.[DOC]).toBe(contentHash(join(repo, DOC)));
     // A complete run advances the recorded version + commit.
     const config = readPharnConfig(proj)!;
     expect(config.skillsVersion).toBe('1.1.0');
@@ -1439,7 +1439,7 @@ describe('runUpdate (drift-safe)', () => {
         commit: null,
         files: {
           ...read.store.files,
-          [MANUAL_FILE]: sha256File(join(proj, MANUAL_FILE)),
+          [MANUAL_FILE]: contentHash(join(proj, MANUAL_FILE)),
         },
       });
     }
@@ -1482,7 +1482,7 @@ describe('runUpdate (drift-safe)', () => {
       expect(body(MANUAL_FILE)).toBe('n-plus-one v2');
       // ...and its record survived rather than being pruned.
       expect(records()?.[MANUAL_FILE]).toBe(
-        sha256File(join(repo, MANUAL_FILE)),
+        contentHash(join(repo, MANUAL_FILE)),
       );
       // And the preservation was NAMED, not silent.
       expect(capNote()).toContain('lens:n-plus-one');
@@ -1553,7 +1553,7 @@ describe('runUpdate (drift-safe)', () => {
         commit: null,
         files: {
           ...read.store.files,
-          [STALE_FILE]: sha256File(join(proj, STALE_FILE)),
+          [STALE_FILE]: contentHash(join(proj, STALE_FILE)),
         },
       });
       selectsA11yOnly();
@@ -1664,7 +1664,7 @@ describe('runUpdate (drift-safe)', () => {
 
     expect(body(DOC)).toBe('MY LOCAL EDIT');
     // Its record still describes what pharn wrote, not the user's bytes.
-    expect(records()?.[DOC]).not.toBe(sha256File(join(proj, DOC)));
+    expect(records()?.[DOC]).not.toBe(contentHash(join(proj, DOC)));
     // Everything else still upgraded.
     expect(body(CAP_FILE)).toBe('a11y v2');
   });
@@ -1741,7 +1741,7 @@ describe('runUpdate (drift-safe)', () => {
     await writeRecords(proj, {
       skillsVersion: '0.9.0', // written for a different install state
       commit: null,
-      files: { [DOC]: sha256File(join(proj, DOC)) },
+      files: { [DOC]: contentHash(join(proj, DOC)) },
     });
 
     await runUpdate();
@@ -1773,7 +1773,7 @@ describe('runUpdate (drift-safe)', () => {
     await writeRecords(proj, {
       skillsVersion: config.skillsVersion,
       commit: config.commit,
-      files: { ...records()!, [ODD]: sha256File(join(proj, ODD)) },
+      files: { ...records()!, [ODD]: contentHash(join(proj, ODD)) },
     });
 
     await runUpdate();
@@ -1871,7 +1871,7 @@ describe('runUpdate (drift-safe)', () => {
         commit: null,
         files: {
           ...read.store.files,
-          [INSTALLED_FILE]: sha256File(join(proj, INSTALLED_FILE)),
+          [INSTALLED_FILE]: contentHash(join(proj, INSTALLED_FILE)),
         },
       });
       const before = records()![INSTALLED_FILE];
@@ -1999,7 +1999,7 @@ describe('runUpdate (drift-safe)', () => {
         commit: null,
         files: {
           ...read.store.files,
-          [FROZEN_FILE]: sha256File(join(proj, FROZEN_FILE)),
+          [FROZEN_FILE]: contentHash(join(proj, FROZEN_FILE)),
         },
       });
       // Upstream now parses (e.g. after a pharn upgrade).
@@ -2039,7 +2039,7 @@ describe('runUpdate (drift-safe)', () => {
           commit: null,
           files: {
             ...read.store.files,
-            [FROZEN_FILE]: sha256File(join(proj, FROZEN_FILE)),
+            [FROZEN_FILE]: contentHash(join(proj, FROZEN_FILE)),
           },
         });
         write(join(repo, FROZEN_FILE), 'parsed upstream content');
@@ -2196,7 +2196,7 @@ describe('runUpdate (drift-safe)', () => {
         'MY LOCAL EDIT',
       );
       expect(body(DOC)).toBe('constitution v2');
-      expect(records()?.[DOC]).toBe(sha256File(join(repo, DOC)));
+      expect(records()?.[DOC]).toBe(contentHash(join(repo, DOC)));
     });
 
     it('a forced run with nothing left to skip advances the version', async () => {
@@ -2737,10 +2737,10 @@ describe('runUpdate (drift-safe)', () => {
       skillsVersion: '1.0.0',
       commit: null,
       files: {
-        [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
-        [DOC]: sha256File(join(proj, DOC)),
-        [HOOK]: sha256File(join(proj, HOOK)),
-        ['.claude/commands/pharn-plan.md']: sha256File(
+        [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+        [DOC]: contentHash(join(proj, DOC)),
+        [HOOK]: contentHash(join(proj, HOOK)),
+        ['.claude/commands/pharn-plan.md']: contentHash(
           join(proj, '.claude/commands/pharn-plan.md'),
         ),
       },
@@ -2772,9 +2772,9 @@ describe('runUpdate (drift-safe)', () => {
     // landed; the hook write is the one that threw.
     const store = records();
     expect(body(CAP_FILE)).toBe('a11y v2');
-    expect(store?.[CAP_FILE]).toBe(sha256File(join(proj, CAP_FILE)));
+    expect(store?.[CAP_FILE]).toBe(contentHash(join(proj, CAP_FILE)));
     // The failing one is not claimed as written.
-    expect(store?.[HOOK]).not.toBe(sha256File(join(repo, HOOK)));
+    expect(store?.[HOOK]).not.toBe(contentHash(join(repo, HOOK)));
     // The config was never written, so the store is stamped with the config's
     // UNCHANGED values and the two still agree — the next run can use it.
     expect(existsSync(join(proj, 'pharn.config.json'))).toBe(false);
@@ -2814,7 +2814,7 @@ describe('runUpdate (drift-safe)', () => {
     await runUpdate();
     // Equal here because the copy behaved — the point is that the value is
     // obtained by re-reading disk, so it cannot disagree with what landed.
-    expect(records()?.[DOC]).toBe(sha256File(join(proj, DOC)));
+    expect(records()?.[DOC]).toBe(contentHash(join(proj, DOC)));
   });
 
   it('prints NO backup line when the failed run created no backup', async () => {
@@ -2844,7 +2844,7 @@ describe('runUpdate (drift-safe)', () => {
 
     await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
 
-    expect(records()?.[DOC]).toBe(sha256File(join(proj, DOC)));
+    expect(records()?.[DOC]).toBe(contentHash(join(proj, DOC)));
     expect(cleanup).toHaveBeenCalled();
   });
 

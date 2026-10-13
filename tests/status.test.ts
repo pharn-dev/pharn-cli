@@ -72,7 +72,7 @@ vi.mock('../src/lib/skills-version.js', () => ({
 }));
 
 const { runStatus } = await import('../src/commands/status.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 const prompts = await import('@clack/prompts');
 
 function config(extra: Partial<PharnConfig> = {}): PharnConfig {
@@ -1047,7 +1047,7 @@ describe('runStatus — ORPHANED', () => {
       'pharn.records.json',
       JSON.stringify({ schemaVersion: 1, skillsVersion, commit: 'old', files }),
     );
-  const hash = (rel: string) => sha256File(join(proj, rel));
+  const hash = (rel: string) => contentHash(join(proj, rel));
 
   beforeEach(() => {
     repo = join(tmp.path(), 'repo');

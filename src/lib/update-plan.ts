@@ -7,7 +7,7 @@ import {
 } from './merge-capabilities.js';
 import { collectExpectedInstallPaths } from './install-manifest.js';
 import { readDiskState } from './apply-update.js';
-import { sha256File } from './hash.js';
+import { contentHash } from './hash.js';
 import {
   capabilitySubtree,
   configLayout,
@@ -176,7 +176,7 @@ export function buildUpdatePlan(input: {
 
   const latestHashes = new Map<string, string>();
   for (const [rel, source] of expected)
-    latestHashes.set(rel, sha256File(source));
+    latestHashes.set(rel, contentHash(source));
 
   const diskStates = new Map<string, DiskState>();
   for (const rel of expected.keys())

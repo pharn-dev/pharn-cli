@@ -11,7 +11,7 @@ vi.mock('../src/lib/resolve-capabilities.js', () => ({ resolveCapabilities }));
 
 const { buildUpdatePlan } = await import('../src/lib/update-plan.js');
 const { writeRecords } = await import('../src/lib/install-records.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 
 const CAP = { name: 'a11y', role: 'griller' as const };
 const CAP_FILE = 'pharn-pipeline/grillers/a11y/a11y.md';
@@ -54,8 +54,8 @@ describe('buildUpdatePlan', () => {
       skillsVersion: cfg.skillsVersion,
       commit: cfg.commit,
       files: {
-        [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
-        [DOC]: sha256File(join(proj, DOC)),
+        [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+        [DOC]: contentHash(join(proj, DOC)),
       },
     });
     write(join(repo, 'SKILLS_VERSION'), '1.1.0\n');
@@ -110,6 +110,68 @@ describe('buildUpdatePlan', () => {
     expect(report.abandonedLayout).toBeNull();
     expect(report.unknownWarning).toBeNull();
     expect(report.unknownCapabilities).toEqual([]);
+  });
+
+  // F-16: the recorded files were re-checked-out with CRLF line endings
+  // (core.autocrlf=true). That is not an edit: nothing is skipped and the
+  // version is not withheld.
+  describe('CRLF line endings in the project', () => {
+    const toCrlf = (rel: string): void => {
+      const lf = readFileSync(join(proj, rel), 'utf8');
+      write(join(proj, rel), lf.replace(/\n/g, '\r\n'));
+    };
+
+    async function multilineFixture(): Promise<void> {
+      write(join(proj, CAP_FILE), '# a11y\nv1\n');
+      write(join(proj, DOC), '# C\nv1\n');
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: null,
+        files: {
+          [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+          [DOC]: contentHash(join(proj, DOC)),
+        },
+      });
+      write(join(repo, 'SKILLS_VERSION'), '1.1.0\n');
+    }
+
+    it('upstream moved on: a CRLF copy of the recorded bytes is upgraded, never skipped', async () => {
+      await multilineFixture();
+      write(join(repo, CAP_FILE), '# a11y\nv2\n');
+      write(join(repo, DOC), '# C\nv2\n');
+      toCrlf(CAP_FILE);
+      toCrlf(DOC);
+      const { report } = plan(config());
+      expect(report.skipped).toEqual([]);
+      expect(report.writes.sort()).toEqual([CAP_FILE, DOC].sort());
+      expect(report.versionWithheld).toBe(false);
+      expect(report.recordedVersion).toBe('1.1.0');
+    });
+
+    it('upstream unchanged: a CRLF copy is a no-op (ok), and the version is not withheld', async () => {
+      await multilineFixture();
+      write(join(repo, CAP_FILE), '# a11y\nv1\n');
+      write(join(repo, DOC), '# C\nv1\n');
+      toCrlf(CAP_FILE);
+      toCrlf(DOC);
+      const { report } = plan(config());
+      expect(report.skipped).toEqual([]);
+      expect(report.writes).toEqual([]);
+      expect(report.counts.ok).toBe(2);
+      expect(report.versionWithheld).toBe(false);
+    });
+
+    it('a real edit in a CRLF file is still a modified skip', async () => {
+      await multilineFixture();
+      write(join(repo, CAP_FILE), '# a11y\nv2\n');
+      write(join(repo, DOC), '# C\nv2\n');
+      toCrlf(CAP_FILE);
+      write(join(proj, DOC), '# C\r\nMY EDIT\r\n');
+      const { report } = plan(config());
+      expect(report.skipped).toEqual([{ label: 'modified', rels: [DOC] }]);
+      expect(report.writes).toEqual([CAP_FILE]);
+      expect(report.versionWithheld).toBe(true);
+    });
   });
 
   it('withholds the version on a kept edit, recording it as pending', async () => {
@@ -233,9 +295,9 @@ describe('buildUpdatePlan', () => {
         skillsVersion: cfg.skillsVersion,
         commit: cfg.commit,
         files: {
-          [CAP_FILE]: sha256File(join(proj, CAP_FILE)),
-          [DOC]: sha256File(join(proj, DOC)),
-          [OLD_CMD]: sha256File(join(proj, OLD_CMD)),
+          [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+          [DOC]: contentHash(join(proj, DOC)),
+          [OLD_CMD]: contentHash(join(proj, OLD_CMD)),
           [OLD_CAP_FILE]: 'f'.repeat(64),
         },
       });
@@ -249,7 +311,7 @@ describe('buildUpdatePlan', () => {
         { path: OLD_CAP_FILE, state: 'edited' },
       ]);
       expect(apply.orphanRecords).toEqual({
-        [OLD_CMD]: sha256File(join(proj, OLD_CMD)),
+        [OLD_CMD]: contentHash(join(proj, OLD_CMD)),
         [OLD_CAP_FILE]: 'f'.repeat(64),
       });
       // Never in the manifest the 6-row table iterates: no file entry, no skip,

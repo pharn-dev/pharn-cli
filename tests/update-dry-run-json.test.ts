@@ -124,7 +124,7 @@ const { runUpdate } = await import('../src/commands/update.js');
 const prompts = await import('@clack/prompts');
 const { readRecords, writeRecords, RECORDS_FILE } =
   await import('../src/lib/install-records.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 const { BACKUP_DIR } = await import('../src/lib/backup.js');
 const { writePharnConfig } = await import('../src/lib/pharn-config.js');
 const { UPDATE_SCHEMA_VERSION } = await import('../src/lib/update-report.js');
@@ -197,7 +197,7 @@ describe('runUpdate --dry-run --json', () => {
       files: Object.fromEntries(
         [CAP_FILE, DOC, HOOK, CMD].map((rel) => [
           rel,
-          sha256File(join(proj, rel)),
+          contentHash(join(proj, rel)),
         ]),
       ),
     });

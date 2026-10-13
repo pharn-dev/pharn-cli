@@ -19,7 +19,7 @@ const { installCapabilities } =
 type Selection = import('../src/types.js').Selection;
 const { readPharnConfig } = await import('../src/lib/pharn-config.js');
 const { SeamConfigError } = await import('../src/lib/seam-config.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 
 // ESC built from its code point, so no literal control character lives in this
 // file and no editor can silently eat it.
@@ -308,7 +308,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
       'pharn-pipeline/grillers/a11y/a11y.md',
       'CONSTITUTION.md',
     ]) {
-      records[rel] = sha256File(join(proj, rel));
+      records[rel] = contentHash(join(proj, rel));
     }
     vi.mocked(prompts.confirm).mockResolvedValueOnce(false);
     return { repo, proj, records };

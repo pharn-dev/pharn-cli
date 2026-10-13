@@ -63,7 +63,7 @@ const prompts = await import('@clack/prompts');
 const { writePharnConfig } = await import('../src/lib/pharn-config.js');
 const { writeRecords, MODELS_RECORD_KEY } =
   await import('../src/lib/install-records.js');
-const { sha256File } = await import('../src/lib/hash.js');
+const { contentHash } = await import('../src/lib/hash.js');
 const { LOCK_FILE } = await import('../src/lib/project-lock.js');
 
 const tmp = useTmpDir();
@@ -142,7 +142,7 @@ async function install(
   const records: Record<string, string> = {};
   for (const rel of files) {
     write(rel);
-    records[rel] = sha256File(join(proj, rel));
+    records[rel] = contentHash(join(proj, rel));
   }
   write('.claude/settings.json', JSON.stringify(SETTINGS, null, 2));
   await writeRecords(proj, {
@@ -324,7 +324,7 @@ describe('runUninstall', () => {
   it('names a recorded key outside the install paths in the PLAN note and leaves it', async () => {
     write('src/app.ts', 'user code');
     await install(FLAT_FILES, config(), {
-      'src/app.ts': sha256File(join(proj, 'src/app.ts')),
+      'src/app.ts': contentHash(join(proj, 'src/app.ts')),
       [MODELS_RECORD_KEY]: 'b'.repeat(64),
     });
     await runUninstall({ yes: true });
@@ -420,7 +420,7 @@ describe('runUninstall', () => {
         skillsVersion: '6.50.0',
         commit: 'c'.repeat(40),
         files: {
-          'pharn/pharn-pipeline/grillers/a11y/a11y.md': sha256File(
+          'pharn/pharn-pipeline/grillers/a11y/a11y.md': contentHash(
             join(shared, 'pharn-pipeline/grillers/a11y/a11y.md'),
           ),
         },

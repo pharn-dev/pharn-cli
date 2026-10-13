@@ -1,6 +1,6 @@
 import { lstatSync } from 'node:fs';
 import { posix } from 'node:path';
-import { sha256File } from './hash.js';
+import { contentHash } from './hash.js';
 import { MODELS_RECORD_KEY, type FileRecords } from './install-records.js';
 import { isInstallRootPath } from './orphans.js';
 import { findSymlinkComponent } from './symlink-guard.js';
@@ -9,7 +9,7 @@ import { safeJoin } from './validate.js';
 // ---------------------------------------------------------------------------
 // What `pharn uninstall` may delete. Read-only: it classifies, it never writes.
 //
-// The only proof that pharn wrote a file is `pharn.records.json` — a sha256 of
+// The only proof that pharn wrote a file is `pharn.records.json` — a contentHash of
 // the bytes every install wrote, stamp-checked against `pharn.config.json` by the
 // caller (`recordsBaseline`). Uninstall has no clone, so the install manifest is
 // out of reach; the RECORD STORE is therefore the candidate list, and a file
@@ -34,9 +34,9 @@ import { safeJoin } from './validate.js';
 //   unverifiable  something is there, but it is not a regular file (a
 //                 directory, a FIFO, a symlinked leaf) or it cannot be read.
 //                 Left in place.
-//   edited        a regular file whose sha256 differs from its record. Left in
+//   edited        a regular file whose contentHash differs from its record. Left in
 //                 place — uninstall never destroys the user's work.
-//   delete        a regular file whose sha256 equals its record: pharn wrote
+//   delete        a regular file whose contentHash equals its record: pharn wrote
 //                 exactly these bytes and nobody changed them.
 //
 // The `models` record key is not a file (lib/install-records.ts) and is skipped.
@@ -127,7 +127,7 @@ function classify(projectRoot: string, rel: string, recorded: string): Verdict {
   if (!stat.isFile()) return 'unverifiable';
   let hash: string;
   try {
-    hash = sha256File(abs);
+    hash = contentHash(abs);
   } catch {
     // Unreadable bytes are not provably pharn's — fail closed: keep the file.
     return 'unverifiable';
