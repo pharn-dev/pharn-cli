@@ -638,6 +638,25 @@ describe('archetype install (fixture e2e)', () => {
     // Not fatal: the config and the records are written as on any install.
     expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
     expect(existsSync(join(proj, 'pharn.records.json'))).toBe(true);
+    // And the outro claims only what landed: no hooks were written.
+    const outro = outroBody();
+    expect(outro).toContain('PHARN commands written');
+    expect(outro).not.toContain('commands + hooks');
+  });
+
+  it('never renders "commands + hooks written" when the clone shipped neither', async () => {
+    const repo = join(tmp.path(), 'bare-repo');
+    const proj = join(tmp.path(), 'bare-proj');
+    scaffoldRepo(repo);
+    rmSync(join(repo, '.claude/hooks'), { recursive: true, force: true });
+    rmSync(join(repo, '.claude/commands'), { recursive: true, force: true });
+    project(proj);
+
+    await install(repo, proj);
+
+    const outro = outroBody();
+    expect(outro).toContain('no PHARN commands or hooks written');
+    expect(outro).not.toContain('commands + hooks written');
   });
 });
 

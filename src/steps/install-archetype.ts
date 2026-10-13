@@ -240,10 +240,14 @@ export async function runInstallArchetype(
   // every install while the outro said "docs written", and a relocated
   // surface — or an `.mjs` hook — was dropped with no word at all. Warned, never
   // fatal: upstream's MIN_CLI is the lever for refusing a too-old CLI.
-  const absentLines = absentSurfaceLines(
-    absentInstallSurfaces({ repoDir, layout }),
-  );
+  const absent = absentInstallSurfaces({ repoDir, layout });
+  const absentLines = absentSurfaceLines(absent);
   if (absentLines) log.warn(absentLines.join('\n'));
+  // The `.claude/` surfaces that actually landed, for the outro: never claim
+  // a surface the warning above just named as not shipped.
+  const claudeWritten = (['commands', 'hooks'] as const).filter(
+    (surface) => !absent.some((a) => a.surface === surface),
+  );
 
   const frozenCapabilities = [
     ...new Set(carry.kept.map((c) => `${c.role}:${c.name}`)),
@@ -364,7 +368,9 @@ export async function runInstallArchetype(
   outro(
     [
       `${check} ${capabilities.length} capabilit${capabilities.length === 1 ? 'y' : 'ies'} installed → ${pc.dim(`(${grillers} griller${grillers === 1 ? '' : 's'}, ${lenses} lens${lenses === 1 ? '' : 'es'})`)}`,
-      `${check} PHARN commands + hooks written → ${pc.dim('.claude/')}`,
+      claudeWritten.length
+        ? `${check} PHARN ${claudeWritten.join(' + ')} written → ${pc.dim('.claude/')}`
+        : `${pc.yellow('!')} no PHARN commands or hooks written ${pc.dim('(the fetched repo shipped none)')}`,
       docsLine,
       `${check} pharn.config.json written ${pc.dim(`(skills v${skillsVersion}, archetypes: ${archetypes.join(', ')})`)}`,
       `${pc.dim(`Done in ${elapsed}s`)}`,
