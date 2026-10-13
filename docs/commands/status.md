@@ -173,8 +173,8 @@ project. The `HOOKS` section works like this:
   pharn's `LICENSE` copy, and the contracts, `pharn-core` and floor dirs at your recorded layout
   (`pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`, or `pharn-contracts/`, `pharn-core/`,
   `.dev/floor/` when it is flat) **are** compared, so an edit to any of those surfaces shows up as
-  drift. The floor's own `test-fixtures/` subtree is dev test apparatus — never installed, and so
-  never compared.
+  drift. The floor's own `test-fixtures/` and `fixtures/` subtrees are dev test apparatus — never
+  installed, and so never compared.
 
 ## Exit code
 

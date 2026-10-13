@@ -62,14 +62,22 @@ export const CORE_DIR = 'pharn-core';
 // Copied whole EXCEPT test files (see install-capabilities.ts). NOT `.dev/`
 // wholesale — `.dev/features` and `.dev/memory-bank` are dev-only and excluded.
 export const FLOOR_DIR = '.dev/floor';
-// Test apparatus INSIDE the floor dir: fixture skills (including a deliberately
-// RED one) plus structural expected/actual pairs, read ONLY by the `*.test.mjs`
-// files the install already excludes. Dev-only, so excluded from a product
-// install — otherwise a user browsing their installed floor finds a deliberately
-// malformed capability and red failure fixtures, and reasonably concludes the
-// install is broken. Matched as a floor-RELATIVE path SEGMENT on both the copy
-// and the mirror side, so `my-test-fixtures.mjs` is unaffected.
-export const FLOOR_TEST_FIXTURES_DIR = 'test-fixtures';
+// Test apparatus INSIDE the floor dir, read ONLY by the `*.test.mjs` files the
+// install already excludes: `test-fixtures/` (fixture skills, including a
+// deliberately RED one, plus structural expected/actual pairs) and `fixtures/`
+// (pharn-oss's cost-ledger transcript JSONL). Dev-only, so excluded from a
+// product install — otherwise a user browsing their installed floor finds a
+// deliberately malformed capability and red failure fixtures, and reasonably
+// concludes the install is broken, and `status`/`update` drift-track test data
+// as product. Matched as a floor-RELATIVE path SEGMENT anchored at the floor
+// root, on both the copy and the mirror side (`isFloorTestFixturePath` in
+// install-manifest.ts is the one predicate), so `my-test-fixtures.mjs` and a
+// NESTED `lib/fixtures/` are unaffected. Verified test-only upstream before
+// each name was added: no non-test floor file, hook or command reads it.
+export const FLOOR_TEST_FIXTURES_DIRS: readonly string[] = [
+  'test-fixtures',
+  'fixtures',
+];
 
 // ---------------------------------------------------------------------------
 // The new pharn/ single-install layout (pharn-oss PR #86 / pharn-runtime-layout):

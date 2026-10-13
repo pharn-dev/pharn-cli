@@ -74,18 +74,18 @@ To add a capability the detection didn't select — or remove one it did — use
 After a successful install, your project contains the selected capabilities plus the fixed product
 surfaces:
 
-| Artifact                                                              | Description                                                                                                          |
-| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | The installed grillers + lenses, each with its `evals/`                                                              |
-| `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs` floor hooks                                          |
-| `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files and `test-fixtures/`) |
-| `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                      |
-| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim — see the layout note below                                       |
-| `THREAT-MODEL.md`, `LIMITS.md`                                        | The other two, at the project **root** — where upstream keeps them and where the installed commands cite them        |
-| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched |
-| `pharn/features/README.md`                                            | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                |
-| `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                             |
-| `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites all but `unreadable`          |
+| Artifact                                                              | Description                                                                                                                       |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | The installed grillers + lenses, each with its `evals/`                                                                           |
+| `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs` floor hooks                                                       |
+| `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files, `test-fixtures/` and `fixtures/`) |
+| `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                   |
+| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim — see the layout note below                                                    |
+| `THREAT-MODEL.md`, `LIMITS.md`                                        | The other two, at the project **root** — where upstream keeps them and where the installed commands cite them                     |
+| `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched              |
+| `pharn/features/README.md`                                            | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                             |
+| `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                                          |
+| `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites all but `unreadable`                       |
 
 `.claude/*` is **layout-invariant** — commands, hooks and `settings.json` sit at those paths either
 way, and an existing `.claude/settings.json` is never overwritten. Everything else follows the fetched
