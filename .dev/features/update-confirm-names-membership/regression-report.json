@@ -1,0 +1,24 @@
+{
+  "base": "d7f448236d8412cdca7d3922931d9431d017ad9d",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/update.md",
+    "src/commands/update.ts",
+    "tests/project-lock-commands.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

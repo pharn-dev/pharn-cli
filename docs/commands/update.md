@@ -49,11 +49,17 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    [Missing files at the same skills version](#missing-files-at-the-same-skills-version)), or
    `pharn.records.json` is stamped for a different install state than `pharn.config.json`, which this
    run records again (see [A records store from an interrupted run](#a-records-store-from-an-interrupted-run)).
-6. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
-   unless you passed `--yes`, which skips that one prompt and nothing else.
-7. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
-   latest capability index, then **unions** that result with the capabilities you added by hand.
-8. Decides each expected file with the table below — and your `models` block the same way — backs up
+6. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, downloads the repo (SHA-pinned)
+   and plans the update: it checks `MIN_CLI`, **re-resolves your recorded `archetypes`** against the
+   latest capability index and **unions** that result with the capabilities you added by hand. A failed
+   download, a `MIN_CLI` refusal, or a dropped capability whose directory cannot be deleted safely stops
+   the run here (exit 1), before you are asked anything.
+7. Lists, in a `CAPABILITIES` note, every capability the update would **add** or **drop**, with the
+   directory each drop would delete (see [Before you confirm](#before-you-confirm)), and asks for
+   confirmation — unless you passed `--yes`, which skips that one prompt and nothing else.
+8. On confirm, takes the project lock and plans again from the same download, against your project as it
+   is now. If the capabilities it would change are no longer exactly the ones you were shown, it stops
+   (exit 1) with nothing changed. Otherwise it decides each expected file with the table below — and your `models` block the same way — backs up
    anything `--force` is about to overwrite and every file in a dropped capability's directory that
    `pharn` cannot prove it wrote, **deletes the directories of the capabilities it drops** (see
    [Dropped capabilities are deleted](#dropped-capabilities-are-deleted)), copies the files it may
@@ -312,9 +318,10 @@ inside the project lock, the way [`pharn remove`](remove.md) does:
   directory deleted on your next `update`. That is bounded: only the one directory of a capability your
   `pharn.config.json` lists, addressed by its validated name, with your files backed up first. Preview it
   with `pharn update --dry-run`.
-- **Visible beforehand.** The confirm comes before the download, so it cannot name the capabilities;
-  it says that dropped capabilities are deleted and points at `pharn update --dry-run`, which lists each
-  directory under `WOULD DELETE` (and `plan.capabilities.removals` under `--json`).
+- **Visible beforehand.** The confirm names each dropped capability and the directory it deletes (see
+  [Before you confirm](#before-you-confirm)), and defaults to **No** when anything is deleted.
+  `pharn update --dry-run` lists the same directories under `WOULD DELETE` (and
+  `plan.capabilities.removals` under `--json`) without asking.
 
 This is the **only** thing `update` deletes. It never deletes a file upstream stops shipping inside a
 capability it keeps, a tree left behind by a layout change, or anything else, and it never touches
@@ -636,16 +643,53 @@ does, so it still asks — `pharn update --force` in a pipe is refused exactly l
 
 > [`pharn init`](init.md) has no `--yes` and is interactive-only — see its note for why.
 
+## Before you confirm
+
+`update` downloads and plans **before** it asks, so the question can say what the run changes. When the
+update adds or drops capabilities, a `CAPABILITIES` note lists them first, in the same words the
+[dry run](#previewing-an-update) uses:
+
+```text
+◇  CAPABILITIES
+│    ADDED — newly selected for your archetypes
+│    griller:a11y
+│
+│    REMOVED — no longer selected for your archetypes
+│    lens:stale — directory would be deleted (1 file(s) would be backed up first)
+│
+│    Removed capabilities’ directories would be deleted, so PHARN would no longer run them.
+│    Files in them pharn did not write would be copied to .pharn-backup/ first.
+```
+
+The question is `Apply this update?` (`Apply this update and overwrite your changes?` with `--force`).
+When the update deletes a capability directory it adds how many — `It deletes 1 capability directory.` —
+and the default answer becomes **No**, as `pharn init` does when it would overwrite or delete. With
+nothing to delete the default stays Yes. Declining exits 0 with nothing written. `--yes` prints the same
+note and skips only the question, so a CI log names what the run changed.
+
+The list is a snapshot. After you answer, `update` takes the project lock and plans again from the same
+download (no second download) against your project as it is then: which files are skipped, backed up and
+written is decided there. The capabilities it changes and the directories it deletes must match what you
+were shown. If they do not — for example a dropped capability's directory reappeared while the prompt was
+open — the run stops with `The capabilities this update would change are no longer what you confirmed`,
+naming both sides, exit 1, nothing changed; run `pharn update` again.
+
+The cost of asking with that knowledge: the ~2.5 MB download happens before the question, so answering No
+— or a run refused by another pharn process's lock — has already downloaded it (and removed it again).
+The terminal check still comes first: off a terminal without `--yes`, `update` refuses before any network
+call.
+
 ## Concurrency
 
-`update` takes the project lock (`.pharn.lock`) **after** the confirmation prompt and before the
-tarball fetch, holding it across the download and the write. A second `pharn` writer refuses with a
-named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never blocked, so
+`update` takes the project lock (`.pharn.lock`) **after** the confirmation prompt — so no prompt is ever
+held under it — and holds it across the final plan and the writes. The download comes before the prompt
+(see [Before you confirm](#before-you-confirm)), so it is never under the lock either. A second `pharn`
+writer refuses with a named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never blocked, so
 `pharn status --strict` stays runnable in CI while an update is in flight.
 
-One precision worth carrying: a refused run is not a **no-network** run. The lightweight
-`SKILLS_VERSION` check happens before the lock is taken, so it has already gone over the wire by the
-time the refusal is reported. Closing that too would mean holding the lock across the confirm. See
+One precision worth carrying: a refused run is not a **no-network** run. The `SKILLS_VERSION` check
+and the repo download both happen before the lock is taken, so they have already gone over the wire by
+the time the refusal is reported. Closing that would mean holding the lock across the confirm. See
 [Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
 
 ## The recorded version stays true

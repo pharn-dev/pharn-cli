@@ -107,6 +107,23 @@ function archetypeConfig() {
   };
 }
 
+/**
+ * A minimal fake pharn-oss clone beside the project: `SKILLS_VERSION` and the two (empty) capability subtrees, so
+ * `update` can plan from it. Its `cleanup` is a spy.
+ */
+function fakeClone(proj: string): {
+  dir: string;
+  sha: null;
+  cleanup: ReturnType<typeof vi.fn>;
+} {
+  const dir = join(proj, '..', `clone-${Math.random().toString(16).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILLS_VERSION'), '2.0.0\n');
+  mkdirSync(join(dir, 'pharn-pipeline/grillers'), { recursive: true });
+  mkdirSync(join(dir, 'pharn-review'), { recursive: true });
+  return { dir, sha: null, cleanup: vi.fn() };
+}
+
 /** A lock held by THIS process — alive by definition, so never stale. */
 function holdLock(dir: string, command = 'update'): void {
   writeFileSync(
@@ -259,20 +276,28 @@ describe('a held lock refuses BEFORE the download', () => {
     expect(vi.mocked(prompts.groupMultiselect)).not.toHaveBeenCalled();
   });
 
-  it('`update` refuses without downloading — but the version check already ran', async () => {
+  // F-24 moved `update`'s tarball fetch AHEAD of its confirm (so the confirm
+  // can name the capabilities the run adds, drops and deletes), and the lock
+  // stays AFTER the confirm — so, like `init`, a run the lock refuses has paid
+  // for the download. It is cleaned up, the other process's lock is left
+  // alone, and nothing is written.
+  it('`update` refuses under a held lock after its plan download, writing nothing', async () => {
     holdLock(proj);
+    const clone = fakeClone(proj);
+    fetchRepo.mockResolvedValue(clone);
 
     await expect(runUpdate({ yes: true })).rejects.toMatchObject(
       new ProcessExit(1),
     );
 
-    expect(fetchRepo).not.toHaveBeenCalled();
-    // The HONEST claim, pinned as such: moving the lock closes the TARBALL
-    // download, not every round-trip. fetchRemoteSkillsVersion runs before the
-    // confirm and therefore before the lock, so a refused `update` still makes
-    // this one small guarded GET. Asserting it is what keeps the CHANGELOG's
-    // wording ("no tarball download") true rather than aspirational.
+    expect(fetchRepo).toHaveBeenCalledTimes(1);
+    expect(clone.cleanup).toHaveBeenCalledTimes(1);
     expect(fetchRemoteSkillsVersion).toHaveBeenCalledTimes(1);
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(existsSync(join(proj, LOCK_FILE))).toBe(true);
+    expect(
+      vi.mocked(prompts.log.error).mock.calls.map(String).join(),
+    ).toContain('Another pharn process');
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
 
@@ -419,13 +444,22 @@ describe('a config rewritten before the lock refuses a writing command', () => {
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
 
-  it('`update` refuses before fetching or writing', async () => {
+  // The plan is fetched before the confirm (F-24); the check that the config is
+  // still the one planned against runs first under the lock, so the refusal
+  // comes after that one download and before any write.
+  it('`update` refuses before writing', async () => {
+    const clone = fakeClone(proj);
+    fetchRepo.mockResolvedValue(clone);
     await expect(runUpdate({ yes: true })).rejects.toMatchObject(
       new ProcessExit(1),
     );
-    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(fetchRepo).toHaveBeenCalledTimes(1);
+    expect(clone.cleanup).toHaveBeenCalledTimes(1);
     expect(writePharnConfig).not.toHaveBeenCalled();
     expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
+    expect(vi.mocked(prompts.log.error).mock.calls.map(String).join()).toMatch(
+      /pharn\.config\.json changed while `pharn update` was running/,
+    );
   });
 
   it('`add` refuses before fetching or writing', async () => {

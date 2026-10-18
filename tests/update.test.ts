@@ -568,7 +568,11 @@ describe('runUpdate (drift-safe)', () => {
       await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
 
       expect(fetchRemoteSkillsVersion).toHaveBeenCalled();
-      expect(fetchRepo).not.toHaveBeenCalled();
+      // F-24: the plan snapshot is fetched before the confirm, so a run the
+      // lock refuses has downloaded the tarball — and cleaned it up.
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(existsSync(join(proj, RECORDS_FILE))).toBe(true);
       const warned = vi
         .mocked(prompts.log.warn)
         .mock.calls.map(([m]) => String(m))
@@ -936,12 +940,76 @@ describe('runUpdate (drift-safe)', () => {
     });
   });
 
-  it('cancels when declined — no clone, nothing written', async () => {
+  // F-24: the plan is fetched BEFORE the confirm (so it can name what changes);
+  // a declined run has paid for that one download, cleans it up, and writes
+  // nothing.
+  it('cancels when declined — one clone, cleaned up, nothing written', async () => {
     await installed();
     vi.mocked(prompts.confirm).mockResolvedValue(false);
     await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(0));
-    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(fetchRepo).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
     expect(body(DOC)).toBe('constitution v1');
+    expect(readPharnConfig(proj)).toBeNull();
+    expect(backupDirs()).toEqual([]);
+  });
+
+  it('fetches ONCE per run: the locked re-plan reuses the confirmed clone', async () => {
+    await installed();
+    await runUpdate();
+    expect(fetchRepo).toHaveBeenCalledTimes(1);
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(body(DOC)).toBe('constitution v2');
+  });
+
+  it('asks "Apply this update?" (default Yes) when nothing is deleted', async () => {
+    await installed();
+    await runUpdate();
+    expect(prompts.confirm).toHaveBeenCalledWith({
+      message: 'Apply this update?',
+      initialValue: true,
+    });
+  });
+
+  it('asks with the --force wording under --force', async () => {
+    await installed();
+    await runUpdate({ force: true });
+    expect(prompts.confirm).toHaveBeenCalledWith({
+      message: 'Apply this update and overwrite your changes?',
+      initialValue: true,
+    });
+  });
+
+  // The MIN_CLI refusal is answered from the snapshot clone — before the user
+  // is asked, not after.
+  it('refuses a MIN_CLI newer than this CLI BEFORE the confirm: exit 1, nothing written', async () => {
+    await installed();
+    write(join(repo, 'MIN_CLI'), '99.0.0\n');
+    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(body(DOC)).toBe('constitution v1');
+    expect(readPharnConfig(proj)).toBeNull();
+    expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
+  });
+
+  it('a failed download stops the run before the confirm: exit 1', async () => {
+    await installed();
+    fetchRepo.mockRejectedValueOnce(new Error('could not reach codeload'));
+    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+    expect(prompts.confirm).not.toHaveBeenCalled();
+    expect(body(DOC)).toBe('constitution v1');
+  });
+
+  // The non-TTY refusal still costs ZERO round-trips: the TTY gate runs before
+  // the version check, the release resolve and the plan download alike.
+  it('a non-TTY refusal makes no network call at all', async () => {
+    await installed();
+    setTTY(false, false);
+    await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+    expect(resolveSource).not.toHaveBeenCalled();
+    expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+    expect(fetchRepo).not.toHaveBeenCalled();
   });
 
   it('takes the lock AFTER the confirm — a declined run creates none', async () => {
@@ -1666,10 +1734,13 @@ describe('runUpdate (drift-safe)', () => {
       });
     }
 
+    // The POST-RUN report: since F-24 the same note also prints, in the future
+    // tense, before the confirm (see previewNote).
     const capNote = () =>
       vi
         .mocked(prompts.note)
-        .mock.calls.find((c) => c[1] === 'CAPABILITIES')?.[0];
+        .mock.calls.filter((c) => c[1] === 'CAPABILITIES')
+        .at(-1)?.[0];
 
     // ACCEPTANCE (the reported e2e, inverted): a LEGACY manual entry — no
     // `source`, because it predates the field — must survive the first
@@ -2010,6 +2081,8 @@ describe('runUpdate (drift-safe)', () => {
 
         await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
 
+        // F-24: refused from the plan snapshot, before the user is asked.
+        expect(prompts.confirm).not.toHaveBeenCalled();
         expect(readFileSync(join(outside, 'stale/stale.md'), 'utf8')).toBe(
           'not this project',
         );
@@ -2055,17 +2128,171 @@ describe('runUpdate (drift-safe)', () => {
         );
       });
 
-      it('says before the confirm that dropped capabilities are deleted, pointing at --dry-run', async () => {
+      // F-24: the confirm used to come before the fetch, so it could only say
+      // "dropped capabilities are deleted — see --dry-run". It now comes after
+      // the plan snapshot and NAMES them.
+      it('names the dropped capability and its deleted directory BEFORE the confirm, which defaults to No', async () => {
         await droppedStale();
 
         await runUpdate();
 
-        const header = stripVTControlCharacters(
-          String(vi.mocked(prompts.note).mock.calls[0]![0]),
+        const notes = vi.mocked(prompts.note).mock;
+        const previewAt = notes.calls.findIndex((c) => c[1] === 'CAPABILITIES');
+        expect(previewAt).toBeGreaterThan(-1);
+        const preview = stripVTControlCharacters(
+          String(notes.calls[previewAt]![0]),
         );
-        expect(header).toContain('directories are deleted');
-        expect(header).toContain('pharn update --dry-run');
+        expect(preview).toContain('lens:stale — directory would be deleted');
+        expect(preview).toContain('1 file(s) would be backed up first');
+        expect(notes.invocationCallOrder[previewAt]!).toBeLessThan(
+          vi.mocked(prompts.confirm).mock.invocationCallOrder[0]!,
+        );
+        expect(prompts.confirm).toHaveBeenCalledWith({
+          message: 'Apply this update? It deletes 1 capability directory.',
+          initialValue: false,
+        });
+        // The generic pointer at --dry-run is gone from the header.
+        const header = stripVTControlCharacters(String(notes.calls[0]![0]));
+        expect(header).not.toContain('pharn update --dry-run');
       });
+
+      it('composes the deletion count with the --force wording', async () => {
+        await droppedStale();
+        await runUpdate({ force: true });
+        expect(prompts.confirm).toHaveBeenCalledWith({
+          message:
+            'Apply this update and overwrite your changes? It deletes 1 capability directory.',
+          initialValue: false,
+        });
+      });
+
+      it('a dropped capability whose directory is already gone keeps the default Yes', async () => {
+        await droppedStale();
+        rmSync(join(proj, STALE_DIR), { recursive: true });
+        await runUpdate();
+        expect(prompts.confirm).toHaveBeenCalledWith({
+          message: 'Apply this update?',
+          initialValue: true,
+        });
+      });
+
+      it('declining leaves the directory, the config and the records untouched', async () => {
+        await droppedStale();
+        const recordsBefore = readFileSync(join(proj, RECORDS_FILE), 'utf8');
+        vi.mocked(prompts.confirm).mockResolvedValue(false);
+
+        await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(0));
+
+        expect(body(NOTES)).toBe('my notes');
+        expect(body(STALE_FILE)).toBe('stale v1');
+        expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(
+          recordsBefore,
+        );
+        expect(backupDirs()).toEqual([]);
+        expect(cleanup).toHaveBeenCalledTimes(1);
+      });
+
+      it('--yes prints the same preview, skips the confirm, and deletes', async () => {
+        await droppedStale();
+
+        await runUpdate({ yes: true });
+
+        expect(prompts.confirm).not.toHaveBeenCalled();
+        const preview = vi
+          .mocked(prompts.note)
+          .mock.calls.find((c) => c[1] === 'CAPABILITIES')?.[0];
+        expect(stripVTControlCharacters(String(preview))).toContain(
+          'lens:stale — directory would be deleted',
+        );
+        expect(existsSync(join(proj, STALE_DIR))).toBe(false);
+      });
+
+      // THE MEMBERSHIP GUARD: what the locked re-plan changes must be what the
+      // confirm showed. A directory that was "already gone" at the snapshot
+      // and re-appears before the lock would otherwise be deleted under a
+      // confirm that never named a deletion.
+      it('refuses when the locked re-plan would delete a directory the confirm did not show: exit 1, nothing written', async () => {
+        await droppedStale();
+        rmSync(join(proj, STALE_DIR), { recursive: true });
+        const recordsBefore = readFileSync(join(proj, RECORDS_FILE), 'utf8');
+        vi.mocked(prompts.confirm).mockImplementation(async () => {
+          // The directory comes back while the prompt is open.
+          write(join(proj, NOTES), 'my notes');
+          return true;
+        });
+
+        await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
+
+        expect(body(NOTES)).toBe('my notes');
+        expect(readPharnConfig(proj)).toBeNull();
+        expect(body(DOC)).toBe('constitution v1');
+        expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(
+          recordsBefore,
+        );
+        expect(backupDirs()).toEqual([]);
+        const said = printedLines();
+        expect(said).toContain('no longer what you confirmed');
+        expect(said).toContain('delete pharn-review/stale/');
+        expect(said).not.toContain('PHARN_DEBUG');
+        expect(cleanup).toHaveBeenCalledTimes(1);
+      });
+
+      it('refuses when the membership itself differs under the lock, naming both sides', async () => {
+        await droppedStale();
+        // The second resolution (under the lock) keeps `stale` selected.
+        resolveCapabilities
+          .mockReturnValueOnce({
+            selected: [{ ...CAP, matched: ['ssr'] }],
+            skipped: [],
+          })
+          .mockReturnValueOnce({
+            selected: [
+              { ...CAP, matched: ['ssr'] },
+              { name: 'stale', role: 'lens', matched: ['ssr'] },
+            ],
+            skipped: [],
+          });
+
+        await expect(runUpdate({ yes: true })).rejects.toMatchObject(
+          new ProcessExit(1),
+        );
+
+        expect(existsSync(join(proj, STALE_DIR))).toBe(true);
+        expect(readPharnConfig(proj)).toBeNull();
+        const said = printedLines();
+        expect(said).toContain(
+          'shown but not planned now: dropped-unselected lens:stale',
+        );
+        expect(said).toContain('Nothing was changed');
+      });
+    });
+
+    it('names a capability the update ADDS before the confirm', async () => {
+      await installed({ capabilities: [] });
+
+      await runUpdate();
+
+      const notes = vi.mocked(prompts.note).mock;
+      const previewAt = notes.calls.findIndex((c) => c[1] === 'CAPABILITIES');
+      expect(
+        stripVTControlCharacters(String(notes.calls[previewAt]![0])),
+      ).toContain('griller:a11y');
+      expect(notes.invocationCallOrder[previewAt]!).toBeLessThan(
+        vi.mocked(prompts.confirm).mock.invocationCallOrder[0]!,
+      );
+      expect(prompts.confirm).toHaveBeenCalledWith({
+        message: 'Apply this update?',
+        initialValue: true,
+      });
+    });
+
+    it('prints no preview when membership is unchanged', async () => {
+      await installed();
+      await runUpdate();
+      const capNotes = vi
+        .mocked(prompts.note)
+        .mock.calls.filter((c) => c[1] === 'CAPABILITIES');
+      expect(capNotes).toEqual([]);
     });
 
     it('SKIPS a manual capability file the user edited, with the standard report', async () => {
@@ -2279,10 +2506,13 @@ describe('runUpdate (drift-safe)', () => {
       });
     }
 
+    // The POST-RUN report: since F-24 the same note also prints, in the future
+    // tense, before the confirm (see previewNote).
     const capNote = () =>
       vi
         .mocked(prompts.note)
-        .mock.calls.find((c) => c[1] === 'CAPABILITIES')?.[0];
+        .mock.calls.filter((c) => c[1] === 'CAPABILITIES')
+        .at(-1)?.[0];
 
     it('writes ZERO files under it while KEEPING its pharn.config.json entry', async () => {
       await installed({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] });
