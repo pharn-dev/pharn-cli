@@ -4,7 +4,7 @@
 
 The install **mirrors whichever layout upstream ships**. Today that is the `pharn` layout: most surfaces move under `pharn/`, while `THREAT-MODEL.md`, `LIMITS.md`, and `.claude/` stay at the project root. The legacy `flat` layout keeps everything at the root; an install records which one it used in `pharn.config.json`.
 
-The CLI version (`0.5.0`) and the content version it installs (`skillsVersion`, from upstream's `SKILLS_VERSION`) are independent numbers — `status` and `update` are keyed to the latter.
+The CLI version (`pharn --version`) and the content version it installs (`skillsVersion`, from upstream's `SKILLS_VERSION`) are independent numbers — `status` and `update` are keyed to the latter.
 
 ## Getting started
 

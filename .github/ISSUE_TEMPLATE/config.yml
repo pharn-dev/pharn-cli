@@ -5,4 +5,4 @@ contact_links:
     about: Please report security issues privately — do not open a public issue. See SECURITY.md.
   - name: Documentation
     url: https://github.com/pharn-dev/pharn-cli/tree/main/docs
-    about: Getting started, stack options, and command reference.
+    about: Getting started, archetypes and capabilities, and the reference for every command.

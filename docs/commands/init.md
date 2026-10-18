@@ -20,6 +20,11 @@ pharn init --ref latest   # the newest verified pharn-oss release
 By default `init` installs the tip of `pharn-dev/pharn-oss` `main` — whatever merged last, whether or
 not its post-merge CI has finished.
 
+> **pharn-oss has not published a release yet.** Until it does, `pharn init --ref latest` exits **1**
+> with `No verified release could be resolved` and writes nothing, so the default — `main` — is the
+> channel that works. See
+> [No verified release could be resolved](../troubleshooting.md#no-verified-release-could-be-resolved).
+
 `--ref latest` installs the newest **GitHub release** instead. pharn-oss is to create a release (tag
 `v<SKILLS_VERSION>`) only after every required check on that commit has passed after the merge, so such
 an install never lands on a commit whose CI is still running, was cancelled, or failed. `init` downloads
@@ -476,6 +481,15 @@ The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`,
 the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
 that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and
 publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
+
+The four trusted docs keep the paths pharn-oss keeps them at, and those are not one prefix. In the
+`pharn` layout `CONSTITUTION.md` and `ARCHITECTURE.md` land in `pharn/`, but **`THREAT-MODEL.md` and
+`LIMITS.md` land at your project root** — where pharn-oss keeps them and where its commands cite them
+(in the flat layout all four are at the root). If your project already has a root `THREAT-MODEL.md` or
+`LIMITS.md` of its own, `init` replaces it: it is listed in the
+[overwrite prompt](#6-summary) (default **No**) and, when it differs from pharn-oss's, copied
+to `.pharn-backup/<timestamp>/` before the copy; `init --yes` refuses instead. Rename yours first if
+you want to keep it where it is.
 
 #### A surface pharn-oss does not ship
 
