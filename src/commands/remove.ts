@@ -79,6 +79,13 @@ export async function runRemove(arg: string | undefined): Promise<void> {
       logError(err.message);
       process.exit(1);
     }
+    // A target under a symlinked component — refused before the lock, or again
+    // under it (F-20). Thrown rather than exiting in place so that, under the
+    // lock, the unwinding releases `.pharn.lock` before this exit.
+    if (err instanceof SymlinkedTargetError) {
+      logError(err.message);
+      process.exit(1);
+    }
     throw err;
   }
 }
@@ -89,6 +96,15 @@ class RemoveBackupError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'RemoveBackupError';
+  }
+}
+
+// A target directory's path crosses a symlinked component. Carries a complete,
+// user-facing message; runRemove reports it and exits 1.
+class SymlinkedTargetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SymlinkedTargetError';
   }
 }
 
@@ -180,11 +196,19 @@ function readRecordsBaseline(
 // symlinked component below the project root. `rmSync` on `pharn/pharn-review/x`
 // resolves every ancestor, so with `pharn -> ../shared` it deletes
 // `../shared/pharn-review/x` — outside the project — and `safeJoin` cannot see
-// it (lexical). Checked for the WHOLE selection before the first delete (and,
-// on the picker path, before the confirm), with no lock held, so the exit
-// leaves nothing behind. The same physical walk `update`/`add` use. ENOTDIR (a
-// component below a regular file) is not a link: that dir does not exist, and
-// the delete's own existsSync already treats it as gone.
+// it (lexical). Checked for the WHOLE selection TWICE (F-20): once before the
+// lock (and, on the picker path, before the confirm) — the cheap early answer,
+// so a selection that would be refused is never asked about — and again INSIDE
+// the lock, right after assertConfigUnchanged and before the backup scan and
+// the first delete. The early walk alone left a window: a parent swapped to a
+// link after it (while the picker's confirm was open, or between the walk and
+// the lock) was deleted through. The in-lock walk is the authoritative one; it
+// still is not atomic with `rmSync` (no userland walk can be), but it moves the
+// check next to the delete, under the single-writer lock. It THROWS, so the
+// lock is released before runRemove's exit. The same physical walk
+// `update`/`add` use. ENOTDIR (a component below a regular file) is not a link:
+// that dir does not exist, and the delete's own existsSync already treats it as
+// gone.
 function refuseSymlinkedTargets(
   cwd: string,
   paths: LayoutPaths,
@@ -193,10 +217,9 @@ function refuseSymlinkedTargets(
   for (const target of targets) {
     const linked = linkedComponent(cwd, paths, target);
     if (linked !== null) {
-      logError(
+      throw new SymlinkedTargetError(
         `Refusing to remove ${target.name} (${target.role}): ${linked} is a symbolic link, so deleting through it would delete files OUTSIDE the project. Nothing was removed. Delete the directory yourself if that is what you want.`,
       );
-      process.exit(1);
     }
   }
 }
@@ -341,6 +364,8 @@ async function removeNamed(
   // so the held window is the write itself.
   const note = await withProjectLock(cwd, 'remove', async () => {
     assertConfigUnchanged(cwd, config, 'remove');
+    // Again under the lock (F-20): the walk above is only the early answer.
+    refuseSymlinkedTargets(cwd, paths, [target]);
     const records = readRecordsBaseline(cwd, config);
     backupBeforeDelete(cwd, paths, [target], records);
     const existed = deleteCapabilityDir(cwd, paths, target);
@@ -451,6 +476,10 @@ async function runRemovePicker(
   // and spanning the whole selection, not one lock per capability.
   await withProjectLock(cwd, 'remove', async () => {
     assertConfigUnchanged(cwd, config, 'remove');
+    // Again under the lock (F-20): the confirm was open between the early walk
+    // and here, and a parent swapped to a link in that window must not be
+    // deleted through.
+    refuseSymlinkedTargets(cwd, paths, targets);
     // ONE backup for the whole selection, after the confirm and before the
     // first delete — a failure here deletes none of the picks.
     const records = readRecordsBaseline(cwd, config);

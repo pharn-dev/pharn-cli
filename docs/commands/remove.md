@@ -93,6 +93,13 @@ re-run.
 deleted as a link and never followed — whatever it points at is left exactly as it was, and the link
 itself is not saved. A FIFO, socket or device file is skipped and deleted the same way.
 
+**A capability directory reached through a symbolic link is never deleted.** If the directory, or any
+folder above it inside the project (`pharn/`, `pharn-review/`, …), is a symbolic link, `remove` refuses
+with exit 1 and deletes nothing, because deleting through it would delete files outside the project. It
+checks before taking the lock (on the picker path, before its confirmation) and again under the lock,
+right before the backup and the first delete — so a folder replaced by a link while the confirmation was
+open is refused too.
+
 ## Concurrency
 
 `remove` takes the project lock (`.pharn.lock`) around its backup → delete → prune → config write — on the
