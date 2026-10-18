@@ -56,7 +56,7 @@ import {
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { orphanNoteLines, type Orphan } from '../lib/orphans.js';
 import type { UpdateLabel, UpdatePlan } from '../lib/update-decision.js';
-import { fetchRepo } from '../lib/repo.js';
+import { fetchRepo, type FetchedRepo } from '../lib/repo.js';
 import {
   channelOf,
   resolveSource,
@@ -232,12 +232,11 @@ async function runArchetypeUpdate(
 ): Promise<void> {
   // What a configured proxy means here (nothing: fetch never uses one), emitted
   // ONCE at the top so it precedes EVERY fetch this command can make — the
-  // SKILLS_VERSION read immediately below and the tarball download inside the
-  // lock alike. It used to sit inside the lock closure, above fetchRepo,
+  // SKILLS_VERSION read immediately below and the tarball download before the
+  // confirm alike. It used to sit inside the lock closure, above fetchRepo,
   // justified by "a refused run performs no fetch". That premise is false HERE:
-  // the version check below has already gone over the wire by the time the lock
-  // is even attempted — which the lock's own comment further down states in as
-  // many words. `add` carries the same sentence and there it holds, because
+  // the version check below — and, since F-24, the tarball download — has
+  // already gone over the wire by the time the lock is even attempted. `add` carries the same sentence and there it holds, because
   // `add` makes no pre-lock fetch; the words travelled to a command where the
   // precondition does not.
   //
@@ -269,7 +268,7 @@ async function runArchetypeUpdate(
   let latest: string;
   let source: InstallSource;
   try {
-    // ONE resolve per run, reused for the tarball inside the lock below, so the
+    // ONE resolve per run, reused for the one tarball download below, so the
     // version this check reports is the version that run installs. A release
     // names its version in its tag (and `fetchRepo` checks the tree agrees);
     // only the `main` channel reads the tip's SKILLS_VERSION over the wire.
@@ -471,18 +470,6 @@ async function runArchetypeUpdate(
         pc.dim(
           '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
         ),
-        // The real run's confirm comes before the fetch, so it cannot name the
-        // capabilities a drop deletes; the dry run can, and this says so.
-        ...(dryRun
-          ? []
-          : [
-              pc.dim(
-                '  Capabilities no longer selected are removed: their directories are deleted',
-              ),
-              pc.dim(
-                '  (files pharn did not write are backed up first). `pharn update --dry-run` lists them.',
-              ),
-            ]),
         ...(dryRun
           ? [pc.dim('  Preview only — nothing will be written.')]
           : []),
@@ -499,24 +486,35 @@ async function runArchetypeUpdate(
     await runDryRun(config, cwd, force, channel, source, json, latest, compact);
     return;
   }
-  // `--yes` skips THE CONFIRM AND NOTHING ELSE. The note above has already
-  // printed (a non-interactive log deserves the same context a terminal gets),
-  // and every decision below — the plan, the drift-safe skips, the backups, the
-  // withheld version bump, the exit codes — is byte-identical either way. It
-  // means "don't ask", not "non-interactive mode": it works in a terminal too.
-  // Skipping the call entirely (rather than short-circuiting its result) is what
-  // makes "the prompt is never rendered" true by construction.
-  if (!yes) {
-    const ok = await confirm({
-      message: force
-        ? 'Re-fetch capabilities and overwrite your changes?'
-        : 'Re-fetch capabilities at the latest version?',
-      initialValue: true,
-    });
-    if (isCancel(ok) || ok !== true) cancelAndExit();
-  }
+  // THE PLAN SNAPSHOT — fetched and planned BEFORE the confirm (F-24), so the
+  // confirm can name what this run changes: the capabilities it adds, the ones
+  // it drops, and the directories it deletes. The confirm used to come first,
+  // which meant those changes were applied after a prompt that could not name
+  // them, and `--yes` applied them with nothing in the log saying which.
+  //
+  // The cost is stated, not hidden: the tarball is downloaded before the user
+  // can answer, so a cancelled confirm (or a run the lock then refuses) has paid
+  // for it — the trade the dry run already makes. The TTY gate still runs
+  // before ANY network call (runUpdate), the early returns above still fetch no
+  // tarball, and the lock is still taken only AFTER the confirm (below), so no
+  // human prompt is ever held under it. The clone is held across the prompt in
+  // its private temp dir, registered for exit/signal cleanup (lib/repo.ts), and
+  // removed in the `finally` below before any exit.
+  //
+  // A failed download, a MIN_CLI refusal and a drop the planner refuses to
+  // delete now stop the run BEFORE it asks — same messages, same exit 1.
+  const pre = spinner();
+  pre.start(`Planning from ${REPO_URL}`);
+  const repo: FetchedRepo = await fetchRepo(source).catch(
+    (err: unknown): never => {
+      pre.stop('Update failed');
+      reportFatal(errorMessage(err), { err });
+      process.exit(1);
+    },
+  );
 
   let outcome: UpdateOutcome | null = null;
+  let cancelled = false;
   // The backup pointer, carried OUT of applyUpdate the moment it exists rather
   // than riding home inside a successful outcome — everything after createBackup
   // can throw, and a run that dies there has already moved the user's bytes.
@@ -533,9 +531,10 @@ async function runArchetypeUpdate(
   const spinnerRef: { current: ReturnType<typeof spinner> | null } = {
     current: null,
   };
-  // The refusal message. A HOLDER too, because it is now assigned from BOTH the
-  // MIN_CLI gate inside the locked closure and the catch below — a bare `let`
-  // written only inside a closure is the narrowing problem `backupRef` documents.
+  // The refusal message. A HOLDER too, because it is assigned from the snapshot,
+  // from the membership guard inside the locked closure and from the catch
+  // below — a bare `let` written only inside a closure is the narrowing problem
+  // `backupRef` documents.
   const refusalRef: { current: string | null } = { current: null };
   // The ERROR OBJECT, not its message — the reporter needs it to tell an
   // exception (which earns the PHARN_DEBUG affordance) from a curated refusal.
@@ -544,102 +543,55 @@ async function runArchetypeUpdate(
   // handed straight to reportFatal.
   let failure: FatalCause | null = null;
   try {
-    // THE SINGLE-WRITER LOCK — taken AFTER the confirm and BEFORE the fetch.
-    //
-    // BEFORE THE FETCH, because a run that is going to be refused should not pay
-    // for a ~2.5 MB tarball first — the principle the TTY gate above already
-    // states. The claim here is deliberately narrower than that one: the
-    // `fetchRemoteSkillsVersion` check further up has already run, so a refused
-    // `update` still makes ONE small guarded GET. What moving the lock closes is
-    // THE TARBALL DOWNLOAD, not every round-trip; saying "zero round-trips" here
-    // would be false.
-    //
-    // AFTER THE CONFIRM, and that half is not negotiable. The confirm is this
-    // command's last human step, and holding the lock across an unanswered
-    // prompt would block every other pharn run in the project for as long as a
-    // human takes to answer — an UNBOUNDED hold, where the fetch below is
-    // bounded BY CONSTRUCTION (repo.ts caps the SHA resolve at 8s and the
-    // download at 60s; the extraction is capped by entry/byte limits rather than
-    // by a clock). Bounded work may go under the lock; unbounded work may not.
-    // `init` cannot be given this shape at all — BOTH of its prompts sit between
-    // its fetch and its install — which is why init's lock deliberately stays
-    // where it is (see the note in src/commands/init.ts).
-    //
-    // THE FETCH LIVES INSIDE `fn`, not before it, so a fetch failure unwinds
-    // through withProjectLock's `finally` and RELEASES. It used to end in
-    // process.exit(1), which skips every finally — so a lock acquired before it
-    // would have been stranded in the project root on every offline /
-    // rate-limited / DNS failure, the most common failure this command has.
-    outcome = await withProjectLock(cwd, 'update', async () => {
-      // First, before the spinner: the config this run planned (and confirmed)
-      // against was read before the lock; refuse if another run rewrote it.
-      assertConfigUnchanged(cwd, config, 'update');
-      const s2 = spinner();
-      spinnerRef.current = s2;
-      s2.start(`Updating from ${REPO_URL}`);
-      // Assigned ONLY on success, and the cleanup that consumes it is scoped to
-      // the try below. The previous shape declared `repo` outside its try so an
-      // outer `finally` could clean it up — which, with the fetch now inside the
-      // lock, would dereference `undefined` on a failed fetch and mask the real
-      // "could not reach" message with a TypeError.
-      const repo = await fetchRepo(source);
-      try {
-        // THE MIN_CLI GATE — upstream's lever to refuse a stale CLI CLEANLY
-        // instead of breaking somewhere downstream. Inside this try so the
-        // clone's cleanup still runs before any exit, and BEFORE applyUpdate so
-        // a refusal writes nothing at all. It can only fire after the confirm,
-        // because the file it reads lives in the clone — named in GRILL.md; the
-        // refusal still costs zero writes.
-        const gate = checkMinCli(repo.dir);
-        if (gate.refusal) {
-          s2.stop('Update refused');
-          refusalRef.current = gate.refusal;
-          return null;
-        }
-        const planned = buildUpdatePlan({
-          repoDir: repo.dir,
-          sha: repo.sha,
+    // THE MIN_CLI GATE and the plan, from the clone fetched above — upstream's
+    // lever to refuse a stale CLI CLEANLY, now answered before the user is asked.
+    // The unknown-capabilities warning is logged here, once.
+    const snapshot = planFromClone(repo, config, cwd, force, channel, (m) =>
+      log.warn(m),
+    );
+    pre.stop(planStopMessage(snapshot));
+    if (snapshot.kind === 'refused') refusalRef.current = snapshot.refusal;
+    else if (snapshot.kind === 'failed') failure = snapshot.failure;
+    else {
+      const confirmed = snapshot.planned.report;
+      // What this run would change about membership, in the future tense —
+      // the same renderer the dry run uses. Nothing changes → no note.
+      reportCapabilityChanges(
+        confirmed.capabilityChanges,
+        confirmed.removals,
+        true,
+      );
+      const deletes = confirmed.removals.filter((r) => r.present).length;
+      // `--yes` skips THE CONFIRM AND NOTHING ELSE. The notes above have
+      // already printed (a non-interactive log deserves the same context a
+      // terminal gets), and every decision below — the plan, the drift-safe
+      // skips, the backups, the withheld version bump, the exit codes — is
+      // byte-identical either way. It means "don't ask", not "non-interactive
+      // mode": it works in a terminal too. Skipping the call entirely (rather
+      // than short-circuiting its result) is what makes "the prompt is never
+      // rendered" true by construction.
+      //
+      // A run that deletes a directory defaults to No — the default init's
+      // overwrite/removal prompt has — and says how many in the question.
+      if (!yes) {
+        const ok = await confirm({
+          message: confirmMessage(force, deletes),
+          initialValue: deletes === 0,
+        });
+        cancelled = isCancel(ok) || ok !== true;
+      }
+      if (!cancelled)
+        outcome = await applyUnderLock(confirmed, {
           config,
           cwd,
           force,
           channel,
-          // Logged the moment the index is parsed, as it always was.
-          onUnknownWarning: (warning) => log.warn(warning),
+          repo,
+          backupRef,
+          spinnerRef,
+          refusalRef,
         });
-        const applied = await applyPlannedUpdate(
-          planned,
-          config,
-          cwd,
-          channel,
-          (backup) => {
-            backupRef.current = backup;
-            // Named the moment it exists (as `add` does): everything after the
-            // backup can throw or be interrupted, and this pointer is the
-            // user's only route back to the pre-overwrite bytes.
-            //
-            // With NO spinner running: clack's spinner owns the line it
-            // animates, so a line logged under it is glued to its frame, and
-            // below ~50 columns its `stop` erases that line. So the spinner is
-            // stopped first — with a neutral phrase, the notice says the rest —
-            // and a new one is started for the writes (`spinnerRef` follows it,
-            // so every failure path stops the one actually running).
-            s2.stop('Backup written');
-            printBackupNotice(backup, { aborted: false });
-            const s3 = spinner();
-            spinnerRef.current = s3;
-            s3.start('Writing files');
-          },
-        );
-        spinnerRef.current.stop(
-          applied.plan.writes.length
-            ? 'Capabilities updated'
-            : 'Nothing to write',
-        );
-        return applied;
-      } finally {
-        repo.cleanup();
-      }
-    });
+    }
   } catch (err) {
     // A held lock is a POLICY refusal, not a crash: it earns the same
     // no-PHARN_DEBUG treatment as the MIN_CLI gate, because the message already
@@ -662,7 +614,11 @@ async function runArchetypeUpdate(
       spinnerRef.current?.stop('Update failed');
       failure = { err };
     }
+  } finally {
+    repo.cleanup();
   }
+  // Every exit below runs AFTER the clone's cleanup (Node skips finally on exit).
+  if (cancelled) cancelAndExit();
   const refusal = refusalRef.current;
 
   // A policy refusal is not a failure to debug — no PHARN_DEBUG hint, and the
@@ -693,6 +649,138 @@ async function runArchetypeUpdate(
   }
 
   reportOutcome(outcome, force);
+}
+
+// The confirm's question. "Re-fetch" no longer describes the step (the fetch
+// has happened); a run that deletes directories says how many.
+function confirmMessage(force: boolean, deletes: number): string {
+  const base = force
+    ? 'Apply this update and overwrite your changes?'
+    : 'Apply this update?';
+  if (deletes === 0) return base;
+  return `${base} It deletes ${deletes} capability director${deletes === 1 ? 'y' : 'ies'}.`;
+}
+
+// What the confirm named, as comparable keys: every membership change, and
+// every directory the run deletes. The second is disk-dependent (`present`),
+// and it is exactly what decides whether something is deleted — so it is
+// guarded too (GRILL.md).
+function membershipKeys(r: UpdatePlanReport): string[] {
+  return [
+    ...r.capabilityChanges.map(
+      (c) => `${c.reason} ${c.cap.role}:${c.cap.name}`,
+    ),
+    ...r.removals.filter((x) => x.present).map((x) => `delete ${x.dir}/`),
+  ];
+}
+
+// THE MEMBERSHIP GUARD: the plan made under the lock must change exactly what
+// the confirm showed. With the config unchanged (asserted) and the same clone,
+// the change list is equal by construction; the deleted-directory set can move
+// with the disk. Any difference refuses, naming both sides — an equality test,
+// so "what you confirmed is what is applied" does not rest on an argument.
+// `null` when they agree.
+function membershipDrift(
+  confirmed: UpdatePlanReport,
+  now: UpdatePlanReport,
+): string | null {
+  const before = membershipKeys(confirmed);
+  const after = membershipKeys(now);
+  if (
+    before.length === after.length &&
+    before.every((key, i) => key === after[i])
+  )
+    return null;
+  const shown = before.filter((key) => !after.includes(key));
+  const added = after.filter((key) => !before.includes(key));
+  const list = (keys: string[]): string =>
+    keys.length > 0 ? keys.join(', ') : '(nothing)';
+  return `The capabilities this update would change are no longer what you confirmed — shown but not planned now: ${list(shown)}; planned now but not shown: ${list(added)}. Nothing was changed. Run \`pharn update\` again.`;
+}
+
+// Everything under the project lock: the authoritative re-plan, the membership
+// guard, and the writes. Returns null after setting `refusalRef` when the guard
+// refuses.
+async function applyUnderLock(
+  confirmed: UpdatePlanReport,
+  ctx: {
+    config: PharnConfig;
+    cwd: string;
+    force: boolean;
+    channel: RefChoice;
+    repo: FetchedRepo;
+    backupRef: { current: Backup | null };
+    spinnerRef: { current: ReturnType<typeof spinner> | null };
+    refusalRef: { current: string | null };
+  },
+): Promise<UpdateOutcome | null> {
+  const { config, cwd, force, channel, repo } = ctx;
+  const { backupRef, spinnerRef, refusalRef } = ctx;
+  // THE SINGLE-WRITER LOCK — taken AFTER the confirm, and that is not
+  // negotiable. The confirm is this command's last human step, and holding the
+  // lock across an unanswered prompt would block every other pharn run in the
+  // project for as long as a human takes to answer — an UNBOUNDED hold. What
+  // runs under it is bounded local work: a re-plan from the clone already on
+  // disk and the writes. `init` cannot be given this shape at all — BOTH of
+  // its prompts sit between its fetch and its install — which is why init's
+  // lock deliberately stays where it is (see the note in src/commands/init.ts).
+  //
+  // The tarball is fetched before the confirm (F-24), so a run the lock
+  // refuses has already downloaded it; the clone is still removed before the
+  // refusal is reported.
+  return withProjectLock(cwd, 'update', async () => {
+    // First, before the spinner: the config this run planned (and confirmed)
+    // against was read before the lock; refuse if another run rewrote it.
+    assertConfigUnchanged(cwd, config, 'update');
+    const s2 = spinner();
+    spinnerRef.current = s2;
+    s2.start('Updating');
+    // AUTHORITATIVE: re-decided from disk under the lock — every per-file row,
+    // and each removal's `present` and backups. The snapshot was a preview.
+    // No warning callback: the snapshot already logged it for this clone.
+    const planned = buildUpdatePlan({
+      repoDir: repo.dir,
+      sha: repo.sha,
+      config,
+      cwd,
+      force,
+      channel,
+    });
+    const drift = membershipDrift(confirmed, planned.report);
+    if (drift !== null) {
+      s2.stop('Update refused');
+      refusalRef.current = drift;
+      return null;
+    }
+    const applied = await applyPlannedUpdate(
+      planned,
+      config,
+      cwd,
+      channel,
+      (backup) => {
+        backupRef.current = backup;
+        // Named the moment it exists (as `add` does): everything after the
+        // backup can throw or be interrupted, and this pointer is the user's
+        // only route back to the pre-overwrite bytes.
+        //
+        // With NO spinner running: clack's spinner owns the line it animates,
+        // so a line logged under it is glued to its frame, and below ~50
+        // columns its `stop` erases that line. So the spinner is stopped first
+        // — with a neutral phrase, the notice says the rest — and a new one is
+        // started for the writes (`spinnerRef` follows it, so every failure
+        // path stops the one actually running).
+        s2.stop('Backup written');
+        printBackupNotice(backup, { aborted: false });
+        const s3 = spinner();
+        spinnerRef.current = s3;
+        s3.start('Writing files');
+      },
+    );
+    spinnerRef.current.stop(
+      applied.plan.writes.length ? 'Capabilities updated' : 'Nothing to write',
+    );
+    return applied;
+  });
 }
 
 // The write half: back up, write, persist. The decisions were made by
@@ -1049,11 +1137,55 @@ function emitJson(report: object): void {
   console.log(serializeJsonReport(report));
 }
 
-// What a dry run's clone phase produced — exactly one of the three.
+// What a clone phase produced — exactly one of the three.
 type PlanOutcome =
   | { kind: 'planned'; planned: PlannedUpdate }
   | { kind: 'refused'; refusal: string }
   | { kind: 'failed'; failure: FatalCause | null };
+
+// The MIN_CLI gate → plan phase over a clone the CALLER owns (and cleans up):
+// the dry run through fetchAndPlan, the real run with the clone it keeps for
+// the locked re-plan. Never throws — a planner refusal to delete a dropped
+// capability's directory is a policy refusal, exactly as the lock path reports
+// it; anything else is a failure to report.
+function planFromClone(
+  repo: FetchedRepo,
+  config: PharnConfig,
+  cwd: string,
+  force: boolean,
+  channel: RefChoice,
+  warn: (message: string) => void,
+): PlanOutcome {
+  try {
+    const refusal = checkMinCli(repo.dir, warn).refusal;
+    if (refusal) return { kind: 'refused', refusal };
+    const planned = buildUpdatePlan({
+      repoDir: repo.dir,
+      sha: repo.sha,
+      config,
+      cwd,
+      force,
+      channel,
+      onUnknownWarning: warn,
+    });
+    return { kind: 'planned', planned };
+  } catch (err) {
+    if (err instanceof CapabilityRemovalError)
+      return { kind: 'refused', refusal: err.message };
+    return { kind: 'failed', failure: { err } };
+  }
+}
+
+function planStopMessage(outcome: PlanOutcome): string {
+  switch (outcome.kind) {
+    case 'planned':
+      return 'Plan ready';
+    case 'refused':
+      return 'Update refused';
+    case 'failed':
+      return 'Planning failed';
+  }
+}
 
 // The clone → MIN_CLI gate → plan phase, shared by the text and `--json` dry
 // runs so there is ONE copy of the clone/cleanup discipline: the clone is
@@ -1071,42 +1203,20 @@ async function fetchAndPlan(
 ): Promise<PlanOutcome> {
   const { spin, warn } = ui;
   spin.start(`Planning from ${REPO_URL}`);
-  let outcome: PlanOutcome;
+  let repo: FetchedRepo;
   try {
-    const repo = await fetchRepo(source);
-    try {
-      const refusal = checkMinCli(repo.dir, warn).refusal;
-      if (refusal) {
-        spin.stop('Update refused');
-        outcome = { kind: 'refused', refusal };
-      } else {
-        const planned = buildUpdatePlan({
-          repoDir: repo.dir,
-          sha: repo.sha,
-          config,
-          cwd,
-          force,
-          channel,
-          onUnknownWarning: warn,
-        });
-        spin.stop('Plan ready');
-        outcome = { kind: 'planned', planned };
-      }
-    } finally {
-      repo.cleanup();
-    }
+    repo = await fetchRepo(source);
   } catch (err) {
-    // The planner's refusal to delete a dropped capability's directory is a
-    // policy refusal, exactly as the real run reports it.
-    if (err instanceof CapabilityRemovalError) {
-      spin.stop('Update refused');
-      outcome = { kind: 'refused', refusal: err.message };
-    } else {
-      spin.stop('Planning failed');
-      outcome = { kind: 'failed', failure: { err } };
-    }
+    spin.stop('Planning failed');
+    return { kind: 'failed', failure: { err } };
   }
-  return outcome;
+  try {
+    const outcome = planFromClone(repo, config, cwd, force, channel, warn);
+    spin.stop(planStopMessage(outcome));
+    return outcome;
+  } finally {
+    repo.cleanup();
+  }
 }
 
 // `--dry-run`: fetch, gate, plan, print, exit 0 — and write NOTHING. No lock, no
