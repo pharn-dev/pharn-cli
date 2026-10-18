@@ -190,6 +190,7 @@ Two rules that are easy to get wrong:
 | `docs-install-tables.test.ts` / `lint-gate.test.ts` / `dev-script.test.ts`                            | The README + getting-started install tables; the lint gate; the dev script                                                                                                                                                    |
 | `repo-signals.test.ts` / `model-config-format.test.ts`                                                | Fetch abort/cleanup signals; the `models` render                                                                                                                                                                              |
 | `dist-smoke.test.ts`                                                                                  | The built bundle, run with `node`: `--version`, `--help`, `status` with no config, option refusals                                                                                                                            |
+| `commands-integration.test.ts`                                                                        | One unmocked happy path per command (`init --yes`, `add`, `update --yes`, `remove`, `status --json`, `uninstall --yes`) against a real temp project, with only `fetch` stubbed to serve a real tarball                        |
 
 When changing behavior, add or update tests before docs.
 

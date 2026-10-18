@@ -381,6 +381,8 @@ describe('publish.yml publish: Registry check step', () => {
     });
   });
 
+  // Four bash + curl children in one case (about 1 s idle): an explicit budget,
+  // so a loaded --coverage run does not fail it on vitest's 5 s default (F-35).
   it('any other status, a redirect, or no answer fails the run', async () => {
     for (const url of [
       `${base}/500`,
@@ -392,7 +394,7 @@ describe('publish.yml publish: Registry check step', () => {
       expect(r.status, url).toBe(1);
       expect(r.output, url).toBe('');
     }
-  });
+  }, 30_000);
 });
 
 // ---------------------------------------------------------------------------

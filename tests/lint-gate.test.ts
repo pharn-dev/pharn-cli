@@ -19,6 +19,14 @@ import { describe, expect, it } from 'vitest';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const eslintBin = join(repoRoot, 'node_modules', 'eslint', 'bin', 'eslint.js');
 
+// Every case below spawns a fresh eslint, which loads typescript-eslint and the
+// repo config from scratch: about a second on an idle machine, and measured at
+// 5-10 s per spawn while the rest of the suite runs under --coverage. vitest's
+// default 5 s timeout then failed the cases (F-35) without anything being wrong
+// with the gate. The budget is per test, generous on purpose: a timeout here
+// would say nothing about lint.
+const LINT_TIMEOUT_MS = 60_000;
+
 // Lint `source` as if it were the file at `asPath` — via --stdin, so the check is
 // hermetic: no fixture is ever written into the repo and no cleanup can be missed.
 // The path is what selects the config block, which is exactly what we're testing.
@@ -31,7 +39,7 @@ function lintExitCodeAs(asPath: string, source: string): number {
   return r.status ?? -1;
 }
 
-describe('lint gate: no soft tier', () => {
+describe('lint gate: no soft tier', { timeout: LINT_TIMEOUT_MS }, () => {
   it('the lint script fails on any warning and covers all three source dirs', () => {
     const pkg = JSON.parse(
       readFileSync(join(repoRoot, 'package.json'), 'utf8'),
@@ -64,33 +72,37 @@ describe('lint gate: no soft tier', () => {
   });
 });
 
-describe('lint gate: the config states the platform truthfully', () => {
-  // eslint.config.mjs declares globals.nodeBuiltin, NOT globals.node. The repo is
-  // ESM throughout ("type": "module"), and plain `node` would additionally declare
-  // require/module/exports/__dirname/__filename — CJS-only names that do not exist
-  // in ESM — so a real runtime crash would pass the hardened gate. nodeBuiltin is
-  // Node minus those five, which is why this case reds under `node` and passes here.
-  it('still flags __dirname and require in an ESM .mjs', () => {
-    expect(
-      lintExitCodeAs('scripts/_plant.mjs', 'export const p = __dirname;\n'),
-    ).toBe(1);
-    expect(
-      lintExitCodeAs(
-        'scripts/_plant.mjs',
-        'export const m = require("node:fs");\n',
-      ),
-    ).toBe(1);
-  });
+describe(
+  'lint gate: the config states the platform truthfully',
+  { timeout: LINT_TIMEOUT_MS },
+  () => {
+    // eslint.config.mjs declares globals.nodeBuiltin, NOT globals.node. The repo is
+    // ESM throughout ("type": "module"), and plain `node` would additionally declare
+    // require/module/exports/__dirname/__filename — CJS-only names that do not exist
+    // in ESM — so a real runtime crash would pass the hardened gate. nodeBuiltin is
+    // Node minus those five, which is why this case reds under `node` and passes here.
+    it('still flags __dirname and require in an ESM .mjs', () => {
+      expect(
+        lintExitCodeAs('scripts/_plant.mjs', 'export const p = __dirname;\n'),
+      ).toBe(1);
+      expect(
+        lintExitCodeAs(
+          'scripts/_plant.mjs',
+          'export const m = require("node:fs");\n',
+        ),
+      ).toBe(1);
+    });
 
-  // The other half of the platform statement: console/process ARE declared, which
-  // is what resolved scripts/install-local.mjs's six no-undef errors in config
-  // alone — the script itself was never wrong and stays byte-for-byte unchanged.
-  it('does not flag console or process in a plain-JS script', () => {
-    expect(
-      lintExitCodeAs(
-        'scripts/_plant.mjs',
-        'console.log(process.argv.length);\n',
-      ),
-    ).toBe(0);
-  });
-});
+    // The other half of the platform statement: console/process ARE declared, which
+    // is what resolved scripts/install-local.mjs's six no-undef errors in config
+    // alone — the script itself was never wrong and stays byte-for-byte unchanged.
+    it('does not flag console or process in a plain-JS script', () => {
+      expect(
+        lintExitCodeAs(
+          'scripts/_plant.mjs',
+          'console.log(process.argv.length);\n',
+        ),
+      ).toBe(0);
+    });
+  },
+);
