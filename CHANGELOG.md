@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-10-18
+
 ### Added
 
 - **`pharn update` and `pharn status` now name the files upstream stopped shipping.** `update` never deletes, so a file pharn-oss dropped — a `pharn-*` command (still a live slash command), a hook, a floor checker, a trusted doc, or one file inside a capability you still have — stayed in your project, and because its entry in `pharn.records.json` was pruned on that same run, no command ever mentioned it again. Such a file is now an **orphan**: both commands list it in an `ORPHANED` note, grouped as `UNCHANGED` (still the bytes pharn wrote), `EDITED` (changed since — review before deleting) or `UNREADABLE` (with the reason), at most 20 per group, with a reminder to delete what you no longer need by hand. `update` keeps the orphan's entry in `pharn.records.json` until the file is gone (a re-run `init` keeps it too), so it stays listed on every later run, and a path upstream ships again later is a clean upgrade instead of an `unrecorded` skip. Once you delete an orphan, the next `update` at the same skills version reads its recorded path as missing and runs once: it restores nothing, drops the entry, and the header now says a missing path is restored only "if upstream still ships it". Orphans are never a skip, never withhold the version bump, and are **not** a `pharn status --strict` input. `update --dry-run --json` gains `plan.orphans` (present only when there is one) and `status --json` gains `orphans` (`null` under `--no-drift`, without a usable records store, or when the clone is at another layout); `schemaVersion` stays 1. Only files `pharn` recorded writing, at paths an install can write, are listed — a hand-added record for any other path is never read. The files of a capability `update` drops are not orphans. The floor `fixtures/` copies earlier installs left behind (see the floor `fixtures/` entry under Fixed) are listed this way too, as `UNCHANGED` unless you edited them. See [`pharn update`](docs/commands/update.md#orphaned-files).
@@ -251,7 +253,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.9.0...v0.10.0

@@ -1,6 +1,6 @@
 {
   "name": "@pharn-dev/pharn",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Install and update PHARN in any git project. PHARN gets features shipped right with Claude Code, with spec, plan and checks kept in Git.",
   "keywords": [
     "claude-code",
