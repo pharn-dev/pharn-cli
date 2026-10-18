@@ -1,5 +1,5 @@
 import { intro, note, outro } from '@clack/prompts';
-import pc from 'picocolors';
+import pc from '../lib/color.js';
 import { renderCapabilityLines } from '../lib/capability-groups.js';
 import { logError } from '../lib/report-error.js';
 import {

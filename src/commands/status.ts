@@ -1,6 +1,6 @@
 import { diffHookWiring, hookWiringLines } from '../lib/hook-wiring.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
-import pc from 'picocolors';
+import pc from '../lib/color.js';
 import { REPO } from '../lib/constants.js';
 import { fetchRepo } from '../lib/repo.js';
 import {

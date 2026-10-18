@@ -1,5 +1,5 @@
 import { log, note, outro, spinner } from '@clack/prompts';
-import pc from 'picocolors';
+import pc from '../lib/color.js';
 import {
   CLAUDE_SETTINGS_FILE,
   FIRST_FEATURE_COMMAND,

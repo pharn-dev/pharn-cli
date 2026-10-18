@@ -1,4 +1,4 @@
-import pc from 'picocolors';
+import pc from './color.js';
 import { readDiskState } from './apply-update.js';
 import { CLAUDE_COMMANDS_DIR, CLAUDE_HOOKS_DIR } from './constants.js';
 import {

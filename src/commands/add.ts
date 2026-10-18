@@ -6,7 +6,7 @@ import {
   outro,
   spinner,
 } from '@clack/prompts';
-import pc from 'picocolors';
+import pc from '../lib/color.js';
 import { REPO_URL } from '../lib/constants.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import {

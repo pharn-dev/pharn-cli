@@ -779,7 +779,7 @@ describe('runStatus (archetype)', () => {
     const models = noteBody('MODELS');
     expect(models).toContain('In the format pharn wrote before 0.7.0');
     expect(models).toContain('`pharn update` converts it');
-    // Visible columns: CI turns color codes on (picocolors reads CI).
+    // Visible columns: FORCE_COLOR can turn color codes on (lib/color.ts).
     for (const line of stripVTControlCharacters(models).split('\n')) {
       expect(line.length).toBeLessThanOrEqual(70);
     }

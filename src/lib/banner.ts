@@ -1,4 +1,4 @@
-import pc from 'picocolors';
+import pc from './color.js';
 import { PHARN_VERSION } from '../version.js';
 
 const LOGO = [
