@@ -44,6 +44,7 @@ import {
   MODELS_RECORD_KEY,
   readRecords,
   recordsBaseline,
+  recordsStampStale,
   RECORDS_FILE,
   writeRecords,
 } from '../lib/install-records.js';
@@ -355,11 +356,13 @@ async function runArchetypeUpdate(
   // repeat and its bytes would stay stale after a pharn upgrade that can parse it.
   const current = config.skillsVersion === latest;
   const recheckFrozen = (config.frozenCapabilities ?? []).length > 0;
-  // The stamped records baseline, read ONCE for the two local checks below.
-  const baselineRecords = recordsBaseline(readRecords(cwd), {
+  // The stamped records baseline, read ONCE for the local checks below.
+  const recordsRead = readRecords(cwd);
+  const recordsStamp = {
     skillsVersion: config.skillsVersion,
     commit: config.commit,
-  }).records;
+  };
+  const baselineRecords = recordsBaseline(recordsRead, recordsStamp).records;
   // A `models` block still in the format pharn wrote before 0.7.0 re-opens the
   // gate as well: converting it is this CLI's job, not upstream's, so it has to
   // reach an install that is already current. Bounded: a run converts the block
@@ -385,13 +388,25 @@ async function runArchetypeUpdate(
     current && !force
       ? findMissingInstalled(cwd, config, baselineRecords)
       : null;
+  // A record store stamped for ANOTHER install state re-opens the gate too
+  // (F-22): `add` and `update` write the store before the config, so a torn run
+  // leaves a store the baseline above ignores, and the next version bump would
+  // read every differing file as `unverifiable`. The opened run re-records the
+  // install: a complete OR withheld run writes the store stamped with the SAME
+  // skillsVersion and commit it writes to the config, so the next run's stamp
+  // agrees and it early-returns again, bounded like `missing`. Only a store
+  // that PARSED counts (recordsStampStale): an absent or corrupt one does not
+  // re-open, so `update` never overwrites a store the user could still repair.
+  const staleRecords =
+    current && !force && recordsStampStale(recordsRead, recordsStamp);
   if (
     current &&
     !force &&
     !recheckFrozen &&
     !convertModels &&
     !switchChannel &&
-    missing === null
+    missing === null &&
+    !staleRecords
   ) {
     if (json) {
       emitEarlyReturn('up-to-date');
@@ -433,6 +448,13 @@ async function runArchetypeUpdate(
                 // is a recorded path that is gone too; this run drops its record
                 // instead of restoring it, and the next run early-returns.
                 `  ${terminalSafe(missing)} is missing — this run re-applies the install, restoring it if upstream still ships it.`,
+              ),
+            ]
+          : []),
+        ...(staleRecords
+          ? [
+              pc.dim(
+                `  ${RECORDS_FILE} is stamped for a different install state than pharn.config.json (an interrupted run?) — this run re-applies the install and records it again.`,
               ),
             ]
           : []),

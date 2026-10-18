@@ -259,6 +259,31 @@ export function recordsBaseline(
   return { records: store.files, note: null };
 }
 
+/**
+ * True when the store PARSED but is stamped for a different install state than
+ * the config beside it — the one unusable-store case a re-run can repair.
+ *
+ * `pharn update` uses it to re-open its same-version early return (F-22). The
+ * typical cause is a torn write: `add` and `update` write this file BEFORE
+ * pharn.config.json, so a failure between the two leaves a store stamped for a
+ * state the config never reached. Without a re-open, "Already up to date"
+ * stood over it and the next version bump read every differing file as
+ * `unverifiable`.
+ *
+ * Deliberately NOT true for an `absent` or `invalid` store. Absent has nothing
+ * torn to repair (an install made before records existed, or a store the user
+ * deleted), and an invalid one — bad JSON, an unknown schemaVersion from a newer
+ * CLI — is the user's to fix: a re-run would overwrite it and discard hashes
+ * they could still recover. Both are still named by `recordsBaseline`'s note
+ * the next time a run plans.
+ */
+export function recordsStampStale(
+  read: ReadRecordsResult,
+  config: { skillsVersion: string; commit: string | null },
+): boolean {
+  return read.kind === 'ok' && stampMismatches(read.store, config).length > 0;
+}
+
 interface StampMismatch {
   field: 'skillsVersion' | 'commit';
   // Both sides pre-rendered, so the two halves of the note cannot list different

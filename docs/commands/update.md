@@ -46,7 +46,9 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    re-applies upstream at the current version, your `models` block is still in the format `pharn`
    wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)), or a file
    or capability directory `pharn` installed is missing, which this run restores (see
-   [Missing files at the same skills version](#missing-files-at-the-same-skills-version)).
+   [Missing files at the same skills version](#missing-files-at-the-same-skills-version)), or
+   `pharn.records.json` is stamped for a different install state than `pharn.config.json`, which this
+   run records again (see [A records store from an interrupted run](#a-records-store-from-an-interrupted-run)).
 6. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, and asks for confirmation —
    unless you passed `--yes`, which skips that one prompt and nothing else.
 7. On confirm, clones the repo (SHA-pinned) and **re-resolves your recorded `archetypes`** against the
@@ -113,12 +115,12 @@ exit code is `0`, whatever the plan contains: there is no `--strict` for a previ
 
 The outcome is the `status` field, not prose:
 
-| `status`           | meaning                                                                                                                                                                                               | `plan` |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                                                      | object |
-| `up-to-date`       | "Already up to date": the installed version is the latest, and nothing (`--force`, a kept unreadable capability, an old `models` block, a channel switch, a missing installed file) re-opens the run. | `null` |
-| `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                                                | `null` |
-| `ahead-of-main`    | Your install is newer than pharn-oss `main` — `main` moved back to an older version; a real run changes nothing without `--force`.                                                                    | `null` |
+| `status`           | meaning                                                                                                                                                                                                                                          | `plan` |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                                                                                                 | object |
+| `up-to-date`       | "Already up to date": the installed version is the latest, and nothing (`--force`, a kept unreadable capability, an old `models` block, a channel switch, a missing installed file, a records store stamped for another state) re-opens the run. | `null` |
+| `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                                                                                           | `null` |
+| `ahead-of-main`    | Your install is newer than pharn-oss `main` — `main` moved back to an older version; a real run changes nothing without `--force`.                                                                                                               | `null` |
 
 `ahead-of-main` was added without a `schemaVersion` bump (it stays `1`): an additive value, like a new
 key. Treat a `status` you do not recognise as "do not apply".
@@ -700,6 +702,29 @@ Two things this check cannot see, because nothing in your project records them:
 - a capability you removed with [`pharn remove`](remove.md) — it drops both the config entry and its
   records, so see [Removing an auto-selected capability](remove.md#removing-an-auto-selected-capability);
 - a surface a newer `pharn` release installs that your install never had — see the next section.
+
+## A records store from an interrupted run
+
+[`pharn.records.json`](../reference/pharn-records.md) is stamped with the `skillsVersion` and `commit`
+of the `pharn.config.json` it was written with. `pharn add` and `pharn update` write the store first and
+the config second, so a run interrupted between the two (a crash, a full disk, Ctrl-C) leaves a store
+stamped for a state the config never reached. `update` ignores such a store — trusting it could label
+upstream's bytes as your edits — so every file that differs from upstream reads as `unverifiable`.
+
+At the same skills version, `update` used to answer "Already up to date" over it, and the damage
+showed only at the next version bump, as a wall of `unverifiable` skips. Now a store that is readable
+but stamped for another state re-opens the run: the header says `pharn.records.json is stamped for a
+different install state than pharn.config.json (an interrupted run?) — this run re-applies the install
+and records it again.`, the per-file table runs as usual (your edits are kept), and the store is
+written again with the config's stamp. The next `update` answers "Already up to date", and the next
+version bump upgrades every file this run found at upstream's bytes cleanly (a file you edited stays
+skipped, as before). `--dry-run` and `--dry-run
+--json` take the same branch (the JSON `status` is `planned`).
+
+A store that is **absent** or **unreadable** (invalid JSON, an unknown `schemaVersion`) does not
+re-open the run: there is nothing interrupted to repair, and an unreadable store is yours to fix —
+re-recording it would discard the hashes you could still recover. The next run that plans names its
+reason.
 
 ## A surface added by a newer CLI, at the same skills version
 
