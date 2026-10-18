@@ -38,7 +38,12 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import type { CapabilityChange } from '../lib/merge-capabilities.js';
 import { applyWrites, ApplyError } from '../lib/apply-update.js';
-import { createBackup, BACKUP_DIR } from '../lib/backup.js';
+import {
+  BACKUP_DIR,
+  createBackup,
+  printBackupNotice,
+  type BackupAction,
+} from '../lib/backup.js';
 import {
   buildRecords,
   MODELS_RECORD_KEY,
@@ -182,8 +187,6 @@ interface Backup {
   // line says what may already be gone.
   action: BackupAction;
 }
-
-type BackupAction = 'overwriting' | 'removing' | 'overwriting and removing';
 
 // The outcome of the fetch+apply phase, assembled inside the try so cleanup can
 // run in the finally and every process.exit happens AFTER it (Node skips finally
@@ -643,7 +646,7 @@ async function runArchetypeUpdate(
     // tree intact with nothing to point at, and a run without `--force` only
     // ever writes over files pharn itself wrote and proved pristine.
     if (backupRef.current) {
-      printBackupNotice(backupRef.current, { aborted: true });
+      reportBackup(backupRef.current, { aborted: true });
     }
     process.exit(1);
   }
@@ -770,7 +773,7 @@ async function applyUnderLock(
         // started for the writes (`spinnerRef` follows it, so every failure
         // path stops the one actually running).
         s2.stop('Backup written');
-        printBackupNotice(backup, { aborted: false });
+        reportBackup(backup, { aborted: false });
         const s3 = spinner();
         spinnerRef.current = s3;
         s3.start('Writing files');
@@ -1384,7 +1387,7 @@ function reportDryRun(
 // an aborted run's notice is part of that run's fatal output, so it goes to
 // stderr with the rest of it — an operator redirecting stderr to a log must find
 // the pointer there. The success notice stays on stdout, where it has always been.
-function printBackupNotice(backup: Backup, opts: { aborted: boolean }): void {
+function reportBackup(backup: Backup, opts: { aborted: boolean }): void {
   const output = opts.aborted ? process.stderr : process.stdout;
   if (opts.aborted) {
     // Said plainly, because the tree is now in a state the user did not ask for:
@@ -1394,18 +1397,12 @@ function printBackupNotice(backup: Backup, opts: { aborted: boolean }): void {
       { output },
     );
   }
-  log.info(
-    `Backed up ${backup.count} file(s) to ${backup.dir} before ${backup.action}.`,
-    { output },
+  // The pointer (and, on success, the .gitignore advice) — lib/backup.ts's one
+  // wording, shared with every other command that makes a backup.
+  printBackupNotice(
+    { dir: backup.dir, saved: backup.count, action: backup.action },
+    opts,
   );
-  // Advice, not a pointer: said once, when the backup is made. On an abort the
-  // pointer above is repeated on stderr (what `2> err.log` keeps); this is not.
-  if (!opts.aborted) {
-    log.info(
-      `${BACKUP_DIR}/ is not gitignored — add it to .gitignore or delete it once you are happy.`,
-      { output },
-    );
-  }
 }
 
 // What a backup was made ahead of: overwrites (`--force` casualties) and/or

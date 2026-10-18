@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { log } from '@clack/prompts';
 import { PHARN_CONFIG_FILE } from './install-manifest.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { ManifestValidationError, safeJoin } from './validate.js';
@@ -124,6 +125,65 @@ export function replacedConfigBackup(projectRoot: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** What a backup was made ahead of — the notice's closing phrase. */
+export type BackupAction =
+  'overwriting' | 'removing' | 'overwriting and removing';
+
+/** The facts a backup notice states, for every command that makes a backup. */
+export interface BackupNotice {
+  /** The project-relative directory `createBackup` returned. */
+  dir: string;
+  /** What was saved: a file count, or the one file's name. */
+  saved: number | string;
+  /** What the copies were made ahead of; omitted, the sentence names nothing. */
+  action?: BackupAction;
+}
+
+/**
+ * The backup notice's lines — ONE wording for `init`, `add`, `remove`,
+ * `uninstall` and `update` (F-40: it used to be written five ways, and only
+ * `update`'s carried the `.gitignore` advice).
+ *
+ * The pointer comes first; the advice follows it, once, when the backup is
+ * made. `aborted` is `update`'s failure path, which repeats the pointer on
+ * stderr (what `2> err.log` keeps) — advice, not a pointer, so it is not
+ * repeated there.
+ */
+export function backupNoticeLines(
+  notice: BackupNotice,
+  opts: { aborted?: boolean } = {},
+): string[] {
+  const what =
+    typeof notice.saved === 'number' ? `${notice.saved} file(s)` : notice.saved;
+  const before = notice.action === undefined ? '' : ` before ${notice.action}`;
+  const lines = [`Backed up ${what} to ${notice.dir}${before}.`];
+  if (opts.aborted !== true) {
+    lines.push(
+      `${BACKUP_DIR}/ is not gitignored — add it to .gitignore or delete it once you are happy.`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * Print the backup notice. Callers print it the moment the backup exists
+ * (everything after it can still throw, and the directory is the user's only
+ * pointer back to their bytes) and with NO clack spinner running — a line
+ * logged under a spinner is glued to its frame, and in a narrow terminal its
+ * `stop` erases it — so a caller with a spinner stops it first.
+ *
+ * The stream follows lib/report-error.ts's contract: an aborted run's notice is
+ * part of its fatal output, so it goes to stderr; otherwise stdout.
+ */
+export function printBackupNotice(
+  notice: BackupNotice,
+  opts: { aborted?: boolean } = {},
+): void {
+  const output = opts.aborted === true ? process.stderr : process.stdout;
+  for (const line of backupNoticeLines(notice, opts))
+    log.info(line, { output });
 }
 
 // The first free `<ts>`, `<ts>-2`, `<ts>-3`, … — never an existing directory.

@@ -37,6 +37,7 @@ Last, `pharn.records.json` is deleted, then `pharn.config.json` — after it is 
 
 ```text
 Backed up pharn.config.json to .pharn-backup/20261013-141530.
+.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
 ```
 
 The backup keeps whatever only the config held: your `models` and `seam` blocks and any keys of your own.

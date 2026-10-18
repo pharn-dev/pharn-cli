@@ -219,6 +219,12 @@ describe('runUninstall', () => {
     ).toEqual(configBytes);
     expect(vi.mocked(prompts.log.info)).toHaveBeenCalledWith(
       `Backed up pharn.config.json to .pharn-backup/${ts}.`,
+      { output: process.stdout },
+    );
+    // F-40: the same .gitignore advice every backup notice carries.
+    expect(vi.mocked(prompts.log.info)).toHaveBeenCalledWith(
+      '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
+      { output: process.stdout },
     );
 
     const done = notes('UNINSTALLED');

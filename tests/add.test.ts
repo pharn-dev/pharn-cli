@@ -259,6 +259,26 @@ describe('runAdd (archetype)', () => {
     });
   });
 
+  // F-23: `installedAt` is the time of the install / last update. An add is a
+  // partial edit, so it carries the recorded time through — it used to stamp
+  // the moment of the add.
+  it('keeps installedAt unchanged', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+
+    await runAdd('a11y');
+
+    const [, written] = writePharnConfig.mock.calls[0]!;
+    expect((written as PharnConfig).capabilities).toContainEqual({
+      name: 'a11y',
+      role: 'griller',
+      source: 'manual',
+    });
+    expect((written as PharnConfig).installedAt).toBe(
+      '2026-07-07T00:00:00.000Z',
+    );
+  });
+
   it('the picker cancel exits 0 — a user cancel is not a failure', async () => {
     // `add`'s cancel exit-code contract was entirely unpinned: a cancel that
     // leaked a non-zero code, or fell through to "Nothing selected", would have
@@ -1029,6 +1049,10 @@ describe('runAdd — pharn.records.json', () => {
       // The backup directory is the user's ONLY pointer back, so it is named.
       expect(informed()).toContain('.pharn-backup');
       expect(informed()).toContain(backup.split('.pharn-backup/')[1]!);
+      // F-40: the same .gitignore advice `update`'s backup notice carries.
+      expect(informed()).toContain(
+        '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
+      );
     });
 
     it('creates NO backup when the leftover files are byte-identical', async () => {

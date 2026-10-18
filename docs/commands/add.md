@@ -162,6 +162,7 @@ file's project-relative path:
 
 ```text
 Backed up 1 file(s) to .pharn-backup/20260908-141530 before overwriting.
+.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
 ```
 
 Files that are already **identical** to upstream (line endings aside — see

@@ -1,8 +1,8 @@
 import { lstatSync, rmdirSync, unlinkSync } from 'node:fs';
 import { posix } from 'node:path';
-import { confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
+import { confirm, intro, isCancel, note, outro } from '@clack/prompts';
 import pc from '../lib/color.js';
-import { BACKUP_DIR, createBackup } from '../lib/backup.js';
+import { BACKUP_DIR, createBackup, printBackupNotice } from '../lib/backup.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import { displayHook, hooksReferencing } from '../lib/hook-wiring.js';
@@ -190,7 +190,7 @@ async function applyUninstall(
       `Could not back up ${CONFIG_FILENAME} before uninstalling: ${errorMessage(err).replace(/\.$/, '')}. Nothing was removed.`,
     );
   }
-  log.info(`Backed up ${CONFIG_FILENAME} to ${backupDir}.`);
+  printBackupNotice({ dir: backupDir, saved: CONFIG_FILENAME });
 
   const deleted: string[] = [];
   for (const rel of plan.delete) {

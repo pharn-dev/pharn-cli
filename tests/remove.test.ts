@@ -161,6 +161,21 @@ describe('runRemove (archetype)', () => {
     expect(lastWritten().capabilities).toEqual([]);
   });
 
+  // F-23: `installedAt` is the time of the install / last update. A remove is
+  // a partial edit, so it carries the recorded time through — it used to stamp
+  // the moment of the remove.
+  it('keeps installedAt unchanged', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'griller' }]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+
+    await runRemove('a11y');
+
+    expect(lastWritten().capabilities).toEqual([]);
+    expect(lastWritten().installedAt).toBe('2026-07-07T00:00:00.000Z');
+  });
+
   // F-38: a NAMED remove of something that is not installed is an error, like
   // `pharn add bogus` — a script that removes the wrong name must not read
   // success. Nothing is written, and the removable capabilities are listed.
@@ -396,6 +411,8 @@ describe('runRemove (archetype)', () => {
     expect(existsSync(join(proj, 'pharn-review/n-plus-one'))).toBe(false);
     expect(writePharnConfig).toHaveBeenCalledTimes(1);
     expect(lastWritten().capabilities).toEqual([]);
+    // F-23: the picker's one config write keeps `installedAt` too.
+    expect(lastWritten().installedAt).toBe('2026-07-07T00:00:00.000Z');
   });
 
   it('no-arg in a NON-TTY exits(1) without prompting', async () => {
@@ -990,6 +1007,10 @@ describe('runRemove (archetype)', () => {
       expect(backupBytes(USER)).toBe('MY NOTES — not pharn');
       expect(infoLines()).toMatch(
         /^Backed up 1 file\(s\) to \.pharn-backup\/\d{8}-\d{6} before removing\.$/m,
+      );
+      // F-40: the same .gitignore advice `update`'s backup notice carries.
+      expect(infoLines()).toContain(
+        '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
       );
       expect(lastWritten().capabilities).toEqual([]);
     });

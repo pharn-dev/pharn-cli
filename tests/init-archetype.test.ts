@@ -805,6 +805,10 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
     expect(info).toContain(`Backed up 1 file(s) to .pharn-backup/${dir!}`);
+    // F-40: the same .gitignore advice `update`'s backup notice carries.
+    expect(info).toContain(
+      '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
+    );
   });
 
   it('backs up the config together with an edited file, in ONE backup', async () => {

@@ -74,6 +74,7 @@ project-relative path, and the directory is printed as soon as it exists:
 
 ```text
 Backed up 1 file(s) to .pharn-backup/20261013-141530 before removing.
+.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
 ```
 
 When nothing needs saving (every file is recorded and unchanged, or the directory was already gone), no

@@ -20,7 +20,11 @@ import {
 import { absentSurfaceLines } from '../lib/absent-surfaces.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { manifestSources, scanDest } from '../lib/dest-drift.js';
-import { createBackup, replacedConfigBackup } from '../lib/backup.js';
+import {
+  createBackup,
+  printBackupNotice,
+  replacedConfigBackup,
+} from '../lib/backup.js';
 import {
   buildRecords,
   MODELS_RECORD_KEY,
@@ -185,9 +189,11 @@ export async function runInstallArchetype(
             ? 'overwriting and removing'
             : 'removing';
       // Named at creation, so the pointer survives anything that fails after it.
-      log.info(
-        `Backed up ${toBackUp.length} file(s) to ${backupDir} before ${action}.`,
-      );
+      printBackupNotice({
+        dir: backupDir,
+        saved: toBackUp.length,
+        action,
+      });
     }
     // Deleted BEFORE the copy, after the backup: a delete that fails stops the
     // run with nothing copied and the replaced config still in place, so the
