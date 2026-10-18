@@ -133,7 +133,8 @@ function serveTip(sha: string, version: string): void {
 
 const fetchStub = vi.fn(async (input: unknown): Promise<Response> => {
   const url = String(input);
-  if (url === RESOLVE_URL) return Response.json({ sha: tip.sha });
+  // The bare-id media type fetchCommitSha asks for (F-21), not the commit object.
+  if (url === RESOLVE_URL) return new Response(tip.sha);
   if (url === VERSION_URL) return new Response(tip.tree.SKILLS_VERSION);
   if (url === tarballUrl(tip.sha)) {
     return new Response(new Uint8Array(codeloadArchive(tip.sha, tip.tree)));
