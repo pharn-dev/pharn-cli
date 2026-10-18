@@ -104,6 +104,7 @@ describe('archetypeOriginLines', () => {
     const out = text(
       archetypeOriginLines(['ssr', 'backend'], {
         kind: 'detected',
+        truncated: false,
         evidence: [
           { archetype: 'ssr', source: 'dependency', name: 'next' },
           {
@@ -119,10 +120,56 @@ describe('archetypeOriginLines', () => {
     expect(out).toMatch(/backend\s+← src\/app\/api\/hello\/route\.ts/);
   });
 
+  it('a devDependency is cited as one', () => {
+    const out = text(
+      archetypeOriginLines(['ssr'], {
+        kind: 'detected',
+        truncated: false,
+        evidence: [
+          { archetype: 'ssr', source: 'devDependency', name: '@sveltejs/kit' },
+        ],
+      }),
+    );
+    expect(out).toMatch(
+      /ssr\s+← @sveltejs\/kit \(package\.json devDependencies\)/,
+    );
+  });
+
+  // F-25: a walk that stopped early is said so, with the bounds and the way
+  // out, in the block every text path prints (real run, --yes, dry run).
+  it('detection stopped early: one line naming the bounds and --archetype', () => {
+    const origin = {
+      kind: 'detected' as const,
+      evidence: [{ archetype: 'lib' as const, source: 'none' as const }],
+    };
+    const cut = text(
+      archetypeOriginLines(['lib'], { ...origin, truncated: true }),
+    );
+    expect(cut).toContain(
+      'detection stopped early: it examines at most 50,000 entries, 24 directories deep, so these archetypes may be incomplete — pass --archetype <list> if they are wrong',
+    );
+    expect(
+      text(archetypeOriginLines(['lib'], { ...origin, truncated: false })),
+    ).not.toContain('stopped early');
+  });
+
+  it('detection stopped early: not printed when --archetype replaced detection', () => {
+    const out = text(
+      archetypeOriginLines(['backend'], {
+        kind: 'flag',
+        detected: ['lib'],
+        evidence: [],
+        truncated: true,
+      }),
+    );
+    expect(out).not.toContain('stopped early');
+  });
+
   it('lib says no framework signal was found', () => {
     const out = text(
       archetypeOriginLines(['lib'], {
         kind: 'detected',
+        truncated: false,
         evidence: [{ archetype: 'lib', source: 'none' }],
       }),
     );
@@ -133,6 +180,7 @@ describe('archetypeOriginLines', () => {
     const out = text(
       archetypeOriginLines(['spa'], {
         kind: 'detected',
+        truncated: false,
         evidence: [
           {
             archetype: 'spa',
@@ -150,6 +198,7 @@ describe('archetypeOriginLines', () => {
     const capped = text(
       archetypeOriginLines(['spa'], {
         kind: 'detected',
+        truncated: false,
         evidence: [{ archetype: 'spa', source: 'path', path: long }],
       }),
     );
@@ -161,6 +210,7 @@ describe('archetypeOriginLines', () => {
     const out = text(
       archetypeOriginLines(['backend'], {
         kind: 'flag',
+        truncated: false,
         detected: ['ssr', 'backend'],
         evidence: [],
       }),
@@ -176,6 +226,7 @@ describe('archetypeOriginLines', () => {
         ['ssr'],
         {
           kind: 'detected',
+          truncated: false,
           evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
         },
         ['ssr', 'backend'],
@@ -189,6 +240,7 @@ describe('archetypeOriginLines', () => {
   it('previously recorded: silent when the set is the same, or there is none', () => {
     const origin = {
       kind: 'detected' as const,
+      truncated: false,
       evidence: [
         {
           archetype: 'ssr' as const,
@@ -222,7 +274,7 @@ describe('runArchetypeSummary — origin', () => {
     await runArchetypeSummary(
       ['backend'],
       selection,
-      { kind: 'flag', detected: ['spa'], evidence: [] },
+      { kind: 'flag', detected: ['spa'], evidence: [], truncated: false },
       ['spa'],
     );
     const note = vi.mocked(prompts.note).mock.calls.at(-1)![0] as string;

@@ -238,6 +238,33 @@ recorded, the summary prints `previously recorded: … — pass --archetype … 
 To keep a single capability without changing archetypes, use [`pharn add`](commands/add.md) /
 [`pharn remove`](commands/remove.md).
 
+Two `package.json` rules decide most surprises:
+
+- **A server or database package counts only under `dependencies`.** A runtime database driver
+  dependency (`pg`, `mysql2`, `mongodb`, `better-sqlite3`, an ORM such as `prisma` or `typeorm`) means
+  `backend`, like a server framework (`express`, `fastify`, `hono`, …). The same package listed only
+  under `devDependencies` — a mock server, a test database, tooling — does **not** add `backend`. If
+  your backend is bundled so that its framework is only a devDependency, pass
+  `pharn init --archetype backend` (with any other archetypes you want, e.g. `--archetype ssr,backend`).
+- **SSR and UI frameworks count under `devDependencies` too**, because their templates list them there
+  (SvelteKit's `@sveltejs/kit`, React Router framework mode's `@react-router/dev`); the summary then
+  says `ssr ← @sveltejs/kit (package.json devDependencies)`. `peerDependencies` and
+  `optionalDependencies` are never read: a peer dependency names the host a plug-in library runs in,
+  not the project's own framework.
+
+### Detection stopped early
+
+The install summary says `detection stopped early: it examines at most 50,000 entries, 24 directories
+deep, so these archetypes may be incomplete — pass --archetype <list> if they are wrong` when the
+file-tree scan hit one of its bounds before its result was settled. Directories it always skips
+(`node_modules`, build output, framework caches, …) do not count toward the 50,000. The scan visits
+names in sorted order, so a large folder that sorts early (for example 50,000 files in `public/`) can
+use the budget before `src/` is reached. The result is still deterministic, but it may miss a signal:
+check the archetypes the summary shows and, if they are wrong, pass them with
+[`--archetype`](#detection-picked-the-wrong-archetype). The scan stops as soon as nothing more can change
+its result (an `ssr` and a `backend` signal both found), so such a project is never reported as stopped
+early. `pharn init --dry-run --json` reports the same thing as `"detectionTruncated": true`.
+
 ### Monorepos / workspaces
 
 `pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there and runs a bounded, symlink-safe file-tree scan from it for archetype detection, then installs into that directory. The scan skips heavy or generated trees (`node_modules`, `dist`, `build`, `.next`, `out`, `coverage`, framework caches, and non-JS trees such as a Python virtualenv, or `vendor`/`target` beside the build file that owns them — a `target/` or `vendor/` folder of your own is scanned), so in a workspace it still sees `apps/` and `packages/`: a `next.config.*` directly in `apps/<name>/` or `packages/<name>/` marks a Next.js app there, and that app's `app/` route handlers and `app/api`/`pages/api` then count too (a `next.config.*` anywhere else, such as a docs site's `website/next.config.js`, does not). It does not walk up to a workspace root or read the workspace packages' own `package.json` files, so a framework that only a package's `package.json` names is not seen — pass it with [`--archetype`](#detection-picked-the-wrong-archetype). In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.

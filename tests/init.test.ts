@@ -40,6 +40,7 @@ const detectArchetypesFromProject = vi.fn(() => ({
   archetypes: ['ssr'],
   packageJsonFound: true,
   evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
+  truncated: false,
 }));
 vi.mock('../src/lib/detect-archetype.js', () => ({
   detectArchetypesFromProject,
@@ -654,6 +655,7 @@ describe('runInit (archetype default)', () => {
       expect(summaryArgs()[0]).toEqual(['ssr']);
       expect(summaryArgs()[2]).toEqual({
         kind: 'detected',
+        truncated: false,
         evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
       });
       expect(summaryArgs()[3]).toBeNull();
@@ -672,6 +674,7 @@ describe('runInit (archetype default)', () => {
       expect(summaryArgs()[0]).toEqual(['backend', 'spa']);
       expect(summaryArgs()[2]).toEqual({
         kind: 'flag',
+        truncated: false,
         detected: ['ssr'],
         evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
       });

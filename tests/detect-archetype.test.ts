@@ -6,14 +6,23 @@ import {
   ECOSYSTEM_DIRS,
   MAX_PACKAGE_JSON_BYTES,
   SKIP_DIRS,
+  WALK_LIMITS,
   detectArchetypesFromProject,
+  scanFileTree,
   scanFileTreeSignals,
 } from '../src/lib/detect-archetype.js';
 import type { ArchetypeDetection } from '../src/lib/detect-archetype.js';
 
-// The archetype verdict without its evidence (evidence has its own suite below).
-type Detected = Omit<ArchetypeDetection, 'evidence'>;
-import { classifyEntry } from '../src/lib/archetype.js';
+// The archetype verdict without its evidence or the truncation flag (each has
+// its own suite below).
+type Detected = Omit<ArchetypeDetection, 'evidence' | 'truncated'>;
+import {
+  archetypesFromSignals,
+  classifyEntry,
+  evidenceFor,
+  mergeSignals,
+  packageFacts,
+} from '../src/lib/archetype.js';
 import { useTmpDir } from './helpers.js';
 
 // Write a package.json (the given value, serialized) into `dir`.
@@ -1143,5 +1152,225 @@ describe('detectArchetypesFromProject — evidence', () => {
     expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
       { archetype: 'lib', source: 'none' },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F-25: the walk's caps are no longer silent. `truncated` is true exactly when
+// a cap stopped the walk at an entry it would have classified, while the
+// result could still change. The entry cap is exercised with a small injected
+// limit — a fixture that has to exhaust the real 50k budget would be measuring
+// the machine, not the rule — and the shipped values are pinned separately.
+// ---------------------------------------------------------------------------
+
+/** `a/a/.../<leaf>` — `leaf` sits at `depth` directories below root. */
+function buryAt(root: string, depth: number, leaf: string): void {
+  touch(root, `${Array.from({ length: depth }, () => 'a').join('/')}/${leaf}`);
+}
+
+describe('scanFileTree — truncation (F-25)', () => {
+  const tmp = useTmpDir();
+  const JS = { jsProject: true, nextDependency: false };
+  const limit = (maxEntries: number) => ({
+    maxDepth: WALK_LIMITS.maxDepth,
+    maxEntries,
+  });
+
+  it('pins the shipped bounds', () => {
+    expect(WALK_LIMITS).toEqual({ maxDepth: 24, maxEntries: 50_000 });
+    expect(Object.isFrozen(WALK_LIMITS)).toBe(true);
+  });
+
+  // The finding's shape: entries that sort before src/ spend the budget, so
+  // the walk never reaches src/App.tsx and the project reads as `lib`. The
+  // result is the same as before; what changed is that it says so.
+  it('a budget spent before src/App.tsx → no client UI, truncated', () => {
+    for (let i = 0; i < 10; i += 1) touch(tmp.path(), `public/f${i}.png`);
+    touch(tmp.path(), 'src/App.tsx');
+    const cut = scanFileTree(tmp.path(), JS, limit(5));
+    expect(cut.signals.clientUi).toBe(false);
+    expect(cut.truncated).toBe(true);
+    const full = scanFileTree(tmp.path(), JS);
+    expect(full.signals.clientUi).toBe(true);
+    expect(full.truncated).toBe(false);
+  });
+
+  it('a budget that covers every entry exactly is a complete walk', () => {
+    touch(tmp.path(), 'a.txt');
+    touch(tmp.path(), 'b.txt');
+    expect(scanFileTree(tmp.path(), JS, limit(2)).truncated).toBe(false);
+    expect(scanFileTree(tmp.path(), JS, limit(1)).truncated).toBe(true);
+  });
+
+  it('entries the walk skips anyway never trip it', () => {
+    touch(tmp.path(), 'a.txt');
+    touch(tmp.path(), 'node_modules/react/index.js');
+    touch(tmp.path(), '.env.local');
+    symlinkSync(join(tmp.path(), 'a.txt'), join(tmp.path(), 'z-link'));
+    expect(scanFileTree(tmp.path(), JS, limit(1)).truncated).toBe(false);
+  });
+
+  it('the depth cap: an entry past MAX_DEPTH → truncated (detection reports it)', () => {
+    buryAt(tmp.path(), 25, 'Page.tsx');
+    const d = detectArchetypesFromProject(tmp.path());
+    expect(d.archetypes).toEqual(['lib']);
+    expect(d.truncated).toBe(true);
+  });
+
+  it('the depth cap: an entry AT MAX_DEPTH is classified, not truncated', () => {
+    buryAt(tmp.path(), 24, 'Page.tsx');
+    const d = detectArchetypesFromProject(tmp.path());
+    expect(d.archetypes).toEqual(['spa']);
+    expect(d.truncated).toBe(false);
+  });
+
+  it('the depth cap: an empty directory (or only a symlink) past it is no alarm', () => {
+    // The 25th `a` is classified (it sits in a dir at depth 24); its own
+    // listing is past the cap, and empty.
+    const deep = join(tmp.path(), ...Array.from({ length: 25 }, () => 'a'));
+    mkdirSync(deep, { recursive: true });
+    expect(scanFileTree(tmp.path()).truncated).toBe(false);
+    symlinkSync(tmp.path(), join(deep, 'loop'));
+    expect(scanFileTree(tmp.path()).truncated).toBe(false);
+  });
+
+  it('the depth cap stops only that directory; the walk goes on', () => {
+    buryAt(tmp.path(), 25, 'Deep.tsx');
+    touch(tmp.path(), 'src/App.tsx');
+    const scan = scanFileTree(tmp.path());
+    expect(scan.signals.clientUi).toBe(true);
+    expect(scan.truncated).toBe(true);
+  });
+
+  it('a normal project walks to the end, not truncated', () => {
+    writePkg(tmp.path(), { dependencies: { react: '19' } });
+    touch(tmp.path(), 'src/App.tsx');
+    touch(tmp.path(), 'src/components/Button.tsx');
+    expect(detectArchetypesFromProject(tmp.path()).truncated).toBe(false);
+  });
+});
+
+// The SETTLED short-circuit: once ssr AND backend hold (package.json merged
+// with the tree), nothing more can change the result — spa is suppressed by
+// ssr and both archetypes' evidence is fixed — so the walk stops, and a walk
+// that settled is never reported as truncated.
+describe('scanFileTree — settled short-circuit', () => {
+  const tmp = useTmpDir();
+
+  it('package.json alone settles it: no tree read, even with a zero budget', () => {
+    touch(tmp.path(), 'src/App.tsx');
+    const scan = scanFileTree(
+      tmp.path(),
+      {
+        jsProject: true,
+        nextDependency: true,
+        packageSignals: { ssr: true, backend: true, clientUi: false },
+      },
+      { maxDepth: WALK_LIMITS.maxDepth, maxEntries: 0 },
+    );
+    expect(scan.truncated).toBe(false);
+    expect(scan.signals).toEqual({
+      ssr: false,
+      backend: false,
+      clientUi: false,
+    });
+  });
+
+  it('a project that settles is not truncated, even past a cap', () => {
+    writePkg(tmp.path(), { dependencies: { next: '15', express: '4' } });
+    buryAt(tmp.path(), 25, 'Page.tsx');
+    const d = detectArchetypesFromProject(tmp.path());
+    expect(d.archetypes).toEqual(['ssr', 'backend']);
+    expect(d.truncated).toBe(false);
+  });
+
+  it('a cap that bit BEFORE the tree settled is cleared by the settlement', () => {
+    // `a/` (too deep) sorts first; app/x/route.ts and next.config.js then
+    // settle ssr + backend.
+    buryAt(tmp.path(), 25, 'Page.tsx');
+    touch(tmp.path(), 'app/x/route.ts');
+    touch(tmp.path(), 'next.config.js');
+    const d = detectArchetypesFromProject(tmp.path());
+    expect(d.archetypes).toEqual(['ssr', 'backend']);
+    expect(d.truncated).toBe(false);
+  });
+
+  // The guarantee the short-circuit rests on: the settled walk's archetypes
+  // and evidence equal a FULL walk's. ssr comes from package.json only, so a
+  // walk given no package signals cannot settle and reads the tree to the end,
+  // while detection settles at app/api/ and stops.
+  it('a settled result equals the full walk (archetypes and evidence)', () => {
+    const manifest = { dependencies: { next: '15' } };
+    writePkg(tmp.path(), manifest);
+    touch(tmp.path(), 'app/api/hello/route.ts');
+    touch(tmp.path(), 'src/App.tsx');
+    touch(tmp.path(), 'zzz/migrations/001.sql');
+    const settled = detectArchetypesFromProject(tmp.path());
+
+    const pkg = packageFacts(manifest);
+    const full = scanFileTree(tmp.path(), {
+      jsProject: true,
+      nextDependency: true,
+    });
+    expect(full.signals.clientUi).toBe(true); // the full walk did read on
+    const archetypes = archetypesFromSignals(
+      mergeSignals(pkg.signals, full.signals),
+    );
+    expect(settled.archetypes).toEqual(['ssr', 'backend']);
+    expect(settled.archetypes).toEqual(archetypes);
+    expect(settled.evidence).toEqual(
+      evidenceFor(archetypes, pkg.evidence, full.evidence, pkg.devEvidence),
+    );
+    expect(settled.truncated).toBe(false);
+  });
+});
+
+// F-27, end to end: devDependencies raise ssr / client UI (cited as
+// devDependency) but never backend.
+describe('detectArchetypesFromProject — devDependencies (F-27)', () => {
+  const tmp = useTmpDir();
+
+  it('a dev-only express (a mock server) beside a server file → not backend', () => {
+    writePkg(tmp.path(), {
+      dependencies: { react: '19' },
+      devDependencies: { express: '4' },
+    });
+    touch(tmp.path(), 'src/App.tsx');
+    touch(tmp.path(), 'mock/server.ts');
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['spa'],
+      packageJsonFound: true,
+    });
+  });
+
+  it('a dev-only express WITH a tree backend signal → backend, citing the path', () => {
+    writePkg(tmp.path(), { devDependencies: { express: '4' } });
+    mkdirSync(join(tmp.path(), 'api'), { recursive: true });
+    expect(detectArchetypesFromProject(tmp.path()).evidence).toEqual([
+      { archetype: 'backend', source: 'path', path: 'api/' },
+    ]);
+  });
+
+  it('SvelteKit (framework in devDependencies) cites the devDependency', () => {
+    writePkg(tmp.path(), {
+      devDependencies: { '@sveltejs/kit': '2', svelte: '5' },
+    });
+    const d = detectArchetypesFromProject(tmp.path());
+    expect(d.archetypes).toEqual(['ssr']);
+    expect(d.evidence).toEqual([
+      { archetype: 'ssr', source: 'devDependency', name: '@sveltejs/kit' },
+    ]);
+  });
+
+  it('React Router framework mode (@react-router/dev, a devDependency) → ssr', () => {
+    writePkg(tmp.path(), {
+      dependencies: { react: '19', 'react-router': '7' },
+      devDependencies: { '@react-router/dev': '7' },
+    });
+    touch(tmp.path(), 'app/root.tsx');
+    expect(detect(tmp.path())).toEqual({
+      archetypes: ['ssr'],
+      packageJsonFound: true,
+    });
   });
 });

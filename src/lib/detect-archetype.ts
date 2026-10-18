@@ -68,6 +68,9 @@ export interface ArchetypeDetection {
   packageJsonFound: boolean;
   // One entry per archetype, in the same order (see `evidenceFor`).
   evidence: ArchetypeEvidence[];
+  // The bounded walk stopped (WALK_LIMITS) while the result could still change,
+  // so part of the tree was never examined (see `TreeScan.truncated`).
+  truncated: boolean;
 }
 
 // Directories never recursed into and never classified — heavy or irrelevant
@@ -76,7 +79,7 @@ export interface ArchetypeDetection {
 //
 // A skipped dir `continue`s BEFORE the `budget -= 1` decrement, so a skip-listed
 // subtree costs ZERO entries. That is what keeps a fat framework cache from
-// exhausting MAX_ENTRIES and silently truncating the walk before it reaches the
+// exhausting WALK_LIMITS.maxEntries and truncating the walk before it reaches the
 // project's real source — the failure this list's framework-cache members exist
 // to prevent (a `.next/` of 55k files made a `src/App.tsx` project detect as
 // frameworkless `lib` instead of `spa`, identically on every machine, because the
@@ -169,30 +172,61 @@ function isEcosystemTree(
 }
 
 // Bounded walk. These caps are a DEFENSIVE bound on a pathological tree, NOT a
-// perf-only knob: a signal that lies past a cap is silently UNDETECTED (a
-// completeness tradeoff — determinism is preserved, but a real signal could be
-// missed). They are therefore chosen GENEROUSLY, far beyond any realistic
-// project depth/size; combined with the all-signals-found short-circuit, a
-// normal project finishes long before either cap bites.
-const MAX_DEPTH = 24;
-const MAX_ENTRIES = 50_000;
+// perf-only knob: a signal that lies past a cap is UNDETECTED (a completeness
+// tradeoff — determinism is preserved, but a real signal could be missed). They
+// are therefore chosen GENEROUSLY, far beyond any realistic project depth/size;
+// combined with the settled short-circuit, a normal project finishes long
+// before either cap bites. When one does bite before the result is settled, the
+// walk says so (`truncated`, F-25) and `init` tells the user — the miss is no
+// longer silent. `maxDepth`: directories below the scan root whose entries are
+// still classified; `maxEntries`: entries classified in all. Exported read-only
+// so tests pin the shipped values; `scanFileTree` takes others for tests only.
+export interface WalkLimits {
+  readonly maxDepth: number;
+  readonly maxEntries: number;
+}
+export const WALK_LIMITS: WalkLimits = Object.freeze({
+  maxDepth: 24,
+  maxEntries: 50_000,
+});
 
 /**
  * What the scan root's package.json tells the walk. `jsProject` (a usable
  * manifest) gates the language-agnostic backend signals; `nextDependency` is the
  * root base's Next evidence. A missing manifest is both `false`.
+ * `packageSignals` are the manifest's own signals: they never enter the tree's
+ * result, they only let the walk stop once the MERGED result is settled.
  */
 export interface RootFacts {
   jsProject: boolean;
   nextDependency: boolean;
+  packageSignals?: ArchetypeSignals;
 }
 
 const NO_PACKAGE_JSON: RootFacts = { jsProject: false, nextDependency: false };
 
-/** The walk's result: the merged tree signals and each signal's first trigger. */
+const NO_SIGNALS: ArchetypeSignals = {
+  ssr: false,
+  backend: false,
+  clientUi: false,
+};
+
+/**
+ * The walk's result: the merged tree signals, each signal's first trigger, and
+ * whether a cap stopped the walk before the result was settled.
+ *
+ * Once settled (merged with `RootFacts.packageSignals`: ssr AND backend), the
+ * walk stops, so a signal that can no longer change the result — `clientUi`,
+ * whose `spa` the ssr signal suppresses — may be left unset here. Neither the
+ * archetypes nor their evidence can differ from a full walk's: evidence is only
+ * ever emitted for an archetype IN the result.
+ */
 export interface TreeScan {
   signals: ArchetypeSignals;
   evidence: SignalEvidence;
+  // A cap (WALK_LIMITS) stopped the walk at an entry it would have classified,
+  // while the result was not yet settled. Never true for a settled walk.
+  truncated: boolean;
 }
 
 const SIGNAL_KEYS: ReadonlyArray<keyof ArchetypeSignals> = [
@@ -217,8 +251,19 @@ const SIGNAL_KEYS: ReadonlyArray<keyof ArchetypeSignals> = [
  * Deterministic (P5): signals are booleans (OR-merge is order-independent) and
  * per-directory entries are sorted by name before traversal, so even a
  * cap-truncated walk visits the same set — and records the same first trigger —
- * on any filesystem. Short-circuits once all three signals are true (they are
- * the GATED signals, so a short-circuit never rests on one that did not count).
+ * on any filesystem. SETTLED short-circuit: it stops as soon as ssr AND backend
+ * hold over the tree's signals merged with `facts.packageSignals` — the
+ * archetype rule then yields `[ssr, backend]` whatever else the tree holds (spa
+ * is suppressed by ssr), and both archetypes' evidence is already fixed. The
+ * signals are the GATED ones, so a short-circuit never rests on one that did
+ * not count.
+ *
+ * TRUNCATION (F-25): the caps are checked AFTER every skip filter, at an entry
+ * the walk would have classified — the entry budget stops the whole walk, the
+ * depth cap only that directory — and either sets `truncated`. A settled result
+ * is final, so a walk that settles is never `truncated`, even if a cap bit
+ * earlier in it.
+ *
  * Symlinks are never followed or classified (recursion/classification is gated
  * on real files/dirs), so the walk cannot escape `root` via a symlink. A
  * per-directory read error is narrowly caught and that subtree contributes no
@@ -227,12 +272,16 @@ const SIGNAL_KEYS: ReadonlyArray<keyof ArchetypeSignals> = [
 export function scanFileTree(
   root: string,
   facts: RootFacts = NO_PACKAGE_JSON,
+  limits: WalkLimits = WALK_LIMITS,
 ): TreeScan {
   let acc: ArchetypeSignals = { ssr: false, backend: false, clientUi: false };
   const evidence: SignalEvidence = {};
-  let budget = MAX_ENTRIES;
+  const pkg = facts.packageSignals ?? NO_SIGNALS;
+  let budget = limits.maxEntries;
+  let truncated = false;
 
-  const allFound = (): boolean => acc.ssr && acc.backend && acc.clientUi;
+  const settled = (): boolean =>
+    (pkg.ssr || acc.ssr) && (pkg.backend || acc.backend);
 
   const readEntries = (dir: string) => {
     try {
@@ -249,7 +298,9 @@ export function scanFileTree(
     names: readonly string[],
     inherited: ClassifyContext,
   ): void => {
-    if (depth > MAX_DEPTH || budget <= 0 || allFound()) return;
+    // A spent budget has already been reported (`truncated`): nothing more can
+    // be classified anywhere.
+    if ((budget <= 0 && truncated) || settled()) return;
     const entries = readEntries(dir).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
     );
@@ -266,7 +317,7 @@ export function scanFileTree(
         }
       : inherited;
     for (const entry of entries) {
-      if (budget <= 0 || allFound()) return;
+      if (settled()) return;
       const name = entry.name;
       // Never follow or classify a symlink → no escape past `root` (P2).
       if (entry.isSymbolicLink()) continue;
@@ -275,6 +326,12 @@ export function scanFileTree(
       if (isDir && isEcosystemTree(dir, name, siblingFiles)) continue;
       if (!isDir && name.toLowerCase().startsWith('.env')) continue;
       if (!isDir && !entry.isFile()) continue; // sockets/fifos/etc.: not signals
+      // An entry the walk WOULD classify, past a cap: the result may be
+      // incomplete. Too deep → this directory only; budget spent → everywhere.
+      if (depth > limits.maxDepth || budget <= 0) {
+        truncated = true;
+        return;
+      }
       budget -= 1;
       const sig = classifyEntry(name, isDir, segments, ctx);
       for (const key of SIGNAL_KEYS) {
@@ -304,7 +361,7 @@ export function scanFileTree(
     baseDepth: 0,
     nextBase: false,
   });
-  return { signals: acc, evidence };
+  return { signals: acc, evidence, truncated: truncated && !settled() };
 }
 
 /** The file-tree signals alone (`scanFileTree` without the evidence). */
@@ -415,6 +472,7 @@ export function detectArchetypesFromProject(cwd: string): ArchetypeDetection {
   const tree = scanFileTree(cwd, {
     jsProject: packageJsonFound,
     nextDependency: pkg.nextDependency,
+    packageSignals: pkg.signals,
   });
   const archetypes = archetypesFromSignals(
     mergeSignals(pkg.signals, tree.signals),
@@ -422,6 +480,12 @@ export function detectArchetypesFromProject(cwd: string): ArchetypeDetection {
   return {
     archetypes,
     packageJsonFound,
-    evidence: evidenceFor(archetypes, pkg.evidence, tree.evidence),
+    evidence: evidenceFor(
+      archetypes,
+      pkg.evidence,
+      tree.evidence,
+      pkg.devEvidence,
+    ),
+    truncated: tree.truncated,
   };
 }

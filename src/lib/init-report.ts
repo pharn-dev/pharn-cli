@@ -56,7 +56,8 @@ export interface InitReport {
   // `null` otherwise.
   detectedArchetypes: Archetype[] | null;
   // DETECTION's evidence, one entry per detected archetype: the dependency
-  // name (`source: "dependency"`), the first triggering project-relative path
+  // name (`source: "dependency"`, or `"devDependency"` when only
+  // devDependencies list it), the first triggering project-relative path
   // (`"path"`, directories end in `/`), or `null` for `lib` (`"none"`). With
   // `archetypeSource: "flag"` it describes `detectedArchetypes`.
   archetypeEvidence: {
@@ -64,6 +65,11 @@ export interface InitReport {
     source: ArchetypeEvidence['source'];
     value: string | null;
   }[];
+  // Present (`true`) ONLY when detection's bounded walk stopped before its
+  // result was settled, so part of the tree was never examined (F-25). Absent
+  // otherwise, so such a report is byte-identical to earlier releases. Like
+  // `archetypeEvidence`, it describes detection, also under `"flag"`.
+  detectionTruncated?: true;
   capabilities: {
     selected: {
       role: SelectedCapability['role'];
@@ -149,12 +155,15 @@ export function buildInitReport(p: InitPlanReport): InitReport {
       archetype: e.archetype,
       source: e.source,
       value:
-        e.source === 'dependency'
+        e.source === 'dependency' || e.source === 'devDependency'
           ? e.name
           : e.source === 'path'
             ? cap(e.path, MAX_EVIDENCE)
             : null,
     })),
+    ...(p.archetypeOrigin.truncated
+      ? { detectionTruncated: true as const }
+      : {}),
     capabilities: {
       selected: p.selection.selected.map((c) => ({
         role: c.role,

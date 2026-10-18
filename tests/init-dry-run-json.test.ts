@@ -189,6 +189,19 @@ describe('runInit --dry-run --json', () => {
     ]);
   });
 
+  // F-25, end to end: detection's own flag reaches the report — absent for a
+  // complete walk, `true` when a cap stopped it (here the depth cap).
+  it('detectionTruncated: absent for a complete walk', async () => {
+    expect('detectionTruncated' in (await run())).toBe(false);
+  });
+
+  it('detectionTruncated: true when detection stopped early', async () => {
+    write(join(proj, ...Array.from({ length: 25 }, () => 'a'), 'Page.tsx'));
+    const r = await run();
+    expect(r.detectionTruncated).toBe(true);
+    expect(r.schemaVersion).toBe(1);
+  });
+
   it('`--archetype backend --dry-run --json`: plans for the flag, reports the unused detection', async () => {
     const before = [snapshotTree(proj), snapshotTree(repo)];
     const r = await run({ archetypes: ['backend'] });

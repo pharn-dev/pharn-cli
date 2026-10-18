@@ -64,18 +64,107 @@ describe('detectArchetypes', () => {
     expect(detectArchetypes(pkg)).toEqual(expected);
   });
 
-  it('reads frameworks from devDependencies too (deps ∪ devDeps)', () => {
+  // F-27: SSR meta-frameworks the allowlist used to miss — each listed with
+  // its client UI library, which is exactly the project that read as `spa`.
+  it.each<[string, string]>([
+    ['@react-router/dev', 'react'],
+    ['@react-router/node', 'react'],
+    ['@react-router/serve', 'react'],
+    ['@tanstack/react-start', 'react'],
+    ['@tanstack/solid-start', 'solid-js'],
+    ['@tanstack/start', 'react'],
+    ['@solidjs/start', 'solid-js'],
+    ['@builder.io/qwik-city', 'react'],
+    ['@analogjs/platform', '@angular/core'],
+    ['vike', 'react'],
+    ['vite-plugin-ssr', 'vue'],
+    ['@nguniversal/express-engine', '@angular/core'],
+  ])('%s (+ %s) → ssr, not spa', (framework, ui) => {
+    expect(detectArchetypes(deps(framework, ui))).toEqual(['ssr']);
+  });
+
+  it('React Router library mode (react-router alone) stays spa', () => {
+    expect(detectArchetypes(deps('react-router', 'react'))).toEqual(['spa']);
+  });
+
+  // F-27: server / API frameworks and DB clients (a runtime DB driver
+  // dependency is a server-side data surface → backend).
+  it.each([
+    'elysia',
+    '@adonisjs/core',
+    'h3',
+    '@trpc/server',
+    '@apollo/server',
+    'graphql-yoga',
+    'typeorm',
+    'sequelize',
+    'mongoose',
+    'knex',
+    'kysely',
+    '@mikro-orm/core',
+    'pg',
+    'mysql2',
+    'mongodb',
+    'better-sqlite3',
+  ])('%s (dependency) → backend', (name) => {
+    expect(detectArchetypes(deps(name))).toEqual(['backend']);
+  });
+
+  it('reads ssr and client-UI frameworks from devDependencies too', () => {
     // next only in devDependencies → still ssr
     expect(detectArchetypes({ devDependencies: { next: '15.0.0' } })).toEqual([
       'ssr',
     ]);
-    // react (dep) + express (devDep) → both archetypes, in fixed order
+    // The SvelteKit template lists both as devDependencies.
+    expect(
+      detectArchetypes({
+        devDependencies: { '@sveltejs/kit': '2', svelte: '5' },
+      }),
+    ).toEqual(['ssr']);
+    expect(detectArchetypes({ devDependencies: { react: '19' } })).toEqual([
+      'spa',
+    ]);
+  });
+
+  // F-27: a server or DB package only in devDependencies is a mock server, a
+  // test database or tooling — it no longer adds the backend archetype.
+  it.each([
+    'express',
+    'fastify',
+    'hono',
+    'prisma',
+    'pg',
+    'mongodb',
+    'better-sqlite3',
+  ])('a devDependency-only %s does not raise backend', (name) => {
     expect(
       detectArchetypes({
         dependencies: { react: '18.0.0' },
+        devDependencies: { [name]: '1.0.0' },
+      }),
+    ).toEqual(['spa']);
+    expect(detectArchetypes({ devDependencies: { [name]: '1.0.0' } })).toEqual([
+      'lib',
+    ]);
+  });
+
+  it('the same package as a dependency still raises backend', () => {
+    expect(
+      detectArchetypes({
+        dependencies: { react: '18.0.0', express: '4.0.0' },
         devDependencies: { express: '4.0.0' },
       }),
     ).toEqual(['backend', 'spa']);
+  });
+
+  // Deliberately unread: a peer dependency names the host a plug-in library
+  // runs inside; an optional dependency is one the project runs without.
+  it('ignores peerDependencies and optionalDependencies', () => {
+    const pkg = {
+      peerDependencies: { next: '15', react: '19' },
+      optionalDependencies: { express: '4', pg: '8' },
+    } as ProjectPackages;
+    expect(detectArchetypes(pkg)).toEqual(['lib']);
   });
 
   it('returns archetypes in the fixed enum order regardless of input order', () => {
@@ -714,7 +803,34 @@ describe('packageFacts', () => {
       clientUi: false,
     });
     expect(facts.evidence).toEqual({});
+    expect(facts.devEvidence).toEqual({});
     expect(facts.nextDependency).toBe(false);
+  });
+
+  it('a devDependency-only framework is cited in devEvidence, never backend', () => {
+    const facts = packageFacts({
+      devDependencies: { '@sveltejs/kit': '2', svelte: '5', express: '4' },
+    });
+    expect(facts.signals).toEqual({
+      ssr: true,
+      backend: false,
+      clientUi: true,
+    });
+    expect(facts.evidence).toEqual({});
+    expect(facts.devEvidence).toEqual({
+      ssr: '@sveltejs/kit',
+      clientUi: 'svelte',
+    });
+  });
+
+  it('a dependency wins over a devDependency for the same signal', () => {
+    const facts = packageFacts({
+      dependencies: { vue: '3' },
+      devDependencies: { react: '19', next: '15' },
+    });
+    expect(facts.evidence).toEqual({ clientUi: 'vue' });
+    expect(facts.devEvidence).toEqual({ ssr: 'next' });
+    expect(facts.nextDependency).toBe(true);
   });
 });
 
@@ -745,6 +861,25 @@ describe('evidenceFor', () => {
     expect(evidenceFor(['lib'], {}, {})).toEqual([
       { archetype: 'lib', source: 'none' },
     ]);
+  });
+
+  it('dependency > devDependency > path, for the same signal', () => {
+    const tree = { ssr: 'svelte.config.js', clientUi: 'src/App.tsx' };
+    expect(
+      evidenceFor(['ssr'], { ssr: 'next' }, tree, { ssr: '@sveltejs/kit' }),
+    ).toEqual([{ archetype: 'ssr', source: 'dependency', name: 'next' }]);
+    expect(evidenceFor(['ssr'], {}, tree, { ssr: '@sveltejs/kit' })).toEqual([
+      { archetype: 'ssr', source: 'devDependency', name: '@sveltejs/kit' },
+    ]);
+    expect(evidenceFor(['spa'], {}, tree, {})).toEqual([
+      { archetype: 'spa', source: 'path', path: 'src/App.tsx' },
+    ]);
+  });
+
+  it('an archetype the result rules out cites nothing (spa under ssr)', () => {
+    expect(
+      evidenceFor(['ssr'], { ssr: 'next', clientUi: 'react' }, {}, {}),
+    ).toEqual([{ archetype: 'ssr', source: 'dependency', name: 'next' }]);
   });
 });
 

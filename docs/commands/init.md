@@ -162,8 +162,9 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
   "detectedArchetypes": null, // with "flag": what detection found and did not use
   "archetypeEvidence": [
     // detection's trigger for each archetype it found
-    { "archetype": "ssr", "source": "dependency", "value": "next" }, // "path": "src/app/api/"; "none": null (lib)
+    { "archetype": "ssr", "source": "dependency", "value": "next" }, // "devDependency"; "path": "src/app/api/"; "none": null (lib)
   ],
+  // "detectionTruncated": true — present only when detection stopped early
   "capabilities": {
     "selected": [{ "role": "griller", "name": "a11y", "matched": ["ssr"] }], // or "universal" / "manual"
     "skipped": [{ "role": "lens", "name": "path-traversal", "reason": "…" }],
@@ -198,9 +199,15 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
 
 `archetypeSource`, `detectedArchetypes` and `archetypeEvidence` say where `archetypes` came from.
 `archetypeEvidence` is always detection's — one entry per archetype detection found, with the dependency
-name (`"source": "dependency"`), the first project path that triggered it (`"path"`; a directory ends
-in `/`, capped at 200 characters) or `null` for `lib` (`"none"`) — so under `--archetype` it describes
-`detectedArchetypes`, not `archetypes`.
+name (`"source": "dependency"`, or `"devDependency"` when only `devDependencies` lists it), the first
+project path that triggered it (`"path"`; a directory ends in `/`, capped at 200 characters) or `null`
+for `lib` (`"none"`) — so under `--archetype` it describes `detectedArchetypes`, not `archetypes`.
+
+`detectionTruncated` is present (`true`) **only** when detection's file-tree scan stopped at one of its
+bounds — 50,000 entries, 24 directories deep — before its result was settled, so part of the project
+was never examined ([detection stopped early](../troubleshooting.md#detection-stopped-early)). With a
+complete scan the key is absent, so the report is byte-identical to earlier releases. Like
+`archetypeEvidence` it describes detection, so it can appear under `"archetypeSource": "flag"` too.
 
 `capabilities.removals` is present **only** when the install would drop a capability whose directory it
 deletes ([above](#dropped-capabilities-are-deleted)) — read it as `capabilities.removals ?? []`; with
@@ -330,6 +337,23 @@ Each structural signal counts only where that surface really lives:
 | a `migrations/` directory (at the root, or under `db/`, `database/`, `prisma/`, `drizzle/`, `sql/`, `migrations/`) → `backend` | the project has a root `package.json`                                                                                             |
 | a `.sql` file under one of those database directories → `backend`                                                              | the project has a root `package.json`                                                                                             |
 | a `.tsx`/`.jsx` file outside test and email-template folders → `spa` (unless `ssr`)                                            | always                                                                                                                            |
+
+Dependency names count by where `package.json` lists them. A server framework or a runtime database
+driver dependency (`express`, `fastify`, `hono`, `pg`, `mongodb`, `prisma`, `typeorm`, …) means
+`backend` only under `dependencies`; the same package only under `devDependencies` (a mock server, a
+test database) adds nothing, so a backend bundled with its framework as a devDependency needs
+`--archetype backend`. SSR and UI frameworks count under `devDependencies` too — SvelteKit's and React
+Router framework mode's templates list them there — and the summary cites them as
+`ssr ← @sveltejs/kit (package.json devDependencies)`. `peerDependencies` and `optionalDependencies` are
+not read. React Router v7 framework mode, TanStack Start, SolidStart, Qwik City, Analog and Vike are
+recognized as `ssr`; React Router in library mode (`react-router` alone) is `spa`.
+
+The tree walk examines at most 50,000 entries, 24 directories deep (the skipped directories above
+cost nothing), in sorted name order, and stops early once an `ssr` and a `backend` signal are both found
+— nothing more could change the result. When it reaches a bound before that, the summary adds
+`detection stopped early: it examines at most 50,000 entries, 24 directories deep, so these archetypes may be incomplete — pass --archetype <list> if they are wrong`
+(`--dry-run --json`: `"detectionTruncated": true`); see
+[Detection stopped early](../troubleshooting.md#detection-stopped-early).
 
 So an Angular, Vue or RTK Query `src/app/`, or a library's Next.js docs site in `website/`, no longer
 reads as a server, and a Python, Go, Rust, Ruby or PHP project's migrations no longer read as a

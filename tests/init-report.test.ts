@@ -17,6 +17,7 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     archetypes: ['ssr'],
     archetypeOrigin: {
       kind: 'detected',
+      truncated: false,
       evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
     },
     previousArchetypes: null,
@@ -185,6 +186,7 @@ describe('buildInitReport', () => {
         archetypes: ['backend'],
         archetypeOrigin: {
           kind: 'flag',
+          truncated: false,
           detected: ['ssr', 'backend'],
           evidence: [
             { archetype: 'ssr', source: 'dependency', name: 'next' },
@@ -202,12 +204,57 @@ describe('buildInitReport', () => {
     ]);
   });
 
+  // F-27: a framework only devDependencies list is cited as one.
+  it('devDependency evidence carries the allowlist name as its value', () => {
+    const r = buildInitReport(
+      plan({
+        archetypeOrigin: {
+          kind: 'detected',
+          truncated: false,
+          evidence: [
+            {
+              archetype: 'ssr',
+              source: 'devDependency',
+              name: '@sveltejs/kit',
+            },
+          ],
+        },
+      }),
+    );
+    expect(r.archetypeEvidence).toEqual([
+      { archetype: 'ssr', source: 'devDependency', value: '@sveltejs/kit' },
+    ]);
+  });
+
+  // F-25: additive, and ABSENT when false so the default report's bytes hold
+  // (the key list above is the false case).
+  it('detectionTruncated: present (true) right after archetypeEvidence only when the walk stopped early', () => {
+    expect('detectionTruncated' in buildInitReport(plan())).toBe(false);
+    for (const kind of ['detected', 'flag'] as const) {
+      const r = buildInitReport(
+        plan({
+          archetypeOrigin:
+            kind === 'detected'
+              ? { kind, truncated: true, evidence: [] }
+              : { kind, truncated: true, detected: ['lib'], evidence: [] },
+        }),
+      );
+      expect(r.detectionTruncated).toBe(true);
+      const keys = Object.keys(r);
+      expect(keys.indexOf('detectionTruncated')).toBe(
+        keys.indexOf('archetypeEvidence') + 1,
+      );
+      expect(r.schemaVersion).toBe(1);
+    }
+  });
+
   it('lib evidence has a null value; a path is capped and escaped', () => {
     const lib = buildInitReport(
       plan({
         archetypes: ['lib'],
         archetypeOrigin: {
           kind: 'detected',
+          truncated: false,
           evidence: [{ archetype: 'lib', source: 'none' }],
         },
       }),
@@ -222,6 +269,7 @@ describe('buildInitReport', () => {
         archetypes: ['spa'],
         archetypeOrigin: {
           kind: 'detected',
+          truncated: false,
           evidence: [{ archetype: 'spa', source: 'path', path: long }],
         },
       }),
