@@ -113,10 +113,10 @@ one config backup per attempt.
 
 ## Options
 
-| Option        | Meaning                       |
-| ------------- | ----------------------------- |
-| `--yes`, `-y` | Skip the confirmation prompt. |
-| `--help`      | Show the CLI usage text.      |
+| Option        | Meaning                                          |
+| ------------- | ------------------------------------------------ |
+| `--yes`, `-y` | Skip the confirmation prompt.                    |
+| `--help`      | Show the `uninstall` usage line and its options. |
 
 `uninstall` takes no argument and no other option; `pharn uninstall --force`, `--dry-run`, or an extra
 argument is refused with exit 1.

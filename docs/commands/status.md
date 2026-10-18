@@ -250,7 +250,8 @@ recognise.
 Two argv refusals fire **before** `status` runs at all, so they precede every code path above: an
 option `status` does not take (``Unsupported option for `status`: "--force"``, for example — the options
 `status` takes are `--strict`, `--no-drift` and `--json`) and an unexpected extra argument. Both print
-the usage text to stderr and exit **1**. `pharn status --help` alone is unaffected, but
+one error line and ``Run `pharn --help` for usage.`` to stderr and exit **1**. `pharn status --help` alone prints
+the `status` usage line and only its options, and exits 0; but
 `pharn status --help --force` is refused — a genuine `--help` does not license a misapplied sibling.
 
 `status` never takes the project lock and is never blocked by one, so `pharn status --strict` stays

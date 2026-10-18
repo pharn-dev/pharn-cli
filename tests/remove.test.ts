@@ -161,14 +161,33 @@ describe('runRemove (archetype)', () => {
     expect(lastWritten().capabilities).toEqual([]);
   });
 
-  it('is a no-op (no write) for a capability that is not installed', async () => {
+  // F-38: a NAMED remove of something that is not installed is an error, like
+  // `pharn add bogus` — a script that removes the wrong name must not read
+  // success. Nothing is written, and the removable capabilities are listed.
+  it('exits(1), writing nothing, for a capability that is not installed', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(
       archConfig([{ name: 'a11y', role: 'griller' }]),
     );
 
-    await runRemove('ghost');
+    await expect(runRemove('ghost')).rejects.toMatchObject(new ProcessExit(1));
 
-    expect(prompts.outro).toHaveBeenCalledWith('Nothing was removed.');
+    const [msg, opts] = vi.mocked(prompts.log.error).mock.calls.at(-1)!;
+    expect(msg).toContain('"ghost" is not an installed capability.');
+    expect(msg).toContain('Installed: griller:a11y.');
+    expect(msg).toContain('Nothing was removed.');
+    expect(opts).toEqual({ output: process.stderr });
+    expect(prompts.outro).not.toHaveBeenCalled();
+    expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('exits(1) naming that nothing is installed when the config lists none', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig([]));
+
+    await expect(runRemove('ghost')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(
+      String(vi.mocked(prompts.log.error).mock.calls.at(-1)![0]),
+    ).toContain('No capabilities are installed.');
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
 
@@ -879,7 +898,9 @@ describe('runRemove (archetype)', () => {
       await seedStore([A11Y, DOC]);
       const before = storeBytes();
 
-      await runRemove('ghost');
+      await expect(runRemove('ghost')).rejects.toMatchObject(
+        new ProcessExit(1),
+      );
 
       expect(storeBytes()).toBe(before);
       expect(writePharnConfig).not.toHaveBeenCalled();

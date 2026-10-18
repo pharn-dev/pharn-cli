@@ -271,7 +271,7 @@ Two commands sit outside the pipeline:
 | `pharn list`                | Show installed archetypes and capabilities. Use `--json` for machine-readable output.                                                                                                                                                                                                                                                           |
 | `pharn status`              | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report.                                                                                                                                                                                    |
 | `pharn uninstall`           | Remove PHARN: deletes only the files `pharn` recorded and you did not change, then `pharn.records.json` and `pharn.config.json` (backed up first). Never touches `.claude/settings.json` or `.pharn-backup/`. `--yes`/`-y` skips the confirmation prompt.                                                                                       |
-| `pharn --help`              | Show command help.                                                                                                                                                                                                                                                                                                                              |
+| `pharn --help`              | Show every command, option and environment variable. `pharn <command> --help` shows one command and only the options it takes.                                                                                                                                                                                                                  |
 | `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                                                                                 |
 
 `init` also takes `--archetype <list>` (for example `--archetype backend` or
@@ -285,7 +285,7 @@ keeps it. The install summary shows what triggered each detected archetype
 Three behaviours matter if you script the CLI:
 
 - **Options are per-command.** Passing one a command does not take prints
-  ``Unsupported option for `status`: "--force"`` to stderr with the usage text
+  ``Unsupported option for `status`: "--force"`` to stderr with ``Run `pharn --help` for usage.``
   and exits **1**; an extra positional is refused the same way. Both previously
   parsed, were silently dropped, and exited 0.
 - **`init` and `update` prompt.** Off a TTY a plain run exits 1 rather than

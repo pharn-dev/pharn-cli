@@ -131,6 +131,17 @@ describe('the built bundle (dist/index.js)', { timeout: 30_000 }, () => {
     const r = pharn(['--bogus']);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('Unknown option: "--bogus"');
+    expect(r.stderr).toContain('Run `pharn --help` for usage.');
+    expect(r.stderr).not.toContain('Usage:');
     expect(r.stdout).toBe('');
+  });
+
+  it('`status --help` prints only that command page (exit 0)', () => {
+    const r = pharn(['status', '--help']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('pharn status [options]');
+    expect(r.stdout).toContain('--strict');
+    expect(r.stdout).not.toContain('Commands:');
+    expect(r.stdout).not.toContain('--force');
   });
 });

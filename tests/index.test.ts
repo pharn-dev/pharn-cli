@@ -458,10 +458,26 @@ describe('main (argv dispatch)', () => {
     noCommandRan();
   });
 
-  it('prints the usage text on stderr when it refuses', async () => {
+  // F-29: one error line and a pointer, never the ~2 KB usage text, which
+  // scrolled the actual error off the terminal.
+  it('prints one error line and a pointer at --help when it refuses', async () => {
     setArgv('status', '--sctrict');
     await expect(main()).rejects.toMatchObject(new ProcessExit(1));
-    expect(stderrText()).toContain('Usage:');
+    expect(errSpy.mock.calls).toEqual([
+      ['Unknown option: "--sctrict"'],
+      ['Run `pharn --help` for usage.'],
+    ]);
+    expect(stderrText()).not.toContain('Usage:');
+  });
+
+  it('prints one line and the pointer for an unknown command', async () => {
+    setArgv('bogus');
+    await expect(main()).rejects.toMatchObject(new ProcessExit(1));
+    expect(errSpy.mock.calls).toEqual([
+      ['Unknown command: bogus'],
+      ['Run `pharn --help` for usage.'],
+    ]);
+    noCommandRan();
   });
 
   // The pair the gate's PLACEMENT decides: after the short-circuits these print
@@ -547,8 +563,8 @@ describe('main (argv dispatch)', () => {
   // `pharn status --json | jq` fed a JSON consumer box-drawing characters and a
   // success code, which is a CI gate that can never go red.
   //
-  // The refusal reuses the unknown-option machinery entirely (stderr, usage
-  // text, JSON.stringify escaping, exit 1) and differs only in its LABEL,
+  // The refusal reuses the unknown-option machinery entirely (stderr, the --help
+  // pointer, JSON.stringify escaping, exit 1) and differs only in its LABEL,
   // because `--json` is a flag pharn knows - "Unknown option" would send the
   // user hunting for a typo that is not there.
   // -------------------------------------------------------------------------
@@ -568,9 +584,10 @@ describe('main (argv dispatch)', () => {
   it('exits(1) on `status --force` — a misapplied flag, not a dropped one', async () => {
     await expectUnsupported(['status', '--force'], '--force');
     // The command is named, so the message says WHICH command refused, and the
-    // usage text still follows on stderr exactly as the unknown-option path.
+    // --help pointer follows on stderr exactly as on the unknown-option path.
     expect(stderrText()).toContain('status');
-    expect(stderrText()).toContain('Usage:');
+    expect(stderrText()).toContain('Run `pharn --help` for usage.');
+    expect(stderrText()).not.toContain('Usage:');
   });
 
   it('exits(1) on `list --strict` instead of exiting 0 un-stricted', async () => {
@@ -687,6 +704,86 @@ describe('main (argv dispatch)', () => {
     await main();
     expect(stdoutText()).toContain('Usage:');
     noCommandRan();
+  });
+
+  // F-34: `pharn <cmd> --help` is that command's page — its usage line and ONLY
+  // the options its ALLOWED_FLAGS row grants — while a bare `pharn --help` keeps
+  // the full text. The rows below are restated, not imported: a flag added to a
+  // row without a help entry (or the reverse) fails here.
+  describe('per-command help', () => {
+    const ROWS: Record<string, readonly string[]> = {
+      init: ['--archetype', '--ref', '--yes', '--dry-run', '--json'],
+      add: [],
+      remove: [],
+      rm: [],
+      update: ['--force', '--yes', '--ref', '--dry-run', '--json', '--compact'],
+      list: ['--json'],
+      status: ['--strict', '--no-drift', '--json'],
+      uninstall: ['--yes'],
+    };
+    const EVERY_FLAG = [...new Set(Object.values(ROWS).flat())];
+    const listsFlag = (text: string, flag: string): boolean =>
+      new RegExp(`^ +(?:-[a-z], )?${flag}(?: |$)`, 'm').test(text);
+
+    it.each(Object.entries(ROWS))(
+      '`%s --help` lists exactly the options it takes',
+      async (cmd, row) => {
+        setArgv(cmd, '--help');
+        await main();
+        const page = stdoutText();
+        expect(page).toContain('Usage:');
+        expect(page).toContain(`pharn ${cmd === 'rm' ? 'remove' : cmd}`);
+        expect(page).not.toContain('Commands:');
+        for (const flag of EVERY_FLAG) {
+          expect(listsFlag(page, flag), flag).toBe(row.includes(flag));
+        }
+        // --help and --version are in every row.
+        expect(listsFlag(page, '--help')).toBe(true);
+        expect(listsFlag(page, '--version')).toBe(true);
+        expect(page).toContain('Run `pharn --help`');
+        noCommandRan();
+      },
+    );
+
+    it('describes an option on its command page without the command prefix', async () => {
+      setArgv('status', '--help');
+      await main();
+      expect(stdoutText()).toMatch(/--strict +exit 1 on any outdated/);
+      expect(stdoutText()).not.toMatch(/status: /);
+    });
+
+    it('shows only the use of a shared option that belongs to the command', async () => {
+      setArgv('list', '--help');
+      await main();
+      expect(stdoutText()).toMatch(/--json +emit the inventory as JSON/);
+      expect(stdoutText()).not.toContain('JSON report');
+    });
+
+    it('names the `rm` alias on the remove page', async () => {
+      setArgv('rm', '--help');
+      await main();
+      expect(stdoutText()).toMatch(/^ +pharn rm \[capability\] +\(alias\)$/m);
+    });
+
+    it.each([[['--help']], [['--dry-run', '--help']], [['-h']]])(
+      'keeps the full text for `pharn %j` (no command word)',
+      async (argv) => {
+        setArgv(...argv);
+        await main();
+        expect(stdoutText()).toContain('Commands:');
+        expect(stdoutText()).toContain('Environment:');
+      },
+    );
+
+    it('lists the `rm` alias and the environment variables in the full text', async () => {
+      setArgv('--help');
+      await main();
+      const full = stdoutText();
+      expect(full).toMatch(/^ {2}remove, rm \[capability\] +Remove/m);
+      expect(full).toMatch(/^ {2}PHARN_DEBUG=1 +/m);
+      expect(full).toMatch(/^ {2}NODE_USE_ENV_PROXY=1 +/m);
+      expect(full).toMatch(/^ {2}NO_COLOR=1 +/m);
+    });
   });
 
   // The two labels stay distinct: a TYPO is still "Unknown option", because
@@ -1174,14 +1271,15 @@ describe('main (cross-flag requirements)', () => {
     );
   });
 
-  it('refuses `update --json` alone: exit 1, stderr, usage, runUpdate never called', async () => {
+  it('refuses `update --json` alone: exit 1, stderr, pointer, runUpdate never called', async () => {
     setArgv('update', '--json');
     await expect(main()).rejects.toThrow(new ProcessExit(1));
     expect(runUpdate).not.toHaveBeenCalled();
     const out = stderr();
     expect(out).toContain('Incomplete option for `update`');
     expect(out).toContain('--json (needs --dry-run)');
-    expect(out).toContain('Usage:');
+    expect(out).toContain('Run `pharn --help` for usage.');
+    expect(out).not.toContain('Usage:');
     expect(console.log).not.toHaveBeenCalled();
   });
 
