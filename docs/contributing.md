@@ -75,8 +75,8 @@ pharn-cli/
   src/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status
-    steps/                init stages (prereqs, node-prereq, overwrite-check, archetype-summary, install-archetype)
-    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, node-floor, release, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-config(-format), models-update, upstream-models, seam-config, install-records, update-decision, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, report-error, hash, validate, constants, banner, confirm, format
+    steps/                init stages (prereqs, node-prereq, overwrite-check, archetype-summary, install-archetype), add-picker
+    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, node-floor, release, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-config(-format), models-update, upstream-models, seam-config, install-records, update-decision, update-render, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, report-error, hash, validate, constants, banner, confirm, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation

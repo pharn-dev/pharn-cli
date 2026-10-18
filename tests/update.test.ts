@@ -1241,12 +1241,16 @@ describe('runUpdate (drift-safe)', () => {
     // update's interactivity, which is only true while the confirm is update's
     // ONLY prompt. A future prompt added below the gate would silently re-open
     // the very bug this increment closes, and nothing else would catch it.
+    // Its renderers live in src/lib/update-render.ts, so that file is read too:
+    // a prompt added to a note would escape a scan of the command alone.
     it('the confirm is update.ts ONLY prompt (the premise --yes rests on)', () => {
       const here = fileURLToPath(import.meta.url);
-      const src = readFileSync(
+      const src = [
         join(here, '..', '..', 'src', 'commands', 'update.ts'),
-        'utf8',
-      );
+        join(here, '..', '..', 'src', 'lib', 'update-render.ts'),
+      ]
+        .map((file) => readFileSync(file, 'utf8'))
+        .join('\n');
       const clackPromptApis = [
         'autocomplete',
         'autocompleteMultiselect',

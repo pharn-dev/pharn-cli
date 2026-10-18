@@ -86,16 +86,29 @@ function tagOf(version: string): string {
   return KNOWN_TAGS.includes(version) ? version : `v${version}`;
 }
 
-describe('CHANGELOG.md link definitions', () => {
-  const changelog = readFileSync('CHANGELOG.md', 'utf8');
-  const links = [...changelog.matchAll(/^\[([^\]]+)\]: (\S+)$/gm)].map((m) => ({
+// The history is two files: CHANGELOG.md (0.5.0 and newer) and
+// CHANGELOG-ARCHIVE.md (0.4.0 and older). Each defines the links of its own
+// headings, so a reference resolves in the file that uses it; the chain below
+// is checked across both, newest first, since it runs through the boundary.
+const CHANGELOG_FILES = ['CHANGELOG.md', 'CHANGELOG-ARCHIVE.md'] as const;
+
+function linksOf(text: string): { label: string; url: string }[] {
+  return [...text.matchAll(/^\[([^\]]+)\]: (\S+)$/gm)].map((m) => ({
     label: m[1]!,
     url: m[2]!,
   }));
-  // Version headings, newest first, as they appear.
-  const versions = [...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map(
-    (m) => m[1]!,
-  );
+}
+
+// Version headings, newest first, as they appear.
+function versionsOf(text: string): string[] {
+  return [...text.matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map((m) => m[1]!);
+}
+
+describe('CHANGELOG.md link definitions', () => {
+  const texts = CHANGELOG_FILES.map((file) => readFileSync(file, 'utf8'));
+  const changelog = texts.join('\n');
+  const links = linksOf(changelog);
+  const versions = versionsOf(changelog);
   const allowed = new Set([...KNOWN_TAGS, `v${pkg.version}`]);
 
   // The refs one link names: [from, to] for a compare, [tag] for a tag page.
@@ -123,6 +136,17 @@ describe('CHANGELOG.md link definitions', () => {
         expect(allowed.has(ref), `[${label}] names "${ref}"`).toBe(true);
       }
     }
+  });
+
+  it("defines each file's links in that file", () => {
+    CHANGELOG_FILES.forEach((file, i) => {
+      const own = versionsOf(texts[i]!);
+      expect(own.length, file).toBeGreaterThan(0);
+      for (const { label } of linksOf(texts[i]!)) {
+        if (label !== 'Unreleased')
+          expect(own, `${file}: [${label}]`).toContain(label);
+      }
+    });
   });
 
   it('gives every tagged version a link, and an untagged one none', () => {
