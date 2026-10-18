@@ -1,4 +1,4 @@
-import { readBoundedFile } from './bounded-read.js';
+import { readJsonBounded } from './bounded-read.js';
 import { checkModelsBlock } from './model-config.js';
 import { isPlainObject, safeJoin } from './validate.js';
 
@@ -40,7 +40,7 @@ export type UpstreamModels =
   | { kind: 'invalid'; reasons: string[] };
 
 export function readUpstreamModels(repoDir: string): UpstreamModels {
-  const read = readBoundedFile(
+  const read = readJsonBounded(
     safeJoin(repoDir, UPSTREAM_CONFIG_FILE),
     MAX_UPSTREAM_CONFIG_BYTES,
   );
@@ -51,10 +51,7 @@ export function readUpstreamModels(repoDir: string): UpstreamModels {
       reasons: [`pharn-oss's ${UPSTREAM_CONFIG_FILE} ${read.reason}`],
     };
   }
-  let config: unknown;
-  try {
-    config = JSON.parse(read.bytes.toString('utf8'));
-  } catch {
+  if (read.kind === 'invalid-json') {
     // V8's message is not echoed: one of its shapes quotes raw file bytes
     // (lib/pharn-config.ts, parseLocation).
     return {
@@ -62,6 +59,7 @@ export function readUpstreamModels(repoDir: string): UpstreamModels {
       reasons: [`pharn-oss's ${UPSTREAM_CONFIG_FILE} is not valid JSON`],
     };
   }
+  const config = read.value;
   if (!isPlainObject(config)) {
     return {
       kind: 'invalid',

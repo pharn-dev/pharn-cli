@@ -1,7 +1,6 @@
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
 import { relative } from 'node:path';
 import {
-  assertNoDotDot,
   assertSafeString,
   CAPABILITY_NAME_RE,
   COPY_FILENAME_RE,
@@ -29,7 +28,11 @@ import {
   PHARN_CONFIG_FILE,
 } from './install-manifest.js';
 import { RECORDS_FILE } from './install-records.js';
-import { findSymlinkComponent, findTypeCollision } from './symlink-guard.js';
+import {
+  findSymlinkComponent,
+  findSymlinkComponentOr,
+  findTypeCollision,
+} from './symlink-guard.js';
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -127,7 +130,6 @@ export function installCapabilityDirs(
 ): InstalledCapability[] {
   const planned = capabilities.map((cap) => {
     assertSafeString(cap.name, `capability "${cap.name}"`, CAPABILITY_NAME_RE);
-    assertNoDotDot(cap.name, `capability "${cap.name}"`);
     const subtree = capabilitySubtree(paths, cap.role);
     const from = safeJoin(repoDir, `${subtree}/${cap.name}`);
     if (!existsSync(from)) {
@@ -400,7 +402,8 @@ export function installCapabilities(
  * symlinked `.claude/` is an intermediate component, refused as ever.
  *
  * ENOTDIR from the walk (a component below a REGULAR file) is not a symlink and
- * is left to assertDestinationTypes, which names it.
+ * is left to assertDestinationTypes, which names it: the walk's throw reads as
+ * `null` (`findSymlinkComponentOr`).
  *
  * Residual (advisory): a link created between this walk and the copy (TOCTOU)
  * is not covered — the same residual `update` names.
@@ -412,10 +415,14 @@ function assertDestinationsInProject(
   const dirs = new Set<string>();
   const files = new Set<string>();
   for (const rel of manifest.keys()) {
-    const hit = symlinkedComponent(projectRoot, rel);
+    const hit = findSymlinkComponentOr(projectRoot, rel, null);
     if (hit !== null) (hit === rel ? files : dirs).add(hit);
   }
-  const settingsHit = symlinkedComponent(projectRoot, CLAUDE_SETTINGS_FILE);
+  const settingsHit = findSymlinkComponentOr(
+    projectRoot,
+    CLAUDE_SETTINGS_FILE,
+    null,
+  );
   if (settingsHit === CLAUDE_SETTINGS_FILE) {
     if (!existsSync(safeJoin(projectRoot, CLAUDE_SETTINGS_FILE))) {
       files.add(settingsHit);
@@ -446,18 +453,6 @@ function assertDestinationsInProject(
   throw new ManifestValidationError(
     `Refusing to install: ${sentences.join(' ')} Nothing was written; re-run \`pharn init\` once that is done.`,
   );
-}
-
-/**
- * `findSymlinkComponent`, with its ENOTDIR (a component below a regular file)
- * read as "no symlink here" — assertDestinationTypes reports that path.
- */
-function symlinkedComponent(projectRoot: string, rel: string): string | null {
-  try {
-    return findSymlinkComponent(projectRoot, rel);
-  } catch {
-    return null;
-  }
 }
 
 const MAX_LINKED_SHOWN = 5;
@@ -542,7 +537,7 @@ function destAcceptsWrite(projectRoot: string, rel: string): boolean {
 
 /**
  * Copy the files of one source dir whose basenames pass `keep` into the mirrored
- * project-root dir. Each kept name is validated (COPY_FILENAME_RE + no `..`)
+ * project-root dir. Each kept name is validated (COPY_FILENAME_RE, which admits no `..`)
  * before it is path-joined — a name that is a copy candidate but fails the
  * allowlist hard-fails (P2), it is never silently skipped. Missing source dir is
  * a no-op (nothing to copy).
@@ -561,7 +556,6 @@ function copyFilteredDir(
     if (!entry.isFile() || entry.isSymbolicLink()) continue;
     if (!keep(entry.name)) continue;
     assertSafeString(entry.name, `${relDir}/${entry.name}`, COPY_FILENAME_RE);
-    assertNoDotDot(entry.name, `${relDir}/${entry.name}`);
     if (!ensured) {
       mkdirSync(safeJoin(projectRoot, relDir), { recursive: true });
       ensured = true;

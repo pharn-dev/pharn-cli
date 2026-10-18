@@ -40,8 +40,13 @@ export const ARCHETYPE_VALUES = ['ssr', 'backend', 'spa', 'lib'] as const;
 // Capability `applies` frontmatter tokens: `universal` (→ always selected) or a
 // project archetype (ssr|backend|spa|lib). Membership, not judgment (P5).
 export const APPLIES_TOKEN_VALUES = ['universal', ...ARCHETYPE_VALUES] as const;
+// C0 controls, DEL and C1 controls — the ONE definition of this range.
+// `assertSafeString` REJECTS a name over it; `pharn-config.ts` derives its
+// display escaper from `.source`. terminal-safe.ts deliberately uses a WIDER set
+// (this one plus Unicode format characters), defined there. Non-global, so
+// `.test` carries no `lastIndex` between calls.
 // eslint-disable-next-line no-control-regex
-const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
+export const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
 
 /**
  * Assert a fetched capability `role` value is one of the installable kinds
@@ -98,12 +103,6 @@ export function assertSafeString(
     );
   }
   return value;
-}
-
-export function assertNoDotDot(value: string, label: string): void {
-  if (value.includes('..')) {
-    throw new ManifestValidationError(`${label} must not contain '..'`);
-  }
 }
 
 export function isPlainObject(v: unknown): v is Record<string, unknown> {

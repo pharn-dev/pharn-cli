@@ -5,8 +5,8 @@ import {
   CAPABILITY_NAME_RE,
   COPY_FILENAME_RE,
   COMMIT_RE,
+  CONTROL_CHARS_RE,
   assertSafeString,
-  assertNoDotDot,
   assertRole,
   assertAppliesToken,
   isPlainObject,
@@ -45,15 +45,55 @@ describe('assertSafeString', () => {
   });
 });
 
-describe('assertNoDotDot', () => {
-  it('throws when the value contains ..', () => {
-    expect(() => assertNoDotDot('a/../b', 'x')).toThrow(
-      ManifestValidationError,
-    );
+// The name allowlists are the whole `..` defence for the names they gate (no
+// separate `..` check follows them): CAPABILITY_NAME_RE admits no `.` at all,
+// COPY_FILENAME_RE exactly one, after a letter or digit.
+describe('the name allowlists admit no `..`', () => {
+  const candidates = [
+    '..',
+    '...',
+    '../a',
+    'a/..',
+    'a..b',
+    '..md',
+    'a..md',
+    '../a.md',
+    'a/../b.cjs',
+    '..cjs',
+    'a-..json',
+  ];
+
+  it.each(candidates)('CAPABILITY_NAME_RE rejects %j', (value) => {
+    expect(CAPABILITY_NAME_RE.test(value)).toBe(false);
   });
 
-  it('passes a clean value', () => {
-    expect(() => assertNoDotDot('a/b', 'x')).not.toThrow();
+  it.each(candidates)('COPY_FILENAME_RE rejects %j', (value) => {
+    expect(COPY_FILENAME_RE.test(value)).toBe(false);
+  });
+
+  it('both still accept their ordinary names', () => {
+    expect(CAPABILITY_NAME_RE.test('n-plus-one')).toBe(true);
+    expect(COPY_FILENAME_RE.test('set-writes-scope.cjs')).toBe(true);
+  });
+});
+
+// The one C0 + DEL + C1 definition (pharn-config.ts's path escaper derives from
+// it): its boundaries, and that it is NOT global (a /g regex's `.test` would
+// carry lastIndex between calls).
+describe('CONTROL_CHARS_RE', () => {
+  it.each([0x00, 0x09, 0x0a, 0x1b, 0x1f, 0x7f, 0x80, 0x9b, 0x9f])(
+    'matches char code %i',
+    (code) => {
+      expect(CONTROL_CHARS_RE.test(String.fromCharCode(code))).toBe(true);
+    },
+  );
+
+  it.each([0x20, 0x7e, 0xa0, 0x200b])('does not match char code %i', (code) => {
+    expect(CONTROL_CHARS_RE.test(String.fromCharCode(code))).toBe(false);
+  });
+
+  it('is not global', () => {
+    expect(CONTROL_CHARS_RE.global).toBe(false);
   });
 });
 

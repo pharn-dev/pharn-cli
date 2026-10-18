@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { CLAUDE_SETTINGS_FILE } from './constants.js';
-import { readBoundedFile } from './bounded-read.js';
+import { readJsonBounded } from './bounded-read.js';
 import { diffHookWiring, type HookWiringDiff } from './hook-wiring.js';
 import { prepareInstall } from './install-capabilities.js';
 import {
@@ -322,14 +322,9 @@ export function reinstallBaseline(
  */
 export function readCarriedEntries(cwd: string): Record<string, unknown> {
   // Bounded and non-blocking (lib/bounded-read.ts), like every read of this file.
-  const read = readBoundedFile(configPath(cwd));
+  const read = readJsonBounded(configPath(cwd));
   if (read.kind !== 'ok') return {};
-  try {
-    const raw: unknown = JSON.parse(read.bytes.toString('utf8'));
-    return isPlainObject(raw) ? userOwnedConfigEntries(raw) : {};
-  } catch {
-    return {};
-  }
+  return isPlainObject(read.value) ? userOwnedConfigEntries(read.value) : {};
 }
 
 /** One write target and what the install would do to it. */

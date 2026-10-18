@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { writeJsonAtomic } from './atomic-write.js';
-import { readBoundedFile } from './bounded-read.js';
+import { readJsonBounded } from './bounded-read.js';
 import { resolve } from 'node:path';
 import { contentHash } from './hash.js';
 import { isPlainObject, safeJoin, toPosix } from './validate.js';
@@ -157,18 +157,15 @@ export function recordsPath(cwd: string): string {
 export function readRecords(cwd: string): ReadRecordsResult {
   // Through the bounded, non-blocking reader (lib/bounded-read.ts): a FIFO, a
   // device or a directory at this path is a named `invalid`, never a hang.
-  const read = readBoundedFile(recordsPath(cwd));
+  const read = readJsonBounded(recordsPath(cwd));
   if (read.kind === 'absent') return { kind: 'absent' };
   if (read.kind === 'unusable') {
     return { kind: 'invalid', message: `${RECORDS_FILE} ${read.reason}` };
   }
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(read.bytes.toString('utf8'));
-  } catch {
+  if (read.kind === 'invalid-json') {
     return { kind: 'invalid', message: `${RECORDS_FILE} is not valid JSON` };
   }
+  const raw = read.value;
   if (!isPlainObject(raw)) {
     return { kind: 'invalid', message: `${RECORDS_FILE} is not a JSON object` };
   }

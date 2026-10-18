@@ -1,7 +1,9 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProcessExit, stubProcessExit } from './helpers.js';
+import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
-import { SeamConfigError } from '../src/lib/seam-config.js';
+import { LEGACY_CONFIG_MESSAGE as LEGACY } from '../src/lib/pharn-config.js';
 
 vi.mock('@clack/prompts', () => ({
   intro: vi.fn(),
@@ -11,18 +13,16 @@ vi.mock('@clack/prompts', () => ({
   spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
 }));
 
-// Sentinel for the shared legacy message; the real text is asserted in
-// pharn-config.test.ts. list emits its imported LEGACY_CONFIG_MESSAGE verbatim.
-const LEGACY = 'legacy layout no longer supported (test sentinel)';
-const readPharnConfig = vi.fn();
-// format.js is intentionally NOT mocked — list uses the real row().
-vi.mock('../src/lib/pharn-config.js', () => ({
-  readPharnConfig,
-  // Real discriminators so list's branches are exercised faithfully.
-  isArchetypeConfig: (c: PharnConfig) => Array.isArray(c.capabilities),
-  isConfigValidationError: (e: unknown) => e instanceof SeamConfigError,
-  LEGACY_CONFIG_MESSAGE: LEGACY,
-}));
+// list loads through the shared `loadArchetypeConfigOrExit`, so these tests
+// write a REAL pharn.config.json into a temp cwd rather than mocking the loader:
+// the messages and streams asserted below are the shared loader's own.
+const tmp = useTmpDir();
+function writeConfig(config: unknown): void {
+  writeFileSync(
+    join(tmp.path(), 'pharn.config.json'),
+    typeof config === 'string' ? config : JSON.stringify(config),
+  );
+}
 
 const { runList } = await import('../src/commands/list.js');
 const prompts = await import('@clack/prompts');
@@ -32,7 +32,7 @@ function archetypeConfig(extra: Partial<PharnConfig> = {}): PharnConfig {
     pharnVersion: '0.2.0',
     skillsVersion: '1.0.0',
     repo: 'pharn-dev/pharn-oss',
-    commit: 'old',
+    commit: null,
     modules: [],
     installedAt: '2026-06-11T00:00:00.000Z',
     archetypes: ['ssr'],
@@ -60,18 +60,15 @@ function noteBody(title: string): string {
 
 describe('runList', () => {
   stubProcessExit();
-  beforeEach(() => vi.spyOn(process, 'cwd').mockReturnValue('/proj'));
+  beforeEach(() => vi.spyOn(process, 'cwd').mockReturnValue(tmp.path()));
   afterEach(() => vi.clearAllMocks());
 
   it('exits(1) when there is no config', async () => {
-    readPharnConfig.mockReturnValue(null);
     await expect(runList()).rejects.toMatchObject(new ProcessExit(1));
   });
 
   it('surfaces the loud validator error (NOT "run init") when the config is invalid (BUG 1)', async () => {
-    readPharnConfig.mockImplementationOnce(() => {
-      throw new SeamConfigError('seam.resolutionOrder must contain "ask"');
-    });
+    writeConfig({ ...archetypeConfig(), seam: { resolutionOrder: ['model'] } });
     await expect(runList()).rejects.toMatchObject(new ProcessExit(1));
     const msg = vi
       .mocked(prompts.log.error)
@@ -82,7 +79,7 @@ describe('runList', () => {
   });
 
   it('rejects a legacy (non-archetype) config with the legacy message + exit(1)', async () => {
-    readPharnConfig.mockReturnValue(legacyConfig());
+    writeConfig(legacyConfig());
     await expect(runList()).rejects.toMatchObject(new ProcessExit(1));
     // Errors go to stderr (FABLE 5.2): the exact-args match is deliberate -
     // it is what proves the `output` option actually reaches clack rather
@@ -95,7 +92,7 @@ describe('runList', () => {
   });
 
   it('emits `source` in --json when recorded, and OMITS it when absent', async () => {
-    readPharnConfig.mockReturnValue(
+    writeConfig(
       archetypeConfig({
         capabilities: [
           { name: 'a11y', role: 'griller', source: 'auto' },
@@ -122,7 +119,7 @@ describe('runList', () => {
   });
 
   it('renders an archetype install offline from the config', async () => {
-    readPharnConfig.mockReturnValue(
+    writeConfig(
       archetypeConfig({
         capabilities: [
           { name: 'a11y', role: 'griller' },
@@ -155,7 +152,7 @@ describe('runList --json', () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let errSpy: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
-    vi.spyOn(process, 'cwd').mockReturnValue('/proj');
+    vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
@@ -165,7 +162,7 @@ describe('runList --json', () => {
   });
 
   it('emits an archetype-mode JSON object on stdout', async () => {
-    readPharnConfig.mockReturnValue(
+    writeConfig(
       archetypeConfig({ capabilities: [{ name: 'a11y', role: 'griller' }] }),
     );
 
@@ -184,16 +181,17 @@ describe('runList --json', () => {
   });
 
   it('keeps stdout clean and exits(1) when there is no config', async () => {
-    readPharnConfig.mockReturnValue(null);
     await expect(runList({ json: true })).rejects.toMatchObject(
       new ProcessExit(1),
     );
     expect(logSpy).not.toHaveBeenCalled();
-    expect(errSpy).toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith(
+      'No pharn.config.json found. Run `pharn init` first.',
+    );
   });
 
   it('rejects a legacy config to stderr (stdout clean) + exit(1)', async () => {
-    readPharnConfig.mockReturnValue(legacyConfig());
+    writeConfig(legacyConfig());
     await expect(runList({ json: true })).rejects.toMatchObject(
       new ProcessExit(1),
     );
@@ -202,10 +200,9 @@ describe('runList --json', () => {
   });
 
   it('emits the loud validator error to stderr (stdout clean) when config is invalid (BUG 1)', async () => {
-    readPharnConfig.mockImplementationOnce(() => {
-      throw new SeamConfigError(
-        'seam.resolutionOrder has unknown step "guess"',
-      );
+    writeConfig({
+      ...archetypeConfig(),
+      seam: { resolutionOrder: ['guess', 'ask'] },
     });
     await expect(runList({ json: true })).rejects.toMatchObject(
       new ProcessExit(1),

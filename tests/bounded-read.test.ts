@@ -7,12 +7,66 @@ import { useTmpDir } from './helpers.js';
 import {
   MAX_LOCAL_FILE_BYTES,
   readBoundedFile,
+  readJsonBounded,
 } from '../src/lib/bounded-read.js';
 
 // ---------------------------------------------------------------------------
 // The one reader for the files pharn keeps in a project: bytes, absent, or
 // unusable with a fixed reason — never a hang, never an unbounded read.
 // ---------------------------------------------------------------------------
+
+// The read, then the parse — the step five callers each did by hand. Every
+// non-ok read passes through untouched, so each caller's failure shape is the
+// one it had.
+describe('readJsonBounded', () => {
+  const tmp = useTmpDir();
+  const at = (name: string): string => join(tmp.path(), name);
+
+  it('parses a regular JSON file', () => {
+    writeFileSync(at('f.json'), '{"a":[1,2]}');
+    expect(readJsonBounded(at('f.json'))).toEqual({
+      kind: 'ok',
+      value: { a: [1, 2] },
+    });
+  });
+
+  it('returns a non-object JSON value as is (callers shape-check)', () => {
+    writeFileSync(at('f.json'), '[1]');
+    expect(readJsonBounded(at('f.json'))).toEqual({ kind: 'ok', value: [1] });
+  });
+
+  it('passes `absent` through', () => {
+    expect(readJsonBounded(at('nope.json'))).toEqual({ kind: 'absent' });
+  });
+
+  it('passes `unusable` through with the read’s own code and reason', () => {
+    mkdirSync(at('d.json'));
+    expect(readJsonBounded(at('d.json'))).toEqual(
+      readBoundedFile(at('d.json')),
+    );
+    expect(readJsonBounded(at('d.json'))).toMatchObject({
+      kind: 'unusable',
+      code: 'EISDIR',
+    });
+  });
+
+  it('honours the byte cap it is given', () => {
+    writeFileSync(at('f.json'), '{"a":1}');
+    expect(readJsonBounded(at('f.json'), 3)).toMatchObject({
+      kind: 'unusable',
+      code: 'too-large',
+    });
+  });
+
+  it('reports bad JSON as `invalid-json`, carrying JSON.parse’s error', () => {
+    writeFileSync(at('f.json'), '{"a":');
+    const got = readJsonBounded(at('f.json'));
+    expect(got.kind).toBe('invalid-json');
+    expect(got.kind === 'invalid-json' && got.error).toBeInstanceOf(
+      SyntaxError,
+    );
+  });
+});
 
 describe('readBoundedFile', () => {
   const tmp = useTmpDir();

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { writeJsonAtomic } from './atomic-write.js';
-import { readBoundedFile } from './bounded-read.js';
+import { readBoundedFile, readJsonBounded } from './bounded-read.js';
 import { resolve } from 'node:path';
 import { errorMessage, logError, logErrorPlain } from './report-error.js';
 import { escapeUnsafe, terminalSafe } from './terminal-safe.js';
@@ -9,6 +9,7 @@ import {
   assertSafeString,
   CAPABILITY_NAME_RE,
   COMMIT_RE,
+  CONTROL_CHARS_RE,
   isPlainObject,
   ROLE_VALUES,
   VERSION_RE,
@@ -267,11 +268,9 @@ function parseLocation(err: unknown): string {
   return at ? ` (line ${at[1]}, column ${at[2]})` : '';
 }
 
-// The C0 + DEL + C1 ranges — the same set `validate.ts` REJECTS names over and
-// `unknown-capabilities.ts` STRIPS from upstream text. Three copies of one range
-// is a smell; single-sourcing it is a separate axis (P3/P7) and is not done here.
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/g;
+// The C0 + DEL + C1 ranges `validate.ts` REJECTS names over (its
+// `CONTROL_CHARS_RE`, the one definition), as a global regex for `replace`.
+const CONTROL_CHARS_GLOBAL_RE = new RegExp(CONTROL_CHARS_RE.source, 'g');
 
 /**
  * The config path, made safe to PRINT. The filesystem path is untouched — this
@@ -299,7 +298,7 @@ const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/g;
  */
 function displayPath(path: string): string {
   return path.replace(
-    CONTROL_CHARS_RE,
+    CONTROL_CHARS_GLOBAL_RE,
     (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
   );
 }
@@ -424,26 +423,26 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // the OLD behaviour — `null`, the caller's "run init" — because that is a
   // different, pre-existing failure, and folding it in here would newly
   // mislabel a permissions problem as a syntax error. Narrow on purpose (P7).
-  const read = readBoundedFile(path);
-  if (read.kind !== 'ok') return null;
-  const text = read.bytes.toString('utf8');
-  // Present + readable + not JSON → the named throw. This try does NOT wrap the
-  // validators below — that is the whole point (BUG 1).
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (err) {
+  const read = readJsonBounded(path);
+  if (read.kind === 'absent' || read.kind === 'unusable') return null;
+  // Present + readable + not JSON → the named throw. Only the parse is caught
+  // (inside readJsonBounded), never the validators below — that is the whole
+  // point (BUG 1).
+  if (read.kind === 'invalid-json') {
     throw new ConfigParseError(
-      `${displayPath(path)} is not valid JSON${parseLocation(err)}. The file exists — fix its syntax by hand. ` +
+      `${displayPath(path)} is not valid JSON${parseLocation(read.error)}. The file exists — fix its syntax by hand. ` +
         'Do NOT run `pharn init` to clear it: init OVERWRITES this config, discarding your recorded ' +
         'capabilities, any manual `pharn add` provenance, and hand-edited models/seam blocks. If it ' +
         `is beyond repair, move it aside first (\`mv ${CONFIG_FILENAME} ${CONFIG_FILENAME}.bak\`), ` +
         'then run `pharn init`.',
     );
   }
+  const raw = read.value;
   if (!isPlainObject(raw)) return null;
-  // Light shape guard so a hand-edited config fails fast here (→ "run init")
-  // rather than throwing deep inside add/update on `config.modules.map`.
+  // Light shape guard so a hand-edited config fails fast here (→ "run init").
+  // `modules` is no longer read, but the guard keeps it: `init` still writes
+  // `modules: []` because every released CLI applies this same guard (see
+  // `PharnConfig.modules`), so the key is what an older CLI needs to see.
   if (typeof raw.skillsVersion !== 'string' || !Array.isArray(raw.modules)) {
     return null;
   }
@@ -557,8 +556,8 @@ export function loadConfigOrExit(
 }
 
 // Where a load failure goes. Under `--json` it is a plain line on stderr (no
-// clack chrome), exactly like `list --json`, so a `2>&1` consumer and a JSON
-// reader on stdout both stay clean; control characters are still stripped.
+// clack chrome), so a `2>&1` consumer and a JSON reader on stdout both stay
+// clean; control characters are still stripped.
 function reportLoadError(message: string, json: boolean): void {
   if (json) logErrorPlain(message);
   else logError(message);
@@ -704,10 +703,10 @@ export function isArchetypeConfig(config: PharnConfig): boolean {
 
 // The single message shown when a command runs against a pre-archetype (module)
 // config, which is no longer operable: the module/manifest install path was
-// removed (live pharn-oss ships no manifest.json), so add/update/status/remove
-// cannot resolve it. `list` emits this json-aware (to stderr in --json); the
-// other four go through loadArchetypeConfigOrExit. Deterministic (P5): the branch
-// is the isArchetypeConfig membership test and its terminal is this named
+// removed (live pharn-oss ships no manifest.json), so no command can resolve
+// it. Every command that loads the config reports it through
+// loadArchetypeConfigOrExit (plain stderr under --json). Deterministic (P5): the
+// branch is the isArchetypeConfig membership test and its terminal is this named
 // hard-fail, never a guess or a silent proceed (P6).
 export const LEGACY_CONFIG_MESSAGE =
   'This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` to reinstall with the archetype/capability model.';
@@ -715,9 +714,9 @@ export const LEGACY_CONFIG_MESSAGE =
 /**
  * Load pharn.config.json and require it be an archetype (capability) install, or
  * exit(1) with the single `LEGACY_CONFIG_MESSAGE`. The shared load surface for
- * `add`/`update`/`status`/`remove` after the module/manifest path was removed —
- * it single-sources the legacy reject (P3, no 5× copy). `list` keeps its own
- * json-aware check because its error must stay on stderr in `--json`.
+ * `add`/`update`/`status`/`remove`/`list`/`uninstall` after the module/manifest
+ * path was removed — it single-sources the legacy reject (P3). `opts.json` keeps
+ * every error a plain stderr line, so a `--json` stdout stays clean.
  */
 export function loadArchetypeConfigOrExit(
   cwd: string,

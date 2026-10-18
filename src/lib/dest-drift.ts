@@ -2,7 +2,7 @@ import { lstatSync } from 'node:fs';
 import { relative } from 'node:path';
 import { contentHash } from './hash.js';
 import type { FileRecords } from './install-records.js';
-import { findSymlinkComponent } from './symlink-guard.js';
+import { findSymlinkComponentOr } from './symlink-guard.js';
 import { decideFileAction, type FileDecision } from './update-decision.js';
 import { safeJoin, toPosix } from './validate.js';
 
@@ -151,8 +151,8 @@ export function scanDest(params: {
     const dest = safeJoin(projectRoot, rel);
     const src = safeJoin(repoDir, srcRel);
 
-    const destLink = symlinkComponent(projectRoot, rel);
-    if (destLink === UNREADABLE) continue; // ENOTDIR — see symlinkComponent
+    const destLink = findSymlinkComponentOr(projectRoot, rel, UNREADABLE);
+    if (destLink === UNREADABLE) continue; // ENOTDIR — see UNREADABLE
     if (destLink !== null) {
       unsafe.push({ rel, link: destLink });
       continue;
@@ -166,7 +166,7 @@ export function scanDest(params: {
     // is defense in depth for a function that is exported and takes a plain
     // string[], the same reasoning install-records.ts records for shape-checking
     // a key it never path-joins.
-    if (symlinkComponent(repoDir, srcRel) !== null) continue;
+    if (findSymlinkComponentOr(repoDir, srcRel, UNREADABLE) !== null) continue;
     if (!lstatSync(src, { throwIfNoEntry: false })?.isFile()) continue;
 
     // contentHash's failure on a path that IS a regular file (EACCES) deliberately
@@ -233,12 +233,9 @@ function driftLabel(decision: FileDecision): DriftLabel | null {
     : 'unverifiable';
 }
 
-/** `symlinkComponent`'s third outcome: the walk could not be completed. */
-const UNREADABLE = Symbol('unreadable');
-
 /**
- * The first symlinked component of `rel` under `base`, `null` when there is
- * none, or `UNREADABLE` when the walk cannot answer.
+ * The symlink walk's third outcome for `scanDest` — passed as
+ * `findSymlinkComponentOr`'s fallback: the walk could not answer (it threw).
  *
  * `findSymlinkComponent` is NOT total: `throwIfNoEntry: false` suppresses ENOENT
  * only, so a component below a REGULAR FILE raises ENOTDIR out of the walk
@@ -254,15 +251,6 @@ const UNREADABLE = Symbol('unreadable');
  * set only ever holds paths already proven regular files.
  *
  * The escape refusal cannot arrive here — `scanDest` `safeJoin`s both sides
- * before calling — so this catch cannot swallow a containment violation.
+ * before calling — so this fallback cannot swallow a containment violation.
  */
-function symlinkComponent(
-  base: string,
-  rel: string,
-): string | null | typeof UNREADABLE {
-  try {
-    return findSymlinkComponent(base, rel);
-  } catch {
-    return UNREADABLE;
-  }
-}
+const UNREADABLE = Symbol('unreadable');

@@ -38,7 +38,6 @@ vi.mock('../src/steps/prereqs.js', () => ({ runGitPrereq }));
 
 const detectArchetypesFromProject = vi.fn(() => ({
   archetypes: ['ssr'],
-  packageJsonFound: true,
   evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
   truncated: false,
 }));

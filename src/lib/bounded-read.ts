@@ -4,7 +4,7 @@ import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 // The one reader for the files pharn keeps in a project — pharn.records.json,
 // pharn.config.json and .pharn.lock. It returns their bytes, `absent`, or
 // `unusable` with a fixed reason, and it never hangs and never reads without
-// bound.
+// bound. `readJsonBounded` adds the JSON parse most callers do next.
 //
 // Why not `readFileSync`: on a FIFO, a plain open(2) waits for a writer that
 // never comes, so one planted at any of these paths hung every command that
@@ -98,6 +98,34 @@ export function readBoundedFile(
     return { kind: 'unusable', code, reason: `could not be read (${code})` };
   } finally {
     closeSync(fd);
+  }
+}
+
+export type BoundedJsonRead =
+  | Exclude<BoundedRead, { kind: 'ok' }>
+  | { kind: 'ok'; value: unknown }
+  // The bytes were read but are not JSON. `error` is `JSON.parse`'s own throw,
+  // carried for a caller that derives a location from it (pharn-config.ts's
+  // `parseLocation`); its message can quote file bytes, so it is never printed
+  // as is.
+  | { kind: 'invalid-json'; error: unknown };
+
+/**
+ * `readBoundedFile`, then `JSON.parse` of the bytes as UTF-8. Never throws: the
+ * read's `absent` / `unusable` pass through unchanged, a parse failure is
+ * `invalid-json`, and the parsed value is returned as `unknown` — every caller
+ * keeps its own shape check and its own failure wording.
+ */
+export function readJsonBounded(
+  path: string,
+  maxBytes: number = MAX_LOCAL_FILE_BYTES,
+): BoundedJsonRead {
+  const read = readBoundedFile(path, maxBytes);
+  if (read.kind !== 'ok') return read;
+  try {
+    return { kind: 'ok', value: JSON.parse(read.bytes.toString('utf8')) };
+  } catch (error) {
+    return { kind: 'invalid-json', error };
   }
 }
 

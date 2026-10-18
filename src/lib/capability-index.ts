@@ -10,7 +10,6 @@ import {
 import { detectLayout, layoutPaths } from './layout.js';
 import {
   assertAppliesToken,
-  assertNoDotDot,
   assertRole,
   assertSafeString,
   CAPABILITY_NAME_RE,
@@ -119,9 +118,8 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
       try {
         // Validate the untrusted dir name BEFORE any path-join (P2). A name that
         // fails here is reported and joined no further — it never reaches the
-        // filesystem at all.
+        // filesystem at all. CAPABILITY_NAME_RE admits no `.`, so no `..`.
         assertSafeString(name, `capability "${name}"`, CAPABILITY_NAME_RE);
-        assertNoDotDot(name, `capability "${name}"`);
 
         const capFile = safeJoin(subtreeDir, `${name}/${name}.md`);
         const frontmatter = extractFrontmatter(

@@ -11,6 +11,11 @@
 // ---------------------------------------------------------------------------
 
 // C0 controls, DEL, C1 controls, and every Unicode format character (Cf).
+// DIFFERS ON PURPOSE from validate.ts's `CONTROL_CHARS_RE` (C0 + DEL + C1 only):
+// display also strips `\p{Cf}` (bidi overrides, zero-width characters), which
+// can disguise a printed name but cannot reach a path — names are held to the
+// lowercase allowlists anyway. The two sets below and `ESCAPED` vary it again
+// (`\t`/`\n` kept; U+2028/2029 added), so they stay written out here.
 // eslint-disable-next-line no-control-regex
 const UNSAFE_RE = /[\x00-\x1f\x7f-\x9f\p{Cf}]/gu;
 // The same set minus `\t` and `\n`, for multi-line messages.
