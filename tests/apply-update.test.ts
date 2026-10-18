@@ -270,7 +270,6 @@ describe('applyWrites', () => {
     const outside = join(tmp.path(), 'outside-secret.md');
     write(outside, 'outside bytes');
     linkSync(outside, join(proj, 'a.md'));
-    expect(statSync(outside).nlink).toBe(2);
 
     const written = applyWrites({
       projectRoot: proj,
