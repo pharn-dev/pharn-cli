@@ -1,7 +1,11 @@
 import {
+  chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -256,6 +260,46 @@ describe('applyWrites', () => {
       expect((err as ApplyError).written).toEqual(['a.md']);
     }
     expect(readFileSync(join(proj, 'a.md'), 'utf8')).toBe('upstream a');
+  });
+
+  // F-19: a hard link is invisible to the symlink walk (lstat sees a regular
+  // file), and `copyFileSync` wrote INTO the destination's inode — so the
+  // outside name for that inode was overwritten too.
+  it('a HARD-LINKED destination is replaced by name; the outside link keeps its bytes', () => {
+    const { repo, proj } = fixture();
+    const outside = join(tmp.path(), 'outside-secret.md');
+    write(outside, 'outside bytes');
+    linkSync(outside, join(proj, 'a.md'));
+    expect(statSync(outside).nlink).toBe(2);
+
+    const written = applyWrites({
+      projectRoot: proj,
+      expected: expected(repo),
+      writes: ['a.md'],
+    });
+
+    expect(written).toEqual(['a.md']);
+    expect(readFileSync(outside, 'utf8')).toBe('outside bytes');
+    expect(readFileSync(join(proj, 'a.md'), 'utf8')).toBe('upstream a');
+    expect(statSync(outside).nlink).toBe(1);
+    expect(statSync(join(proj, 'a.md')).ino).not.toBe(statSync(outside).ino);
+  });
+
+  it('leaves no temp sibling behind and gives the file the source mode', () => {
+    const { repo, proj } = fixture();
+    chmodSync(join(repo, 'a.md'), 0o755);
+    write(join(proj, 'a.md'), 'old');
+    chmodSync(join(proj, 'a.md'), 0o600);
+
+    applyWrites({
+      projectRoot: proj,
+      expected: expected(repo),
+      writes: ['a.md'],
+    });
+
+    // copyFileSync's mode semantics (the destination takes the source's bits).
+    expect(statSync(join(proj, 'a.md')).mode & 0o777).toBe(0o755);
+    expect(readdirSync(proj).filter((n) => n.endsWith('.tmp'))).toEqual([]);
   });
 
   it('a planned write with no source is an internal error, not a silent skip', () => {

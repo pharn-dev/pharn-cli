@@ -1,4 +1,14 @@
 import { randomBytes } from 'node:crypto';
+import {
+  closeSync,
+  fchmodSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { chmod, lstat, open, rename, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 
@@ -23,6 +33,14 @@ import type { FileHandle } from 'node:fs/promises';
 // concurrent `pharn` processes (there is no lock here), and it does not `fsync`
 // — durability against a power cut at the block layer is a different claim from
 // never observing a torn file, and only the second is made (P0).
+//
+// `copyFileAtomicSync` is the same temp-then-rename replacement for a COPIED
+// file, used by `pharn update`'s per-file writer (lib/apply-update.ts, F-19). A
+// plain `copyFileSync` onto an existing destination opens it `O_TRUNC` and
+// writes INTO its inode, so a destination that is a HARD LINK — a second name
+// for a file outside the project, which no symlink walk can see — had the
+// outside file overwritten. The rename swaps a new inode in under the
+// destination's name; every other name for the old inode keeps its bytes.
 // ---------------------------------------------------------------------------
 
 /**
@@ -90,11 +108,84 @@ async function createExclusiveTemp(
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     }
   }
+  throw tempNamesExhausted(target);
+}
+
+/** The named EEXIST both temp creators throw once every candidate was taken. */
+function tempNamesExhausted(target: string): NodeJS.ErrnoException {
   const err = new Error(
     `Could not create a temporary file beside ${target}: ${TMP_CREATE_ATTEMPTS} randomly named candidates all already existed. Nothing was written; ${target} is unchanged.`,
   ) as NodeJS.ErrnoException;
   err.code = 'EEXIST';
-  throw err;
+  return err;
+}
+
+/** The synchronous twin of `createExclusiveTemp`: same names, same `wx`. */
+function createExclusiveTempSync(target: string): { tmp: string; fd: number } {
+  for (let attempt = 0; attempt < TMP_CREATE_ATTEMPTS; attempt++) {
+    const tmp = tmpPathFor(target, freshNonce());
+    try {
+      return { tmp, fd: openSync(tmp, 'wx', 0o600) };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  throw tempNamesExhausted(target);
+}
+
+/**
+ * Copy `from` to `target` by replacement, never in place: read the source,
+ * write it to an exclusively created temp sibling (`createExclusiveTempSync` —
+ * the same unpredictable `<target>.<pid>.<nonce>.tmp` name and `wx` create as
+ * `writeJsonAtomic`, so a link planted at a temp name is never followed), give
+ * it the SOURCE's permission bits, then `rename` it over `target`.
+ *
+ * Bytes and mode are what `copyFileSync` produced (it, too, sets the
+ * destination's mode to the source's), so no caller's assertion changes. What
+ * changes is the inode: `copyFileSync` truncated and rewrote the destination's
+ * own inode, so a destination hard-linked to a file outside the project
+ * overwrote that file (F-19). After this, the destination's NAME points at a
+ * new inode and every other link keeps the old bytes. A symlinked target is
+ * replaced by a regular file, never followed — callers that must refuse a
+ * symlinked destination (lib/apply-update.ts) still check before calling.
+ *
+ * Reads the whole source into memory: every caller copies a file from a clone
+ * whose extraction is already byte-capped (lib/tar-extract.ts).
+ *
+ * On any failure after the temp was created it is unlinked best-effort and the
+ * original error rethrown; `target` is then exactly as it was. The `chmod` is
+ * best-effort for the same reason `writeJsonAtomic`'s is.
+ */
+export function copyFileAtomicSync(from: string, target: string): void {
+  const bytes = readFileSync(from);
+  const mode = statSync(from).mode & 0o777;
+  const { tmp, fd } = createExclusiveTempSync(target);
+  try {
+    try {
+      writeFileSync(fd, bytes);
+    } catch (err) {
+      try {
+        closeSync(fd);
+      } catch {
+        /* the write's error is the cause */
+      }
+      throw err;
+    }
+    try {
+      fchmodSync(fd, mode);
+    } catch {
+      /* best-effort: losing the mode is bad, losing the write is worse */
+    }
+    closeSync(fd);
+    renameSync(tmp, target);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* a cleanup failure must never mask the cause */
+    }
+    throw err;
+  }
 }
 
 /**

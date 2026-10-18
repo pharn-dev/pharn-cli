@@ -1,5 +1,6 @@
 import {
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -128,6 +129,46 @@ describe('installCapabilities', () => {
     const result = installCapabilities(repo, proj, selection());
     return { repo, proj, result };
   }
+
+  // F-19 pin. A hard link is invisible to every symlink walk, so the copy itself
+  // must replace a destination by name rather than write into its inode.
+  // Measured on Node 24.13.1: a single-file `cpSync(…, {force: true})` and a
+  // recursive `cpSync` WITH a `filter` unlink the destination first (Node's JS
+  // path), while a recursive `cpSync` WITHOUT a filter (Node's native path)
+  // writes through the link. Every recursive copy here passes a filter; this
+  // fails if one stops doing so, or a Node upgrade moves the filtered path.
+  it('never writes through a HARD-LINKED destination (outside bytes survive)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    const dests = [
+      'pharn-pipeline/grillers/a11y/a11y.md',
+      '.claude/commands/pharn-plan.md',
+      '.claude/hooks/set-writes-scope.cjs',
+      'CONSTITUTION.md',
+      'PHARN-LICENSE',
+      'features/README.md',
+      'pharn-contracts/finding-shape.md',
+      '.dev/floor/validate.mjs',
+    ];
+    const outside = join(tmp.path(), 'outside');
+    mkdirSync(outside, { recursive: true });
+    dests.forEach((rel, i) => {
+      const victim = join(outside, `victim-${i}`);
+      writeFileSync(victim, `outside ${i}`);
+      mkdirSync(join(proj, rel, '..'), { recursive: true });
+      linkSync(victim, join(proj, rel));
+    });
+
+    installCapabilities(repo, proj, selection());
+
+    dests.forEach((rel, i) => {
+      expect(readFileSync(join(outside, `victim-${i}`), 'utf8')).toBe(
+        `outside ${i}`,
+      );
+      expect(readFileSync(join(proj, rel), 'utf8')).not.toBe(`outside ${i}`);
+    });
+  });
 
   it('copies the SELECTED capabilities (whole dir, incl. evals) and no others', () => {
     const { proj } = run();

@@ -880,7 +880,7 @@ async function applyPlannedUpdate(
   // rather than wrongly authoritative.
   //
   // Every hash is re-read from the DEST after the copy — never carried over from
-  // the clone source. The two are equal whenever copyFileSync behaved, which is
+  // the clone source. The two are equal whenever the copy behaved, which is
   // exactly the assumption a record exists to avoid making: hashing what landed
   // is what makes "the record cannot disagree with disk" true by construction
   // rather than by trusting the copy (lib/install-records.ts).

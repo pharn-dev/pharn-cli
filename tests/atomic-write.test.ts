@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  linkSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -17,6 +18,7 @@ import { useTmpDir } from './helpers.js';
 import {
   TMP_CREATE_ATTEMPTS,
   TMP_NONCE_BYTES,
+  copyFileAtomicSync,
   tmpPathFor,
   writeJsonAtomic,
 } from '../src/lib/atomic-write.js';
@@ -255,5 +257,106 @@ describe('writeJsonAtomic', () => {
         untouched: true,
       });
     });
+  });
+});
+
+describe('copyFileAtomicSync (F-19)', () => {
+  const tmp = useTmpDir();
+  const source = () => join(tmp.path(), 'src', 'upstream.md');
+  const dir = () => join(tmp.path(), 'proj');
+  const target = () => join(dir(), 'file.md');
+  const siblings = () => readdirSync(dir()).sort();
+  function setup(): void {
+    mkdirSync(dirname(source()), { recursive: true });
+    mkdirSync(dir(), { recursive: true });
+    writeFileSync(source(), 'upstream bytes');
+  }
+
+  afterEach(() => {
+    rb.mockReset();
+  });
+
+  it('copies the bytes and leaves no temp sibling', () => {
+    setup();
+    writeFileSync(target(), 'old');
+    copyFileAtomicSync(source(), target());
+    expect(readFileSync(target(), 'utf8')).toBe('upstream bytes');
+    expect(siblings()).toEqual(['file.md']);
+  });
+
+  it('replaces a hard-linked target by name; the other link keeps its bytes', () => {
+    setup();
+    const outside = join(tmp.path(), 'outside.md');
+    writeFileSync(outside, 'precious bytes');
+    linkSync(outside, target());
+
+    copyFileAtomicSync(source(), target());
+
+    expect(readFileSync(outside, 'utf8')).toBe('precious bytes');
+    expect(readFileSync(target(), 'utf8')).toBe('upstream bytes');
+    expect(statSync(outside).nlink).toBe(1);
+  });
+
+  it('gives the target the SOURCE mode, as copyFileSync did', () => {
+    setup();
+    chmodSync(source(), 0o750);
+    writeFileSync(target(), 'old');
+    chmodSync(target(), 0o600);
+    copyFileAtomicSync(source(), target());
+    expect(statSync(target()).mode & 0o777).toBe(0o750);
+  });
+
+  it('refuses a symlink planted at the exact temp name, and retries under a fresh nonce', () => {
+    setup();
+    const outside = join(tmp.path(), 'outside.md');
+    writeFileSync(outside, 'precious bytes');
+    const planted = tmpPathFor(target(), nonceHex(0xaa));
+    symlinkSync(outside, planted);
+    queueNonces(0xaa, 0xbb);
+
+    copyFileAtomicSync(source(), target());
+
+    expect(rb).toHaveBeenCalledTimes(2);
+    expect(readFileSync(outside, 'utf8')).toBe('precious bytes');
+    expect(readlinkSync(planted)).toBe(outside);
+    expect(lstatSync(target()).isFile()).toBe(true);
+    expect(readFileSync(target(), 'utf8')).toBe('upstream bytes');
+  });
+
+  it(`gives up after ${TMP_CREATE_ATTEMPTS} taken names with a named EEXIST, target unchanged`, () => {
+    setup();
+    writeFileSync(target(), 'keep me');
+    const planted = tmpPathFor(target(), nonceHex(0xee));
+    writeFileSync(planted, 'not ours');
+    pinNonce(0xee);
+
+    let err: NodeJS.ErrnoException | null = null;
+    try {
+      copyFileAtomicSync(source(), target());
+    } catch (e) {
+      err = e as NodeJS.ErrnoException;
+    }
+
+    expect(err?.code).toBe('EEXIST');
+    expect(err?.message).toMatch(/Could not create a temporary file beside/);
+    expect(readFileSync(target(), 'utf8')).toBe('keep me');
+    expect(readFileSync(planted, 'utf8')).toBe('not ours');
+  });
+
+  it('a failed rename removes the temp it created and leaves the target as it was', () => {
+    setup();
+    // A DIRECTORY at the target name: the rename fails (EISDIR / ENOTEMPTY …).
+    mkdirSync(join(target(), 'inner'), { recursive: true });
+    expect(() => copyFileAtomicSync(source(), target())).toThrow();
+    expect(statSync(target()).isDirectory()).toBe(true);
+    expect(siblings()).toEqual(['file.md']);
+  });
+
+  it('a missing source throws before any temp is created', () => {
+    mkdirSync(dir(), { recursive: true });
+    expect(() =>
+      copyFileAtomicSync(join(tmp.path(), 'nope.md'), target()),
+    ).toThrow(/ENOENT/);
+    expect(siblings()).toEqual([]);
   });
 });
