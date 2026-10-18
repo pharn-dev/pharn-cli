@@ -1,27 +1,9 @@
 import type { ARCHETYPE_VALUES } from './lib/validate.js';
 
 // ---------------------------------------------------------------------------
-// Constitution variants (pharn-core/templates/constitution/CONSTITUTION.*.md)
-// ---------------------------------------------------------------------------
-
-export type Constitution = 'gdpr-strict' | 'standard' | 'minimal';
-
-// ---------------------------------------------------------------------------
 // pharn.config.json — written into the user's project. The CLI owns this
 // schema; PHARN skills read it at runtime.
 // ---------------------------------------------------------------------------
-
-export interface InstalledModule {
-  name: string;
-  version: string;
-}
-
-// schemaVersion 2: a single skill subfolder copied into .claude/skills/. `from`
-// is the repo-relative source path; `skill` is its basename (the install dir).
-export interface InstalledSkill {
-  skill: string;
-  from: string;
-}
 
 // How a capability entered `capabilities` — its selection PROVENANCE. 'auto' =
 // chosen by archetype resolution, so `pharn update` owns it and drops it when the
@@ -118,10 +100,12 @@ export interface PharnConfig {
   // Only `"latest"` is ever written; any other value is dropped at load, so a
   // garbage hand-edit follows the default.
   ref?: 'latest';
-  // Legacy (module/wizard) installs record the chosen constitution variant.
-  // Optional: the archetype install (pharn init) copies pharn-oss's
-  // canonical CONSTITUTION.md verbatim (no variant selection), so it omits this.
-  constitution?: Constitution;
+  // Legacy (module/wizard) installs recorded the chosen constitution variant
+  // (`gdpr-strict` | `standard` | `minimal`). The archetype install (pharn init)
+  // copies pharn-oss's canonical CONSTITUTION.md verbatim (no variant), so it
+  // omits this; nothing reads it. Typed `unknown`: an old config that carries it
+  // still loads (P7) — it rides the load's spread untouched.
+  constitution?: unknown;
   // LEGACY (module/wizard era), like `constitution` above: the wizard asked
   // whether the project was a multi-tenant SaaS and stripped Principle 2 from
   // CONSTITUTION.md when the answer was no. That flow is GONE — the archetype
@@ -131,7 +115,12 @@ export interface PharnConfig {
   // command acts on. Do not reintroduce a reader without reinstating the
   // writer — a half-present flag is worse than an absent one.
   isMultiTenant?: boolean;
-  modules: InstalledModule[];
+  // Always `[]` on an archetype install, and still WRITTEN: every released CLI
+  // (0.3.0–0.12.0) reads a config whose `modules` is not an array as NO config
+  // ("Run `pharn init` first"), so dropping the key would make an older, pinned
+  // CLI treat this install as absent. The legacy module entries it held are no
+  // longer read (P7: they still load, untyped).
+  modules: unknown[];
   installedAt: string;
   // The `models` block — pharn-oss's schema (see above), carried VERBATIM: never
   // validated at load, so an old-format block `update` must migrate, pharn-oss's
@@ -143,9 +132,10 @@ export interface PharnConfig {
   // with DEFAULT_SEAM_CONFIG; absent on legacy installs predating it (P7 —
   // additive). Validated by validateSeamConfig (src/lib/seam-config.ts).
   seam?: SeamConfig;
-  // schemaVersion 2 additions (absent on legacy installs):
+  // LEGACY schemaVersion 2 (wizard) fields: nothing reads them; they still
+  // load (P7), so an old config carrying them type-checks on read.
   stackAnswers?: Record<string, string>;
-  installedSkills?: InstalledSkill[];
+  installedSkills?: unknown;
   // Archetype (capability) installs (pharn init). Additive; absent on
   // legacy module installs. `modules` is [] for an archetype install; these record
   // the detected archetypes and the capabilities copied for them.

@@ -14,7 +14,7 @@ import {
 } from '../lib/write-targets.js';
 import type { CapabilityRemoval } from '../lib/capability-removal.js';
 import { BACKUP_DIR } from '../lib/backup.js';
-import { readBoundedFile } from '../lib/bounded-read.js';
+import { readJsonBounded } from '../lib/bounded-read.js';
 import type { FileRecords } from '../lib/install-records.js';
 import { safeJoin, VERSION_RE } from '../lib/validate.js';
 import type { Selection } from '../types.js';
@@ -70,18 +70,14 @@ export { MAX_LISTED };
 function recordedSkillsVersion(cwd: string): string | null {
   // Bounded and non-blocking (lib/bounded-read.ts): a FIFO here must not hang
   // the prompt it only decorates.
-  const read = readBoundedFile(safeJoin(cwd, PHARN_CONFIG_FILE));
+  const read = readJsonBounded(safeJoin(cwd, PHARN_CONFIG_FILE));
   if (read.kind !== 'ok') return null;
-  try {
-    const parsed: unknown = JSON.parse(read.bytes.toString('utf8'));
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const version = (parsed as { skillsVersion?: unknown }).skillsVersion;
-    return typeof version === 'string' && VERSION_RE.test(version)
-      ? version
-      : null;
-  } catch {
-    return null;
-  }
+  const parsed = read.value;
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const version = (parsed as { skillsVersion?: unknown }).skillsVersion;
+  return typeof version === 'string' && VERSION_RE.test(version)
+    ? version
+    : null;
 }
 
 /**

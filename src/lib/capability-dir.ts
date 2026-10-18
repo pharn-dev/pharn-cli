@@ -1,6 +1,6 @@
 import { existsSync, rmSync } from 'node:fs';
 import { capabilitySubtree, type LayoutPaths } from './layout.js';
-import { findSymlinkComponent } from './symlink-guard.js';
+import { findSymlinkComponentOr } from './symlink-guard.js';
 import { safeChildJoin, safeJoin } from './validate.js';
 import type { InstalledCapability } from '../types.js';
 
@@ -57,11 +57,7 @@ export function linkedComponent(
   paths: LayoutPaths,
   capability: InstalledCapability,
 ): string | null {
-  try {
-    return findSymlinkComponent(cwd, capabilityRelDir(paths, capability));
-  } catch {
-    return null;
-  }
+  return findSymlinkComponentOr(cwd, capabilityRelDir(paths, capability), null);
 }
 
 /**

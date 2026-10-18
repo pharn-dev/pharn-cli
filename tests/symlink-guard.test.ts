@@ -11,7 +11,10 @@ import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { applyWrites, ApplyError } from '../src/lib/apply-update.js';
 import { createBackup } from '../src/lib/backup.js';
-import { findSymlinkComponent } from '../src/lib/symlink-guard.js';
+import {
+  findSymlinkComponent,
+  findSymlinkComponentOr,
+} from '../src/lib/symlink-guard.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -233,5 +236,49 @@ describe('the symlink-component walk lives in exactly one module', () => {
     // …and the core itself still carries it, so the pin cannot pass vacuously
     // after a rename or a move.
     expect(readFileSync(guard, 'utf8')).toContain(idiom);
+  });
+});
+
+// The total form the three ENOTDIR-tolerant callers share (capability deletes,
+// init's destination pre-flight, scanDest): the walk's own answer whenever it
+// HAS one, and the caller's fallback whenever it throws.
+describe('findSymlinkComponentOr — the walk, with a caller-chosen fallback', () => {
+  const tmp = useTmpDir();
+  const FALLBACK = Symbol('fallback');
+
+  it('a clean path → null, never the fallback', () => {
+    const base = tmp.path();
+    write(join(base, 'a/b/c.md'));
+    expect(findSymlinkComponentOr(base, 'a/b/c.md', FALLBACK)).toBeNull();
+  });
+
+  it('a path that does not exist yet → null, never the fallback', () => {
+    expect(
+      findSymlinkComponentOr(tmp.path(), 'not/there.md', FALLBACK),
+    ).toBeNull();
+  });
+
+  it('a symlinked component → that component, never the fallback', () => {
+    const base = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    mkdirSync(join(base, 'a'), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(base, 'a/b'));
+    expect(findSymlinkComponentOr(base, 'a/b/c.md', FALLBACK)).toBe('a/b');
+  });
+
+  it('a component below a regular file (ENOTDIR) → the fallback', () => {
+    const base = tmp.path();
+    write(join(base, 'blocker'));
+    expect(findSymlinkComponentOr(base, 'blocker/child.md', FALLBACK)).toBe(
+      FALLBACK,
+    );
+    expect(findSymlinkComponentOr(base, 'blocker/child.md', null)).toBeNull();
+  });
+
+  it('any other throw (the lexical escape refusal) → the fallback too', () => {
+    expect(findSymlinkComponentOr(tmp.path(), '../escape', FALLBACK)).toBe(
+      FALLBACK,
+    );
   });
 });

@@ -430,17 +430,6 @@ export function archetypesFromSignals(sig: ArchetypeSignals): Archetype[] {
   return ARCHETYPE_ORDER.filter((a) => found.has(a));
 }
 
-/**
- * Detect the project archetype set from package.json alone (the pure,
- * package.json-only path). Preserved byte-for-byte in output for existing
- * callers: `archetypesFromSignals(packageSignals(pkg))`. The file-tree-aware
- * detection lives in detect-archetype.ts, which merges this file's signals with
- * the tree's before applying the rule.
- */
-export function detectArchetypes(pkg: ProjectPackages): Archetype[] {
-  return archetypesFromSignals(packageSignals(pkg));
-}
-
 // ---------------------------------------------------------------------------
 // Evidence + the `--archetype` grammar (pure). Evidence is what the install
 // summary prints beside each archetype; the grammar is what `--archetype`

@@ -15,7 +15,6 @@ import {
 } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import {
-  assertNoDotDot,
   assertSafeString,
   COPY_FILENAME_RE,
   safeJoin,
@@ -237,7 +236,6 @@ function collectInstallManifest(params: {
     (rel: string): void => {
       const label = `${dir}/${rel}`;
       assertSafeString(rel, label, COPY_FILENAME_RE);
-      assertNoDotDot(rel, label);
     };
 
   // Selected capabilities (whole dir, incl. evals) at the layout's subtree.

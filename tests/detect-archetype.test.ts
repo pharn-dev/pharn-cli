@@ -8,14 +8,18 @@ import {
   SKIP_DIRS,
   WALK_LIMITS,
   detectArchetypesFromProject,
+  readPackageFacts,
   scanFileTree,
   scanFileTreeSignals,
 } from '../src/lib/detect-archetype.js';
 import type { ArchetypeDetection } from '../src/lib/detect-archetype.js';
 
 // The archetype verdict without its evidence or the truncation flag (each has
-// its own suite below).
-type Detected = Omit<ArchetypeDetection, 'evidence' | 'truncated'>;
+// its own suite below), beside whether package.json was read as usable (the
+// manifest boundary, `readPackageFacts`).
+type Detected = Pick<ArchetypeDetection, 'archetypes'> & {
+  packageJsonFound: boolean;
+};
 import {
   archetypesFromSignals,
   classifyEntry,
@@ -30,9 +34,10 @@ function writePkg(dir: string, pkg: unknown): void {
   writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg));
 }
 
-// Detect, keeping only the archetypes + packageJsonFound (the verdict).
+// Detect, keeping only the archetypes, + whether package.json was usable.
 function detect(dir: string): Detected {
-  const { archetypes, packageJsonFound } = detectArchetypesFromProject(dir);
+  const { archetypes } = detectArchetypesFromProject(dir);
+  const { packageJsonFound } = readPackageFacts(dir);
   return { archetypes, packageJsonFound };
 }
 
@@ -141,7 +146,8 @@ describe('detectArchetypesFromProject', () => {
 });
 
 // PHARN-15: the package.json read is ONE bounded descriptor read. Every
-// unusable shape yields `packageJsonFound: false` and never throws or blocks.
+// unusable shape yields `packageJsonFound: false` (readPackageFacts) and never
+// throws or blocks.
 describe('detectArchetypesFromProject — package.json read hardening', () => {
   const tmp = useTmpDir();
 
@@ -151,7 +157,7 @@ describe('detectArchetypesFromProject — package.json read hardening', () => {
       '\uFEFF' + JSON.stringify({ dependencies: { next: '15' } }),
     );
     const result = detectArchetypesFromProject(tmp.path());
-    expect(result.packageJsonFound).toBe(true);
+    expect(readPackageFacts(tmp.path()).packageJsonFound).toBe(true);
     expect(result.archetypes).toContain('ssr');
   });
 
@@ -161,16 +167,12 @@ describe('detectArchetypesFromProject — package.json read hardening', () => {
       join(tmp.path(), 'package.json'),
       `{"dependencies":{"next":"15"}}${pad}`,
     );
-    expect(detectArchetypesFromProject(tmp.path()).packageJsonFound).toBe(
-      false,
-    );
+    expect(readPackageFacts(tmp.path()).packageJsonFound).toBe(false);
   });
 
   it('treats a directory at package.json as not found', () => {
     mkdirSync(join(tmp.path(), 'package.json'));
-    expect(detectArchetypesFromProject(tmp.path()).packageJsonFound).toBe(
-      false,
-    );
+    expect(readPackageFacts(tmp.path()).packageJsonFound).toBe(false);
   });
 
   it("still follows a symlink to a regular manifest (the user's own project)", () => {
@@ -178,7 +180,7 @@ describe('detectArchetypesFromProject — package.json read hardening', () => {
     writeFileSync(real, JSON.stringify({ dependencies: { next: '15' } }));
     symlinkSync(real, join(tmp.path(), 'package.json'));
     const result = detectArchetypesFromProject(tmp.path());
-    expect(result.packageJsonFound).toBe(true);
+    expect(readPackageFacts(tmp.path()).packageJsonFound).toBe(true);
     expect(result.archetypes).toContain('ssr');
   });
 
@@ -186,8 +188,10 @@ describe('detectArchetypesFromProject — package.json read hardening', () => {
     'does not block on a FIFO at package.json',
     () => {
       execFileSync('mkfifo', [join(tmp.path(), 'package.json')]);
-      const result = detectArchetypesFromProject(tmp.path());
-      expect(result.packageJsonFound).toBe(false);
+      expect(detectArchetypesFromProject(tmp.path()).archetypes).toEqual([
+        'lib',
+      ]);
+      expect(readPackageFacts(tmp.path()).packageJsonFound).toBe(false);
     },
     5000,
   );
@@ -196,9 +200,7 @@ describe('detectArchetypesFromProject — package.json read hardening', () => {
     'does not read a device without bound (symlink to /dev/zero)',
     () => {
       symlinkSync('/dev/zero', join(tmp.path(), 'package.json'));
-      expect(detectArchetypesFromProject(tmp.path()).packageJsonFound).toBe(
-        false,
-      );
+      expect(readPackageFacts(tmp.path()).packageJsonFound).toBe(false);
     },
     5000,
   );

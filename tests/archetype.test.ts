@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   archetypesFromSignals,
   classifyEntry,
-  detectArchetypes,
   evidenceFor,
   isBaseDir,
   isNextConfigName,
@@ -26,7 +25,13 @@ function deps(...names: string[]): ProjectPackages {
   };
 }
 
-describe('detectArchetypes', () => {
+// The package.json-only rule: the package signals, then the archetype rule
+// (what detection applies when the file tree adds nothing).
+function packageArchetypes(pkg: ProjectPackages): Archetype[] {
+  return archetypesFromSignals(packageSignals(pkg));
+}
+
+describe('the package.json rule (archetypesFromSignals ∘ packageSignals)', () => {
   it.each<[string, ProjectPackages, Archetype[]]>([
     ['next → ssr', deps('next'), ['ssr']],
     ['express only → backend', deps('express'), ['backend']],
@@ -61,7 +66,7 @@ describe('detectArchetypes', () => {
     ['no framework → lib', deps('lodash'), ['lib']],
     ['empty package.json → lib', {}, ['lib']],
   ])('%s', (_label, pkg, expected) => {
-    expect(detectArchetypes(pkg)).toEqual(expected);
+    expect(packageArchetypes(pkg)).toEqual(expected);
   });
 
   // F-27: SSR meta-frameworks the allowlist used to miss — each listed with
@@ -80,11 +85,11 @@ describe('detectArchetypes', () => {
     ['vite-plugin-ssr', 'vue'],
     ['@nguniversal/express-engine', '@angular/core'],
   ])('%s (+ %s) → ssr, not spa', (framework, ui) => {
-    expect(detectArchetypes(deps(framework, ui))).toEqual(['ssr']);
+    expect(packageArchetypes(deps(framework, ui))).toEqual(['ssr']);
   });
 
   it('React Router library mode (react-router alone) stays spa', () => {
-    expect(detectArchetypes(deps('react-router', 'react'))).toEqual(['spa']);
+    expect(packageArchetypes(deps('react-router', 'react'))).toEqual(['spa']);
   });
 
   // F-27: server / API frameworks and DB clients (a runtime DB driver
@@ -107,21 +112,21 @@ describe('detectArchetypes', () => {
     'mongodb',
     'better-sqlite3',
   ])('%s (dependency) → backend', (name) => {
-    expect(detectArchetypes(deps(name))).toEqual(['backend']);
+    expect(packageArchetypes(deps(name))).toEqual(['backend']);
   });
 
   it('reads ssr and client-UI frameworks from devDependencies too', () => {
     // next only in devDependencies → still ssr
-    expect(detectArchetypes({ devDependencies: { next: '15.0.0' } })).toEqual([
+    expect(packageArchetypes({ devDependencies: { next: '15.0.0' } })).toEqual([
       'ssr',
     ]);
     // The SvelteKit template lists both as devDependencies.
     expect(
-      detectArchetypes({
+      packageArchetypes({
         devDependencies: { '@sveltejs/kit': '2', svelte: '5' },
       }),
     ).toEqual(['ssr']);
-    expect(detectArchetypes({ devDependencies: { react: '19' } })).toEqual([
+    expect(packageArchetypes({ devDependencies: { react: '19' } })).toEqual([
       'spa',
     ]);
   });
@@ -138,19 +143,19 @@ describe('detectArchetypes', () => {
     'better-sqlite3',
   ])('a devDependency-only %s does not raise backend', (name) => {
     expect(
-      detectArchetypes({
+      packageArchetypes({
         dependencies: { react: '18.0.0' },
         devDependencies: { [name]: '1.0.0' },
       }),
     ).toEqual(['spa']);
-    expect(detectArchetypes({ devDependencies: { [name]: '1.0.0' } })).toEqual([
-      'lib',
-    ]);
+    expect(packageArchetypes({ devDependencies: { [name]: '1.0.0' } })).toEqual(
+      ['lib'],
+    );
   });
 
   it('the same package as a dependency still raises backend', () => {
     expect(
-      detectArchetypes({
+      packageArchetypes({
         dependencies: { react: '18.0.0', express: '4.0.0' },
         devDependencies: { express: '4.0.0' },
       }),
@@ -164,12 +169,12 @@ describe('detectArchetypes', () => {
       peerDependencies: { next: '15', react: '19' },
       optionalDependencies: { express: '4', pg: '8' },
     } as ProjectPackages;
-    expect(detectArchetypes(pkg)).toEqual(['lib']);
+    expect(packageArchetypes(pkg)).toEqual(['lib']);
   });
 
   it('returns archetypes in the fixed enum order regardless of input order', () => {
     // express listed before next in the input; output is still ssr, then backend
-    expect(detectArchetypes(deps('express', 'next'))).toEqual([
+    expect(packageArchetypes(deps('express', 'next'))).toEqual([
       'ssr',
       'backend',
     ]);
@@ -177,7 +182,7 @@ describe('detectArchetypes', () => {
 
   it('is deterministic — the same input yields the same result', () => {
     const pkg = deps('next', 'express', 'react');
-    expect(detectArchetypes(pkg)).toEqual(detectArchetypes(pkg));
+    expect(packageArchetypes(pkg)).toEqual(packageArchetypes(pkg));
   });
 });
 

@@ -56,16 +56,13 @@ import type { Archetype } from '../types.js';
 // wording is a human call. The mechanism stays deterministic either way (P5).
 // ---------------------------------------------------------------------------
 
-// The boundary's result: the detected archetypes, plus whether a usable
-// package.json was actually read. `packageJsonFound` distinguishes "no usable
-// manifest" (missing / malformed / non-object → false) from a found manifest
-// (true). NOTE: with file-tree scanning, `packageJsonFound: false` no longer
-// implies `archetypes: ['lib']` — a manifest-less project with a `.tsx` file is
-// `{ archetypes: ['spa'], packageJsonFound: false }`. Callers must not conflate
-// the two.
+// The boundary's result: the detected archetypes, with their evidence. Whether
+// a usable package.json was read is `readPackageFacts`' answer (below) — it
+// feeds the walk as `jsProject` and is not part of this result: no caller acts
+// on it, and with file-tree scanning a missing manifest no longer implies
+// `['lib']` (a manifest-less project with a `.tsx` file is `['spa']`).
 export interface ArchetypeDetection {
   archetypes: Archetype[];
-  packageJsonFound: boolean;
   // One entry per archetype, in the same order (see `evidenceFor`).
   evidence: ArchetypeEvidence[];
   // The bounded walk stopped (WALK_LIMITS) while the result could still change,
@@ -324,6 +321,9 @@ export function scanFileTree(
       const isDir = entry.isDirectory();
       if (isDir && SKIP_DIRS.has(name.toLowerCase())) continue;
       if (isDir && isEcosystemTree(dir, name, siblingFiles)) continue;
+      // `.env*` files are never classified and, skipped BEFORE `budget -= 1`,
+      // never spend the walk's budget: a secrets file is not a signal (not
+      // even a `.env.tsx` / `.env.sql`), and pinned by the budget tests.
       if (!isDir && name.toLowerCase().startsWith('.env')) continue;
       if (!isDir && !entry.isFile()) continue; // sockets/fifos/etc.: not signals
       // An entry the walk WOULD classify, past a cap: the result may be
@@ -428,7 +428,7 @@ function readPackageJsonText(pkgPath: string): string | null {
  * yield the empty facts with `packageJsonFound: false`; a found, parseable
  * object yields its facts with `true`.
  */
-function readPackageFacts(cwd: string): {
+export function readPackageFacts(cwd: string): {
   pkg: PackageFacts;
   packageJsonFound: boolean;
 } {
@@ -459,11 +459,11 @@ function readPackageFacts(cwd: string): {
  * merge the two signal sets, then apply the archetype rule once.
  *
  * Deterministic (P5): the same project directory always yields the same result,
- * evidence included. `packageJsonFound` reports only whether a usable
- * package.json was read (see the interface note) — it is also the JS-ecosystem
- * evidence the walk's language-agnostic backend signals need; the archetype set
- * reflects BOTH sources — so a project with no manifest but a `.tsx` file is
- * `{ archetypes: ['spa'], packageJsonFound: false }`, and a wholly signal-less
+ * evidence included. Whether a usable package.json was read
+ * (`readPackageFacts`' `packageJsonFound`) is the JS-ecosystem evidence the
+ * walk's language-agnostic backend signals need; the archetype set reflects
+ * BOTH sources — so a project with no manifest but a `.tsx` file is
+ * `{ archetypes: ['spa'], ... }`, and a wholly signal-less
  * project is `{ archetypes: ['lib'], ... }` (the frameworkless base,
  * ARCHITECTURE.md §4). These are defined, deterministic outcomes, not guesses.
  */
@@ -479,7 +479,6 @@ export function detectArchetypesFromProject(cwd: string): ArchetypeDetection {
   );
   return {
     archetypes,
-    packageJsonFound,
     evidence: evidenceFor(
       archetypes,
       pkg.evidence,

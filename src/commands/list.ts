@@ -1,13 +1,7 @@
 import { intro, note, outro } from '@clack/prompts';
 import pc from '../lib/color.js';
 import { renderCapabilityLines } from '../lib/capability-groups.js';
-import { logError } from '../lib/report-error.js';
-import {
-  isArchetypeConfig,
-  isConfigValidationError,
-  LEGACY_CONFIG_MESSAGE,
-  readPharnConfig,
-} from '../lib/pharn-config.js';
+import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
 import type { Archetype, CapabilitySource, PharnConfig } from '../types.js';
 
 // Archetype (capability) install inventory — the offline view derived entirely
@@ -36,30 +30,10 @@ export async function runList(opts: { json?: boolean } = {}): Promise<void> {
   const cwd = process.cwd();
   if (!json) intro('pharn list');
 
-  let config: PharnConfig | null;
-  try {
-    config = readPharnConfig(cwd);
-  } catch (e) {
-    // A present-but-invalid seam block or capabilities entry: surface the
-    // loud, named error (json-aware, to stderr) + exit — never the "run init"
-    // lie (BUG 1). A non-config error is a bug: rethrow, never swallow.
-    if (isConfigValidationError(e)) {
-      emitError(e.message, json);
-      process.exit(1);
-    }
-    throw e;
-  }
-  if (!config) {
-    emitError('No pharn.config.json found. Run `pharn init` first.', json);
-    process.exit(1);
-  }
-
-  // A pre-archetype (module) config is no longer listable — the module/manifest
-  // path was removed. json-aware so --json keeps stdout pure (error → stderr).
-  if (!isArchetypeConfig(config)) {
-    emitError(LEGACY_CONFIG_MESSAGE, json);
-    process.exit(1);
-  }
+  // The shared load-or-reject surface (no config, a present-but-invalid one, a
+  // pre-archetype one → a named message + exit 1). Under `--json` the message is
+  // a plain stderr line, so stdout carries the inventory object or nothing.
+  const config = loadArchetypeConfigOrExit(cwd, { json });
 
   const inventory = buildArchetypeInventory(config);
   if (json) {
@@ -91,12 +65,4 @@ function renderArchetypeHuman(inv: ArchetypeInventory): void {
   note(lines.join('\n'), 'INSTALLED (archetype)');
   // One short sentence so it survives a narrow terminal without mid-word breaks.
   outro(pc.dim('Read-only — nothing changed.'));
-}
-
-function emitError(message: string, json: boolean): void {
-  // Both branches reach stderr now, and the split still earns its keep: the
-  // plain `console.error` is what keeps clack's chrome (glyphs, ANSI framing)
-  // out of a `2>&1` consumer's view when the caller asked for machine output.
-  if (json) console.error(message);
-  else logError(message);
 }

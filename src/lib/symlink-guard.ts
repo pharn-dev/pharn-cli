@@ -68,6 +68,29 @@ export function findSymlinkComponent(base: string, rel: string): string | null {
 }
 
 /**
+ * `findSymlinkComponent` made total: the walk's answer, or the caller's
+ * `unwalkable` value when the walk THROWS — ENOTDIR (a component below a regular
+ * file), or anything else it raises (EACCES, ELOOP, `safeJoin`'s escape
+ * refusal). Every throw, not ENOTDIR alone: that is the breadth of the three
+ * private wrappers this replaced, kept exactly. What the fallback MEANS is the
+ * caller's decision, which is why it is a parameter: `null` ("no symlink here")
+ * for `remove`/`update`'s capability deletes (`linkedComponent`) and `init`'s
+ * destination pre-flight, a sentinel ("cannot answer" → skip) for `scanDest`.
+ * A caller that must fail on a throw calls `findSymlinkComponent` itself.
+ */
+export function findSymlinkComponentOr<T>(
+  base: string,
+  rel: string,
+  unwalkable: T,
+): string | null | T {
+  try {
+    return findSymlinkComponent(base, rel);
+  } catch {
+    return unwalkable;
+  }
+}
+
+/**
  * The first component of `rel` below `base` whose existing type blocks
  * the write, or `null`. Intermediate components must be directories; the leaf
  * must be a regular file (or absent). Components that do not exist pass —
