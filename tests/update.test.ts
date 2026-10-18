@@ -2960,9 +2960,12 @@ describe('runUpdate (drift-safe)', () => {
     // the backup exited 1 having moved the user's bytes somewhere it never
     // named. Everything past createBackup is a post-backup throw site.
 
-    // Two --force casualties, and the hook's DEST made read-only so the backup
-    // still completes (0o444 is readable, so readDiskState hashes it and
-    // copyFileSync reads it) and the WRITE is what fails, mid-loop.
+    // Two --force casualties, and the hook's DIRECTORY made read-only so the
+    // backup still completes (0o555 is listable and the file readable, so
+    // readDiskState hashes it and the backup copies it) and the WRITE is what
+    // fails, mid-loop: the replacement's temp sibling cannot be created there.
+    // (A read-only FILE no longer stops it — every write replaces the file by
+    // rename rather than writing into it, F-19.)
     //
     // ORDER IS LOAD-BEARING: the chmod comes after the writes above it, or the
     // fixture's own write would fail EACCES and the test would pass for the
@@ -2971,7 +2974,7 @@ describe('runUpdate (drift-safe)', () => {
       await installed();
       write(join(proj, DOC), 'MY LOCAL EDIT');
       write(join(proj, HOOK), 'MY LOCAL HOOK EDIT');
-      chmodSync(join(proj, HOOK), 0o444);
+      chmodSync(join(proj, HOOK, '..'), 0o555);
       try {
         await expect(runUpdate({ force: true })).rejects.toMatchObject(
           new ProcessExit(1),
@@ -2980,7 +2983,7 @@ describe('runUpdate (drift-safe)', () => {
         // Restored inside the helper, not in an afterEach: useTmpDir's rmSync
         // suppresses ENOENT, not EACCES, and this must hold even if the
         // assertion throws. (Inert for uid 0 — this suite must not run as root.)
-        chmodSync(join(proj, HOOK), 0o644);
+        chmodSync(join(proj, HOOK, '..'), 0o755);
       }
     }
 
@@ -3431,14 +3434,15 @@ describe('runUpdate (drift-safe)', () => {
     //
     // The mechanism has to survive the classifier: a symlinked PARENT (what this
     // used to use) is now an `unreadable` SKIP and never reaches applyWrites at
-    // all. A read-only DEST FILE does — readDiskState still hashes it, so the
-    // plan is unchanged (row 3, `updated`, a planned write) and copyFileSync is
-    // what fails, mid-loop.
+    // all. A read-only DEST DIRECTORY does — readDiskState still hashes the file,
+    // so the plan is unchanged (row 3, `updated`, a planned write), and the
+    // replacement's temp sibling is what cannot be created, mid-loop. (A
+    // read-only dest FILE no longer fails: writes replace by rename, F-19.)
     //
     // ORDER IS LOAD-BEARING: the chmod comes AFTER the writes above and AFTER
     // writeRecords hashed those bytes, or the fixture itself would fail EACCES
     // and the test would pass for the wrong reason.
-    chmodSync(join(proj, HOOK), 0o444);
+    chmodSync(join(proj, HOOK, '..'), 0o555);
 
     try {
       await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
@@ -3446,7 +3450,7 @@ describe('runUpdate (drift-safe)', () => {
       // Restored inside the test, not in an afterEach: useTmpDir's rmSync
       // suppresses ENOENT, not EACCES, and this must hold even if the assertion
       // above throws. (Inert for uid 0 — this suite must not run as root.)
-      chmodSync(join(proj, HOOK), 0o644);
+      chmodSync(join(proj, HOOK, '..'), 0o755);
     }
 
     // The manifest writes capabilities and commands BEFORE hooks, so those

@@ -387,6 +387,78 @@ describe('runRemove (archetype)', () => {
     expect(writePharnConfig).not.toHaveBeenCalled();
   });
 
+  // --- F-20: the symlink walk is re-run UNDER the lock ------------------------
+  // The early walk is the cheap answer before the lock (and the picker's
+  // confirm); a parent swapped to a link after it must still be refused, with
+  // nothing deleted and the lock released.
+
+  it('named: a parent swapped to a symlink after the early check is refused under the lock', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([{ name: 'a11y', role: 'lens' }], { layout: 'pharn' }),
+    );
+    write(join(proj, 'pharn/pharn-review/a11y/a11y.md'), 'PHARN');
+    const shared = join(tmp.path(), 'shared');
+    write(join(shared, 'a11y/NOTES.md'), 'USER NOTES');
+    // assertConfigUnchanged is the FIRST step inside the lock: swapping there
+    // lands after the early walk and before the delete.
+    assertConfigUnchanged.mockImplementationOnce(() => {
+      rmSync(join(proj, 'pharn/pharn-review'), { recursive: true });
+      symlinkSync(shared, join(proj, 'pharn/pharn-review'));
+    });
+    const before = snapshot(shared);
+
+    await expect(runRemove('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(assertConfigUnchanged).toHaveBeenCalledTimes(1);
+    expect(snapshot(shared)).toEqual(before);
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(existsSync(join(proj, '.pharn.lock'))).toBe(false);
+    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(
+      vi.mocked(prompts.log.error).mock.calls.map(String).join(),
+    ).toContain('pharn/pharn-review is a symbolic link');
+  });
+
+  it('picker: a parent swapped to a symlink while the confirm is open is refused under the lock', async () => {
+    setTTY(true, true);
+    loadArchetypeConfigOrExit.mockReturnValue(
+      archConfig([
+        { name: 'a11y', role: 'griller' },
+        { name: 'n-plus-one', role: 'lens' },
+      ]),
+    );
+    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'SAFE');
+    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+    const shared = join(tmp.path(), 'shared');
+    write(join(shared, 'n-plus-one/NOTES.md'), 'USER NOTES');
+    vi.mocked(prompts.groupMultiselect).mockResolvedValueOnce([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+    vi.mocked(prompts.confirm).mockImplementationOnce(() => {
+      rmSync(join(proj, 'pharn-review'), { recursive: true });
+      symlinkSync(shared, join(proj, 'pharn-review'));
+      return Promise.resolve(true);
+    });
+    const before = snapshot(shared);
+
+    await expect(runRemove(undefined)).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+
+    expect(prompts.confirm).toHaveBeenCalledTimes(1);
+    expect(snapshot(shared)).toEqual(before);
+    // The WHOLE selection is refused: the safe pick is not deleted either.
+    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
+      true,
+    );
+    expect(writePharnConfig).not.toHaveBeenCalled();
+    expect(existsSync(join(proj, '.pharn.lock'))).toBe(false);
+    expect(
+      vi.mocked(prompts.log.error).mock.calls.map(String).join(),
+    ).toContain('pharn-review is a symbolic link');
+  });
+
   // --- bare `pharn remove` (no arg): multi-select picker / non-TTY guard -------
 
   it('no-arg in a TTY multi-selects, confirms, deletes each + one config write', async () => {

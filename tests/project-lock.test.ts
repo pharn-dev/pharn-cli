@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
+  FUTURE_SKEW_MS,
   LOCK_FILE,
   MALFORMED_GRACE_MS,
   ProjectLockedError,
@@ -335,26 +336,86 @@ describe('withProjectLock', () => {
     expect(lockSiblings(dir)).toEqual(['.pharn.lock.4821.deadbeef']);
   });
 
-  it('does not wedge when the lock path is a DIRECTORY', async () => {
+  // F-39 (b). pharn never creates a directory here, so one is the user's. It
+  // used to be renamed aside to a corpse name — silently moving the user's
+  // directory, contents and all, which the sweep then tried to delete. It is
+  // now a named refusal: never a silent wedge (the message says what to do),
+  // and never a move.
+  it('refuses, by name, when the lock path is a DIRECTORY — and leaves it in place', async () => {
     const dir = tmp.path();
-    // A hand-made mistake the old rmSync(force) could never clear: force does not
-    // imply recursive, so the delete threw ERR_FS_EISDIR on every run and the
-    // project refused forever — hazard #1 (wedging) in this file's own header.
     mkdirSync(lockPath(dir));
+    writeFileSync(join(lockPath(dir), 'notes.txt'), 'mine');
     const when = new Date(Date.now() - MALFORMED_GRACE_MS - 60_000);
     utimesSync(lockPath(dir), when, when);
 
     let ran = false;
-    await withProjectLock(dir, 'add', () => {
+    const err = await withProjectLock(dir, 'add', () => {
+      ran = true;
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(ran).toBe(false);
+    expect(err).toBeInstanceOf(ProjectLockedError);
+    expect((err as Error).message).toContain(
+      `${LOCK_FILE} is a directory, not a pharn lock file`,
+    );
+    expect((err as Error).message).toMatch(/[Rr]emove it yourself/);
+    expect(statSync(lockPath(dir)).isDirectory()).toBe(true);
+    expect(readFileSync(join(lockPath(dir), 'notes.txt'), 'utf8')).toBe('mine');
+    expect(lockSiblings(dir)).toEqual([]);
+  });
+});
+
+// F-39 (a). A lock is retired on evidence: age, or a dead pid on this host. A
+// startedAt in the FUTURE defeated the age rule (now - startedAt is negative),
+// so a lock naming a pid that happens to be live — recycled, or pid 1 — was
+// never stale. A startedAt more than FUTURE_SKEW_MS ahead is treated like a
+// malformed payload: stale once the FILE is older than the grace window.
+describe('withProjectLock — a startedAt in the future (F-39)', () => {
+  const tmp = useTmpDir();
+
+  function futureLock(dir: string, aheadMs: number, ageMs?: number): void {
+    plantLock(
+      dir,
+      {
+        pid: process.pid, // alive — liveness must not be what decides this
+        host: hostname(),
+        command: 'update',
+        startedAt: new Date(Date.now() + aheadMs).toISOString(),
+      },
+      ageMs,
+    );
+  }
+
+  it('breaks a far-future lock with a live pid once the file is past the grace window', async () => {
+    const dir = tmp.path();
+    futureLock(dir, 100 * 365 * 24 * 60 * 60 * 1000);
+    let ran = false;
+    await withProjectLock(dir, 'update', () => {
       ran = true;
     });
-
     expect(ran).toBe(true);
-    // Moved aside under a corpse name, never recursively deleted: pharn does not
-    // remove a directory a user put there.
-    const left = lockSiblings(dir);
-    expect(left).toHaveLength(1);
-    expect(statSync(join(dir, left[0]!)).isDirectory()).toBe(true);
+    expect(existsSync(lockPath(dir))).toBe(false);
+  });
+
+  it('still refuses a future lock whose file is FRESH (as for any malformed lock)', async () => {
+    const dir = tmp.path();
+    futureLock(dir, FUTURE_SKEW_MS + 60_000, 0);
+    await expect(
+      withProjectLock(dir, 'update', () => {}),
+    ).rejects.toBeInstanceOf(ProjectLockedError);
+    expect(existsSync(lockPath(dir))).toBe(true);
+  });
+
+  it('tolerates clock skew within FUTURE_SKEW_MS: a live lock stays live', async () => {
+    const dir = tmp.path();
+    futureLock(dir, FUTURE_SKEW_MS - 60_000);
+    await expect(
+      withProjectLock(dir, 'update', () => {}),
+    ).rejects.toBeInstanceOf(ProjectLockedError);
+    expect(payload(dir).command).toBe('update');
   });
 });
 
@@ -611,7 +672,7 @@ describe('withProjectLock — a fatal signal while held', () => {
       `
       globalThis.fetch = async (url) =>
         String(url).startsWith('https://api.github.com/')
-          ? new Response(JSON.stringify({ sha: ${JSON.stringify(sha)} }))
+          ? new Response(${JSON.stringify(sha)})
           : new Response(new Uint8Array(githubArchive(${JSON.stringify(sha)})));
       await withProjectLock(dir, 'update', async () => {
         const repo = await fetchRepo({ kind: 'main' });

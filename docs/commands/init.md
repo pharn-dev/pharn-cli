@@ -577,8 +577,8 @@ blocked by it.
 
 Two consequences are deliberate. Because the lock is taken late, a second writer racing `pharn init`
 still pays for the full download before being refused — accepted, because the alternative is holding
-the lock across an unanswered human prompt. And because both prompts sit inside the run, a walked-away
-`init` can block other writers until the six-hour staleness window expires. See
+the lock across an unanswered human prompt. And because the lock is taken only after both prompts, a
+walked-away `init` holds nothing: other writers are not blocked while its prompts wait. See
 [Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
 
 ## Legacy configs

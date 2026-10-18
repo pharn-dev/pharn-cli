@@ -174,7 +174,7 @@ describe('fetchRepo', () => {
       // would keep passing if the resolve URL drifted. Comparing the whole
       // string makes this an assertion about the resolve URL too.
       if (url === RESOLVE_URL) {
-        return sha === null ? jsonResponse({}, 404) : jsonResponse({ sha });
+        return sha === null ? jsonResponse({}, 404) : new Response(`${sha}\n`);
       }
       return body;
     });
@@ -361,9 +361,52 @@ describe('fetchCommitSha', () => {
     vi.stubGlobal('fetch', vi.fn(impl));
   }
 
-  it('returns the sha on a successful response', async () => {
-    stubFetch(() => jsonResponse({ sha: 'abc123' }));
-    expect(await fetchCommitSha()).toBe('abc123');
+  it('returns the sha on a successful response (bare id, trimmed)', async () => {
+    stubFetch(() => new Response(`${VALID_SHA}\n`));
+    expect(await fetchCommitSha()).toBe(VALID_SHA);
+  });
+
+  // F-21: the bare-id media type, never the full commit object (whose size is
+  // set by whatever merged last).
+  it('asks for the bare-id media type at the resolve URL', async () => {
+    const mock = vi.fn(() => new Response(VALID_SHA));
+    vi.stubGlobal('fetch', mock);
+    await fetchCommitSha();
+    const [url, init] = mock.mock.calls[0] as unknown as [
+      string,
+      { headers: Record<string, string>; redirect: string },
+    ];
+    expect(url).toBe(RESOLVE_URL);
+    expect(init.headers.Accept).toBe('application/vnd.github.sha');
+    expect(init.redirect).toBe('error');
+  });
+
+  // F-21: the body used to be read with no cap. Over the cap the read is
+  // cancelled and the resolve degrades to null — the same float as any other
+  // failed resolve (LIMITS §3b).
+  it('returns null and cancels the read when the body exceeds the cap', async () => {
+    let cancelled = false;
+    let sent = 0;
+    const chunk = new TextEncoder().encode('a'.repeat(512));
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        sent += chunk.byteLength;
+        c.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    stubFetch(() => ({ ok: true, status: 200, body }));
+    expect(await fetchCommitSha()).toBeNull();
+    expect(cancelled).toBe(true);
+    // Stopped just past the 1 KiB cap, not after an unbounded read.
+    expect(sent).toBeLessThanOrEqual(4096);
+  });
+
+  it('returns a single non-SHA token for fetchRepo to refuse loudly', async () => {
+    stubFetch(() => new Response('not-a-sha'));
+    expect(await fetchCommitSha()).toBe('not-a-sha');
   });
 
   it('returns null on a non-ok response', async () => {
@@ -371,12 +414,12 @@ describe('fetchCommitSha', () => {
     expect(await fetchCommitSha()).toBeNull();
   });
 
-  it('returns null when the sha is not a string', async () => {
-    stubFetch(() => jsonResponse({ sha: 42 }));
+  it('returns null on an empty body', async () => {
+    stubFetch(() => new Response(''));
     expect(await fetchCommitSha()).toBeNull();
   });
 
-  it('returns null when the body is not JSON', async () => {
+  it('returns null when the body is not a bare id (an HTML page)', async () => {
     stubFetch(() => new Response('<html>rate limited</html>'));
     expect(await fetchCommitSha()).toBeNull();
   });
@@ -399,7 +442,7 @@ describe('fetchCommitSha', () => {
   it('cancels a body still streaming at the 8s deadline', async () => {
     vi.useFakeTimers();
     try {
-      const body = observedBody('{"sha":"', { hang: true });
+      const body = observedBody('da39a3ee', { hang: true });
       stubFetch(() => ({ ok: true, status: 200, body: body.body }));
       const pending = fetchCommitSha();
       await vi.advanceTimersByTimeAsync(8000);

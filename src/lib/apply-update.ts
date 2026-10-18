@@ -1,5 +1,6 @@
-import { copyFileSync, lstatSync, mkdirSync } from 'node:fs';
+import { lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { copyFileAtomicSync } from './atomic-write.js';
 import { contentHash } from './hash.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { ManifestValidationError, safeJoin, toPosix } from './validate.js';
@@ -11,7 +12,7 @@ import type { DiskState } from './update-decision.js';
 // whole point is that SOME files are left alone.
 //
 // Trust (P2): `safeJoin` is LEXICAL — it contains the path string but does not
-// resolve symlinks, and `copyFileSync` FOLLOWS a symlinked destination. So every
+// resolve symlinks, and a plain copy FOLLOWS a symlinked destination. So every
 // write lstat-checks its destination and each parent component created below the
 // project root, and refuses to write through a symlink. (This closes the same
 // hole the existing recursive `cpSync` install path still has for capability
@@ -130,7 +131,12 @@ export function applyWrites(params: {
         );
       }
       mkdirSync(dirname(to), { recursive: true });
-      copyFileSync(from, to);
+      // By replacement, never in place (F-19): `copyFileSync` wrote INTO the
+      // destination's inode, so a destination hard-linked to a file outside
+      // the project overwrote that file — and a hard link is invisible to the
+      // symlink walk above. A temp sibling renamed over the name leaves every
+      // other link with its old bytes (lib/atomic-write.ts).
+      copyFileAtomicSync(from, to);
       written.push(rel);
     } catch (err) {
       throw new ApplyError(

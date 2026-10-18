@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   closeSync,
   linkSync,
+  lstatSync,
   openSync,
   readdirSync,
   renameSync,
@@ -42,8 +43,15 @@ import { safeJoin } from './validate.js';
 //     lock that outlives its owner forever would make the project unusable. So a
 //     STALE lock is broken.
 //   - Stealing. Break too eagerly and the lock is decorative. So a lock is only
-//     broken on evidence: it is malformed, it is older than STALE_MS, or its pid
-//     is provably dead ON THIS HOST.
+//     broken on evidence: it is malformed (a `startedAt` more than
+//     FUTURE_SKEW_MS in the future counts), it is older than STALE_MS, or its
+//     pid is provably dead ON THIS HOST.
+//
+// PID RECYCLING, named (P0): "provably dead" means the existence probe says
+// ESRCH. When a SIGKILLed run's pid has since been reused by an unrelated
+// process, the probe finds that process alive, and the dead run's lock reads as
+// LIVE until age retires it — up to STALE_MS. A refusal, never a steal, so it
+// errs the safe way; deleting `.pharn.lock` by hand is the documented escape.
 //
 // Zero-cost for readers by construction: `list` and `status` never call this, so
 // `status --strict` stays runnable in CI while an update holds the lock.
@@ -74,13 +82,13 @@ const CORPSE_RE = /^\.pharn\.lock\.[0-9]+\.[0-9a-f]{8}$/;
  *
  * This is a backstop for the cases process-liveness cannot answer — a holder on
  * another host, or a pid the OS has recycled. It is deliberately generous
- * because not every held window is bounded: `pharn init` holds the lock across
- * both of its prompts and bare `pharn add` holds it across its multi-select, so
- * a lock a few minutes old may well be a human still reading (see
- * `withProjectLock` for where each command acquires, and why). Six hours is far
- * past any plausible prompt and still far short of "forever". Breaking a live
- * lock is the worse error, so when the two hazards trade off, age errs toward
- * waiting.
+ * because not every held window is bounded: bare `pharn add` holds the lock
+ * across its multi-select, so a lock a few minutes old may well be a human
+ * still reading. (`pharn init` does NOT hold it across its prompts — it
+ * acquires after both; see `withProjectLock` for where each command acquires,
+ * and why.) Six hours is far past any plausible prompt and still far short of
+ * "forever". Breaking a live lock is the worse error, so when the two hazards
+ * trade off, age errs toward waiting.
  */
 export const STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -95,6 +103,25 @@ export const STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
  * a genuinely corrupt one still cannot wedge the project for longer.
  */
 export const MALFORMED_GRACE_MS = 10 * 1000;
+
+/**
+ * How far in the future a lock's `startedAt` may be before it is treated as
+ * malformed.
+ *
+ * The age rule is `now - startedAt > STALE_MS`, so a FUTURE `startedAt` made
+ * the age negative and the lock could never age out; with a pid that happens
+ * to be live (recycled, or pid 1 in a hand-edited or committed lock) it was
+ * never stale at all — a wedge, the hazard this file exists to rule out. A
+ * startedAt this far ahead is not something `tryCreate` writes, so it is judged
+ * like any unparseable lock: stale once the FILE is older than
+ * MALFORMED_GRACE_MS.
+ *
+ * The allowance is for clocks, not for payloads: two hosts sharing a project
+ * directory can disagree by seconds. RESIDUAL, named (P0): a host whose clock
+ * runs MORE than this far ahead of yours writes locks yours may break after
+ * the grace window, while its run is still live.
+ */
+export const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 /** Raised when another pharn process holds the lock. Exit 1, with a named reason. */
 export class ProjectLockedError extends Error {
@@ -213,11 +240,43 @@ function lockAgeMs(cwd: string): number | null {
 }
 
 function isStale(held: LockPayload | null, ageMs: number | null): boolean {
-  // Malformed or unreadable. Young → presumed a holder mid-`tryCreate` (see
-  // MALFORMED_GRACE_MS); old, or not stat-able → stale, so it never wedges.
-  if (held === null) return ageMs === null || ageMs >= MALFORMED_GRACE_MS;
-  if (Date.now() - Date.parse(held.startedAt) > STALE_MS) return true;
+  // Malformed or unreadable — or started in the future (FUTURE_SKEW_MS), which
+  // the age rule below can never retire. Young → presumed a holder
+  // mid-tryCreate (see MALFORMED_GRACE_MS); old, or not stat-able → stale, so
+  // it never wedges.
+  //
+  // The future check lives in this function, not in parsePayload: release()
+  // reads a null payload as held by nobody else and removes the file, so
+  // rejecting a future startedAt at parse time would let our release remove
+  // the live lock of a host whose clock runs ahead.
+  const startedIn = held === null ? 0 : Date.parse(held.startedAt) - Date.now();
+  if (held === null || startedIn > FUTURE_SKEW_MS)
+    return ageMs === null || ageMs >= MALFORMED_GRACE_MS;
+  if (-startedIn > STALE_MS) return true;
   return isDead(held);
+}
+
+/**
+ * The refusal for a directory at the lock path, or null when there is none
+ * (anything else at the path — a file, a FIFO, a symlink — is judged by the
+ * payload rules).
+ *
+ * pharn never creates a directory there, so one is the user's: it used to be
+ * renamed aside to a corpse name — moving their directory and its contents
+ * without a word — and is now refused by name instead (F-39). lstat, so a
+ * symlink to a directory is not followed: moving the LINK aside moves only the
+ * link, which the break already does safely.
+ */
+function directoryRefusal(cwd: string): string | null {
+  try {
+    if (!lstatSync(lockPath(cwd)).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return (
+    `${LOCK_FILE} is a directory, not a pharn lock file. pharn will not move or delete it, and cannot take the project lock while it is there.\n` +
+    'Remove it yourself (or rename it) and re-run.'
+  );
 }
 
 function refusal(held: LockPayload | null): string {
@@ -374,8 +433,10 @@ function breakStaleLock(
     // magnitude; closing it while the sweep stands would be theatre. If this
     // class of collision ever matters, the lever is the SWEEP, not the rename.
     // Narrower still: only file-over-file clobbers. A directory at the corpse
-    // name gives EISDIR and a directory at `.pharn.lock` gives ENOTDIR, and both
-    // land in the refusal below (measured, node v24.13.1).
+    // name gives EISDIR and lands in the refusal below (measured, node
+    // v24.13.1). A directory AT the lock path never reaches this rename:
+    // withProjectLock refuses it by name first (directoryRefusal, F-39), since
+    // moving it aside would move the user's directory.
     //
     // THE TRAP, for whoever revisits this: do NOT make the destination
     // create-or-fail (`link`, or `O_EXCL` + redraw) and treat THAT as the
@@ -416,9 +477,9 @@ function breakStaleLock(
   } finally {
     // Every in-process path drops our corpse. On the restore path `linkSync` has
     // already given the inode a second name, so unlinking this one leaves the
-    // file at `.pharn.lock`. Best-effort: a `.pharn.lock` that was a DIRECTORY
-    // cannot be rmSync'd without `recursive`, and this file will not recursively
-    // delete something a user put there — it moves it aside and leaves it.
+    // file at the lock path. Best-effort, and never recursive: a directory
+    // created at the lock path between directoryRefusal and the rename (a race,
+    // not a state) would be moved aside and left there, never deleted.
     try {
       rmSync(corpse, { force: true });
     } catch {
@@ -465,14 +526,14 @@ function release(cwd: string): void {
  *     confirm.
  *   - `init` — after BOTH prompts, which means after the fetch too. Both of its
  *     prompts sit between the fetch and the install, so the only slot ahead of the
- *     fetch is also ahead of them.
+ *     fetch is also ahead of them. It never holds the lock across a prompt.
  *
  * The rule the list obeys: bounded work may be held across, unbounded work may
  * not. A fetch is capped by construction (repo.ts: 8s resolve, 60s download); a
  * prompt is capped only by human attention, and holding one would block an agent
  * hook for as long as a human takes to answer. `add`'s picker is the deliberate
- * exception, and together with `init`'s prompts it is why STALE_MS is a generous
- * six hours rather than minutes.
+ * exception, and it is why STALE_MS is a generous six hours rather than
+ * minutes.
  */
 export async function withProjectLock<T>(
   cwd: string,
@@ -480,6 +541,10 @@ export async function withProjectLock<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   if (!tryCreate(cwd, command)) {
+    // A directory at the lock path is the user's, never a lock: refuse by name
+    // rather than judge it stale and move it aside (F-39).
+    const dirRefusal = directoryRefusal(cwd);
+    if (dirRefusal !== null) throw new ProjectLockedError(dirRefusal);
     // Read the bytes ONCE and carry them into the break: the staleness judgement
     // here and the re-verify there must be about the SAME payload, or the break
     // is exactly the unchecked delete it replaced.

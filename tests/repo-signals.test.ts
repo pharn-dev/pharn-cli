@@ -78,7 +78,7 @@ describe('temp-clone cleanup handlers', () => {
       'fetch',
       vi.fn(async (url: string) =>
         url === RESOLVE_URL
-          ? new Response(JSON.stringify({ sha: VALID_SHA }))
+          ? new Response(VALID_SHA)
           : tarResponse(githubArchive(VALID_SHA)),
       ),
     );
@@ -227,7 +227,7 @@ const SHA = ${JSON.stringify(VALID_SHA)};
 const RESOLVE = ${JSON.stringify(RESOLVE_URL)};
 globalThis.fetch = (async (url) => {
   if (String(url) === RESOLVE) {
-    return new Response(JSON.stringify({ sha: SHA }));
+    return new Response(SHA);
   }
   const bytes = githubArchive(SHA);
   return {

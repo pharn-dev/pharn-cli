@@ -560,10 +560,11 @@ runnable in CI while an update is in flight.
 
 ### If the lock outlives its owner
 
-`init` is the one command that can hold the lock for a long time on purpose: it takes the lock after
-both of its prompts, but the picker and the overwrite confirmation are answered by a human, so a
-walked-away `init` can block other writers in that project until the six-hour staleness window
-expires. `add`'s picker holds it across the multi-select for the same reason.
+Bare `pharn add` is the one command that holds the lock across a prompt on purpose: its picker
+persists every pick, so one lock spans the whole multi-select, and a walked-away picker can block
+other writers in that project until the six-hour staleness window expires. `init`, `update` and the
+`remove` picker all take the lock **after** their prompts, so an unanswered prompt there holds
+nothing.
 
 An interrupted run releases the lock on its way out. That covers Ctrl-C, and a `timeout` or
 `docker stop`, which arrive as `SIGINT` and `SIGTERM`. The run still exits 130 or 143 and prints
@@ -576,12 +577,32 @@ that the project may be partially updated. Three things cannot release the lock:
 The hangup case is deliberate: listening for it would override `nohup`, and a `nohup pharn update`
 would then stop mid-write. `pharn` breaks such a lock by itself when any of these hold:
 
-- the file is missing, unreadable, or not a well-formed lock payload;
+- the file is missing, unreadable, or not a well-formed lock payload — and has not been modified in
+  the last 10 seconds (a lock is briefly empty while its owner writes it);
+- its start time is more than five minutes in the future (no running `pharn` writes that; it is
+  treated like a malformed payload);
 - it is more than six hours old;
 - it names a pid on **this** host that is no longer running.
 
 A lock from **another host** is only retired by age — a pid means nothing across machines. If you are
 certain nothing is running, deleting `.pharn.lock` is safe and is the documented escape.
+
+**A recycled pid keeps a dead run's lock alive.** "No longer running" is checked by asking the
+operating system whether that pid exists. If the run that took the lock was killed and its pid has
+since been reused by an unrelated process, the check finds that process and the lock reads as live, so
+`pharn` keeps refusing until the lock is six hours old. If the refusal names a pid that is not a
+`pharn` process (check with `ps -p <pid>`), delete `.pharn.lock`.
+
+**A directory named `.pharn.lock`** is never a lock — `pharn` does not create one — so it is refused
+with its own message rather than broken:
+
+```text
+.pharn.lock is a directory, not a pharn lock file. pharn will not move or delete it, and cannot take the project lock while it is there.
+Remove it yourself (or rename it) and re-run.
+```
+
+Earlier versions moved it aside to `.pharn.lock.<pid>.<hex>` without saying so; if you find a
+directory with that name, it is yours.
 
 ## `add` / `update` say to run init first
 
