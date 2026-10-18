@@ -38,8 +38,10 @@ const FETCH_TIMEOUT_MS = 8000;
 // A release object carries its notes (GitHub caps a release body at 125,000
 // characters), so 1 MiB bounds the read with room to spare.
 const MAX_RELEASE_BYTES = 1024 * 1024;
-// `application/vnd.github.sha` answers with the bare 40-character id.
-const MAX_SHA_BYTES = 1024;
+// `application/vnd.github.sha` answers with the bare 40-character id. Shared
+// with the `main` channel's `fetchCommitSha` (lib/repo.ts), which asks for the
+// same media type.
+export const MAX_SHA_BYTES = 1024;
 
 /** The channel a command installs from: `main`'s tip, or a verified release. */
 export type RefChoice = 'main' | 'latest';
@@ -204,8 +206,15 @@ function httpReason(status: number, url: string): string {
     : `HTTP ${status} from ${url}`;
 }
 
-/** The body as UTF-8, read through our own reader under a hard byte cap. */
-async function readCapped(
+/**
+ * The body as UTF-8, read through our own reader under a hard byte cap, and
+ * cancelled by our listener on our signal (an unread or still-streaming body
+ * holds its socket, and with it the process). Over the cap the read is
+ * cancelled and a {@link ReleaseResolveError} is thrown. Also used by
+ * `fetchCommitSha` (lib/repo.ts), which swallows EVERY throw to its documented
+ * `null` — so there the error type is irrelevant, only that the read stops.
+ */
+export async function readCapped(
   res: Response,
   signal: AbortSignal,
   maxBytes: number,

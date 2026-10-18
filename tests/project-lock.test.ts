@@ -611,7 +611,7 @@ describe('withProjectLock — a fatal signal while held', () => {
       `
       globalThis.fetch = async (url) =>
         String(url).startsWith('https://api.github.com/')
-          ? new Response(JSON.stringify({ sha: ${JSON.stringify(sha)} }))
+          ? new Response(${JSON.stringify(sha)})
           : new Response(new Uint8Array(githubArchive(${JSON.stringify(sha)})));
       await withProjectLock(dir, 'update', async () => {
         const repo = await fetchRepo({ kind: 'main' });

@@ -143,7 +143,7 @@ When pharn-oss changes its validator:
 ### The fetch boundary
 
 `pharn` has **no dependency that fetches or unpacks remote content**. `src/lib/repo.ts` resolves the
-branch head over the GitHub REST API and downloads that exact commit's tarball from
+branch head over the GitHub REST API (the bare commit id, read under a 1 KiB cap) and downloads that exact commit's tarball from
 `codeload.github.com`; `src/lib/tar-extract.ts` unpacks it. Both are pharn's own code, and that is the
 point: when the download and extraction were delegated, `THREAT-MODEL.md` had to state _measured
 properties of a dependency_, which a version bump could move without any pharn test noticing.

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REPO, REPO_BRANCH, SKILLS_VERSION_FILE } from './constants.js';
 import { onFatalSignal } from './fatal-signal.js';
+import { MAX_SHA_BYTES, readCapped } from './release.js';
 import type { InstallSource } from './release.js';
 import { readSkillsVersion } from './skills-version.js';
 import { extractTarGz } from './tar-extract.js';
@@ -271,6 +272,18 @@ async function downloadArchive(ref: string): Promise<Buffer> {
  * (LIMITS.md §1b/§3b), never a cryptographic gate. The returned string is NOT
  * format-checked here; fetchRepo validates it against COMMIT_RE at the boundary
  * (a throw here would be swallowed to null by the catch — the wrong failure mode).
+ *
+ * It asks for `application/vnd.github.sha` — the bare 40-character id, the same
+ * media type the release channel uses (lib/release.ts) — and reads the body
+ * under `MAX_SHA_BYTES` (F-21). The full commit object it used to ask for
+ * carries the commit's file list and patches, so its size is set by whatever
+ * merged last (8.6 KB measured for one pharn-oss commit; unbounded in
+ * principle), and it was read with no cap at all. A body over the cap is
+ * cancelled and degrades to `null`, exactly like any other failed resolve.
+ * A body that is not a single whitespace-free token (an HTML page, say) is
+ * not an answer → `null`, as an unparseable JSON body was; a single token that
+ * is not a SHA is RETURNED, so `fetchAt`'s COMMIT_RE check refuses it loudly,
+ * as it refused a malformed string `sha` before.
  */
 export async function fetchCommitSha(): Promise<string | null> {
   const url = `${API}/repos/${REPO}/commits/${REPO_BRANCH}`;
@@ -285,7 +298,7 @@ export async function fetchCommitSha(): Promise<string | null> {
           redirect: 'error',
           signal,
           headers: {
-            Accept: 'application/vnd.github+json',
+            Accept: 'application/vnd.github.sha',
             'X-GitHub-Api-Version': '2022-11-28',
           },
         });
@@ -299,10 +312,8 @@ export async function fetchCommitSha(): Promise<string | null> {
           await discardBody(res);
           return null;
         }
-        const body = JSON.parse(await readText(res, signal)) as {
-          sha?: unknown;
-        };
-        return typeof body.sha === 'string' ? body.sha : null;
+        const text = (await readCapped(res, signal, MAX_SHA_BYTES, url)).trim();
+        return /^\S+$/.test(text) ? text : null;
       },
     );
   } catch {
@@ -317,28 +328,4 @@ async function discardBody(res: Response): Promise<void> {
   } catch {
     /* already errored or locked: there is nothing left to release */
   }
-}
-
-/**
- * The whole body as UTF-8, read through OUR reader and cancelled by OUR
- * listener on OUR signal — downloadArchive's pattern. `res.json()` has no
- * reader pharn can cancel, and on Node 20/22 the abort may never reach the body
- * stream (lib/deadline.ts), so a body still streaming at the deadline outlived
- * the command.
- */
-async function readText(res: Response, signal: AbortSignal): Promise<string> {
-  if (!res.body) return '';
-  const reader = res.body.getReader();
-  const cancel = (): void => {
-    reader.cancel().catch(() => undefined);
-  };
-  if (signal.aborted) cancel();
-  else signal.addEventListener('abort', cancel, { once: true });
-  const chunks: Uint8Array[] = [];
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString('utf8');
 }
