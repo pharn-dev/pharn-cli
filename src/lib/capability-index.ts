@@ -114,7 +114,7 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
       // throw site reachable from here — the dir-name allowlist, the missing
       // markdown, the missing frontmatter fence, a missing `role`/`applies`
       // field, an invalid role, the role/subtree mismatch, and every
-      // parseApplies refusal — lands in the same skip-and-report path, including
+      // readApplies refusal — lands in the same skip-and-report path, including
       // any refusal a FUTURE edit adds.
       try {
         // Validate the untrusted dir name BEFORE any path-join (P2). A name that
@@ -129,16 +129,13 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
           name,
         );
         // Cross-check the declared role against the authoritative subtree role.
-        const role = assertRole(readField(frontmatter, 'role', name), name);
+        const role = assertRole(readRole(frontmatter, name), name);
         if (role !== subtree.role) {
           throw new ManifestValidationError(
             `Capability "${name}" declares role "${role}" but lives under ${subtree.dir} (expected "${subtree.role}").`,
           );
         }
-        const applies = parseApplies(
-          readField(frontmatter, 'applies', name),
-          name,
-        );
+        const applies = readApplies(frontmatter, name);
 
         capabilities.push({ name, role, applies });
       } catch (err) {
@@ -249,66 +246,105 @@ function extractFrontmatter(content: string, name: string): string {
 }
 
 /**
- * Read a single required scalar field from the frontmatter block, returning its
- * raw (quote-stripped) value. Hard-fails (naming the capability + field) when
- * the field is absent OR appears more than once (P5): pharn-oss's validator
- * keeps the LAST occurrence while a first-match reader keeps the FIRST, so a
- * duplicate is the one shape where the two could install different values. A
- * strict per-field regex — not a YAML parser.
+ * One frontmatter field's value, read by UPSTREAM'S line rule — ported
+ * literally from pharn-oss's validator (pharn/floor/validate.mjs →
+ * parseFrontmatter; vendored for the differential test at
+ * tests/fixtures/pharn-oss/validate.mjs), so the CLI and upstream's CI read the
+ * same value from the same block (F-26):
+ *   - the block is split on `\n`; a line is a field when it matches
+ *     `^([A-Za-z0-9_]+):\s*(.*)$` (so a key never has leading whitespace, and
+ *     `roles:` is not `role:`), and its value is the trimmed rest of the line;
+ *   - a value wrapped in `[` … `]` is an array: split on `,`, each element
+ *     trimmed and unquoted, empty elements dropped; anything else is a scalar,
+ *     unquoted;
+ *   - unquoting strips ONE leading and ONE trailing `"`/`'`, independently;
+ *   - a key that appears more than once keeps its LAST value.
+ * Last-wins is safe to adopt (it used to be refused, PHARN-14, because a
+ * first-match reader here could install a different value than upstream
+ * validated): the value read is exactly the one upstream's CI checked, and it
+ * is still validated against the role / applies enums below before anything
+ * uses it — an earlier occurrence is discarded, never read.
+ *
+ * The one deliberate difference: a single trailing `\r` is dropped from each
+ * line first. Upstream's `(.*)$` cannot match across a CR, so it reads no field
+ * from a CRLF file and refuses it — upstream never ships one; this reader is
+ * more lenient there, never less.
+ *
+ * `undefined` = the field is absent (or its last occurrence is empty — upstream
+ * reads that as missing too).
  */
-function readField(frontmatter: string, field: string, name: string): string {
-  const re = new RegExp(`^${field}:[ \\t]*(.+?)[ \\t]*$`, 'gm');
-  const matches = [...frontmatter.matchAll(re)];
-  if (matches.length === 0) {
-    throw new ManifestValidationError(
-      `Capability "${name}" is missing the "${field}" frontmatter field.`,
-    );
-  }
-  if (matches.length > 1) {
-    throw new ManifestValidationError(
-      `Capability "${name}" declares the "${field}" frontmatter field ${matches.length} times.`,
-    );
-  }
-  return stripQuotes(matches[0]![1]!);
+const FIELD_LINE_RE = /^([A-Za-z0-9_]+):\s*(.*)$/;
+
+function unquote(value: string): string {
+  return value.replace(/^["']|["']$/g, '');
 }
 
-function stripQuotes(value: string): string {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
+function readField(
+  frontmatter: string,
+  field: string,
+): string | string[] | undefined {
+  let value: string | string[] | undefined;
+  for (const raw of frontmatter.split('\n')) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    const m = FIELD_LINE_RE.exec(line);
+    if (!m || m[1] !== field) continue;
+    const val = m[2]!.trim();
+    value =
+      val.startsWith('[') && val.endsWith(']')
+        ? val
+            .slice(1, -1)
+            .split(',')
+            .map((s) => unquote(s.trim()))
+            .filter(Boolean)
+        : unquote(val);
   }
-  return trimmed;
+  return value === '' ? undefined : value;
+}
+
+function missingField(field: string, name: string): ManifestValidationError {
+  return new ManifestValidationError(
+    `Capability "${name}" is missing the "${field}" frontmatter field.`,
+  );
 }
 
 /**
- * Parse + validate the `applies` frontmatter value into the resolver's shape:
- * `["universal"]` → `'universal'` (always selected); a non-empty archetype array
- * → `Archetype[]`. Tokens may be quoted or bare — `[ssr, backend]` and
- * `["ssr","backend"]` parse identically (pharn-oss is not required to quote its
- * YAML). Each comma-separated element is validated WHOLE against the archetype
- * enum, so a dangerous element (e.g. `[../etc]`) hard-fails rather than being
- * silently skipped. Hard-fails (P2/P5) on: not a bracketed array, an empty array,
- * an unknown token, or `universal` mixed with archetypes (an ambiguous,
- * malformed declaration).
+ * The `role` field: one scalar, checked against the role enum by the caller
+ * (`assertRole`). An array (`role: [lens]`) is not a role — upstream refuses it
+ * too.
  */
-function parseApplies(raw: string, name: string): 'universal' | Archetype[] {
-  if (!/^\[.*\]$/.test(raw)) {
+function readRole(frontmatter: string, name: string): string {
+  const role = readField(frontmatter, 'role');
+  if (role === undefined) throw missingField('role', name);
+  if (Array.isArray(role)) {
     throw new ManifestValidationError(
-      `Capability "${name}" has a malformed "applies" value ${JSON.stringify(raw)} (expected a "[...]" array).`,
+      `Capability "${name}" has a malformed "role" value ${JSON.stringify(role)} (expected one role, not an array).`,
     );
   }
-  // Split the bracketed array into comma-separated elements and normalize each
-  // (trim + strip a matching quote pair via stripQuotes). Accepts quoted OR bare
-  // YAML tokens; empties (a trailing comma, `[]`) drop out. Every surviving
-  // element is enum-validated below — nothing is skipped, so junk hard-fails.
-  const tokens = raw
-    .slice(1, -1)
-    .split(',')
-    .map((t) => stripQuotes(t))
-    .filter((t) => t.length > 0);
+  return role;
+}
+
+/**
+ * Parse + validate the `applies` value into the resolver's shape — upstream's
+ * acceptance rule (validate.mjs CHECK 4b), ported: an array is its elements, a
+ * non-empty scalar is a one-element list (`applies: universal` reads as
+ * `applies: [universal]`, `applies: ssr` as `[ssr]`), and every element must be
+ * in the enum. Tokens may be quoted or bare. Then:
+ *   - any `universal` → `'universal'` (always selected). Upstream accepts
+ *     `[universal, ssr]`, and `universal` already selects every archetype, so
+ *     the archetypes beside it add nothing — it resolves as `[universal]` does
+ *     instead of being skipped;
+ *   - otherwise the archetype list.
+ * Hard-fails (P2/P5) on a missing field, an empty array, or any element outside
+ * the enum (`[../etc]`, `mobile`, or a quoted array `"[ssr]"`, which upstream
+ * reads as one scalar). Nothing upstream refuses is accepted.
+ */
+function readApplies(
+  frontmatter: string,
+  name: string,
+): 'universal' | Archetype[] {
+  const raw = readField(frontmatter, 'applies');
+  if (raw === undefined) throw missingField('applies', name);
+  const tokens = Array.isArray(raw) ? raw : [raw];
   if (tokens.length === 0) {
     throw new ManifestValidationError(
       `Capability "${name}" has an empty "applies" array — every capability must declare its applicability.`,
@@ -317,14 +353,7 @@ function parseApplies(raw: string, name: string): 'universal' | Archetype[] {
   const validated = tokens.map((t) =>
     assertAppliesToken(t, `capability "${name}"`),
   );
-
-  const universal = validated.includes('universal');
-  if (universal && validated.length > 1) {
-    throw new ManifestValidationError(
-      `Capability "${name}" mixes "universal" with archetypes in "applies" — use exactly ["universal"] or archetypes only.`,
-    );
-  }
-  if (universal) return 'universal';
-  // Every remaining token is an Archetype (universal was excluded above).
+  if (validated.includes('universal')) return 'universal';
+  // Every token is an Archetype (universal was handled above).
   return validated as Archetype[];
 }

@@ -119,6 +119,27 @@ When pharn-oss changes its checker:
 4. If a released CLI would now reject pharn-oss's own block, release the new CLI first, then ask
    pharn-oss to raise `MIN_CLI` to it.
 
+### pharn-oss's capability frontmatter rules — a pinned copy
+
+`src/lib/capability-index.ts` reads a capability's `role` and `applies` by pharn-oss's own rules: the
+`---` fence and the line rule of its validator's `parseFrontmatter`, and the `applies` check (CHECK 4b) of
+`pharn/floor/validate.mjs`. A capability pharn-oss's CI passes must not be skipped as unknown, and
+nothing its CI refuses may be installed. `tests/capability-index.test.ts` runs the validator, vendored
+byte-for-byte at `tests/fixtures/pharn-oss/validate.mjs` and pinned by sha256, over the fence shapes
+and the value shapes (scalar, array, mixed, duplicate keys, quoting) and requires the same verdict.
+It extracts `parseFrontmatter`, the `applies` normalization line and the role and applies enums from
+the file's source, so they cannot drift.
+
+When pharn-oss changes its validator:
+
+1. Copy `pharn/floor/validate.mjs` from pharn-oss `main` over
+   `tests/fixtures/pharn-oss/validate.mjs`, unedited.
+2. Update `UPSTREAM_VALIDATOR_SHA256`, and the commit and `SKILLS_VERSION` in the comment above it, in
+   `tests/capability-index.test.ts`.
+3. Run `npx vitest run tests/capability-index.test.ts`, and change `src/lib/capability-index.ts` until
+   it passes. Port pharn-oss's change; do not add a rule of your own. If a piece the test extracts was
+   renamed or moved, update the extraction, not the verdicts.
+
 ### The fetch boundary
 
 `pharn` has **no dependency that fetches or unpacks remote content**. `src/lib/repo.ts` resolves the

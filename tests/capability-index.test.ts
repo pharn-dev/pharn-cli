@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { parseCapabilityIndex } from '../src/lib/capability-index.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
+import { sha256File } from '../src/lib/hash.js';
+import type { CapabilityEntry } from '../src/types.js';
 
 const GRILLERS = 'pharn-pipeline/grillers';
 const LENSES = 'pharn-review';
@@ -197,19 +199,25 @@ describe('parseCapabilityIndex', () => {
       reason: /invalid applies/,
     },
     {
-      label: 'universal mixed with archetypes',
-      body: fm('griller', '["universal", "ssr"]'),
-      reason: /mixes "universal"/,
-    },
-    {
       label: 'an empty applies array',
       body: fm('griller', '[]'),
       reason: /empty "applies"/,
     },
     {
-      label: 'a non-array applies value',
-      body: fm('griller', 'universal'),
-      reason: /malformed "applies"/,
+      label: 'an unknown scalar applies value',
+      body: fm('griller', 'mobile'),
+      reason: /invalid applies/,
+    },
+    // Upstream reads a quoted array as ONE scalar, `[ssr]`, outside its enum.
+    {
+      label: 'a quoted array',
+      body: fm('griller', '"[ssr]"'),
+      reason: /invalid applies/,
+    },
+    {
+      label: 'a role given as an array',
+      body: '---\nrole: [griller]\napplies: [universal]\n---\n# x\n',
+      reason: /malformed "role"/,
     },
     {
       label: 'no frontmatter fence',
@@ -238,17 +246,18 @@ describe('parseCapabilityIndex', () => {
       body: '---\nrole: griller\napplies: ["universal"]\n# x\n',
       reason: /frontmatter block/,
     },
-    // PHARN-14: upstream's validator keeps the LAST duplicate, a first-match
-    // reader the FIRST — so a duplicate is refused rather than guessed.
+    // F-26: a duplicate keeps its LAST value, as upstream's validator does —
+    // so it is that value that must pass, and an earlier valid one rescues
+    // nothing.
     {
-      label: 'a duplicated applies field',
-      body: '---\nrole: griller\napplies: ["ssr"]\napplies: ["universal"]\n---\n# x\n',
-      reason: /"applies" frontmatter field 2 times/,
+      label: 'a duplicated applies field whose last value is invalid',
+      body: '---\nrole: griller\napplies: ["universal"]\napplies: ["mobile"]\n---\n# x\n',
+      reason: /invalid applies/,
     },
     {
-      label: 'a duplicated role field',
-      body: '---\nrole: griller\nrole: griller\napplies: ["universal"]\n---\n# x\n',
-      reason: /"role" frontmatter field 2 times/,
+      label: 'a duplicated role field whose last value is empty',
+      body: '---\nrole: griller\nrole:\napplies: ["universal"]\n---\n# x\n',
+      reason: /missing the "role"/,
     },
   ];
 
@@ -428,8 +437,66 @@ describe('parseCapabilityIndex', () => {
   });
 });
 
-// F23: the fence is upstream's own rule. pharn-oss's validator (this repo's copy:
-// .dev/floor/validate.mjs → parseFrontmatter) opens on a file that STARTS with
+// ---------------------------------------------------------------------------
+// pharn-oss's validator, vendored byte-for-byte: pharn-dev/pharn-oss `main` @
+// 44b12e8 (SKILLS_VERSION 6.62.0), where pharn/floor/validate.mjs last changed
+// in d851a08. A refresh changes this line in the same commit as the file
+// (docs/contributing.md). The file runs its checks on import (it exits the
+// process), so the pieces this CLI ports are extracted from its SOURCE by name
+// and built on their own — there is no second copy to drift: the day upstream's
+// rule changes, these tests run the new one.
+// ---------------------------------------------------------------------------
+const UPSTREAM_VALIDATOR = join(
+  import.meta.dirname,
+  'fixtures',
+  'pharn-oss',
+  'validate.mjs',
+);
+const UPSTREAM_VALIDATOR_SHA256 =
+  '6049e18ff762d8927f3a313edf88d1196e00a1c1fcd1cf0a41d251db331e3ea0';
+
+type UpstreamFm = Record<string, unknown> | null;
+
+interface Upstream {
+  parseFrontmatter: (text: string) => { fm: UpstreamFm };
+  // CHECK 4b's normalization: an array as-is, a non-empty scalar as [scalar].
+  appliesOf: (fm: Record<string, unknown>) => unknown[];
+  ROLE_ENUM: string[];
+  APPLIES_ENUM: string[];
+}
+
+function upstream(): Upstream {
+  const src = readFileSync(UPSTREAM_VALIDATOR, 'utf8');
+  const one = (re: RegExp): string => {
+    const found = src.match(re);
+    expect(found).toHaveLength(1);
+    return found![0];
+  };
+  const enumOf = (name: string): string[] =>
+    JSON.parse(
+      one(new RegExp(`^const ${name} = (\\[.*\\]);$`, 'gm')).replace(
+        /^[^=]*= |;$/g,
+        '',
+      ),
+    ) as string[];
+  const parseFrontmatter = new Function(
+    `${one(/^function parseFrontmatter\(text\) \{\n[\s\S]*?\n\}\n/gm)}; return parseFrontmatter;`,
+  )() as Upstream['parseFrontmatter'];
+  const appliesLine = one(/^ {2}const applies = .*;$/gm);
+  const appliesOf = new Function(
+    'fm',
+    `${appliesLine} return applies;`,
+  ) as Upstream['appliesOf'];
+  return {
+    parseFrontmatter,
+    appliesOf,
+    ROLE_ENUM: enumOf('ROLE_ENUM'),
+    APPLIES_ENUM: enumOf('APPLIES_ENUM'),
+  };
+}
+
+// F23: the fence is upstream's own rule. pharn-oss's validator (the vendored
+// copy above → parseFrontmatter) opens on a file that STARTS with
 // `---` and closes at the first newline followed by `---` — any line that
 // starts with it (`----`, `--- note`). A capability upstream's CI passes must
 // never be skipped here for its fence.
@@ -464,24 +531,9 @@ describe("parseCapabilityIndex — the frontmatter fence is upstream's", () => {
     expect(accepted(`---\n---\n${FIELDS}\n---\n# x\n`)).toBe(false);
   });
 
-  // The upstream parser is read out of this repo's copy of the validator, so
-  // there is no second copy to drift: the day its rule changes, this test runs
-  // the new one. The file runs its checks on import (it exits the process), so
-  // the one function is extracted by name and built on its own.
-  function upstreamParseFrontmatter(): (text: string) => {
-    fm: Record<string, unknown> | null;
-  } {
-    const src = readFileSync(
-      join(import.meta.dirname, '..', '.dev', 'floor', 'validate.mjs'),
-      'utf8',
-    );
-    const found = src.match(
-      /^function parseFrontmatter\(text\) \{\n[\s\S]*?\n\}\n/gm,
-    );
-    expect(found).toHaveLength(1);
-    return new Function(`${found![0]}; return parseFrontmatter;`)() as (
-      text: string,
-    ) => { fm: Record<string, unknown> | null };
+  // The upstream parser, read out of the vendored validator (above).
+  function upstreamParseFrontmatter(): Upstream['parseFrontmatter'] {
+    return upstream().parseFrontmatter;
   }
 
   // Upstream's verdict for the two fields this CLI reads: a block exists and
@@ -524,12 +576,142 @@ describe("parseCapabilityIndex — the frontmatter fence is upstream's", () => {
 
   // The one named difference, and its direction. Upstream reads each line with
   // `(.*)$` and no multiline flag, so a line ending in CR yields no field and
-  // its validator refuses the file — upstream never ships one. This CLI reads
-  // fields with a multiline pattern, where `$` also matches before a CR, so it
+  // its validator refuses the file — upstream never ships one. This CLI drops
+  // one trailing CR from each line before applying the same line rule, so it
   // reads them. More lenient, never less: nothing upstream ships is refused.
   it('is more lenient than upstream on CRLF, never less', () => {
     const crlf = `---\r\nrole: griller\r\napplies: ["universal"]\r\n---\r\n# x\r\n`;
     expect(upstreamAccepts(crlf)).toBe(false);
     expect(accepted(crlf)).toBe(true);
+  });
+});
+
+// F-26: the field VALUES are upstream's too. A capability upstream's CI passes
+// must not be `unknown` here, and nothing its CI refuses may be installed. Each
+// row runs through the vendored validator's own parser and CHECK 4b, and the
+// CLI must give the same verdict — and, when both accept, resolve `applies` to
+// what upstream's list means (any `universal` → always selected).
+describe("parseCapabilityIndex — role and applies values are upstream's (F-26)", () => {
+  const tmp = useTmpDir();
+
+  it('reads the vendored validator at its pinned sha256', () => {
+    expect(sha256File(UPSTREAM_VALIDATOR)).toBe(UPSTREAM_VALIDATOR_SHA256);
+  });
+
+  function entry(body: string): CapabilityEntry | undefined {
+    const repo = tmp.path();
+    scaffold(repo);
+    writeCap(repo, GRILLERS, 'probe', body);
+    return parseCapabilityIndex(repo).capabilities.find(
+      (c) => c.name === 'probe',
+    );
+  }
+
+  // Upstream's verdict for a capability under the griller subtree: its CHECK
+  // 3 role enum and CHECK 4b applies rule. `role === 'griller'` is this CLI's
+  // own subtree cross-check (stricter by design, and outside this test's axis),
+  // so every row that should pass declares griller.
+  function upstreamVerdict(body: string): { ok: boolean; applies: unknown[] } {
+    const u = upstream();
+    const { fm } = u.parseFrontmatter(body);
+    if (fm === null) return { ok: false, applies: [] };
+    const applies = u.appliesOf(fm);
+    const ok =
+      Boolean(fm.role) &&
+      u.ROLE_ENUM.includes(fm.role as string) &&
+      fm.role === 'griller' &&
+      applies.length > 0 &&
+      applies.every((a) => u.APPLIES_ENUM.includes(a as string));
+    return { ok, applies };
+  }
+
+  const doc = (...lines: string[]): string =>
+    `---\n${lines.join('\n')}\n---\n# x\n`;
+  const R = 'role: griller';
+  const ROWS: [string, string][] = [
+    // scalar
+    ['a scalar universal', doc(R, 'applies: universal')],
+    ['a quoted scalar universal', doc(R, 'applies: "universal"')],
+    ['a single-quoted scalar', doc(R, "applies: 'universal'")],
+    ['a half-quoted scalar', doc(R, 'applies: "universal')],
+    ['a scalar archetype', doc(R, 'applies: ssr')],
+    ['an unknown scalar', doc(R, 'applies: mobile')],
+    ['a bare list without brackets', doc(R, 'applies: ssr, backend')],
+    ['a quoted array (one scalar upstream)', doc(R, 'applies: "[ssr]"')],
+    ['an empty value', doc(R, 'applies:')],
+    ['an empty quoted value', doc(R, 'applies: ""')],
+    // array and mixed
+    ['an array universal', doc(R, 'applies: [universal]')],
+    ['two archetypes', doc(R, 'applies: [ssr, backend]')],
+    ['universal mixed with an archetype', doc(R, 'applies: [universal, ssr]')],
+    [
+      'an archetype mixed with universal',
+      doc(R, 'applies: ["ssr", "universal"]'),
+    ],
+    ['an archetype beside an unknown token', doc(R, 'applies: [ssr, mobile]')],
+    ['an empty array', doc(R, 'applies: []')],
+    ['a trailing comma', doc(R, 'applies: [ssr,]')],
+    ['a repeated archetype', doc(R, 'applies: [ssr, ssr]')],
+    // duplicate keys — upstream keeps the LAST
+    [
+      'a duplicate applies whose last is valid',
+      doc(R, 'applies: [mobile]', 'applies: [universal]'),
+    ],
+    [
+      'a duplicate applies whose last is invalid',
+      doc(R, 'applies: [universal]', 'applies: [mobile]'),
+    ],
+    [
+      'a duplicate applies whose last is empty',
+      doc(R, 'applies: [universal]', 'applies:'),
+    ],
+    [
+      'a duplicate role whose last is valid',
+      doc('role: lens', R, 'applies: [universal]'),
+    ],
+    [
+      'a duplicate role whose last is invalid',
+      doc(R, 'role: auditor', 'applies: [universal]'),
+    ],
+    [
+      'a duplicate role whose last is empty',
+      doc(R, 'role:', 'applies: [universal]'),
+    ],
+    // role and line shapes
+    ['a half-quoted role', doc('role: "griller', 'applies: [universal]')],
+    [
+      'a role given as an array',
+      doc('role: [griller]', 'applies: [universal]'),
+    ],
+    ['an indented key', doc(R, '  applies: [universal]')],
+    ['a tab after the colon', doc('role:\tgriller', 'applies:\t[universal]')],
+    ['a CR inside a line', doc('role: griller\rapplies: [universal]')],
+    ['a look-alike key', doc(R, 'appliesx: [universal]')],
+  ];
+
+  it.each(ROWS)("gives upstream's verdict for %s", (_label, body) => {
+    const verdict = upstreamVerdict(body);
+    const got = entry(body);
+    expect(got !== undefined).toBe(verdict.ok);
+    if (got !== undefined) {
+      expect(got.applies).toEqual(
+        verdict.applies.includes('universal') ? 'universal' : verdict.applies,
+      );
+    }
+  });
+
+  // Non-vacuity: the corpus reaches both verdicts in each group this finding
+  // is about, so a parser that accepted or refused everything would fail.
+  it('the corpus reaches both verdicts for scalar, mixed and duplicate shapes', () => {
+    const verdictOf = (label: string): boolean =>
+      upstreamVerdict(ROWS.find(([l]) => l === label)![1]).ok;
+    expect(verdictOf('a scalar universal')).toBe(true);
+    expect(verdictOf('an unknown scalar')).toBe(false);
+    expect(verdictOf('universal mixed with an archetype')).toBe(true);
+    expect(verdictOf('an archetype beside an unknown token')).toBe(false);
+    expect(verdictOf('a duplicate applies whose last is valid')).toBe(true);
+    expect(verdictOf('a duplicate applies whose last is invalid')).toBe(false);
+    expect(verdictOf('a duplicate role whose last is valid')).toBe(true);
+    expect(verdictOf('a duplicate role whose last is empty')).toBe(false);
   });
 });
