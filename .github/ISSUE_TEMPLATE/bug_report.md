@@ -1,9 +1,9 @@
 ---
 name: Bug report
-about: Something in the pharn CLI (init wizard, module install, config output) behaves wrong
-title: "[bug] "
+about: A pharn command (init, add, remove, update, list, status, uninstall) behaves wrong
+title: '[bug] '
 labels: bug
-assignees: ""
+assignees: ''
 ---
 
 ## What happened
@@ -12,10 +12,11 @@ A clear description of the bug.
 
 ## Which part of the CLI
 
-- **Command**: <!-- pharn init | pharn add | pharn update -->
-- **Step / area**: <!-- e.g. prereqs check, fresh-check, custom-mode wizard, vendor-consent, install/clone, pharn.config.json output -->
+- **Command and options**: <!-- e.g. pharn init --dry-run, pharn update --force, pharn status --strict -->
+- **Area**: <!-- e.g. archetype detection, capability selection, download/extract, overwrite prompt, backup, drift report, pharn.config.json / pharn.records.json -->
 - **`pharn` version** (`npx @pharn-dev/pharn --version`, or `pharnVersion` in `pharn.config.json`):
-- **Skills version** (`.claude/SKILLS_VERSION`, or `skillsVersion` in `pharn.config.json`):
+- **Skills version** (`skillsVersion` in `pharn.config.json`) and channel (`ref` in `pharn.config.json`; absent means `main`):
+- **Archetypes and layout** (`archetypes` and `layout` in `pharn.config.json`, or the `pharn list` output):
 
 ## Steps to reproduce
 
@@ -30,6 +31,7 @@ What you expected to happen.
 ## Actual behavior
 
 What actually happened. Paste the relevant CLI output (run with `PHARN_DEBUG=1` for full error detail, and redact any secrets/PII).
+If it is about what an `update` would change, the output of `pharn update --dry-run` (or `pharn status`) helps most.
 
 ## Environment
 
@@ -37,8 +39,8 @@ What actually happened. Paste the relevant CLI output (run with `PHARN_DEBUG=1` 
 - npm version (`npm --version`):
 - OS:
 - Install method: <!-- npx @pharn-dev/pharn | global install | npm run dev -->
-- Target project: <!-- fresh Next.js scaffold? which Next.js version? -->
+- Target project: <!-- what kind of project (framework, monorepo?), and was PHARN installed before? -->
 
 ## Additional context
 
-Anything else that helps — your stack choices, the generated `pharn.config.json`, or whether a network/manifest fetch was involved.
+Anything else that helps — your `pharn.config.json`, whether a proxy is involved, or whether the download from GitHub failed.

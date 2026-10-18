@@ -1,9 +1,9 @@
 ---
 name: Feature request
-about: Propose a new CLI capability, stack option, or improvement to the init wizard
-title: "[feat] "
+about: Propose a new pharn command or option, or a change to how pharn installs and updates PHARN
+title: '[feat] '
 labels: enhancement
-assignees: ""
+assignees: ''
 ---
 
 ## The problem
@@ -16,18 +16,17 @@ What you'd like the `pharn` CLI to do.
 
 ## Type of addition
 
-- [ ] New stack option (a union member in `src/types.ts`)
-- [ ] Wizard step / flow change (`src/steps/*`)
-- [ ] Vendor-skills / manifest behavior (`src/steps/vendor-consent.ts`, `src/lib/github.ts`)
-- [ ] New or expanded command (`pharn add` / `pharn update`)
-- [ ] Scaffolding / package install (v0.2 — see `docs/roadmap.md`)
+- [ ] New or expanded command or option (`init`, `add`, `remove`, `update`, `list`, `status`, `uninstall`)
+- [ ] Archetype detection (`ssr` / `backend` / `spa` / `lib`) or capability selection
+- [ ] Install / update behavior (what is copied, kept, backed up or reported)
+- [ ] Machine-readable output (`--json`) or CI use
 - [ ] Docs / other
 
 ## Checks
 
 - [ ] I searched existing issues for an overlapping request.
-- [ ] This belongs in `pharn` (the bootstrapper/wizard), not in the PHARN skills repo.
-- [ ] If this is stack scaffolding or `npm` package installation, I understand it is **v0.2 scope** (see the `TODO(v0.2)` markers and `docs/roadmap.md`).
+- [ ] This belongs in `pharn` (the installer), not in [pharn-oss](https://github.com/pharn-dev/pharn-oss) — a new griller, lens, `/pharn-*` command or floor checker is pharn-oss's.
+- [ ] I read [`docs/roadmap.md`](https://github.com/pharn-dev/pharn-cli/blob/main/docs/roadmap.md) for what is already planned.
 
 ## Alternatives considered
 

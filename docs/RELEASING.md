@@ -51,6 +51,11 @@ own, when several merged changes go out together):
 2. **Update `CHANGELOG.md`.** Move the `[Unreleased]` entries under a new
    `## [X.Y.Z] — YYYY-MM-DD` heading, and refresh the compare links at the
    bottom (`[Unreleased]` now compares from `vX.Y.Z`; add a `[X.Y.Z]` line).
+   Every link must name a tag that exists: `tests/release-consistency.test.ts`
+   checks them against its `KNOWN_TAGS` list (the CI checkout fetches no tags),
+   allowing `vX.Y.Z` itself before `publish.yml` creates it. So the bump after
+   this one adds `vX.Y.Z` to `KNOWN_TAGS` — `git ls-remote --tags origin` shows
+   what exists.
    The section under that heading becomes the GitHub Release notes, verbatim.
 3. **Merge the PR** once the required checks pass. The `Test` check includes
    `tests/release-consistency.test.ts`, which fails the PR when

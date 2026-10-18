@@ -2,7 +2,9 @@
 
 What PHARN CLI does today versus what is planned.
 
-## Today (v0.4)
+## Today
+
+What the latest release does; the [CHANGELOG](../CHANGELOG.md) says which version added each.
 
 | Capability                                                                                                                                                                                                                                                                                             | Status  |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
@@ -20,7 +22,7 @@ What PHARN CLI does today versus what is planned.
 | Drift-safe `update` — per-file decisions, `--force` with `.pharn-backup/<timestamp>/` (also written by `add` and `remove`)                                                                                                                                                                             | Shipped |
 | Single-writer lock (`.pharn.lock`) for `init`/`add`/`remove`/`update`; `list`/`status` never take it                                                                                                                                                                                                   | Shipped |
 | `MIN_CLI` forward-compatibility gate — refuses cleanly when upstream needs a newer CLI                                                                                                                                                                                                                 | Shipped |
-| Proxy-environment warning — Node's `fetch` reads no proxy variable, so a configured one is reported as unused                                                                                                                                                                                          | Shipped |
+| Proxy-environment notice — Node's `fetch` reads no proxy variable unless `NODE_USE_ENV_PROXY=1`, so a configured one is reported as used or unused                                                                                                                                                     | Shipped |
 | Per-command option allowlist — an option a command does not take exits 1 instead of being ignored                                                                                                                                                                                                      | Shipped |
 | Interactive-only `init`/`update` (exit 1 off a TTY; `update --yes` for CI) + the capability picker for bare `add`/`remove`                                                                                                                                                                             | Shipped |
 | `init --dry-run [--json]` (a preview that writes nothing) and `init --yes` (a prompt-free install that refuses wherever it would overwrite a file)                                                                                                                                                     | Shipped |
@@ -45,4 +47,5 @@ What PHARN CLI does today versus what is planned.
 - [update](commands/update.md)
 - [list](commands/list.md)
 - [status](commands/status.md)
+- [uninstall](commands/uninstall.md)
 - [pharn.config.json](reference/pharn-config.md)

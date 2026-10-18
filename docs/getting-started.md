@@ -64,7 +64,10 @@ npx @pharn-dev/pharn init
 2. **Fetch + resolve.** It downloads the tip of `pharn-dev/pharn-oss` `main` as a tarball, and selects
    the capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the
    rest with a reason. `pharn init --ref latest` installs the newest **verified release** instead — a tag
-   pharn-oss creates only after its post-merge CI passed. If the fetched version declares a `MIN_CLI` newer than your CLI, the run
+   pharn-oss creates only after its post-merge CI passed. pharn-oss has not published a release yet, so
+   until it does `--ref latest` exits 1 and writes nothing — the default `main` is the channel that works
+   (see [No verified release could be resolved](troubleshooting.md#no-verified-release-could-be-resolved)).
+   If the fetched version declares a `MIN_CLI` newer than your CLI, the run
    stops here with a named error and writes nothing.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus
    the fixed product surfaces (commands, hooks, contracts, `pharn-core`, floor checkers, the four trusted

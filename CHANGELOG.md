@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Archetype detection no longer reads every `app/` folder as Next.js, or every `migrations/` folder as a JavaScript backend.** Route handlers under `app/`, and `api/` folders under `app/` or `pages/`, now count only in a Next.js app (a `next` dependency or a `next.config.*` at the project root, or a `next.config.*` in that `apps/<name>/` or `packages/<name>/` package), and only in the router folders Next reads (`app/`, `pages/`, `src/app/`, `src/pages/`). `next.config.*` counts only at the project root or directly in `apps/<name>/` or `packages/<name>/`. A root `api/` folder, a `migrations/` folder and `.sql` files in a database folder count only when the project has a root `package.json`. Before, an Angular, Vue or RTK Query `src/app/` detected as `backend`, a library with a Next.js docs site detected as `ssr` (hiding its `spa` signal), and Flask, golang-migrate, sqlx, Rails and Laravel projects detected as `backend`, contrary to the documentation — each installing capabilities that did not fit. A project that relied on one of those signals without the new evidence now detects differently; `pharn init --archetype` restores any choice. A non-JS project that has a root `package.json` (a Vite frontend, or tooling only) still resolves `backend` from its migrations. See [`pharn init`](docs/commands/init.md#3-detect-archetypes).
 - **A refused command prints one line, not the whole usage text.** An unknown command, an unknown or unsupported option, an incomplete option pair or an extra argument printed its error followed by the full ~2 KB usage text, which scrolled the error itself off the screen. Each now prints the one error line and ``Run `pharn --help` for usage.`` on stderr; the exit code (1) is unchanged.
 - **`pharn remove <name>` exits 1 when `<name>` is not installed.** It warned and exited 0, while `pharn add <name>` for a name it does not know exits 1 — so a script that removed the wrong name read success. It still writes nothing and lists the capabilities you can remove; only the exit code (and the stream: stderr) changed. The interactive `pharn remove` is unchanged.
+- **Release links and stale docs corrected.** The compare links at the foot of `CHANGELOG.md` named tags that never existed (`v0.8.0`, `v0.3.1`, `v0.1.0`) and returned 404; each now names a real tag, 0.8.0 (never tagged or published), 0.2.0 and 0.1.0 have none, and `tests/release-consistency.test.ts` fails a link to a tag that does not exist. The docs say plainly that pharn-oss has not published a release yet, so `--ref latest` exits 1 today and `main` is the channel that works; that `THREAT-MODEL.md` and `LIMITS.md` land at the project root even in the `pharn/` layout, so a same-named doc of yours is replaced (after the overwrite prompt and a backup); and the docs index, roadmap and issue templates describe today's commands, archetypes and capabilities instead of the old wizard, modules and versions.
 
 ### Security
 
@@ -86,6 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An install ahead of the newest release is not downgraded.** An install made from `main` can be newer than the newest release. `pharn update --ref latest` then says so and exits 0 without changing anything; `--force` goes back to the release. `pharn status` reports it as ahead, not outdated, so `--strict` passes. `pharn add` names `pharn update --ref main` rather than sending you back to `update`.
 
 ## [0.8.0] — 2026-10-07
+
+_Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged nor published to npm, and this section has no compare link. Its changes first shipped in 0.9.0._
 
 ### Changed
 
@@ -1452,6 +1455,8 @@ changes.
 
 ## [0.2.0] — 2026-06-11
 
+_Published as `@pharn-dev/pharn@0.2.0` and unpublished on 2026-07-22; never tagged, so this section has no compare link._
+
 Realigned the CLI with the current `pharn-dev/pharn-oss`, which is now a
 **module-based** repo (`pharn-core` + optional `pharn-pipeline`, `pharn-review`,
 `pharn-audits`, and a `pharn-stack-nextjs` stack pack) described by a root
@@ -1480,6 +1485,8 @@ Realigned the CLI with the current `pharn-dev/pharn-oss`, which is now a
   against strict allowlists, and every copy is guarded by `safeJoin`.
 
 ## [0.1.0] — 2026-06-11
+
+_Never tagged, so this section has no compare link._
 
 Initial published release. `pharn` bootstraps the PHARN stack into an existing
 Next.js project. Exposes both `pharn-cli` and `pharn` bins.
@@ -1520,15 +1527,12 @@ Next.js project. Exposes both `pharn-cli` and `pharn` bins.
 [0.12.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.9.0...v0.10.0
-[0.9.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.8.0...v0.9.0
-[0.8.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.1...v0.8.0
+[0.9.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.1...v0.9.0
 [0.7.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.2...v0.4.0
-[0.3.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.1...v0.3.2
-[0.3.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.0...v0.3.1
+[0.3.2]: https://github.com/pharn-dev/pharn-cli/compare/0.3.1...v0.3.2
+[0.3.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.3.0...0.3.1
 [0.3.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.3.0
-[0.2.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/pharn-dev/pharn-cli/releases/tag/v0.1.0
