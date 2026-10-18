@@ -335,10 +335,12 @@ async function runArchetypeUpdate(
       );
       return;
     }
+    // Both are the config's own strings (VERSION_RE-validated at load, F-18),
+    // sanitized again where they reach the terminal.
     const held =
       aheadOf === config.skillsVersion
-        ? `skills v${config.skillsVersion}`
-        : `skills v${config.skillsVersion}, every file you did not edit at v${aheadOf}`;
+        ? `skills v${terminalSafe(config.skillsVersion)}`
+        : `skills v${terminalSafe(config.skillsVersion)}, every file you did not edit at v${terminalSafe(aheadOf)}`;
     outro(
       source.kind === 'release'
         ? `Your install (${held}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` switches back to main; \`pharn update --force\` goes back to ${source.tag}.`
@@ -412,7 +414,9 @@ async function runArchetypeUpdate(
       emitEarlyReturn('up-to-date');
       return;
     }
-    outro(`Already up to date (skills v${config.skillsVersion}).`);
+    outro(
+      `Already up to date (skills v${terminalSafe(config.skillsVersion)}).`,
+    );
     return;
   }
 
@@ -421,8 +425,14 @@ async function runArchetypeUpdate(
     note(
       [
         current
-          ? row('Skills version', `v${config.skillsVersion} (re-applying)`)
-          : row('Skills version', `v${config.skillsVersion} → v${latest}`),
+          ? row(
+              'Skills version',
+              `v${terminalSafe(config.skillsVersion)} (re-applying)`,
+            )
+          : row(
+              'Skills version',
+              `v${terminalSafe(config.skillsVersion)} → v${latest}`,
+            ),
         row('Source', sourceDescription(source)),
         '',
         row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),

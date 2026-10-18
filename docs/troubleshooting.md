@@ -590,7 +590,10 @@ If `pharn.config.json` **exists but was hand-edited into an invalid state**, `ad
 exit non-zero — they do **not** say to run `pharn init` (the file is there; re-running init would
 offer to clobber your edits). Fix the named field and re-run. The `seam` block rejects an out-of-enum
 value, an unknown key (e.g. a typo'd `haltOnUnknwon`), a duplicate `resolutionOrder` step, or a
-`modelConfidenceThreshold` with no `model` step to gate.
+`modelConfidenceThreshold` with no `model` step to gate. The same refusal covers a `capabilities`
+that is not an array or has an invalid entry, an `archetypes` that is not a list of known archetypes,
+and a `skillsVersion` or `commit` that is not a version / a full commit SHA (or `null`) — see
+[`pharn.config.json`](reference/pharn-config.md#skillsversion-and-commit--checked-when-the-config-loads).
 
 The `models` block is **not** checked here: it is pharn-oss's, and no command refuses to run over it.
 See [`pharn status` lists a problem with `models`](#pharn-status-lists-a-problem-with-models).

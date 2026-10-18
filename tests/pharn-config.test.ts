@@ -29,6 +29,7 @@ import {
   CapabilityEntryError,
   CapabilitySourceError,
   ConfigParseError,
+  ConfigStampError,
 } from '../src/lib/pharn-config.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
 import type { PharnConfig } from '../src/types.js';
@@ -65,7 +66,7 @@ const sample: PharnConfig = {
   pharnVersion: '0.2.0',
   skillsVersion: '0.68.0',
   repo: 'pharn-dev/pharn-oss',
-  commit: 'abc123',
+  commit: 'abc123'.padEnd(40, '0'),
   constitution: 'standard',
   modules: [{ name: 'pharn-core', version: '0.2.0' }],
   installedAt: '2026-06-11T00:00:00.000Z',
@@ -564,6 +565,192 @@ describe('pharn-config', () => {
     });
   });
 
+  describe('skillsVersion / commit stamp ingest (F-18)', () => {
+    stubProcessExit();
+    afterEach(() => vi.mocked(log.error).mockClear());
+    const ABSENT = Symbol('absent');
+    const SHA = 'a'.repeat(40);
+    const withStamp = (skillsVersion: unknown, sha: unknown) => ({
+      pharnVersion: '0.4.0',
+      skillsVersion,
+      repo: 'pharn-dev/pharn-oss',
+      ...(sha === ABSENT ? {} : { commit: sha }),
+      modules: [],
+      installedAt: '2026-08-07T00:00:00.000Z',
+      archetypes: ['ssr'],
+      capabilities: [{ name: 'a11y', role: 'griller' }],
+    });
+    const writeRaw = (value: unknown): void => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify(value, null, 2),
+      );
+    };
+    const messageOf = (): string => {
+      try {
+        readPharnConfig(tmp.path());
+      } catch (err) {
+        return (err as Error).message;
+      }
+      return '';
+    };
+
+    it.each([['1.0'], ['v1.0.0'], ['latest'], [''], [' 1.0.0'], ['1.0.0\n']])(
+      'THROWS a named error for a skillsVersion %j that is not VERSION_RE-shaped',
+      (skillsVersion) => {
+        writeRaw(withStamp(skillsVersion, SHA));
+        expect(() => readPharnConfig(tmp.path())).toThrow(ConfigStampError);
+        expect(messageOf()).toMatch(
+          /pharn\.config\.json: skillsVersion must be a version/,
+        );
+      },
+    );
+
+    it.each([
+      ['abc123'],
+      ['A'.repeat(40)],
+      ['a'.repeat(41)],
+      ['a'.repeat(39)],
+      [7],
+      [true],
+      [{ sha: SHA }],
+    ])(
+      'THROWS a named error for a stamp SHA %j that is not 40 hex or null',
+      (sha) => {
+        writeRaw(withStamp('1.0.0', sha));
+        expect(() => readPharnConfig(tmp.path())).toThrow(ConfigStampError);
+        expect(messageOf()).toMatch(/pharn\.config\.json: commit must be/);
+        expect(messageOf()).toContain('or null');
+      },
+    );
+
+    it.each([
+      ['skillsVersion', '1.0.0\u001b[2J', SHA],
+      ['skillsVersion', '1.0.0\u202e', SHA],
+      ['commit', '1.0.0', 'a'.repeat(39) + '\u001b'],
+      ['commit', '1.0.0', 'a\u2028b'],
+    ])(
+      'never echoes an unsafe character from the offending %s',
+      (field, skillsVersion, sha) => {
+        writeRaw(withStamp(skillsVersion, sha));
+        const message = messageOf();
+        expect(message).toContain(field + ' must be');
+        expect(message).not.toMatch(
+          // eslint-disable-next-line no-control-regex
+          /[\x00-\x1f\x7f-\x9f\u2028\u2029\p{Cf}]/u,
+        );
+        expect(message).toMatch(/\\u001b|\\u202e|\\u2028/);
+      },
+    );
+
+    it('caps a huge offending value instead of echoing it whole', () => {
+      writeRaw(withStamp('1.0.0', 'x'.repeat(10_000)));
+      expect(messageOf().length).toBeLessThan(400);
+    });
+
+    it('still loads every stamp this CLI writes (P7)', () => {
+      for (const [skillsVersion, sha] of [
+        ['1.0.0', SHA],
+        ['6.50.0', null],
+        // VERSION_RE admits a prerelease suffix; so does the load.
+        ['2.0.0-rc.1', SHA],
+      ] as const) {
+        writeRaw(withStamp(skillsVersion, sha));
+        const read = readPharnConfig(tmp.path());
+        expect(read?.skillsVersion).toBe(skillsVersion);
+        expect(read?.commit).toBe(sha);
+      }
+      // An absent commit stays legal (additive), as it was before.
+      writeRaw(withStamp('1.0.0', ABSENT));
+      expect(readPharnConfig(tmp.path())).not.toHaveProperty('commit');
+    });
+
+    it('does not validate a pre-archetype (module) config, whose fields still load (P7)', () => {
+      writeRaw({ ...sample, skillsVersion: '0.68', commit: 'abc123' });
+      expect(readPharnConfig(tmp.path())).toMatchObject({
+        skillsVersion: '0.68',
+        commit: 'abc123',
+      });
+    });
+
+    it('joins isConfigValidationError, so every loader reports it and exits 1', () => {
+      expect(isConfigValidationError(new ConfigStampError('x'))).toBe(true);
+      writeRaw(withStamp('1.0.0', 'abc123'));
+      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
+        'commit must be',
+      );
+    });
+  });
+
+  describe('a present capabilities that is not an array (F-30)', () => {
+    stubProcessExit();
+    afterEach(() => vi.mocked(log.error).mockClear());
+    const withCapabilities = (capabilities: unknown) => ({
+      pharnVersion: '0.4.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: null,
+      modules: [],
+      installedAt: '2026-08-07T00:00:00.000Z',
+      archetypes: ['ssr'],
+      capabilities,
+    });
+    const writeRaw = (value: unknown): void => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify(value, null, 2),
+      );
+    };
+
+    it.each([['x'], [null], [{ 0: { name: 'a11y', role: 'griller' } }], [7]])(
+      'THROWS CapabilityEntryError for %j — never read as a legacy install',
+      (capabilities) => {
+        writeRaw(withCapabilities(capabilities));
+        expect(() => readPharnConfig(tmp.path())).toThrow(CapabilityEntryError);
+        expect(() => readPharnConfig(tmp.path())).toThrow(
+          /capabilities must be an array/,
+        );
+      },
+    );
+
+    it('is reported as the named error, NOT the legacy "re-run init" message', () => {
+      writeRaw(withCapabilities('x'));
+      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      const logged = vi.mocked(log.error).mock.calls.map(String).join();
+      expect(logged).toContain('capabilities must be an array');
+      expect(logged).not.toContain(LEGACY_CONFIG_MESSAGE);
+    });
+
+    it('a legacy config (no capabilities key) still reaches the legacy message', () => {
+      writeRaw(sample);
+      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
+        LEGACY_CONFIG_MESSAGE,
+      );
+    });
+
+    it('list --json reports it on stderr as the named error, stdout empty', async () => {
+      writeRaw(withCapabilities('x'));
+      const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
+      const out = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const { runList } = await import('../src/commands/list.js');
+        await expect(runList({ json: true })).rejects.toThrow(ProcessExit);
+        expect(out).not.toHaveBeenCalled();
+        const stderr = err.mock.calls.map(String).join('\n');
+        expect(stderr).toContain('capabilities must be an array');
+        expect(stderr).not.toContain(LEGACY_CONFIG_MESSAGE);
+      } finally {
+        cwd.mockRestore();
+        out.mockRestore();
+        err.mockRestore();
+      }
+    });
+  });
+
   it('still loads a config carrying a removed vendorSkills key (P7 additive)', async () => {
     // A config written by an older CLI may carry the now-removed vendorSkills
     // field; the passthrough loader ignores unknown keys and still reads it.
@@ -582,7 +769,7 @@ describe('pharn-config', () => {
       pharnVersion: '0.2.0',
       skillsVersion: '1.0.0',
       repo: 'pharn-dev/pharn-oss',
-      commit: 'sha123',
+      commit: 'c'.repeat(40),
       modules: [],
       installedAt: '2026-07-07T00:00:00.000Z',
       archetypes: ['ssr', 'backend'],
@@ -876,6 +1063,7 @@ describe('isConfigValidationError', () => {
     expect(isConfigValidationError(new CapabilitySourceError('x'))).toBe(true);
     expect(isConfigValidationError(new ArchetypesError('x'))).toBe(true);
     expect(isConfigValidationError(new ConfigParseError('x'))).toBe(true);
+    expect(isConfigValidationError(new ConfigStampError('x'))).toBe(true);
     expect(isConfigValidationError(new Error('x'))).toBe(false);
     expect(isConfigValidationError('nope')).toBe(false);
   });

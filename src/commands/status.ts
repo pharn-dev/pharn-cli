@@ -354,15 +354,18 @@ function printArchetypeVersion(
     installed: config.skillsVersion,
     latest,
   });
+  // The config's own string: validated at load (VERSION_RE, F-18) and
+  // sanitized again at the one place it reaches the terminal.
+  const installed = terminalSafe(config.skillsVersion);
   const aheadNote =
     source.kind === 'release'
       ? `(ahead of the latest verified release v${latest} — installed from main)`
       : `(ahead of pharn-oss main (v${latest}) — main has moved back; \`pharn update --force\` downgrades)`;
   const skillsLine = ahead
-    ? `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim(aheadNote)}`
+    ? `${row('Skills version', `v${installed}`)} ${pc.dim(aheadNote)}`
     : outdated
-      ? `${row('Skills version', `v${config.skillsVersion} → v${latest}`)} ${pc.dim('(update available, run `pharn update`)')}`
-      : `${row('Skills version', `v${config.skillsVersion}`)} ${pc.dim('(up to date)')}`;
+      ? `${row('Skills version', `v${installed} → v${latest}`)} ${pc.dim('(update available, run `pharn update`)')}`
+      : `${row('Skills version', `v${installed}`)} ${pc.dim('(up to date)')}`;
   note(
     [
       skillsLine,
