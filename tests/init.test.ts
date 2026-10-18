@@ -130,7 +130,8 @@ const confirmWriteTargets = vi.fn(async () => 'proceed' as string);
 vi.mock('../src/steps/overwrite-check.js', () => ({ confirmWriteTargets }));
 
 const { runInit } = await import('../src/commands/init.js');
-const { log, note } = await import('@clack/prompts');
+const { intro, log, note } = await import('@clack/prompts');
+const { showBanner } = await import('../src/lib/banner.js');
 
 describe('runInit (archetype default)', () => {
   stubProcessExit();
@@ -1163,6 +1164,48 @@ describe('runInit (archetype default)', () => {
 
       expect(log.error).not.toHaveBeenCalled();
       expect(fetchRepo).not.toHaveBeenCalled();
+    });
+  });
+
+  // F-29: the banner and intro are printed only once every gate has passed. A
+  // refused init used to put the logo on stdout above its one stderr error.
+  describe('banner placement', () => {
+    const noBanner = (): void => {
+      expect(showBanner).not.toHaveBeenCalled();
+      expect(intro).not.toHaveBeenCalled();
+    };
+
+    it('prints no banner when the Node floor refuses', async () => {
+      setNodeVersion('22.0.0');
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+      noBanner();
+    });
+
+    it('prints no banner when the prerequisite check refuses', async () => {
+      runGitPrereq.mockImplementationOnce(() => {
+        throw new ProcessExit(1);
+      });
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+      noBanner();
+    });
+
+    it('prints no banner when the TTY gate refuses', async () => {
+      setTTY(false, false);
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+      noBanner();
+    });
+
+    it('prints the banner, then the intro, once the gates pass', async () => {
+      fetchRepo.mockRejectedValueOnce(new Error('stop here'));
+      await expect(runInit()).rejects.toMatchObject(new ProcessExit(1));
+      expect(showBanner).toHaveBeenCalledTimes(1);
+      expect(intro).toHaveBeenCalledWith('init wizard');
+      expect(
+        vi.mocked(showBanner).mock.invocationCallOrder[0]!,
+      ).toBeGreaterThan(runGitPrereq.mock.invocationCallOrder[0]!);
+      expect(vi.mocked(showBanner).mock.invocationCallOrder[0]!).toBeLessThan(
+        fetchRepo.mock.invocationCallOrder[0]!,
+      );
     });
   });
 

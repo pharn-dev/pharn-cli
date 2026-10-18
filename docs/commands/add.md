@@ -242,9 +242,10 @@ $ pharn add --force a11y
 Unsupported option for `add`: "--force"
 ```
 
-It prints the usage text to stderr and exits **1**. See
+It prints that line and ``Run `pharn --help` for usage.`` to stderr and exits **1**. See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
-`--help`/`-h` and `--version`/`-v` work here as everywhere.
+`--help`/`-h` (`pharn add --help` shows the `add` usage line) and `--version`/`-v` work here as
+everywhere.
 
 ## Concurrency
 

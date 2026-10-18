@@ -299,14 +299,16 @@ yours, `init` refuses before any prompt or write, cleans up the clone, and exits
 
 ## Steps
 
-### 1. Banner and intro
-
-Shows the PHARN logo and CLI version.
-
-### 2. Prerequisites
+### 1. Prerequisites
 
 - **Node 24.2.0 or newer** — checked first of all, because PHARN's installed floor checkers refuse to run on an older Node. On an older Node, or one whose version cannot be read, `init` prints the required and the current version, exits 1 and writes nothing.
 - **`.git` present** — checked next, before detection (universal, framework-agnostic). Hard-fails if absent.
+- **An interactive terminal** — for a plain `init` only (not `--yes` or `--dry-run`); see [`init` is interactive by default](#init-is-interactive-by-default).
+
+### 2. Banner and intro
+
+Shows the PHARN logo and CLI version — only once the prerequisites have passed, so a refused `init`
+prints its one error (on stderr) and nothing else. `init --dry-run --json` prints no banner at all.
 
 ### 3. Detect archetypes
 

@@ -666,25 +666,25 @@ pharn-oss's own block fails — it writes none then.
 Unknown command: ...
 ```
 
-Run `pharn --help`. Valid commands: `init`, `add`, `remove` (alias `rm`), `update`, `list`, `status`.
+Run `pharn --help`. Valid commands: `init`, `add`, `remove` (alias `rm`), `update`, `list`, `status`,
+`uninstall`. `pharn <command> --help` shows one command and only the options it takes.
 
 ## Unknown option, or an unexpected argument
 
 ```text
 Unknown option: "--sctrict"
-
-Usage: ...
+Run `pharn --help` for usage.
 ```
 
 ```text
 Unexpected argument: "extra"
-
-Usage: ...
+Run `pharn --help` for usage.
 ```
 
 `pharn` refuses argv it does not understand rather than ignoring it, and refuses **before** running
-any command — so nothing is fetched and nothing is written. Both messages go to stderr with the
-usage text and exit **1**.
+any command — so nothing is fetched and nothing is written. Both messages go to stderr as one
+line plus a pointer at `pharn --help` — not the whole usage text, which used to scroll the error
+away — and exit **1**.
 
 This matters most in CI: a mistyped `pharn status --sctrict` used to run in the default exit-0 mode,
 so the drift gate was silently disarmed while every run stayed green. `pharn update --froce` used to
@@ -698,29 +698,29 @@ Two consequences worth knowing:
 - Options are **scoped to one command**, and passing one to a different command is an error, not a
   no-op — see the next section.
 
-Run `pharn --help` for the full option list.
+Run `pharn --help` for the full option list, or `pharn <command> --help` for one command's options.
 
 ## Unsupported option for this command
 
 ```text
 Unsupported option for `status`: "--force"
-
-Usage: ...
+Run `pharn --help` for usage.
 ```
 
 Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
 
-| command         | options it accepts                                                                           |
-| --------------- | -------------------------------------------------------------------------------------------- |
-| `init`          | `--ref`, `--dry-run`, `--json` (only with `--dry-run`), `--yes` / `-y`, `--archetype <list>` |
-| `add`           | none                                                                                         |
-| `remove` / `rm` | none                                                                                         |
-| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run`, `--json` (only with `--dry-run`)            |
-| `list`          | `--json`                                                                                     |
-| `status`        | `--strict`, `--no-drift`, `--json`                                                           |
-| _any_           | `--help` / `-h`, `--version` / `-v`                                                          |
+| command         | options it accepts                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `init`          | `--ref`, `--dry-run`, `--json` (only with `--dry-run`), `--yes` / `-y`, `--archetype <list>`                        |
+| `add`           | none                                                                                                                |
+| `remove` / `rm` | none                                                                                                                |
+| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run`, `--json` (only with `--dry-run`), `--compact` (only with `--json`) |
+| `list`          | `--json`                                                                                                            |
+| `status`        | `--strict`, `--no-drift`, `--json`                                                                                  |
+| `uninstall`     | `--yes` / `-y`                                                                                                      |
+| _any_           | `--help` / `-h`, `--version` / `-v`                                                                                 |
 
-The message goes to stderr with the usage text and exits **1**, exactly like `Unknown option` — the
+The message goes to stderr with the `pharn --help` pointer and exits **1**, exactly like `Unknown option` — the
 label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for
 a typo that is not there.
 

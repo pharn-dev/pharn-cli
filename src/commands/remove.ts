@@ -66,7 +66,7 @@ export async function runRemove(arg: string | undefined): Promise<void> {
     // A held lock is the one refusal this command can hit from below, and it is
     // a policy refusal rather than a crash: the message names the one action
     // that resolves it, so it gets the same no-stack-trace treatment as the
-    // ambiguity and not-installed refusals above. `remove` takes no clone, so
+    // ambiguity and not-installed refusals below. `remove` takes no clone, so
     // there is nothing to clean up before the exit.
     if (err instanceof ProjectLockedError) {
       logError(err.message);
@@ -310,16 +310,19 @@ async function removeNamed(
       (parsed.role === undefined || c.role === parsed.role),
   );
 
-  // Not installed → benign no-op (no config write). Without a manifest we list
-  // the installed capabilities (the only removable things) as the valid values.
+  // Not installed → an ERROR (exit 1, nothing written), exactly as `pharn add
+  // bogus` is: a script that names the wrong capability must not read success.
+  // It used to be a warning and exit 0. Without a manifest we list the installed
+  // capabilities (the only removable things) as the valid values.
   if (matches.length === 0) {
     const valid = installed.map((c) => `${c.role}:${c.name}`).sort();
     const hint = valid.length
       ? ` Installed: ${valid.join(', ')}.`
       : ' No capabilities are installed.';
-    log.warn(`"${address}" is not an installed capability.${hint}`);
-    outro('Nothing was removed.');
-    return;
+    logError(
+      `"${address}" is not an installed capability.${hint} Nothing was removed.`,
+    );
+    process.exit(1);
   }
   if (matches.length > 1) {
     logError(

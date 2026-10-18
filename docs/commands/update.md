@@ -17,8 +17,8 @@ pharn update --ref main     # back to the tip of main (recorded)
 `--force`, `--yes`/`-y`, `--ref`, `--dry-run`, `--json` and `--compact` are `update`'s **only** options;
 they compose, and none implies another — except that `--json` is accepted **only together with
 `--dry-run`**, and `--compact` **only together with `--json`** (`pharn update --json` alone, or
-`pharn update --compact` alone, exits **1** with an `Incomplete option for` error on stderr, plus the
-usage text). Any other flag — `--strict`, `--no-drift` — is refused with
+`pharn update --compact` alone, exits **1** with an `Incomplete option for` error on stderr, plus
+``Run `pharn --help` for usage.``). Any other flag — `--strict`, `--no-drift` — is refused with
 ``Unsupported option for `update` `` on stderr and exit **1**, as is an extra positional. See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 

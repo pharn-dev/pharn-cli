@@ -14,40 +14,265 @@ import { parseArchetypeList } from './lib/archetype.js';
 import type { Archetype } from './types.js';
 import { PHARN_VERSION } from './version.js';
 
-const USAGE = `Pharn - Installs and updates PHARN (a workflow for shipping features right with Claude Code) in your git project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.
+const INTRO = `Pharn - Installs and updates PHARN (a workflow for shipping features right with Claude Code) in your git project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.`;
 
-Usage:
-  pharn [command] [options]
+// The help text is DATA, rendered two ways: `pharn --help` prints every command
+// and every option (each option line naming the commands it belongs to), and
+// `pharn <cmd> --help` prints that command's usage line and ONLY the options in
+// its ALLOWED_FLAGS row. One source for both, so a command's page can never
+// describe an option differently from the full text.
+interface CommandHelp {
+  name: string;
+  args?: string;
+  aliases?: readonly string[];
+  summary: string;
+  // The sentence under a command's own `--help` page, when the one-line
+  // summary does not read as one.
+  page?: string;
+}
 
-Commands:
-  init                       Detect archetypes and install capabilities (default)
-  add [capability]           Add a capability, e.g. a11y (no arg: pick interactively)
-  remove [capability]        Remove an installed capability (no arg: pick interactively)
-  update                     Re-fetch installed capabilities at the latest version
-  list                       List installed archetypes + capabilities
-  status                     Show version + local-drift status (read-only)
-  uninstall                  Remove the PHARN files pharn wrote and you did not change
+const COMMANDS: readonly CommandHelp[] = [
+  {
+    name: 'init',
+    summary: 'Detect archetypes and install capabilities (default)',
+    page: 'Detect archetypes and install capabilities. The default command: `pharn` alone runs it.',
+  },
+  {
+    name: 'add',
+    args: '[capability]',
+    summary: 'Add a capability, e.g. a11y (no arg: pick interactively)',
+  },
+  {
+    name: 'remove',
+    args: '[capability]',
+    aliases: ['rm'],
+    summary: 'Remove an installed capability (no arg: pick interactively)',
+  },
+  {
+    name: 'update',
+    summary: 'Re-fetch installed capabilities at the latest version',
+  },
+  { name: 'list', summary: 'List installed archetypes + capabilities' },
+  { name: 'status', summary: 'Show version + local-drift status (read-only)' },
+  {
+    name: 'uninstall',
+    summary: 'Remove the PHARN files pharn wrote and you did not change',
+  },
+];
 
-Options (each belongs to ONE command; passing it to another is an error):
-      --archetype <list>
-                     init: use these archetypes instead of detecting them — a
-                     comma-separated list of ssr, backend, spa (or lib alone)
-      --ref <ref>    init, update: install from "main" (the pharn-oss tip — the default)
-                     or "latest" (its newest verified release); recorded
-      --force        update: overwrite files you changed (each is copied to .pharn-backup/ first)
-  -y, --yes          update, uninstall: skip the confirmation prompt (for CI and scripts)
-                     init: install without prompts — only when no file would be overwritten
-      --dry-run      update: show what would change and write nothing
-                     init: show what would be installed and write nothing
-      --strict       status: exit 1 on any outdated/modified/missing file
-      --no-drift     status: skip the byte-level drift check
-      --json         list: emit the inventory as JSON
-                     status: emit one JSON report on stdout (diagnostics on stderr)
-                     update: with --dry-run, emit the plan as one JSON object
-                     init: with --dry-run, emit the plan as one JSON object
-      --compact      update: with --dry-run --json, omit the unchanged files from the plan's file list
-  -h, --help         Show this help text
-  -v, --version      Show the version number`;
+interface OptionHelp {
+  // The canonical minimist key, exactly as ALLOWED_FLAGS names it (`drift`,
+  // not `no-drift`), so a command's page is selected by its row.
+  key: string;
+  short?: string;
+  long: string;
+  // One entry per group of commands the option means the same thing for. An
+  // empty `commands` marks a global option (`--help`, `--version`).
+  uses: readonly { commands: readonly string[]; text: readonly string[] }[];
+}
+
+const OPTIONS: readonly OptionHelp[] = [
+  {
+    key: 'archetype',
+    long: '--archetype <list>',
+    uses: [
+      {
+        commands: ['init'],
+        text: [
+          'use these archetypes instead of detecting them — a',
+          'comma-separated list of ssr, backend, spa (or lib alone)',
+        ],
+      },
+    ],
+  },
+  {
+    key: 'ref',
+    long: '--ref <ref>',
+    uses: [
+      {
+        commands: ['init', 'update'],
+        text: [
+          'install from "main" (the pharn-oss tip — the default)',
+          'or "latest" (its newest verified release); recorded',
+        ],
+      },
+    ],
+  },
+  {
+    key: 'force',
+    long: '--force',
+    uses: [
+      {
+        commands: ['update'],
+        text: [
+          'overwrite files you changed (each is copied to .pharn-backup/ first)',
+        ],
+      },
+    ],
+  },
+  {
+    key: 'yes',
+    short: 'y',
+    long: '--yes',
+    uses: [
+      {
+        commands: ['update', 'uninstall'],
+        text: ['skip the confirmation prompt (for CI and scripts)'],
+      },
+      {
+        commands: ['init'],
+        text: [
+          'install without prompts — only when no file would be overwritten',
+        ],
+      },
+    ],
+  },
+  {
+    key: 'dry-run',
+    long: '--dry-run',
+    uses: [
+      {
+        commands: ['update'],
+        text: ['show what would change and write nothing'],
+      },
+      {
+        commands: ['init'],
+        text: ['show what would be installed and write nothing'],
+      },
+    ],
+  },
+  {
+    key: 'strict',
+    long: '--strict',
+    uses: [
+      {
+        commands: ['status'],
+        text: ['exit 1 on any outdated/modified/missing file'],
+      },
+    ],
+  },
+  {
+    key: 'drift',
+    long: '--no-drift',
+    uses: [{ commands: ['status'], text: ['skip the byte-level drift check'] }],
+  },
+  {
+    key: 'json',
+    long: '--json',
+    uses: [
+      { commands: ['list'], text: ['emit the inventory as JSON'] },
+      {
+        commands: ['status'],
+        text: ['emit one JSON report on stdout (diagnostics on stderr)'],
+      },
+      {
+        commands: ['update'],
+        text: ['with --dry-run, emit the plan as one JSON object'],
+      },
+      {
+        commands: ['init'],
+        text: ['with --dry-run, emit the plan as one JSON object'],
+      },
+    ],
+  },
+  {
+    key: 'compact',
+    long: '--compact',
+    uses: [
+      {
+        commands: ['update'],
+        text: [
+          "with --dry-run --json, omit the unchanged files from the plan's file list",
+        ],
+      },
+    ],
+  },
+  {
+    key: 'help',
+    short: 'h',
+    long: '--help',
+    uses: [{ commands: [], text: ['Show this help text'] }],
+  },
+  {
+    key: 'version',
+    short: 'v',
+    long: '--version',
+    uses: [{ commands: [], text: ['Show the version number'] }],
+  },
+];
+
+// What pharn reads from the environment, described by what each changes for
+// pharn. The proxy rules in full (which spellings, which Node versions) live in
+// lib/proxy-env.ts and docs/troubleshooting.md.
+const ENVIRONMENT = `Environment:
+  PHARN_DEBUG=1              Print the full error (stack trace) when a download or
+                             install fails, instead of a one-line hint
+  NODE_USE_ENV_PROXY=1       Let Node's fetch use https_proxy / HTTPS_PROXY (or
+                             http_proxy / HTTP_PROXY, honouring NO_PROXY); without it, or
+                             Node's --use-env-proxy, pharn's downloads connect directly,
+                             and pharn says which applies whenever a proxy variable is set
+  NO_COLOR=1                 Turn colored output off (FORCE_COLOR=1 turns it on)`;
+
+const DESCRIPTION_COLUMN = 21;
+const COMMAND_COLUMN = 29;
+
+// One option's lines. `forCommand` undefined: the full text — every use, each
+// prefixed by the commands it belongs to. Otherwise only that command's use,
+// unprefixed: the page already says which command it is.
+function optionLines(opt: OptionHelp, forCommand?: string): string[] {
+  const uses =
+    forCommand === undefined
+      ? opt.uses
+      : opt.uses.filter(
+          (u) => u.commands.length === 0 || u.commands.includes(forCommand),
+        );
+  const body = uses.flatMap(({ commands, text }) =>
+    text.map((line, i) =>
+      i === 0 && forCommand === undefined && commands.length > 0
+        ? `${commands.join(', ')}: ${line}`
+        : line,
+    ),
+  );
+  const indent = ' '.repeat(DESCRIPTION_COLUMN);
+  const head = `  ${opt.short ? `-${opt.short}, ` : '    '}${opt.long}`;
+  // A label too wide for the column gets its own line (`--archetype <list>`).
+  if (head.length + 2 > DESCRIPTION_COLUMN) {
+    return [head, ...body.map((line) => indent + line)];
+  }
+  const [first, ...rest] = body;
+  return [
+    head.padEnd(DESCRIPTION_COLUMN) + (first ?? ''),
+    ...rest.map((line) => indent + line),
+  ];
+}
+
+function commandLabel(c: CommandHelp): string {
+  const names = [c.name, ...(c.aliases ?? [])].join(', ');
+  return c.args ? `${names} ${c.args}` : names;
+}
+
+const USAGE = [
+  INTRO,
+  '',
+  'Usage:',
+  '  pharn [command] [options]',
+  '',
+  'Commands:',
+  ...COMMANDS.map(
+    (c) => `  ${commandLabel(c).padEnd(COMMAND_COLUMN - 2)}${c.summary}`,
+  ),
+  '',
+  'Options (each belongs to ONE command; passing it to another is an error):',
+  ...OPTIONS.flatMap((opt) => optionLines(opt)),
+  '',
+  ENVIRONMENT,
+  '',
+  'Run `pharn <command> --help` for one command and only its options.',
+].join('\n');
+
+// What every refusal prints after its one error line, instead of the whole
+// usage text: ~2 KB of help on stderr scrolled the actual error off a terminal.
+const USAGE_POINTER = 'Run `pharn --help` for usage.';
 
 // How many positionals each command accepts, INCLUDING the command word itself.
 // A command absent from this table gets no arity check at all, which is what
@@ -133,6 +358,35 @@ const REQUIRED_WITH = new Map<
 // `pharn status --help` parses on the per-command pass instead of being reported
 // as unsupported.
 const GLOBAL_FLAGS = ['help', 'version'];
+// `pharn <cmd> --help`: the command's usage line and the options its
+// ALLOWED_FLAGS row grants (plus --help / --version, which every row has).
+// `undefined` for a command with no page, so `pharn bogus --help` gets the full
+// text, which lists the real ones.
+function commandUsage(cmd: string): string | undefined {
+  const doc = COMMANDS.find(
+    (c) => c.name === cmd || (c.aliases ?? []).includes(cmd),
+  );
+  const allowed = ALLOWED_FLAGS.get(cmd);
+  if (doc === undefined || allowed === undefined) return undefined;
+  const args = doc.args ? ` ${doc.args}` : '';
+  const options = allowed.length > 0 ? ' [options]' : '';
+  return [
+    'Usage:',
+    `  pharn ${doc.name}${args}${options}`,
+    ...(doc.aliases ?? []).map(
+      (a) => `  pharn ${a}${args}${options}   (alias)`,
+    ),
+    '',
+    doc.page ?? `${doc.summary}.`,
+    '',
+    'Options:',
+    ...OPTIONS.filter(
+      (opt) => GLOBAL_FLAGS.includes(opt.key) || allowed.includes(opt.key),
+    ).flatMap((opt) => optionLines(opt, doc.name)),
+    '',
+    'Run `pharn --help` for every command and the environment variables pharn reads.',
+  ].join('\n');
+}
 
 // The ONE short-alias table, used by both parses: the global one takes it whole,
 // the per-command one takes the entries whose canonical target that command
@@ -220,10 +474,12 @@ function unmetRequirements(
     .map(({ flag, requires }) => `--${flag} (needs --${requires})`);
 }
 
-// Refuse argv we do not understand: print the offenders + the usage text to
-// STDERR and exit 1. `console.error`, not the shared reporter, exactly like the
-// unknown-command path below — `pharn list --json --bogus` must stay parseable
-// for a JSON consumer, and clack chrome in a `2>&1` capture is not that.
+// Refuse argv we do not understand: print ONE line naming the offenders, then a
+// pointer at `pharn --help` (never the whole usage text, which buried the error
+// under ~2 KB of help), to STDERR and exit 1. `console.error`, not the shared
+// reporter, exactly like the unknown-command path below — `pharn list --json
+// --bogus` must stay parseable for a JSON consumer, and clack chrome in a `2>&1`
+// capture is not that.
 //
 // Offenders are `JSON.stringify`-escaped: argv is untrusted text (P2), so a
 // control-char argument is echoed as data, never raw — mirroring how
@@ -234,9 +490,9 @@ function unmetRequirements(
 // `"-xz", "-xz"`. The offenders are a set of names, not a count of hits.
 function refuse(label: string, offenders: string[]): never {
   console.error(
-    `${label}: ${[...new Set(offenders)].map((o) => JSON.stringify(o)).join(', ')}\n`,
+    `${label}: ${[...new Set(offenders)].map((o) => JSON.stringify(o)).join(', ')}`,
   );
-  console.error(USAGE);
+  console.error(USAGE_POINTER);
   process.exit(1);
 }
 
@@ -333,7 +589,11 @@ export async function main(): Promise<void> {
   }
 
   if (argv.help) {
-    console.log(USAGE);
+    // `pharn <cmd> --help` is that command's page; a bare `pharn --help` (no
+    // command word, even though the dispatch defaults to `init`) and a command
+    // with no page keep the full text.
+    const page = argv._[0] === undefined ? undefined : commandUsage(cmd);
+    console.log(page ?? USAGE);
     return;
   }
 
@@ -392,8 +652,8 @@ export async function main(): Promise<void> {
       await runUninstall({ yes: Boolean(argv.yes) });
       return;
     default:
-      console.error(`Unknown command: ${cmd}\n`);
-      console.error(USAGE);
+      console.error(`Unknown command: ${cmd}`);
+      console.error(USAGE_POINTER);
       process.exit(1);
   }
 }

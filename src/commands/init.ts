@@ -89,12 +89,6 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
     reportFatalPlain('--json is only available with --dry-run.');
     process.exit(1);
   }
-  // Under `--json` NOTHING reaches stdout but the one report: no banner, no clack.
-  if (!json) {
-    showBanner();
-    intro(dryRun ? 'pharn init --dry-run' : 'init wizard');
-  }
-
   // FIRST, before even the git prerequisite: the Node floor is a fact about the
   // environment that nothing later can repair, and an install made on a Node the
   // PHARN floor checkers refuse to run on would fail mid-run. Refuses with
@@ -134,6 +128,15 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
       'pharn init is interactive — run it in an interactive terminal. To install without prompts, pass --yes: it installs only into a project where none of its files exists yet, and never overwrites. To see what init would do, pass --dry-run.',
     );
     process.exit(1);
+  }
+
+  // The banner and intro come only now, AFTER the Node floor, the git
+  // prerequisite and the TTY gate: a refused init prints its one error and
+  // nothing else, rather than a logo on stdout above an error on stderr. Under
+  // `--json` NOTHING reaches stdout but the one report: no banner, no clack.
+  if (!json) {
+    showBanner();
+    intro(dryRun ? 'pharn init --dry-run' : 'init wizard');
   }
 
   // Archetype-driven install is the default (and only) init flow: detect the

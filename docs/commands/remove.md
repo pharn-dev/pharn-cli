@@ -38,8 +38,9 @@ Each capability lives in its own directory, addressed at your project's recorded
 (`pharn-review/<name>` for a lens, `pharn-pipeline/grillers/<name>` for a griller) or the same paths
 under `pharn/`. Removal is therefore precise; siblings are never touched.
 
-- **Not installed** → a no-op (nothing is written); the CLI lists the capabilities you actually have as
-  the valid values.
+- **Not installed** → an error: exit **1**, nothing written — the same answer `pharn add` gives for a
+  name it does not know, so a script that removes the wrong name does not read success. The CLI
+  lists the capabilities you actually have as the valid values.
 - **Ambiguous** (a name installed in both roles, given without a role) → the CLI asks you to
   disambiguate with `griller:` / `lens:`.
 - Already-deleted directory → treated as done (idempotent).
