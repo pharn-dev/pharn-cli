@@ -59,8 +59,12 @@ npx @pharn-dev/pharn init
    `next.config.*`, `app/` route handlers and `app/api`/`pages/api`; a root `api/`, `migrations/` and
    database `.sql` files count only when the project has a root `package.json`. A Python, Go or Rust
    project without one produces no signal, resolves to `lib`, and receives the universal capabilities
-   only — the correct outcome, not a failure. If detection gets your project wrong, pass the archetypes
-   yourself: `pharn init --archetype backend` (see [`init`](commands/init.md#choosing-the-archetypes-yourself---archetype)).
+   only — the correct outcome, not a failure. A server framework or a runtime database driver
+   (`express`, `pg`, `prisma`, …) counts as `backend` only under `dependencies` — a devDependency-only
+   one (a mock server, a test database) does not — while SSR and UI frameworks count under
+   `devDependencies` too. If the scan stops at its bounds (50,000 entries, 24 directories deep) before
+   its result is settled, the summary says `detection stopped early`. If detection gets your project
+   wrong, pass the archetypes yourself: `pharn init --archetype backend` (see [`init`](commands/init.md#choosing-the-archetypes-yourself---archetype)).
 2. **Fetch + resolve.** It downloads the tip of `pharn-dev/pharn-oss` `main` as a tarball, and selects
    the capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the
    rest with a reason. `pharn init --ref latest` installs the newest **verified release** instead — a tag

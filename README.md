@@ -367,6 +367,18 @@ PHARN is intentionally scoped:
   One that also has a root `package.json` (a Vite frontend, or tooling only)
   can resolve `backend` from its migrations; `pharn init --archetype` corrects
   either way.
+- **Server and database packages count only as runtime dependencies.** A
+  runtime database driver dependency (`pg`, `mongodb`, an ORM) means `backend`,
+  like a server framework; the same package only in `devDependencies` (a mock
+  server, a test database) does not. A backend bundled so that its framework is
+  only a devDependency needs `pharn init --archetype backend`. SSR and UI
+  frameworks count from `devDependencies` too.
+- **Detection is bounded.** The file-tree scan examines at most 50,000 entries,
+  24 directories deep (skipped directories such as `node_modules` do not
+  count). When it stops at a bound before its result is settled, the install
+  summary says `detection stopped early` and `init --dry-run --json` reports
+  `"detectionTruncated": true`; check the archetypes and pass `--archetype` if
+  they are wrong.
 - It does not scaffold your application or install framework packages.
 - It does not replace tests, human review, or release judgment. It gives those
   activities a structured record and repeatable workflow.

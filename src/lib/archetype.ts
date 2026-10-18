@@ -19,6 +19,10 @@ import { ARCHETYPE_VALUES } from './validate.js';
 // ---------------------------------------------------------------------------
 
 // SSR meta-frameworks: a client UI rendered through a server request lifecycle.
+// Each name is a package every app of that framework lists itself (F-27). Not
+// listed, deliberately: release candidates, build-time-only generators
+// (`gatsby`), and adapters that always ride with a listed package
+// (`@react-router/express`, `@remix-run/dev`).
 const SSR_FRAMEWORKS = new Set([
   'next',
   'nuxt',
@@ -27,6 +31,22 @@ const SSR_FRAMEWORKS = new Set([
   '@sveltejs/kit',
   'astro',
   '@angular/ssr',
+  // React Router v7 framework mode. Library mode lists only `react-router`,
+  // a client router (→ `spa` through `react`). A framework-mode app built with
+  // `ssr: false` detects as `ssr`, as a `next` static export does.
+  '@react-router/dev',
+  '@react-router/node',
+  '@react-router/serve',
+  // TanStack Start: the per-renderer packages and the original name.
+  '@tanstack/react-start',
+  '@tanstack/solid-start',
+  '@tanstack/start',
+  '@solidjs/start', // SolidStart
+  '@builder.io/qwik-city', // Qwik City
+  '@analogjs/platform', // Analog (Angular)
+  'vike',
+  'vite-plugin-ssr', // Vike's former name
+  '@nguniversal/express-engine', // Angular Universal, before @angular/ssr
 ]);
 
 // Server / API / DB frameworks: a backend surface. Alongside the request
@@ -34,6 +54,11 @@ const SSR_FRAMEWORKS = new Set([
 // `backend` archetype (the enum has no `db` member). This is the
 // archetype-enum-align increment, which reverses decision #2 of
 // archetype-file-tree-scan (where DB signals contributed nothing).
+//
+// Read from `dependencies` ONLY (F-27): a server or DB package that is only a
+// devDependency is a mock server, a test database or tooling — not a backend
+// surface of the project. A backend bundled so that its framework is only a
+// devDependency needs a tree signal, or `--archetype backend`.
 const BACKEND_FRAMEWORKS = new Set([
   'express',
   'fastify',
@@ -41,10 +66,27 @@ const BACKEND_FRAMEWORKS = new Set([
   'koa',
   'hono',
   '@hapi/hapi',
-  // DB/ORM clients → backend (archetype-enum-align).
+  'elysia',
+  '@adonisjs/core',
+  'h3',
+  '@trpc/server',
+  '@apollo/server',
+  'graphql-yoga',
+  // DB/ORM clients → backend (archetype-enum-align): a database driver the
+  // project RUNS with is a server-side data surface.
   'prisma',
   '@prisma/client',
   'drizzle-orm',
+  'typeorm',
+  'sequelize',
+  'mongoose',
+  'knex',
+  'kysely',
+  '@mikro-orm/core',
+  'pg',
+  'mysql2',
+  'mongodb',
+  'better-sqlite3',
 ]);
 
 // Client UI libraries: a frontend that, on its own, has no SSR meta-framework.
@@ -63,6 +105,11 @@ const CLIENT_UI = new Set([
 const ARCHETYPE_ORDER: readonly Archetype[] = ARCHETYPE_VALUES;
 
 // The subset of package.json we read: dependency name maps only.
+// `peerDependencies` and `optionalDependencies` are deliberately NOT read: a
+// peer dependency names the host a plug-in LIBRARY runs inside (a Next plugin, a
+// React component library — reading it would make every such library
+// `ssr`/`spa`), and an optional dependency is by definition one the project
+// runs without.
 export interface ProjectPackages {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -102,38 +149,68 @@ export type SignalEvidence = Partial<Record<keyof ArchetypeSignals, string>>;
 /** What package.json contributes: its signals, their evidence, and whether `next` is a dependency. */
 export interface PackageFacts {
   signals: ArchetypeSignals;
+  // The triggering `dependencies` member, per signal.
   evidence: SignalEvidence;
+  // The triggering `devDependencies` member, for a signal NO `dependencies`
+  // member raised (never `backend`: devDependencies cannot raise it).
+  devEvidence: SignalEvidence;
   // The root base's Next evidence (with a root `next.config.*`): gates the
   // Next-specific structural rules in classifyEntry.
   nextDependency: boolean;
 }
 
+// Which allowlist each signal reads, and whether devDependencies may raise it.
+// ssr and client UI read devDependencies too: official templates list the
+// framework there (`npm create svelte` puts `@sveltejs/kit` and `svelte` in
+// devDependencies; React Router framework mode lists `@react-router/dev`).
+// backend does not (see BACKEND_FRAMEWORKS).
+const PACKAGE_RULES: ReadonlyArray<{
+  signal: keyof ArchetypeSignals;
+  allowlist: Set<string>;
+  readsDev: boolean;
+}> = [
+  { signal: 'ssr', allowlist: SSR_FRAMEWORKS, readsDev: true },
+  { signal: 'backend', allowlist: BACKEND_FRAMEWORKS, readsDev: false },
+  { signal: 'clientUi', allowlist: CLIENT_UI, readsDev: true },
+];
+
 /**
  * Package.json dependency names → raw ArchetypeSignals plus, per signal, the
- * allowlist member that triggered it (membership over the union of
- * `dependencies` and `devDependencies` names). Pure and deterministic. The cited
- * name is the ALLOWLIST's own string, never the manifest's key bytes.
+ * allowlist member that triggered it: from `dependencies` (`evidence`), or —
+ * only when no `dependencies` member did — from `devDependencies`
+ * (`devEvidence`). `backend` reads `dependencies` only (F-27); ssr and client UI
+ * read both. Pure and deterministic. The cited name is the ALLOWLIST's own
+ * string, never the manifest's key bytes.
  */
 export function packageFacts(pkg: ProjectPackages): PackageFacts {
-  const names = new Set<string>([
-    ...Object.keys(pkg.dependencies ?? {}),
-    ...Object.keys(pkg.devDependencies ?? {}),
-  ]);
-  const ssr = firstOf(names, SSR_FRAMEWORKS);
-  const backend = firstOf(names, BACKEND_FRAMEWORKS);
-  const clientUi = firstOf(names, CLIENT_UI);
+  const runtime = new Set(Object.keys(pkg.dependencies ?? {}));
+  const dev = new Set(Object.keys(pkg.devDependencies ?? {}));
+  const signals: ArchetypeSignals = {
+    ssr: false,
+    backend: false,
+    clientUi: false,
+  };
   const evidence: SignalEvidence = {};
-  if (ssr !== undefined) evidence.ssr = ssr;
-  if (backend !== undefined) evidence.backend = backend;
-  if (clientUi !== undefined) evidence.clientUi = clientUi;
+  const devEvidence: SignalEvidence = {};
+  for (const { signal, allowlist, readsDev } of PACKAGE_RULES) {
+    const fromRuntime = firstOf(runtime, allowlist);
+    if (fromRuntime !== undefined) {
+      signals[signal] = true;
+      evidence[signal] = fromRuntime;
+      continue;
+    }
+    const fromDev = readsDev ? firstOf(dev, allowlist) : undefined;
+    if (fromDev !== undefined) {
+      signals[signal] = true;
+      devEvidence[signal] = fromDev;
+    }
+  }
   return {
-    signals: {
-      ssr: ssr !== undefined,
-      backend: backend !== undefined,
-      clientUi: clientUi !== undefined,
-    },
+    signals,
     evidence,
-    nextDependency: names.has('next'),
+    devEvidence,
+    // The gate for Next's structural rules reads both maps, as before.
+    nextDependency: runtime.has('next') || dev.has('next'),
   };
 }
 
@@ -374,6 +451,7 @@ export function detectArchetypes(pkg: ProjectPackages): Archetype[] {
 /** One triggering fact per detected archetype — for display only. */
 export type ArchetypeEvidence =
   | { archetype: Archetype; source: 'dependency'; name: string }
+  | { archetype: Archetype; source: 'devDependency'; name: string }
   | { archetype: Archetype; source: 'path'; path: string }
   | { archetype: Archetype; source: 'none' };
 
@@ -387,19 +465,26 @@ const SIGNAL_OF: Readonly<Record<Archetype, keyof ArchetypeSignals | null>> = {
 };
 
 /**
- * One evidence entry per archetype, in the archetypes' order. A dependency wins
- * over a path for the same signal (package.json is read first, and is the
- * primary signal); `lib`, or an archetype with no recorded trigger, cites none.
+ * One evidence entry per archetype IN `archetypes` — an archetype the result
+ * rules out cites nothing — in their order. A dependency wins over a
+ * devDependency, and both over a path, for the same signal (package.json is
+ * read first, and is the primary signal); `lib`, or an archetype with no
+ * recorded trigger, cites none.
  */
 export function evidenceFor(
   archetypes: readonly Archetype[],
   fromPackage: SignalEvidence,
   fromTree: SignalEvidence,
+  fromDevPackage: SignalEvidence = {},
 ): ArchetypeEvidence[] {
   return archetypes.map((archetype) => {
     const signal = SIGNAL_OF[archetype];
     const name = signal === null ? undefined : fromPackage[signal];
     if (name !== undefined) return { archetype, source: 'dependency', name };
+    const devName = signal === null ? undefined : fromDevPackage[signal];
+    if (devName !== undefined) {
+      return { archetype, source: 'devDependency', name: devName };
+    }
     const path = signal === null ? undefined : fromTree[signal];
     if (path !== undefined) return { archetype, source: 'path', path };
     return { archetype, source: 'none' };
@@ -409,15 +494,22 @@ export function evidenceFor(
 /**
  * Where an install's archetypes came from — plain data, rendered by the init
  * summary (`archetypeOriginLines`) and projected into `init --dry-run --json`.
- * `evidence` is always DETECTION's (one entry per detected archetype); with
- * `--archetype` it describes the set that was found and not used.
+ * `evidence` and `truncated` are always DETECTION's (one evidence entry per
+ * detected archetype; `truncated`: the bounded walk stopped while the result
+ * could still change); with `--archetype` they describe the set that was found
+ * and not used.
  */
 export type ArchetypeOrigin =
-  | { kind: 'detected'; evidence: readonly ArchetypeEvidence[] }
+  | {
+      kind: 'detected';
+      evidence: readonly ArchetypeEvidence[];
+      truncated: boolean;
+    }
   | {
       kind: 'flag';
       detected: readonly Archetype[];
       evidence: readonly ArchetypeEvidence[];
+      truncated: boolean;
     };
 
 const isArchetype = (value: unknown): value is Archetype =>

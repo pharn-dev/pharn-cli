@@ -190,8 +190,13 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         kind: 'flag',
         detected: detection.archetypes,
         evidence: detection.evidence,
+        truncated: detection.truncated,
       }
-    : { kind: 'detected', evidence: detection.evidence };
+    : {
+        kind: 'detected',
+        evidence: detection.evidence,
+        truncated: detection.truncated,
+      };
   if (!json) {
     note(
       archetypes.join(', '),

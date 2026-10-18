@@ -1,4 +1,5 @@
 import { isCancel, note, select } from '@clack/prompts';
+import { WALK_LIMITS } from '../lib/detect-archetype.js';
 import { row } from '../lib/format.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import type { ArchetypeEvidence, ArchetypeOrigin } from '../lib/archetype.js';
@@ -27,6 +28,8 @@ function describeEvidence(evidence: ArchetypeEvidence): string {
     case 'dependency':
       // An allowlist literal (archetype.ts), never the manifest's key bytes.
       return `${evidence.name} (package.json)`;
+    case 'devDependency':
+      return `${evidence.name} (package.json devDependencies)`;
     case 'path':
       return terminalSafe(evidence.path, { max: MAX_EVIDENCE_CHARS });
     case 'none':
@@ -37,12 +40,18 @@ function describeEvidence(evidence: ArchetypeEvidence): string {
 const sameSet = (a: readonly Archetype[], b: readonly Archetype[]): boolean =>
   a.length === b.length && a.every((x) => b.includes(x));
 
+// The bounds are the walk's own (WALK_LIMITS), so the sentence cannot drift
+// from what the walk does. `en-US` grouping keeps the text deterministic.
+const TRUNCATED_LINE = `    detection stopped early: it examines at most ${WALK_LIMITS.maxEntries.toLocaleString('en-US')} entries, ${WALK_LIMITS.maxDepth} directories deep, so these archetypes may be incomplete — pass --archetype <list> if they are wrong`;
+
 /**
- * The summary's archetype block: the archetypes, where they came from, and —
- * when the config this install replaces recorded a DIFFERENT set (`previous`,
- * already reduced to canonical members by `recordedArchetypes`) — that set and
- * the flag that keeps it, so an earlier `--archetype` never disappears silently
- * on a re-run. Pure; every input is plain data.
+ * The summary's archetype block: the archetypes, where they came from, whether
+ * detection stopped early (F-25 — only when detection's result is the one being
+ * installed; under `--archetype` it was not used), and — when the config this
+ * install replaces recorded a DIFFERENT set (`previous`, already reduced to
+ * canonical members by `recordedArchetypes`) — that set and the flag that keeps
+ * it, so an earlier `--archetype` never disappears silently on a re-run. Pure;
+ * every input is plain data.
  */
 export function archetypeOriginLines(
   archetypes: readonly Archetype[],
@@ -60,6 +69,7 @@ export function archetypeOriginLines(
     for (const e of origin.evidence) {
       lines.push(`    ${e.archetype.padEnd(8)}← ${describeEvidence(e)}`);
     }
+    if (origin.truncated) lines.push(TRUNCATED_LINE);
   }
   if (previous !== null && !sameSet(previous, archetypes)) {
     lines.push(
@@ -85,7 +95,11 @@ function describeMatched(
 export function archetypeSummaryLines(
   archetypes: Archetype[],
   selection: Selection,
-  origin: ArchetypeOrigin = { kind: 'detected', evidence: [] },
+  origin: ArchetypeOrigin = {
+    kind: 'detected',
+    evidence: [],
+    truncated: false,
+  },
   previous: readonly Archetype[] | null = null,
 ): string[] {
   const lines: string[] = [
@@ -124,7 +138,11 @@ export function archetypeSummaryLines(
 export async function runArchetypeSummary(
   archetypes: Archetype[],
   selection: Selection,
-  origin: ArchetypeOrigin = { kind: 'detected', evidence: [] },
+  origin: ArchetypeOrigin = {
+    kind: 'detected',
+    evidence: [],
+    truncated: false,
+  },
   previous: readonly Archetype[] | null = null,
 ): Promise<ArchetypeSummaryAction> {
   note(

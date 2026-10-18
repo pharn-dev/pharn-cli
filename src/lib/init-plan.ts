@@ -417,6 +417,7 @@ export function buildInitPlan(params: {
   const origin: ArchetypeOrigin = params.origin ?? {
     kind: 'detected',
     evidence: [],
+    truncated: false,
   };
   const { selection, carry } = chosen;
   const layout = detectLayout(repoDir);
