@@ -406,6 +406,32 @@ describe('runUpdate --dry-run', () => {
       expect(snapshotTree(proj)).toEqual(before);
     });
 
+    // F-22: a store stamped for another install state (a torn `add`) re-opens
+    // the same gate; the preview plans the re-apply and writes nothing — the
+    // stale store included.
+    it('plans the re-apply when the records store is stamped for another state, writing nothing', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture store unreadable');
+      await writeRecords(proj, {
+        skillsVersion: '1.1.0',
+        commit: 'b'.repeat(40),
+        files: read.store.files,
+      });
+      const before = snapshotTree(proj);
+      await runUpdate({ dryRun: true });
+      expect(outroText()).not.toContain('Already up to date');
+      expect(outroText()).toContain('Dry run');
+      expect(fetchRepo).toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(prompts.note)
+          .mock.calls.map((c) => text(c[0]))
+          .join('\n'),
+      ).toContain(`${RECORDS_FILE} is stamped for a different install state`);
+      expect(snapshotTree(proj)).toEqual(before);
+    });
+
     it('is not up to date under --force, and shows the re-apply', async () => {
       await installed({ skillsVersion: '1.1.0' });
       scaffoldClone(repo, '1.1.0', 'v2');

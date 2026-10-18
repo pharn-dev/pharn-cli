@@ -94,7 +94,11 @@ differs from upstream, labelling them `unverifiable` — whenever it is:
 - **stamped for a different state** — `skillsVersion`/`commit` here disagree with `pharn.config.json`.
   Every `pharn` operation writes both files together, so a disagreement means something else changed
   one without the other (typically an older CLI that rewrote the tree while ignoring this file).
-  Trusting it would label upstream's bytes as your edits and freeze the install.
+  Trusting it would label upstream's bytes as your edits and freeze the install. The typical
+  cause is an interrupted `pharn add` or `pharn update` (each writes this file before the config);
+  at the same skills version `pharn update` then re-applies the install and writes the store again
+  with the config's stamp — see
+  [A records store from an interrupted run](../commands/update.md#a-records-store-from-an-interrupted-run).
 
 In every case the consequence for **present** files that differ is the same and it is the safe
 one: `pharn` skips rather than overwrites, and tells you why. **Missing** expected files are still

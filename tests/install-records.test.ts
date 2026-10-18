@@ -18,6 +18,7 @@ import {
   modelsRecordHash,
   readRecords,
   recordsBaseline,
+  recordsStampStale,
   RECORDS_FILE,
   RECORDS_SCHEMA_VERSION,
   writeRecords,
@@ -515,6 +516,41 @@ describe('recordsBaseline — the stamp gate', () => {
     );
     expect(result.note).toContain(UNVERIFIABLE);
     expect(result.note).not.toContain('unrecorded');
+  });
+});
+
+// F-22: the one unusable-store case `pharn update` re-opens its same-version
+// early return for. Absent and invalid stores are NOT stale: nothing torn to
+// repair, or a store the user could still fix.
+describe('recordsStampStale — only a PARSED store with a disagreeing stamp', () => {
+  const store = (
+    over: Partial<{ skillsVersion: string; commit: string | null }>,
+  ) => ({
+    kind: 'ok' as const,
+    store: { schemaVersion: 1, ...STAMP, ...over, files: {} },
+  });
+
+  it('a matching stamp is not stale', () => {
+    expect(recordsStampStale(store({}), STAMP)).toBe(false);
+  });
+
+  it('a commit-only mismatch (a torn add) is stale', () => {
+    expect(recordsStampStale(store({ commit: 'b'.repeat(40) }), STAMP)).toBe(
+      true,
+    );
+  });
+
+  it('a skillsVersion mismatch is stale', () => {
+    expect(recordsStampStale(store({ skillsVersion: '0.9.0' }), STAMP)).toBe(
+      true,
+    );
+  });
+
+  it('absent and invalid stores are never stale', () => {
+    expect(recordsStampStale({ kind: 'absent' }, STAMP)).toBe(false);
+    expect(recordsStampStale({ kind: 'invalid', message: 'boom' }, STAMP)).toBe(
+      false,
+    );
   });
 });
 

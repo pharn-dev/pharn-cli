@@ -615,6 +615,21 @@ describe('runUpdate --dry-run --json', () => {
       expect(fetchRepo).toHaveBeenCalled();
     });
 
+    it('is planned when a records store stamped for another state re-opens the gate', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      const read = readRecords(proj);
+      if (read.kind !== 'ok') throw new Error('fixture store unreadable');
+      await writeRecords(proj, {
+        skillsVersion: '1.1.0',
+        commit: 'b'.repeat(40),
+        files: read.store.files,
+      });
+      const { json } = await run();
+      expectOnlyTheObject();
+      expect(json.status).toBe('planned');
+      expect(fetchRepo).toHaveBeenCalled();
+    });
+
     it('is planned when a frozen capability re-opens the gate', async () => {
       await installed({
         skillsVersion: '1.1.0',
