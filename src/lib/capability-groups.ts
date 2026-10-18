@@ -1,4 +1,5 @@
 import { row } from './format.js';
+import { terminalSafe } from './terminal-safe.js';
 import type { Archetype, InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,9 @@ export interface CapabilityListView {
  */
 export function renderCapabilityLines(view: CapabilityListView): string[] {
   const lines: string[] = [
-    row('Skills version', `v${view.skillsVersion}`),
+    // Validated at load (VERSION_RE, F-18); sanitized here too, since this is
+    // the one place the config's own string reaches the terminal.
+    row('Skills version', `v${terminalSafe(view.skillsVersion)}`),
     row('Archetypes', view.archetypes.join(', ') || '(none)'),
     '',
     '  CAPABILITIES',

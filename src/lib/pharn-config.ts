@@ -8,6 +8,7 @@ import {
   ARCHETYPE_VALUES,
   assertSafeString,
   CAPABILITY_NAME_RE,
+  COMMIT_RE,
   isPlainObject,
   ROLE_VALUES,
   VERSION_RE,
@@ -58,11 +59,20 @@ export class CapabilityEntryError extends Error {
 /**
  * Reject any `capabilities[]` entry that is not an object with a
  * `CAPABILITY_NAME_RE` `name` (no control characters) and a `role` in
- * `ROLE_VALUES` (enum membership, P5). A non-array `capabilities` is left to the
- * existing shape handling (`isArchetypeConfig`).
+ * `ROLE_VALUES` (enum membership, P5) — and a PRESENT `capabilities` that is not
+ * an array at all. Absent is the pre-archetype (module) config, which
+ * `isArchetypeConfig` tells apart; but no CLI ever wrote a non-array value there,
+ * so `"capabilities": "x"` is a hand-edit, and reading it as a legacy install
+ * prescribed `pharn init`, which OVERWRITES the config (F-30).
  */
 function validateCapabilityEntries(raw: unknown): void {
-  if (!Array.isArray(raw)) return;
+  if (raw === undefined) return;
+  if (!Array.isArray(raw)) {
+    throw new CapabilityEntryError(
+      `${CONFIG_FILENAME}: capabilities must be an array of {"name", "role"} entries (found ${describeOffender(raw)}). ` +
+        'Fix it by hand — do NOT run `pharn init` to clear it: init overwrites this config.',
+    );
+  }
   raw.forEach((entry, i) => {
     const at = `${CONFIG_FILENAME}: capabilities[${i}]`;
     if (!isPlainObject(entry)) {
@@ -87,9 +97,9 @@ function validateCapabilityEntries(raw: unknown): void {
 
 /**
  * Reject a present-but-invalid `capabilities[].source`. ABSENT is legal (P7 —
- * additive: every config written before the field existed omits it), and so is a
- * non-array / non-object shape here, which the existing light shape guard and the
- * consumers already tolerate. Only a present `source` outside the enum throws.
+ * additive: every config written before the field existed omits it). A
+ * non-array `capabilities` or a non-object entry is `validateCapabilityEntries`'
+ * refusal, which runs first. Only a present `source` outside the enum throws.
  */
 function validateCapabilitySources(raw: unknown): void {
   if (!Array.isArray(raw)) return;
@@ -160,6 +170,49 @@ function validateArchetypes(raw: unknown): void {
       );
     }
   });
+}
+
+/**
+ * An archetype config's `skillsVersion` or `commit` — the install STAMP — that
+ * is not something this CLI could ever have written (F-18). `skillsVersion` is
+ * the upstream `SKILLS_VERSION` the install is at (always `VERSION_RE`-validated
+ * at the fetch boundary, `lib/skills-version.ts`) and `commit` the pharn-oss SHA
+ * it came from (`COMMIT_RE`, `lib/repo.ts`, or `null` in degraded mode, LIMITS
+ * §3b). Both are printed by `list`/`status`/`update` and compared by `update`'s
+ * early return and `add`'s version gate, so before this check a hand-edited ESC
+ * byte reached the terminal and a garbage version was compared as if real.
+ * ABSENT `commit` stays legal (P7), and a pre-archetype config is not checked —
+ * its unused fields keep loading.
+ */
+export class ConfigStampError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConfigStampError';
+  }
+}
+
+// `typeof skillsVersion === 'string'` is already the light shape guard's
+// (→ `null`); this is the archetype config's allowlist on top of it.
+function validateStamp(raw: Record<string, unknown>): void {
+  const where =
+    'Fix it by hand — `pharn.records.json`, if present, carries the same stamp.';
+  if (
+    typeof raw.skillsVersion === 'string' &&
+    !VERSION_RE.test(raw.skillsVersion)
+  ) {
+    throw new ConfigStampError(
+      `${CONFIG_FILENAME}: skillsVersion must be a version like "1.2.3" (found ${describeOffender(raw.skillsVersion)}). ${where}`,
+    );
+  }
+  if (
+    raw.commit !== undefined &&
+    raw.commit !== null &&
+    (typeof raw.commit !== 'string' || !COMMIT_RE.test(raw.commit))
+  ) {
+    throw new ConfigStampError(
+      `${CONFIG_FILENAME}: commit must be a full 40-character lowercase hex commit SHA, or null (found ${describeOffender(raw.commit)}). ${where}`,
+    );
+  }
 }
 
 /**
@@ -343,7 +396,7 @@ export function userOwnedConfigEntries(
  * PROPAGATES rather than collapsing into the "run init" lie: `ConfigParseError`
  * (not JSON at all), and — validated OUTSIDE the null-returning try —
  * `SeamConfigError`/`CapabilityEntryError`/`CapabilitySourceError`/
- * `ArchetypesError` (BUG 1).
+ * `ArchetypesError`/`ConfigStampError` (BUG 1).
  *
  * `models` is NOT validated here. Its schema is pharn-oss's
  * (lib/model-config.ts), and this CLI must load the format it wrote before
@@ -406,9 +459,12 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // load-mechanics change at all.
   validateCapabilityEntries(raw.capabilities);
   validateCapabilitySources(raw.capabilities);
-  // `archetypes` is checked for an archetype config only (P7: a legacy config's
-  // unused fields still load).
-  if (Array.isArray(raw.capabilities)) validateArchetypes(raw.archetypes);
+  // `archetypes` and the `skillsVersion`/`commit` stamp are checked for an
+  // archetype config only (P7: a legacy config's unused fields still load).
+  if (Array.isArray(raw.capabilities)) {
+    validateArchetypes(raw.archetypes);
+    validateStamp(raw);
+  }
   const config: PharnConfig = {
     ...(raw as unknown as PharnConfig),
     ...(seam !== undefined ? { seam } : {}),
@@ -582,8 +638,9 @@ export function assertConfigFingerprintUnchanged(
 /**
  * Is `err` a present-but-invalid-config error — a file that IS there and that
  * the user has to fix (unparseable JSON, a hand-edited `seam` block, or a
- * `capabilities[]` entry with an invalid `name`/`role`/`source`, or an
- * `archetypes` that is not an array of known archetypes) — as opposed
+ * `capabilities[]` entry with an invalid `name`/`role`/`source` (or a
+ * `capabilities` that is not an array), an `archetypes` that is not an array of
+ * known archetypes, or an invalid `skillsVersion`/`commit` stamp) — as opposed
  * to a programming bug? (A `models` block is never one: it is pharn-oss's, and
  * `readPharnConfig` carries it unvalidated.)
  *
@@ -600,13 +657,15 @@ export function isConfigValidationError(
   | SeamConfigError
   | CapabilityEntryError
   | CapabilitySourceError
-  | ArchetypesError {
+  | ArchetypesError
+  | ConfigStampError {
   return (
     err instanceof ConfigParseError ||
     err instanceof SeamConfigError ||
     err instanceof CapabilityEntryError ||
     err instanceof CapabilitySourceError ||
-    err instanceof ArchetypesError
+    err instanceof ArchetypesError ||
+    err instanceof ConfigStampError
   );
 }
 
@@ -633,7 +692,8 @@ export async function writePharnConfig(
  * Is this an archetype (capability) install vs. a legacy module install?
  * Deterministic membership (P5): the archetype install (`pharn init`)
  * always writes a `capabilities` array; a legacy module config never does — so
- * the presence of `capabilities` is the marker. An empty `modules: []` alone is
+ * the presence of `capabilities` is the marker. (A present NON-array never gets
+ * here: `readPharnConfig` refuses it as a `CapabilityEntryError`, F-30.) An empty `modules: []` alone is
  * NOT the marker (a module install can legitimately resolve to few modules).
  * Sibling commands branch on this to avoid the module/manifest path (which fails
  * against live pharn-oss, having no manifest.json) for archetype installs.

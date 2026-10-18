@@ -531,7 +531,7 @@ describe('runInit (archetype default)', () => {
       });
       writeConfig(dir, {
         ...baseConfig,
-        commit: 'sha000',
+        commit: '0'.repeat(40),
         capabilities: [
           { name: 'perf', role: 'lens', source: 'manual' },
           { name: 'old-auto', role: 'griller', source: 'auto' },
@@ -549,7 +549,7 @@ describe('runInit (archetype default)', () => {
       ]);
       expect(carry.previousStamp).toEqual({
         skillsVersion: '1.0.0',
-        commit: 'sha000',
+        commit: '0'.repeat(40),
       });
       // Kept, not installed: nothing of theirs is in the selection.
       expect(selection.selected.map((c) => c.name)).toEqual(['a11y']);

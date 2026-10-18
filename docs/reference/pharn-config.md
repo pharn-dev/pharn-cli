@@ -30,6 +30,10 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 | `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))                                |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
+A `capabilities` that is present but **not** an array (for example `"capabilities": "x"` or `null`) is a
+hand-edit error, not a legacy install: `pharn` names it and exits 1 instead of telling you to re-run
+`pharn init`, which would overwrite the file. An absent `capabilities` is still the pre-archetype
+config described [below](#legacy-fields-pre-archetype-configs-still-load).
 
 Any top-level key **not** on this page is yours, and every command keeps it — see
 [Keys pharn does not own](#keys-pharn-does-not-own).
@@ -55,6 +59,24 @@ These are accepted: an absent `archetypes` (read as none), an empty array, and a
 
 `pharn init` is not refused: as with any other config it cannot read, it carries nothing over from the
 old file and writes the archetypes it detects.
+
+### `skillsVersion` and `commit` — checked when the config loads
+
+These two fields are the install's stamp: `status` and `update` compare `skillsVersion` with
+pharn-oss, `add` gates on it, and [`pharn.records.json`](pharn-records.md) is stamped with both. So
+in an archetype config, `list`, `status`, `update`, `add`, `remove` and `uninstall` check them when
+they load the config:
+
+- `skillsVersion` must be a version such as `"3.0.2"` (a prerelease suffix such as `"3.0.2-rc.1"` is
+  allowed) — the shape `pharn` reads from pharn-oss's `SKILLS_VERSION`.
+- `commit` must be a full 40-character lowercase hex commit SHA, or `null` (what `pharn` writes when
+  it could not resolve the SHA). An absent `commit` is accepted.
+
+Anything else — `"1.0"`, `"v3.0.2"`, a short SHA such as `"abc123"`, a number — is a hand-edit
+error. `pharn` names the field and the value it found and exits 1 before any download, the same way
+as for `archetypes` (unsafe characters escaped, a long value cut short, stderr under `--json`).
+Restore the value by hand: `pharn.records.json`, if you have one, carries the same pair. A
+pre-archetype config is not checked.
 
 ### `capabilities[].source` — selection provenance
 

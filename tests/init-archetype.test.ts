@@ -113,6 +113,11 @@ function cap(role: string, applies: string): string {
   return `---\nname: c\nrole: ${role}\napplies: ${applies}\n---\n# c\n`;
 }
 
+// Full 40-hex SHAs: an archetype config's `commit` is COMMIT_RE-validated at
+// load (F-18), so a short placeholder would no longer read back.
+const SHA_C = 'c'.repeat(40);
+const SHA_D = 'd'.repeat(40);
+
 // pharn-oss's own `models` block, as its root pharn.config.json carries it.
 const UPSTREAM_MODELS = {
   stages: {
@@ -190,7 +195,7 @@ describe('archetype install (fixture e2e)', () => {
     ]);
     expect(selection.skipped.map((c) => c.name)).toEqual(['path-traversal']);
 
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     // Selected capabilities installed; the skipped backend-only lens is absent.
     expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
@@ -214,7 +219,7 @@ describe('archetype install (fixture e2e)', () => {
     expect(config).not.toBeNull();
     expect(config!.archetypes).toEqual(['ssr']);
     expect(config!.skillsVersion).toBe('1.0.0');
-    expect(config!.commit).toBe('sha123');
+    expect(config!.commit).toBe(SHA_C);
     expect(config!.modules).toEqual([]);
     expect(config!.constitution).toBeUndefined();
     // pharn-oss's `models` block, copied verbatim — and nothing else from its
@@ -262,11 +267,11 @@ describe('archetype install (fixture e2e)', () => {
       JSON.parse(readFileSync(join(proj, 'pharn.config.json'), 'utf8'));
 
     const viaMain = join(tmp.path(), 'main');
-    await runInstallArchetype(repo, viaMain, ['ssr'], selection, 'sha123');
+    await runInstallArchetype(repo, viaMain, ['ssr'], selection, SHA_C);
     expect('ref' in raw(viaMain)).toBe(false);
 
     const viaRelease = join(tmp.path(), 'release');
-    await runInstallArchetype(repo, viaRelease, ['ssr'], selection, 'sha123', {
+    await runInstallArchetype(repo, viaRelease, ['ssr'], selection, SHA_C, {
       manualKeys: new Set(),
       kept: [],
       previousStamp: null,
@@ -293,7 +298,7 @@ describe('archetype install (fixture e2e)', () => {
       archetypes,
       parseCapabilityIndex(repo),
     );
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     const read = readRecords(proj);
     expect(read.kind).toBe('ok');
@@ -345,7 +350,7 @@ describe('archetype install (fixture e2e)', () => {
         archetypes,
         parseCapabilityIndex(repo),
       );
-      await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+      await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
       return proj;
     }
     const rawConfig = (proj: string): Record<string, unknown> =>
@@ -438,7 +443,7 @@ describe('archetype install (fixture e2e)', () => {
       archetypes,
       parseCapabilityIndex(repo),
     );
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     const read = readRecords(proj);
     expect(read.kind).toBe('ok');
@@ -489,7 +494,7 @@ describe('archetype install (fixture e2e)', () => {
     ]);
 
     const selection = resolveCapabilities(archetypes, index);
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     // The good capabilities landed...
     expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
@@ -515,7 +520,7 @@ describe('archetype install (fixture e2e)', () => {
       archetypes,
       parseCapabilityIndex(repo),
     );
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
   }
 
   function project(proj: string): void {
@@ -675,7 +680,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     const { archetypes } = detectArchetypesFromProject(proj);
     const index = parseCapabilityIndex(repo);
     const selection = resolveCapabilities(archetypes, index);
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
     return { archetypes, selection };
   }
 
@@ -686,7 +691,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     write(join(proj, '.claude/commands/pharn-plan.md'), 'MY LOCAL EDIT');
     vi.mocked(prompts.log.info).mockClear();
 
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     const backups = readdirSync(join(proj, '.pharn-backup'));
     expect(backups).toHaveLength(1);
@@ -716,7 +721,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     const proj = join(tmp.path(), 'proj');
     const { archetypes, selection } = await firstInstall(repo, proj);
 
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     // The config is rewritten on every re-install, so it is the one file
     // always saved; no installed file is.
@@ -771,7 +776,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     writeFileSync(join(proj, 'pharn.config.json'), original);
     vi.mocked(prompts.log.info).mockClear();
 
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     expect(backedUp(proj)).toEqual(['pharn.config.json']);
     const [dir] = readdirSync(join(proj, '.pharn-backup'));
@@ -808,7 +813,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     const { archetypes, selection } = await firstInstall(repo, proj);
     write(join(proj, '.claude/commands/pharn-plan.md'), 'MY LOCAL EDIT');
 
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     expect(backedUp(proj)).toEqual([
       '.claude/commands/pharn-plan.md',
@@ -826,11 +831,11 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     symlinkSync(outside, join(proj, 'pharn.config.json'));
     const before = readFileSync(outside, 'utf8');
 
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
     expect(readFileSync(outside, 'utf8')).toBe(before);
-    expect(readPharnConfig(proj)!.commit).toBe('sha123');
+    expect(readPharnConfig(proj)!.commit).toBe(SHA_C);
   });
 
   it('records the carried-over manual capabilities as `manual`', async () => {
@@ -849,7 +854,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       ],
     };
 
-    await runInstallArchetype(repo, proj, archetypes, withManual, 'sha123', {
+    await runInstallArchetype(repo, proj, archetypes, withManual, SHA_C, {
       manualKeys: new Set(['lens:path-traversal']),
       kept: [],
       previousStamp: null,
@@ -875,7 +880,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     const proj = join(tmp.path(), 'proj');
     const { archetypes, selection } = await firstInstall(repo, proj);
 
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123', {
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C, {
       manualKeys: new Set(['griller:a11y']),
       kept: [],
       previousStamp: null,
@@ -919,10 +924,10 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       const { archetypes, selection } = await withPerfInstalled(repo, proj);
       const perfHash = contentHash(join(proj, PERF_FILE));
 
-      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+      await runInstallArchetype(repo, proj, archetypes, selection, SHA_D, {
         manualKeys: new Set(),
         kept,
-        previousStamp: { skillsVersion: '1.0.0', commit: 'sha123' },
+        previousStamp: { skillsVersion: '1.0.0', commit: SHA_C },
       });
 
       const config = readPharnConfig(proj)!;
@@ -941,7 +946,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       );
       const read = readRecords(proj);
       if (read.kind !== 'ok') throw new Error('records unreadable');
-      expect(read.store.commit).toBe('sha456');
+      expect(read.store.commit).toBe(SHA_D);
       expect(read.store.files[PERF_FILE]).toBe(perfHash);
     });
 
@@ -950,7 +955,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       const proj = join(tmp.path(), 'proj');
       const { archetypes, selection } = await withPerfInstalled(repo, proj);
 
-      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+      await runInstallArchetype(repo, proj, archetypes, selection, SHA_D, {
         manualKeys: new Set(),
         kept,
         previousStamp: { skillsVersion: '0.9.0', commit: 'older' },
@@ -972,10 +977,10 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       const { archetypes, selection } = await withPerfInstalled(repo, proj);
       rmSync(join(proj, 'pharn.records.json'));
 
-      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+      await runInstallArchetype(repo, proj, archetypes, selection, SHA_D, {
         manualKeys: new Set(),
         kept,
-        previousStamp: { skillsVersion: '1.0.0', commit: 'sha123' },
+        previousStamp: { skillsVersion: '1.0.0', commit: SHA_C },
       });
 
       const read = readRecords(proj);
@@ -1002,10 +1007,10 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       const testResults = { test: 'vitest-json' };
       writeFileSync(configFile, JSON.stringify({ ...raw, testResults }));
 
-      await runInstallArchetype(repo, proj, archetypes, selection, 'sha456', {
+      await runInstallArchetype(repo, proj, archetypes, selection, SHA_D, {
         manualKeys: new Set(),
         kept,
-        previousStamp: { skillsVersion: '1.0.0', commit: 'sha123' },
+        previousStamp: { skillsVersion: '1.0.0', commit: SHA_C },
       });
 
       const written = readPharnConfig(proj)! as unknown as Record<
@@ -1040,7 +1045,7 @@ describe('re-running init keeps the config keys pharn does not own', () => {
       archetypes,
       parseCapabilityIndex(repo),
     );
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
   }
 
   async function firstInstall(repo: string, proj: string): Promise<void> {
@@ -1275,7 +1280,7 @@ function scaffoldPharnRepo(repo: string): void {
 describe('re-running init after an upstream bump — the records decide what is yours', () => {
   const tmp = useTmpDir();
   // The stamp of the config a re-run replaces: the first install's.
-  const STAMP = { skillsVersion: '1.0.0', commit: 'sha123' };
+  const STAMP = { skillsVersion: '1.0.0', commit: SHA_C };
   const carry = (
     previousStamp: { skillsVersion: string; commit: string | null } | null,
   ) => ({ manualKeys: new Set<string>(), kept: [], previousStamp });
@@ -1294,7 +1299,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       archetypes,
       parseCapabilityIndex(repo),
     );
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
     vi.mocked(prompts.log.info).mockClear();
     return { repo, proj, archetypes, selection };
   }
@@ -1321,7 +1326,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       proj,
       archetypes,
       selection,
-      'sha456',
+      SHA_D,
       carry(STAMP),
     );
 
@@ -1350,7 +1355,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       proj,
       archetypes,
       selection,
-      'sha456',
+      SHA_D,
       carry(STAMP),
     );
 
@@ -1370,7 +1375,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       proj,
       archetypes,
       selection,
-      'sha456',
+      SHA_D,
       carry(STAMP),
     );
     const after = readRecords(proj);
@@ -1388,7 +1393,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       proj,
       archetypes,
       selection,
-      'sha456',
+      SHA_D,
       carry(STAMP),
     );
 
@@ -1423,7 +1428,7 @@ describe('re-running init after an upstream bump — the records decide what is 
         proj,
         archetypes,
         selection,
-        'sha456',
+        SHA_D,
         carry(stamp),
       );
 
@@ -1444,7 +1449,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       proj,
       archetypes,
       selection,
-      'sha123',
+      SHA_C,
       carry(STAMP),
     );
 
@@ -1465,7 +1470,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       ],
       skipped: [],
     };
-    await runInstallArchetype(repo, proj, ['ssr'], selection, 'sha123');
+    await runInstallArchetype(repo, proj, ['ssr'], selection, SHA_C);
     expect(readFileSync(join(proj, 'pharn/LICENSE'), 'utf8')).toBe(
       'Apache-2.0',
     );
@@ -1476,7 +1481,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       proj,
       ['ssr'],
       selection,
-      'sha123',
+      SHA_C,
       carry(STAMP),
     );
 
@@ -1502,7 +1507,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       ],
       skipped: [],
     };
-    await runInstallArchetype(flat, proj, ['ssr'], selection, 'sha123');
+    await runInstallArchetype(flat, proj, ['ssr'], selection, SHA_C);
     write(join(proj, 'pharn/LICENSE'), 'MY OWN NOTES');
 
     await runInstallArchetype(
@@ -1510,7 +1515,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       proj,
       ['ssr'],
       selection,
-      'sha456',
+      SHA_D,
       carry(STAMP),
     );
 
@@ -1537,7 +1542,7 @@ describe('re-running init after an upstream bump — the records decide what is 
         proj,
         archetypes,
         selection,
-        'sha123',
+        SHA_C,
         carry(STAMP),
       ),
     ).rejects.toThrow(/Refusing to install: pharn-contracts is in the way/);
@@ -1562,7 +1567,7 @@ describe('re-running init after an upstream bump — the records decide what is 
     );
 
     await expect(
-      runInstallArchetype(repo, proj, archetypes, selection, 'sha123'),
+      runInstallArchetype(repo, proj, archetypes, selection, SHA_C),
     ).rejects.toThrow(
       /Refusing to install: pharn\.records\.json is in the way/,
     );
@@ -1623,12 +1628,12 @@ describe('`pharn init` run twice, through the real steps', () => {
 
   it('computes the install manifest ONCE per run, and marks and backs up no installed file after an upstream bump alone', async () => {
     const { repo, proj } = fixture();
-    await init(repo, proj, 'sha123');
+    await init(repo, proj, SHA_C);
     bumpUpstream(repo);
     vi.mocked(collectExpectedInstallPaths).mockClear();
     vi.mocked(prompts.log.warn).mockClear();
 
-    await init(repo, proj, 'sha456');
+    await init(repo, proj, SHA_D);
 
     // Pre-flight (three times), prompt, backup scan, copy and records all
     // share it.
@@ -1644,17 +1649,17 @@ describe('`pharn init` run twice, through the real steps', () => {
     expect(backedUp(proj)).toEqual(['pharn.config.json']);
     const config = readPharnConfig(proj)!;
     expect(config.skillsVersion).toBe('1.1.0');
-    expect(config.commit).toBe('sha456');
+    expect(config.commit).toBe(SHA_D);
   });
 
   it('marks exactly the file the user changed, and backs up exactly that file', async () => {
     const { repo, proj } = fixture();
-    await init(repo, proj, 'sha123');
+    await init(repo, proj, SHA_C);
     bumpUpstream(repo);
     write(join(proj, 'CONSTITUTION.md'), 'MY CONSTITUTION');
     vi.mocked(prompts.log.warn).mockClear();
 
-    await init(repo, proj, 'sha456');
+    await init(repo, proj, SHA_D);
 
     const warning = overwriteWarning();
     const bullets = warning
@@ -1676,7 +1681,7 @@ describe('`pharn init` run twice, through the real steps', () => {
     // type collision the install refuses. The refusal used to come only after
     // the user had answered yes to "Continue and overwrite?".
     const { repo, proj } = fixture();
-    await init(repo, proj, 'sha123');
+    await init(repo, proj, SHA_C);
     write(join(proj, '.claude/commands/pharn-plan.md'), 'MY EDIT');
     rmSync(join(proj, 'pharn-contracts'), { recursive: true, force: true });
     write(join(proj, 'pharn-contracts'), 'a FILE where a directory goes');
@@ -1684,7 +1689,7 @@ describe('`pharn init` run twice, through the real steps', () => {
     vi.mocked(prompts.log.warn).mockClear();
     vi.mocked(prompts.log.error).mockClear();
 
-    await expect(init(repo, proj, 'sha456')).rejects.toMatchObject(
+    await expect(init(repo, proj, SHA_D)).rejects.toMatchObject(
       new ProcessExit(1),
     );
 
@@ -1699,7 +1704,7 @@ describe('`pharn init` run twice, through the real steps', () => {
     expect(
       readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
     ).toBe('MY EDIT');
-    expect(readPharnConfig(proj)!.commit).toBe('sha123');
+    expect(readPharnConfig(proj)!.commit).toBe(SHA_C);
   });
 });
 
@@ -1754,7 +1759,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
 
   it('lists the directory in the prompt, backs up the user’s file, deletes it, and records nothing under it', async () => {
     const { repo, proj } = fixture();
-    await init(repo, proj, 'sha123');
+    await init(repo, proj, SHA_C);
     expect(readPharnConfig(proj)!.capabilities).toContainEqual(
       expect.objectContaining({ name: 'n-plus-one', source: 'auto' }),
     );
@@ -1764,7 +1769,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
     vi.mocked(prompts.log.info).mockClear();
     vi.mocked(prompts.confirm).mockClear();
 
-    await init(repo, proj, 'sha456');
+    await init(repo, proj, SHA_D);
 
     // Named before the summary, listed in the prompt, asked once.
     expect(warnings()).toContain(
@@ -1802,7 +1807,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
 
   it('deletes a gone manual capability’s directory too', async () => {
     const { repo, proj } = fixture();
-    await init(repo, proj, 'sha123');
+    await init(repo, proj, SHA_C);
     const config = readPharnConfig(proj)!;
     write(
       join(proj, 'pharn.config.json'),
@@ -1816,7 +1821,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
     );
     write(join(proj, 'pharn-review/retired/retired.md'), 'old upstream bytes');
 
-    await init(repo, proj, 'sha456');
+    await init(repo, proj, SHA_D);
 
     expect(existsSync(join(proj, 'pharn-review/retired'))).toBe(false);
     expect(backedUp(proj)).toContain('pharn-review/retired/retired.md');
@@ -1825,12 +1830,12 @@ describe('`pharn init` re-run over a capability it drops', () => {
 
   it('declining the prompt deletes nothing and writes nothing', async () => {
     const { repo, proj } = fixture();
-    await init(repo, proj, 'sha123');
+    await init(repo, proj, SHA_C);
     narrowLens(repo);
     write(join(proj, `${LENS_DIR}/NOTES.md`), 'my notes');
     vi.mocked(prompts.confirm).mockResolvedValue(false);
 
-    await expect(init(repo, proj, 'sha456')).rejects.toMatchObject(
+    await expect(init(repo, proj, SHA_D)).rejects.toMatchObject(
       new ProcessExit(0),
     );
 
@@ -1838,12 +1843,12 @@ describe('`pharn init` re-run over a capability it drops', () => {
       'my notes',
     );
     expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
-    expect(readPharnConfig(proj)!.commit).toBe('sha123');
+    expect(readPharnConfig(proj)!.commit).toBe(SHA_C);
   });
 
   it('refuses, writing nothing, when the dropped directory sits behind a symlinked component', async () => {
     const { repo, proj } = fixture();
-    await init(repo, proj, 'sha123');
+    await init(repo, proj, SHA_C);
     narrowLens(repo);
     const outside = join(tmp.path(), 'shared-review');
     write(join(outside, 'n-plus-one/n-plus-one.md'), 'not this project');
@@ -1852,7 +1857,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
     vi.mocked(prompts.confirm).mockClear();
     vi.mocked(prompts.log.error).mockClear();
 
-    await expect(init(repo, proj, 'sha456')).rejects.toMatchObject(
+    await expect(init(repo, proj, SHA_D)).rejects.toMatchObject(
       new ProcessExit(1),
     );
 
@@ -1864,7 +1869,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
       readFileSync(join(outside, 'n-plus-one/n-plus-one.md'), 'utf8'),
     ).toBe('not this project');
     expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
-    expect(readPharnConfig(proj)!.commit).toBe('sha123');
+    expect(readPharnConfig(proj)!.commit).toBe(SHA_C);
   });
 });
 
@@ -1933,7 +1938,7 @@ describe('init over a preserved .claude/settings.json — the HOOKS note', () =>
       archetypes,
       parseCapabilityIndex(repo),
     );
-    await runInstallArchetype(repo, proj, archetypes, selection, 'sha123');
+    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
     return { proj, repo };
   }
 
