@@ -543,6 +543,7 @@ describe('withProjectLock — a fatal signal while held', () => {
       const { writeFileSync } = await import('node:fs');
       const { join } = await import('node:path');
       const [dir, sig] = process.argv.slice(1);
+      ${SIGNAL_HANDLED}
       ${body}
     `;
     const r = spawnSync(
@@ -558,6 +559,23 @@ describe('withProjectLock — a fatal signal while held', () => {
     };
   }
 
+  // Every body sends itself a signal and must die of it. What comes after the
+  // `process.kill` decides how a failure shows: the body awaits SIGNAL_HANDLED
+  // (declared in the script header) and only then prints SURVIVED-THE-SIGNAL.
+  // It used to sleep 3 s and hope the signal had arrived by then — a wall-clock
+  // bet (F-35). The handshake is deterministic instead: a listener the body adds
+  // after the handler under test resolves once the signal has been DELIVERED and
+  // every earlier listener has run, and one more turn of the loop lets any
+  // re-raise land. A handler that re-raises kills the process before that
+  // listener runs; one that swallows the signal lets the body print the marker
+  // in milliseconds.
+  const SIGNAL_HANDLED = `
+    const signalHandled = (s) =>
+      new Promise((resolve) =>
+        process.once(s, () => setImmediate(() => setImmediate(resolve))),
+      );
+  `;
+
   /** Killed by `sig` — as a signal, or as the shell's 128 + n. */
   function diedBy(
     r: { status: number | null; signal: string | null },
@@ -572,8 +590,9 @@ describe('withProjectLock — a fatal signal while held', () => {
     const r = await runChild(
       `
         await withProjectLock(dir, 'update', async () => {
+          const handled = signalHandled(sig);
           process.kill(process.pid, sig);
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+          await handled;
           console.log('SURVIVED-THE-SIGNAL');
         });
         `,
@@ -599,8 +618,9 @@ describe('withProjectLock — a fatal signal while held', () => {
         console.log('CLONE=' + repo.dir);
         // What @clack/prompts installs while a spinner is up: print, return.
         process.on('SIGINT', () => console.log('CLACK-LIKE-LISTENER-RAN'));
+        const handled = signalHandled(sig);
         process.kill(process.pid, sig);
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await handled;
         console.log('SURVIVED-THE-SIGNAL');
       });
       `,
@@ -624,8 +644,9 @@ describe('withProjectLock — a fatal signal while held', () => {
       `
       await withProjectLock(dir, 'update', () => undefined);
       writeFileSync(join(dir, ${JSON.stringify(LOCK_FILE)}), '');
+      const handled = signalHandled(sig);
       process.kill(process.pid, sig);
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await handled;
       console.log('SURVIVED-THE-SIGNAL');
       `,
       [dir, 'SIGTERM'],

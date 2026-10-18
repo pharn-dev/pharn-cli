@@ -41,13 +41,41 @@ function entry(name: string, type: string, data = ''): Buffer {
 
 /** A minimal but structurally real repo tarball, gzipped. */
 export function githubArchive(sha: string): Buffer {
+  return codeloadArchive(sha, { SKILLS_VERSION: '1.0.0\n' });
+}
+
+/**
+ * The same codeload shape around a whole tree: `files` maps a repo-relative
+ * POSIX path to its UTF-8 content. Each parent directory gets its own entry
+ * before its first file, as codeload's archives carry them. Names go into the
+ * 100-byte ustar name field with no prefix split, so a path plus the 18-byte
+ * `pharn-oss-<sha7>/` root must stay under 100 bytes — refused, not truncated.
+ */
+export function codeloadArchive(
+  sha: string,
+  files: Readonly<Record<string, string>>,
+): Buffer {
   const root = `pharn-oss-${sha.slice(0, 7)}`;
-  return gzipSync(
-    Buffer.concat([
-      entry('pax_global_header', 'g', `52 comment=${sha}\n`),
-      entry(`${root}/`, '5'),
-      entry(`${root}/SKILLS_VERSION`, '0', '1.0.0\n'),
-      Buffer.alloc(BLOCK * 2),
-    ]),
-  );
+  const parts = [
+    entry('pax_global_header', 'g', `52 comment=${sha}\n`),
+    entry(`${root}/`, '5'),
+  ];
+  const dirs = new Set<string>();
+  for (const rel of Object.keys(files).sort()) {
+    const segments = rel.split('/');
+    for (let i = 1; i < segments.length; i++) {
+      const dir = `${root}/${segments.slice(0, i).join('/')}/`;
+      if (!dirs.has(dir)) {
+        dirs.add(dir);
+        parts.push(entry(dir, '5'));
+      }
+    }
+    const name = `${root}/${rel}`;
+    if (Buffer.byteLength(name) >= 100) {
+      throw new Error(`tar fixture: ${name} does not fit the ustar name field`);
+    }
+    parts.push(entry(name, '0', files[rel]));
+  }
+  parts.push(Buffer.alloc(BLOCK * 2));
+  return gzipSync(Buffer.concat(parts));
 }
