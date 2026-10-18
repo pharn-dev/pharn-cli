@@ -6,7 +6,7 @@ import {
   log,
   outro,
 } from '@clack/prompts';
-import pc from 'picocolors';
+import pc from '../lib/color.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import { configLayout, layoutPaths, type LayoutPaths } from '../lib/layout.js';
 import {

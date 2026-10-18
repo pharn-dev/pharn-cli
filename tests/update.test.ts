@@ -3631,7 +3631,7 @@ describe('runUpdate (drift-safe)', () => {
       expect(note).toContain("--force replaces it with pharn-oss's");
       // The note's own lines (not the quoted, indented details) stay within
       // 70 VISIBLE columns: an 80-column note box never wraps one mid-sentence.
-      // Measured without color codes, which CI turns on (picocolors reads CI).
+      // Measured without color codes, which FORCE_COLOR can turn on (lib/color.ts).
       for (const line of stripVTControlCharacters(note).split('\n')) {
         if (!line.startsWith('  ')) expect(line.length).toBeLessThanOrEqual(70);
       }

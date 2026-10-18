@@ -1,7 +1,7 @@
 import { lstatSync, rmdirSync, unlinkSync } from 'node:fs';
 import { posix } from 'node:path';
 import { confirm, intro, isCancel, log, note, outro } from '@clack/prompts';
-import pc from 'picocolors';
+import pc from '../lib/color.js';
 import { BACKUP_DIR, createBackup } from '../lib/backup.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { cancelAndExit } from '../lib/confirm.js';
