@@ -24,7 +24,7 @@ import {
   buildAddSelection,
   interactiveAllowed,
 } from '../lib/capability-picker.js';
-import { createBackup } from '../lib/backup.js';
+import { createBackup, printBackupNotice } from '../lib/backup.js';
 import { scanDest } from '../lib/dest-drift.js';
 import { installCapabilityDirs } from '../lib/install-capabilities.js';
 import { capabilityCloneFiles } from '../lib/install-manifest.js';
@@ -638,9 +638,11 @@ async function resolveArchetypeAdd(
     // after this line can still throw — the pre-flight, the records write, the
     // config write. Printing here is what keeps the pointer reachable on the very
     // path that most needs it.
-    log.info(
-      `Backed up ${scan.drifted.length} file(s) to ${backupDir} before overwriting.`,
-    );
+    printBackupNotice({
+      dir: backupDir,
+      saved: scan.drifted.length,
+      action: 'overwriting',
+    });
   }
 
   installCapabilityDirs(repoDir, cwd, [{ name: cap.name, role: cap.role }]);
@@ -680,8 +682,9 @@ async function resolveArchetypeAdd(
   await writePharnConfig(cwd, {
     ...config,
     ...stamp,
+    // `installedAt` is carried by the spread: an add is a partial edit, not an
+    // install — init and update are the commands that set it (F-23).
     capabilities,
-    installedAt: new Date().toISOString(),
   });
   return { kind: 'added', name: cap.name, version, stamp };
 }

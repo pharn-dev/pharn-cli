@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
+  backupNoticeLines,
   backupTimestamp,
   BACKUP_DIR,
   createBackup,
@@ -130,5 +131,46 @@ describe('createBackup', () => {
     const proj = tmp.path();
     const dir = createBackup(proj, [], AT);
     expect(existsSync(join(proj, dir))).toBe(true);
+  });
+});
+
+// F-40: the notice was written five ways (init, add, remove, uninstall, update)
+// and only update's carried the .gitignore advice. One wording now.
+describe('backupNoticeLines', () => {
+  const HINT =
+    '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.';
+
+  it('names the count, the directory and what the backup was made ahead of', () => {
+    expect(
+      backupNoticeLines({
+        dir: '.pharn-backup/20260807-091500',
+        saved: 3,
+        action: 'overwriting and removing',
+      }),
+    ).toEqual([
+      'Backed up 3 file(s) to .pharn-backup/20260807-091500 before overwriting and removing.',
+      HINT,
+    ]);
+  });
+
+  it('names a single file by name, with no action phrase', () => {
+    expect(
+      backupNoticeLines({
+        dir: '.pharn-backup/20260807-091500',
+        saved: 'pharn.config.json',
+      }),
+    ).toEqual([
+      'Backed up pharn.config.json to .pharn-backup/20260807-091500.',
+      HINT,
+    ]);
+  });
+
+  it('drops the .gitignore advice on an aborted run (the pointer alone is repeated)', () => {
+    expect(
+      backupNoticeLines(
+        { dir: '.pharn-backup/x', saved: 1, action: 'removing' },
+        { aborted: true },
+      ),
+    ).toEqual(['Backed up 1 file(s) to .pharn-backup/x before removing.']);
   });
 });

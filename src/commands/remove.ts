@@ -17,7 +17,7 @@ import {
 } from '../lib/capability-dir.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { errorMessage, logError } from '../lib/report-error.js';
-import { createBackup } from '../lib/backup.js';
+import { createBackup, printBackupNotice } from '../lib/backup.js';
 import { removalBackupSet } from '../lib/removal-backup.js';
 import {
   buildRemoveSelection,
@@ -151,9 +151,11 @@ function backupBeforeDelete(
     );
     if (rels.length === 0) return;
     const backupDir = createBackup(cwd, rels);
-    log.info(
-      `Backed up ${rels.length} file(s) to ${backupDir} before removing.`,
-    );
+    printBackupNotice({
+      dir: backupDir,
+      saved: rels.length,
+      action: 'removing',
+    });
   } catch (err) {
     throw new RemoveBackupError(
       `Could not back up the files in ${label} before removing: ${errorMessage(err).replace(/\.$/, '')}. Nothing was removed.`,
@@ -253,8 +255,7 @@ async function pruneCapabilityRecords(
 
   // The stamp does not move: `remove` changes neither `skillsVersion` nor
   // `commit`, so the store is re-written against the same pair the config holds
-  // (and still holds after the config write, which touches only `capabilities`
-  // and `installedAt`). A moved stamp would make the very next `update` read this
+  // (and still holds after the config write, which touches only `capabilities`). A moved stamp would make the very next `update` read this
   // store as written for another state and ignore it wholesale.
   await writeRecords(cwd, {
     skillsVersion: config.skillsVersion,
@@ -365,7 +366,8 @@ async function removeNamed(
       capabilities: installed.filter(
         (c) => !(c.name === target.name && c.role === target.role),
       ),
-      installedAt: new Date().toISOString(),
+      // `installedAt` rides the spread unchanged: a remove is a partial edit,
+      // not an install — init and update set it (F-23).
     });
     return existed ? '' : pc.dim(' (its files were already gone)');
   });
@@ -468,7 +470,7 @@ async function runRemovePicker(
       capabilities: installed.filter(
         (c) => !removed.has(`${c.role}:${c.name}`),
       ),
-      installedAt: new Date().toISOString(),
+      // `installedAt` unchanged, as in removeNamed (F-23).
     });
   });
 
