@@ -133,3 +133,4 @@ Two of the eleven installed commands sit outside the pipeline: **`/pharn-review`
 - Review what was written: [pharn.config.json](reference/pharn-config.md)
 - Add a capability later: [add command](commands/add.md)
 - Refresh to the latest skills: [update command](commands/update.md)
+- Prefer to ask instead of typing commands: the optional [`pharn-cli` agent skill](https://github.com/pharn-dev/skills) checks, previews and applies updates for you
