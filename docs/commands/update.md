@@ -412,6 +412,13 @@ also lands here rather than in the restore row, because something is in the way.
 cause the reason **names the offending component**, so a `.claude/hooks` symlinked into a dotfiles repo
 is named as that directory; the other cases give a generic reason.
 
+**Each file is written by replacement.** `update` writes the new contents to a temporary file beside the
+destination and renames it into place, so it never writes into the existing file. A hard link — a second
+name for the same file, which looks like an ordinary file — therefore keeps its other name's contents:
+only the name inside your project gets the new bytes. The file keeps upstream's permissions, and an
+installed file you made read-only is replaced like any other: what `update` needs is write permission on
+its folder.
+
 ### The three skip labels
 
 - **`modified`** — you changed this file after `pharn` wrote it. This is the label the feature exists
