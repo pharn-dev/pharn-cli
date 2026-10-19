@@ -9,6 +9,9 @@ export default defineConfig({
     setupFiles: ['tests/setup/hermetic-env.ts'],
     coverage: {
       provider: 'v8',
+      // lcov is added for pharn-ci's diff-coverage gate (.pharn/ci.yml);
+      // the rest are vitest's own defaults.
+      reporter: ['text', 'html', 'clover', 'json', 'lcov'],
       include: ['src/**/*.ts'],
       // A RATCHET, not a quality bar. These are the measured numbers rounded
       // DOWN to the whole number (measured 97.06 / 92.48 / 97.55 / 97.92), so
