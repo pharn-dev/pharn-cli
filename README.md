@@ -419,7 +419,8 @@ Useful scripts:
 | `npm run test:coverage`       | Run the Vitest coverage gate used by CI.              |
 | `npm run build:install-local` | Build and install the local CLI into local test apps. |
 
-Set `PHARN_DEBUG=1` for verbose fetch and install errors. See
+Set `PHARN_DEBUG=1` for verbose fetch and install errors; `NO_COLOR` / `FORCE_COLOR`
+control colour (see [Colour](docs/troubleshooting.md#colour)). See
 [CONTRIBUTING.md](CONTRIBUTING.md) for contributor notes and release discipline.
 
 ## Security

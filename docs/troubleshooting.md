@@ -68,6 +68,20 @@ That holds for **every** fatal, the prerequisite failure included: it is reporte
 stderr, with exit 1. (Through `0.3.2` that one message was rendered through the cancel formatter and
 landed on stdout, so a run gated on stderr alone found an empty file.)
 
+### Colour
+
+`pharn` colours its output only on a terminal, by Node's own rule — the same one its prompts and boxes
+use, so the two never disagree:
+
+- **`FORCE_COLOR` set**: colour is on for `1`, `2`, `3`, `true` or the empty string — even when stdout is
+  piped — and off for `0` or `false`. `NO_COLOR` is then ignored.
+- **`FORCE_COLOR` unset**: colour only on a colour-capable terminal. `NO_COLOR`, `NODE_DISABLE_COLORS`
+  and `TERM=dumb` each turn it off; `CI` by itself turns nothing on.
+
+So a piped CI log stays plain unless you set `FORCE_COLOR=1`. (Before 0.13.0, `pharn`'s own text turned
+colour on whenever `CI` was set or `FORCE_COLOR` held any value, `0` included, so a piped log could carry
+raw `\x1b[…m` sequences.)
+
 ## `pharn update` skipped my files
 
 By default, `update` skips **present** PHARN-owned files it cannot prove are untouched (missing
