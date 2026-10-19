@@ -36,6 +36,7 @@ npx @pharn-dev/pharn@latest init
 - [After install](#after-install)
 - [Day-to-day workflow](#day-to-day-workflow)
 - [CLI commands](#cli-commands)
+- [Agent skills](#agent-skills)
 - [Safety model](#safety-model)
 - [Current scope](#current-scope)
 - [Documentation](#documentation)
@@ -303,6 +304,27 @@ Three behaviours matter if you script the CLI:
   prompt was open).
   `list` and `status` never take it and are never blocked by one, so
   `pharn status --strict` stays runnable in CI while an update is in flight.
+
+## Agent skills
+
+If you would rather ask than remember flags, the
+[`pharn-dev/skills`](https://github.com/pharn-dev/skills) repository ships a
+`pharn-cli` skill that operates this CLI for you. Ask your agent "Is PHARN up to
+date in this project?" or "What would an update change?" and it runs the
+read-only checks and a `--dry-run` preview first, applies the update without
+overwriting your edits, and adds or removes grillers and lenses. The same
+repository also carries `phargus` skills for setting up and diagnosing Node.js
+applications with [Phargus](https://github.com/pharn-dev/phargus).
+
+In Claude Code:
+
+```text
+/plugin marketplace add pharn-dev/skills
+/plugin install pharn@pharn-dev
+```
+
+Or with the Skills CLI: `npx skills add pharn-dev/skills --skill pharn-cli`.
+The skills are optional; every command above works without them.
 
 ## Safety model
 

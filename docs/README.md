@@ -27,6 +27,7 @@ The CLI version (`pharn --version`) and the content version it installs (`skills
 
 ## Other
 
+- [Agent skills](https://github.com/pharn-dev/skills) — the optional `pharn-cli` skill that runs these commands for you from Claude Code
 - [Troubleshooting](troubleshooting.md) — common failures and `PHARN_DEBUG`
 - [Roadmap](roadmap.md) — what's shipped and what's planned
 - [Contributing](../CONTRIBUTING.md) — developing the CLI and keeping docs in sync
