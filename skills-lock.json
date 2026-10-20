@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "pharn-ci-cover": {
+      "source": "pharn-dev/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/pharn-ci/skills/pharn-ci-cover/SKILL.md",
+      "computedHash": "87842f85204e961cef8c02583e3c3173647db19665a691845d3c40efc88f984b"
+    },
+    "pharn-ci-explain": {
+      "source": "pharn-dev/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/pharn-ci/skills/pharn-ci-explain/SKILL.md",
+      "computedHash": "54aeac302bcb1e2fdab18fd77a51f3651e29b4c18cffc48970c158290ae70b54"
+    },
+    "pharn-ci-install": {
+      "source": "pharn-dev/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/pharn-ci/skills/pharn-ci-install/SKILL.md",
+      "computedHash": "650ed4d0702e23f98de5fe1109461e370392c8797bdcf45651eec36b45ad0102"
+    }
+  }
+}

@@ -61,8 +61,7 @@ const EXPECTED_GATES: ReadonlyMap<string, string> = new Map([
 const SMOKE_RUN = 'node dist/index.js --version && node dist/index.js --help';
 
 /**
- * Run commands a gate executes AFTER its npm script, by gate name. Only `Build`
- * has one.
+ * Run commands a gate executes AFTER its npm script, by gate name.
  *
  * This table is what keeps the per-gate assertion below two-directional: the
  * smoke step going missing fails it, and a run step appearing in ANY gate —
@@ -70,7 +69,17 @@ const SMOKE_RUN = 'node dist/index.js --version && node dist/index.js --help';
  * original exact-array assertion bought (a gate cannot quietly grow a second
  * responsibility) therefore survives; it is not loosened into a `toContain`.
  */
+/**
+ * The `Test` job's one EXTRA `run:` — pharn-ci's diff-coverage gate reads a PR
+ * number for the artifact that feeds `pharn-ci-comment.yml` (the fork-PR
+ * sticky comment, posted from the default branch since a fork's token on
+ * `pull_request` cannot comment). The gate step itself (`uses:
+ * pharn-dev/pharn-ci@...`) is not a `run:` command, so only this line shows up.
+ */
+const PR_NUMBER_RUN = 'echo "$PR_NUMBER" > pr-number';
+
 const EXTRA_RUNS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['Test', [PR_NUMBER_RUN]],
   ['Build', [SMOKE_RUN]],
 ]);
 
