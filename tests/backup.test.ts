@@ -14,6 +14,7 @@ import {
   backupTimestamp,
   BACKUP_DIR,
   createBackup,
+  legacyBackupNotice,
 } from '../src/lib/backup.js';
 import { parseCapabilityIndex } from '../src/lib/capability-index.js';
 import { scanDest } from '../src/lib/dest-drift.js';
@@ -318,5 +319,30 @@ describe('a backed-up capability copy is invisible to every install reader', () 
     const index = parseCapabilityIndex(proj);
     expect(index.capabilities.map((c) => c.name)).toEqual(['x']);
     expect(JSON.stringify(index)).not.toContain('.backup');
+  });
+});
+
+describe('legacyBackupNotice — an old root .pharn-backup/', () => {
+  const tmp = useTmpDir();
+
+  it('names a real directory, and says pharn deletes neither', () => {
+    mkdirSync(join(tmp.path(), '.pharn-backup/20261001-120000'), {
+      recursive: true,
+    });
+    const line = legacyBackupNotice(tmp.path());
+    expect(line).toContain('.pharn-backup/ holds backups from pharn 0.13.0');
+    expect(line).toContain('new ones go to pharn/.backup/');
+    expect(line).toContain('pharn never deletes either');
+  });
+
+  it('is silent when there is none, or when the name is a file or a link', () => {
+    expect(legacyBackupNotice(tmp.path())).toBeNull();
+    writeFileSync(join(tmp.path(), '.pharn-backup'), 'not a dir');
+    expect(legacyBackupNotice(tmp.path())).toBeNull();
+    const other = join(tmp.path(), 'p2');
+    mkdirSync(join(other, '..', 'elsewhere'), { recursive: true });
+    mkdirSync(other);
+    symlinkSync(join(other, '..', 'elsewhere'), join(other, '.pharn-backup'));
+    expect(legacyBackupNotice(other)).toBeNull();
   });
 });

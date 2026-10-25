@@ -123,7 +123,8 @@ overwritten**. Inspect `pharn/.backup` (and `pharn` itself) in your project:
   that path is the one named in the error, then remove or replace the symlink and re-run.
 
 Before 0.14.0 backups went to `.pharn-backup/` at the project root. `pharn` no longer writes there and
-never deletes it: move what you still need, then remove it yourself.
+never deletes it — `pharn update` and `pharn init` print a reminder while it exists: move what you
+still need, then remove it yourself.
 
 A symlink in a source file's path (or one of its parent directories) is also rejected; the error names
 the component.

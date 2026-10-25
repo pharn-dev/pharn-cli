@@ -9,6 +9,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-10-25
+
+### Added
+
+- **`pharn update` and `pharn init` point at an old `.pharn-backup/`.** From 0.14.0 backups go to `pharn/.backup/`, and the `.pharn-backup/` directory an older `pharn` left at the project root was never mentioned. When one exists (a real directory, not a link), both commands — and their `--dry-run` previews — now print one line saying it holds backups from 0.13.0 or older and that you may move what you still need and delete it. `pharn` still never moves or deletes it. Nothing is printed under `--json`.
+
 ## [0.14.0] — 2026-10-25
 
 ### Changed
@@ -266,7 +272,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.11.0...v0.12.0

@@ -43,7 +43,7 @@ import { runNodePrereq } from '../steps/node-prereq.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { applyWrites, ApplyError } from '../lib/apply-update.js';
-import { BACKUP_DIR, createBackup } from '../lib/backup.js';
+import { BACKUP_DIR, createBackup, legacyBackupNotice } from '../lib/backup.js';
 import {
   buildRecords,
   MODELS_RECORD_KEY,
@@ -625,6 +625,9 @@ async function runArchetypeUpdate(
     process.exit(1);
   }
 
+  // Before the report, whose outro is the run's last line.
+  const legacyBackups = legacyBackupNotice(cwd);
+  if (legacyBackups) log.info(legacyBackups);
   reportOutcome(outcome, force);
   // A user-data move that could not be made (a conflict, a symlink, a failed
   // rename) fails the run, after everything else it did has been reported and
@@ -1136,5 +1139,7 @@ async function runDryRun(
     );
     return;
   }
+  const legacyBackups = legacyBackupNotice(cwd);
+  if (legacyBackups) log.info(legacyBackups);
   reportDryRun(report, force, channel, config);
 }
