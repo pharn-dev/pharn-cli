@@ -18,6 +18,7 @@ import {
   detectLayout,
   layoutPaths,
   resolveFeaturesReadme,
+  resolveTrustedDocs,
   type LayoutPaths,
 } from './layout.js';
 import {
@@ -171,7 +172,7 @@ export interface PreparedInstall {
  * Read-only; throws ManifestValidationError, or returns what it checked.
  *
  * Exported so `init` can run it BEFORE its backup (steps/install-archetype.ts):
- * a refused install then writes nothing at all — no `.pharn-backup/` either.
+ * a refused install then writes nothing at all — no `pharn/.backup/` either.
  * `installCapabilities` still runs it itself, so no caller can copy without it.
  *
  * `manifest` is the install manifest for these capabilities at the clone's
@@ -259,19 +260,20 @@ export function installCapabilities(
     cpSync(settingsFrom, settingsTo, { force: true });
   }
 
-  // --- trusted docs (the same FOUR documents in both layouts; the prefix is
-  // per-DOC, not per-layout — flat keeps all four at the root, while the pharn
-  // layout has CONSTITUTION/ARCHITECTURE under pharn/ and THREAT-MODEL/LIMITS
-  // still at the root, because that is where upstream keeps each one and the
-  // install mirrors it, see PHARN_TRUSTED_DOCS in constants.ts) ---------------
+  // --- trusted docs (the same FOUR documents in both layouts; WHERE the clone
+  // keeps each one is resolveTrustedDocs's answer — flat keeps all four at the
+  // root, the pharn layout keeps them under pharn/, and a pre-7.0 pharn clone
+  // still ships THREAT-MODEL/LIMITS at the root, which the install mirrors; see
+  // PHARN_TRUSTED_DOCS in constants.ts) --------------------------------------
   //
   // The leaf-only isSymlink is sufficient here and NOT the weaker form of the
-  // features/README.md guard: every root-prefixed entry has no intermediate
-  // directory at all, and the pharn/-prefixed pair's component exposure is
-  // unchanged by this loop's shape. `written` collects only the docs this branch
-  // actually copied — the outro reports that, never the expected list.
+  // features/README.md guard: a root-level fallback has no intermediate
+  // directory at all, and every pharn/-prefixed doc's only intermediate is
+  // `pharn/` itself, which prepareInstall's destination walk already covers.
+  // `written` collects only the docs this branch actually copied — the outro
+  // reports that, never the expected list.
   const written: string[] = [];
-  for (const doc of paths.docs) {
+  for (const doc of resolveTrustedDocs(repoDir, paths.layout)) {
     const from = safeJoin(repoDir, doc);
     if (existsSync(from) && !isSymlink(from)) {
       cpSync(from, safeJoin(projectRoot, doc), { force: true });

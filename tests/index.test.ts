@@ -268,7 +268,7 @@ describe('main (argv dispatch)', () => {
     // Scoped to its command: minimist parses flags globally, so unscoped help
     // text would advertise a flag that does nothing on the other commands.
     expect(printed).toMatch(/--force\s+update:/);
-    expect(printed).toContain('.pharn-backup/');
+    expect(printed).toContain('pharn/.backup/');
   });
 
   it('routes `list` to runList with json:false by default', async () => {

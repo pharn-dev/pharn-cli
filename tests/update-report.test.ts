@@ -91,6 +91,8 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
       },
     ],
     orphans: [],
+    rootMigration: null,
+    rootMoveBackups: [],
     ...over,
   };
 }
@@ -341,6 +343,7 @@ describe('buildUpdateReport — planned', () => {
       'layout',
       'abandonedLayout',
       'featuresReadmeRelocation',
+      'rootMigration',
       'capabilities',
       'files',
       'writes',
@@ -523,15 +526,21 @@ describe('buildUpdateReport — untrusted text', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The default report is byte-identical to 0.10.0: pinned by hash, captured from
-// the builder BEFORE `--compact` existed.
+// The default report is byte-identical to 0.10.0 apart from ONE additive key:
+// pinned by hash, captured from the builder BEFORE `--compact` existed. 0.14.0
+// added `plan.rootMigration` (always present, `null` when nothing applies), so
+// the planned fixture is hashed with that key removed — which pins both that
+// it is the only change and that every other byte is unchanged.
 // ---------------------------------------------------------------------------
 const sha = (text: string): string =>
   createHash('sha256').update(text).digest('hex');
 
 describe('buildUpdateReport — default output is unchanged', () => {
-  it('serializes the planned fixture to the exact 0.10.0 bytes', () => {
-    const text = serializeJsonReport(buildUpdateReport(input({ force: true })));
+  it('serializes the planned fixture to the exact 0.10.0 bytes, plus plan.rootMigration', () => {
+    const report = buildUpdateReport(input({ force: true }));
+    expect(report.plan!.rootMigration).toBeNull();
+    const { rootMigration: _added, ...plan010 } = report.plan!;
+    const text = serializeJsonReport({ ...report, plan: plan010 });
     expect(sha(text)).toBe(
       '13a9755b35bf7eb73c52357d17572aedeeb61ce1e737026267c17447169f8615',
     );

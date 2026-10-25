@@ -22,9 +22,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 /** Where a test injects the other process's write, relative to the real rename. */
-const seam: { before: (() => void) | null; after: (() => void) | null } = {
+const seam: {
+  before: (() => void) | null;
+  after: (() => void) | null;
+  // Runs once, right before the next exclusive (`wx`) open — the lock create.
+  beforeCreate: (() => void) | null;
+} = {
   before: null,
   after: null,
+  beforeCreate: null,
 };
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -37,11 +43,20 @@ vi.mock('node:fs', async (importOriginal) => {
       real.renameSync(from, to);
       seam.after?.();
     },
+    openSync: (...args: Parameters<typeof real.openSync>) => {
+      if (args[1] === 'wx' && seam.beforeCreate) {
+        const once = seam.beforeCreate;
+        seam.beforeCreate = null;
+        once();
+      }
+      return real.openSync(...args);
+    },
   };
 });
 
 const {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -53,14 +68,17 @@ const { join } = await import('node:path');
 const { LOCK_FILE, ProjectLockedError, withProjectLock } =
   await import('../src/lib/project-lock.js');
 
+// The lock lives in `pharn/` (created here so a planted lock has somewhere to go).
 function lockPath(dir: string): string {
+  mkdirSync(join(dir, 'pharn'), { recursive: true });
   return join(dir, LOCK_FILE);
 }
 
 /** Looser than the production allowlist on purpose — a stray of ANY shape fails. */
 function lockSiblings(dir: string): string[] {
-  return readdirSync(dir).filter(
-    (n) => n !== LOCK_FILE && n.startsWith(`${LOCK_FILE}.`),
+  if (!existsSync(join(dir, 'pharn'))) return [];
+  return readdirSync(join(dir, 'pharn')).filter(
+    (n) => n !== '.lock' && n.startsWith('.lock.'),
   );
 }
 
@@ -223,5 +241,30 @@ describe('withProjectLock — breaking a stale lock under a race', () => {
     expect(ran).toBe(true);
     expect(existsSync(lockPath(dir))).toBe(false);
     expect(lockSiblings(dir)).toEqual([]);
+  });
+});
+
+// The one race the pharn/ directory adds: a run that had CREATED pharn/
+// removes it, empty, on release — between another run's directory check and
+// its lock create. The create then meets ENOENT, not EEXIST. That is not
+// contention, so the run makes the directory once more and takes the lock.
+describe('withProjectLock — pharn/ removed between the check and the create', () => {
+  let dir = '';
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pharn-lock-race-'));
+    mkdirSync(join(dir, 'pharn'));
+  });
+  afterEach(() => {
+    seam.beforeCreate = null;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('re-creates pharn/ once and takes the lock instead of failing with a raw ENOENT', async () => {
+    seam.beforeCreate = () => rmSync(join(dir, 'pharn'), { recursive: true });
+    const fn = vi.fn();
+    await withProjectLock(dir, 'update', fn);
+    expect(fn).toHaveBeenCalledOnce();
+    // It made pharn/ itself this time, so it removes it again, empty.
+    expect(existsSync(join(dir, 'pharn'))).toBe(false);
   });
 });

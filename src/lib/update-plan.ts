@@ -37,6 +37,7 @@ import {
 import { decideModelsUpdate, type ModelsUpdate } from './models-update.js';
 import { readUpstreamModels } from './upstream-models.js';
 import { findOrphans, type Orphan } from './orphans.js';
+import { planRootMigration, type RootMigration } from './root-migration.js';
 import {
   planUpdate,
   type DiskState,
@@ -107,7 +108,7 @@ export interface UpdatePlanReport {
   removals: CapabilityRemoval[];
   files: PlannedFile[];
   writes: string[];
-  // Rels that would be copied to `.pharn-backup/` first; includes
+  // Rels that would be copied to `pharn/.backup/` first; includes
   // `pharn.config.json` when the models block is forced.
   backups: string[];
   skipped: UpdatePlan['skipped'];
@@ -124,8 +125,17 @@ export interface UpdatePlanReport {
   // The structured twin of `unknownWarning`: what the fetch boundary refused.
   unknownCapabilities: UnknownCapability[];
   // Recorded files upstream no longer ships that are still on disk
-  // (lib/orphans.ts). Reported only; never written, never deleted.
+  // (lib/orphans.ts). Reported only; never written, never deleted. A root doc
+  // the migration deletes (below) is not listed: it is not left behind.
   orphans: Orphan[];
+  // The old root footprint this run retires (lib/root-migration.ts), or null
+  // when nothing applies (a flat clone, or one below SKILLS 7 that still keeps
+  // both docs at the root).
+  rootMigration: RootMigration | null;
+  // The files the user-data moves copy to `pharn/.backup/` first — the same
+  // list `apply.rootMoveBackups` hands the writer, so the preview cannot
+  // under-report the real run's backup.
+  rootMoveBackups: string[];
 }
 
 export interface UpdateApplyInputs {
@@ -146,6 +156,8 @@ export interface UpdateApplyInputs {
   frozenKeys: string[];
   // The paths the removals are addressed at (the config's recorded layout).
   removalPaths: LayoutPaths;
+  // Regular files the user-data moves back up first (lib/root-migration.ts).
+  rootMoveBackups: string[];
 }
 
 export interface PlannedUpdate {
@@ -302,6 +314,25 @@ export function buildUpdatePlan(input: {
     ),
   });
 
+  // The old root footprint (lib/root-migration.ts), judged against the same
+  // usable baseline. A root doc it deletes leaves the orphan list and the
+  // carried records: it is retired by this run, not left behind. A doc it KEEPS
+  // (edited, unverifiable) stays an orphan — listed, its record carried.
+  const rootMigration = planRootMigration({
+    projectRoot: cwd,
+    repoDir,
+    layout,
+    installedLayout: previousLayout,
+    skillsVersion: installedVersion,
+    records,
+  });
+  const retired = new Set(
+    (rootMigration?.report.docs ?? [])
+      .filter((d) => d.action === 'delete')
+      .map((d) => d.rel),
+  );
+  const orphans = orphanScan.orphans.filter((o) => !retired.has(o.path));
+
   // Only KEPT entries count: an unparseable capability this project never had
   // must not pin every future run to a re-fetch. And one the LAST run listed
   // that parses again stays listed while any of ITS files was skipped this run.
@@ -363,7 +394,9 @@ export function buildUpdatePlan(input: {
       recordsNote,
       unknownWarning,
       unknownCapabilities: index.unknown,
-      orphans: orphanScan.orphans,
+      orphans,
+      rootMigration: rootMigration?.report ?? null,
+      rootMoveBackups: rootMigration?.backups ?? [],
     },
     apply: {
       expected,
@@ -378,6 +411,7 @@ export function buildUpdatePlan(input: {
       nextCommit,
       frozenKeys,
       removalPaths,
+      rootMoveBackups: rootMigration?.backups ?? [],
     },
   };
 }

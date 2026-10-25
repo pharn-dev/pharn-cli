@@ -113,12 +113,12 @@ function versionGate(
   ) {
     return source.kind === 'release'
       ? `Your install (skills v${config.skillsVersion}) is ahead of the latest verified ${REPO_URL} release (${source.tag}) — it came from pharn-oss main, and \`pharn add\` installs only at the version your project is already on. Run \`pharn update --ref main\` to follow main (\`pharn add\` then fetches from it too), or wait for a release at v${config.skillsVersion}.`
-      : `Your install (skills v${config.skillsVersion}) is newer than ${REPO_URL} main (v${fetched}) — pharn-oss main has moved back to an older version, and \`pharn add\` installs only at the version your project is already on. Wait for main to reach v${config.skillsVersion} again, or run \`pharn update --force\` to downgrade to v${fetched} first (it backs up the files you edited to .pharn-backup/), then re-run \`pharn add\`.`;
+      : `Your install (skills v${config.skillsVersion}) is newer than ${REPO_URL} main (v${fetched}) — pharn-oss main has moved back to an older version, and \`pharn add\` installs only at the version your project is already on. Wait for main to reach v${config.skillsVersion} again, or run \`pharn update --force\` to downgrade to v${fetched} first (it backs up the files you edited to pharn/.backup/), then re-run \`pharn add\`.`;
   }
   const base = `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on`;
   return config.pendingSkillsVersion === undefined
     ? `${base} — run \`pharn update\` first, then re-run \`pharn add\`.`
-    : `${base} (v${config.pendingSkillsVersion} apart from files you edited). Run \`pharn update\` first; if it keeps skipping your edited files, either revert those edits or run \`pharn update --force\` (it backs them up to .pharn-backup/ first), then re-run \`pharn add\`.`;
+    : `${base} (v${config.pendingSkillsVersion} apart from files you edited). Run \`pharn update\` first; if it keeps skipping your edited files, either revert those edits or run \`pharn update --force\` (it backs them up to pharn/.backup/ first), then re-run \`pharn add\`.`;
 }
 
 // The (skillsVersion, commit) pair `add` writes to the config and stamps the
@@ -480,7 +480,7 @@ async function resolveArchetypeAdd(
   // upstream bytes, unrecoverably.
   //
   // So every file whose destination bytes DIFFER from the clone's is copied to
-  // `.pharn-backup/<ts>/` first (lib/backup.ts — the same directory
+  // `pharn/.backup/<ts>/` first (lib/backup.ts — the same directory
   // `update --force` uses). `add` still overwrites; it no longer does so
   // irrecoverably. Byte-identical is not drift, so a drop-then-re-add of unedited
   // files stays silent (lib/dest-drift.ts).

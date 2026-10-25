@@ -58,7 +58,7 @@ describe('layoutPaths', () => {
     expect(p.license).toEqual({ from: 'LICENSE', to: 'PHARN-LICENSE' });
   });
 
-  it('pharn resolves every runtime surface under pharn/, but the docs keep a per-DOC prefix', () => {
+  it('pharn resolves every runtime surface under pharn/, the four trusted docs included', () => {
     const p = layoutPaths('pharn');
     expect(p.layout).toBe('pharn');
     expect(p.grillers).toBe('pharn/pharn-pipeline/grillers');
@@ -67,25 +67,16 @@ describe('layoutPaths', () => {
     expect(p.floor).toBe('pharn/floor');
     // The pharn-core surface upstream actually ships (seam-resolver + its evals).
     expect(p.core).toBe('pharn/pharn-core');
-    // The same FOUR documents as flat, but the prefix is per-DOC. pharn-oss's
-    // relocation moved CONSTITUTION + ARCHITECTURE under pharn/ and left
-    // THREAT-MODEL + LIMITS at the repo ROOT, and the install mirrors wherever
-    // upstream keeps each one. Measured over the files one install copies: 108
-    // of them cite these docs, `THREAT-MODEL.md` bare 118x and pharn/-prefixed
-    // 0x, `LIMITS.md` bare 68x and prefixed 0x — while the two relocated docs
-    // are cited WITH the prefix (239x / 54x). Upstream's own
-    // protect-trusted-paths.cjs DEFAULT_PROTECTED spells them the same way.
+    // The same FOUR documents as flat, all under pharn/ — where pharn-oss
+    // keeps them from SKILLS_VERSION 7.0.0 on. A pre-7.0 clone still ships
+    // THREAT-MODEL + LIMITS at the root; that is resolveTrustedDocs's probe
+    // (below), not this layout's own path.
     expect(p.docs).toEqual([
       'pharn/CONSTITUTION.md',
       'pharn/ARCHITECTURE.md',
-      'THREAT-MODEL.md',
-      'LIMITS.md',
+      'pharn/THREAT-MODEL.md',
+      'pharn/LIMITS.md',
     ]);
-    // The dead paths are not resurrected: `pharn/THREAT-MODEL.md` and
-    // `pharn/LIMITS.md` have never existed in pharn-oss, so every install
-    // silently dropped both docs while both readers' existence guards passed.
-    expect(p.docs).not.toContain('pharn/THREAT-MODEL.md');
-    expect(p.docs).not.toContain('pharn/LIMITS.md');
     // Both layouts carry the same four BASENAMES — only the prefixes differ.
     expect(p.docs.map((d) => d.split('/').pop())).toEqual(
       layoutPaths('flat').docs.map((d) => d.split('/').pop()),

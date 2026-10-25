@@ -39,6 +39,10 @@ export const MIN_CLI_FILE = 'MIN_CLI';
 export const UPSTREAM_LICENSE = 'LICENSE';
 export const FLAT_LICENSE_DEST = 'PHARN-LICENSE';
 export const PHARN_LICENSE_DEST = 'pharn/LICENSE';
+// The legacy FLAT layout's trusted docs, all at the project root. They stay
+// here for flat installs, and they are also what keeps a pharn-layout install's
+// OLD root THREAT-MODEL.md / LIMITS.md records readable: orphan detection's
+// install-root set (lib/orphans.ts) is built from both layouts' lists.
 export const TRUSTED_DOCS = [
   'CONSTITUTION.md',
   'ARCHITECTURE.md',
@@ -93,35 +97,39 @@ export const PHARN_CONTRACTS_DIR = 'pharn/pharn-contracts';
 // The pharn-core surface upstream actually ships (see CORE_DIR above).
 export const PHARN_CORE_DIR = 'pharn/pharn-core';
 export const PHARN_FLOOR_DIR = 'pharn/floor';
-// The same FOUR documents as the flat set, but the prefix is per-DOC, not per-
-// layout: pharn-oss's relocation moved CONSTITUTION.md and ARCHITECTURE.md under
-// pharn/ and left THREAT-MODEL.md and LIMITS.md at the repo ROOT. The mirror
-// (lib/layout.ts) makes a clone-relative path the project-relative one, so these
-// entries are where upstream actually keeps each doc — not a uniform prefix.
+// The same FOUR documents as the flat set, all under pharn/ — where the pharn
+// layout keeps them from pharn-oss SKILLS_VERSION 7.0.0 on. The mirror
+// (lib/layout.ts) makes a clone-relative path the project-relative one.
 //
-// Measured against pharn-oss@main, not assumed. Of the files ONE install copies,
-// 108 cite these docs, and the spelling tracks the real location per doc:
-// `THREAT-MODEL.md` bare 118×, `pharn/`-prefixed 0×; `LIMITS.md` bare 68×,
-// prefixed 0×; while the two relocated docs are cited `pharn/ARCHITECTURE.md`
-// 239× and `pharn/CONSTITUTION.md` 54×. None is a markdown link — they are
-// backticked prose paths, the form an agent resolves against the PROJECT ROOT.
-// Upstream's own protect-trusted-paths.cjs (a hook THIS install copies) agrees:
-// its DEFAULT_PROTECTED names `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`,
-// `THREAT-MODEL.md`, `LIMITS.md`.
+// Root is NOT where two of them live for good. Up to 6.x, pharn-oss's relocation
+// moved CONSTITUTION.md and ARCHITECTURE.md under pharn/ and left THREAT-MODEL.md
+// and LIMITS.md at the repo root; 7.0.0 moves those two as well, so that an
+// installed project's root holds only `.claude/`, `pharn/` and pharn's two JSON
+// files. A clone from before that move still ships them at the root, which is
+// what PHARN_ROOT_FALLBACK_DOCS below covers: an ordered probe
+// (resolveTrustedDocs, lib/layout.ts), existence only, never a content read.
 //
-// Before this, the last two entries read `pharn/THREAT-MODEL.md` / `pharn/LIMITS.md`
-// — paths that have NEVER existed upstream (the GitHub commits API returns an
-// empty history for both). Both readers are existence-guarded, so the two docs
-// were silently dropped from every install and those 108 files shipped citing
-// nothing. The guards stay: a clone that lacks a doc still installs cleanly and
-// simply does not get it (P7) — but steps/install-archetype.ts now REPORTS which
-// docs landed, so an existence-guarded no-op can no longer read as success.
+// (History: these two entries once read `pharn/…` while upstream still kept
+// them at the root, and both readers' existence guards dropped
+// them from every install in silence. The guards stay — a clone that lacks a
+// doc still installs cleanly and simply does not get it (P7) — but the install
+// REPORTS which docs landed and `absentInstallSurfaces` names a missing one, so
+// an existence-guarded no-op cannot read as success.)
 export const PHARN_TRUSTED_DOCS = [
   'pharn/CONSTITUTION.md',
   'pharn/ARCHITECTURE.md',
-  'THREAT-MODEL.md',
-  'LIMITS.md',
+  'pharn/THREAT-MODEL.md',
+  'pharn/LIMITS.md',
 ];
+// The probe fallback: for each pharn-layout doc a pre-7.0 clone still ships at
+// the ROOT, that root path. Kept only while a supported pharn-oss can be older
+// than 7.0.0; once every clone ships both under pharn/, this map (and the
+// fallback branch of resolveTrustedDocs) can go. It is also the fixed, two-entry
+// list the root-doc migration (lib/root-migration.ts) may delete from.
+export const PHARN_ROOT_FALLBACK_DOCS: Readonly<Record<string, string>> = {
+  'pharn/THREAT-MODEL.md': 'THREAT-MODEL.md',
+  'pharn/LIMITS.md': 'LIMITS.md',
+};
 // Claude Code surfaces.
 // The product-loop boundary contract, cited BY NAME from 7 of the 10 installed
 // product commands. Layout-specific since pharn-oss SKILLS_VERSION 5.0.0: the

@@ -2,7 +2,7 @@
 
 `pharn` installs [PHARN](https://github.com/pharn-dev/pharn-oss) — a workflow for shipping features right with Claude Code — into your project. Run `pharn init` to detect your project's archetype(s) and install the applicable PHARN **capabilities** (grillers + lenses) from `pharn-dev/pharn-oss`, alongside the fixed product surfaces: the `pharn-*` commands and `.cjs`/`.mjs` hooks under `.claude/`, the contracts, `pharn-core` and floor checkers, four trusted docs, upstream's `LICENSE` copy, and the product-loop boundary contract at `pharn/features/README.md`. It then writes `pharn.config.json` and `pharn.records.json`.
 
-The install **mirrors whichever layout upstream ships**. Today that is the `pharn` layout: most surfaces move under `pharn/`, while `THREAT-MODEL.md`, `LIMITS.md`, and `.claude/` stay at the project root. The legacy `flat` layout keeps everything at the root; an install records which one it used in `pharn.config.json`.
+The install **mirrors whichever layout upstream ships**. Today that is the `pharn` layout: everything moves under `pharn/` except `.claude/` and the two JSON files at the project root (a pharn-oss older than 7.0.0 still ships `THREAT-MODEL.md` and `LIMITS.md` at the root, and the install mirrors that). The legacy `flat` layout keeps everything at the root; an install records which one it used in `pharn.config.json`.
 
 The CLI version (`pharn --version`) and the content version it installs (`skillsVersion`, from upstream's `SKILLS_VERSION`) are independent numbers — `status` and `update` are keyed to the latter.
 

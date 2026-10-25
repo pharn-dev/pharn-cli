@@ -126,6 +126,7 @@ function fakeClone(proj: string): {
 
 /** A lock held by THIS process — alive by definition, so never stale. */
 function holdLock(dir: string, command = 'update'): void {
+  mkdirSync(join(dir, 'pharn'), { recursive: true });
   writeFileSync(
     join(dir, LOCK_FILE),
     JSON.stringify({
@@ -202,6 +203,7 @@ describe('a held lock refuses a writing command', () => {
   it('breaks a stale lock rather than wedging the project forever', async () => {
     // The holder was SIGKILLed a week ago. Refusing forever would make the
     // project permanently unusable, which is the worse failure.
+    mkdirSync(join(proj, 'pharn'), { recursive: true });
     writeFileSync(
       join(proj, LOCK_FILE),
       JSON.stringify({

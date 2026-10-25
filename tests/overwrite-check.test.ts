@@ -132,7 +132,7 @@ describe('confirmWriteTargets', () => {
       expect(warning).toContain('will be DELETED');
       expect(warning).toContain('pharn-review/old/ (lens:old');
       expect(warning).toContain(
-        '1 file(s) in them pharn did not write will be copied to .pharn-backup/ first.',
+        '1 file(s) in them pharn did not write will be copied to pharn/.backup/ first.',
       );
     });
 
@@ -384,7 +384,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     expect(warning).toContain(
       '1 of them differs from upstream — pharn has no record to tell your edits from upstream changes.',
     );
-    expect(warning).toContain('It will be copied to .pharn-backup/');
+    expect(warning).toContain('It will be copied to pharn/.backup/');
     expect(warning).not.toContain('(edited)');
   });
 
@@ -427,7 +427,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     expect(firstListed(warning)).not.toContain(NPO);
     expect(warning).not.toContain('(edited)');
     expect(warning).not.toContain('(differs from upstream)');
-    expect(warning).not.toContain('.pharn-backup/');
+    expect(warning).not.toContain('pharn/.backup/');
   });
 
   it("groups the labels in update's order and counts every backed-up file", async () => {
@@ -444,7 +444,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
       .filter((l) => l.trimStart().startsWith('•'));
     expect(bullets[0]).toContain(`${NPO} (edited)`);
     expect(bullets[1]).toContain('CONSTITUTION.md (no pharn record)');
-    expect(warning).toContain('All 2 will be copied to .pharn-backup/');
+    expect(warning).toContain('All 2 will be copied to pharn/.backup/');
   });
 
   it("compares the mapped PHARN-LICENSE with the clone's LICENSE", async () => {
@@ -480,7 +480,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
 
     expect(lastWarning()).not.toContain('(edited)');
     expect(lastWarning()).not.toContain('(differs from upstream)');
-    expect(lastWarning()).not.toContain('.pharn-backup/');
+    expect(lastWarning()).not.toContain('pharn/.backup/');
   });
 });
 
@@ -494,7 +494,7 @@ describe('confirmWriteTargets — pharn.config.json is rewritten, backed up firs
   const NPO = 'pharn-review/n-plus-one/n-plus-one.md';
   const MARKED = 'pharn.config.json (will be rewritten — backed up first)';
   const CONFIG_LINE =
-    'pharn.config.json will be rewritten (seam and models reset to their defaults); it will be copied to .pharn-backup/ first.';
+    'pharn.config.json will be rewritten (seam and models reset to their defaults); it will be copied to pharn/.backup/ first.';
 
   function bullets(warning: string): string[] {
     return warning.split('\n').filter((l) => l.trimStart().startsWith('•'));
@@ -540,7 +540,7 @@ describe('confirmWriteTargets — pharn.config.json is rewritten, backed up firs
     expect(shown.filter((b) => b.includes('pharn.config.json'))).toHaveLength(
       1,
     );
-    expect(lastWarning()).toContain('All 2 will be copied to .pharn-backup/');
+    expect(lastWarning()).toContain('All 2 will be copied to pharn/.backup/');
     expect(lastWarning()).toContain(CONFIG_LINE);
   });
 

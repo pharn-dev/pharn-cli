@@ -71,7 +71,7 @@ import { safeJoin, toPosix } from './validate.js';
 //
 // Identical content (contentHash: CRLF≡LF in text) is NOT drift — update's row
 // `identical → no-op`. A drop-then-re-add of unedited files must stay silent, or
-// every such add would litter `.pharn-backup/` with copies of bytes nobody lost.
+// every such add would litter `pharn/.backup/` with copies of bytes nobody lost.
 //
 // Determinism (P5): every branch is a type check, a byte comparison or a row of
 // update's table — a symlink test, `isFile()`, a sha256 equality. No judgment.

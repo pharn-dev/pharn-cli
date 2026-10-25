@@ -9,11 +9,19 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
+  backupAction,
   backupNoticeLines,
   backupTimestamp,
   BACKUP_DIR,
   createBackup,
 } from '../src/lib/backup.js';
+import { parseCapabilityIndex } from '../src/lib/capability-index.js';
+import { scanDest } from '../src/lib/dest-drift.js';
+import { diffInstalledCapabilities } from '../src/lib/diff.js';
+import { contentHash } from '../src/lib/hash.js';
+import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
+import { findOrphans, isInstallRootPath } from '../src/lib/orphans.js';
+import { planUninstall } from '../src/lib/uninstall-plan.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -34,7 +42,7 @@ describe('backupTimestamp', () => {
 describe('createBackup', () => {
   const tmp = useTmpDir();
 
-  it('copies each file into .pharn-backup/<ts>/ preserving its relative path', () => {
+  it('copies each file into pharn/.backup/<ts>/ preserving its relative path', () => {
     const proj = tmp.path();
     write(join(proj, 'CONSTITUTION.md'), 'my edit');
     write(join(proj, 'pharn-review/a/a.md'), 'nested edit');
@@ -76,7 +84,7 @@ describe('createBackup', () => {
     expect(readFileSync(join(proj, second, 'a.md'), 'utf8')).toBe('second');
   });
 
-  it('refuses to write through a symlinked .pharn-backup (safeJoin is lexical only)', () => {
+  it('refuses to write through a symlinked pharn/.backup (safeJoin is lexical only)', () => {
     // proj and the symlink target are siblings inside the tmp dir, so the escape
     // is real but stays inside the fixture.
     const proj = join(tmp.path(), 'proj');
@@ -84,6 +92,7 @@ describe('createBackup', () => {
     mkdirSync(proj, { recursive: true });
     mkdirSync(outside, { recursive: true });
     write(join(proj, 'a.md'), 'secret');
+    mkdirSync(join(proj, 'pharn'), { recursive: true });
     symlinkSync(outside, join(proj, BACKUP_DIR));
 
     expect(() => createBackup(proj, ['a.md'], AT)).toThrow(/symlink/i);
@@ -116,7 +125,7 @@ describe('createBackup', () => {
   });
 
   it('THROWS when the backup root cannot be created, so the caller can abort before touching originals', () => {
-    // A plain FILE at .pharn-backup makes mkdir fail — a real, deterministic
+    // A plain FILE at pharn/.backup makes mkdir fail — a real, deterministic
     // failure seam with no injection needed.
     const proj = tmp.path();
     write(join(proj, BACKUP_DIR), 'i am a file, not a directory');
@@ -138,17 +147,17 @@ describe('createBackup', () => {
 // and only update's carried the .gitignore advice. One wording now.
 describe('backupNoticeLines', () => {
   const HINT =
-    '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.';
+    'pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.';
 
   it('names the count, the directory and what the backup was made ahead of', () => {
     expect(
       backupNoticeLines({
-        dir: '.pharn-backup/20260807-091500',
+        dir: 'pharn/.backup/20260807-091500',
         saved: 3,
         action: 'overwriting and removing',
       }),
     ).toEqual([
-      'Backed up 3 file(s) to .pharn-backup/20260807-091500 before overwriting and removing.',
+      'Backed up 3 file(s) to pharn/.backup/20260807-091500 before overwriting and removing.',
       HINT,
     ]);
   });
@@ -156,11 +165,11 @@ describe('backupNoticeLines', () => {
   it('names a single file by name, with no action phrase', () => {
     expect(
       backupNoticeLines({
-        dir: '.pharn-backup/20260807-091500',
+        dir: 'pharn/.backup/20260807-091500',
         saved: 'pharn.config.json',
       }),
     ).toEqual([
-      'Backed up pharn.config.json to .pharn-backup/20260807-091500.',
+      'Backed up pharn.config.json to pharn/.backup/20260807-091500.',
       HINT,
     ]);
   });
@@ -168,9 +177,146 @@ describe('backupNoticeLines', () => {
   it('drops the .gitignore advice on an aborted run (the pointer alone is repeated)', () => {
     expect(
       backupNoticeLines(
-        { dir: '.pharn-backup/x', saved: 1, action: 'removing' },
+        { dir: 'pharn/.backup/x', saved: 1, action: 'removing' },
         { aborted: true },
       ),
-    ).toEqual(['Backed up 1 file(s) to .pharn-backup/x before removing.']);
+    ).toEqual(['Backed up 1 file(s) to pharn/.backup/x before removing.']);
+  });
+});
+
+// 0.14.0: backups live under pharn/, so BOTH components are guarded.
+describe('createBackup — the pharn/.backup root', () => {
+  const tmp = useTmpDir();
+
+  it('lands under pharn/.backup/<ts>/', () => {
+    const proj = join(tmp.path(), 'proj');
+    write(join(proj, 'a.md'), 'a');
+    expect(createBackup(proj, ['a.md'], AT)).toBe(
+      'pharn/.backup/20260807-091500',
+    );
+    expect(BACKUP_DIR).toBe('pharn/.backup');
+  });
+
+  it('refuses a symlinked pharn — nothing lands where it points', () => {
+    const proj = join(tmp.path(), 'proj');
+    write(join(proj, 'a.md'), 'a');
+    mkdirSync(join(tmp.path(), 'outside'));
+    symlinkSync(join(tmp.path(), 'outside'), join(proj, 'pharn'));
+    expect(() => createBackup(proj, ['a.md'], AT)).toThrow(
+      /pharn is a symlink; refusing/,
+    );
+    expect(existsSync(join(tmp.path(), 'outside/.backup'))).toBe(false);
+  });
+
+  it('refuses a pharn (or pharn/.backup) that is not a directory', () => {
+    const proj = join(tmp.path(), 'proj');
+    write(join(proj, 'a.md'), 'a');
+    writeFileSync(join(proj, 'pharn'), 'file');
+    expect(() => createBackup(proj, ['a.md'], AT)).toThrow(
+      /pharn is not a directory/,
+    );
+    const proj2 = join(tmp.path(), 'proj2');
+    write(join(proj2, 'a.md'), 'a');
+    write(join(proj2, 'pharn/.backup'), 'file');
+    expect(() => createBackup(proj2, ['a.md'], AT)).toThrow(
+      /pharn\/\.backup is not a directory/,
+    );
+  });
+
+  it('the advice names pharn/.backup/', () => {
+    expect(
+      backupNoticeLines({ dir: 'pharn/.backup/x', saved: 1 }).join('\n'),
+    ).toContain('pharn/.backup/ is not gitignored');
+  });
+});
+
+describe('backupAction — every combination has a phrase', () => {
+  it('joins the reasons in a fixed order', () => {
+    const cases: [boolean, boolean, boolean, string][] = [
+      [false, false, false, 'overwriting'],
+      [true, false, false, 'overwriting'],
+      [false, true, false, 'removing'],
+      [false, false, true, 'moving'],
+      [true, true, false, 'overwriting and removing'],
+      [true, false, true, 'overwriting and moving'],
+      [false, true, true, 'removing and moving'],
+      [true, true, true, 'overwriting, removing and moving'],
+    ];
+    for (const [o, r, m, phrase] of cases)
+      expect(backupAction(o, r, m)).toBe(phrase);
+  });
+});
+
+// A backed-up capability copy sits at pharn/.backup/<ts>/pharn/pharn-review/…,
+// a path that LOOKS like an install path one level down. None of the readers
+// of the install may count it.
+describe('a backed-up capability copy is invisible to every install reader', () => {
+  const tmp = useTmpDir();
+  const COPY = 'pharn/.backup/20260807-091500/pharn/pharn-review/x/x.md';
+  const LIVE = 'pharn/pharn-review/x/x.md';
+
+  function setup(): { proj: string; repo: string } {
+    const proj = join(tmp.path(), 'proj');
+    const repo = join(tmp.path(), 'repo');
+    write(join(proj, COPY), 'old');
+    write(join(proj, LIVE), 'cap');
+    write(join(repo, 'SKILLS_VERSION'), '7.0.0\n');
+    write(join(repo, 'pharn/pharn-contracts/x.md'), 'x');
+    write(join(repo, LIVE), '---\nrole: lens\napplies: universal\n---\ncap\n');
+    return { proj, repo };
+  }
+
+  it('is not an install path, so never an orphan nor an uninstall candidate', () => {
+    const { proj } = setup();
+    expect(isInstallRootPath(COPY)).toBe(false);
+    const planted = { [COPY]: contentHash(join(proj, COPY)) };
+    expect(
+      findOrphans({
+        projectRoot: proj,
+        records: planted,
+        expected: new Map(),
+        capabilities: [],
+        frozen: [],
+      }).orphans,
+    ).toEqual([]);
+    // Even a hand-planted record is `outside`, never deleted.
+    const plan = planUninstall(proj, planted);
+    expect(plan.delete).toEqual([]);
+    expect(plan.outside).toEqual([COPY]);
+  });
+
+  it('is not part of the expected set status diffs, nor of the drift scan', () => {
+    const { proj, repo } = setup();
+    const caps = [{ name: 'x', role: 'lens' as const }];
+    const diff = diffInstalledCapabilities({
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: caps,
+      layout: 'pharn',
+    });
+    expect(JSON.stringify(diff)).not.toContain('.backup');
+    const expected = collectExpectedInstallPaths({
+      repoDir: repo,
+      capabilities: caps,
+      layout: 'pharn',
+    });
+    expect([...expected.keys()].some((k) => k.includes('.backup'))).toBe(false);
+    const scan = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: [...expected.keys()],
+    });
+    expect(JSON.stringify(scan)).not.toContain('.backup');
+  });
+
+  it('is not a capability the index reads, known or unknown', () => {
+    const { proj } = setup();
+    // Read the project as the index would read a pharn-layout tree.
+    write(join(proj, 'pharn/pharn-contracts/x.md'), 'x');
+    mkdirSync(join(proj, 'pharn/pharn-pipeline/grillers'), { recursive: true });
+    write(join(proj, LIVE), '---\nrole: lens\napplies: universal\n---\ncap\n');
+    const index = parseCapabilityIndex(proj);
+    expect(index.capabilities.map((c) => c.name)).toEqual(['x']);
+    expect(JSON.stringify(index)).not.toContain('.backup');
   });
 });

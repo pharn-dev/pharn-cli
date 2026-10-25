@@ -9,6 +9,19 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-25
+
+### Changed
+
+- **PHARN's own files at your project root move under `pharn/`.** After `pharn init` or `pharn update` on a `pharn`-layout install, the only PHARN entries at the project root are `.claude/`, `pharn/`, `pharn.config.json` and `pharn.records.json`. The project lock is now `pharn/.lock` (was `.pharn.lock`) and backups go to `pharn/.backup/<timestamp>/` (was `.pharn-backup/`), for every layout; a writing command creates `pharn/` when it is missing and removes it again if nothing ended up in it, and refuses a `pharn` that is a symbolic link or a regular file. For this one release `pharn` also honours the old root lock: a live `.pharn.lock` held by an older `pharn` still refuses the run, and a stale one left by a crashed older run is broken instead of wedging the project. An older `pharn` does not know the new lock, so do not run two versions in one project at once. Existing `.pharn-backup/` directories are left where they are. Update your `.gitignore`: `pharn/.run/`, `pharn/.backup/`, `pharn/.lock*` (pharn never edits it; `pharn update` prints these when yours names the old paths). See [Troubleshooting](docs/troubleshooting.md#another-pharn-process-is-running).
+- **The four trusted docs are found under `pharn/` first.** The `pharn` layout now looks for `pharn/THREAT-MODEL.md` and `pharn/LIMITS.md` in the fetched pharn-oss and falls back to the root paths a pharn-oss older than 7.0.0 still uses, so this release works with both.
+
+### Added
+
+- **`pharn update` (and a re-run `pharn init`) retire the old root footprint.** When the fetched pharn-oss ships `THREAT-MODEL.md` and `LIMITS.md` under `pharn/` and the new copies have landed, a root copy still exactly as pharn wrote it (its `pharn.records.json` hash) is deleted and its record dropped; one you edited is kept and listed under `ORPHANED`; one pharn has no record of, a symbolic link, or an unreadable one is left alone. From pharn-oss SKILLS_VERSION 7.0.0, `memory-bank/` moves to `pharn/memory-bank/` and `pharn.spec-template.md` to `pharn/spec-template.md`, backed up first; if the destination already exists nothing is moved — pharn never merges canon or templates — and the run exits 1 after everything else it did. A symbolic link refuses the move the same way. The old `.pharn/` scratch directory is never moved or deleted; when it holds anything but `ci.yml` a note says the scratch now lives in `pharn/.run/`. A source that cannot be read, or is not the expected type, is refused the same way. Everything is reported in a `ROOT MIGRATION` note, which a real `update` prints before it asks (and under `--yes`); after taking the lock it refuses, changing nothing, if what it would delete or move changed since. Only an install already recorded at the `pharn` layout is migrated. Below pharn-oss 7.0.0 the moves and notices do nothing. An install already at 7.x whose root footprint an older `pharn` left behind re-opens `update`'s same-version early return to finish the job. See [`pharn update`](docs/commands/update.md#the-root-footprint-migration).
+- **`update --dry-run --json` reports it as `plan.rootMigration`:** `{docs, moves, scratchNotice, gitignoreHints}`, or `null` when nothing applies. The key is always present, so the report gains one key; `schemaVersion` stays 1.
+- **`pharn uninstall` removes an empty `pharn/`, and says what kept it otherwise.** The lock lives in `pharn/` while uninstall runs, so `pharn/` is now removed after the lock is released when it is empty, and the `UNINSTALLED` note names what is left in it (always at least `.backup`, the config's backup) and that you may delete it.
+
 ## [0.13.0] — 2026-10-18
 
 ### Added
@@ -253,7 +266,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.10.0...v0.11.0

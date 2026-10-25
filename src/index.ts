@@ -105,7 +105,7 @@ const OPTIONS: readonly OptionHelp[] = [
       {
         commands: ['update'],
         text: [
-          'overwrite files you changed (each is copied to .pharn-backup/ first)',
+          'overwrite files you changed (each is copied to pharn/.backup/ first)',
         ],
       },
     ],

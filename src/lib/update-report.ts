@@ -1,3 +1,4 @@
+import type { RootDocAction, RootMoveAction } from './root-migration.js';
 import type { HookEntry, HookWiringDiff } from './hook-wiring.js';
 import { cap } from './json-report.js';
 import type { CapabilityChange } from './merge-capabilities.js';
@@ -75,6 +76,17 @@ export interface UpdateReport {
     layout: Layout;
     abandonedLayout: Layout | null;
     featuresReadmeRelocation: boolean;
+    // The old ROOT footprint of a pharn-layout install this run would retire
+    // (lib/root-migration.ts): root THREAT-MODEL.md / LIMITS.md deleted or kept,
+    // `memory-bank/` and the SPEC template moved under pharn/, and two notices.
+    // ALWAYS present (added within 1); `null` when nothing applies — a flat
+    // clone, or one below SKILLS 7 that still keeps both docs at the root.
+    rootMigration: {
+      docs: { rel: string; action: RootDocAction }[];
+      moves: { from: string; to: string; action: RootMoveAction }[];
+      scratchNotice: boolean;
+      gitignoreHints: string[];
+    } | null;
     capabilities: {
       count: number;
       changes: {
@@ -176,6 +188,22 @@ function planReport(
     layout: p.layout,
     abandonedLayout: p.abandonedLayout,
     featuresReadmeRelocation: p.featuresReadmeRelocation,
+    rootMigration:
+      p.rootMigration === null
+        ? null
+        : {
+            docs: p.rootMigration.docs.map((d) => ({
+              rel: d.rel,
+              action: d.action,
+            })),
+            moves: p.rootMigration.moves.map((m) => ({
+              from: m.from,
+              to: m.to,
+              action: m.action,
+            })),
+            scratchNotice: p.rootMigration.scratchNotice,
+            gitignoreHints: [...p.rootMigration.gitignoreHints],
+          },
     capabilities: {
       count: p.capCount,
       changes: p.capabilityChanges.map((c) => ({
@@ -213,7 +241,10 @@ function planReport(
         }
       : {}),
     writes: [...p.writes],
-    backups: [...p.backups],
+    // The `--force` casualties (and the config), plus the files the root
+    // migration's moves back up — every file the one backup directory holds
+    // except a dropped capability's, which its removal lists.
+    backups: [...new Set([...p.backups, ...p.rootMoveBackups])],
     skipped: p.skipped.map((g) => ({ label: g.label, rels: [...g.rels] })),
     counts: {
       updated: p.counts.updated,

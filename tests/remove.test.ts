@@ -412,8 +412,8 @@ describe('runRemove (archetype)', () => {
     expect(assertConfigUnchanged).toHaveBeenCalledTimes(1);
     expect(snapshot(shared)).toEqual(before);
     expect(writePharnConfig).not.toHaveBeenCalled();
-    expect(existsSync(join(proj, '.pharn.lock'))).toBe(false);
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.lock'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     expect(
       vi.mocked(prompts.log.error).mock.calls.map(String).join(),
     ).toContain('pharn/pharn-review is a symbolic link');
@@ -453,7 +453,7 @@ describe('runRemove (archetype)', () => {
       true,
     );
     expect(writePharnConfig).not.toHaveBeenCalled();
-    expect(existsSync(join(proj, '.pharn.lock'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.lock'))).toBe(false);
     expect(
       vi.mocked(prompts.log.error).mock.calls.map(String).join(),
     ).toContain('pharn-review is a symbolic link');
@@ -1000,7 +1000,7 @@ describe('runRemove (archetype)', () => {
   //
   // `remove` deletes the WHOLE capability directory. Anything in it that is not
   // provably pharn-written-and-unchanged (a usable `pharn.records.json` holding
-  // its key at its current hash) is copied to `.pharn-backup/<ts>/` FIRST.
+  // its key at its current hash) is copied to `pharn/.backup/<ts>/` FIRST.
   describe('backup before delete', () => {
     const DIR = 'pharn/pharn-review/a11y';
     const PERSONA = `${DIR}/a11y.md`;
@@ -1022,7 +1022,7 @@ describe('runRemove (archetype)', () => {
     }
 
     function backupDirs(): string[] {
-      const root = join(proj, '.pharn-backup');
+      const root = join(proj, 'pharn/.backup');
       return existsSync(root) ? readdirSync(root).sort() : [];
     }
 
@@ -1030,12 +1030,12 @@ describe('runRemove (archetype)', () => {
     function backedUp(): string[] {
       const dirs = backupDirs();
       expect(dirs).toHaveLength(1);
-      return snapshotFiles(join(proj, '.pharn-backup', dirs[0]!));
+      return snapshotFiles(join(proj, 'pharn/.backup', dirs[0]!));
     }
 
     function backupBytes(rel: string): string {
       return readFileSync(
-        join(proj, '.pharn-backup', backupDirs()[0]!, rel),
+        join(proj, 'pharn/.backup', backupDirs()[0]!, rel),
         'utf8',
       );
     }
@@ -1078,11 +1078,11 @@ describe('runRemove (archetype)', () => {
       expect(backedUp()).toEqual([USER]);
       expect(backupBytes(USER)).toBe('MY NOTES — not pharn');
       expect(infoLines()).toMatch(
-        /^Backed up 1 file\(s\) to \.pharn-backup\/\d{8}-\d{6} before removing\.$/m,
+        /^Backed up 1 file\(s\) to pharn\/\.backup\/\d{8}-\d{6} before removing\.$/m,
       );
       // F-40: the same .gitignore advice `update`'s backup notice carries.
       expect(infoLines()).toContain(
-        '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
+        'pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
       );
       expect(lastWritten().capabilities).toEqual([]);
     });
@@ -1099,13 +1099,13 @@ describe('runRemove (archetype)', () => {
       expect(existsSync(join(proj, DIR))).toBe(false);
     });
 
-    it('nothing to back up → no .pharn-backup directory and no notice', async () => {
+    it('nothing to back up → no pharn/.backup directory and no notice', async () => {
       lensConfig();
       await seedRecorded([PERSONA, CASE]);
 
       await runRemove('a11y');
 
-      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
       expect(infoLines()).not.toContain('Backed up');
       expect(existsSync(join(proj, DIR))).toBe(false);
     });
@@ -1159,7 +1159,7 @@ describe('runRemove (archetype)', () => {
     });
 
     it.each([
-      ['.pharn-backup is a symlink', 'symlink'],
+      ['pharn/.backup is a symlink', 'symlink'],
       ['a scanned file cannot be read', 'unreadable'],
     ])(
       'backup failure (%s) → exit 1, NOTHING deleted, no config or records write',
@@ -1171,7 +1171,8 @@ describe('runRemove (archetype)', () => {
         if (kind === 'symlink') {
           const elsewhere = join(tmp.path(), 'elsewhere');
           mkdirSync(elsewhere, { recursive: true });
-          symlinkSync(elsewhere, join(proj, '.pharn-backup'));
+          mkdirSync(join(proj, 'pharn'), { recursive: true });
+          symlinkSync(elsewhere, join(proj, 'pharn/.backup'));
         } else {
           // A recorded file that cannot be read cannot be proven unchanged.
           chmodSync(join(proj, PERSONA), 0o000);
@@ -1202,7 +1203,7 @@ describe('runRemove (archetype)', () => {
         expect(errors).toContain('Nothing was removed');
         expect(errors).toContain('a11y');
         // The lock was released on the way out.
-        expect(existsSync(join(proj, '.pharn.lock'))).toBe(false);
+        expect(existsSync(join(proj, 'pharn/.lock'))).toBe(false);
       },
     );
 
@@ -1211,7 +1212,7 @@ describe('runRemove (archetype)', () => {
 
       await runRemove('a11y');
 
-      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
       expect(lastWritten().capabilities).toEqual([]);
     });
 
@@ -1228,7 +1229,7 @@ describe('runRemove (archetype)', () => {
       ]);
       vi.mocked(prompts.confirm).mockImplementation(async () => {
         // The backup must not exist while the human is still being asked.
-        expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+        expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
         return true;
       });
 
@@ -1252,7 +1253,7 @@ describe('runRemove (archetype)', () => {
         new ProcessExit(0),
       );
 
-      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
       expect(existsSync(join(proj, USER))).toBe(true);
     });
 
@@ -1263,7 +1264,8 @@ describe('runRemove (archetype)', () => {
       write(join(proj, `${LENS}/n.md`), 'N');
       const elsewhere = join(tmp.path(), 'elsewhere');
       mkdirSync(elsewhere, { recursive: true });
-      symlinkSync(elsewhere, join(proj, '.pharn-backup'));
+      mkdirSync(join(proj, 'pharn'), { recursive: true });
+      symlinkSync(elsewhere, join(proj, 'pharn/.backup'));
       setTTY(true, true);
       vi.mocked(prompts.groupMultiselect).mockResolvedValue([
         'lens:a11y',
@@ -1293,7 +1295,7 @@ describe('runRemove (archetype)', () => {
 
         expect(existsSync(join(proj, DIR))).toBe(false);
         expect(readFileSync(outside, 'utf8')).toBe('outside bytes');
-        expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+        expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
       },
     );
   });

@@ -8,7 +8,7 @@ import { safeJoin } from './validate.js';
 // whole directory (`rmSync(..., { recursive: true })`), and that directory can
 // hold more than pharn put there: a notes file the user added, or an edit to a
 // persona file. This answers which of its files must be copied to
-// `.pharn-backup/<ts>/` (lib/backup.ts) before the delete, so the removal stops
+// `pharn/.backup/<ts>/` (lib/backup.ts) before the delete, so the removal stops
 // being final for anything that is not provably pharn's own bytes.
 //
 // The rule is one membership test and one content-hash comparison (P5):

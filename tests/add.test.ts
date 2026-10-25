@@ -152,10 +152,10 @@ function copyingInstaller(prefix: '' | 'pharn/' = ''): void {
   );
 }
 
-// The single `.pharn-backup/<ts>/` directory a run created, or null when it
+// The single `pharn/.backup/<ts>/` directory a run created, or null when it
 // created none. `null` is the assertion that matters for the no-drift cases.
 function backupRoot(proj: string): string | null {
-  const root = join(proj, '.pharn-backup');
+  const root = join(proj, 'pharn/.backup');
   if (!existsSync(root)) return null;
   const entries = readdirSync(root);
   return entries.length === 1 ? join(root, entries[0]!) : null;
@@ -1047,32 +1047,32 @@ describe('runAdd — pharn.records.json', () => {
       // The add still happened: the destination now holds the clone's bytes.
       expect(readFileSync(join(proj, CAP_FILE), 'utf8')).toBe('a11y upstream');
       // The backup directory is the user's ONLY pointer back, so it is named.
-      expect(informed()).toContain('.pharn-backup');
-      expect(informed()).toContain(backup.split('.pharn-backup/')[1]!);
+      expect(informed()).toContain('pharn/.backup');
+      expect(informed()).toContain(backup.split('pharn/.backup/')[1]!);
       // F-40: the same .gitignore advice `update`'s backup notice carries.
       expect(informed()).toContain(
-        '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
+        'pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
       );
     });
 
     it('creates NO backup when the leftover files are byte-identical', async () => {
       // A drop-then-re-add of untouched files. Identical is not drift (mirrors
       // update's `identical → no-op`), or every such add would litter
-      // .pharn-backup/ with copies of bytes nobody lost.
+      // pharn/.backup/ with copies of bytes nobody lost.
       await seedStore();
       write(join(proj, CAP_FILE), 'a11y upstream');
       write(join(proj, CAP_NESTED), 'a11y eval upstream');
 
       await runAdd('a11y');
 
-      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
-      expect(informed()).not.toContain('.pharn-backup');
+      expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
+      expect(informed()).not.toContain('pharn/.backup');
     });
 
     it('creates NO backup on a plain first install (nothing to overwrite)', async () => {
       await seedStore();
       await runAdd('a11y');
-      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     });
 
     it('records ONLY clone-sourced files; an extra user file survives untouched', async () => {
@@ -1093,7 +1093,7 @@ describe('runAdd — pharn.records.json', () => {
       });
       // The copy never touches it, so it is neither backed up nor destroyed.
       expect(readFileSync(join(proj, EXTRA), 'utf8')).toBe('my notes');
-      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     });
 
     it('backs up on the picker path too, for every pick that overwrites edits', async () => {
@@ -1113,10 +1113,10 @@ describe('runAdd — pharn.records.json', () => {
       // Two picks, two drifted files, two backup directories — uniqueBackupDir
       // suffixes the second rather than letting it overwrite the first, which is
       // the only thing standing between two same-second picks and a lost edit.
-      const roots = readdirSync(join(proj, '.pharn-backup')).sort();
+      const roots = readdirSync(join(proj, 'pharn/.backup')).sort();
       expect(roots).toHaveLength(2);
       const saved = roots.map((r) => {
-        const dir = join(proj, '.pharn-backup', r);
+        const dir = join(proj, 'pharn/.backup', r);
         const rel = existsSync(join(dir, CAP_FILE)) ? CAP_FILE : LENS_FILE;
         return readFileSync(join(dir, rel), 'utf8');
       });
@@ -1159,7 +1159,7 @@ describe('runAdd — pharn.records.json', () => {
       expect(readFileSync(join(proj, 'elsewhere/basic.md'), 'utf8')).toBe(
         'BYTES OUTSIDE THE CAPABILITY',
       );
-      expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+      expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
       // The message names the offending COMPONENT and the action that clears it.
       const err = vi.mocked(prompts.log.error).mock.calls.at(-1)![0] as string;
       expect(err).toContain('pharn-pipeline/grillers/a11y/evals');
@@ -1173,7 +1173,8 @@ describe('runAdd — pharn.records.json', () => {
       await seedStore();
       write(join(proj, CAP_FILE), 'MY EDIT');
       write(join(proj, 'elsewhere.md'), 'x');
-      symlinkSync(join(proj, 'elsewhere.md'), join(proj, '.pharn-backup'));
+      mkdirSync(join(proj, 'pharn'), { recursive: true });
+      symlinkSync(join(proj, 'elsewhere.md'), join(proj, 'pharn/.backup'));
 
       await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
 

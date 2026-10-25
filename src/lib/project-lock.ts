@@ -3,9 +3,11 @@ import {
   closeSync,
   linkSync,
   lstatSync,
+  mkdirSync,
   openSync,
   readdirSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
   writeSync,
@@ -13,6 +15,7 @@ import {
 import { hostname } from 'node:os';
 import { readBoundedFile } from './bounded-read.js';
 import { onFatalSignal } from './fatal-signal.js';
+import { findSymlinkComponent } from './symlink-guard.js';
 import { safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
@@ -51,7 +54,7 @@ import { safeJoin } from './validate.js';
 // ESRCH. When a SIGKILLed run's pid has since been reused by an unrelated
 // process, the probe finds that process alive, and the dead run's lock reads as
 // LIVE until age retires it — up to STALE_MS. A refusal, never a steal, so it
-// errs the safe way; deleting `.pharn.lock` by hand is the documented escape.
+// errs the safe way; deleting `pharn/.lock` by hand is the documented escape.
 //
 // Zero-cost for readers by construction: `list` and `status` never call this, so
 // `status --strict` stays runnable in CI while an update holds the lock.
@@ -60,11 +63,31 @@ import { safeJoin } from './validate.js';
 // (P7). Node stdlib only.
 // ---------------------------------------------------------------------------
 
-export const LOCK_FILE = '.pharn.lock';
+/**
+ * The directory the lock lives in — the same `pharn/` the pharn layout installs
+ * into, for EVERY layout, so there is exactly one place a pharn writer looks for
+ * the lock whatever the project records (a flat-layout project gets a `pharn/`
+ * directory only while it holds something; see `withProjectLock`).
+ */
+export const LOCK_DIR = 'pharn';
+/** The lock file, project-relative. */
+export const LOCK_FILE = `${LOCK_DIR}/.lock`;
+const LOCK_NAME = '.lock';
 
 /**
- * A broken lock's corpse: `.pharn.lock.<pid>.<8 hex>`, the name `breakStaleLock`
- * renames a stale lock to before it verifies and replaces it.
+ * The lock file pharn 0.13.0 and older take at the project ROOT. Kept for ONE
+ * release so a run of an old CLI and a run of this one still exclude each other
+ * in the one direction this CLI controls: a LIVE root lock refuses this run,
+ * exactly as it did, and a STALE one (a crashed 0.13.0 run) is broken by the
+ * same rules instead of wedging the project. Remove with LEGACY_CORPSE_RE once
+ * no supported CLI writes it.
+ */
+export const LEGACY_LOCK_FILE = '.pharn.lock';
+
+/**
+ * A broken lock's corpse: `.lock.<pid>.<8 hex>` beside the lock in `pharn/`, the
+ * name `breakStaleLock` renames a stale lock to before it verifies and replaces
+ * it.
  *
  * The random half matters. A name fixed per pid would collide across hosts on a
  * shared filesystem (pids are only unique per machine), and a colliding corpse is
@@ -75,7 +98,41 @@ export const LOCK_FILE = '.pharn.lock';
  * prefix: `readdirSync` returns the user's own filenames, and the only names this
  * file may ever unlink are ones it can prove it wrote.
  */
-const CORPSE_RE = /^\.pharn\.lock\.[0-9]+\.[0-9a-f]{8}$/;
+const CORPSE_RE = /^\.lock\.[0-9]+\.[0-9a-f]{8}$/;
+// The legacy root lock's corpses (`.pharn.lock.<pid>.<8 hex>`), swept only when
+// a stale legacy lock is broken — one-release compatibility, see LEGACY_LOCK_FILE.
+const LEGACY_CORPSE_RE = /^\.pharn\.lock\.[0-9]+\.[0-9a-f]{8}$/;
+
+/**
+ * Where a lock lives: the directory, the file name, the corpse allowlist for
+ * that directory, and the project-relative path messages name. Two sites exist —
+ * the current one and the legacy root one — and every function below takes the
+ * site rather than a project root, so the two are judged by ONE set of rules.
+ */
+interface LockSite {
+  dir: string;
+  name: string;
+  corpseRe: RegExp;
+  display: string;
+}
+
+function currentSite(cwd: string): LockSite {
+  return {
+    dir: safeJoin(cwd, LOCK_DIR),
+    name: LOCK_NAME,
+    corpseRe: CORPSE_RE,
+    display: LOCK_FILE,
+  };
+}
+
+function legacySite(cwd: string): LockSite {
+  return {
+    dir: cwd,
+    name: LEGACY_LOCK_FILE,
+    corpseRe: LEGACY_CORPSE_RE,
+    display: LEGACY_LOCK_FILE,
+  };
+}
 
 /**
  * How long a lock may sit before age alone justifies breaking it.
@@ -151,8 +208,8 @@ interface LockPayload {
   startedAt: string;
 }
 
-function lockPath(cwd: string): string {
-  return safeJoin(cwd, LOCK_FILE);
+function lockPath(site: LockSite): string {
+  return safeJoin(site.dir, site.name);
 }
 
 /**
@@ -206,8 +263,8 @@ function readRawAt(path: string): string | null {
 }
 
 /** Read the lock file, or `null` when it is absent or unreadable. */
-function readPayload(cwd: string): LockPayload | null {
-  const raw = readRawAt(lockPath(cwd));
+function readPayload(site: LockSite): LockPayload | null {
+  const raw = readRawAt(lockPath(site));
   return raw === null ? null : parsePayload(raw);
 }
 
@@ -231,9 +288,9 @@ function isDead(held: LockPayload): boolean {
 }
 
 /** The lock file's age in ms, or `null` when it cannot be stat'ed. */
-function lockAgeMs(cwd: string): number | null {
+function lockAgeMs(site: LockSite): number | null {
   try {
-    return Date.now() - statSync(lockPath(cwd)).mtimeMs;
+    return Date.now() - statSync(lockPath(site)).mtimeMs;
   } catch {
     return null;
   }
@@ -267,36 +324,36 @@ function isStale(held: LockPayload | null, ageMs: number | null): boolean {
  * symlink to a directory is not followed: moving the LINK aside moves only the
  * link, which the break already does safely.
  */
-function directoryRefusal(cwd: string): string | null {
+function directoryRefusal(site: LockSite): string | null {
   try {
-    if (!lstatSync(lockPath(cwd)).isDirectory()) return null;
+    if (!lstatSync(lockPath(site)).isDirectory()) return null;
   } catch {
     return null;
   }
   return (
-    `${LOCK_FILE} is a directory, not a pharn lock file. pharn will not move or delete it, and cannot take the project lock while it is there.\n` +
+    `${site.display} is a directory, not a pharn lock file. pharn will not move or delete it, and cannot take the project lock while it is there.\n` +
     'Remove it yourself (or rename it) and re-run.'
   );
 }
 
-function refusal(held: LockPayload | null): string {
+function refusal(held: LockPayload | null, site: LockSite): string {
   const who =
     held === null
       ? 'another pharn process'
       : `pharn ${held.command} (pid ${held.pid} on ${held.host}, since ${held.startedAt})`;
   return (
     `Another pharn process is writing to this project: ${who}.\n` +
-    `Wait for it to finish, or delete ${LOCK_FILE} if you are sure no pharn process is running.`
+    `Wait for it to finish, or delete ${site.display} if you are sure no pharn process is running.`
   );
 }
 
 /** Create the lock file atomically, or return false when one already exists. */
-function tryCreate(cwd: string, command: string): boolean {
+function tryCreate(site: LockSite, command: string): boolean {
   let fd: number;
   try {
     // 'wx' is O_CREAT | O_EXCL | O_WRONLY — atomic create-or-fail on every POSIX
     // filesystem and on Windows. The atomicity IS the lock.
-    fd = openSync(lockPath(cwd), 'wx');
+    fd = openSync(lockPath(site), 'wx');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
     throw err;
@@ -321,7 +378,7 @@ function tryCreate(cwd: string, command: string): boolean {
  * `breakStaleLock`'s `finally` covers every in-process exit, so the only way to
  * strand a corpse is a SIGKILL or a power cut in the two syscalls between the
  * rename and the tidy. Rare — but "rare" accumulates, and a growing pile of
- * `.pharn.lock.*` files in someone's project root is a bad way to pay for a lock
+ * `.lock.*` files in someone's `pharn/` is a bad way to pay for a lock
  * they never see. So a successful break also sweeps.
  *
  * ADVISORY, not a guarantee, and the distinction is not pedantic: this runs only
@@ -333,9 +390,10 @@ function tryCreate(cwd: string, command: string): boolean {
  * Three bounds, because this is the one place this file DELETES something it did
  * not just create:
  *
- *   - Only names matching CORPSE_RE. `readdirSync` hands back the user's own
+ *   - Only names matching the site's corpse pattern (CORPSE_RE, or
+ *     LEGACY_CORPSE_RE at the legacy root site). `readdirSync` hands back the user's own
  *     filenames, so the regex is an allowlist, not a filter — a file the user
- *     happens to have named `.pharn.lock.<digits>.<8 hex>` WOULD be removed, and
+ *     happens to have named `.lock.<digits>.<8 hex>` WOULD be removed, and
  *     that is the deliberate (and remote) cost of sweeping at all.
  *   - Only past STALE_MS. A corpse seconds old may belong to a breaker racing us
  *     right now, mid-verify. STALE_MS is already this file's age-of-death.
@@ -347,17 +405,17 @@ function tryCreate(cwd: string, command: string): boolean {
  * swallows its own failure: tidying may not replace the outcome of the acquire
  * it runs inside.
  */
-function sweepCorpses(cwd: string): void {
+function sweepCorpses(site: LockSite): void {
   let names: string[];
   try {
-    names = readdirSync(cwd);
+    names = readdirSync(site.dir);
   } catch {
     return;
   }
   for (const name of names) {
-    if (!CORPSE_RE.test(name)) continue;
+    if (!site.corpseRe.test(name)) continue;
     try {
-      const corpse = safeJoin(cwd, name);
+      const corpse = safeJoin(site.dir, name);
       if (Date.now() - statSync(corpse).mtimeMs > STALE_MS)
         rmSync(corpse, { force: true });
     } catch {
@@ -408,13 +466,14 @@ function sweepCorpses(cwd: string): void {
  *     file, so reaching this needs a second failure that is not this code's.
  */
 function breakStaleLock(
-  cwd: string,
+  site: LockSite,
   command: string,
   observedRaw: string | null,
+  take: boolean,
 ): void {
   const corpse = safeJoin(
-    cwd,
-    `${LOCK_FILE}.${process.pid}.${randomBytes(4).toString('hex')}`,
+    site.dir,
+    `${site.name}.${process.pid}.${randomBytes(4).toString('hex')}`,
   );
   try {
     // RESIDUAL (one of the four above): `rename` REPLACES its destination
@@ -446,13 +505,13 @@ function breakStaleLock(
     // replace it. A reservation could sit harmlessly BEFORE the rename, but it
     // buys 2^-32 for a redraw loop in the one file whose contract is "no retry
     // loop, no backoff".
-    renameSync(lockPath(cwd), corpse);
+    renameSync(lockPath(site), corpse);
   } catch {
     // ENOENT — another breaker moved it first and is creating its own lock right
     // now. Any other errno — we simply cannot move it. The errno is not
     // classified because it does not change the answer: we do not hold the lock,
     // so we refuse. Never loop; that is this file's contract.
-    throw new ProjectLockedError(refusal(readPayload(cwd)));
+    throw new ProjectLockedError(refusal(readPayload(site), site));
   }
   try {
     if (readRawAt(corpse) !== observedRaw) {
@@ -462,18 +521,20 @@ function breakStaleLock(
       // Then refuse as though we had simply found it live — which, but for our
       // own rename, is what happened.
       try {
-        linkSync(corpse, lockPath(cwd));
+        linkSync(corpse, lockPath(site));
       } catch {
         // The name is already occupied, or the filesystem has no hard links
         // (FAT/exFAT). The corpse is dropped below and its owner keeps believing
         // it holds a lock whose file is gone — a two-writer window this fix
         // narrows but does not close. Named, not hidden.
       }
-      throw new ProjectLockedError(refusal(readPayload(cwd)));
+      throw new ProjectLockedError(refusal(readPayload(site), site));
     }
-    if (!tryCreate(cwd, command))
-      throw new ProjectLockedError(refusal(readPayload(cwd)));
-    sweepCorpses(cwd);
+    // The legacy root lock is only ever BROKEN, never taken: this CLI holds
+    // its lock in pharn/ (see checkLegacyLock).
+    if (take && !tryCreate(site, command))
+      throw new ProjectLockedError(refusal(readPayload(site), site));
+    sweepCorpses(site);
   } finally {
     // Every in-process path drops our corpse. On the restore path `linkSync` has
     // already given the inode a second name, so unlinking this one leaves the
@@ -493,12 +554,12 @@ function breakStaleLock(
  * so it can never delete a lock ANOTHER process legitimately took after ours
  * was broken or vanished.
  */
-function release(cwd: string): void {
+function release(site: LockSite): void {
   try {
-    const held = readPayload(cwd);
+    const held = readPayload(site);
     if (held !== null && (held.pid !== process.pid || held.host !== hostname()))
       return;
-    rmSync(lockPath(cwd), { force: true });
+    rmSync(lockPath(site), { force: true });
   } catch {
     /* cleanup must never replace the real outcome */
   }
@@ -540,19 +601,36 @@ export async function withProjectLock<T>(
   command: string,
   fn: () => T | Promise<T>,
 ): Promise<T> {
-  if (!tryCreate(cwd, command)) {
-    // A directory at the lock path is the user's, never a lock: refuse by name
-    // rather than judge it stale and move it aside (F-39).
-    const dirRefusal = directoryRefusal(cwd);
-    if (dirRefusal !== null) throw new ProjectLockedError(dirRefusal);
-    // Read the bytes ONCE and carry them into the break: the staleness judgement
-    // here and the re-verify there must be about the SAME payload, or the break
-    // is exactly the unchecked delete it replaced.
-    const observedRaw = readRawAt(lockPath(cwd));
-    const held = observedRaw === null ? null : parsePayload(observedRaw);
-    if (!isStale(held, lockAgeMs(cwd)))
-      throw new ProjectLockedError(refusal(held));
-    breakStaleLock(cwd, command, observedRaw);
+  const site = currentSite(cwd);
+  // The lock lives in pharn/, which a fresh `init` (or any run on a flat-layout
+  // project) has not created yet. Remembered so the release below removes a
+  // directory THIS call made when nothing else ended up in it.
+  let created = ensureLockDir(cwd);
+  const tidy = (): void => {
+    release(site);
+    if (created) removeLockDirIfEmpty(cwd);
+  };
+  try {
+    try {
+      acquire(site, command);
+    } catch (err) {
+      // Another run that had CREATED pharn/ removed it, empty, between our
+      // check and our create (ENOENT on the lock's parent). Not contention —
+      // the directory is simply gone — so make it once more and take the lock
+      // once more; a second failure is reported as it is.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      created = ensureLockDir(cwd) || created;
+      acquire(site, command);
+    }
+  } catch (err) {
+    if (created) removeLockDirIfEmpty(cwd);
+    throw err;
+  }
+  try {
+    checkLegacyLock(cwd);
+  } catch (err) {
+    tidy();
+    throw err;
   }
   // While the lock is held, an `exit` listener is the only code that runs on a
   // `process.exit` — `finally` does not. The one exit(0) that reaches here is
@@ -566,7 +644,7 @@ export async function withProjectLock<T>(
   // confirms run before the lock, and the `add` picker returns `cancelled` and
   // exits after it. A new prompt inside a lock must keep that shape.
   const onExit = (code: number): void => {
-    release(cwd);
+    tidy();
     if (code === 0) {
       process.exitCode = 130;
       sayInterrupted(command);
@@ -579,7 +657,7 @@ export async function withProjectLock<T>(
   // fatal-signal.ts runs this first, then re-raises; the status (130 / 143)
   // already says the run did not finish. (SIGHUP is not handled — see there.)
   const offSignal = onFatalSignal(() => {
-    release(cwd);
+    tidy();
     sayInterrupted(command);
   });
   try {
@@ -587,8 +665,112 @@ export async function withProjectLock<T>(
   } finally {
     offSignal();
     process.off('exit', onExit);
-    release(cwd);
+    tidy();
   }
+}
+
+/** Take the lock at `site`, breaking a stale one — or throw the refusal. */
+function acquire(site: LockSite, command: string): void {
+  if (tryCreate(site, command)) return;
+  // A directory at the lock path is the user's, never a lock: refuse by name
+  // rather than judge it stale and move it aside (F-39).
+  const dirRefusal = directoryRefusal(site);
+  if (dirRefusal !== null) throw new ProjectLockedError(dirRefusal);
+  // Read the bytes ONCE and carry them into the break: the staleness judgement
+  // here and the re-verify there must be about the SAME payload, or the break
+  // is exactly the unchecked delete it replaced.
+  const observedRaw = readRawAt(lockPath(site));
+  const held = observedRaw === null ? null : parsePayload(observedRaw);
+  if (!isStale(held, lockAgeMs(site)))
+    throw new ProjectLockedError(refusal(held, site));
+  breakStaleLock(site, command, observedRaw, true);
+}
+
+/**
+ * Make sure `pharn/` is a real directory the lock can be created in. Returns
+ * true when this call created it.
+ *
+ * Refused, by name, when `pharn` is a symbolic link (the lock — and every
+ * backup and install write after it — would land wherever the link points) or
+ * anything but a directory. The symlink test is lib/symlink-guard.ts's
+ * component walk, the one every other write path uses. `mkdirSync` is
+ * non-recursive: the project root exists, and EEXIST — another pharn run
+ * creating it in the same instant — is success once the directory checks out.
+ */
+function ensureLockDir(cwd: string): boolean {
+  const check = (): boolean => {
+    if (findSymlinkComponent(cwd, LOCK_DIR) !== null) {
+      throw new ProjectLockedError(
+        `${LOCK_DIR} is a symbolic link. pharn keeps its lock, backups and install under ${LOCK_DIR}/ and will not write through a link that may point outside the project.
+` + `Replace it with a real directory and re-run.`,
+      );
+    }
+    const stat = lstatSync(safeJoin(cwd, LOCK_DIR), { throwIfNoEntry: false });
+    if (stat !== undefined && !stat.isDirectory()) {
+      throw new ProjectLockedError(
+        `${LOCK_DIR} exists and is not a directory. pharn keeps its lock, backups and install under ${LOCK_DIR}/.
+` + `Move it out of the way and re-run.`,
+      );
+    }
+    return stat !== undefined;
+  };
+  if (check()) return false;
+  try {
+    mkdirSync(safeJoin(cwd, LOCK_DIR));
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    check();
+    return false;
+  }
+}
+
+/**
+ * Remove `pharn/` when it is empty — the cleanup for a directory
+ * `ensureLockDir` created. `rmdirSync` is non-recursive, so the kernel refuses
+ * a directory that holds anything (another run's lock, a backup, an install):
+ * ENOTEMPTY and ENOENT are the expected answers, and nothing here may replace
+ * the real outcome of the run.
+ */
+function removeLockDirIfEmpty(cwd: string): void {
+  try {
+    rmdirSync(safeJoin(cwd, LOCK_DIR));
+  } catch {
+    /* not empty, already gone, or not ours to judge */
+  }
+}
+
+/**
+ * The one-release compatibility check for the ROOT lock pharn 0.13.0 and older
+ * take (LEGACY_LOCK_FILE). Runs while this run already holds `pharn/.lock`, so
+ * only one current run at a time ever judges or breaks the legacy file.
+ *
+ *   - absent, or a directory (not a lock any pharn wrote — an old CLI refuses
+ *     it on its own) → nothing to do;
+ *   - LIVE by the same `isStale` rules → refuse with the old wording, which
+ *     names the root file; the caller releases our lock;
+ *   - STALE (a crashed old run) → broken exactly as a current stale lock is —
+ *     rename to a corpse, byte-verify, then sweep — but never re-created: this
+ *     CLI does not hold the root lock.
+ *
+ * RESIDUAL, named (P0): an OLD CLI does not know `pharn/.lock`, so one started
+ * while this run holds it is not refused by it. Only the direction this CLI
+ * controls is covered.
+ */
+function checkLegacyLock(cwd: string): void {
+  const legacy = legacySite(cwd);
+  let stat;
+  try {
+    stat = lstatSync(lockPath(legacy), { throwIfNoEntry: false });
+  } catch {
+    return;
+  }
+  if (stat === undefined || stat.isDirectory()) return;
+  const observedRaw = readRawAt(lockPath(legacy));
+  const held = observedRaw === null ? null : parsePayload(observedRaw);
+  if (!isStale(held, lockAgeMs(legacy)))
+    throw new ProjectLockedError(refusal(held, legacy));
+  breakStaleLock(legacy, 'legacy', observedRaw, false);
 }
 
 /** The one honest line an interrupted writer prints. Never throws. */

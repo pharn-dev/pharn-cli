@@ -2,7 +2,7 @@ import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 
 // ---------------------------------------------------------------------------
 // The one reader for the files pharn keeps in a project — pharn.records.json,
-// pharn.config.json and .pharn.lock. It returns their bytes, `absent`, or
+// pharn.config.json and pharn/.lock. It returns their bytes, `absent`, or
 // `unusable` with a fixed reason, and it never hangs and never reads without
 // bound. `readJsonBounded` adds the JSON parse most callers do next.
 //
