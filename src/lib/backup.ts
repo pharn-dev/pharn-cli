@@ -142,6 +142,30 @@ export function replacedConfigBackup(projectRoot: string): string[] {
   }
 }
 
+// Where pharn 0.13.0 and older wrote backups: a directory at the project root.
+// pharn no longer writes there and never deletes it — the user's bytes may be
+// the only copy — so a run that finds one only says so (legacyBackupNotice).
+// The old name stays in src/ for this one purpose.
+export const LEGACY_BACKUP_DIR = '.pharn-backup';
+
+/**
+ * One line pointing at an old root `.pharn-backup/` directory, or null when
+ * there is none. lstat, so a symbolic link (or a file) by that name is never
+ * followed or described: only a real directory is pharn's old backup root.
+ * Read-only and never throws.
+ */
+export function legacyBackupNotice(projectRoot: string): string | null {
+  try {
+    const stat = lstatSync(safeJoin(projectRoot, LEGACY_BACKUP_DIR), {
+      throwIfNoEntry: false,
+    });
+    if (stat === undefined || !stat.isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return `${LEGACY_BACKUP_DIR}/ holds backups from pharn 0.13.0 or older; new ones go to ${BACKUP_DIR}/. pharn never deletes either — move what you still need, then delete ${LEGACY_BACKUP_DIR}/.`;
+}
+
 /** What a backup was made ahead of — the notice's closing phrase. */
 export type BackupAction =
   | 'overwriting'

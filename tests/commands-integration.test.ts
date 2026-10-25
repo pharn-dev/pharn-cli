@@ -662,6 +662,23 @@ describe('root-footprint migration, end to end', () => {
     expect(existsSync(at('memory-bank'))).toBe(false);
   });
 
+  it('points at an old root .pharn-backup/ and leaves it alone', async () => {
+    await init();
+    mkdirSync(at('.pharn-backup/20261001-120000'), { recursive: true });
+    writeFileSync(at('.pharn-backup/20261001-120000/x.md'), 'old\n');
+    serveTip(SHA_V2, '2.0.0');
+    vi.mocked(clack.log.info).mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(
+      vi
+        .mocked(clack.log.info)
+        .mock.calls.some(([m]) =>
+          String(m).startsWith('.pharn-backup/ holds backups'),
+        ),
+    ).toBe(true);
+    expect(read('.pharn-backup/20261001-120000/x.md')).toBe('old\n');
+  });
+
   it('uninstall afterwards leaves no empty pharn/, and names what it kept', async () => {
     serveTip7(SHA_V1, '7.0.0');
     await init();
