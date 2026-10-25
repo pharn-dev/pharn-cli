@@ -228,6 +228,16 @@ not a "the source repo is ours" assumption (P0).
   which classifies a symlink or non-regular path as `unreadable` rather than hashing it
   (`apply-update.ts:57-61`). _Backstop:_ drift **is** detected (`pharn status`, live), and bytes pharn
   cannot explain are **skipped, never overwritten** without `--force`.
+- **4d. The single-writer lock excludes an OLDER pharn in one direction only.** From 0.14.0 the lock is
+  `pharn/.lock` (beside the backups in `pharn/.backup/`), and for one release a run also honours the
+  root `.pharn.lock` that 0.13.0 and older take: a live one refuses the run, a stale one is broken by
+  the same rename-and-verify rules (`src/lib/project-lock.ts`, `checkLegacyLock`). An older CLI does
+  not know `pharn/.lock`, so one started while a 0.14.0 run holds it is **not** refused, and the two
+  can interleave as two runs could before the lock existed. _Backstop, partial:_ the config check
+  (`assertConfigUnchanged`) refuses a 0.14.0 run whose config an old run wrote before the lock was
+  taken, but not one written during it. The window closes once no supported CLI predates 0.14.0. A
+  `pharn` that is a symbolic link is refused before the lock is created, so neither the lock nor a
+  backup is ever written through it.
 
 ---
 
