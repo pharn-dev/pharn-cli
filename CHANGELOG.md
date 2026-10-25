@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Security
+
+- **`markdown-it` moves to `15.0.3` via `markdownlint-cli2` `0.24.0`.** Three advisories cover `markdown-it` `>= 15.0.0, < 15.0.3`: [GHSA-gfr2-rv44-r23c](https://github.com/advisories/GHSA-gfr2-rv44-r23c) (Dependabot alert 23, quadratic-time rendering of a multi-line link reference definition), [GHSA-r7fv-28h4-cvq7](https://github.com/advisories/GHSA-r7fv-28h4-cvq7) (alert 21, quadratic smartquotes) and [GHSA-vfgh-jcmw-g37q](https://github.com/advisories/GHSA-vfgh-jcmw-g37q) (alert 22, quadratic inline HTML parsing). `markdownlint-cli2` `0.23.3` pinned `15.0.1` exactly; `0.24.0` pins `15.0.3`, so the dev dependency moves from `^0.23.1` to `^0.24.0` (no override needed) and a test now pins every `markdown-it` in the lockfile at `15.0.3` or higher. Dev-only: nothing in the published package is affected.
+
 ## [0.14.1] — 2026-10-25
 
 ### Added
