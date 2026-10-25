@@ -117,10 +117,13 @@ jobs:
       # artifact this job uploads below. This step still gates on the threshold.
       - id: pharn-ci
         if: github.event_name == 'pull_request'
-        uses: pharn-dev/pharn-ci@a88e62a8febf5cd9a77b8e0252cd060c3b94782c # v0.1.0
+        uses: pharn-dev/pharn-ci@0873ce23f3595a3497325635b7bf3ee93ea77687 # v0.2.0
         timeout-minutes: 5
         with:
           comment: false
+          # A weakened test (deleted, skipped, focused, or a loosened script, workflow or config) fails the check;
+          # a reviewer who is not the PR author signs it off with the pharn/accepted label.
+          test-integrity: block
       - if: github.event_name == 'pull_request'
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
