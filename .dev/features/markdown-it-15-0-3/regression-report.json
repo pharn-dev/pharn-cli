@@ -1,0 +1,38 @@
+{
+  "base": "c530ab49",
+  "inside": [
+    "CHANGELOG.md",
+    "package-lock.json",
+    "package.json",
+    "tests/dependency-overrides.test.ts"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    },
+    "vitest": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

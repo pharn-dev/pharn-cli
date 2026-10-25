@@ -280,3 +280,61 @@ describe('katex override', () => {
     expect(compareVersionCore('0.16.47', KATEX_MINIMUM)).toBeLessThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The `markdown-it` floor, pinned the same way — but NOT an override.
+//
+// Dependabot alerts 21 (GHSA-r7fv-28h4-cvq7, quadratic smartquotes, patched
+// 15.0.2), 22 (GHSA-vfgh-jcmw-g37q, quadratic inline HTML, patched 15.0.3) and
+// 23 (GHSA-gfr2-rv44-r23c, quadratic link reference definition, patched
+// 15.0.3) cover markdown-it >= 15.0.0, < 15.0.3. It is a transitive DEV
+// dependency: markdownlint-cli2 pins it EXACTLY (0.23.3 → "15.0.1"). Here an
+// upstream path exists — markdownlint-cli2 0.24.0 pins "15.0.3" — so the fix is
+// a direct bump of markdownlint-cli2, not an override. The lockfile floor is
+// pinned anyway: a regenerated lock or a downgrade of markdownlint-cli2 would
+// otherwise drop back below the patch line with every other gate green.
+// ---------------------------------------------------------------------------
+
+const MARKDOWN_IT_MINIMUM = '15.0.3';
+const MARKDOWN_IT_KEY_RE = /(?:^|\/)node_modules\/markdown-it$/;
+
+function markdownItEntries(packages: LockPackages): [string, unknown][] {
+  return Object.entries(packages)
+    .filter(([key]) => MARKDOWN_IT_KEY_RE.test(key))
+    .map(([key, meta]) => [key, meta.version]);
+}
+
+describe('markdown-it floor', () => {
+  it('resolves every markdown-it entry in the committed lockfile to a patched version', () => {
+    const entries = markdownItEntries(readLockPackages());
+    // Vacuity guard: a matcher that finds nothing must not pass.
+    expect(entries.length).toBeGreaterThan(0);
+    for (const [key, version] of entries) {
+      expect(typeof version, `${key}: version is not a string`).toBe('string');
+      const ordering = compareVersionCore(
+        version as string,
+        MARKDOWN_IT_MINIMUM,
+      );
+      expect(ordering, `${key}: ${String(version)}`).not.toBeNull();
+      expect(ordering!, `${key}: ${String(version)}`).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('rejects the vulnerable versions (the comparator bites)', () => {
+    expect(compareVersionCore('15.0.2', MARKDOWN_IT_MINIMUM)).toBeLessThan(0);
+    expect(compareVersionCore('15.0.1', MARKDOWN_IT_MINIMUM)).toBeLessThan(0);
+    expect(compareVersionCore('15.0.3', MARKDOWN_IT_MINIMUM)).toBe(0);
+  });
+
+  it('matches a nested copy and not a lookalike name', () => {
+    const keys = markdownItEntries({
+      'node_modules/markdown-it-x': { version: '0.0.1' },
+      'node_modules/markdownlint-cli2/node_modules/markdown-it': {
+        version: '15.0.1',
+      },
+    }).map(([key]) => key);
+    expect(keys).toEqual([
+      'node_modules/markdownlint-cli2/node_modules/markdown-it',
+    ]);
+  });
+});
