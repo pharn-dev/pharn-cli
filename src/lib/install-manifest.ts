@@ -11,6 +11,7 @@ import {
   capabilitySubtree,
   layoutPaths,
   resolveFeaturesReadme,
+  resolveTrustedDocs,
   type LayoutPaths,
 } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
@@ -263,21 +264,25 @@ function collectInstallManifest(params: {
       copyNameFloor(CLAUDE_HOOKS_DIR),
     ),
   );
-  // Trusted docs. The prefix is per-DOC, not per-layout: flat keeps all four at
-  // the root; the pharn layout has CONSTITUTION + ARCHITECTURE under pharn/ and
-  // THREAT-MODEL + LIMITS still at the root, mirroring where upstream keeps each
-  // (lib/constants.ts → PHARN_TRUSTED_DOCS). This loop reads whatever the layout
-  // resolves and needs no per-entry knowledge of the split.
+  // Trusted docs, at the path THIS clone keeps each one (resolveTrustedDocs:
+  // flat keeps all four at the root; the pharn layout keeps them under pharn/,
+  // except that a pre-7.0 clone still ships THREAT-MODEL + LIMITS at the root).
+  // The probe is existence-only, so this loop needs no per-entry knowledge of
+  // the split.
   // lstat, not exists: a symlinked doc is never copied by the installer, so it is
   // never expected here either (see addDir's note).
-  for (const doc of paths.docs) {
+  // Absent → named at the LAYOUT's own path, not the fallback the probe
+  // returned (the features-readme rule below): the root path is only a
+  // pre-7.0 window on the pharn layout.
+  const layoutDocs = paths.docs;
+  resolveTrustedDocs(repoDir, layout).forEach((doc, i) => {
     const from = safeJoin(repoDir, doc);
     const shipped =
       findSymlinkComponent(repoDir, doc) === null &&
       lstatSync(from, { throwIfNoEntry: false })?.isFile() === true;
     if (shipped) add(doc, from);
-    account('trusted-doc', doc, shipped ? 1 : 0);
-  }
+    account('trusted-doc', shipped ? doc : layoutDocs[i]!, shipped ? 1 : 0);
+  });
   // Upstream's LICENSE at a MAPPED destination — the one entry whose dest differs
   // from its source, which is exactly what this map's dest→source shape exists
   // for. A symlinked source must be absent here as well as unwritten by the
@@ -358,7 +363,7 @@ export function isFloorTestFixturePath(rel: string): boolean {
  * and it is deliberately absent from this set: it is CLI-owned DERIVED state
  * that a re-install legitimately regenerates from what it just copied, so
  * prompting about it would add a line the user cannot act on to a warning whose
- * whole value is that every line is one of THEIR files. `.pharn-backup/` is
+ * whole value is that every line is one of THEIR files. `pharn/.backup/` is
  * excluded for the same reason. Pinned by the "CLI-owned metadata is outside
  * the install set" case in tests/install-manifest.test.ts — widening this set
  * to match a loose reading of "the install's write targets" breaks it on

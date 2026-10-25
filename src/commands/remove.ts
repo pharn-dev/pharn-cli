@@ -52,7 +52,7 @@ import type { InstalledCapability, PharnConfig } from '../types.js';
 //
 // Neither path deletes a file it cannot prove is pharn's own without saving it
 // first: every regular file in a target directory that is not at its recorded
-// hash in a usable `pharn.records.json` is copied to `.pharn-backup/<ts>/`
+// hash in a usable `pharn.records.json` is copied to `pharn/.backup/<ts>/`
 // BEFORE the first delete (backupBeforeDelete), and a failed backup refuses the
 // removal with nothing deleted.
 export async function runRemove(arg: string | undefined): Promise<void> {
@@ -81,7 +81,7 @@ export async function runRemove(arg: string | undefined): Promise<void> {
     }
     // A target under a symlinked component — refused before the lock, or again
     // under it (F-20). Thrown rather than exiting in place so that, under the
-    // lock, the unwinding releases `.pharn.lock` before this exit.
+    // lock, the unwinding releases `pharn/.lock` before this exit.
     if (err instanceof SymlinkedTargetError) {
       logError(err.message);
       process.exit(1);
@@ -136,14 +136,14 @@ async function removeCapability(
 
 // Copy every file the coming delete would lose — anything in the target
 // directories that is not provably pharn-written-and-unchanged against a usable
-// record store (lib/removal-backup.ts) — to `.pharn-backup/<ts>/`, BEFORE the
+// record store (lib/removal-backup.ts) — to `pharn/.backup/<ts>/`, BEFORE the
 // first delete. Nothing to save → no backup directory at all.
 //
 // The order is deterministic control flow demonstrated by tests, not a floor
 // primitive (the same honest label lib/backup.ts carries): this runs to
 // completion before deleteCapabilityDir is first called, and any failure — a
 // directory that cannot be listed, a recorded file that cannot be hashed, a
-// symlinked `.pharn-backup`, a copy error — throws RemoveBackupError with every
+// symlinked `pharn/.backup`, a copy error — throws RemoveBackupError with every
 // file still in place. A failed backup can leave a partly filled backup
 // directory behind; it never touches an original.
 //

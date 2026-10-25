@@ -11,6 +11,7 @@ import {
   reportCapabilityChanges,
   reportDryRun,
   reportOutcome,
+  reportRootMigration,
   type Backup,
   type UpdateOutcome,
 } from '../lib/update-render.js';
@@ -63,6 +64,12 @@ import {
   type RefChoice,
 } from '../lib/release.js';
 import { findMissingInstalled } from '../lib/missing-installed.js';
+import {
+  applyRootMoves,
+  deleteRootDocs,
+  pendingRootMigration,
+  rootMigrationFailed,
+} from '../lib/root-migration.js';
 import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
@@ -81,7 +88,7 @@ import type { PharnConfig } from '../types.js';
 // time (lib/install-records.ts) and decides per file (lib/update-decision.ts);
 // anything it cannot prove pristine is SKIPPED and reported, never overwritten.
 // `--force` overwrites the skip buckets after copying each file to
-// `.pharn-backup/<timestamp>/`.
+// `pharn/.backup/<timestamp>/`.
 //
 // The ONE thing it deletes: the directory of a capability it drops from the
 // config (merge rows 5/7/9) — after backing up every file in it pharn cannot
@@ -349,6 +356,16 @@ async function runArchetypeUpdate(
   // re-open, so `update` never overwrites a store the user could still repair.
   const staleRecords =
     current && !force && recordsStampStale(recordsRead, recordsStamp);
+  // The old root footprint an older CLI left on an install already at SKILLS 7
+  // re-opens the gate too (lib/root-migration.ts): a record-equal root doc
+  // whose pharn/ copy was never written, or user data still at the root with
+  // its destination free. Local and read-only, and bounded like `missing`: the
+  // opened run finishes exactly what counted, and nothing it could not finish
+  // ever counts.
+  const rootDoc =
+    current && !force
+      ? pendingRootMigration(cwd, config, baselineRecords)
+      : null;
   if (
     current &&
     !force &&
@@ -356,7 +373,8 @@ async function runArchetypeUpdate(
     !convertModels &&
     !switchChannel &&
     missing === null &&
-    !staleRecords
+    !staleRecords &&
+    rootDoc === null
   ) {
     if (json) {
       emitEarlyReturn('up-to-date');
@@ -406,6 +424,13 @@ async function runArchetypeUpdate(
                 // is a recorded path that is gone too; this run drops its record
                 // instead of restoring it, and the next run early-returns.
                 `  ${terminalSafe(missing)} is missing — this run re-applies the install, restoring it if upstream still ships it.`,
+              ),
+            ]
+          : []),
+        ...(rootDoc !== null
+          ? [
+              pc.dim(
+                `  ${terminalSafe(rootDoc)} is still at the project root — this run re-applies the install, which keeps it under pharn/.`,
               ),
             ]
           : []),
@@ -510,6 +535,9 @@ async function runArchetypeUpdate(
         confirmed.removals,
         true,
       );
+      // The root docs it would delete and the user data it would move
+      // (lib/root-migration.ts), named before the question as well.
+      reportRootMigration(confirmed.rootMigration, null);
       const deletes = confirmed.removals.filter((r) => r.present).length;
       // `--yes` skips THE CONFIRM AND NOTHING ELSE. The notes above have
       // already printed (a non-interactive log deserves the same context a
@@ -598,6 +626,11 @@ async function runArchetypeUpdate(
   }
 
   reportOutcome(outcome, force);
+  // A user-data move that could not be made (a conflict, a symlink, a failed
+  // rename) fails the run, after everything else it did has been reported and
+  // kept (lib/root-migration.ts). exitCode, not exit: the report is flushed.
+  if (rootMigrationFailed(outcome.rootMigration, outcome.rootMigrationResult))
+    process.exitCode = 1;
 }
 
 // The confirm's question. "Re-fetch" no longer describes the step (the fetch
@@ -620,6 +653,13 @@ function membershipKeys(r: UpdatePlanReport): string[] {
       (c) => `${c.reason} ${c.cap.role}:${c.cap.name}`,
     ),
     ...r.removals.filter((x) => x.present).map((x) => `delete ${x.dir}/`),
+    // What the root migration deletes and moves, named before the confirm.
+    ...(r.rootMigration?.docs ?? [])
+      .filter((d) => d.action === 'delete')
+      .map((d) => `delete ${d.rel}`),
+    ...(r.rootMigration?.moves ?? [])
+      .filter((m) => m.action === 'move')
+      .map((m) => `move ${m.from} → ${m.to}`),
   ];
 }
 
@@ -705,6 +745,7 @@ async function applyUnderLock(
       planned,
       config,
       cwd,
+      repo.dir,
       channel,
       (backup) => {
         backupRef.current = backup;
@@ -742,6 +783,7 @@ async function applyPlannedUpdate(
   planned: PlannedUpdate,
   config: PharnConfig,
   cwd: string,
+  repoDir: string,
   channel: RefChoice,
   onBackup: (backup: Backup) => void,
 ): Promise<UpdateOutcome> {
@@ -762,8 +804,16 @@ async function applyPlannedUpdate(
   // dropped capability's directory that pharn cannot prove it wrote
   // (`removals[].backups`). The two sets are disjoint by construction (the
   // manifest holds no dropped capability), and de-duplicated anyway.
+  // The user-data moves (lib/root-migration.ts) join the same directory: their
+  // files are copied before the move, which runs last.
   const removalBackups = report.removals.flatMap((r) => r.backups);
-  const backupRels = [...new Set([...report.backups, ...removalBackups])];
+  const backupRels = [
+    ...new Set([
+      ...report.backups,
+      ...removalBackups,
+      ...apply.rootMoveBackups,
+    ]),
+  ];
   // "removing" whenever a directory will be deleted — even one whose files are
   // all pharn's own and need no copy — so an aborted run never under-reports
   // what may already be gone.
@@ -773,7 +823,11 @@ async function applyPlannedUpdate(
       ? {
           dir: createBackup(cwd, backupRels),
           count: backupRels.length,
-          action: backupAction(report.backups.length > 0, deletes),
+          action: backupAction(
+            report.backups.length > 0,
+            deletes,
+            apply.rootMoveBackups.length > 0,
+          ),
         }
       : null;
   if (backup) onBackup(backup);
@@ -821,6 +875,19 @@ async function applyPlannedUpdate(
     throw err;
   }
 
+  // The old root docs (lib/root-migration.ts): deleted only now that the
+  // pharn/ copy has landed, and only when still record-equal. A failure keeps
+  // the file and so its record; it never throws past the writes above.
+  const migration = report.rootMigration;
+  const docResult =
+    migration === null
+      ? { deleted: [], kept: [] }
+      : deleteRootDocs(cwd, repoDir, migration.docs);
+  const retired = new Set(docResult.deleted);
+  const orphanRecords = Object.fromEntries(
+    Object.entries(apply.orphanRecords).filter(([rel]) => !retired.has(rel)),
+  );
+
   // Records first, then the config: if the config write fails, the records still
   // describe the bytes on disk, and the stamp mismatch makes them safely ignored
   // rather than wrongly authoritative.
@@ -837,7 +904,8 @@ async function applyPlannedUpdate(
       ...apply.frozenRecords,
       // Orphans keep their record while their file exists, so later runs (and
       // `status`) still name them. Disjoint from the manifest by construction.
-      ...apply.orphanRecords,
+      // A root doc retired just above is gone, so its record goes with it.
+      ...orphanRecords,
       ...plan.nextRecords,
       ...buildRecords(cwd, written),
       // `planUpdate` keys its records by the manifest, which holds no models
@@ -874,6 +942,14 @@ async function applyPlannedUpdate(
     models: models.next,
   });
 
+  // The user-data moves, LAST: everything pharn-owned is in place, so a move
+  // that fails (or was refused at plan time) costs nothing but itself, and the
+  // caller turns it into exit 1 after the report.
+  const moveResult =
+    migration === null
+      ? { moved: [], failed: [] }
+      : applyRootMoves(cwd, migration.moves);
+
   return {
     installedVersion: report.installedVersion,
     recordedVersion: report.recordedVersion,
@@ -891,6 +967,9 @@ async function applyPlannedUpdate(
     models,
     modelsFloor: report.modelsFloor,
     orphans: report.orphans,
+    rootMigration: migration,
+    rootMigrationResult:
+      migration === null ? null : { ...docResult, ...moveResult },
   };
 }
 

@@ -106,7 +106,7 @@ detection, the fetch, the `MIN_CLI` check, the capability index and your selecti
 carry over — and then the rest of the plan: the install's file list, the
 [destination check](#6-summary), and which existing files it would overwrite and back
 up. It prints that plan and exits **0**. It writes **nothing**: no files, no `pharn.config.json`, no
-`pharn.records.json`, no `.pharn-backup/` and no `.pharn.lock`. It never prompts, so it needs no
+`pharn.records.json`, no `pharn/.backup/` and no `pharn/.lock`. It never prompts, so it needs no
 terminal.
 
 It prints:
@@ -181,7 +181,7 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
     { "rel": "pharn.config.json", "action": "overwrite", "label": "rewritten" },
     { "rel": "pharn/CONSTITUTION.md", "action": "create", "label": null },
   ],
-  "backups": [".claude/commands/pharn-plan.md", "pharn.config.json"], // copied to .pharn-backup/<timestamp>/ first
+  "backups": [".claude/commands/pharn-plan.md", "pharn.config.json"], // copied to pharn/.backup/<timestamp>/ first
   "counts": { "create": 451, "overwrite": 2, "backup": 2 },
   "yesWouldProceed": false, // nothing overwritten and no directory deleted
   "settings": { "preserved": true },
@@ -400,7 +400,7 @@ Then it lists the **selected** capabilities (name, role, and why — `universal`
 After you choose **install**, `init` checks which of its **actual write targets** (the selected capability dirs, product `pharn-*` commands, `.cjs`/`.mjs` hooks, `pharn/features/README.md`, the contracts, core and floor dirs, the trusted docs, pharn's `LICENSE` copy, and `pharn.config.json`) already exist in your project. If any do, it lists them (capped at 10, then "…and N more") and asks you to confirm before overwriting — default **no**. When `pharn.config.json` is one of them, the warning also names the `skillsVersion` your existing config records, so you can see which version you are about to replace (read locally, never fetched; the clause is simply omitted if that file cannot be read). If none do, there is no prompt (zero friction). `.claude/settings.json` is never overwritten, so it is excluded from the check.
 
 **Re-running `init` over an existing install.** `init` overwrites every file it installs, so before it
-does, it copies the ones you could lose to `.pharn-backup/<timestamp>/` and prints that directory as soon
+does, it copies the ones you could lose to `pharn/.backup/<timestamp>/` and prints that directory as soon
 as it is created. Which files those are is decided the way [`pharn update`](update.md) decides what to
 skip: against the hashes in `pharn.records.json` that the previous install wrote. The prompt lists these
 files **first**, marked, and says how many there are of each kind:
@@ -413,7 +413,7 @@ files **first**, marked, and says how many there are of each kind:
 | _(not marked)_            | Identical to upstream (line endings aside), or still exactly what pharn wrote (upstream simply moved on) — a clean upgrade                 | No        |
 
 `pharn.config.json` is listed and backed up on its own terms. `init` **rewrites** it from its own
-fields, so when one exists (as a regular file) it is always copied to the same `.pharn-backup/<timestamp>/`
+fields, so when one exists (as a regular file) it is always copied to the same `pharn/.backup/<timestamp>/`
 first — even when it is the only file there — and the prompt marks it
 `pharn.config.json (will be rewritten — backed up first)`, right after the files above, so the cap of
 10 never hides it. What the rewrite resets: `seam` goes back to pharn's default and `models` is replaced
@@ -455,7 +455,7 @@ kind (a directory where pharn writes a file, or a file where it needs a director
 and `pharn.records.json` included). So you are never asked **Continue and overwrite?** for an install
 that could not finish. The same check runs again under the project lock, before anything is written —
 the backup included — so a problem that appears while the prompt is open is still refused. A refused
-install writes nothing: no files, no config, no records and no `.pharn-backup/`. A symbolic link at
+install writes nothing: no files, no config, no records and no `pharn/.backup/`. A symbolic link at
 `.claude/settings.json` is fine while it points at an existing file — `init` never writes an existing
 settings file — and is refused only when its target does not exist. See
 [Something in your project is in the way](../troubleshooting.md#something-in-your-project-is-in-the-way).
@@ -475,7 +475,7 @@ disk, not what the config lists, so `init` also **deletes that directory** — t
   `capabilities.removals`.
 - **Backed up first.** Every regular file in the directory that is not, provably, pharn's own unchanged
   bytes (judged against the records of the install being replaced) is copied into the run's one
-  `.pharn-backup/<timestamp>/` directory before anything is deleted
+  `pharn/.backup/<timestamp>/` directory before anything is deleted
   (`Backed up N file(s) to … before overwriting and removing.`).
 - **Addressed where it was installed**, at the layout the replaced config recorded, by its validated
   name, never through a symbolic link: a directory whose path crosses one refuses the whole install
@@ -512,7 +512,7 @@ The four trusted docs keep the paths pharn-oss keeps them at, and those are not 
 (in the flat layout all four are at the root). If your project already has a root `THREAT-MODEL.md` or
 `LIMITS.md` of its own, `init` replaces it: it is listed in the
 [overwrite prompt](#6-summary) (default **No**) and, when it differs from pharn-oss's, copied
-to `.pharn-backup/<timestamp>/` before the copy; `init --yes` refuses instead. Rename yours first if
+to `pharn/.backup/<timestamp>/` before the copy; `init --yes` refuses instead. Rename yours first if
 you want to keep it where it is.
 
 #### A surface pharn-oss does not ship
@@ -570,7 +570,7 @@ On success, the CLI reports the capability count, prints the `models` block it c
 
 ## Concurrency
 
-`init` takes the project lock (`.pharn.lock`) **after** both of its prompts and holds it across the
+`init` takes the project lock (`pharn/.lock`) **after** both of its prompts and holds it across the
 write, releasing it in the same step that disposes of the temp clone. A second `pharn` writer refuses
 with a named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never
 blocked by it.

@@ -584,7 +584,7 @@ describe('runStatus (archetype)', () => {
     const drift = noteBody('DRIFT');
     expect(drift).toContain("keeps files you've edited");
     expect(drift).toContain('--force');
-    expect(drift).toContain('.pharn-backup/');
+    expect(drift).toContain('pharn/.backup/');
     // The claim it replaced is gone.
     expect(drift).not.toContain('will overwrite these');
   });

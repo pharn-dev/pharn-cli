@@ -1,3 +1,4 @@
+import { rootMigrationNoteLines } from '../lib/root-migration.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
 import { cancelAndExit } from '../lib/confirm.js';
@@ -35,6 +36,7 @@ import { BACKUP_DIR } from '../lib/backup.js';
 import {
   buildInitPlan,
   capabilityKey,
+  initRootMigration,
   planInitRemovals,
   resolveInitSelection,
   type InitCarry,
@@ -347,6 +349,15 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
           });
           overwrite = 'proceed';
         } else {
+          // What a re-run would retire from the project root, named BEFORE the
+          // question the user answers (lib/root-migration.ts). Planned again
+          // under the lock; this is the preview.
+          const migration = initRootMigration(repo.dir, cwd, carry);
+          const migrationLines =
+            migration === null
+              ? null
+              : rootMigrationNoteLines(migration.report, null);
+          if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
           overwrite = await confirmWriteTargets(repo.dir, cwd, selection, {
             manifest,
             records,
@@ -634,6 +645,14 @@ function reportInitDryRun(r: InitPlanReport): void {
         : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
   );
   note(lines.join('\n'), 'PLAN');
+
+  // The ROOT MIGRATION note a real re-run prints after the install, as a
+  // preview (lib/root-migration.ts owns the wording).
+  const migrationLines =
+    r.rootMigration === null
+      ? null
+      : rootMigrationNoteLines(r.rootMigration, null);
+  if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
 
   // The same note a real run prints over a preserved settings.json
   // (steps/install-archetype.ts), from the same function.

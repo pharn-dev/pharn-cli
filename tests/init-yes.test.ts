@@ -254,7 +254,7 @@ describe('pharn init --yes', () => {
     );
     expect(errors()).toContain('CONSTITUTION.md');
     // The refusal is thrown inside the lock, which is released on the way out.
-    expect(existsSync(join(proj, '.pharn.lock'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.lock'))).toBe(false);
   });
 
   it('refuses a dangling symlink at a target (the pre-flight), writing nothing', async () => {

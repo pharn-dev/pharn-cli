@@ -15,6 +15,7 @@ import {
   PHARN_LICENSE_DEST,
   FEATURES_README,
   PHARN_FEATURES_README,
+  PHARN_ROOT_FALLBACK_DOCS,
   PHARN_TRUSTED_DOCS,
   TRUSTED_DOCS,
   UPSTREAM_LICENSE,
@@ -66,8 +67,11 @@ export interface LayoutPaths {
   license: { from: string; to: string };
   // Trusted spec docs copied verbatim (write-protected post-install by the
   // installed protect-trusted-paths hook). The SAME four documents in both
-  // layouts — only their prefix differs. Every consumer existence-guards each
-  // entry, so a clone missing one contributes nothing rather than failing (P7).
+  // layouts — only their prefix differs. Where a pharn-layout CLONE keeps each
+  // one is resolveTrustedDocs's answer (a pre-7.0 clone keeps two at the root);
+  // this field is the layout's own path, the one orphan detection and the
+  // absent-surface report name. Every consumer existence-guards each entry, so a
+  // clone missing one contributes nothing rather than failing (P7).
   docs: string[];
   featuresReadme: string;
 }
@@ -142,4 +146,19 @@ export function resolveFeaturesReadme(repoDir: string, layout: Layout): string {
     }
   }
   return layoutPaths(layout).featuresReadme;
+}
+
+// Resolve where the clone carries each trusted doc — the ordered probe
+// `resolveFeaturesReadme` uses, per doc. For the pharn layout, a doc with a root
+// fallback (PHARN_ROOT_FALLBACK_DOCS) resolves to its pharn/ path when the clone
+// has it there, else to the root path a pre-7.0 clone ships. Existence only: no
+// clone content is read (P5). The flat layout has no fallback.
+export function resolveTrustedDocs(repoDir: string, layout: Layout): string[] {
+  const docs = layoutPaths(layout).docs;
+  if (layout !== 'pharn') return docs;
+  return docs.map((doc) => {
+    const fallback = PHARN_ROOT_FALLBACK_DOCS[doc];
+    if (fallback === undefined) return doc;
+    return existsSync(safeJoin(repoDir, doc)) ? doc : fallback;
+  });
 }

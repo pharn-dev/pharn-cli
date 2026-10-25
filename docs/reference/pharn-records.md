@@ -141,7 +141,7 @@ it could not verify, the same rule [`add`](../commands/add.md) follows.
 
 Before that delete, `remove` also **reads** the store: a file in the capability directory whose path is
 recorded here at its current hash is deleted without a copy, and every other file is first copied to
-`.pharn-backup/<timestamp>/`. With no usable store, every file in the directory is copied. See
+`pharn/.backup/<timestamp>/`. With no usable store, every file in the directory is copied. See
 [What is backed up before the delete](../commands/remove.md#what-is-backed-up-before-the-delete).
 
 ## Uninstall
@@ -175,7 +175,7 @@ key is never touched, whatever its hash). Within those paths, a hash edited to m
 
 ## The write lock
 
-`init`, `add`, `remove`, `update` and `uninstall` hold a single-writer lock — `.pharn.lock` at the project root,
+`init`, `add`, `remove`, `update` and `uninstall` hold a single-writer lock — `pharn/.lock` (inside `pharn/`),
 carrying the holder's pid, host, command and start time — across the write phase, and a second pharn
 process refuses instead of interleaving. Without it, two runs can leave this store describing bytes
 the other one replaced, **under a matching stamp**, which is precisely the case the stamp cannot

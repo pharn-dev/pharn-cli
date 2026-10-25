@@ -684,7 +684,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     return { archetypes, selection };
   }
 
-  it('copies an edited file to .pharn-backup/ before overwriting it, and names the directory', async () => {
+  it('copies an edited file to pharn/.backup/ before overwriting it, and names the directory', async () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     const { archetypes, selection } = await firstInstall(repo, proj);
@@ -693,13 +693,13 @@ describe('re-running init over an existing install (PHARN-11)', () => {
 
     await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
-    const backups = readdirSync(join(proj, '.pharn-backup'));
+    const backups = readdirSync(join(proj, 'pharn/.backup'));
     expect(backups).toHaveLength(1);
     expect(
       readFileSync(
         join(
           proj,
-          '.pharn-backup',
+          'pharn/.backup',
           backups[0]!,
           '.claude/commands/pharn-plan.md',
         ),
@@ -713,7 +713,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       .mocked(prompts.log.info)
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
-    expect(info).toContain(`.pharn-backup/${backups[0]!}`);
+    expect(info).toContain(`pharn/.backup/${backups[0]!}`);
   });
 
   it('backs up only pharn.config.json when no installed file was edited (byte-identical is not an edit)', async () => {
@@ -736,7 +736,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     await firstInstall(repo, proj);
 
     expect(existsSync(join(proj, 'pharn.config.json'))).toBe(true);
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     const info = vi
       .mocked(prompts.log.info)
       .mock.calls.map((c) => String(c[0]))
@@ -779,10 +779,10 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
     expect(backedUp(proj)).toEqual(['pharn.config.json']);
-    const [dir] = readdirSync(join(proj, '.pharn-backup'));
+    const [dir] = readdirSync(join(proj, 'pharn/.backup'));
     expect(
       readFileSync(
-        join(proj, '.pharn-backup', dir!, 'pharn.config.json'),
+        join(proj, 'pharn/.backup', dir!, 'pharn.config.json'),
         'utf8',
       ),
     ).toBe(original);
@@ -804,10 +804,10 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       .mocked(prompts.log.info)
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
-    expect(info).toContain(`Backed up 1 file(s) to .pharn-backup/${dir!}`);
+    expect(info).toContain(`Backed up 1 file(s) to pharn/.backup/${dir!}`);
     // F-40: the same .gitignore advice `update`'s backup notice carries.
     expect(info).toContain(
-      '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
+      'pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
     );
   });
 
@@ -837,7 +837,7 @@ describe('re-running init over an existing install (PHARN-11)', () => {
 
     await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     expect(readFileSync(outside, 'utf8')).toBe(before);
     expect(readPharnConfig(proj)!.commit).toBe(SHA_C);
   });
@@ -1241,7 +1241,7 @@ describe('re-running init keeps the config keys pharn does not own', () => {
 // Every file under the ONE backup directory a run created, relative to it —
 // what the user can get back.
 function backedUp(proj: string): string[] {
-  const root = join(proj, '.pharn-backup');
+  const root = join(proj, 'pharn/.backup');
   if (!existsSync(root)) return [];
   const dirs = readdirSync(root);
   expect(dirs).toHaveLength(1);
@@ -1402,10 +1402,10 @@ describe('re-running init after an upstream bump — the records decide what is 
     );
 
     expect(backedUp(proj)).toEqual(['CONSTITUTION.md', 'pharn.config.json']);
-    const [dir] = readdirSync(join(proj, '.pharn-backup'));
+    const [dir] = readdirSync(join(proj, 'pharn/.backup'));
     expect(
       readFileSync(
-        join(proj, '.pharn-backup', dir!, 'CONSTITUTION.md'),
+        join(proj, 'pharn/.backup', dir!, 'CONSTITUTION.md'),
         'utf8',
       ),
     ).toBe('MY CONSTITUTION');
@@ -1534,7 +1534,7 @@ describe('re-running init after an upstream bump — the records decide what is 
     // An edit (which would be backed up) AND a type collision (which the
     // install refuses). The refusal used to come after the backup: the user
     // read "Backed up…", nothing was installed, and every retry added another
-    // .pharn-backup/ directory.
+    // pharn/.backup/ directory.
     const { proj, repo, archetypes, selection } = await installed();
     write(join(proj, '.claude/commands/pharn-plan.md'), 'MY EDIT');
     rmSync(join(proj, 'pharn-contracts'), { recursive: true, force: true });
@@ -1551,7 +1551,7 @@ describe('re-running init after an upstream bump — the records decide what is 
       ),
     ).rejects.toThrow(/Refusing to install: pharn-contracts is in the way/);
 
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     expect(informed()).not.toContain('Backed up');
     expect(
       readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
@@ -1704,7 +1704,7 @@ describe('`pharn init` run twice, through the real steps', () => {
       /Refusing to install: pharn-contracts is in the way/,
     );
     // And nothing written: no backup, the edit and the config as they were.
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     expect(
       readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
     ).toBe('MY EDIT');
@@ -1846,7 +1846,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
     expect(readFileSync(join(proj, `${LENS_DIR}/NOTES.md`), 'utf8')).toBe(
       'my notes',
     );
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     expect(readPharnConfig(proj)!.commit).toBe(SHA_C);
   });
 
@@ -1872,7 +1872,7 @@ describe('`pharn init` re-run over a capability it drops', () => {
     expect(
       readFileSync(join(outside, 'n-plus-one/n-plus-one.md'), 'utf8'),
     ).toBe('not this project');
-    expect(existsSync(join(proj, '.pharn-backup'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/.backup'))).toBe(false);
     expect(readPharnConfig(proj)!.commit).toBe(SHA_C);
   });
 });

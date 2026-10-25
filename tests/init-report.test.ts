@@ -65,6 +65,7 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     models: { outcome: 'copy', reasons: [] },
     absentUpstream: [],
     carriedConfigKeys: ['testResults'],
+    rootMigration: null,
     ...over,
   };
 }

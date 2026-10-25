@@ -509,7 +509,7 @@ function printDriftSection(
     lines.push(
       pc.dim("  `pharn update` keeps files you've edited and cleanly"),
       pc.dim('  upgrades the rest; `--force` overwrites edits too'),
-      pc.dim('  (backed up to .pharn-backup/ first).'),
+      pc.dim('  (backed up to pharn/.backup/ first).'),
     );
   }
   if (result.missing.length) {

@@ -93,7 +93,7 @@ surfaces:
 | `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files, `test-fixtures/` and `fixtures/`) |
 | `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                   |
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim — see the layout note below                                                    |
-| `THREAT-MODEL.md`, `LIMITS.md`                                        | The other two, at the project **root** — where upstream keeps them and where the installed commands cite them                     |
+| `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`                            | The other two — at the project **root** when the fetched pharn-oss is older than 7.0.0 (see below)                                |
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched              |
 | `pharn/features/README.md`                                            | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                             |
 | `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                                          |
@@ -106,10 +106,10 @@ file's contents, so the paths above are the `pharn` layout it installs today. Th
 layout puts the same surfaces at the project root instead — `pharn-pipeline/grillers/`,
 `pharn-review/`, `pharn-contracts/`, `.dev/floor/`, `PHARN-LICENSE` — and upstream ships no root
 `pharn-core/`, so that one surface is simply absent there. The **four trusted docs** are the same set
-in both layouts, but their prefix is per-**doc**, not per-layout: upstream's relocation moved
-`CONSTITUTION.md` and `ARCHITECTURE.md` under `pharn/` and left `THREAT-MODEL.md` and `LIMITS.md` at
-the repo root, so a `pharn` install lands them exactly that way and a flat install lands all four at
-the root. Each doc is copied only if the fetched version ships it — a clone that predates one simply
+in both layouts. A `pharn` install keeps all four under `pharn/` from pharn-oss 7.0.0 on; an older
+pharn-oss still ships `THREAT-MODEL.md` and `LIMITS.md` at the repo root, and the install mirrors that
+(an ordered probe: `pharn/<doc>` if the fetched version has it, else the root path). A flat install
+lands all four at the root. Each doc is copied only if the fetched version ships it — a clone that predates one simply
 does not get it, and `init` says which docs it wrote and warns about any it did not. Which layout you
 got is recorded as `layout` in `pharn.config.json`.
 

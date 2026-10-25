@@ -152,7 +152,7 @@ still understood through the recorded `layout` field.
 | `pharn/pharn-contracts/`, `pharn/floor/`                              | Schemas shared across PHARN stages and floor checkers invoked by the workflow.             |
 | `pharn/pharn-core/`                                                   | Agent-readable mechanism skills, including the seam resolver.                              |
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Trusted PHARN docs copied from upstream in the current layout.                             |
-| `THREAT-MODEL.md`, `LIMITS.md`                                        | Trusted PHARN docs copied at the project root in the current layout.                       |
+| `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`                            | The other two trusted docs (at the project root from a pharn-oss older than 7.0.0).        |
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten.                 |
 | `pharn/features/README.md`                                            | The feature-loop boundary contract referenced by installed commands (pharn layout).        |
 | `pharn.config.json`                                                   | Installed version, commit, layout, archetypes, capabilities, and defaults.                 |
@@ -167,9 +167,19 @@ As you run the workflow, PHARN writes one directory per increment —
 `SHIP.md` + `BRIEFING.md` (`/pharn-ship`) or `LOOP.md` (`/pharn-loop`), a
 `RUN-REPORT.md`, and the machine-readable records beside them
 (`AC-TESTS.lock.json`, `cost.json`, the `*-report.json` files). Those are the
-durable record; commit them. `.pharn/` (runtime scratch), `.pharn-backup/` (see
-[Safety model](#safety-model)) and `.pharn.lock` are not — add them to your
-`.gitignore`. PHARN never edits `.gitignore` for you.
+durable record; commit them. `pharn/.run/` (runtime scratch; `.pharn/` before
+pharn-oss 7.0.0), `pharn/.backup/` (see [Safety model](#safety-model)) and
+`pharn/.lock*` are not — add them to your `.gitignore`. PHARN never edits
+`.gitignore` for you; `pharn update` prints the replacement lines when yours still
+names the old `.pharn/`, `.pharn-backup` or `.pharn.lock`.
+
+Everything PHARN keeps in your project lives under `.claude/` and `pharn/`, plus
+the two JSON files at the root. An install made from a pharn-oss older than 7.0.0
+also has `THREAT-MODEL.md` and `LIMITS.md` at the root, and may have
+`memory-bank/` and `pharn.spec-template.md` there: the first `pharn update` to
+7.0.0 or later deletes the two docs if you never edited them and moves the other
+two under `pharn/` (backed up first, never merged) — see
+[update](docs/commands/update.md#the-root-footprint-migration).
 
 **Two version numbers, on purpose.** The npm package `@pharn-dev/pharn` carries
 the installer's version. The content it installs carries its own,
@@ -271,7 +281,7 @@ Two commands sit outside the pipeline:
 | `pharn update`              | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt; `--dry-run` prints what it would do and writes nothing (add `--json` for the plan as one machine-readable object, and `--compact` to leave the unchanged files out of it). |
 | `pharn list`                | Show installed archetypes and capabilities. Use `--json` for machine-readable output.                                                                                                                                                                                                                                                           |
 | `pharn status`              | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report.                                                                                                                                                                                    |
-| `pharn uninstall`           | Remove PHARN: deletes only the files `pharn` recorded and you did not change, then `pharn.records.json` and `pharn.config.json` (backed up first). Never touches `.claude/settings.json` or `.pharn-backup/`. `--yes`/`-y` skips the confirmation prompt.                                                                                       |
+| `pharn uninstall`           | Remove PHARN: deletes only the files `pharn` recorded and you did not change, then `pharn.records.json` and `pharn.config.json` (backed up first). Never touches `.claude/settings.json` or `pharn/.backup/`. `--yes`/`-y` skips the confirmation prompt.                                                                                       |
 | `pharn --help`              | Show every command, option and environment variable. `pharn <command> --help` shows one command and only the options it takes.                                                                                                                                                                                                                  |
 | `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                                                                                 |
 
@@ -297,7 +307,7 @@ Three behaviours matter if you script the CLI:
   commands' `--dry-run` needs no terminal and writes nothing. `uninstall`
   likewise exits 1 off a TTY unless it is given `--yes`.
 - **One writer at a time.** `init`, `add`, `remove`, `update` and `uninstall`
-  take an advisory lock at `.pharn.lock`; a second run refuses rather than
+  take an advisory lock at `pharn/.lock`; a second run refuses rather than
   queueing. `add`, `remove`, `update` and `uninstall` also re-read
   `pharn.config.json` once they hold the lock, and refuse — writing nothing —
   if another run changed it after they read it (for example while a confirm
@@ -339,13 +349,13 @@ PHARN is intentionally conservative about writes:
   are on disk), after backing up any file in it that `pharn` cannot prove it
   wrote; it never touches `.claude/settings.json`. A re-run `init` does the
   same, after listing those directories in its prompt.
-- `update --force` backs up overwritten files under `.pharn-backup/<timestamp>/`
+- `update --force` backs up overwritten files under `pharn/.backup/<timestamp>/`
   before writing. `add` does the same for any destination file that differs from
   upstream, and refuses the whole install — writing nothing — when a destination
   path crosses a symlinked directory.
 - `status` and `list` are read-only.
 - `remove` deletes only the selected capability directory and prunes its records,
-  after backing up to `.pharn-backup/<timestamp>/` any file in it that `pharn`
+  after backing up to `pharn/.backup/<timestamp>/` any file in it that `pharn`
   cannot prove it wrote unchanged;
   it never touches `CONSTITUTION.md`, `memory-bank/`, or your detected
   archetypes, and refuses when that directory's path crosses a symlink.

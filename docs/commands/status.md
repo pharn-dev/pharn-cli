@@ -44,7 +44,7 @@ which, and `status` cannot. `status` reads `pharn.records.json` for one thing on
    [Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf)):
    - **Differs from `pharn-dev/pharn-oss@<source>` (PHARN-owned)** — files present whose contents differ.
      `pharn update` keeps files you've edited and cleanly upgrades the rest; `--force` overwrites edits
-     too (backed up to `.pharn-backup/` first).
+     too (backed up to `pharn/.backup/` first).
    - **Missing (expected but absent)** — expected files that aren't on disk (from your recorded
      `capabilities` and the fixed product surfaces). For those, run `pharn update` when a newer skills
      version is available, or `pharn update --force` at the current version — a plain `pharn update`

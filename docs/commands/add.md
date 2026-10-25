@@ -16,7 +16,7 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
    a hint to run `pharn init` first. A config that exists but is **invalid** (a bad `seam`
    block, an out-of-enum `capabilities[].source`, unparseable JSON) is reported by its own named error
    and exits 1 — deliberately not the "run `pharn init`" hint, which would tell you to overwrite it.
-2. Takes the project lock (`.pharn.lock`) — **before** any download, so a run that will be refused pays
+2. Takes the project lock (`pharn/.lock`) — **before** any download, so a run that will be refused pays
    for no network — warns if a proxy is configured, then clones `pharn-dev/pharn-oss` (SHA-pinned).
 3. **Checks the CLI floor.** If the clone declares a `MIN_CLI` newer than your CLI, `add` refuses here.
 4. **Checks the version.** If the clone's `SKILLS_VERSION` does not match the `skillsVersion` recorded
@@ -144,7 +144,7 @@ the same way.
 > `skillsVersion` already matches upstream (an install migrated by an older CLI, or a hand-edited
 > `layout`). Plain `pharn update` returns early at a matching version and will not rewrite the layout —
 > use **`pharn update --force`**, which re-applies the whole tree at the clone's layout and copies every
-> file it overwrites into `.pharn-backup/<timestamp>/` first.
+> file it overwrites into `pharn/.backup/<timestamp>/` first.
 
 Each capability `add` installs is recorded with `"source": "manual"`, which is what makes the override
 stick: [`pharn update`](update.md) preserves manual entries instead of replacing your capability list
@@ -156,13 +156,13 @@ See [`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--s
 ## Overwrite protection
 
 `add` copies a whole capability directory. If files already exist there, the ones whose contents
-**differ** from upstream's are copied into `.pharn-backup/<timestamp>/` **before** anything is
+**differ** from upstream's are copied into `pharn/.backup/<timestamp>/` **before** anything is
 overwritten — the same backup directory [`pharn update --force`](update.md) writes, preserving each
 file's project-relative path:
 
 ```text
-Backed up 1 file(s) to .pharn-backup/20260908-141530 before overwriting.
-.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
+Backed up 1 file(s) to pharn/.backup/20260908-141530 before overwriting.
+pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
 ```
 
 Files that are already **identical** to upstream (line endings aside — see
@@ -172,7 +172,7 @@ never produces a backup directory. Files that are in the directory but **not** p
 upstream are never touched by `add`, and are never recorded in
 [`pharn.records.json`](../reference/pharn-records.md) — `add` records only the files it actually
 copied. If you later [`pharn remove`](remove.md) that capability, those files are copied to
-`.pharn-backup/<timestamp>/` before its directory is deleted — see
+`pharn/.backup/<timestamp>/` before its directory is deleted — see
 [What is backed up before the delete](remove.md#what-is-backed-up-before-the-delete).
 
 **Why this exists.** A capability directory can outlive its config entry: an older `pharn update` or
@@ -183,7 +183,7 @@ by hand. If you edit those files and later run `pharn add <name>` for that same
 capability, the add is not a no-op — the config entry is gone — so the copy lands on your edits. The
 backup is what makes that recoverable.
 
-If the backup itself cannot be written (for example `.pharn-backup` is a symlink, or a file to be
+If the backup itself cannot be written (for example `pharn/.backup` is a symlink, or a file to be
 saved sits under one), `add` **aborts before copying anything** and your files are left exactly as
 they were.
 
@@ -217,10 +217,10 @@ against today.
 > it simply no longer does so irreversibly. Restoring is your call: the backup directory is printed
 > as soon as it is written, so it stays visible even if a later step fails.
 
-**Retention is yours**, exactly as for [`update --force`](update.md#--force-and-pharn-backup): `pharn`
-never prunes `.pharn-backup/` and never edits your `.gitignore`, so the directories accumulate and are
+**Retention is yours**, exactly as for [`update --force`](update.md#--force-and-pharnbackup): `pharn`
+never prunes `pharn/.backup/` and never edits your `.gitignore`, so the directories accumulate and are
 committable by accident — and a picker run that overwrites edits in several capabilities writes **one
-per capability**. Delete them once you are happy, or add `.pharn-backup/` to your `.gitignore`.
+per capability**. Delete them once you are happy, or add `pharn/.backup/` to your `.gitignore`.
 
 ## The capability argument
 
@@ -250,7 +250,7 @@ everywhere.
 
 ## Concurrency
 
-`add` takes the project lock (`.pharn.lock`) before it downloads anything, and holds it across the
+`add` takes the project lock (`pharn/.lock`) before it downloads anything, and holds it across the
 copy — and, on the bare picker path, across your multi-select. A second `pharn` writer refuses with a
 named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never blocked. One
 consequence worth knowing: under a held lock, even `pharn add bogus` reports the lock rather than

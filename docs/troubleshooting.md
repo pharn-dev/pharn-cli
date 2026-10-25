@@ -18,7 +18,7 @@
 | `init --yes` in a project where a file it would write already exists (nothing written)                  | 1         |
 | `init --dry-run` printed its plan (nothing was written)                                                 | 0         |
 | `init --json` without `--dry-run`                                                                       | 1         |
-| Another `pharn` process holds the project lock (`.pharn.lock`)                                          | 1         |
+| Another `pharn` process holds the project lock (`pharn/.lock`)                                          | 1         |
 | The fetched version declares a `MIN_CLI` newer than the installed CLI                                   | 1         |
 | `add` refused on a skills-version or layout mismatch                                                    | 1         |
 | `update` completed but skipped files it could not verify                                                | 0         |
@@ -99,7 +99,7 @@ expected files are still restored). It prints each skipped file under one of fou
 Exit code is **0** — this is the designed outcome, not a failure. To overwrite them anyway:
 
 ```bash
-pharn update --force   # backs up each skipped file to .pharn-backup/<timestamp>/, then overwrites
+pharn update --force   # backs up each skipped file to pharn/.backup/<timestamp>/, then overwrites
 ```
 
 Files already identical to upstream are left alone (`ok`) — line endings aside, see
@@ -114,20 +114,23 @@ showing an update as available and the next `pharn update` still has work to do.
 ### `--force` aborted with a backup error
 
 The backup runs to completion before any original is touched, so an abort means **nothing was
-overwritten**. Inspect `.pharn-backup` at your project root:
+overwritten**. Inspect `pharn/.backup` (and `pharn` itself) in your project:
 
-- **A regular file** named `.pharn-backup` (not a directory) blocks the backup directory from being
-  created — **move or rename** it, then re-run. Do not delete it until you have confirmed it is not
-  something you need.
-- **A symlink** at `.pharn-backup` — `pharn` refuses to write backups through it. Confirm that path
-  is the one named in the error, then remove or replace the symlink and re-run.
+- **A regular file** named `pharn/.backup` or `pharn` (not a directory) blocks the backup directory
+  from being created — **move or rename** it, then re-run. Do not delete it until you have confirmed
+  it is not something you need.
+- **A symlink** at `pharn/.backup` or `pharn` — `pharn` refuses to write backups through it. Confirm
+  that path is the one named in the error, then remove or replace the symlink and re-run.
+
+Before 0.14.0 backups went to `.pharn-backup/` at the project root. `pharn` no longer writes there and
+never deletes it: move what you still need, then remove it yourself.
 
 A symlink in a source file's path (or one of its parent directories) is also rejected; the error names
 the component.
 
 ### `add`, `remove`, `update` and `init` write backups too
 
-`.pharn-backup/<timestamp>/` is not only an `update --force` artefact. Before `pharn add` copies a
+`pharn/.backup/<timestamp>/` is not only an `update --force` artefact. Before `pharn add` copies a
 capability, it compares each destination file against the clone and copies every one that **differs**
 into the same backup directory — so re-adding a capability whose files you edited never loses those
 edits. Identical files (line endings aside) are not drift and are not backed up. Everything in
@@ -557,7 +560,7 @@ they write anything, and refuse rather than queue:
 ```text
 ■  Another pharn process is writing to this project: pharn update (pid 4821 on my-laptop,
    since 2026-09-08T20:14:03.117Z).
-   Wait for it to finish, or delete .pharn.lock if you are sure no pharn process is running.
+   Wait for it to finish, or delete pharn/.lock if you are sure no pharn process is running.
 ```
 
 Exit code 1, and **nothing is written**.
@@ -599,24 +602,40 @@ would then stop mid-write. `pharn` breaks such a lock by itself when any of thes
 - it names a pid on **this** host that is no longer running.
 
 A lock from **another host** is only retired by age — a pid means nothing across machines. If you are
-certain nothing is running, deleting `.pharn.lock` is safe and is the documented escape.
+certain nothing is running, deleting `pharn/.lock` is safe and is the documented escape.
 
 **A recycled pid keeps a dead run's lock alive.** "No longer running" is checked by asking the
 operating system whether that pid exists. If the run that took the lock was killed and its pid has
 since been reused by an unrelated process, the check finds that process and the lock reads as live, so
 `pharn` keeps refusing until the lock is six hours old. If the refusal names a pid that is not a
-`pharn` process (check with `ps -p <pid>`), delete `.pharn.lock`.
+`pharn` process (check with `ps -p <pid>`), delete `pharn/.lock`.
 
-**A directory named `.pharn.lock`** is never a lock — `pharn` does not create one — so it is refused
+**A directory named `pharn/.lock`** is never a lock — `pharn` does not create one — so it is refused
 with its own message rather than broken:
 
 ```text
-.pharn.lock is a directory, not a pharn lock file. pharn will not move or delete it, and cannot take the project lock while it is there.
+pharn/.lock is a directory, not a pharn lock file. pharn will not move or delete it, and cannot take the project lock while it is there.
 Remove it yourself (or rename it) and re-run.
 ```
 
-Earlier versions moved it aside to `.pharn.lock.<pid>.<hex>` without saying so; if you find a
-directory with that name, it is yours.
+Earlier versions moved it aside to `.pharn.lock.<pid>.<hex>` (at the project root, where the lock
+lived then) without saying so; if you find a directory with that name, it is yours.
+
+**The lock moved in 0.14.0.** pharn 0.13.0 and older take `.pharn.lock` at the project **root**; from
+0.14.0 the lock is `pharn/.lock`, for every layout. For one release `pharn` still checks the old file:
+a **live** root `.pharn.lock` (an older `pharn` is running) refuses the run with the old message, and a
+**stale** one (an older run that crashed) is broken by the rules above, so it cannot wedge the project.
+The reverse is not covered: an older `pharn` does not know `pharn/.lock`, so do not run two versions
+in one project at the same time.
+
+**`pharn` must be a real directory.** The lock, the backups and the `pharn` layout's install all live
+under `pharn/`, which a writing command creates when it is missing (and removes again if nothing ended
+up in it). A `pharn` that is a symbolic link, or a regular file, is refused before anything is written:
+
+```text
+pharn is a symbolic link. pharn keeps its lock, backups and install under pharn/ and will not write through a link that may point outside the project.
+Replace it with a real directory and re-run.
+```
 
 ## `add` / `update` say to run init first
 
@@ -818,16 +837,20 @@ writes; **review each path before deleting it** — anything you wrote yourself 
    `features/README.md`, `PHARN-LICENSE`, and the four trusted docs):
    - `pharn/pharn-pipeline/`, `pharn/pharn-review/`, `pharn/pharn-contracts/`, `pharn/pharn-core/`,
      `pharn/floor/`
-   - `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`, `THREAT-MODEL.md`, `LIMITS.md`, `pharn/LICENSE`,
-     `pharn/features/README.md` — but **not** your own `pharn/features/<feature>/` folders
+   - `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`, `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`
+     (an install from pharn-oss older than 7.0.0 has these two at the project root instead),
+     `pharn/LICENSE`, `pharn/features/README.md` — but **not** your own `pharn/features/<feature>/`
+     folders, and not `pharn/memory-bank/` or `pharn/spec-template.md`, which are your data
    - the `pharn-*.md` files in `.claude/commands/` (not `pharn-dev-*`, and none of your own commands)
    - the hook scripts PHARN installed in `.claude/hooks/`
 3. **Unwire the hooks.** Remove the entries in `.claude/settings.json` (and `.claude/settings.local.json`)
    whose command runs one of the scripts you deleted. If `pharn init` created `settings.json` and you never
    added anything to it, you can delete the file.
-4. **Delete pharn's own files:** `pharn.config.json`, `pharn.records.json`, and `.pharn.lock` if it exists
-   and no `pharn` command is running. `.pharn/` is runtime scratch written while PHARN commands run, and
-   `.pharn-backup/` holds backups `pharn` made — delete them once you no longer need them.
+4. **Delete pharn's own files:** `pharn.config.json`, `pharn.records.json`, and `pharn/.lock` (or, from
+   an older `pharn`, `.pharn.lock`) if it exists and no `pharn` command is running. `pharn/.run/` (or
+   `.pharn/` before pharn-oss 7.0.0) is runtime scratch written while PHARN commands run, and
+   `pharn/.backup/` (`.pharn-backup/` before 0.14.0) holds backups `pharn` made — delete them once you
+   no longer need them.
 
 ## Local development issues
 

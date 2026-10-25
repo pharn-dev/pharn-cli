@@ -8,7 +8,7 @@ import { ManifestValidationError, safeJoin } from './validate.js';
 // ---------------------------------------------------------------------------
 // The `--force` backup — the only thing standing between an explicit overwrite
 // and a destroyed local edit. Copies each about-to-be-overwritten file into
-// `.pharn-backup/<YYYYMMDD-HHMMSS>/`, preserving its project-relative path.
+// `pharn/.backup/<YYYYMMDD-HHMMSS>/`, preserving its project-relative path.
 //
 // The contract the caller depends on: this runs to completion BEFORE any
 // original is touched, and it THROWS rather than returning partial work — so a
@@ -24,7 +24,12 @@ import { ManifestValidationError, safeJoin } from './validate.js';
 // One axis (P3): backing up files before a forced overwrite.
 // ---------------------------------------------------------------------------
 
-export const BACKUP_DIR = '.pharn-backup';
+// Under pharn/ for EVERY layout, beside the lock (lib/project-lock.ts), so the
+// project root holds nothing of pharn's but `.claude/`, `pharn/` and the two
+// JSON files. Nothing an install writes or records lives under it, so no reader
+// of the install (status, orphans, drift, uninstall) ever counts a backed-up
+// copy as installed — pinned by tests.
+export const BACKUP_DIR = 'pharn/.backup';
 
 // A collision means a second backup inside the same second; a small bound is
 // plenty and keeps the failure loud instead of looping.
@@ -42,7 +47,7 @@ export function backupTimestamp(date: Date): string {
 /**
  * Copy every `rels` entry from `projectRoot` into a fresh backup directory.
  * Returns the project-relative backup directory (e.g.
- * `.pharn-backup/20260807-091500`) so the caller can print it — that path is the
+ * `pharn/.backup/20260807-091500`) so the caller can print it — that path is the
  * user's ONLY pointer back to their pre-overwrite bytes.
  *
  * Throws (having written no original, because the caller has not started) when
@@ -54,17 +59,27 @@ export function createBackup(
   rels: string[],
   date: Date = new Date(),
 ): string {
-  // Trust (P2): safeJoin is LEXICAL — it does not resolve symlinks. A pre-existing
-  // `.pharn-backup` symlink would let the copies below land outside the project,
-  // so the root is lstat-rejected the same way the installer rejects a symlinked
-  // copy root.
-  const rootRel = BACKUP_DIR;
-  const root = safeJoin(projectRoot, rootRel);
-  const rootStat = lstatSync(root, { throwIfNoEntry: false });
-  if (rootStat?.isSymbolicLink()) {
-    throw new ManifestValidationError(
-      `${BACKUP_DIR} is a symlink; refusing to write backups through it.`,
-    );
+  // Trust (P2): safeJoin is LEXICAL — it does not resolve symlinks. A
+  // pre-existing symlink at `pharn` OR at `pharn/.backup` would let the copies
+  // below land outside the project, so every component of the backup root is
+  // lstat-ed and a symlinked one refused — the same way the
+  // installer rejects a symlinked copy root. A component that is not a
+  // directory is refused by name too, rather than surfacing as a bare ENOTDIR.
+  for (const rel of [BACKUP_DIR.split('/')[0]!, BACKUP_DIR]) {
+    const stat = lstatSync(safeJoin(projectRoot, rel), {
+      throwIfNoEntry: false,
+    });
+    if (stat === undefined) break;
+    if (stat.isSymbolicLink()) {
+      throw new ManifestValidationError(
+        `${rel} is a symlink; refusing to write backups through it.`,
+      );
+    }
+    if (!stat.isDirectory()) {
+      throw new ManifestValidationError(
+        `${rel} is not a directory; refusing to write backups under it.`,
+      );
+    }
   }
 
   const dirRel = uniqueBackupDir(projectRoot, backupTimestamp(date));
@@ -129,7 +144,31 @@ export function replacedConfigBackup(projectRoot: string): string[] {
 
 /** What a backup was made ahead of — the notice's closing phrase. */
 export type BackupAction =
-  'overwriting' | 'removing' | 'overwriting and removing';
+  | 'overwriting'
+  | 'removing'
+  | 'overwriting and removing'
+  | 'moving'
+  | 'overwriting and moving'
+  | 'removing and moving'
+  | 'overwriting, removing and moving';
+
+// What a backup was made ahead of: overwrites (`--force` casualties), directory
+// deletes and/or user-data moves (lib/root-migration.ts). With none, no backup
+// exists (a backup always has a reason, so `overwriting` is the honest default).
+export function backupAction(
+  overwrites: boolean,
+  removals: boolean,
+  moves = false,
+): BackupAction {
+  const parts = [
+    ...(overwrites ? ['overwriting'] : []),
+    ...(removals ? ['removing'] : []),
+    ...(moves ? ['moving'] : []),
+  ];
+  if (parts.length === 0) return 'overwriting';
+  if (parts.length === 1) return parts[0] as BackupAction;
+  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` as BackupAction;
+}
 
 /** The facts a backup notice states, for every command that makes a backup. */
 export interface BackupNotice {

@@ -555,6 +555,7 @@ describe('runUpdate (drift-safe)', () => {
       vi.stubEnv('https_proxy', 'http://proxy.internal:3128');
       await installed({ skillsVersion: '1.0.0' });
       // This process is alive by definition, so a same-host lock naming it is live.
+      mkdirSync(join(proj, 'pharn'), { recursive: true });
       writeFileSync(
         join(proj, LOCK_FILE),
         `${JSON.stringify({
@@ -1905,7 +1906,7 @@ describe('runUpdate (drift-safe)', () => {
       expect(capNote()).toContain('no longer exists upstream');
       // Zero manifest paths ⇒ its file was never a write target; the directory
       // is deleted with the entry, and the file — pharn has no record of it —
-      // was copied to .pharn-backup/ first.
+      // was copied to pharn/.backup/ first.
       expect(existsSync(join(proj, 'pharn-review/gone'))).toBe(false);
       const [ts] = backupDirs();
       expect(
@@ -2060,6 +2061,7 @@ describe('runUpdate (drift-safe)', () => {
         await droppedStale();
         const outside = join(tmp.path(), 'outside-backup');
         mkdirSync(outside, { recursive: true });
+        mkdirSync(join(proj, 'pharn'), { recursive: true });
         symlinkSync(outside, join(proj, BACKUP_DIR));
         const recordsBefore = readFileSync(join(proj, RECORDS_FILE), 'utf8');
 
@@ -2898,7 +2900,7 @@ describe('runUpdate (drift-safe)', () => {
       await runUpdate({ force: true });
 
       const dirs = backupDirs();
-      // The DIRECTORY, not merely the constant: `.pharn-backup` alone also
+      // The DIRECTORY, not merely the constant: `pharn/.backup` alone also
       // appears in the gitignore line, so it would pass while the run named the
       // wrong timestamp.
       expect(infoLines()).toContain(`${BACKUP_DIR}/${dirs[0]!}`);
@@ -3099,7 +3101,7 @@ describe('runUpdate (drift-safe)', () => {
     it('aborts without touching any original when the backup cannot be written', async () => {
       await installed();
       write(join(proj, DOC), 'MY LOCAL EDIT');
-      // A plain file at .pharn-backup makes the backup mkdir fail.
+      // A plain file at pharn/.backup makes the backup mkdir fail.
       write(join(proj, BACKUP_DIR), 'not a directory');
 
       await expect(runUpdate({ force: true })).rejects.toMatchObject(

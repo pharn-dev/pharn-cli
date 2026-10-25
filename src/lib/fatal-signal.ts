@@ -6,7 +6,7 @@
 // `exit`, so no `exit` listener and no `finally` runs on one. Two things must
 // run anyway: removing the temp clone (lib/repo.ts) and releasing the project
 // lock (lib/project-lock.ts). The lock is the costly one: `pharn update --yes`
-// cancelled in CI, or killed by `timeout` / `docker stop`, left .pharn.lock in
+// cancelled in CI, or killed by `timeout` / `docker stop`, left pharn/.lock in
 // the project, and a host sharing that directory waited out the lock's six-hour
 // staleness window before it could write again.
 //

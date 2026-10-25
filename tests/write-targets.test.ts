@@ -277,7 +277,7 @@ describe('removals in the write-target plan', () => {
         removal({ cap: { name: 'gone', role: 'lens' }, present: false }),
       ]),
     ).toEqual([
-      '  • pharn-review/old/ (lens:old — 1 file(s) backed up to .pharn-backup/ first)',
+      '  • pharn-review/old/ (lens:old — 1 file(s) backed up to pharn/.backup/ first)',
       '  • pharn-review/old/ (griller:x)',
     ]);
   });

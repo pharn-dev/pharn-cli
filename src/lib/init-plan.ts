@@ -1,3 +1,8 @@
+import {
+  planRootMigration,
+  type RootMigration,
+  type RootMigrationPlan,
+} from './root-migration.js';
 import { existsSync } from 'node:fs';
 import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import { readJsonBounded } from './bounded-read.js';
@@ -370,8 +375,9 @@ export interface InitPlanReport {
   // The capability directories it would delete (dropped from the config), and
   // what it would back up from them first.
   removals: CapabilityRemoval[];
-  // What the install would copy to `.pharn-backup/<timestamp>/` first —
-  // overwrites, the replaced config, and the removals' files.
+  // What the install would copy to `pharn/.backup/<timestamp>/` first —
+  // overwrites, the replaced config, the removals' files, and the files of
+  // the user-data moves (rootMigration).
   backups: string[];
   counts: { create: number; overwrite: number; backup: number };
   settingsPreserved: boolean;
@@ -388,6 +394,41 @@ export interface InitPlanReport {
   // The top-level keys of the replaced config that pharn does not own — the
   // NAMES only, never their values.
   carriedConfigKeys: string[];
+  // The old root footprint a RE-RUN would retire (lib/root-migration.ts), or
+  // null — always null for a first install, which has nothing of pharn's at
+  // the root to retire and must never move the user's data unasked.
+  rootMigration: RootMigration | null;
+}
+
+/**
+ * The root migration a re-run init makes (lib/root-migration.ts), or null. A
+ * first install — no replaced config with a readable stamp — makes none: its
+ * root holds nothing pharn wrote, and `memory-bank/` there is the user's to
+ * place. Shared by the dry run and the real install, so the two agree.
+ */
+export function initRootMigration(
+  repoDir: string,
+  cwd: string,
+  carry: InstallCarry,
+): RootMigrationPlan | null {
+  if (carry.previousStamp === null) return null;
+  // Tolerant of a clone without a valid SKILLS_VERSION: the moves are then
+  // inert (no major to compare), and the install's own read reports the
+  // packaging bug at the step it always has.
+  let skillsVersion = '';
+  try {
+    skillsVersion = readSkillsVersion(repoDir);
+  } catch {
+    /* inert moves; readSkillsVersion throws again where it is authoritative */
+  }
+  return planRootMigration({
+    projectRoot: cwd,
+    repoDir,
+    layout: detectLayout(repoDir),
+    installedLayout: carry.previousLayout ?? 'flat',
+    skillsVersion,
+    records: reinstallBaseline(cwd, carry.previousStamp),
+  });
 }
 
 /**
@@ -448,13 +489,16 @@ export function buildInitPlan(params: {
           ? ('rewritten' as const)
           : null),
     }));
+  const rootMigration = initRootMigration(repoDir, cwd, carry);
   // What runInstallArchetype backs up under the lock: the drifted files, then
-  // the replaced config (steps/install-archetype.ts).
+  // the replaced config (steps/install-archetype.ts), the removals' files and
+  // the user-data moves' files.
   const backups = [
     ...new Set([
       ...[...labels.keys()].sort(),
       ...(configBackedUp ? [PHARN_CONFIG_FILE] : []),
       ...removalBackups(removals),
+      ...(rootMigration?.backups ?? []),
     ]),
   ];
 
@@ -500,5 +544,6 @@ export function buildInitPlan(params: {
           : { outcome: 'rejected', reasons: upstreamModels.reasons },
     absentUpstream: absentInstallSurfaces({ repoDir, layout }),
     carriedConfigKeys: Object.keys(readCarriedEntries(cwd)),
+    rootMigration: rootMigration?.report ?? null,
   };
 }

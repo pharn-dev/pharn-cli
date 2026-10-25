@@ -666,7 +666,7 @@ describe('collectExpectedInstallPaths — symlinked SOURCE roots (P2)', () => {
 describe('CLI-owned metadata is outside the install set', () => {
   const tmp = useTmpDir();
 
-  it('pharn.records.json and .pharn-backup/ are in neither the manifest nor the conflict set', () => {
+  it('pharn.records.json and pharn/.backup/ are in neither the manifest nor the conflict set', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
@@ -1051,7 +1051,7 @@ describe('absentInstallSurfaces', () => {
       'file',
       { surface: 'trusted-doc', path: 'pharn/CONSTITUTION.md' },
     ],
-    ['LIMITS.md', 'file', { surface: 'trusted-doc', path: 'LIMITS.md' }],
+    ['LIMITS.md', 'file', { surface: 'trusted-doc', path: 'pharn/LIMITS.md' }],
     ['LICENSE', 'file', { surface: 'license', path: 'LICENSE' }],
     [
       'pharn/features/README.md',

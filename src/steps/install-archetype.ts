@@ -1,3 +1,9 @@
+import {
+  applyRootMoves,
+  deleteRootDocs,
+  rootMigrationFailed,
+  rootMigrationNoteLines,
+} from '../lib/root-migration.js';
 import { log, note, outro, spinner } from '@clack/prompts';
 import pc from '../lib/color.js';
 import {
@@ -21,6 +27,7 @@ import { absentSurfaceLines } from '../lib/absent-surfaces.js';
 import { detectLayout, layoutPaths } from '../lib/layout.js';
 import { manifestSources, scanDest } from '../lib/dest-drift.js';
 import {
+  backupAction,
   createBackup,
   printBackupNotice,
   replacedConfigBackup,
@@ -35,6 +42,7 @@ import {
 } from '../lib/install-records.js';
 import { findOrphans } from '../lib/orphans.js';
 import {
+  initRootMigration,
   planInitRemovals,
   readCarriedEntries,
   reinstallBaseline,
@@ -133,7 +141,7 @@ export async function runInstallArchetype(
   // 1. The destination pre-flight, FIRST: a project the copy cannot finish in
   // (a symlink on the way, a type in the way) is refused before anything is
   // written — the backup below included, so a refused re-install leaves no
-  // `.pharn-backup/` behind and prints no "Backed up" line for a copy that
+  // `pharn/.backup/` behind and prints no "Backed up" line for a copy that
   // never happens. installCapabilities repeats it immediately before copying.
   const prepared = prepareInstall(repoDir, cwd, selection.selected, manifest);
 
@@ -166,6 +174,10 @@ export async function runInstallArchetype(
   // must go (lib/capability-removal.ts).
   const removals = planInitRemovals(cwd, carry);
   const deletes = removals.filter((r) => r.present);
+  // The old root footprint a re-run retires (lib/root-migration.ts), planned
+  // here, under the lock, against the same baseline. Null on a first install.
+  const migration = initRootMigration(repoDir, cwd, carry);
+  const moveBackups = migration?.backups ?? [];
   // The config this install replaces is rewritten below (`seam` and `models`
   // reset), so an existing one is always saved too — in the SAME backup, even
   // alone (lib/backup.ts → replacedConfigBackup). None on a fresh install. The
@@ -173,7 +185,11 @@ export async function runInstallArchetype(
   // the same one backup.
   const overwriteBackups = [...scan.drifted, ...replacedConfigBackup(cwd)];
   const toBackUp = [
-    ...new Set([...overwriteBackups, ...removalBackups(removals)]),
+    ...new Set([
+      ...overwriteBackups,
+      ...removalBackups(removals),
+      ...moveBackups,
+    ]),
   ];
   // `unsafe` is empty after a passing pre-flight; non-empty means a link
   // appeared since, and installCapabilities' own pre-flight refuses the run —
@@ -182,12 +198,11 @@ export async function runInstallArchetype(
   if (scan.unsafe.length === 0) {
     if (toBackUp.length > 0) {
       const backupDir = createBackup(cwd, toBackUp);
-      const action =
-        deletes.length === 0
-          ? 'overwriting'
-          : overwriteBackups.length > 0
-            ? 'overwriting and removing'
-            : 'removing';
+      const action = backupAction(
+        overwriteBackups.length > 0,
+        deletes.length > 0,
+        moveBackups.length > 0,
+      );
       // Named at creation, so the pointer survives anything that fails after it.
       printBackupNotice({
         dir: backupDir,
@@ -234,6 +249,15 @@ export async function runInstallArchetype(
     throw err;
   }
   s.stop('Capabilities installed');
+
+  // The old root docs, deleted only now that their pharn/ copies have landed
+  // and only while still record-equal (lib/root-migration.ts). A failure keeps
+  // the file — and so its record, carried below as an orphan's.
+  const docResult =
+    migration === null
+      ? { deleted: [], kept: [] }
+      : deleteRootDocs(cwd, repoDir, migration.report.docs);
+  const retired = new Set(docResult.deleted);
 
   // `.claude/settings.json` is user-owned: an existing one is preserved, never
   // overwritten or merged. What the user needs to know is which PHARN hooks it
@@ -353,13 +377,17 @@ export async function runInstallArchetype(
       // Files the replaced install recorded that upstream no longer ships and
       // that are still on disk keep their record, so `update` and `status`
       // keep naming them (lib/orphans.ts). Disjoint from the manifest.
-      ...findOrphans({
-        projectRoot: cwd,
-        records: baseline,
-        expected: prepared.manifest,
-        capabilities: [...capabilities, ...carry.kept],
-        frozen: carry.kept,
-      }).records,
+      ...Object.fromEntries(
+        Object.entries(
+          findOrphans({
+            projectRoot: cwd,
+            records: baseline,
+            expected: prepared.manifest,
+            capabilities: [...capabilities, ...carry.kept],
+            frozen: carry.kept,
+          }).records,
+        ).filter(([rel]) => !retired.has(rel)),
+      ),
       ...buildRecords(cwd, prepared.manifest.keys()),
       // The block pharn just wrote, so `pharn update` can tell it from an edit.
       ...(models !== undefined
@@ -380,6 +408,19 @@ export async function runInstallArchetype(
   // most likely added them, so the committed file's diff is only what init
   // actually changed.
   await writePharnConfig(cwd, { ...config, ...readCarriedEntries(cwd) });
+
+  // The user-data moves, LAST — after every pharn-owned write — and the note
+  // that says what happened (the wording `update` prints too). A move that
+  // could not be made fails the run with exit 1 once the outro is out.
+  if (migration !== null) {
+    const result = {
+      ...docResult,
+      ...applyRootMoves(cwd, migration.report.moves),
+    };
+    const lines = rootMigrationNoteLines(migration.report, result);
+    if (lines) note(lines.join('\n'), 'ROOT MIGRATION');
+    if (rootMigrationFailed(migration.report, result)) process.exitCode = 1;
+  }
 
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
   const check = pc.green('✔');

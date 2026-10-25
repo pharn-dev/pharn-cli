@@ -3,7 +3,7 @@
 Remove a single installed **capability** — a griller or a lens — from an existing project (one with a
 `pharn.config.json`). The inverse of [`add`](add.md): it deletes exactly that capability's directory and
 drops its entry from `pharn.config.json`. Any file in that directory that `pharn` cannot prove it wrote
-unchanged is copied to `.pharn-backup/<timestamp>/` first — see
+unchanged is copied to `pharn/.backup/<timestamp>/` first — see
 [What is backed up before the delete](#what-is-backed-up-before-the-delete).
 
 ```bash
@@ -68,13 +68,13 @@ delete against [`pharn.records.json`](../reference/pharn-records.md):
   store is absent, unreadable, or stamped for a different install state — every file in the directory,
   because then nothing can be proven.
 
-The copies go to `.pharn-backup/<timestamp>/` at your project root — the same backup directory
+The copies go to `pharn/.backup/<timestamp>/` at your project root — the same backup directory
 [`pharn update --force`](update.md) and [`pharn add`](add.md) write — preserving each file's
 project-relative path, and the directory is printed as soon as it exists:
 
 ```text
-Backed up 1 file(s) to .pharn-backup/20261013-141530 before removing.
-.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
+Backed up 1 file(s) to pharn/.backup/20261013-141530 before removing.
+pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
 ```
 
 When nothing needs saving (every file is recorded and unchanged, or the directory was already gone), no
@@ -82,9 +82,9 @@ backup directory is created. The picker makes **one** backup for its whole selec
 and before the first delete. The backup copies everything that qualifies, however large — if you keep
 big generated files inside a capability directory, they are copied too.
 
-If the backup cannot be made — `.pharn-backup` is a symlink, a file or folder in the directory cannot be
+If the backup cannot be made — `pharn/.backup` is a symlink, a file or folder in the directory cannot be
 read, a copy fails — `remove` **refuses with exit 1 and deletes nothing**: no directory, no config
-change, no records change. A partly written `.pharn-backup/<timestamp>/` may be left behind; your
+change, no records change. A partly written `pharn/.backup/<timestamp>/` may be left behind; your
 originals are untouched. Fix the cause (see
 [`--force` aborted with a backup error](../troubleshooting.md#--force-aborted-with-a-backup-error)) and
 re-run.
@@ -102,7 +102,7 @@ open is refused too.
 
 ## Concurrency
 
-`remove` takes the project lock (`.pharn.lock`) around its backup → delete → prune → config write — on the
+`remove` takes the project lock (`pharn/.lock`) around its backup → delete → prune → config write — on the
 named path, and on the picker path after its one confirmation. A second `pharn` writer refuses with a
 named message and exit 1. Worth knowing because `remove` is otherwise entirely local: it makes no
 network call and clones nothing, so a refusal is the one thing that can stop it for a reason outside
@@ -132,7 +132,7 @@ the capability is missing — `remove` dropped both its config entry and its rec
 run leaves it removed. It comes back with the first run that re-applies the install: at the latest the
 one that moves to a new pharn-oss version, or right away with `pharn update --force` (which also
 overwrites files you edited, after backing them up — see
-[`--force`](update.md#--force-and-pharn-backup)).
+[`--force`](update.md#--force-and-pharnbackup)).
 
 The warning asserts "will", not "may", because it is derived from the stored `source` alone — `remove`
 makes no network call and cannot re-resolve. The next section is why that is a heuristic rather than a

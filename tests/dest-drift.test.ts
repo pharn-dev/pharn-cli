@@ -9,7 +9,7 @@ import { contentHash } from '../src/lib/hash.js';
 // The destination-drift set — the files `pharn add`'s copy is about to overwrite
 // with DIFFERENT bytes, and therefore the exact set it backs up first. The whole
 // point is the two-sided membership test: existing-but-identical must NOT be
-// drift (or every re-add would litter .pharn-backup/), and existing-but-different
+// drift (or every re-add would litter pharn/.backup/), and existing-but-different
 // must be, or the user's edit is destroyed with no copy anywhere.
 // ---------------------------------------------------------------------------
 
@@ -44,7 +44,7 @@ describe('scanDest', () => {
 
   it('does NOT report byte-identical bytes — identical is not drift', () => {
     // The drop-then-re-add of untouched files. Backing these up would fill
-    // .pharn-backup/ with copies of bytes nobody ever lost, and would make the
+    // pharn/.backup/ with copies of bytes nobody ever lost, and would make the
     // report cry wolf on the one signal that is supposed to mean "you edited
     // this". Mirrors update's decision table row `identical → no-op`.
     const { repo, proj } = trees();

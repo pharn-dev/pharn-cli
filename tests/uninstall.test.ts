@@ -169,7 +169,7 @@ function errors(): string {
 }
 
 function backups(): string[] {
-  const root = join(proj, '.pharn-backup');
+  const root = join(proj, 'pharn/.backup');
   return existsSync(root) ? readdirSync(root) : [];
 }
 
@@ -215,15 +215,15 @@ describe('runUninstall', () => {
     // The config is saved, byte for byte, before it is deleted.
     const [ts] = backups();
     expect(
-      readFileSync(join(proj, '.pharn-backup', ts!, 'pharn.config.json')),
+      readFileSync(join(proj, 'pharn/.backup', ts!, 'pharn.config.json')),
     ).toEqual(configBytes);
     expect(vi.mocked(prompts.log.info)).toHaveBeenCalledWith(
-      `Backed up pharn.config.json to .pharn-backup/${ts}.`,
+      `Backed up pharn.config.json to pharn/.backup/${ts}.`,
       { output: process.stdout },
     );
     // F-40: the same .gitignore advice every backup notice carries.
     expect(vi.mocked(prompts.log.info)).toHaveBeenCalledWith(
-      '.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
+      'pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.',
       { output: process.stdout },
     );
 
@@ -232,7 +232,7 @@ describe('runUninstall', () => {
       `Deleted ${FLAT_FILES.length} file(s) and 11 empty directories`,
     );
     expect(done).toContain(
-      '.claude/settings.json, .claude/settings.local.json and every .pharn-backup/ directory are left untouched.',
+      '.claude/settings.json, .claude/settings.local.json and every pharn/.backup/ directory are left untouched.',
     );
     expect(done).toContain('Left 1 directory that still hold other files:');
     expect(done).toContain('  • .claude');
@@ -370,17 +370,17 @@ describe('runUninstall', () => {
     );
     expect(plan).toContain('  • src/app.ts');
     expect(plan).toContain(
-      '.claude/settings.json, .claude/settings.local.json and every .pharn-backup/ directory are left untouched.',
+      '.claude/settings.json, .claude/settings.local.json and every pharn/.backup/ directory are left untouched.',
     );
   });
 
-  it('leaves earlier .pharn-backup/ directories untouched', async () => {
+  it('leaves earlier pharn/.backup/ directories untouched', async () => {
     await install(FLAT_FILES);
-    write('.pharn-backup/2026-01-01T00-00-00Z/CONSTITUTION.md', 'old');
+    write('pharn/.backup/2026-01-01T00-00-00Z/CONSTITUTION.md', 'old');
     await runUninstall({ yes: true });
     expect(
       readFileSync(
-        join(proj, '.pharn-backup/2026-01-01T00-00-00Z/CONSTITUTION.md'),
+        join(proj, 'pharn/.backup/2026-01-01T00-00-00Z/CONSTITUTION.md'),
         'utf8',
       ),
     ).toBe('old');
@@ -466,10 +466,11 @@ describe('runUninstall', () => {
       ).toBe(true);
     });
 
-    it('when the config cannot be backed up (.pharn-backup is a symlink)', async () => {
+    it('when the config cannot be backed up (pharn/.backup is a symlink)', async () => {
       await install(FLAT_FILES);
       mkdirSync(join(tmp.path(), 'elsewhere'));
-      symlinkSync(join(tmp.path(), 'elsewhere'), join(proj, '.pharn-backup'));
+      mkdirSync(join(proj, 'pharn'), { recursive: true });
+      symlinkSync(join(tmp.path(), 'elsewhere'), join(proj, 'pharn/.backup'));
       await expectRefusal(
         /Could not back up pharn\.config\.json before uninstalling.*Nothing was removed/,
       );
@@ -477,6 +478,7 @@ describe('runUninstall', () => {
 
     it('when another pharn process holds the lock', async () => {
       await install(FLAT_FILES);
+      mkdirSync(join(proj, 'pharn'), { recursive: true });
       writeFileSync(
         join(proj, LOCK_FILE),
         JSON.stringify({
@@ -680,7 +682,12 @@ describe('runUninstall', () => {
     await runUninstall({ yes: true });
     expect(existsSync(join(proj, 'pharn-contracts'))).toBe(false);
     expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
-    expect(existsSync(join(proj, 'pharn'))).toBe(false);
+    // Every recorded file under pharn/ is gone; what is left is the config's
+    // backup, which uninstall never deletes — and says so.
+    expect(readdirSync(join(proj, 'pharn'))).toEqual(['.backup']);
+    expect(notes('UNINSTALLED')).toContain(
+      'pharn/ was left because it still holds files pharn has no record of (.backup)',
+    );
   });
 
   describe('a file that vanishes mid-run', () => {
@@ -770,6 +777,7 @@ describe('runUninstall', () => {
     rmSync(join(proj, '.claude'), { recursive: true });
     await runUninstall({ yes: true });
     expect(lstatSync(proj).isDirectory()).toBe(true);
-    expect(readdirSync(proj)).toEqual(['.pharn-backup']);
+    expect(readdirSync(proj)).toEqual(['pharn']);
+    expect(readdirSync(join(proj, 'pharn'))).toEqual(['.backup']);
   });
 });

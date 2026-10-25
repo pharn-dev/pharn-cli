@@ -33,11 +33,11 @@ added inside a capability directory, and `.claude/` (which still holds `settings
 directories. If `.claude/` or `pharn/` ends up completely empty, it is removed too.
 
 Last, `pharn.records.json` is deleted, then `pharn.config.json` — after it is copied to
-`.pharn-backup/<timestamp>/pharn.config.json`, printed as soon as it exists:
+`pharn/.backup/<timestamp>/pharn.config.json`, printed as soon as it exists:
 
 ```text
-Backed up pharn.config.json to .pharn-backup/20261013-141530.
-.pharn-backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
+Backed up pharn.config.json to pharn/.backup/20261013-141530.
+pharn/.backup/ is not gitignored — add it to .gitignore or delete it once you are happy.
 ```
 
 The backup keeps whatever only the config held: your `models` and `seam` blocks and any keys of your own.
@@ -54,15 +54,20 @@ The backup keeps whatever only the config held: your `models` and `seam` blocks 
 - **`.claude/settings.json` and `.claude/settings.local.json`.** `pharn` never writes them after `init`.
   Instead, `uninstall` prints the hooks still wired in them to a hook script it removed — see
   [Hooks](#hooks).
-- **Every `.pharn-backup/` directory**, including the one this run creates. Delete it yourself once you
+- **Every `pharn/.backup/` directory**, including the one this run creates. Delete it yourself once you
   no longer need it.
+- **`pharn/` itself, while anything is still in it.** After the deletes (and after the project lock in
+  `pharn/` is released) `uninstall` removes `pharn/` if it is empty. It never is after a real run — the
+  config's backup sits in `pharn/.backup/` — so the `UNINSTALLED` note names what is left (for example
+  `.backup`, or pharn-oss's runtime scratch `.run`) and that you may delete `pharn/` once you no longer
+  need them.
 
 ## The plan and the confirmation
 
 Before anything is written, `uninstall` prints a `PLAN` note: how many files it will delete, the files
 it keeps because you changed them, paths it cannot verify, recorded paths outside the install paths, and
 how many recorded files are already gone. It always ends with the reminder that `.claude/settings.json`,
-`.claude/settings.local.json`, and every `.pharn-backup/` directory are left untouched.
+`.claude/settings.local.json`, and every `pharn/.backup/` directory are left untouched.
 
 In a terminal it then asks one question, defaulting to **No**:
 
@@ -95,7 +100,7 @@ Each of these exits 1 and removes nothing:
   [Removing PHARN by hand](../troubleshooting.md#removing-pharn-by-hand).
 - **A directory on the way to a recorded file is a symbolic link** — deleting through it would delete a
   file outside the project.
-- **`pharn.config.json` cannot be backed up** (for example `.pharn-backup` is a symbolic link).
+- **`pharn.config.json` cannot be backed up** (for example `pharn/.backup` is a symbolic link).
 - **Another `pharn` command holds the project lock**, or `pharn.config.json` changed while the prompt
   was open.
 - **A pre-archetype (module) config** — the shared config check rejects it, as every command does.

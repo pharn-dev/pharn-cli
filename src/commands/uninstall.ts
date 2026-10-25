@@ -1,4 +1,4 @@
-import { lstatSync, rmdirSync, unlinkSync } from 'node:fs';
+import { lstatSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs';
 import { posix } from 'node:path';
 import { confirm, intro, isCancel, note, outro } from '@clack/prompts';
 import pc from '../lib/color.js';
@@ -19,7 +19,11 @@ import {
   configPath,
   loadArchetypeConfigOrExit,
 } from '../lib/pharn-config.js';
-import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
+import {
+  LOCK_DIR,
+  ProjectLockedError,
+  withProjectLock,
+} from '../lib/project-lock.js';
 import { errorMessage, logError } from '../lib/report-error.js';
 import { CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS_FILE } from '../lib/constants.js';
 import { escapeUnsafe } from '../lib/terminal-safe.js';
@@ -33,7 +37,7 @@ import type { PharnConfig } from '../types.js';
 // usable `pharn.records.json`, at a path an install writes, still at its
 // recorded sha256. Everything else stays where it is — an edited file, a file
 // pharn has no record of, `.claude/settings.json` (never written), and every
-// `.pharn-backup/` directory — and the edited/unverifiable files are listed.
+// `pharn/.backup/` directory — and the edited/unverifiable files are listed.
 //
 // Offline, like `remove`: no clone, no network, no repo module imported. The
 // only proof is the local record store, so a project without a usable one is
@@ -138,7 +142,7 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
     throw err;
   }
 
-  reportResult(cwd, result);
+  reportResult(cwd, result, finishPharnDir(cwd));
   outro(`${pc.green('✔')} PHARN was uninstalled.`);
 }
 
@@ -304,7 +308,34 @@ function planLines(plan: UninstallPlan): string[] {
   return lines;
 }
 
-function reportResult(cwd: string, result: UninstallResult): void {
+// After the lock is released: remove `pharn/` if the run left it EMPTY. While
+// the lock was held its file sat in `pharn/`, so the in-lock empty-directory
+// pass (removeEmptyDirs) could never remove it. One non-recursive rmdir — the
+// kernel refuses a directory that holds anything — with ENOENT (already gone)
+// and ENOTEMPTY counted as success. Returns what is left in it, or null when it
+// is gone. The leftovers are unrecorded (pharn/.backup/, pharn-oss's
+// pharn/.run/, the user's own files): uninstall never deletes them.
+function finishPharnDir(cwd: string): string[] | null {
+  const dir = safeJoin(cwd, LOCK_DIR);
+  try {
+    rmdirSync(dir);
+    return null;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return null;
+    try {
+      return readdirSync(dir).sort();
+    } catch {
+      return [];
+    }
+  }
+}
+
+function reportResult(
+  cwd: string,
+  result: UninstallResult,
+  pharnLeft: string[] | null,
+): void {
   const { plan, deleted, removedDirs, keptDirs, backupDir } = result;
   const lines = [
     `Deleted ${deleted.length} file(s) and ${removedDirs.length} empty director${removedDirs.length === 1 ? 'y' : 'ies'}, plus ${RECORDS_FILE} and ${CONFIG_FILENAME}.`,
@@ -326,6 +357,13 @@ function reportResult(cwd: string, result: UninstallResult): void {
     `${CONFIG_FILENAME} was backed up to ${backupDir}.`,
     `${UNTOUCHED} Delete ${BACKUP_DIR}/ yourself once you no longer need it.`,
   );
+  if (pharnLeft !== null) {
+    const names = pharnLeft.slice(0, MAX_LISTED).map((n) => escapeUnsafe(n));
+    const more = pharnLeft.length - names.length;
+    lines.push(
+      `${LOCK_DIR}/ was left because it still holds files pharn has no record of${names.length > 0 ? ` (${names.join(', ')}${more > 0 ? `, …and ${more} more` : ''})` : ''} — you may delete it once you no longer need them.`,
+    );
+  }
   note(lines.join('\n'), 'UNINSTALLED');
 
   const hookLines = danglingHookLines(cwd, result.records);

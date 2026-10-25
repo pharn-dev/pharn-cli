@@ -46,7 +46,7 @@ export interface CapabilityRemoval {
   dir: string;
   // Whether there is anything at that address to delete.
   present: boolean;
-  // Project-relative files copied to `.pharn-backup/` before the delete: every
+  // Project-relative files copied to `pharn/.backup/` before the delete: every
   // regular file in it that is not provably pharn's own unchanged bytes
   // (lib/removal-backup.ts). Sorted.
   backups: string[];

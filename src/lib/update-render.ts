@@ -5,12 +5,22 @@ import type { AbsentSurface } from './install-manifest.js';
 import type { CapabilityRemoval, UpdatePlanReport } from './update-plan.js';
 import pc from './color.js';
 import type { CapabilityChange } from './merge-capabilities.js';
-import { BACKUP_DIR, printBackupNotice, type BackupAction } from './backup.js';
+import {
+  BACKUP_DIR,
+  backupAction,
+  printBackupNotice,
+  type BackupAction,
+} from './backup.js';
 import { RECORDS_FILE } from './install-records.js';
 import { modelsLabelLines } from './model-config-format.js';
 import type { ModelsUpdate } from './models-update.js';
 import { terminalSafe } from './terminal-safe.js';
 import { orphanNoteLines, type Orphan } from './orphans.js';
+import {
+  rootMigrationNoteLines,
+  type RootMigration,
+  type RootMigrationResult,
+} from './root-migration.js';
 import type { UpdateLabel, UpdatePlan } from './update-decision.js';
 import { channelOf, type RefChoice } from './release.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
@@ -67,6 +77,20 @@ export interface UpdateOutcome {
   modelsFloor: string;
   // Recorded files upstream no longer ships, still on disk (lib/orphans.ts).
   orphans: Orphan[];
+  // The old root footprint this run retired (lib/root-migration.ts), and what
+  // the writer actually did. Both null when nothing applied.
+  rootMigration: RootMigration | null;
+  rootMigrationResult: RootMigrationResult | null;
+}
+
+// The ROOT MIGRATION note (lib/root-migration.ts owns the wording, shared with
+// `init`). Nothing is printed when there is nothing to say.
+export function reportRootMigration(
+  m: RootMigration | null,
+  result: RootMigrationResult | null,
+): void {
+  const lines = m === null ? null : rootMigrationNoteLines(m, result);
+  if (lines) note(lines.join('\n'), 'ROOT MIGRATION');
 }
 
 // The skip buckets `--force` actually overrides, mirroring `skipOrForce` in
@@ -106,6 +130,7 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
 
   const forceable = reportSkipped(plan.skipped, false);
   reportOrphans(outcome.orphans);
+  reportRootMigration(outcome.rootMigration, outcome.rootMigrationResult);
 
   // The backup pointer was printed when the backup was created (onBackup).
 
@@ -270,10 +295,18 @@ export function reportDryRun(
       'WOULD DELETE — directories of capabilities dropped from your config',
     rels: deletes.map((removal) => `${removal.dir}/`),
   });
-  // The one backup directory a real run makes holds both sets.
+  // The one backup directory a real run makes holds all three sets.
   const backupRels = [
-    ...new Set([...r.backups, ...r.removals.flatMap((x) => x.backups)]),
+    ...new Set([
+      ...r.backups,
+      ...r.removals.flatMap((x) => x.backups),
+      ...r.rootMoveBackups,
+    ]),
   ];
+  // The root migration changes the project too (its own note names what).
+  const migrates =
+    (r.rootMigration?.docs ?? []).some((d) => d.action === 'delete') ||
+    (r.rootMigration?.moves ?? []).some((m) => m.action === 'move');
   const lines: string[] = [];
   for (const { heading, rels } of sections) {
     if (rels.length === 0) continue;
@@ -288,7 +321,7 @@ export function reportDryRun(
     for (const rel of backupRels) lines.push(`  ${rel}`);
     lines.push('');
   }
-  if (writes.length === 0 && deletes.length === 0)
+  if (writes.length === 0 && deletes.length === 0 && !migrates)
     lines.push('  Nothing would be written.', '');
   lines.push(
     `  UNCHANGED ${r.counts.ok} file(s) · SKIPPED ${r.counts.skipped} file(s)`,
@@ -307,6 +340,7 @@ export function reportDryRun(
 
   const forceable = reportSkipped(r.skipped, true);
   reportOrphans(r.orphans);
+  reportRootMigration(r.rootMigration, null);
   reportLayoutWarnings(r.abandonedLayout, r.featuresReadmeRelocation, true);
 
   if (r.versionWithheld) {
@@ -333,7 +367,7 @@ export function reportDryRun(
 }
 
 // The backup pointer — ONE wording, reached from BOTH the success report and the
-// failure branch. `.pharn-backup/<ts>/` is the user's only route back to their
+// failure branch. `pharn/.backup/<ts>/` is the user's only route back to their
 // pre-overwrite bytes, so the two paths must never drift into saying different
 // things about it — which is why the failure branch calls this rather than
 // growing a second copy of the sentence.
@@ -360,21 +394,18 @@ export function reportBackup(backup: Backup, opts: { aborted: boolean }): void {
   );
 }
 
-// What a backup was made ahead of: overwrites (`--force` casualties) and/or
-// directory deletes. Two booleans, no third case; with neither, no backup exists
-// (a backup always has a reason, so `overwriting` is the honest default).
-export function backupAction(
-  overwrites: boolean,
-  removals: boolean,
-): BackupAction {
-  if (overwrites && removals) return 'overwriting and removing';
-  return removals ? 'removing' : 'overwriting';
-}
+// `backupAction` lives in lib/backup.ts (shared with `init`); re-exported for
+// the command, which has always imported it from here.
+export { backupAction };
 
 const ABORTED_PHRASE: Record<BackupAction, string> = {
   overwriting: 'overwritten',
   removing: 'removed',
   'overwriting and removing': 'overwritten or removed',
+  moving: 'moved',
+  'overwriting and moving': 'overwritten or moved',
+  'removing and moving': 'removed or moved',
+  'overwriting, removing and moving': 'overwritten, removed or moved',
 };
 
 // The order change groups are reported in — additions first, then departures,

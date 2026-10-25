@@ -50,6 +50,7 @@ vi.mock('@clack/prompts', () => {
   };
 });
 
+const clack = await import('@clack/prompts');
 const { runInit } = await import('../src/commands/init.js');
 const { runAdd } = await import('../src/commands/add.js');
 const { runUpdate } = await import('../src/commands/update.js');
@@ -350,7 +351,7 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(cfg.commit).toBe(SHA_V1);
     expect(cfg.pendingSkillsVersion).toBe('2.0.0');
     expect(rec).toMatchObject({ skillsVersion: '1.0.0', commit: SHA_V1 });
-    expect(existsSync(at('.pharn-backup'))).toBe(false);
+    expect(existsSync(at('pharn/.backup'))).toBe(false);
   });
 
   it('remove <name> deletes that capability, its config entry and its records', async () => {
@@ -367,7 +368,7 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(keys.filter((k) => k.includes('/a11y/'))).toEqual([]);
     expect(keys).toContain(SECURITY);
     // Every file was pharn's and unchanged, so nothing needed saving.
-    expect(existsSync(at('.pharn-backup'))).toBe(false);
+    expect(existsSync(at('pharn/.backup'))).toBe(false);
   });
 
   it('status --json prints one report: current, no drift, then the edit it finds', async () => {
@@ -408,10 +409,10 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     // config uninstall removed. Everything else pharn wrote is gone, the
     // directories it emptied included.
     const left = projectFiles();
-    const backups = left.filter((f) => f.startsWith('.pharn-backup/'));
+    const backups = left.filter((f) => f.startsWith('pharn/.backup/'));
     expect(backups).toHaveLength(1);
-    expect(backups[0]).toMatch(/^\.pharn-backup\/[^/]+\/pharn\.config\.json$/);
-    expect(left.filter((f) => !f.startsWith('.pharn-backup/'))).toEqual([
+    expect(backups[0]).toMatch(/^pharn\/\.backup\/[^/]+\/pharn\.config\.json$/);
+    expect(left.filter((f) => !f.startsWith('pharn/.backup/'))).toEqual([
       '.claude/settings.json',
       CONSTITUTION,
     ]);
@@ -419,5 +420,253 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(existsSync(at('pharn/pharn-pipeline'))).toBe(false);
     expect(existsSync(at('.claude/commands'))).toBe(false);
     expect(existsSync(at(REPO_DIR))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The root-footprint migration (lib/root-migration.ts), end to end: an install
+// made from a pre-7.0 pharn-oss (THREAT-MODEL.md / LIMITS.md at the root) is
+// updated against a 7.0.0 tree that keeps them under pharn/.
+// ---------------------------------------------------------------------------
+
+/** pharn-oss at a 7.x version: both docs moved under pharn/. */
+function upstreamTree7(version: string): Record<string, string> {
+  const {
+    'THREAT-MODEL.md': threat,
+    'LIMITS.md': limits,
+    ...rest
+  } = upstreamTree(version);
+  return {
+    ...rest,
+    'pharn/THREAT-MODEL.md': threat!,
+    'pharn/LIMITS.md': limits!,
+  };
+}
+
+function serveTip7(sha: string, version: string): void {
+  tip = { sha, tree: upstreamTree7(version) };
+}
+
+/** The project root's entries, the repository directory left out. */
+const rootEntries = (): string[] =>
+  readdirSync(proj)
+    .filter((n) => n !== REPO_DIR)
+    .sort();
+
+interface MigrationJson {
+  status: string;
+  plan: {
+    rootMigration: {
+      docs: { rel: string; action: string }[];
+      moves: { from: string; to: string; action: string }[];
+      scratchNotice: boolean;
+      gitignoreHints: string[];
+    } | null;
+  } | null;
+}
+
+describe('root-footprint migration, end to end', () => {
+  // A 6.x install, plus the user's data and pharn-oss's scratch at the root.
+  async function oldInstallWithUserData(): Promise<void> {
+    serveTip(SHA_V1, '6.9.0');
+    await init();
+    expect(records().files['THREAT-MODEL.md']).toBeDefined();
+    expect(records().files['LIMITS.md']).toBeDefined();
+    mkdirSync(at('memory-bank'));
+    writeFileSync(at('memory-bank/lessons-learned.md'), 'lesson\n');
+    writeFileSync(at('pharn.spec-template.md'), 'template\n');
+    mkdirSync(at('.pharn'));
+    writeFileSync(at('.pharn/ci.yml'), 'threshold: 90\n');
+    writeFileSync(at('.pharn/writes-scope.json'), '{}\n');
+    writeFileSync(at('.gitignore'), 'node_modules\n.pharn/\n.pharn-backup\n');
+  }
+
+  it('previews, then retires the root footprint, and status is clean right after', async () => {
+    await oldInstallWithUserData();
+    serveTip7(SHA_V2, '7.0.0');
+
+    stdout = [];
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
+    const preview = JSON.parse(stdout[0] ?? '') as MigrationJson;
+    expect(preview.plan?.rootMigration).toEqual({
+      docs: [
+        { rel: 'THREAT-MODEL.md', action: 'delete' },
+        { rel: 'LIMITS.md', action: 'delete' },
+      ],
+      moves: [
+        { from: 'memory-bank/', to: 'pharn/memory-bank/', action: 'move' },
+        {
+          from: 'pharn.spec-template.md',
+          to: 'pharn/spec-template.md',
+          action: 'move',
+        },
+      ],
+      scratchNotice: true,
+      gitignoreHints: ['pharn/.run/', 'pharn/.backup/'],
+    });
+    // The preview counts what the moves back up, as the real run will.
+    expect(
+      (JSON.parse(stdout[0] ?? '') as { plan: { backups: string[] } }).plan
+        .backups,
+    ).toEqual(
+      expect.arrayContaining([
+        'memory-bank/lessons-learned.md',
+        'pharn.spec-template.md',
+      ]),
+    );
+    // The preview wrote nothing.
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(true);
+    expect(existsSync(at('memory-bank'))).toBe(true);
+
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+
+    // Named BEFORE it is applied (the confirm's note, printed under --yes too),
+    // then reported after.
+    const migrationNotes = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
+      .map(([body]) => String(body));
+    expect(migrationNotes).toHaveLength(2);
+    expect(migrationNotes[0]).toContain('WOULD DELETE THREAT-MODEL.md');
+    expect(migrationNotes[0]).toContain('WOULD MOVE memory-bank/');
+    expect(migrationNotes[1]).toContain('deleted THREAT-MODEL.md');
+
+    // The docs: gone from the root, at pharn/, and recorded there only.
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(at('LIMITS.md'))).toBe(false);
+    expect(read('pharn/THREAT-MODEL.md')).toBe('threat model\n');
+    expect(read('pharn/LIMITS.md')).toBe('limits\n');
+    const files = records().files;
+    expect(files['THREAT-MODEL.md']).toBeUndefined();
+    expect(files['LIMITS.md']).toBeUndefined();
+    expect(files['pharn/THREAT-MODEL.md']).toBe(
+      sha256('pharn/THREAT-MODEL.md'),
+    );
+    expect(files['pharn/LIMITS.md']).toBe(sha256('pharn/LIMITS.md'));
+    expect(config().skillsVersion).toBe('7.0.0');
+
+    // The user's data: moved, never merged, and backed up first.
+    expect(existsSync(at('memory-bank'))).toBe(false);
+    expect(read('pharn/memory-bank/lessons-learned.md')).toBe('lesson\n');
+    expect(existsSync(at('pharn.spec-template.md'))).toBe(false);
+    expect(read('pharn/spec-template.md')).toBe('template\n');
+    const backed = projectFiles().filter((f) => f.startsWith('pharn/.backup/'));
+    expect(
+      backed.map((f) => f.replace(/^pharn\/\.backup\/[^/]+\//, '')),
+    ).toEqual(['memory-bank/lessons-learned.md', 'pharn.spec-template.md']);
+    // The scratch dir and the user's .gitignore are only noticed.
+    expect(read('.pharn/writes-scope.json')).toBe('{}\n');
+    expect(read('.gitignore')).toBe('node_modules\n.pharn/\n.pharn-backup\n');
+
+    // Nothing of pharn's at the root but .claude/, pharn/ and the JSON files;
+    // `.gitignore` and `.pharn/` are the user's and pharn-oss's.
+    expect(rootEntries()).toEqual([
+      '.claude',
+      '.gitignore',
+      '.pharn',
+      'pharn',
+      'pharn.config.json',
+      'pharn.records.json',
+    ]);
+
+    // status is clean immediately after: no drift, no orphans, --strict passes.
+    stdout = [];
+    expect(await run(() => runStatus({ json: true, strict: true }))).toBeNull();
+    const status = JSON.parse(stdout[0] ?? '') as StatusJson & {
+      orphans: unknown[] | null;
+    };
+    expect(status.drift).toMatchObject({ modified: [], missing: [] });
+    expect(status.orphans).toEqual([]);
+    expect(status.strict.failed).toBe(false);
+    expect(process.exitCode).toBeUndefined();
+
+    // And the next update has nothing left to do (the same-version return).
+    const before = read('pharn.records.json');
+    fetchStub.mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('pharn.records.json')).toBe(before);
+    expect(
+      fetchStub.mock.calls.some(([u]) =>
+        String(u).startsWith('https://codeload'),
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps an edited root doc as an orphan, refuses a move onto existing data, and exits 1', async () => {
+    await oldInstallWithUserData();
+    writeFileSync(at('LIMITS.md'), 'my limits\n');
+    mkdirSync(at('pharn/memory-bank'));
+    writeFileSync(at('pharn/memory-bank/other.md'), 'other\n');
+    serveTip7(SHA_V2, '7.0.0');
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(process.exitCode).toBe(1);
+
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
+    expect(read('LIMITS.md')).toBe('my limits\n');
+    // Kept docs keep their record: still a listed orphan.
+    expect(records().files['LIMITS.md']).toBeDefined();
+    // Never merged: both trees untouched.
+    expect(read('memory-bank/lessons-learned.md')).toBe('lesson\n');
+    expect(readdirSync(at('pharn/memory-bank'))).toEqual(['other.md']);
+    // The template's destination was free, so that move still happened.
+    expect(read('pharn/spec-template.md')).toBe('template\n');
+  });
+
+  it('is inert against a pre-7.0 tree: nothing moves, and the report says null', async () => {
+    await oldInstallWithUserData();
+    serveTip(SHA_V2, '6.9.1');
+    stdout = [];
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
+    expect(
+      (JSON.parse(stdout[0] ?? '') as MigrationJson).plan?.rootMigration,
+    ).toBeNull();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('THREAT-MODEL.md')).toBe('threat model\n');
+    expect(read('memory-bank/lessons-learned.md')).toBe('lesson\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
+    expect(records().files['THREAT-MODEL.md']).toBeDefined();
+  });
+
+  it('re-opens the same-version return for root docs an older CLI left on a 7.x install', async () => {
+    // What 0.13.0 leaves after updating to 7.0.0: config and records at 7.0.0,
+    // the root docs still recorded (carried as orphans), no pharn/ docs.
+    serveTip(SHA_V1, '6.9.0');
+    await init();
+    const stamp = { skillsVersion: '7.0.0', commit: SHA_V2 };
+    writeFileSync(
+      at('pharn.config.json'),
+      JSON.stringify({ ...config(), ...stamp }, null, 2),
+    );
+    writeFileSync(
+      at('pharn.records.json'),
+      JSON.stringify({ ...records(), ...stamp }, null, 2),
+    );
+    serveTip7(SHA_V2, '7.0.0');
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(at('LIMITS.md'))).toBe(false);
+    expect(records().files['pharn/LIMITS.md']).toBeDefined();
+  });
+
+  it('re-opens the same-version return for user data still at the root of a 7.x install', async () => {
+    serveTip7(SHA_V1, '7.0.0');
+    await init();
+    mkdirSync(at('memory-bank'));
+    writeFileSync(at('memory-bank/canon.md'), 'canon\n');
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('pharn/memory-bank/canon.md')).toBe('canon\n');
+    expect(existsSync(at('memory-bank'))).toBe(false);
+  });
+
+  it('uninstall afterwards leaves no empty pharn/, and names what it kept', async () => {
+    serveTip7(SHA_V1, '7.0.0');
+    await init();
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+    expect(readdirSync(at('pharn'))).toEqual(['.backup']);
+    expect(rootEntries()).toEqual(['.claude', 'pharn']);
   });
 });
