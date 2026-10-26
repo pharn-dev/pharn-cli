@@ -9,6 +9,18 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-10-26
+
+### Changed
+
+- **`pharn init` installs the newest verified pharn-oss release by default.** pharn-oss now publishes releases — a tag `v<SKILLS_VERSION>` its release workflow creates only after every required check on that commit has passed (the first are `v7.1.2` and `v7.1.3`) — so a new install no longer takes whatever merged last on `main`. It is recorded as `"ref": "latest"`, and `update`, `add` and `status` keep following releases. The resolve still fails closed: when no release can be resolved (none published, `api.github.com` unreachable, or its unauthenticated limit of 60 requests an hour used up) `init` exits 1, writes nothing and names `--ref main`; it never falls back to the tip on its own, and a release whose `SKILLS_VERSION` is not its tag is still refused. `pharn init --ref main` installs the tip of `main` (the contributor channel) and records no `ref`. A CI step such as `pharn status --strict` on a release install now needs those API requests, so on a shared CI address it can fail on the rate limit — see [No verified release could be resolved](docs/troubleshooting.md#no-verified-release-could-be-resolved). The `--ref` help text is now per command.
+
+### Added
+
+- **`pharn update` keeps an install on `main` on `main`, and says so once.** An install that records no `ref` — made with `--ref main`, or before `--ref` existed — is never switched. Each `update` on it (including the up-to-date return and `--dry-run`, but not with an explicit `--ref` or under `--json`) prints one line: verified releases are now the default for new installs, and `pharn update --ref latest` switches (recorded on first use). See [Release channel](docs/commands/update.md#release-channel).
+- **`pharn status` names the channel.** The `VERSION` note gains a `Channel` row (`latest — verified releases`, or `main — the pharn-oss tip` with the command that switches). On the release channel the skills line says whether a newer verified release exists (``newer verified release vX — run `pharn update` ``, or `no newer verified release`). `status --no-drift` on the release channel now makes one request (`releases/latest`) instead of two, since it downloads nothing and does not need the tag's commit. `status --json` is unchanged, and neither line is a new `--strict` input.
+- **A re-run `pharn init` names a move off `main`.** Without `--ref`, re-running `init` on an install that followed `main` installs the newest release; the summary now says `previously followed: main (the pharn-oss tip) — pass --ref main to keep it`, and, when the installed version is newer than that release, that the re-install goes back to it. `init --dry-run` prints the same.
+
 ### Security
 
 - **`markdown-it` moves to `15.0.3` via `markdownlint-cli2` `0.24.0`.** Three advisories cover `markdown-it` `>= 15.0.0, < 15.0.3`: [GHSA-gfr2-rv44-r23c](https://github.com/advisories/GHSA-gfr2-rv44-r23c) (Dependabot alert 23, quadratic-time rendering of a multi-line link reference definition), [GHSA-r7fv-28h4-cvq7](https://github.com/advisories/GHSA-r7fv-28h4-cvq7) (alert 21, quadratic smartquotes) and [GHSA-vfgh-jcmw-g37q](https://github.com/advisories/GHSA-vfgh-jcmw-g37q) (alert 22, quadratic inline HTML parsing). `markdownlint-cli2` `0.23.3` pinned `15.0.1` exactly; `0.24.0` pins `15.0.3`, so the dev dependency moves from `^0.23.1` to `^0.24.0` (no override needed) and a test now pins every `markdown-it` in the lockfile at `15.0.3` or higher. Dev-only: nothing in the published package is affected.
@@ -276,7 +288,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.12.0...v0.13.0

@@ -233,8 +233,9 @@ describe('runInit --dry-run --json', () => {
     expect(r.command).toBe('init');
     expect(r.dryRun).toBe(true);
     expect(r.status).toBe('planned');
-    expect(r.channel).toBe('main');
-    expect(r.source).toEqual({ kind: 'main', tag: null });
+    // The default channel for a new install: the newest verified release.
+    expect(r.channel).toBe('latest');
+    expect(r.source).toEqual({ kind: 'release', tag: 'v1.0.0' });
     expect(r.commit).toBe('a'.repeat(40));
     expect(r.skillsVersion).toBe('1.0.0');
     expect(r.archetypes).toEqual(['ssr']);
@@ -336,6 +337,12 @@ describe('runInit --dry-run --json', () => {
     expect(r.yesWouldProceed).toBe(false);
     // Planned, not done.
     expect(existsSync(join(proj, 'pharn-review/stale/NOTES.md'))).toBe(true);
+  });
+
+  it('--ref main reports the main channel and no tag', async () => {
+    const r = await run({ ref: 'main' });
+    expect(r.channel).toBe('main');
+    expect(r.source).toEqual({ kind: 'main', tag: null });
   });
 
   it('records the release channel and its tag', async () => {

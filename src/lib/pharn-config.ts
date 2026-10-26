@@ -477,7 +477,7 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   }
   // Additive `ref` (types.ts): only the literal `"latest"` survives. Anything
   // else — a typo, `"main"`, a non-string — is dropped, so the install follows
-  // the default channel, the tip of `main`.
+  // the tip of `main`, as an install with no `ref` does.
   if (config.ref !== undefined && config.ref !== 'latest') {
     delete config.ref;
   }

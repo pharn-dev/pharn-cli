@@ -1177,7 +1177,8 @@ describe('main (argv dispatch)', () => {
     expect(printed).toMatch(/--no-drift\s+status:/);
     expect(printed).toMatch(/--archetype <list>\s+init:/);
     expect(printed).not.toContain('no-op');
-    expect(printed).toMatch(/--ref <ref>\s+init, update:/);
+    expect(printed).toMatch(/--ref <ref>\s+init: install from "latest"/);
+    expect(printed).toMatch(/\n\s+update: switch to "latest"/);
   });
 });
 

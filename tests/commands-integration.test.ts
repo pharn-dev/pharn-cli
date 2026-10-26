@@ -22,7 +22,9 @@ import { codeloadArchive } from './support/tar-fixture.js';
 // passes every one of them. Here nothing from src/ is mocked. The network is
 // replaced at the one place it leaves the process — the global `fetch` — by a
 // stub serving a real gzipped codeload tarball (tests/support/tar-fixture.ts)
-// and the two small GitHub answers the `main` channel asks for; the commands
+// and the small GitHub answers each channel asks for — the latest release and
+// its tag's commit (the default `latest` channel), the tip's commit and its
+// SKILLS_VERSION (`--ref main`); the commands
 // run against a real temp project, and the assertions read the real files,
 // pharn.config.json and pharn.records.json.
 //
@@ -60,6 +62,9 @@ const { runUninstall } = await import('../src/commands/uninstall.js');
 
 const REPO = 'pharn-dev/pharn-oss';
 const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/main`;
+const RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+const tagCommitUrl = (tag: string): string =>
+  `https://api.github.com/repos/${REPO}/commits/${tag}`;
 const VERSION_URL = `https://raw.githubusercontent.com/${REPO}/main/SKILLS_VERSION`;
 const tarballUrl = (sha: string): string =>
   `https://codeload.github.com/${REPO}/tar.gz/${sha}`;
@@ -125,11 +130,22 @@ function upstreamTree(version: string): Record<string, string> {
   };
 }
 
-/** What the stubbed network serves: the tip of `main`. */
-let tip: { sha: string; tree: Record<string, string> };
+/**
+ * What the stubbed network serves: the tip of `main` and — unless
+ * `published` is false — a verified release AT that tip (tag `v<version>`), as
+ * pharn-oss's release workflow cuts one once the tip's checks pass. So the
+ * default channel and `--ref main` see the same bytes, and each test reads one
+ * upstream state whichever channel its install follows.
+ */
+let tip: {
+  sha: string;
+  version: string;
+  tree: Record<string, string>;
+  published: boolean;
+};
 
-function serveTip(sha: string, version: string): void {
-  tip = { sha, tree: upstreamTree(version) };
+function serveTip(sha: string, version: string, published = true): void {
+  tip = { sha, version, tree: upstreamTree(version), published };
 }
 
 const fetchStub = vi.fn(async (input: unknown): Promise<Response> => {
@@ -137,6 +153,18 @@ const fetchStub = vi.fn(async (input: unknown): Promise<Response> => {
   // The bare-id media type fetchCommitSha asks for (F-21), not the commit object.
   if (url === RESOLVE_URL) return new Response(tip.sha);
   if (url === VERSION_URL) return new Response(tip.tree.SKILLS_VERSION);
+  if (url === RELEASE_URL) {
+    return tip.published
+      ? Response.json({
+          tag_name: `v${tip.version}`,
+          draft: false,
+          prerelease: false,
+        })
+      : new Response('{"message":"Not Found"}', { status: 404 });
+  }
+  if (tip.published && url === tagCommitUrl(`v${tip.version}`)) {
+    return new Response(tip.sha);
+  }
   if (url === tarballUrl(tip.sha)) {
     return new Response(new Uint8Array(codeloadArchive(tip.sha, tip.tree)));
   }
@@ -202,6 +230,7 @@ const sha256 = (rel: string): string =>
 
 interface Config {
   skillsVersion: string;
+  ref?: string;
   pendingSkillsVersion?: string;
   commit: string | null;
   layout: string;
@@ -444,7 +473,7 @@ function upstreamTree7(version: string): Record<string, string> {
 }
 
 function serveTip7(sha: string, version: string): void {
-  tip = { sha, tree: upstreamTree7(version) };
+  tip = { sha, version, tree: upstreamTree7(version), published: true };
 }
 
 /** The project root's entries, the repository directory left out. */
@@ -685,5 +714,75 @@ describe('root-footprint migration, end to end', () => {
     expect(await run(() => runUninstall({ yes: true }))).toBeNull();
     expect(readdirSync(at('pharn'))).toEqual(['.backup']);
     expect(rootEntries()).toEqual(['.claude', 'pharn']);
+  });
+});
+
+describe('the install channel, end to end', () => {
+  const fetched = (): string[] => fetchStub.mock.calls.map(([u]) => String(u));
+  const NOTICE =
+    'Verified releases are now the default for new installs. This install keeps following pharn-oss main; run `pharn update --ref latest` to switch (recorded on first use).';
+  const noticeCalls = (): number =>
+    vi.mocked(clack.log.info).mock.calls.filter(([m]) => m === NOTICE).length;
+
+  beforeEach(() => {
+    fetchStub.mockClear();
+    vi.mocked(clack.log.info).mockClear();
+    vi.mocked(clack.log.error).mockClear();
+  });
+
+  it('init with no --ref installs the newest verified release and records it', async () => {
+    await init();
+    expect(config()).toMatchObject({
+      ref: 'latest',
+      skillsVersion: '1.0.0',
+      commit: SHA_V1,
+    });
+    // The release and its tag's commit were resolved; the tip never was.
+    expect(fetched()).toContain(RELEASE_URL);
+    expect(fetched()).toContain(tagCommitUrl('v1.0.0'));
+    expect(fetched()).not.toContain(RESOLVE_URL);
+  });
+
+  it('init with no --ref and no release refuses, names --ref main, and fetches no tarball', async () => {
+    serveTip(SHA_V1, '1.0.0', false);
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(existsSync(at('pharn.config.json'))).toBe(false);
+    expect(fetched().some((u) => u.startsWith('https://codeload.'))).toBe(
+      false,
+    );
+    const errors = vi
+      .mocked(clack.log.error)
+      .mock.calls.map(([m]) => String(m))
+      .join('\n');
+    expect(errors).toContain('has published no release yet');
+    expect(errors).toContain('pharn init --ref main');
+  });
+
+  it('--ref main installs the tip, records no ref, and update keeps it on main with one notice', async () => {
+    expect(await run(() => runInit({ yes: true, ref: 'main' }))).toBeNull();
+    expect(config().ref).toBeUndefined();
+    expect(fetched()).toContain(RESOLVE_URL);
+    expect(fetched()).not.toContain(RELEASE_URL);
+    // init itself prints no notice.
+    expect(noticeCalls()).toBe(0);
+
+    serveTip(SHA_V2, '2.0.0');
+    fetchStub.mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    // Followed main — not the release the stub also publishes — and said so once.
+    expect(fetched()).toContain(VERSION_URL);
+    expect(fetched()).not.toContain(RELEASE_URL);
+    expect(config()).toMatchObject({ skillsVersion: '2.0.0', commit: SHA_V2 });
+    expect(config().ref).toBeUndefined();
+    expect(noticeCalls()).toBe(1);
+
+    // And status reports the recorded channel as main.
+    stdout = [];
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    const report = JSON.parse(stdout[0] ?? '') as {
+      version: { channel: string; source: { kind: string } };
+    };
+    expect(report.version.channel).toBe('main');
+    expect(report.version.source.kind).toBe('main');
   });
 });

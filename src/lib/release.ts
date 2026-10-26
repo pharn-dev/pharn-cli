@@ -6,18 +6,20 @@ import { COMMIT_RE, RELEASE_TAG_RE } from './validate.js';
 // ---------------------------------------------------------------------------
 // WHICH pharn-oss commit an install takes — the verified-release resolver.
 //
-// The DEFAULT channel is `main`: every command installs the TIP of pharn-oss
-// `main` — whatever merged last, whether or not its post-merge CI has finished
-// (LIMITS.md §1d). pharn-oss publishes no releases today, and a channel that
-// requires one would refuse every install. `--ref latest` opts a project into
-// the newest pharn-oss GitHub RELEASE instead — a tag (`v<SKILLS_VERSION>`)
-// pharn-oss is to create only after every required check on that commit has
-// passed — and records that choice in the config.
+// The DEFAULT channel for a new install (`pharn init`) is `latest`: the newest
+// pharn-oss GitHub RELEASE — a tag (`v<SKILLS_VERSION>`) pharn-oss's release
+// workflow creates only after every required check on that commit has passed.
+// `--ref main` is the explicit contributor channel: the TIP of pharn-oss `main`
+// — whatever merged last, whether or not its post-merge CI has finished
+// (LIMITS.md §1d). The choice is recorded in the config as `ref: "latest"`;
+// `main` is recorded by the key's ABSENCE, which is also what every install made
+// before `--ref` existed carries — so `update`, `add` and `status` keep such an
+// install on `main` (`channelOf`) and never switch a channel on their own.
 //
 // FAIL-CLOSED. When the release cannot be resolved — no release published, the
 // API unreachable or rate-limited, a malformed answer — the command refuses and
 // names `--ref main`. It never floats to the tip on its own: a project that
-// opted into verified releases must not be handed unverified content silently.
+// follows verified releases must not be handed unverified content silently.
 // (The `main` channel keeps its own documented degraded mode, LIMITS.md §3b.)
 //
 // The release is resolved with TWO small GETs against api.github.com — the
@@ -49,6 +51,13 @@ export type RefChoice = 'main' | 'latest';
 /** Every value `--ref` accepts, in the order the usage text names them. */
 export const REF_CHOICES: readonly RefChoice[] = ['main', 'latest'];
 
+/**
+ * The channel `pharn init` installs from when no `--ref` is passed. Only a NEW
+ * install takes it: `update`, `add` and `status` follow the channel the config
+ * records (`channelOf`), so an existing `main` install is never moved.
+ */
+export const DEFAULT_INIT_REF: RefChoice = 'latest';
+
 /** What a command resolved before it fetched. */
 export type InstallSource =
   // The newest pharn-oss release: its tag, the version the tag names, and the
@@ -56,6 +65,15 @@ export type InstallSource =
   | { kind: 'release'; tag: string; version: string; sha: string }
   // The tip of `main`, resolved (or floated) by `fetchRepo` itself.
   | { kind: 'main' };
+
+/**
+ * WHAT a source is, without the commit it would be downloaded at — what a
+ * report needs. Every `InstallSource` is one; `status --no-drift` builds one
+ * from a single request (`resolveLatestReleaseVersion`), which never learns the
+ * commit and must not invent one.
+ */
+export type SourceSummary =
+  { kind: 'release'; tag: string; version: string } | { kind: 'main' };
 
 /**
  * The latest verified release could not be resolved. Named so callers can
@@ -74,12 +92,12 @@ export function channelOf(config: { ref?: unknown }): RefChoice {
 }
 
 /** `pharn-dev/pharn-oss@v6.54.1` or `pharn-dev/pharn-oss@main`. */
-export function sourceLabel(source: InstallSource): string {
+export function sourceLabel(source: SourceSummary): string {
   return `${REPO}@${source.kind === 'release' ? source.tag : REPO_BRANCH}`;
 }
 
 /** One phrase for a note row: what this source is, verification included. */
-export function sourceDescription(source: InstallSource): string {
+export function sourceDescription(source: SourceSummary): string {
   return source.kind === 'release'
     ? `verified release ${source.tag}`
     : `${REPO_BRANCH} (tip)`;
@@ -95,7 +113,17 @@ export async function resolveSource(ref: RefChoice): Promise<InstallSource> {
   return resolveLatestRelease();
 }
 
-async function resolveLatestRelease(): Promise<InstallSource> {
+/**
+ * The newest verified release's tag and version from ONE bounded GET
+ * (`releases/latest`) — what `status --no-drift` needs to say whether a newer
+ * release exists. It does not resolve the tag's commit (nothing is downloaded),
+ * and fails closed exactly like `resolveSource('latest')`.
+ */
+export async function resolveLatestReleaseVersion(): Promise<{
+  kind: 'release';
+  tag: string;
+  version: string;
+}> {
   const releaseUrl = `${API}/repos/${REPO}/releases/latest`;
   const release = await get(
     releaseUrl,
@@ -122,6 +150,11 @@ async function resolveLatestRelease(): Promise<InstallSource> {
       `the latest release's tag ${shown(tag)} is not a plain vX.Y.Z version`,
     );
   }
+  return { kind: 'release', tag, version: match[1]! };
+}
+
+async function resolveLatestRelease(): Promise<InstallSource> {
+  const { tag, version } = await resolveLatestReleaseVersion();
 
   // The tag's COMMIT, dereferenced by GitHub (annotated or lightweight alike).
   // `tag` passed RELEASE_TAG_RE, so it is safe as a URL segment.
@@ -136,7 +169,7 @@ async function resolveLatestRelease(): Promise<InstallSource> {
   if (!COMMIT_RE.test(sha)) {
     throw refusal(`${shaUrl} did not answer with a commit id`);
   }
-  return { kind: 'release', tag, version: match[1]!, sha };
+  return { kind: 'release', tag, version, sha };
 }
 
 interface Got {
@@ -251,7 +284,7 @@ function shown(value: unknown): string {
 
 function refusal(reason: string, cause?: unknown): ReleaseResolveError {
   return new ReleaseResolveError(
-    `Could not resolve the latest verified ${REPO} release: ${reason}. This project follows verified releases (\`--ref latest\`) — tags pharn-oss creates once its post-merge CI has passed. To install the tip of main instead (the default channel), run \`pharn init --ref main\` (or \`pharn update --ref main\` for an existing install).`,
+    `Could not resolve the latest verified ${REPO} release: ${reason}. This install follows verified releases (the default for a new install, or \`--ref latest\`) — tags pharn-oss creates once its post-merge CI has passed. To install the tip of main instead (the contributor channel), run \`pharn init --ref main\` (or \`pharn update --ref main\` for an existing install).`,
     cause === undefined ? undefined : { cause },
   );
 }

@@ -95,10 +95,11 @@ export interface PharnConfig {
   repo: string;
   commit: string | null;
   // Additive (P7). The channel this install follows (lib/release.ts):
-  // `"latest"` when it was installed or updated with `--ref latest` (the newest
-  // verified pharn-oss release), and ABSENT for the default — the tip of `main`.
-  // Only `"latest"` is ever written; any other value is dropped at load, so a
-  // garbage hand-edit follows the default.
+  // `"latest"` when it follows the newest verified pharn-oss release (what a new
+  // `pharn init` takes by default since 0.15.0, or `--ref latest`), and ABSENT
+  // for the tip of `main` — `--ref main`, or any install made before `--ref`
+  // existed. Only `"latest"` is ever written; any other value is dropped at
+  // load, so a garbage hand-edit follows `main`.
   ref?: 'latest';
   // Legacy (module/wizard) installs recorded the chosen constitution variant
   // (`gdpr-strict` | `standard` | `minimal`). The archetype install (pharn init)

@@ -33,6 +33,21 @@ import type { Layout, PharnConfig } from '../types.js';
 // nothing here plans, decides or writes a project file — each function
 // prints what the plan or the outcome it is handed already says.
 
+/**
+ * The one line `update` prints when the install follows `main` only because
+ * its config says so (or records nothing — an install made before `--ref`
+ * existed): new installs now default to verified releases, and this one is NOT
+ * moved. `null` when `--ref` was passed this run (the user just chose) or the
+ * install already follows releases. Pure.
+ */
+export function defaultChannelNotice(
+  config: { ref?: unknown },
+  ref: RefChoice | undefined,
+): string | null {
+  if (ref !== undefined || channelOf(config) !== 'main') return null;
+  return 'Verified releases are now the default for new installs. This install keeps following pharn-oss main; run `pharn update --ref latest` to switch (recorded on first use).';
+}
+
 // Where the `--force` copies went, and how many there are — the two facts the
 // report needs. One shape, so the count is never re-derived at a second site and
 // cannot drift from the directory it describes.

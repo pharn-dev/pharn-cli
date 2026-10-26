@@ -29,14 +29,21 @@ which, and `status` cannot. `status` reads `pharn.records.json` for one thing on
 2. Warns if a proxy is configured. `pharn` uses Node's global `fetch`, which reads no proxy variable,
    so the notice is emitted above **both** network paths — `--no-drift` skips the clone but still
    fetches `SKILLS_VERSION` over the wire.
-3. By default, resolves what the install follows — the tip of pharn-oss `main`, or the newest verified
-   release for a config that records `"ref": "latest"` — clones it once and reuses it for both sections below (the
-   temporary clone is always cleaned up). `--no-drift` skips the clone: a release names its version in
-   its tag, and `main`'s `SKILLS_VERSION` is fetched on its own. A release that cannot be resolved
-   exits 1. `status` has no `--ref`; it reports on the channel the install records.
-4. **Version** — compares your `skillsVersion` against the upstream `SKILLS_VERSION` and summarizes your
-   detected `archetypes` and installed capability count: either "up to date" or an update is available
-   (run `pharn update`).
+3. By default, resolves what the install follows — the newest verified release for a config that
+   records `"ref": "latest"` (what `pharn init` writes by default), or the tip of pharn-oss `main` for a
+   config with no `ref` — clones it once and reuses it for both sections below (the temporary clone is
+   always cleaned up). `--no-drift` skips the clone: on the release channel it makes **one** request
+   (`releases/latest` — the tag names the version), and `main`'s `SKILLS_VERSION` is fetched on its own.
+   A release that cannot be resolved exits 1. `status` has no `--ref`; it reports on the channel the
+   install records.
+4. **Version** — compares your `skillsVersion` against the upstream `SKILLS_VERSION`, names the
+   **channel** the install records (`Channel  latest — verified releases`, or `Channel  main — the
+   pharn-oss tip` with the command that switches to releases; an install with no recorded `ref` follows
+   `main`), and summarizes your detected `archetypes` and installed capability count. On the release
+   channel it says whether a newer verified release exists (``v7.1.2 → v7.1.3 (newer verified release
+   v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, "up to date" or an update
+   is available (run `pharn update`). Neither the channel nor the release line is a `--strict` input
+   beyond the existing outdated check.
 5. **Drift** — derives the set of files your installed capabilities and the fixed product surfaces are
    expected to contribute (mirroring how `init` / `add` / `update` install them, at your recorded
    layout), then compares each file's content against your project (line endings in text files are

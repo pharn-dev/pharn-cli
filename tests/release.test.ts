@@ -2,18 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { REPO } from '../src/lib/constants.js';
 import {
   channelOf,
+  DEFAULT_INIT_REF,
   ReleaseResolveError,
+  resolveLatestReleaseVersion,
   resolveSource,
   sourceDescription,
   sourceLabel,
 } from '../src/lib/release.js';
 
 // ---------------------------------------------------------------------------
-// The verified-release resolver. The default channel installs the tip of
-// pharn-oss main; `--ref latest` installs the newest pharn-oss GitHub release
-// (created only after post-merge CI passed), and when that release cannot be
-// resolved the command REFUSES and names `--ref main` — it never floats to the
-// tip on its own.
+// The verified-release resolver. A new install defaults to the newest pharn-oss
+// GitHub release (created only after post-merge CI passed); `--ref main` takes
+// the tip. When the release cannot be resolved the command REFUSES and names
+// `--ref main` — it never floats to the tip on its own.
 // ---------------------------------------------------------------------------
 
 const SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
@@ -225,6 +226,64 @@ describe('resolveSource', () => {
       await refusal();
       expect(cancelled).toBe(true);
     });
+  });
+});
+
+describe('DEFAULT_INIT_REF', () => {
+  it('is the verified-release channel', () => {
+    expect(DEFAULT_INIT_REF).toBe('latest');
+  });
+
+  it('is NOT what an install with no recorded ref follows — that stays main', () => {
+    expect(channelOf({})).toBe('main');
+  });
+});
+
+describe('resolveLatestReleaseVersion (status --no-drift)', () => {
+  it('makes ONE request — the release — and returns its tag and version, no commit', async () => {
+    const mock = stub(
+      json({ tag_name: 'v7.1.3', draft: false, prerelease: false }),
+    );
+    await expect(resolveLatestReleaseVersion()).resolves.toEqual({
+      kind: 'release',
+      tag: 'v7.1.3',
+      version: '7.1.3',
+    });
+    expect(mock.mock.calls.map((c) => c[0])).toEqual([RELEASE_URL]);
+    const init = mock.mock.calls[0]![1] as RequestInit;
+    expect(init.redirect).toBe('error');
+    expect(init.signal).toBeDefined();
+  });
+
+  it.each([
+    [
+      'no release (404)',
+      json({ message: 'Not Found' }, 404),
+      'has published no release yet',
+    ],
+    ['rate-limited (403)', json({}, 403), '60 requests an hour'],
+    ['a draft', json({ tag_name: 'v1.0.0', draft: true }), 'draft'],
+    ['a non-version tag', json({ tag_name: 'nightly' }), 'not a plain vX.Y.Z'],
+  ])('fails closed on %s, naming --ref main', async (_, response, reason) => {
+    stub(response);
+    const err = await resolveLatestReleaseVersion().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReleaseResolveError);
+    expect((err as Error).message).toContain(reason);
+    expect((err as Error).message).toContain('--ref main');
+  });
+});
+
+describe('the refusal wording', () => {
+  it('says verified releases are the default and main the contributor channel', async () => {
+    stub(json({ message: 'Not Found' }, 404));
+    const err = (await resolveSource('latest').catch(
+      (e: unknown) => e,
+    )) as Error;
+    expect(err.message).toContain('the default for a new install');
+    expect(err.message).toContain('the contributor channel');
+    expect(err.message).toContain('pharn init --ref main');
+    expect(err.message).toContain('pharn update --ref main');
+    expect(err.message).not.toContain('(the default channel)');
   });
 });
 

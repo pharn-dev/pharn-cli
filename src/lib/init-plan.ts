@@ -34,10 +34,17 @@ import {
   readPharnConfig,
   userOwnedConfigEntries,
 } from './pharn-config.js';
-import type { InstallSource, RefChoice } from './release.js';
+import {
+  channelOf,
+  type InstallSource,
+  type RefChoice,
+  type SourceSummary,
+} from './release.js';
 import { resolveCapabilities } from './resolve-capabilities.js';
 import { readSkillsVersion } from './skills-version.js';
 import { readUpstreamModels } from './upstream-models.js';
+import { terminalSafe } from './terminal-safe.js';
+import { versionStatus } from './version-status.js';
 import { isPlainObject, safeJoin } from './validate.js';
 import type { DriftLabel } from './dest-drift.js';
 import { planWriteTargets } from './write-targets.js';
@@ -352,6 +359,8 @@ export interface InitPlanReport {
   // The replaced config's `archetypes` reduced to canonical members, or null —
   // display only (the summary's "previously recorded" line).
   previousArchetypes: Archetype[] | null;
+  // The summary's "previously followed: main" lines (`previousChannelLines`).
+  channelLines: string[];
   channel: RefChoice;
   source: InstallSource;
   commit: string | null;
@@ -432,6 +441,39 @@ export function initRootMigration(
 }
 
 /**
+ * The summary lines a RE-RUN init prints when it moves an install off `main`
+ * because the default channel is now verified releases: the replaced config
+ * (read tolerantly; `null` on a first install) follows `main`, this run takes
+ * `latest`, and no `--ref` was passed. Plus a warning when the installed version
+ * is newer than that release, i.e. the re-install goes BACK (one comparator,
+ * `versionStatus`). Empty otherwise. Pure; every branch is a membership test.
+ */
+export function previousChannelLines(params: {
+  previous: { ref?: unknown; skillsVersion?: unknown } | null;
+  channel: RefChoice;
+  explicit: boolean;
+  source: SourceSummary;
+}): string[] {
+  const { previous, channel, explicit, source } = params;
+  if (previous === null || explicit) return [];
+  if (channel !== 'latest' || channelOf(previous) !== 'main') return [];
+  const lines = [
+    '    previously followed: main (the pharn-oss tip) — pass --ref main to keep it',
+  ];
+  const installed = previous.skillsVersion;
+  if (
+    source.kind === 'release' &&
+    typeof installed === 'string' &&
+    versionStatus({ installed, latest: source.version }).ahead
+  ) {
+    lines.push(
+      `    installed v${terminalSafe(installed, { max: 40 })} is newer than release ${source.tag} — this re-install goes back to it`,
+    );
+  }
+  return lines;
+}
+
+/**
  * Phase 2: what installing `chosen.selection` from `repoDir` would do to `cwd`.
  * Read-only; throws what a real run throws at the same step
  * (ManifestValidationError from the pre-flight, a bad SKILLS_VERSION).
@@ -447,6 +489,9 @@ export function buildInitPlan(params: {
   origin?: ArchetypeOrigin;
   index: CapabilityIndex;
   chosen: InitSelection;
+  // Whether `--ref` was passed: the user chose the channel, so the summary
+  // names no change of it.
+  refExplicit?: boolean;
 }): InitPlanReport {
   const { repoDir, cwd, sha, source, channel, archetypes, index, chosen } =
     params;
@@ -511,6 +556,12 @@ export function buildInitPlan(params: {
     archetypes,
     archetypeOrigin: origin,
     previousArchetypes: recordedArchetypes(chosen.previous.config?.archetypes),
+    channelLines: previousChannelLines({
+      previous: chosen.previous.config,
+      channel,
+      explicit: params.refExplicit ?? false,
+      source,
+    }),
     channel,
     source,
     commit: sha,

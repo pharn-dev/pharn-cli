@@ -2,6 +2,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -216,6 +217,37 @@ describe('pharn init --dry-run', () => {
         .find((b) => b.includes('PHARN Install Summary'))!;
       expect(summary).toMatch(/Detected archetypes\s+ssr/);
       expect(summary).toMatch(/ssr\s+← next \(package\.json\)/);
+      noWriteReached();
+    });
+
+    // A re-run over an install that followed `main`, with no `--ref`: the new
+    // default (verified releases) moves it, and the preview names that — the
+    // same line the real run's summary prints.
+    it('names a move off main on a re-run, and the flag that keeps it', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      await init(repo, proj, { yes: true, ref: 'main' });
+      const cfg = JSON.parse(
+        readFileSync(join(proj, 'pharn.config.json'), 'utf8'),
+      ) as { ref?: string };
+      expect(cfg.ref).toBeUndefined();
+
+      vi.clearAllMocks();
+      const { resolveSource } = await import('../src/lib/release.js');
+      vi.mocked(resolveSource).mockResolvedValueOnce({
+        kind: 'release',
+        tag: 'v1.0.0',
+        version: '1.0.0',
+        sha: 'b'.repeat(40),
+      });
+      await init(repo, proj, { dryRun: true });
+      expect(resolveSource).toHaveBeenCalledWith('latest');
+      const summary = vi
+        .mocked(prompts.note)
+        .mock.calls.map((c) => stripVTControlCharacters(String(c[0])))
+        .find((b) => b.includes('PHARN Install Summary'))!;
+      expect(summary).toContain(
+        'previously followed: main (the pharn-oss tip) — pass --ref main to keep it',
+      );
       noWriteReached();
     });
 

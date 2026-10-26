@@ -65,12 +65,13 @@ npx @pharn-dev/pharn init
    `devDependencies` too. If the scan stops at its bounds (50,000 entries, 24 directories deep) before
    its result is settled, the summary says `detection stopped early`. If detection gets your project
    wrong, pass the archetypes yourself: `pharn init --archetype backend` (see [`init`](commands/init.md#choosing-the-archetypes-yourself---archetype)).
-2. **Fetch + resolve.** It downloads the tip of `pharn-dev/pharn-oss` `main` as a tarball, and selects
-   the capabilities whose `applies` is `universal` or intersects your detected archetypes — skipping the
-   rest with a reason. `pharn init --ref latest` installs the newest **verified release** instead — a tag
-   pharn-oss creates only after its post-merge CI passed. pharn-oss has not published a release yet, so
-   until it does `--ref latest` exits 1 and writes nothing — the default `main` is the channel that works
-   (see [No verified release could be resolved](troubleshooting.md#no-verified-release-could-be-resolved)).
+2. **Fetch + resolve.** It downloads the newest **verified release** of `pharn-dev/pharn-oss` — a tag
+   pharn-oss creates only after its post-merge CI passed — as a tarball, and selects the capabilities
+   whose `applies` is `universal` or intersects your detected archetypes — skipping the rest with a
+   reason. If no release can be resolved it exits 1, writes nothing, and names `--ref main` (see
+   [No verified release could be resolved](troubleshooting.md#no-verified-release-could-be-resolved)).
+   `pharn init --ref main` installs the tip of `main` instead — every merge, before its checks have
+   finished — for contributors.
    If the fetched version declares a `MIN_CLI` newer than your CLI, the run
    stops here with a named error and writes nothing.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus

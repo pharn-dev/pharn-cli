@@ -35,11 +35,17 @@ const resolveSource = vi.fn(async (ref: string) => {
     sha: 'b'.repeat(40),
   };
 });
+const resolveLatestReleaseVersion = vi.fn(async () => ({
+  kind: 'release' as const,
+  tag: 'v1.0.0',
+  version: '1.0.0',
+}));
 vi.mock('../src/lib/release.js', async () => ({
   ...(await vi.importActual<typeof import('../src/lib/release.js')>(
     '../src/lib/release.js',
   )),
   resolveSource,
+  resolveLatestReleaseVersion,
 }));
 
 const diffInstalledCapabilities = vi.fn();
@@ -191,6 +197,9 @@ describe('runStatus --json', () => {
     loadArchetypeConfigOrExit.mockReturnValue(config({ ref: 'latest' }));
     await runStatus({ json: true, drift: false });
     expect(fetchRemoteSkillsVersion).not.toHaveBeenCalled();
+    // One request — the release's tag — and no commit resolve, no clone.
+    expect(resolveLatestReleaseVersion).toHaveBeenCalledTimes(1);
+    expect(resolveSource).not.toHaveBeenCalled();
     expect(report().version).toMatchObject({
       channel: 'latest',
       source: { kind: 'release', tag: 'v1.0.0' },

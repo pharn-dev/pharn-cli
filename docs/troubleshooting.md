@@ -311,7 +311,7 @@ Symptoms:
 - Message references `github.com/pharn-dev/pharn-oss`
 - Exit code 1
 
-`init` / `add` / `update` / `status` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the branch head — or, with `--ref latest`, the newest verified release — via `api.github.com`; see [No verified release could be resolved](#no-verified-release-could-be-resolved)) — default `status` clones too, and reads `SKILLS_VERSION` out of that clone. On the `main` channel, `update` and `status --no-drift` instead fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com` without cloning; a release names its version in its tag. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy unless you opt in with `NODE_USE_ENV_PROXY=1` — see [Proxy environment variables](#proxy-environment-variables).
+`init` / `add` / `update` / `status` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the newest verified release — or, on the `main` channel, the branch head — via `api.github.com`; see [No verified release could be resolved](#no-verified-release-could-be-resolved)) — default `status` clones too, and reads `SKILLS_VERSION` out of that clone. On the `main` channel, `update` and `status --no-drift` instead fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com` without cloning; a release names its version in its tag. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy unless you opt in with `NODE_USE_ENV_PROXY=1` — see [Proxy environment variables](#proxy-environment-variables).
 
 A failure to reach the host names it, and includes the underlying diagnosis rather than the runtime's
 bare `fetch failed`:
@@ -329,13 +329,15 @@ The two metadata requests (the branch-head resolve and the `SKILLS_VERSION` fetc
 
 ## No verified release could be resolved
 
-Symptoms: on an install that follows verified releases (`--ref latest`), `init`, `update`, `add` or
-`status` stops with exit 1 and
+Symptoms: `pharn init` without `--ref` (verified releases are the default for a new install), or
+`update`, `add` or `status` on an install that follows releases (`"ref": "latest"`), stops with exit 1
+and
 
 ```text
-⚠ Could not resolve the latest verified pharn-dev/pharn-oss release: <reason>. This project follows
-  verified releases (`--ref latest`) — tags pharn-oss creates once its post-merge CI has passed. To
-  install the tip of main instead (the default channel), run `pharn init --ref main` (or …).
+⚠ Could not resolve the latest verified pharn-dev/pharn-oss release: <reason>. This install follows
+  verified releases (the default for a new install, or `--ref latest`) — tags pharn-oss creates once
+  its post-merge CI has passed. To install the tip of main instead (the contributor channel), run
+  `pharn init --ref main` (or …).
 ```
 
 On that channel `pharn` installs the newest pharn-oss **GitHub release**, never the tip of `main`.
@@ -346,7 +348,10 @@ installing something nobody verified. The reason says which:
   or wait for one.
 - **`GitHub refused the request (HTTP 403 …)` / `(HTTP 429 …)`** — the unauthenticated GitHub API allows
   60 requests an hour per address, shared by everything on your network. Wait for the limit to reset,
-  or use `--ref main`, whose own commit resolve degrades instead of failing.
+  or use `--ref main`, whose own commit resolve degrades instead of failing. CI runners often share an
+  address with many other jobs, so a `pharn status --strict` step on a release install can hit this
+  limit there and fail; `pharn` takes no token, so the ways out are a retry, running the step less
+  often, or an install on `--ref main`.
 - **`could not reach …`** — a network failure, or the 8-second limit. See
   [Proxy environment variables](#proxy-environment-variables).
 - **`the latest release's tag … is not a plain vX.Y.Z version`**, or **`marked draft` / `prerelease`** —
@@ -355,8 +360,9 @@ installing something nobody verified. The reason says which:
 A release whose tree carries a different `SKILLS_VERSION` than its tag is refused as well
 (`Release vX.Y.Z (…) ships SKILLS_VERSION …`): the tag and the content disagree, so neither is recorded.
 
-`--ref latest` is recorded in `pharn.config.json` (`"ref": "latest"`), so `update`, `add` and `status`
-keep following releases. `pharn update --ref main` switches the install back to the default.
+The release channel is recorded in `pharn.config.json` (`"ref": "latest"`), so `update`, `add` and
+`status` keep following releases. `pharn update --ref main` switches the install to the tip of `main`
+and removes the key.
 
 ## An upstream capability was skipped
 

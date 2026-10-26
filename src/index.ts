@@ -90,10 +90,19 @@ const OPTIONS: readonly OptionHelp[] = [
     long: '--ref <ref>',
     uses: [
       {
-        commands: ['init', 'update'],
+        commands: ['init'],
         text: [
-          'install from "main" (the pharn-oss tip — the default)',
-          'or "latest" (its newest verified release); recorded',
+          'install from "latest" (the newest verified pharn-oss',
+          'release — the default) or "main" (its tip, for',
+          'contributors); recorded',
+        ],
+      },
+      {
+        commands: ['update'],
+        text: [
+          'switch to "latest" (verified releases) or "main" (the',
+          'tip); recorded — without it, update follows the',
+          'channel the install records (main when none is)',
         ],
       },
     ],

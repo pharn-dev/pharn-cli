@@ -20,7 +20,7 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 | `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                                           |     |
 | `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                                           |     |
 | `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                                           |     |
-| `ref`           | string         | `"latest"` to follow verified releases (`--ref latest`); absent → the tip of main                             |     |
+| `ref`           | string         | `"latest"` follows verified releases (`pharn init`'s default, or `--ref latest`); absent → the tip of main    |     |
 | `installedAt`   | string         | ISO timestamp set by `init`, and by `update` when it writes the config; `add` and `remove` leave it unchanged |     |
 | `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype`      |     |
 | `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                            |     |
