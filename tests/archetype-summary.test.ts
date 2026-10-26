@@ -284,3 +284,65 @@ describe('runArchetypeSummary — origin', () => {
     expect(note).toContain('CAPABILITIES SELECTED');
   });
 });
+
+// A re-run init on an install that followed `main`: the new default (verified
+// releases) moves it, and the summary says so — with the flag that keeps main,
+// and a warning when the re-install goes BACK to an older release.
+const { previousChannelLines } = await import('../src/lib/init-plan.js');
+
+describe('previousChannelLines (re-run init, lib/init-plan.ts)', () => {
+  const release = {
+    kind: 'release' as const,
+    tag: 'v7.1.3',
+    version: '7.1.3',
+  };
+  const FOLLOWED =
+    '    previously followed: main (the pharn-oss tip) — pass --ref main to keep it';
+
+  it('names the move off main, with the flag to keep it', () => {
+    expect(
+      previousChannelLines({
+        previous: { skillsVersion: '7.1.3' },
+        channel: 'latest',
+        explicit: false,
+        source: release,
+      }),
+    ).toEqual([FOLLOWED]);
+  });
+
+  it('warns when the installed version is newer than the release', () => {
+    expect(
+      previousChannelLines({
+        previous: { skillsVersion: '7.2.0' },
+        channel: 'latest',
+        explicit: false,
+        source: release,
+      }),
+    ).toEqual([
+      FOLLOWED,
+      '    installed v7.2.0 is newer than release v7.1.3 — this re-install goes back to it',
+    ]);
+  });
+
+  it.each([
+    ['a first install', null, 'latest', false],
+    ['an explicit --ref latest', {}, 'latest', true],
+    ['--ref main', {}, 'main', true],
+    ['an install already on releases', { ref: 'latest' }, 'latest', false],
+  ] as const)('is silent for %s', (_, previous, channel, explicit) => {
+    expect(
+      previousChannelLines({ previous, channel, explicit, source: release }),
+    ).toEqual([]);
+  });
+
+  it('lands in the summary right after the archetype block', () => {
+    const out = archetypeSummaryLines(archetypes, selection, undefined, null, [
+      FOLLOWED,
+    ]);
+    const at = out.indexOf(FOLLOWED);
+    expect(at).toBeGreaterThan(out.findIndex((l) => l.includes('Detected')));
+    expect(at).toBeLessThan(
+      out.findIndex((l) => l.includes('CAPABILITIES SELECTED')),
+    );
+  });
+});

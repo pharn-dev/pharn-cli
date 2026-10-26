@@ -7,6 +7,7 @@ import {
 import { deleteCapabilityDir } from '../lib/capability-dir.js';
 import {
   backupAction,
+  defaultChannelNotice,
   reportBackup,
   reportCapabilityChanges,
   reportDryRun,
@@ -163,7 +164,13 @@ export async function runUpdate(
   }
 
   // The channel: `--ref` when passed (and then recorded), else the one this
-  // install already follows — `ref: "latest"`, or `main`'s tip by default.
+  // install already follows — `ref: "latest"`, or `main`'s tip when the config
+  // records none. An install on `main` is never moved by the new default; it is
+  // told once per run, here — above every early return and the dry run, below
+  // the refusals above (so a refused run still prints one error and nothing
+  // else). Under `--json` nothing is printed: the report carries `channel`.
+  const channelNotice = defaultChannelNotice(config, opts.ref);
+  if (channelNotice !== null && !json) log.info(channelNotice);
   await runArchetypeUpdate(
     config,
     cwd,

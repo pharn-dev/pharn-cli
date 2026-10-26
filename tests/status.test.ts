@@ -43,11 +43,17 @@ const resolveSource = vi.fn(async (ref: string) => {
     sha: 'b'.repeat(40),
   };
 });
+// `--no-drift` on `latest`: ONE request (the release's tag), no commit resolve.
+const resolveLatestReleaseVersion = vi.fn(async () => {
+  const version = String(await fetchRemoteSkillsVersion());
+  return { kind: 'release' as const, tag: `v${version}`, version };
+});
 vi.mock('../src/lib/release.js', async () => ({
   ...(await vi.importActual<typeof import('../src/lib/release.js')>(
     '../src/lib/release.js',
   )),
   resolveSource,
+  resolveLatestReleaseVersion,
 }));
 
 const diffInstalledCapabilities = vi.fn();
@@ -192,7 +198,56 @@ describe('runStatus (archetype)', () => {
       expect(plain('VERSION')).toContain('ahead of pharn-oss main (v1.1.0)');
       expect(plain('VERSION')).toContain('pharn update --force');
       expect(plain('VERSION')).not.toContain('update available');
-      expect(plain('VERSION')).not.toContain('verified release');
+      expect(plain('VERSION')).not.toContain('verified release v');
+    });
+
+    it('prints the recorded channel: main, with the way to verified releases', async () => {
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+      await runStatus({ drift: false });
+
+      expect(plain('VERSION')).toMatch(
+        /Channel\s+main — the pharn-oss tip \(`pharn update --ref latest` follows verified releases\)/,
+      );
+      expect(resolveLatestReleaseVersion).not.toHaveBeenCalled();
+    });
+
+    it('prints the recorded channel: latest, and says a newer verified release exists', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(config({ ref: 'latest' }));
+      fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
+      readSkillsVersion.mockReturnValue('1.1.0');
+      fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
+      diffInstalledCapabilities.mockReturnValue(CLEAN);
+
+      await runStatus({});
+
+      expect(plain('VERSION')).toMatch(/Channel\s+latest — verified releases/);
+      expect(plain('VERSION')).toContain(
+        'v1.0.0 → v1.1.0 (newer verified release v1.1.0 — run `pharn update`)',
+      );
+      expect(plain('VERSION')).not.toContain('update available');
+    });
+
+    it('on latest with no newer release, says so', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(config({ ref: 'latest' }));
+      fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+
+      await runStatus({ drift: false });
+
+      expect(plain('VERSION')).toContain('(no newer verified release)');
+    });
+
+    it('--no-drift on latest makes ONE request (the release tag) and clones nothing', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(config({ ref: 'latest' }));
+      fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
+
+      await runStatus({ drift: false });
+
+      expect(resolveLatestReleaseVersion).toHaveBeenCalledTimes(1);
+      expect(resolveSource).not.toHaveBeenCalled();
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(plain('VERSION')).toContain('newer verified release v1.1.0');
+      expect(plain('VERSION')).toContain('verified release v1.1.0');
     });
 
     it('still reports a BEHIND install as outdated, and --strict fails', async () => {

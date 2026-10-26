@@ -5,7 +5,7 @@ import { resolveStageRows, type StageRow } from './model-config-format.js';
 import { checkModelsBlock, type ModelsRed } from './model-config.js';
 import { needsModelsConversion } from './models-update.js';
 import { NODE_FLOOR, type NodeFloorStatus } from './node-floor.js';
-import type { InstallSource, RefChoice } from './release.js';
+import type { RefChoice, SourceSummary } from './release.js';
 import { cap, serializeJsonReport } from './json-report.js';
 import { versionStatus } from './version-status.js';
 import type { AbsentSurface, InstallSurface } from './install-manifest.js';
@@ -49,7 +49,7 @@ export interface StatusReport {
     installed: string;
     latest: string;
     channel: RefChoice;
-    source: { kind: InstallSource['kind']; tag: string | null };
+    source: { kind: SourceSummary['kind']; tag: string | null };
     ahead: boolean;
     outdated: boolean;
   };
@@ -98,7 +98,9 @@ export interface StatusReportInput {
   config: PharnConfig;
   channel: RefChoice;
   latest: string;
-  source: InstallSource;
+  // What the channel offers; under `--no-drift` on `latest`, built from one
+  // request and so without the tag's commit (lib/release.ts).
+  source: SourceSummary;
   drift: {
     diff: InstallDiff;
     hooks: HookWiringDiff;

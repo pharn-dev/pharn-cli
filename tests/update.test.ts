@@ -1296,6 +1296,60 @@ describe('runUpdate (drift-safe)', () => {
   // newest pharn-oss release (tagged only after its post-merge CI passed) and is
   // RECORDED, so later runs keep following it until `--ref main`.
   describe('release channel', () => {
+    // An install on `main` — recorded by the key's absence, so also every
+    // install made before `--ref` existed — is NOT moved by the new default for
+    // new installs; it is told so, once per run.
+    const NOTICE = 'Verified releases are now the default for new installs.';
+    const notices = (): number =>
+      shown.filter((line) => line.startsWith(`info: ${NOTICE}`)).length;
+
+    it('keeps an install with no recorded ref on main, with ONE notice', async () => {
+      await installed();
+
+      await runUpdate();
+
+      expect(resolveSource).toHaveBeenCalledWith('main');
+      expect(resolveSource).not.toHaveBeenCalledWith('latest');
+      expect(readPharnConfig(proj)!.ref).toBeUndefined();
+      expect(notices()).toBe(1);
+      expect(shown).toContain(
+        'info: Verified releases are now the default for new installs. This install keeps following pharn-oss main; run `pharn update --ref latest` to switch (recorded on first use).',
+      );
+    });
+
+    it('prints the notice on the already-up-to-date early return too', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+
+      await runUpdate();
+
+      expect(notices()).toBe(1);
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    it('prints the notice on a --dry-run, and nothing under --json', async () => {
+      await installed();
+      await runUpdate({ dryRun: true });
+      expect(notices()).toBe(1);
+
+      shown.length = 0;
+      const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      await runUpdate({ dryRun: true, json: true });
+      expect(notices()).toBe(0);
+      expect(out).toHaveBeenCalledTimes(1);
+      expect(String(out.mock.calls[0]![0])).not.toContain(NOTICE);
+      expect(JSON.parse(String(out.mock.calls[0]![0])).channel).toBe('main');
+    });
+
+    it('prints no notice on an install that follows releases, or with an explicit --ref', async () => {
+      await installed({ ref: 'latest' });
+      await runUpdate();
+      expect(notices()).toBe(0);
+
+      await installed();
+      await runUpdate({ ref: 'main' });
+      expect(notices()).toBe(0);
+    });
+
     it('installs the tip of main by default, recording no ref', async () => {
       await installed();
 

@@ -21,6 +21,7 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
+  DEFAULT_INIT_REF,
   ReleaseResolveError,
   resolveSource,
   sourceLabel,
@@ -38,6 +39,7 @@ import {
   capabilityKey,
   initRootMigration,
   planInitRemovals,
+  previousChannelLines,
   resolveInitSelection,
   type InitCarry,
   type InitPlanReport,
@@ -147,7 +149,11 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
   // flow was removed entirely; add/update/status/remove reject a pre-archetype
   // config up front via loadArchetypeConfigOrExit — there is no manifest fallback.)
   await runInitArchetype({
-    channel: opts.ref ?? 'main',
+    // A NEW install takes the newest verified release unless `--ref main`
+    // (lib/release.ts); `refExplicit` lets a re-run's summary say when the
+    // default moved an install off `main`.
+    channel: opts.ref ?? DEFAULT_INIT_REF,
+    refExplicit: opts.ref !== undefined,
     override: opts.archetypes,
     yes,
     dryRun,
@@ -162,6 +168,7 @@ function silentSpinner(): Pick<ReturnType<typeof spinner>, 'start' | 'stop'> {
 
 interface RunMode {
   channel: RefChoice;
+  refExplicit: boolean;
   override: Archetype[] | undefined;
   yes: boolean;
   dryRun: boolean;
@@ -174,7 +181,7 @@ interface RunMode {
 // across the interactive summary, so cleanup runs in a finally and every
 // process.exit / cancelAndExit happens AFTER it (Node skips finally on exit).
 async function runInitArchetype(mode: RunMode): Promise<void> {
-  const { channel, override, yes, dryRun, json } = mode;
+  const { channel, refExplicit, override, yes, dryRun, json } = mode;
   // `--json` swaps the sinks, not the logic: diagnostics and failures as plain
   // stderr lines (stdout empty, exit 1), and no spinner.
   const warn = json
@@ -222,8 +229,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
   s.start(`Fetching PHARN from ${REPO_URL}`);
   let repo: Awaited<ReturnType<typeof fetchRepo>>;
   try {
-    // WHICH commit, first: the tip of main by default, or the newest verified
-    // release with `--ref latest`. A release that cannot be resolved REFUSES (no
+    // WHICH commit, first: the newest verified release by default, or the tip
+    // of main with `--ref main`. A release that cannot be resolved REFUSES (no
     // fallback to the tip), and the error already names `--ref main`
     // (lib/release.ts).
     repo = await fetchRepo(await resolveSource(channel));
@@ -241,7 +248,11 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
   s.stop(`PHARN fetched from ${sourceLabel(repo.source)}`);
 
   if (dryRun) {
-    await runInitDryRun(repo, cwd, archetypes, origin, channel, json);
+    await runInitDryRun(repo, cwd, archetypes, origin, {
+      channel,
+      refExplicit,
+      json,
+    });
     return;
   }
 
@@ -282,15 +293,26 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       // re-detects, and the summary names a different recorded set so an
       // earlier `--archetype` never disappears silently.
       const recorded = recordedArchetypes(previous.config?.archetypes);
+      // And, likewise, when the new default moves an install off `main`.
+      const channelLines = previousChannelLines({
+        previous: previous.config,
+        channel,
+        explicit: refExplicit,
+        source: repo.source,
+      });
 
       // `--yes` answers the summary's question ("install?") and nothing else:
       // the summary is still printed, so a CI log says what was installed.
       let action: 'install' | 'cancel';
       if (yes) {
         note(
-          archetypeSummaryLines(archetypes, selection, origin, recorded).join(
-            '\n',
-          ),
+          archetypeSummaryLines(
+            archetypes,
+            selection,
+            origin,
+            recorded,
+            channelLines,
+          ).join('\n'),
         );
         action = 'install';
       } else {
@@ -299,6 +321,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
           selection,
           origin,
           recorded,
+          channelLines,
         );
       }
       // Both prompts return a VALUE and neither exits, so `outcome` stays
@@ -503,9 +526,9 @@ async function runInitDryRun(
   cwd: string,
   archetypes: Archetype[],
   origin: ArchetypeOrigin,
-  channel: RefChoice,
-  json: boolean,
+  mode: { channel: RefChoice; refExplicit: boolean; json: boolean },
 ): Promise<void> {
+  const { channel, refExplicit, json } = mode;
   const warn = json
     ? (message: string) => logErrorPlain(message)
     : (message: string) => log.warn(message);
@@ -534,6 +557,7 @@ async function runInitDryRun(
         origin,
         index,
         chosen,
+        refExplicit,
       });
     }
   } catch (err) {
@@ -580,6 +604,7 @@ function reportInitDryRun(r: InitPlanReport): void {
       r.selection,
       r.archetypeOrigin,
       r.previousArchetypes,
+      r.channelLines,
     ).join('\n'),
   );
 

@@ -76,6 +76,7 @@ const KNOWN_TAGS: readonly string[] = [
   'v0.12.0',
   'v0.13.0',
   'v0.14.0',
+  'v0.14.1',
 ];
 // Sections with no tag at all, and so no link: 0.8.0 was bumped and superseded
 // by 0.9.0 on the same day, never tagged or published; 0.2.0 / 0.1.0 predate

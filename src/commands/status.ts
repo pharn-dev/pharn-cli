@@ -5,10 +5,12 @@ import { REPO } from '../lib/constants.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
   channelOf,
+  resolveLatestReleaseVersion,
   resolveSource,
   sourceDescription,
   sourceLabel,
-  type InstallSource,
+  type RefChoice,
+  type SourceSummary,
 } from '../lib/release.js';
 import { versionStatus } from '../lib/version-status.js';
 import {
@@ -114,13 +116,9 @@ async function runArchetypeStatusJson(
 
   if (!drift) {
     let latest: string;
-    let source: InstallSource;
+    let source: SourceSummary;
     try {
-      source = await resolveSource(channel);
-      latest =
-        source.kind === 'release'
-          ? source.version
-          : await fetchRemoteSkillsVersion();
+      ({ latest, source } = await latestWithoutClone(channel));
     } catch (err) {
       reportFatalPlain(errorMessage(err), { err });
       process.exit(1);
@@ -241,20 +239,16 @@ async function runArchetypeStatus(
     const s = spinner();
     s.start('Checking for updates');
     let latest: string;
-    let source: InstallSource;
+    let source: SourceSummary;
     try {
-      source = await resolveSource(channel);
-      latest =
-        source.kind === 'release'
-          ? source.version
-          : await fetchRemoteSkillsVersion();
+      ({ latest, source } = await latestWithoutClone(channel));
       s.stop(`Latest skills v${latest}`);
     } catch (err) {
       s.stop('Failed to check for updates');
       reportFatal(errorMessage(err), { err });
       process.exit(1);
     }
-    const outdated = printArchetypeVersion(config, latest, source);
+    const outdated = printArchetypeVersion(config, latest, source, channel);
     printModels(config);
     if (strict && strictFails({ outdated })) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
@@ -279,6 +273,7 @@ async function runArchetypeStatus(
       config,
       readSkillsVersion(repo.dir),
       repo.source,
+      channel,
     );
     printModels(config);
     // Exclude FROZEN capabilities — the ones the fetch boundary could not parse
@@ -337,6 +332,32 @@ async function runArchetypeStatus(
   outro(pc.dim('Read-only — nothing changed.'));
 }
 
+// `--no-drift`'s version check: what the channel offers, without a clone. On
+// `latest` that is ONE bounded GET (`releases/latest` — its tag names the
+// version; nothing is downloaded, so the tag's commit is never resolved); on
+// `main`, the tip's SKILLS_VERSION file. Both fail closed (throw).
+async function latestWithoutClone(
+  channel: RefChoice,
+): Promise<{ latest: string; source: SourceSummary }> {
+  if (channel === 'latest') {
+    const release = await resolveLatestReleaseVersion();
+    return { latest: release.version, source: release };
+  }
+  return {
+    latest: await fetchRemoteSkillsVersion(),
+    source: await resolveSource('main'),
+  };
+}
+
+// The channel the config records, for the VERSION note. `main` is recorded by
+// the key's absence (lib/release.ts), so the row cannot tell an explicit
+// `--ref main` from an install made before `--ref` existed — and does not try.
+function channelRow(channel: RefChoice): string {
+  return channel === 'latest'
+    ? row('Channel', 'latest — verified releases')
+    : `${row('Channel', 'main — the pharn-oss tip')} ${pc.dim('(`pharn update --ref latest` follows verified releases)')}`;
+}
+
 // VERSION note for an archetype install: skillsVersion currency + a summary of
 // the detected archetypes and installed capability count. Returns outdated.
 //
@@ -348,7 +369,8 @@ async function runArchetypeStatus(
 function printArchetypeVersion(
   config: PharnConfig,
   latest: string,
-  source: InstallSource,
+  source: SourceSummary,
+  channel: RefChoice,
 ): boolean {
   const { ahead, outdated } = versionStatus({
     installed: config.skillsVersion,
@@ -361,14 +383,24 @@ function printArchetypeVersion(
     source.kind === 'release'
       ? `(ahead of the latest verified release v${latest} — installed from main)`
       : `(ahead of pharn-oss main (v${latest}) — main has moved back; \`pharn update --force\` downgrades)`;
+  // On the release channel the answer is about RELEASES: is a newer verified
+  // one out than the installed SKILLS_VERSION (`versionStatus`, the one
+  // comparator) — the tag passed RELEASE_TAG_RE before it got here.
+  const outdatedNote =
+    source.kind === 'release'
+      ? `(newer verified release ${source.tag} — run \`pharn update\`)`
+      : '(update available, run `pharn update`)';
+  const currentNote =
+    source.kind === 'release' ? '(no newer verified release)' : '(up to date)';
   const skillsLine = ahead
     ? `${row('Skills version', `v${installed}`)} ${pc.dim(aheadNote)}`
     : outdated
-      ? `${row('Skills version', `v${installed} → v${latest}`)} ${pc.dim('(update available, run `pharn update`)')}`
-      : `${row('Skills version', `v${installed}`)} ${pc.dim('(up to date)')}`;
+      ? `${row('Skills version', `v${installed} → v${latest}`)} ${pc.dim(outdatedNote)}`
+      : `${row('Skills version', `v${installed}`)} ${pc.dim(currentNote)}`;
   note(
     [
       skillsLine,
+      channelRow(channel),
       row('Source', sourceDescription(source)),
       '',
       row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),

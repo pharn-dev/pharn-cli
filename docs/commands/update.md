@@ -36,8 +36,9 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    and exit 1, not the "run `pharn init`" hint.
 3. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
    update's fetches (the lightweight version check as well as the tarball).
-4. Resolves what to update to — the tip of `pharn-dev/pharn-oss` `main`, or the newest **verified
-   release** for an install that follows releases (see [Release channel](#release-channel)) — and
+4. Resolves what to update to — the newest **verified release** for an install that follows releases,
+   or the tip of `pharn-dev/pharn-oss` `main` for one that records no `ref` (see
+   [Release channel](#release-channel)) — and
    compares its version to your recorded `skillsVersion`. A release that cannot be resolved stops the run
    (exit 1). An install **ahead** of that source — newer than the newest release, or newer than `main`
    when `main` has moved back to an older version — is left as it is (exit 0) unless you pass `--force`
@@ -524,10 +525,19 @@ backups accumulate and are committable by accident. Delete them once you are hap
 
 ## Release channel
 
-By default `update` installs the tip of `pharn-dev/pharn-oss` `main` — whatever merged last. With
-`--ref latest` it installs the newest **GitHub release** instead — a tag pharn-oss is to create only once
-every required check on that commit has passed after the merge — at exactly the commit the tag points
-at, never a commit whose CI is unfinished, cancelled or red.
+`update` follows the channel your install records. An install that follows **releases** (`"ref":
+"latest"` — what `pharn init` writes by default) gets the newest **GitHub release** — a tag pharn-oss
+creates only once every required check on that commit has passed after the merge — at exactly the
+commit the tag points at, never a commit whose CI is unfinished, cancelled or red. An install with no
+`ref` (made with `--ref main`, or before `--ref` existed) gets the tip of `pharn-dev/pharn-oss` `main` —
+whatever merged last.
+
+- **An install on `main` is never moved for you.** Verified releases are the default for _new_ installs
+  only. An `update` on a `main` install keeps it on `main` and prints one line saying so:
+  `Verified releases are now the default for new installs. This install keeps following pharn-oss main;
+  run`pharn update --ref latest`to switch (recorded on first use).` It prints on every such run —
+  the up-to-date return and `--dry-run` included — but not when you pass `--ref`, and not under
+  `--json` (the report's `channel` says `main`).
 
 - **The channel is recorded.** `pharn update --ref latest` writes `"ref": "latest"` to
   `pharn.config.json`, so later `update`, `add` and `status` runs keep following releases.
