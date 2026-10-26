@@ -60,11 +60,12 @@ filesystem except when `status` runs.
   "these exact bytes present" until `status` is run.
 - **Backstop:** `pharn status` re-derives drift live — that is the guarantee, not the config field.
 
-### 1d. `update` / `status` resolve against upstream HEAD; `remove` resolves offline
+### 1d. `update` / `status` resolve against the channel's current source; `remove` resolves offline
 
-There is no manifest. `update`/`status` re-derive the expected set from a fresh clone of `@main` — or of
-the newest verified release, for an install that records `"ref": "latest"` — (not the pinned
-`commit`), while `remove` resolves against **nothing remote** — it is addressed entirely from
+There is no manifest. `update`/`status` re-derive the expected set from a fresh clone of what the
+install's channel offers NOW — the newest verified release for an install that records
+`"ref": "latest"` (what `pharn init` writes by default since 0.15.0), or `@main` for one that records no
+`ref` (`--ref main`, or an install made before `--ref` existed) — (not the pinned `commit`), while `remove` resolves against **nothing remote** — it is addressed entirely from
 `pharn.config.json` via `configLayout` (`src/commands/remove.ts:12`, `:212`, `:307`). An upstream
 **rename** lands at two levels: a renamed **capability** surfaces in `update`'s membership report as
 `dropped-gone` / `added` (`src/lib/merge-capabilities.ts:79`, `:201`), while a renamed **file inside** a
@@ -127,15 +128,18 @@ set, and if not, what would make it, so the failure is explained rather than sil
 
 ### 3b. GitHub API rate limits
 
-On the default `main` channel, the tip's `commit` SHA is fetched best-effort; unauthenticated rate limits
-can make it unavailable, so `commit` may be **absent** — the install still proceeds at the floated
-branch (an advisory field, never a gate).
+The default channel for a new install (`--ref latest`, the default of `pharn init` since 0.15.0)
+resolves the newest verified pharn-oss release with two unauthenticated GitHub API requests
+(`src/lib/release.ts`; `status --no-drift` makes one), and that resolve **fails closed**: when it is
+rate-limited (60 requests an hour per address) or unreachable, `init` / `update` / `add` / `status` exit
+1 rather than install content no CI verdict stands behind. Because it is now the default, this is the
+default availability cost: on an address many jobs share — a CI runner pool, say — a
+`pharn status --strict` step on a release install can fail on the limit. pharn takes no token. `--ref
+main` is the explicit way through.
 
-The opt-in `--ref latest` channel resolves the newest verified pharn-oss release with two
-unauthenticated GitHub API requests (`src/lib/release.ts`), and that resolve **fails closed**: when it
-is rate-limited (60 requests an hour per address) or unreachable, `init` / `update` / `add` / `status`
-exit 1 rather than install content no CI verdict stands behind. That is a deliberate availability cost
-of the channel. `--ref main` is the explicit way through.
+On the `main` channel (`--ref main`, or an install that records no `ref`), the tip's `commit` SHA is
+fetched best-effort; unauthenticated rate limits can make it unavailable, so `commit` may be **absent** —
+the install still proceeds at the floated branch (an advisory field, never a gate).
 
 ### 3c. Single-source coupling
 
@@ -149,11 +153,13 @@ silently unsupported.
 
 ### 3e. Released CLIs read upstream HEAD with a closed grammar
 
-Every released CLI fetches `pharn-dev/pharn-oss` at **`main` HEAD** (or its newest verified release on
-the `--ref latest` channel, `src/lib/release.ts`) and can never pin older content, so upstream's
-newest merge is a **live input to every deployed CLI at once**. That includes a merge whose post-merge
-CI has not finished, been cancelled or failed: the default channel installs whatever merged last;
-`--ref latest` is the opt-in that waits for a verified release. The
+Every released CLI fetches `pharn-dev/pharn-oss` at its newest verified release (the `--ref latest`
+channel, `src/lib/release.ts` — the default for a new install from 0.15.0) or at **`main` HEAD** (the
+`main` channel: `--ref main`, every install that records no `ref`, and every CLI older than 0.15.0 by
+default) and can never pin older content, so upstream's newest release — and, for the `main` channel,
+its newest merge — is a **live input to every deployed CLI at once**. On the `main` channel that
+includes a merge whose post-merge CI has not finished, been cancelled or failed; the release channel
+waits for a verified release. The
 capability grammar it parses is closed (`src/lib/validate.ts`, frozen enums), and that is
 deliberate — the fail-closed posture is the security property (P2).
 

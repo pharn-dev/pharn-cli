@@ -27,7 +27,8 @@ Gated `/pharn-dev-ship` run (no `--loop`). Ended at **GATE 2** (post-review huma
 
 - Review: `.dev/features/default-channel-latest/REVIEW.md` (findings not restated here).
 - Grill (advisory): `.dev/features/default-channel-latest/GRILL.md`.
-- Trusted-doc draft for the human to apply (hook-protected, not edited): `LIMITS.updated.md` (§1d, §3b, §3e).
+- Trusted-doc draft `LIMITS.updated.md` (§1d, §3b, §3e): applied to `LIMITS.md` by the human with a
+  one-off patch script, and the draft removed in the same commit.
 
 ## Standing decision
 
