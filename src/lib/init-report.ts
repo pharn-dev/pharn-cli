@@ -1,3 +1,4 @@
+import { gitignoreReport, type GitignoreReport } from './gitignore.js';
 import type { ArchetypeEvidence } from './archetype.js';
 import type { DriftLabel } from './dest-drift.js';
 import type { HookEntry, HookWiringDiff } from './hook-wiring.js';
@@ -126,6 +127,10 @@ export interface InitReport {
   absentUpstream?: { surface: InstallSurface; path: string }[];
   models: { outcome: InitPlanReport['models']['outcome']; reasons: string[] };
   config: { carriedKeys: string[] };
+  // Present ONLY when the install would add to (or create) the project's
+  // `.gitignore`, or would have to leave it alone (lib/gitignore.ts) — so a
+  // report with nothing to add keeps its earlier bytes. Added in 0.16.0.
+  gitignore?: GitignoreReport;
 }
 
 const key = (c: { role: string; name: string }): string =>
@@ -238,5 +243,14 @@ export function buildInitReport(p: InitPlanReport): InitReport {
     config: {
       carriedKeys: p.carriedConfigKeys.map((k) => cap(k, MAX_UNKNOWN_FIELD)),
     },
+    ...gitignoreKey(p.gitignore),
   };
+}
+
+// `{gitignore}` when a real run would touch `.gitignore`, else nothing.
+function gitignoreKey(plan: InitPlanReport['gitignore']): {
+  gitignore?: GitignoreReport;
+} {
+  const report = gitignoreReport(plan);
+  return report === null ? {} : { gitignore: report };
 }

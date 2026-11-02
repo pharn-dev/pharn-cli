@@ -3,6 +3,7 @@ import { posix } from 'node:path';
 import { confirm, intro, isCancel, note, outro } from '@clack/prompts';
 import pc from '../lib/color.js';
 import { BACKUP_DIR, createBackup, printBackupNotice } from '../lib/backup.js';
+import { backupDirIgnored } from '../lib/gitignore.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { cancelAndExit } from '../lib/confirm.js';
 import { displayHook, hooksReferencing } from '../lib/hook-wiring.js';
@@ -194,7 +195,11 @@ async function applyUninstall(
       `Could not back up ${CONFIG_FILENAME} before uninstalling: ${errorMessage(err).replace(/\.$/, '')}. Nothing was removed.`,
     );
   }
-  printBackupNotice({ dir: backupDir, saved: CONFIG_FILENAME });
+  printBackupNotice({
+    dir: backupDir,
+    saved: CONFIG_FILENAME,
+    gitignored: backupDirIgnored(cwd),
+  });
 
   const deleted: string[] = [];
   for (const rel of plan.delete) {
@@ -274,7 +279,7 @@ function listed(rels: readonly string[]): string[] {
   return more > 0 ? [...shown, `  …and ${more} more`] : shown;
 }
 
-const UNTOUCHED = `${CLAUDE_SETTINGS_FILE}, .claude/settings.local.json and every ${BACKUP_DIR}/ directory are left untouched.`;
+const UNTOUCHED = `${CLAUDE_SETTINGS_FILE}, .claude/settings.local.json, every ${BACKUP_DIR}/ directory and the lines pharn added to .gitignore are left untouched.`;
 
 function planLines(plan: UninstallPlan): string[] {
   const lines = [

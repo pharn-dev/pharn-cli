@@ -9,6 +9,16 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-11-02
+
+### Added
+
+- **`pharn init` and `pharn update` keep PHARN's run state and backups out of git.** They append `pharn/.run/` (pharn-oss's runtime scratch — stage logs, gate outputs, cost markers) and `pharn/.backup/` (pharn's backups) to the project's root `.gitignore`, creating it when absent. An installed project used to track `pharn/.run/`, so pharn-oss's reconcile counted PHARN's own run state as build escapes and failed a correct build (pharn-oss #408, fixed upstream in 7.2.0). Append-only: the file's bytes stay exactly as they were, with only the missing line(s) and one comment added after them, in the file's own line endings (CRLF stays CRLF); a line already covering an entry in any common spelling (`/pharn/.run`, `pharn/.run/**`, a bare `.run/`, …), or a negation you wrote (`!pharn/.run/`), is respected; a second run changes nothing. A symlinked, non-regular or unreadable `.gitignore` is never written — the run warns, naming the lines to add — and a failed write is a warning, never a failed install. `init`'s outro says `.gitignore created`/`updated`; `update` prints `Added … to .gitignore`. At the same skills version a `.gitignore` missing either line re-opens `update`'s "Already up to date" return, so existing installs get the lines on their next `update`. `--dry-run` previews the change, and `init --dry-run --json` / `update --dry-run --json` carry an additive `gitignore` / `plan.gitignore` key, present only when `.gitignore` would change (`schemaVersion` stays 1). `.gitignore` is not an `init --yes` write target, so `--yes` never refuses because of it. See [`.gitignore`](docs/commands/init.md#gitignore).
+
+### Changed
+
+- **The backup notice's `.gitignore` advice is printed only when it applies.** `pharn/.backup/ is not gitignored — add it …` no longer follows every backup: it is dropped when `.gitignore` already covers `pharn/.backup/`, or when the same `init`/`update` run is about to add it. `uninstall`'s `PLAN` note now also says it leaves the lines pharn added to `.gitignore`, and `update`'s root-migration hint says pharn only appends its own entries and never rewrites yours.
+
 ## [0.15.0] — 2026-10-26
 
 ### Changed
@@ -288,7 +298,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.13.0...v0.14.0

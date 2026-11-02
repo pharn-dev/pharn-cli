@@ -11,6 +11,11 @@ import type {
 } from './update-decision.js';
 import type { CapabilityRemoval, UpdatePlanReport } from './update-plan.js';
 import type { OrphanState } from './orphans.js';
+import {
+  gitignoreReport,
+  type GitignorePlan,
+  type GitignoreReport,
+} from './gitignore.js';
 import type { InstallSurface } from './install-manifest.js';
 import type { Layout } from '../types.js';
 
@@ -154,6 +159,11 @@ export interface UpdateReport {
     // bytes 0.10.0 shipped; additive within schemaVersion 1; never filtered by
     // `--compact`.
     orphans?: { path: string; state: OrphanState; reason?: string }[];
+    // What a real run would add to the project's `.gitignore`
+    // (lib/gitignore.ts). Present ONLY when it would add something (or is
+    // refused), so a report with nothing to add keeps its earlier bytes;
+    // additive within schemaVersion 1. Added in 0.16.0.
+    gitignore?: GitignoreReport;
   } | null;
 }
 
@@ -302,7 +312,14 @@ function planReport(
           })),
         }
       : {}),
+    ...gitignoreKey(p.gitignore),
   };
+}
+
+// `{gitignore}` when a real run would touch `.gitignore`, else nothing.
+function gitignoreKey(plan: GitignorePlan): { gitignore?: GitignoreReport } {
+  const report = gitignoreReport(plan);
+  return report === null ? {} : { gitignore: report };
 }
 
 export function buildUpdateReport(input: UpdateReportInput): UpdateReport {

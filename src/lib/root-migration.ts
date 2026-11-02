@@ -86,7 +86,8 @@ const USER_DATA_MOVES: readonly { from: string; to: string; dir: boolean }[] = [
 ];
 
 // Old `.gitignore` entries and the line that replaces each. Matched as whole
-// lines after normalizing (see gitignoreHints); never written. The old names
+// lines after normalizing (see gitignoreHints); never rewritten (pharn only
+// appends its own entries — lib/gitignore.ts). The old names
 // stay in src/ only here (to recognise them) and in project-lock.ts (the
 // one-release legacy lock): this is the migration step that retires them.
 const GITIGNORE_REPLACEMENTS: readonly { old: string; hint: string }[] = [
@@ -539,7 +540,7 @@ export function rootMigrationNoteLines(
     );
   if (m.gitignoreHints.length > 0)
     lines.push(
-      `  .gitignore names pharn's old paths. Replace them with: ${m.gitignoreHints.join(', ')} (pharn never edits .gitignore).`,
+      `  .gitignore names pharn's old paths. Replace them with: ${m.gitignoreHints.join(', ')} (pharn only appends its own entries; it never rewrites yours).`,
     );
   return lines.length > 0 ? lines : null;
 }

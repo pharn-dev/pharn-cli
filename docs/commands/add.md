@@ -218,9 +218,10 @@ against today.
 > as soon as it is written, so it stays visible even if a later step fails.
 
 **Retention is yours**, exactly as for [`update --force`](update.md#--force-and-pharnbackup): `pharn`
-never prunes `pharn/.backup/` and never edits your `.gitignore`, so the directories accumulate and are
-committable by accident — and a picker run that overwrites edits in several capabilities writes **one
-per capability**. Delete them once you are happy, or add `pharn/.backup/` to your `.gitignore`.
+never prunes `pharn/.backup/`, so the directories accumulate — and a picker run that overwrites edits in
+several capabilities writes **one per capability**. Delete them once you are happy. `add` itself never
+edits `.gitignore`; `init` and `update` append `pharn/.backup/` to it, and the notice's advice to add it
+is printed only while your `.gitignore` does not cover it.
 
 ## The capability argument
 

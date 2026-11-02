@@ -205,6 +205,10 @@ describe('runUpdate (drift-safe)', () => {
     proj = join(tmp.path(), 'proj');
     repo = join(tmp.path(), 'repo');
     mkdirSync(proj, { recursive: true });
+    // A project that already keeps PHARN's run state and backups out of git
+    // (0.16.0): without it every same-version run re-opens to add the lines
+    // (lib/gitignore.ts). The tests that exercise that path remove it.
+    writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
     vi.spyOn(process, 'cwd').mockReturnValue(proj);
     cleanup = vi.fn();
 
@@ -730,6 +734,68 @@ describe('runUpdate (drift-safe)', () => {
       expect(fetchRemoteSkillsVersion).toHaveBeenCalledTimes(1);
       expect(fetchRepo).not.toHaveBeenCalled();
       expect(prompts.confirm).not.toHaveBeenCalled();
+    });
+
+    // 0.16.0: a `.gitignore` that does not cover PHARN's run state and backups
+    // re-opens the gate too (lib/gitignore.ts) — bounded: the opened run
+    // appends the lines, so the next run early-returns; and a `.gitignore` the
+    // run could not write never counts.
+    it("a .gitignore missing pharn's entries re-opens it; the run appends them, the next run early-returns", async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      writeFileSync(join(proj, '.gitignore'), 'node_modules\n');
+
+      await runUpdate();
+
+      expect(prompts.outro).not.toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(noteText()).toContain(
+        "  .gitignore does not yet keep PHARN's run state and backups out of git — this run re-applies the install and adds them.",
+      );
+      expect(readFileSync(join(proj, '.gitignore'), 'utf8')).toBe(
+        'node_modules\n# PHARN run state and update backups (added by pharn)\npharn/.run/\npharn/.backup/\n',
+      );
+      expect(vi.mocked(prompts.log.info).mock.calls.map((c) => c[0])).toContain(
+        "Added pharn/.run/, pharn/.backup/ to .gitignore (PHARN's run state and update backups).",
+      );
+
+      vi.clearAllMocks();
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
+      await runUpdate();
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    it('a symlinked .gitignore does not re-open it (the run could not write it)', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      const outside = join(tmp.path(), 'outside-gitignore');
+      writeFileSync(outside, 'node_modules\n');
+      rmSync(join(proj, '.gitignore'));
+      symlinkSync(outside, join(proj, '.gitignore'));
+
+      await runUpdate();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(readFileSync(outside, 'utf8')).toBe('node_modules\n');
+    });
+
+    it('a .gitignore that is a directory does not re-open it', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, '.gitignore'));
+      mkdirSync(join(proj, '.gitignore'));
+
+      await runUpdate();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
     });
 
     // A symlinked component is not "missing": the real run refuses to write
@@ -2947,9 +3013,46 @@ describe('runUpdate (drift-safe)', () => {
       expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
     });
 
+    // Replace the seeded `.gitignore` with a DIRECTORY: pharn refuses to touch
+    // it (lib/gitignore.ts), so `pharn/.backup/` is neither covered nor added.
+    function ungitignorable(): void {
+      rmSync(join(proj, '.gitignore'));
+      mkdirSync(join(proj, '.gitignore'));
+    }
+
+    it('drops the .gitignore advice when .gitignore already covers pharn/.backup/', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+
+      await runUpdate({ force: true });
+
+      expect(infoLines()).toContain('Backed up 1 file(s)');
+      expect(infoLines()).not.toContain('not gitignored');
+    });
+
+    it('drops the .gitignore advice when this run adds pharn/.backup/ to .gitignore', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+      rmSync(join(proj, '.gitignore'));
+
+      await runUpdate({ force: true });
+
+      expect(infoLines()).toContain('Backed up 1 file(s)');
+      expect(infoLines()).not.toContain('not gitignored');
+      expect(infoLines()).toContain(
+        "Created .gitignore with pharn/.run/, pharn/.backup/ (PHARN's run state and update backups).",
+      );
+      expect(readFileSync(join(proj, '.gitignore'), 'utf8')).toBe(
+        '# PHARN run state and update backups (added by pharn)\npharn/.run/\npharn/.backup/\n',
+      );
+    });
+
     it("prints the backup directory — the user's only pointer to their bytes", async () => {
       await installed();
       write(join(proj, DOC), 'MY LOCAL EDIT');
+      // A `.gitignore` pharn has to leave alone (a directory), so the backup
+      // dir is neither covered nor about to be: the advice is printed.
+      ungitignorable();
 
       await runUpdate({ force: true });
 
@@ -3067,6 +3170,7 @@ describe('runUpdate (drift-safe)', () => {
     // once per stream (the stderr copy is what `2> err.log` keeps), and the
     // .gitignore hint only once — it is advice, not a pointer.
     it('prints the .gitignore hint once, and the backup dir once per stream', async () => {
+      ungitignorable();
       await abortedForcedRun();
 
       const infos = vi.mocked(prompts.log.info).mock.calls;

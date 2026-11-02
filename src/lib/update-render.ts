@@ -1,3 +1,8 @@
+import {
+  gitignoreLines,
+  gitignorePending,
+  type GitignoreOutcome,
+} from './gitignore.js';
 import { log, note, outro } from '@clack/prompts';
 import { hookWiringLines, type HookWiringDiff } from './hook-wiring.js';
 import { absentSurfaceLines } from './absent-surfaces.js';
@@ -57,6 +62,9 @@ export interface Backup {
   // What the copies were made ahead of — the notice says it, and the abort
   // line says what may already be gone.
   action: BackupAction;
+  // `pharn/.backup/` is gitignored, or this run adds it (lib/gitignore.ts):
+  // the notice then drops its advice to add it.
+  gitignored?: boolean;
 }
 
 // The outcome of the fetch+apply phase, assembled inside the try so cleanup can
@@ -92,6 +100,9 @@ export interface UpdateOutcome {
   modelsFloor: string;
   // Recorded files upstream no longer ships, still on disk (lib/orphans.ts).
   orphans: Orphan[];
+  // What this run did to the project's `.gitignore` (lib/gitignore.ts).
+  // Absent on paths that never applied.
+  gitignore?: GitignoreOutcome;
   // The old root footprint this run retired (lib/root-migration.ts), and what
   // the writer actually did. Both null when nothing applied.
   rootMigration: RootMigration | null;
@@ -336,7 +347,17 @@ export function reportDryRun(
     for (const rel of backupRels) lines.push(`  ${rel}`);
     lines.push('');
   }
-  if (writes.length === 0 && deletes.length === 0 && !migrates)
+  // What a real run would append to `.gitignore` (lib/gitignore.ts owns the
+  // wording); a refusal is a warning, printed after the note.
+  const gitignore = gitignoreLines(r.gitignore, { preview: true });
+  if (gitignore !== null && !gitignore.warn)
+    lines.push(`  ${gitignore.text}`, '');
+  if (
+    writes.length === 0 &&
+    deletes.length === 0 &&
+    !migrates &&
+    !gitignorePending(r.gitignore)
+  )
     lines.push('  Nothing would be written.', '');
   lines.push(
     `  UNCHANGED ${r.counts.ok} file(s) · SKIPPED ${r.counts.skipped} file(s)`,
@@ -345,6 +366,7 @@ export function reportDryRun(
     lines.push('', `  Would record channel: ${channel}`);
   }
   note(lines.join('\n'), 'PLAN');
+  if (gitignore?.warn) log.warn(gitignore.text);
 
   reportCapabilityChanges(r.capabilityChanges, r.removals, true);
   reportModels(r.models, r.modelsFloor, null, true);
@@ -404,7 +426,12 @@ export function reportBackup(backup: Backup, opts: { aborted: boolean }): void {
   // The pointer (and, on success, the .gitignore advice) — lib/backup.ts's one
   // wording, shared with every other command that makes a backup.
   printBackupNotice(
-    { dir: backup.dir, saved: backup.count, action: backup.action },
+    {
+      dir: backup.dir,
+      saved: backup.count,
+      action: backup.action,
+      gitignored: backup.gitignored,
+    },
     opts,
   );
 }

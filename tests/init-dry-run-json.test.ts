@@ -339,6 +339,18 @@ describe('runInit --dry-run --json', () => {
     expect(existsSync(join(proj, 'pharn-review/stale/NOTES.md'))).toBe(true);
   });
 
+  it('carries gitignore when the install would create or append to .gitignore, and omits it otherwise', async () => {
+    expect((await run()).gitignore).toEqual({
+      action: 'create',
+      entries: ['pharn/.run/', 'pharn/.backup/'],
+    });
+    expect(existsSync(join(proj, '.gitignore'))).toBe(false);
+
+    logSpy.mockClear();
+    writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
+    expect(await run()).not.toHaveProperty('gitignore');
+  });
+
   it('--ref main reports the main channel and no tag', async () => {
     const r = await run({ ref: 'main' });
     expect(r.channel).toBe('main');

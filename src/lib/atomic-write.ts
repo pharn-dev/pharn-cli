@@ -221,10 +221,30 @@ export async function writeJsonAtomic(
   target: string,
   value: unknown,
 ): Promise<void> {
+  await writeFileAtomic(target, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * `writeJsonAtomic`'s replacement for arbitrary content: a string is written as
+ * utf8, a Buffer byte for byte (lib/gitignore.ts appends to the user's
+ * `.gitignore` this way, so its bytes are never re-encoded). Every property
+ * documented on `writeJsonAtomic` is this function's: the exclusive temp, the
+ * copied mode of an existing regular file, a symlinked target replaced rather
+ * than followed, a hard-linked target's other names left with the old bytes.
+ *
+ * A NEW target gets the mode an ordinary `writeFile` gives it (0o666 masked by
+ * the umask): the async temp is opened with the default mode, unlike
+ * `copyFileAtomicSync`'s 0o600 temp, which always takes the source's mode.
+ */
+export async function writeFileAtomic(
+  target: string,
+  data: string | Buffer,
+): Promise<void> {
   const { tmp, handle } = await createExclusiveTemp(target);
   try {
     try {
-      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
+      if (typeof data === 'string') await handle.writeFile(data, 'utf8');
+      else await handle.writeFile(data);
     } catch (err) {
       // The write's error is the cause; a close error here must not mask it.
       await handle.close().catch(() => {});

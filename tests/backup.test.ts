@@ -175,6 +175,28 @@ describe('backupNoticeLines', () => {
     ]);
   });
 
+  it('drops the .gitignore advice once pharn/.backup/ is gitignored (or the run adds it)', () => {
+    expect(
+      backupNoticeLines({
+        dir: 'pharn/.backup/x',
+        saved: 1,
+        action: 'removing',
+        gitignored: true,
+      }),
+    ).toEqual(['Backed up 1 file(s) to pharn/.backup/x before removing.']);
+    expect(
+      backupNoticeLines({
+        dir: 'pharn/.backup/x',
+        saved: 1,
+        action: 'removing',
+        gitignored: false,
+      }),
+    ).toEqual([
+      'Backed up 1 file(s) to pharn/.backup/x before removing.',
+      HINT,
+    ]);
+  });
+
   it('drops the .gitignore advice on an aborted run (the pointer alone is repeated)', () => {
     expect(
       backupNoticeLines(

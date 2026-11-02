@@ -1,3 +1,4 @@
+import { gitignoreLines } from '../lib/gitignore.js';
 import { rootMigrationNoteLines } from '../lib/root-migration.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
@@ -663,6 +664,10 @@ function reportInitDryRun(r: InitPlanReport): void {
       `  Would preserve the existing ${CLAUDE_SETTINGS_FILE} — pharn never overwrites it.`,
     );
   }
+  // What the install would append to `.gitignore` (lib/gitignore.ts owns the
+  // wording); a refusal is a warning, printed after the note.
+  const gitignore = gitignoreLines(r.gitignore, { preview: true });
+  if (gitignore !== null && !gitignore.warn) lines.push(`  ${gitignore.text}`);
   lines.push(
     '',
     deletes.length > 0
@@ -672,6 +677,7 @@ function reportInitDryRun(r: InitPlanReport): void {
         : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
   );
   note(lines.join('\n'), 'PLAN');
+  if (gitignore?.warn) log.warn(gitignore.text);
 
   // The ROOT MIGRATION note a real re-run prints after the install, as a
   // preview (lib/root-migration.ts owns the wording).

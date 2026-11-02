@@ -67,7 +67,8 @@ The backup keeps whatever only the config held: your `models` and `seam` blocks 
 Before anything is written, `uninstall` prints a `PLAN` note: how many files it will delete, the files
 it keeps because you changed them, paths it cannot verify, recorded paths outside the install paths, and
 how many recorded files are already gone. It always ends with the reminder that `.claude/settings.json`,
-`.claude/settings.local.json`, and every `pharn/.backup/` directory are left untouched.
+`.claude/settings.local.json`, every `pharn/.backup/` directory and the lines pharn added to `.gitignore`
+are left untouched (they are harmless without PHARN; delete them by hand if you like).
 
 In a terminal it then asks one question, defaulting to **No**:
 

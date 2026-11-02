@@ -20,6 +20,7 @@ import {
   TMP_NONCE_BYTES,
   copyFileAtomicSync,
   tmpPathFor,
+  writeFileAtomic,
   writeJsonAtomic,
 } from '../src/lib/atomic-write.js';
 
@@ -257,6 +258,43 @@ describe('writeJsonAtomic', () => {
         untouched: true,
       });
     });
+  });
+});
+
+// The arbitrary-content form writeJsonAtomic delegates to (lib/gitignore.ts
+// appends to the user's `.gitignore` through it).
+describe('writeFileAtomic', () => {
+  const tmp = useTmpDir();
+
+  it('writes a Buffer byte for byte (no re-encoding) and a string as utf8', async () => {
+    const bin = join(tmp.path(), 'bin');
+    const bytes = Buffer.from([0x61, 0xe9, 0xff, 0x0a]);
+    await writeFileAtomic(bin, bytes);
+    expect(readFileSync(bin).equals(bytes)).toBe(true);
+    const txt = join(tmp.path(), 'txt');
+    await writeFileAtomic(txt, 'café\n');
+    expect(readFileSync(txt, 'utf8')).toBe('café\n');
+    expect(readdirSync(tmp.path()).sort()).toEqual(['bin', 'txt']);
+  });
+
+  it('gives a NEW file the ordinary umask mode, not the 0600 of a sync temp', async () => {
+    const target = join(tmp.path(), 'new');
+    await writeFileAtomic(target, 'x');
+    const probe = join(tmp.path(), 'probe');
+    writeFileSync(probe, '');
+    expect(statSync(target).mode & 0o777).toBe(statSync(probe).mode & 0o777);
+  });
+
+  it('keeps an existing file’s mode and replaces a hard link by name', async () => {
+    const target = join(tmp.path(), 'target');
+    const other = join(tmp.path(), 'other');
+    writeFileSync(target, 'old');
+    chmodSync(target, 0o640);
+    linkSync(target, other);
+    await writeFileAtomic(target, Buffer.from('new'));
+    expect(readFileSync(target, 'utf8')).toBe('new');
+    expect(statSync(target).mode & 0o777).toBe(0o640);
+    expect(readFileSync(other, 'utf8')).toBe('old');
   });
 });
 

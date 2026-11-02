@@ -1,3 +1,4 @@
+import { planGitignore, type GitignorePlan } from './gitignore.js';
 import {
   planRootMigration,
   type RootMigration,
@@ -407,6 +408,9 @@ export interface InitPlanReport {
   // null — always null for a first install, which has nothing of pharn's at
   // the root to retire and must never move the user's data unasked.
   rootMigration: RootMigration | null;
+  // What the install would append to the project's `.gitignore`
+  // (lib/gitignore.ts); `none` when it already covers pharn's entries.
+  gitignore: GitignorePlan;
 }
 
 /**
@@ -596,5 +600,6 @@ export function buildInitPlan(params: {
     absentUpstream: absentInstallSurfaces({ repoDir, layout }),
     carriedConfigKeys: Object.keys(readCarriedEntries(cwd)),
     rootMigration: rootMigration?.report ?? null,
+    gitignore: planGitignore(cwd),
   };
 }

@@ -168,10 +168,17 @@ As you run the workflow, PHARN writes one directory per increment —
 `RUN-REPORT.md`, and the machine-readable records beside them
 (`AC-TESTS.lock.json`, `cost.json`, the `*-report.json` files). Those are the
 durable record; commit them. `pharn/.run/` (runtime scratch; `.pharn/` before
-pharn-oss 7.0.0), `pharn/.backup/` (see [Safety model](#safety-model)) and
-`pharn/.lock*` are not — add them to your `.gitignore`. PHARN never edits
-`.gitignore` for you; `pharn update` prints the replacement lines when yours still
-names the old `.pharn/`, `.pharn-backup` or `.pharn.lock`.
+pharn-oss 7.0.0) and `pharn/.backup/` (see [Safety model](#safety-model)) are not:
+`pharn init` and `pharn update` append them to your `.gitignore` (creating it if
+needed) unless it already covers them — in any common spelling, such as
+`/pharn/.run`, `pharn/.run/**` or a negation `!pharn/.run/` you wrote on purpose.
+They only ever append: your lines are never reordered or rewritten, CRLF stays
+CRLF, and a second run changes nothing. A symlinked `.gitignore` is never written
+through (you get a warning naming the lines). Lines added to `.gitignore` do not
+untrack files you already committed (`git rm -r --cached pharn/.run` does).
+`pharn/.lock*` is a transient file — add it yourself if you like. When your
+`.gitignore` still names the old `.pharn/`, `.pharn-backup` or `.pharn.lock`,
+`pharn update` prints the replacement lines; it never rewrites yours.
 
 Everything PHARN keeps in your project lives under `.claude/` and `pharn/`, plus
 the two JSON files at the root. An install made from a pharn-oss older than 7.0.0

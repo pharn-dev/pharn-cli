@@ -93,6 +93,15 @@ vi.mock('../src/lib/project-lock.js', async () => {
   return { ...actual, withProjectLock };
 });
 
+const applyGitignore = vi.fn();
+vi.mock('../src/lib/gitignore.js', async () => {
+  const actual = await vi.importActual<
+    typeof import('../src/lib/gitignore.js')
+  >('../src/lib/gitignore.js');
+  applyGitignore.mockImplementation(actual.applyGitignore);
+  return { ...actual, applyGitignore };
+});
+
 const { runInit } = await import('../src/commands/init.js');
 const prompts = await import('@clack/prompts');
 const { BACKUP_DIR } = await import('../src/lib/backup.js');
@@ -191,6 +200,7 @@ function noWriteReached(): void {
   expect(writeRecords).not.toHaveBeenCalled();
   expect(writePharnConfig).not.toHaveBeenCalled();
   expect(withProjectLock).not.toHaveBeenCalled();
+  expect(applyGitignore).not.toHaveBeenCalled();
   expect(prompts.select).not.toHaveBeenCalled();
   expect(prompts.confirm).not.toHaveBeenCalled();
 }
@@ -448,6 +458,71 @@ describe('pharn init --dry-run', () => {
       vi.clearAllMocks();
       await init(repo, proj);
       expect(notes('HOOKS')).toEqual(preview);
+    });
+  });
+
+  // 0.16.0: the install appends PHARN's run state and backups to the project's
+  // `.gitignore` (lib/gitignore.ts); the preview says so and writes nothing.
+  describe('the project .gitignore', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('previews creating it, writes nothing, and the real run writes exactly that', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      const before = snapshotTree(proj);
+
+      await init(repo, proj, { dryRun: true });
+
+      expect(snapshotTree(proj)).toEqual(before);
+      noWriteReached();
+      expect(notes('PLAN')[0]).toContain(
+        ".gitignore: would create it with pharn/.run/, pharn/.backup/ (PHARN's run state and update backups).",
+      );
+
+      await init(repo, proj, { yes: true });
+      expect(readFileSync(join(proj, '.gitignore'), 'utf8')).toBe(
+        '# PHARN run state and update backups (added by pharn)\npharn/.run/\npharn/.backup/\n',
+      );
+      expect(outro()).toContain(
+        '.gitignore created → pharn/.run/, pharn/.backup/',
+      );
+    });
+
+    it('previews appending only the missing entry', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      writeFileSync(join(proj, '.gitignore'), 'node_modules\n/pharn/.run\n');
+
+      await init(repo, proj, { dryRun: true });
+
+      expect(notes('PLAN')[0]).toContain(
+        ".gitignore: would add pharn/.backup/ (PHARN's run state and update backups).",
+      );
+      expect(readFileSync(join(proj, '.gitignore'), 'utf8')).toBe(
+        'node_modules\n/pharn/.run\n',
+      );
+    });
+
+    it('says nothing when it already covers both', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      writeFileSync(join(proj, '.gitignore'), 'pharn/.run/**\npharn/.backup\n');
+
+      await init(repo, proj, { dryRun: true });
+
+      expect(notes('PLAN')[0]).not.toContain('.gitignore');
+      expect(logged('warn')).not.toContain('.gitignore');
+    });
+
+    it('warns, naming the lines, when .gitignore is a symlink', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      const outside = join(tmp.path(), 'outside');
+      writeFileSync(outside, 'x\n');
+      symlinkSync(outside, join(proj, '.gitignore'));
+
+      await init(repo, proj, { dryRun: true });
+
+      expect(logged('warn')).toContain(
+        ".gitignore would not be updated: it is a symlink, and pharn never writes through one. Add these lines yourself so PHARN's run state is never committed: pharn/.run/, pharn/.backup/",
+      );
+      expect(readFileSync(outside, 'utf8')).toBe('x\n');
     });
   });
 
