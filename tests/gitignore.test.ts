@@ -74,6 +74,15 @@ describe('decidedEntries — the covered test (a membership test on fixed litera
     expect(decided(`${line}\n`)).toEqual([]);
   });
 
+  it('reads past a leading UTF-8 BOM, as git does', () => {
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    expect([
+      ...decidedEntries(
+        Buffer.concat([bom, Buffer.from('pharn/.run/\npharn/.backup/\n')]),
+      ),
+    ]).toEqual(['pharn/.run/', 'pharn/.backup/']);
+  });
+
   it('a negation is the user’s decision: the entry counts as decided', () => {
     expect(decided('!pharn/.run/\n!/pharn/.backup\n')).toEqual([
       'pharn/.run/',
@@ -176,6 +185,16 @@ describe('applyGitignore — the write (append-only, idempotent)', () => {
     const now = readFileSync(file());
     expect(now.subarray(0, old.length).equals(old)).toBe(true);
     expect(now.subarray(old.length).toString()).toBe(BLOCK);
+  });
+
+  it('a BOM file that already covers both is left byte-identical', async () => {
+    const old = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from('pharn/.run/\npharn/.backup/\n'),
+    ]);
+    writeFileSync(file(), old);
+    expect(await applyGitignore(tmp.path())).toEqual({ action: 'none' });
+    expect(readFileSync(file()).equals(old)).toBe(true);
   });
 
   it('keeps a CRLF file CRLF', async () => {

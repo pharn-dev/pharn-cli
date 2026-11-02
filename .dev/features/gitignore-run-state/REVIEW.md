@@ -55,6 +55,10 @@ This is acceptable for an append-only, idempotent edit (the brief asked for no p
   evidence: "isLink = lstatSync(target).isSymbolicLink(); … const read = readBoundedFile(target);"
 ```
 
+## Resolution (after GATE 2)
+
+The human chose "fix BOM, then ship". `lines()` now drops one leading UTF-8 BOM before matching (detection only; the bytes are still appended to unchanged). Two evals cover it: `decidedEntries` reads past a BOM, and a BOM file that already covers both is left byte-identical.
+
 ## Verdict
 
 **GREEN — 0 floor findings, 4 advisory (1 important: the BOM duplicate).** The decision is the human's.

@@ -105,10 +105,18 @@ function decides(pattern: Pattern, entry: GitignoreEntry): boolean {
   return pattern.core === path || (pattern.core === base && pattern.floating);
 }
 
+// A UTF-8 byte-order mark, as latin1 decodes it. Git strips one at the start
+// of a `.gitignore`, so the first line is read without it too — detection
+// only: the file's bytes are never changed.
+const UTF8_BOM = '\u00ef\u00bb\u00bf';
+
 function lines(bytes: Buffer): string[] {
   // latin1 is a 1:1 byte decode: our literals are ASCII, and no byte is lost
   // or merged (the bytes are never re-encoded — only appended to).
-  return bytes.toString('latin1').split('\n');
+  const text = bytes.toString('latin1');
+  return (text.startsWith(UTF8_BOM) ? text.slice(UTF8_BOM.length) : text).split(
+    '\n',
+  );
 }
 
 /**
