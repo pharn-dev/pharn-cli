@@ -85,6 +85,17 @@
 - `CHANGELOG.md` — `## [0.16.0] — 2026-11-02` with an `### Added` entry + compare links. — layer: docs
 - `package.json`, `package-lock.json` — `npm version --no-git-tag-version 0.16.0`. — layer: release
 
+### Files added by amendment (human-approved 2026-11-02, after the regress scope check flagged them)
+
+- `src/commands/add.ts`, `src/commands/remove.ts` — pass `gitignored: backupDirIgnored(cwd)` to the backup notice — layer: commands
+- `src/commands/uninstall.ts` — the same, plus the PLAN note names the `.gitignore` lines it leaves — layer: commands
+- `tests/uninstall.test.ts` — pins that wording — layer: tests
+- `tests/init-report.test.ts`, `tests/update-report.test.ts` — fixtures gain `gitignore: {action: 'none'}` — layer: tests
+- `tests/init-dry-run-json.test.ts`, `tests/update-dry-run-json.test.ts` — the JSON `gitignore` / `plan.gitignore` evals — layer: tests
+- `tests/release-consistency.test.ts` — `v0.15.0` joins `KNOWN_TAGS` (it exists on origin) — layer: tests
+- `.dev/features/gitignore-run-state/PLAN.md`, `.dev/features/gitignore-run-state/GRILL.md`, `.dev/features/gitignore-run-state/BUILD.md`, `.dev/features/gitignore-run-state/REGRESSION.md`, `.dev/features/gitignore-run-state/regression-report.json`, `.dev/features/gitignore-run-state/VERIFY.md`, `.dev/features/gitignore-run-state/verify-report.json`, `.dev/features/gitignore-run-state/REVIEW.md`, `.dev/features/gitignore-run-state/SHIP.md` — the pipeline's own artifacts — layer: dev-loop
+- `.pharn/writes-scope.json` — the per-stage scope file (local state; restored before push) — layer: dev-loop
+
 ## Contracts satisfied
 
 - CLAUDE.md "Releasing": the bump + the CHANGELOG section travel in the PR; `tests/release-consistency.test.ts` checks them.
