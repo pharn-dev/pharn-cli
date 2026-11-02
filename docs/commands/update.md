@@ -225,6 +225,7 @@ key. Treat a `status` you do not recognise as "do not apply".
 | `plan.rootMigration`                        | Always present: what a real run would do with the [old root footprint](#the-root-footprint-migration), as `{docs, moves, scratchNotice, gitignoreHints}`, or `null` when nothing applies (a flat clone, or one below SKILLS 7 that still keeps both docs at the root). `docs[]` is `{rel, action}` for root `THREAT-MODEL.md` / `LIMITS.md` (`delete`, `keep-edited`, `absent`, `unverifiable`); `moves[]` is `{from, to, action}` for `memory-bank/` and `pharn.spec-template.md` (`move`, `conflict`, `refused-symlink`, `unreadable`, `absent`; empty below SKILLS 7); `scratchNotice` says the old `.pharn/` holds more than `ci.yml`; `gitignoreHints[]` are the replacement `.gitignore` lines. The files the moves would back up are in `plan.backups`. Added in 0.14.0 within `1`. |
 | `frozenCapabilities`, `unknownCapabilities` | Capabilities upstream ships that this CLI cannot read, kept as they are: `role:name` keys, and `{role, name, subtree, reason}`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `plan.recordsNote`                          | Why `pharn.records.json` could not be used (then every difference is `unverifiable`), else `null`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `plan.gitignore`                            | Present only when a real run would change [`.gitignore`](#gitignore): `{action, entries}` with `action` `create` or `append` and `entries` the lines it adds, or `{action: "refused", reason, entries}` (`reason` `symlink`, `not-a-file` or `unreadable`) when it would have to leave the file alone. Absent otherwise, so such a report is byte-identical to earlier releases. Added in 0.16.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                               |
 | `plan.orphans`                              | Present only when there is at least one: every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). With none, the key is **absent** (not `[]`), so such a report is byte-identical to the one 0.10.0 printed; read it as `plan.orphans ?? []`. Never filtered by `--compact`.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 #### `--compact`: leave out the unchanged files
@@ -519,9 +520,9 @@ To restore a file, copy it back:
 cp pharn/.backup/20260807-091500/pharn/CONSTITUTION.md pharn/CONSTITUTION.md
 ```
 
-**Retention is yours.** `pharn` never prunes `pharn/.backup/` and never edits your `.gitignore` — so
-backups accumulate and are committable by accident. Delete them once you are happy, or add
-`pharn/.backup/` to your `.gitignore`.
+**Retention is yours.** `pharn` never prunes `pharn/.backup/`, so backups accumulate. They are kept out
+of git by the `pharn/.backup/` line `update` (and `init`) append to your `.gitignore` — see
+[`.gitignore`](#gitignore). Delete them once you are happy.
 
 ## Release channel
 
@@ -848,8 +849,9 @@ it as `plan.rootMigration`):
 - **`.pharn/`** (pharn-oss's runtime scratch) is never moved or deleted. When it holds anything but
   pharn-ci's `ci.yml`, the note says the scratch now lives in `pharn/.run/` and the old contents can
   be deleted.
-- **`.gitignore`** is never edited. When it names `.pharn/`, `.pharn-backup` or `.pharn.lock`, the note
-  prints the replacements: `pharn/.run/`, `pharn/.backup/`, `pharn/.lock*`.
+- **`.gitignore`**: your lines are never rewritten. When it names `.pharn/`, `.pharn-backup` or
+  `.pharn.lock`, the note prints the replacements: `pharn/.run/`, `pharn/.backup/`, `pharn/.lock*`. (The
+  first two are appended for you anyway — see [`.gitignore`](#gitignore).)
 
 A real `update` prints the note in the future tense before it asks `Apply this update?` (and under
 `--yes`), and, after taking the lock, refuses with exit 1 if what it would delete or move is no longer
@@ -874,6 +876,23 @@ left behind by it, so it does **not** withhold the `skillsVersion` bump. A run t
 on every run and fails `--strict` while it lasts. Hooks are installed as `.cjs` or `.mjs` files (never
 `*.test.cjs` / `*.test.mjs`); an `.mjs` hook's name is held to the same filename allowlist as a `.cjs`
 one, so a name outside it refuses the run.
+
+## `.gitignore`
+
+Like [`init`](init.md#gitignore), every applied `update` makes sure your root `.gitignore` covers
+`pharn/.run/` (PHARN's runtime scratch) and `pharn/.backup/` (these backups), appending only the
+missing lines — created if absent, your bytes kept exactly, CRLF kept, equivalent spellings and your
+own negations respected, never written through a symlink. It runs after the config write, under the
+lock, and prints `Added … to .gitignore` (or `Created .gitignore with …`); a refusal or a failed write
+is a warning naming the lines, never a failed update.
+
+**At the same skills version**, a `.gitignore` missing either line re-opens the
+"Already up to date" return (the header note says so), so an install made before 0.16.0 gets the lines
+on its next `update`; the following run returns early again. A `.gitignore` pharn cannot write (a
+symlink, a directory, unreadable) does not re-open it. One residual: a regular file whose write keeps
+failing (no permission) re-opens every run, each with its warning.
+
+`--dry-run` prints `.gitignore: would add …`, and `--dry-run --json` carries `plan.gitignore`.
 
 ## What is protected by default
 

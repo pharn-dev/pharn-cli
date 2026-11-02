@@ -37,6 +37,7 @@ import {
 import { decideModelsUpdate, type ModelsUpdate } from './models-update.js';
 import { readUpstreamModels } from './upstream-models.js';
 import { findOrphans, type Orphan } from './orphans.js';
+import { planGitignore, type GitignorePlan } from './gitignore.js';
 import { planRootMigration, type RootMigration } from './root-migration.js';
 import {
   planUpdate,
@@ -136,6 +137,10 @@ export interface UpdatePlanReport {
   // list `apply.rootMoveBackups` hands the writer, so the preview cannot
   // under-report the real run's backup.
   rootMoveBackups: string[];
+  // What this run adds to the project's `.gitignore` (lib/gitignore.ts):
+  // `none` when it already covers pharn's entries. Re-planned under the lock
+  // by the writer, like every other read-only answer here.
+  gitignore: GitignorePlan;
 }
 
 export interface UpdateApplyInputs {
@@ -397,6 +402,7 @@ export function buildUpdatePlan(input: {
       orphans,
       rootMigration: rootMigration?.report ?? null,
       rootMoveBackups: rootMigration?.backups ?? [],
+      gitignore: planGitignore(cwd),
     },
     apply: {
       expected,

@@ -269,6 +269,10 @@ describe('runUpdate --dry-run --json', () => {
     proj = join(tmp.path(), 'proj');
     repo = join(tmp.path(), 'repo');
     mkdirSync(proj, { recursive: true });
+    // A project that already keeps PHARN's run state and backups out of git
+    // (0.16.0): without it every same-version run re-opens to add the lines
+    // (lib/gitignore.ts). The tests that exercise that path remove it.
+    writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
     vi.spyOn(process, 'cwd').mockReturnValue(proj);
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -658,6 +662,19 @@ describe('runUpdate --dry-run --json', () => {
       ).toMatchObject({ action: 'write', label: 'restored' });
     });
 
+    it("is planned when .gitignore lacks pharn's entries at the current version, and plan.gitignore says what it adds", async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\n');
+      const before = snapshotTree(proj);
+      const { json } = await run();
+      expect(json.status).toBe('planned');
+      expect(json.plan.gitignore).toEqual({
+        action: 'append',
+        entries: ['pharn/.backup/'],
+      });
+      expect(snapshotTree(proj)).toEqual(before);
+    });
+
     it('is planned when --ref switches the channel at the current version', async () => {
       await installed({ skillsVersion: '1.1.0' });
       const { json } = await run({ ref: 'latest' });
@@ -727,6 +744,24 @@ describe('runUpdate --dry-run --json', () => {
       expect((await run({ compact: true })).json.plan.orphans).toEqual(
         json.plan.orphans,
       );
+    });
+
+    it('omits plan.gitignore when .gitignore already covers both entries', async () => {
+      await installed();
+      const { json } = await run();
+      expect(json.plan).not.toHaveProperty('gitignore');
+    });
+
+    it('reports a .gitignore it would have to leave alone as refused', async () => {
+      await installed();
+      rmSync(join(proj, '.gitignore'));
+      mkdirSync(join(proj, '.gitignore'));
+      const { json } = await run();
+      expect(json.plan.gitignore).toEqual({
+        action: 'refused',
+        reason: 'not-a-file',
+        entries: ['pharn/.run/', 'pharn/.backup/'],
+      });
     });
 
     it('omits plan.orphans when there is none', async () => {

@@ -60,6 +60,12 @@ import { readUpstreamModels } from '../lib/upstream-models.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import { writePharnConfig } from '../lib/pharn-config.js';
+import {
+  applyGitignore,
+  backupDirIgnored,
+  gitignoreLines,
+  planGitignore,
+} from '../lib/gitignore.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import { PHARN_VERSION } from '../version.js';
 import type {
@@ -209,6 +215,9 @@ export async function runInstallArchetype(
         dir: backupDir,
         saved: toBackUp.length,
         action,
+        // This install adds `pharn/.backup/` to `.gitignore` when it is missing
+        // (below), so the advice to add it would be stale before the run ends.
+        gitignored: backupDirIgnored(cwd, planGitignore(cwd)),
       });
     }
     // Deleted BEFORE the copy, after the backup: a delete that fails stops the
@@ -412,6 +421,15 @@ export async function runInstallArchetype(
   // actually changed.
   await writePharnConfig(cwd, { ...config, ...readCarriedEntries(cwd) });
 
+  // Keep PHARN's run state and backups out of git (lib/gitignore.ts): append
+  // whichever of `pharn/.run/` and `pharn/.backup/` the project's `.gitignore`
+  // does not already cover, after every pharn-owned write and under the same
+  // lock. Append-only; a symlinked or unusable `.gitignore`, or a failed write,
+  // is a warning naming the lines — the install above has already landed.
+  const gitignore = await applyGitignore(cwd);
+  const gitignoreReport = gitignoreLines(gitignore);
+  if (gitignoreReport?.warn) log.warn(gitignoreReport.text);
+
   // The user-data moves, LAST — after every pharn-owned write — and the note
   // that says what happened (the wording `update` prints too). A move that
   // could not be made fails the run with exit 1 once the outro is out.
@@ -463,6 +481,11 @@ export async function runInstallArchetype(
         : `${pc.yellow('!')} no PHARN commands or hooks written ${pc.dim('(the fetched repo shipped none)')}`,
       docsLine,
       `${check} pharn.config.json written ${pc.dim(`(skills v${skillsVersion}, archetypes: ${archetypes.join(', ')})`)}`,
+      ...(gitignore.action === 'create' || gitignore.action === 'append'
+        ? [
+            `${check} .gitignore ${gitignore.action === 'create' ? 'created' : 'updated'} → ${pc.dim(gitignore.entries.join(', '))}`,
+          ]
+        : []),
       `${pc.dim(`Done in ${elapsed}s`)}`,
       ...modelsSection,
       '',

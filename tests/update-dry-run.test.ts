@@ -214,6 +214,10 @@ describe('runUpdate --dry-run', () => {
     proj = join(tmp.path(), 'proj');
     repo = join(tmp.path(), 'repo');
     mkdirSync(proj, { recursive: true });
+    // A project that already keeps PHARN's run state and backups out of git
+    // (0.16.0): without it every same-version run re-opens to add the lines
+    // (lib/gitignore.ts). The tests that exercise that path remove it.
+    writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
     vi.spyOn(process, 'cwd').mockReturnValue(proj);
     cleanup = vi.fn();
     scaffoldClone(repo, '1.1.0', 'v2');
@@ -543,6 +547,22 @@ describe('runUpdate --dry-run', () => {
       await runUpdate({ dryRun: true, force: true });
       expect(noteBody('PLAN')).toContain('Nothing would be written');
       expect(outroText()).toContain('Run `pharn update --force` to apply');
+    });
+
+    it('previews the .gitignore lines a same-version run would add, writing nothing', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      for (const rel of [CAP_FILE, DOC, HOOK, CMD]) {
+        write(join(proj, rel), readFileSync(join(repo, rel), 'utf8'));
+      }
+      rmSync(join(proj, '.gitignore'));
+      const before = snapshotTree(proj);
+      await runUpdate({ dryRun: true });
+      expect(snapshotTree(proj)).toEqual(before);
+      expect(noteBody('PLAN')).toContain(
+        ".gitignore: would create it with pharn/.run/, pharn/.backup/ (PHARN's run state and update backups).",
+      );
+      // It WOULD write something: .gitignore.
+      expect(noteBody('PLAN')).not.toContain('Nothing would be written');
     });
 
     it('lists skip buckets and withholds the version, with the pending record', async () => {

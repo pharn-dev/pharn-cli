@@ -46,6 +46,13 @@ import { PHARN_VERSION } from '../version.js';
 import { applyWrites, ApplyError } from '../lib/apply-update.js';
 import { BACKUP_DIR, createBackup, legacyBackupNotice } from '../lib/backup.js';
 import {
+  applyGitignore,
+  backupDirIgnored,
+  gitignoreLines,
+  gitignorePending,
+  planGitignore,
+} from '../lib/gitignore.js';
+import {
   buildRecords,
   MODELS_RECORD_KEY,
   readRecords,
@@ -373,6 +380,15 @@ async function runArchetypeUpdate(
     current && !force
       ? pendingRootMigration(cwd, config, baselineRecords)
       : null;
+  // A project `.gitignore` that does not yet cover PHARN's run state and
+  // backups re-opens the gate too (lib/gitignore.ts) — the install predates
+  // 0.16.0, or someone deleted a line. Local and read-only, and bounded like
+  // `missing`: only a `.gitignore` the run can write counts (absent, or a
+  // regular file — never a symlink or an unreadable one), the opened run
+  // appends the lines, and the next run early-returns. Residual: a regular
+  // file whose write fails (EACCES) re-opens every run, named in its warning.
+  const gitignoreMissing =
+    current && !force && gitignorePending(planGitignore(cwd));
   if (
     current &&
     !force &&
@@ -381,7 +397,8 @@ async function runArchetypeUpdate(
     !switchChannel &&
     missing === null &&
     !staleRecords &&
-    rootDoc === null
+    rootDoc === null &&
+    !gitignoreMissing
   ) {
     if (json) {
       emitEarlyReturn('up-to-date');
@@ -438,6 +455,13 @@ async function runArchetypeUpdate(
           ? [
               pc.dim(
                 `  ${terminalSafe(rootDoc)} is still at the project root — this run re-applies the install, which keeps it under pharn/.`,
+              ),
+            ]
+          : []),
+        ...(gitignoreMissing
+          ? [
+              pc.dim(
+                "  .gitignore does not yet keep PHARN's run state and backups out of git — this run re-applies the install and adds them.",
               ),
             ]
           : []),
@@ -635,6 +659,10 @@ async function runArchetypeUpdate(
   // Before the report, whose outro is the run's last line.
   const legacyBackups = legacyBackupNotice(cwd);
   if (legacyBackups) log.info(legacyBackups);
+  const gitignore =
+    outcome.gitignore === undefined ? null : gitignoreLines(outcome.gitignore);
+  if (gitignore?.warn) log.warn(gitignore.text);
+  else if (gitignore !== null) log.info(gitignore.text);
   reportOutcome(outcome, force);
   // A user-data move that could not be made (a conflict, a symlink, a failed
   // rename) fails the run, after everything else it did has been reported and
@@ -838,6 +866,9 @@ async function applyPlannedUpdate(
             deletes,
             apply.rootMoveBackups.length > 0,
           ),
+          // This run adds `pharn/.backup/` to `.gitignore` when it is missing
+          // (after the config write, below), so the advice would be stale.
+          gitignored: backupDirIgnored(cwd, report.gitignore),
         }
       : null;
   if (backup) onBackup(backup);
@@ -952,6 +983,12 @@ async function applyPlannedUpdate(
     models: models.next,
   });
 
+  // Keep PHARN's run state and backups out of git (lib/gitignore.ts): planned
+  // again here, under the lock, and appended after every pharn-owned write. A
+  // refusal or a failed write is reported, never thrown — the update above has
+  // already landed.
+  const gitignore = await applyGitignore(cwd);
+
   // The user-data moves, LAST: everything pharn-owned is in place, so a move
   // that fails (or was refused at plan time) costs nothing but itself, and the
   // caller turns it into exit 1 after the report.
@@ -977,6 +1014,7 @@ async function applyPlannedUpdate(
     models,
     modelsFloor: report.modelsFloor,
     orphans: report.orphans,
+    gitignore,
     rootMigration: migration,
     rootMigrationResult:
       migration === null ? null : { ...docResult, ...moveResult },

@@ -202,6 +202,11 @@ export interface BackupNotice {
   saved: number | string;
   /** What the copies were made ahead of; omitted, the sentence names nothing. */
   action?: BackupAction;
+  /**
+   * `pharn/.backup/` is already out of git, or this run adds it to `.gitignore`
+   * (lib/gitignore.ts → `backupDirIgnored`). True drops the advice to add it.
+   */
+  gitignored?: boolean;
 }
 
 /**
@@ -210,7 +215,8 @@ export interface BackupNotice {
  * `update`'s carried the `.gitignore` advice).
  *
  * The pointer comes first; the advice follows it, once, when the backup is
- * made. `aborted` is `update`'s failure path, which repeats the pointer on
+ * made — and only while `pharn/.backup/` is not gitignored (`init` and `update`
+ * add it to `.gitignore`, so after them the advice would be noise). `aborted` is `update`'s failure path, which repeats the pointer on
  * stderr (what `2> err.log` keeps) — advice, not a pointer, so it is not
  * repeated there.
  */
@@ -222,7 +228,7 @@ export function backupNoticeLines(
     typeof notice.saved === 'number' ? `${notice.saved} file(s)` : notice.saved;
   const before = notice.action === undefined ? '' : ` before ${notice.action}`;
   const lines = [`Backed up ${what} to ${notice.dir}${before}.`];
-  if (opts.aborted !== true) {
+  if (opts.aborted !== true && notice.gitignored !== true) {
     lines.push(
       `${BACKUP_DIR}/ is not gitignored — add it to .gitignore or delete it once you are happy.`,
     );

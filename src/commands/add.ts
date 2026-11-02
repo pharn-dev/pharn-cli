@@ -15,6 +15,7 @@ import {
 } from '../steps/add-picker.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
 import { createBackup, printBackupNotice } from '../lib/backup.js';
+import { backupDirIgnored } from '../lib/gitignore.js';
 import { scanDest } from '../lib/dest-drift.js';
 import { installCapabilityDirs } from '../lib/install-capabilities.js';
 import { capabilityCloneFiles } from '../lib/install-manifest.js';
@@ -525,6 +526,7 @@ async function resolveArchetypeAdd(
       dir: backupDir,
       saved: scan.drifted.length,
       action: 'overwriting',
+      gitignored: backupDirIgnored(cwd),
     });
   }
 

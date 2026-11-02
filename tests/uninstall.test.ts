@@ -232,7 +232,7 @@ describe('runUninstall', () => {
       `Deleted ${FLAT_FILES.length} file(s) and 11 empty directories`,
     );
     expect(done).toContain(
-      '.claude/settings.json, .claude/settings.local.json and every pharn/.backup/ directory are left untouched.',
+      '.claude/settings.json, .claude/settings.local.json, every pharn/.backup/ directory and the lines pharn added to .gitignore are left untouched.',
     );
     expect(done).toContain('Left 1 directory that still hold other files:');
     expect(done).toContain('  • .claude');
@@ -370,7 +370,7 @@ describe('runUninstall', () => {
     );
     expect(plan).toContain('  • src/app.ts');
     expect(plan).toContain(
-      '.claude/settings.json, .claude/settings.local.json and every pharn/.backup/ directory are left untouched.',
+      '.claude/settings.json, .claude/settings.local.json, every pharn/.backup/ directory and the lines pharn added to .gitignore are left untouched.',
     );
   });
 

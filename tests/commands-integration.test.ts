@@ -299,7 +299,11 @@ const INSTALLED = [
   'pharn/pharn-core/seam-resolver/SKILL.md',
   SECURITY,
 ].sort();
-const STATE_FILES = ['pharn.config.json', 'pharn.records.json'];
+// `.gitignore` is the user's, but a fresh install creates it with PHARN's
+// entries (lib/gitignore.ts).
+const STATE_FILES = ['.gitignore', 'pharn.config.json', 'pharn.records.json'];
+const PHARN_GITIGNORE_BLOCK =
+  '# PHARN run state and update backups (added by pharn)\npharn/.run/\npharn/.backup/\n';
 
 describe('commands end to end, against a real project (no src/ mocks)', () => {
   it('init --yes installs the archetype selection into an empty project', async () => {
@@ -354,6 +358,34 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(report.capabilities.count).toBe(2);
     expect(report.drift?.modified).toEqual([]);
     expect(report.drift?.missing).toEqual([]);
+  });
+
+  // 0.16.0 (lib/gitignore.ts): init appends PHARN's run state and backups to
+  // the user's `.gitignore` (CRLF kept, their bytes the prefix); a same-version
+  // update with both lines present changes nothing; a deleted line re-opens it
+  // and comes back, once.
+  it('init and update keep pharn/.run/ and pharn/.backup/ in .gitignore, idempotently', async () => {
+    writeFileSync(at('.gitignore'), 'node_modules\r\ndist\r\n');
+    await init();
+    const full =
+      'node_modules\r\ndist\r\n# PHARN run state and update backups (added by pharn)\r\npharn/.run/\r\npharn/.backup/\r\n';
+    expect(read('.gitignore')).toBe(full);
+
+    const installedAt = JSON.parse(read('pharn.config.json')).installedAt;
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('.gitignore')).toBe(full);
+    // The early return: nothing re-applied, so the config was not rewritten.
+    expect(JSON.parse(read('pharn.config.json')).installedAt).toBe(installedAt);
+
+    writeFileSync(at('.gitignore'), full.replace('pharn/.backup/\r\n', ''));
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('.gitignore')).toBe(
+      full.replace('pharn/.backup/\r\n', '') + 'pharn/.backup/\r\n',
+    );
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('.gitignore')).toBe(
+      full.replace('pharn/.backup/\r\n', '') + 'pharn/.backup/\r\n',
+    );
   });
 
   it('update --yes upgrades a clean file, skips an edited one, and withholds the bump', async () => {
@@ -441,10 +473,14 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     const backups = left.filter((f) => f.startsWith('pharn/.backup/'));
     expect(backups).toHaveLength(1);
     expect(backups[0]).toMatch(/^pharn\/\.backup\/[^/]+\/pharn\.config\.json$/);
+    // `.gitignore` too: pharn's lines in it are harmless and stay (removing
+    // a user-file line would be a rewrite).
     expect(left.filter((f) => !f.startsWith('pharn/.backup/'))).toEqual([
       '.claude/settings.json',
+      '.gitignore',
       CONSTITUTION,
     ]);
+    expect(read('.gitignore')).toBe(PHARN_GITIGNORE_BLOCK);
     expect(read(CONSTITUTION)).toBe(`my own constitution\n`);
     expect(existsSync(at('pharn/pharn-pipeline'))).toBe(false);
     expect(existsSync(at('.claude/commands'))).toBe(false);
@@ -585,9 +621,13 @@ describe('root-footprint migration, end to end', () => {
     expect(
       backed.map((f) => f.replace(/^pharn\/\.backup\/[^/]+\//, '')),
     ).toEqual(['memory-bank/lessons-learned.md', 'pharn.spec-template.md']);
-    // The scratch dir and the user's .gitignore are only noticed.
+    // The scratch dir is only noticed. The user's .gitignore lines are kept
+    // byte for byte (the old names are hinted at, never rewritten) and pharn's
+    // block is appended after them (lib/gitignore.ts).
     expect(read('.pharn/writes-scope.json')).toBe('{}\n');
-    expect(read('.gitignore')).toBe('node_modules\n.pharn/\n.pharn-backup\n');
+    expect(read('.gitignore')).toBe(
+      `node_modules\n.pharn/\n.pharn-backup\n${PHARN_GITIGNORE_BLOCK}`,
+    );
 
     // Nothing of pharn's at the root but .claude/, pharn/ and the JSON files;
     // `.gitignore` and `.pharn/` are the user's and pharn-oss's.
@@ -713,7 +753,7 @@ describe('root-footprint migration, end to end', () => {
     await init();
     expect(await run(() => runUninstall({ yes: true }))).toBeNull();
     expect(readdirSync(at('pharn'))).toEqual(['.backup']);
-    expect(rootEntries()).toEqual(['.claude', 'pharn']);
+    expect(rootEntries()).toEqual(['.claude', '.gitignore', 'pharn']);
   });
 });
 

@@ -196,8 +196,14 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
   }, // null unless preserved
   "models": { "outcome": "copy", "reasons": [] }, // "copy" | "none" | "rejected"
   "config": { "carriedKeys": ["testResults"] }, // your own keys, by name only
+  "gitignore": { "action": "create", "entries": ["pharn/.run/", "pharn/.backup/"] }, // present only when .gitignore would change
 }
 ```
+
+`gitignore` is present **only** when the install would change [`.gitignore`](#gitignore): `action` is
+`create` or `append` with the lines it adds, or `refused` with a `reason` (`symlink`, `not-a-file`,
+`unreadable`) and the lines to add yourself. With nothing to add the key is absent, so the report is
+byte-identical to earlier releases. Added in 0.16.0.
 
 `archetypeSource`, `detectedArchetypes` and `archetypeEvidence` say where `archetypes` came from.
 `archetypeEvidence` is always detection's — one entry per archetype detection found, with the dependency
@@ -502,6 +508,7 @@ cannot find them; PHARN still runs them. Delete them by hand.
 | Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `seam`, `modules: []`, `frozenCapabilities` (see above)       |
 | Copy the `models` block    | pharn-oss's own, verbatim, from its root `pharn.config.json`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                                |
 | Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
+| Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                                  |
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
 the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
@@ -516,6 +523,32 @@ The four trusted docs keep the paths pharn-oss keeps them at, and those are not 
 [overwrite prompt](#6-summary) (default **No**) and, when it differs from pharn-oss's, copied
 to `pharn/.backup/<timestamp>/` before the copy; `init --yes` refuses instead. Rename yours first if
 you want to keep it where it is.
+
+#### `.gitignore`
+
+PHARN's runtime scratch (`pharn/.run/`, where pharn-oss's floor keeps stage logs, gate outputs and cost
+markers) and pharn's backups (`pharn/.backup/`) must never be committed: a tracked run directory makes
+pharn-oss's reconcile count PHARN's own files as build escapes. So, after everything else is written,
+`init` makes sure your root `.gitignore` covers both:
+
+- **Created** with a comment and both lines when it does not exist.
+- **Appended to** with only the missing line(s) otherwise. Your bytes are kept exactly — nothing is
+  reordered, rewritten or removed — and the new lines use the file's line endings (CRLF when its first
+  line ends in CRLF). A file that does not end in a newline gets one before pharn's lines.
+- **Left alone** when it already covers both, in any of the spellings git treats the same way:
+  `pharn/.run/`, `/pharn/.run`, `pharn/.run`, `pharn/.run/*`, `pharn/.run/**`, `**/pharn/.run/`, or a
+  bare `.run/`. A negation you wrote on purpose (`!pharn/.run/`) counts as your decision and is never
+  overridden. Broader patterns (`pharn/`, `*`) are not recognised; pharn then appends its own line,
+  which is redundant but harmless.
+- **Never written through a symlink**, nor when it is not a regular file or cannot be read. The install
+  still succeeds, with a warning naming the lines to add yourself; a failed write is reported the same
+  way.
+
+A second run changes nothing. The outro says `.gitignore created` or `.gitignore updated`. `--dry-run`
+prints the line it would add, and `--dry-run --json` carries it as `gitignore`. `.gitignore` is **not**
+one of the [write targets](#install-without-prompts---yes), so `init --yes` never refuses because of it.
+A `.gitignore` line does not untrack files you already committed: `git rm -r --cached pharn/.run`
+does that.
 
 #### A surface pharn-oss does not ship
 

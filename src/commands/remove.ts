@@ -18,6 +18,7 @@ import {
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { errorMessage, logError } from '../lib/report-error.js';
 import { createBackup, printBackupNotice } from '../lib/backup.js';
+import { backupDirIgnored } from '../lib/gitignore.js';
 import { removalBackupSet } from '../lib/removal-backup.js';
 import {
   buildRemoveSelection,
@@ -171,6 +172,7 @@ function backupBeforeDelete(
       dir: backupDir,
       saved: rels.length,
       action: 'removing',
+      gitignored: backupDirIgnored(cwd),
     });
   } catch (err) {
     throw new RemoveBackupError(
