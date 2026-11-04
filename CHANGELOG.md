@@ -9,6 +9,16 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-11-03
+
+### Changed
+
+- **Dependency updates.** Updated development and CI dependencies:
+  - Bumped `pharn-dev/pharn-ci` from 0.2.0 to 0.4.0 in CI workflows.
+  - Bumped `eslint` from 10.13.0 to 10.14.0.
+  - Bumped `typescript-eslint` from 8.72.0 to 8.72.1.
+  - Bumped `@types/node` from 26.6.5 to 26.6.6.
+
 ## [0.16.0] — 2026-11-02
 
 ### Added
@@ -299,7 +309,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.1...HEAD
+[0.16.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.0...v0.14.1
