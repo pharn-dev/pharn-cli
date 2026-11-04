@@ -11,3 +11,6 @@ test-lib
 test-next
 test-spa
 prompts
+# PHARN run state and update backups (added by pharn)
+pharn/.run/
+pharn/.backup/
