@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.16.2] — 2026-11-08
+
 ### Added
 
 - **Phargus for local runtime diagnostics.** `@pharn-dev/phargus` 0.1.x is a dev dependency (not in the published package), with `phargus.config.json`, a copied collector in `.phargus/tools/`, and two scripts: `phargus:run` (the built CLI with the Phargus agent preloaded) and `phargus:collect`. The project-scoped `phargus-*` skills are installed from `pharn-dev/skills`, and the `pharn-ci-*` skills are refreshed. See [docs/contributing.md](docs/contributing.md#runtime-diagnostics-phargus).
@@ -16,6 +18,7 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 ### Changed
 
 - **CI: pharn-ci reinstalled at 0.9.1.** Removed the pharn-ci setup and re-installed it with the updated `pharn-ci-install` skill: the Action moves from 0.4.0 to 0.9.1 in `ci.yml` and `pharn-ci-comment.yml` (`fail-on-threshold` renamed `fail-on-verdict`), the `Test` job gets `pull-requests: read` for the `pharn/accepted` sign-off, and the `pharn-ci-*` skills and the `pharn-cli` skill are refreshed. No change to the published CLI.
+- **Dependency updates.** Bumped `github/codeql-action` (`init` and `analyze`) from 4.39.0 to 4.39.1 in CI workflows. No change to the published CLI.
 
 ## [0.16.1] — 2026-11-03
 
@@ -317,7 +320,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.1...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.2...HEAD
+[0.16.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.14.1...v0.15.0
