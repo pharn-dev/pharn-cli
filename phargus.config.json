@@ -1,0 +1,4 @@
+{
+  "output": ".phargus/raw.ndjson",
+  "intervalMs": 250
+}

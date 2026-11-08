@@ -11,3 +11,7 @@ test-lib
 test-next
 test-spa
 prompts
+
+# Phargus captures (the copied collector in .phargus/tools stays tracked)
+.phargus/*
+!.phargus/tools/
