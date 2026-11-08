@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **CI: pharn-ci reinstalled at 0.9.1.** Removed the pharn-ci setup and re-installed it with the updated `pharn-ci-install` skill: the Action moves from 0.4.0 to 0.9.1 in `ci.yml` and `pharn-ci-comment.yml` (`fail-on-threshold` renamed `fail-on-verdict`), the `Test` job gets `pull-requests: read` for the `pharn/accepted` sign-off, and the `pharn-ci-*` skills and the `pharn-cli` skill are refreshed. No change to the published CLI.
+
 ## [0.16.1] — 2026-11-03
 
 ### Changed

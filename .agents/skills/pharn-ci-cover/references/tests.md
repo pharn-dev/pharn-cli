@@ -74,9 +74,24 @@ from the measurement:
   in vitest, `coveragePathIgnorePatterns` in jest, `omit` in `.coveragerc`,
   `--test-coverage-exclude`, and the like.
 - pharn-ci settings: `threshold`, `exclude`, `coverage-root`, `coverage-file`,
-  `fail-on-threshold`, `comment` in the workflow; anything in `.pharn/ci.yml`;
-  `-diff` or `binary` in `.gitattributes`.
-- Skipping or weakening tests: `.skip`, `.only`, `xit`, `xdescribe`,
-  `@pytest.mark.skip`, `[Ignore]`, `#[ignore]`, `t.Skip()`, deleting or
-  loosening an existing assertion.
+  `fail-on-verdict` (and its old name `fail-on-threshold`), `comment`,
+  `test-integrity`, `dependencies`, `junit-paths`, `accept-label` in the
+  workflow; anything in `.pharn/ci.yml`; `-diff` or `binary` in
+  `.gitattributes`.
+- A dependency added to satisfy a test, or a hand-edited lockfile: pharn-ci
+  0.8.0 and later flag what a PR adds or changes (D01 to D05).
+- A test id added to a quarantine list: the failure stops counting against the
+  job, so the test is hidden, not fixed.
+- An import of the changed file added to an unrelated test, to clear
+  `TESTS_NOT_EXERCISING_CHANGES`: the import runs nothing. A test that imports
+  the changed file asserts on its behaviour.
+- Skipping, focusing or weakening tests: `.skip`, `.only`, `fit`,
+  `fdescribe`, `xit`, `xdescribe`, `.todo`, `@pytest.mark.skip`, `xfail`,
+  `[Ignore]`, `#[ignore]`, `t.Skip()`, deleting or loosening an existing
+  assertion.
+- Test scripts that can pass without the tests passing: `|| true`, `echo` or
+  `exit 0` in place of the run, `--passWithNoTests`, `--testPathPattern`,
+  `-t`, a removed `pretest` or `posttest`.
+- The accept label: applying it is a reviewer's sign-off, never a step of
+  this skill.
 - Writing, editing or committing a coverage file by hand.

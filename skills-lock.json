@@ -5,19 +5,25 @@
       "source": "pharn-dev/skills",
       "sourceType": "github",
       "skillPath": "plugins/pharn-ci/skills/pharn-ci-cover/SKILL.md",
-      "computedHash": "87842f85204e961cef8c02583e3c3173647db19665a691845d3c40efc88f984b"
+      "computedHash": "ba89e623d9b401d4c7325733ce0eec1096e73b63b159509aad7908a349127bfd"
     },
     "pharn-ci-explain": {
       "source": "pharn-dev/skills",
       "sourceType": "github",
       "skillPath": "plugins/pharn-ci/skills/pharn-ci-explain/SKILL.md",
-      "computedHash": "54aeac302bcb1e2fdab18fd77a51f3651e29b4c18cffc48970c158290ae70b54"
+      "computedHash": "74f187ab4737e212d40c044a3df3873255c6ada9d58d88d84ab03c96ba0ad06c"
     },
     "pharn-ci-install": {
       "source": "pharn-dev/skills",
       "sourceType": "github",
       "skillPath": "plugins/pharn-ci/skills/pharn-ci-install/SKILL.md",
-      "computedHash": "650ed4d0702e23f98de5fe1109461e370392c8797bdcf45651eec36b45ad0102"
+      "computedHash": "3d66c84de56245b555c7a175a4c8215491e19489718b3c4142f2b493b6655c27"
+    },
+    "pharn-cli": {
+      "source": "pharn-dev/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/pharn/skills/pharn-cli/SKILL.md",
+      "computedHash": "7b78be99778ebdb517bafed53c0d8355c3748b74a5fcdc3add60545e289add14"
     }
   }
 }
