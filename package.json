@@ -44,6 +44,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "phargus:run": "npm run build && node --import @pharn-dev/phargus/agent dist/index.js",
+    "phargus:collect": "node .phargus/tools/phargus.mjs collect --project . --file .phargus/raw.ndjson --follow",
     "check": "npm run format:check && npm run lint && npm run lint:md && npm run typecheck && npm run test",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check"
@@ -55,6 +57,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@pharn-dev/phargus": "^0.1.0",
     "@types/minimist": "^1.2.5",
     "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^5.0.5",

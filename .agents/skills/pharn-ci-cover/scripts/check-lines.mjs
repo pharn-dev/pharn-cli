@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Re-check the added lines a pharn-ci report (Report v1) lists as uncovered against a fresh
+// Re-check the added lines a pharn-ci report (Report v1 or v2) lists as uncovered against a fresh
 // coverage report, and estimate the new diff coverage. Node core only; reads files and runs
 // read-only git commands, writes nothing.
 //
@@ -35,7 +35,8 @@ export class UsageError extends Error {}
 //
 // Ported from pharn-ci 0.1.0 (a88e62a8febf5cd9a77b8e0252cd060c3b94782c, Apache-2.0): packages/core/src/paths.ts,
 // coverage/xml.ts, coverage/detect.ts, coverage/lcov.ts, coverage/cobertura.ts and coverage/merge.ts, so a
-// coverage file is detected, read and mapped to repository paths the way pharn-ci does it.
+// coverage file is detected, read and mapped to repository paths the way pharn-ci does it. These files are
+// unchanged in pharn-ci 0.4.0 (a9314e9fda1ae220e42fa0d7e6ff5c0a04e1d756).
 
 // --- paths (paths.ts) ---
 
@@ -613,7 +614,15 @@ export function parseCli(argv) {
   return { report: v.report, coverage: v.coverage, coverageRoot: root, format, base: v.base ?? null };
 }
 
-/** Validate the parts of Report v1 this helper reads. Throws UsageError on anything else. */
+/**
+ * The report versions this helper reads: Report v1 (pharn-ci 0.1.x, the string "1") and Report v2 (pharn-ci 0.2.x to
+ * 0.4.x, the number 2). v2 takes `diffCoverage` from v1 unchanged, and that is all this helper reads.
+ */
+export function isKnownSchemaVersion(v) {
+  return v === "1" || v === 2;
+}
+
+/** Validate the parts of a Report v1 or v2 this helper reads. Throws UsageError on anything else. */
 export function readReport(text) {
   let r;
   try {
@@ -621,8 +630,8 @@ export function readReport(text) {
   } catch (err) {
     throw new UsageError(`the report is not JSON: ${err.message}`);
   }
-  if (r === null || typeof r !== "object" || r.schemaVersion !== "1" || r.tool?.name !== "pharn-ci") {
-    throw new UsageError('the report is not a pharn-ci Report v1 (schemaVersion "1", tool.name "pharn-ci")');
+  if (r === null || typeof r !== "object" || !isKnownSchemaVersion(r.schemaVersion) || r.tool?.name !== "pharn-ci") {
+    throw new UsageError('the report is not a pharn-ci Report v1 or v2 (schemaVersion "1" or 2, tool.name "pharn-ci")');
   }
   const dc = r.diffCoverage;
   if (dc === null || dc === undefined) {
@@ -857,7 +866,7 @@ export function atLeast(covered, total, threshold) {
   return left >= right;
 }
 
-/** The estimate block: Report v1's percent rules, and whether the threshold is met. */
+/** The estimate block: the percent rules of Report v1 (unchanged in v2), and whether the threshold is met. */
 export function estimateOf(covered, coverable, threshold, basis) {
   const meets = threshold === null ? null : coverable === 0 || atLeast(covered, coverable, threshold);
   let percent = percentOf(covered, coverable);

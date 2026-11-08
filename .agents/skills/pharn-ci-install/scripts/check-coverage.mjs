@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Check a repository's coverage output the way pharn-ci (0.1.x) will read it, before pharn-ci runs in CI:
+// Check a repository's coverage output the way pharn-ci (0.1.x to 0.4.x) will read it, before pharn-ci runs in CI:
 // which report auto-discovery would pick, the format of each file, whether its paths match tracked files,
 // and the coverage root they look relative to. Node core only; reads files and runs read-only git commands,
 // writes nothing.
@@ -31,7 +31,8 @@ export class UsageError extends Error {}
 //
 // Ported from pharn-ci 0.1.0 (a88e62a8febf5cd9a77b8e0252cd060c3b94782c, Apache-2.0): packages/core/src/paths.ts,
 // coverage/xml.ts, coverage/detect.ts, coverage/lcov.ts, coverage/cobertura.ts and coverage/merge.ts, so a
-// coverage file is detected, read and mapped to repository paths the way pharn-ci does it.
+// coverage file is detected, read and mapped to repository paths the way pharn-ci does it. These files are
+// unchanged in pharn-ci 0.4.0 (a9314e9fda1ae220e42fa0d7e6ff5c0a04e1d756).
 
 // --- paths (paths.ts) ---
 
