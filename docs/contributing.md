@@ -231,6 +231,17 @@ Keep [`docs/`](./README.md) aligned with code when you change:
 
 Do not document behavior that is not implemented without marking **Coming soon** or referencing [roadmap.md](./roadmap.md).
 
+## Runtime diagnostics (Phargus)
+
+[Phargus](https://github.com/pharn-dev/phargus) (`@pharn-dev/phargus` 0.1.x, a dev dependency, never shipped) samples the event loop, memory and GC of a CLI run. The agent reads `phargus.config.json` from the process's working directory, so run both scripts from the repository root:
+
+```bash
+npm run phargus:collect -- --port 0 --duration-ms 60000
+npm run phargus:run -- init --dry-run --json
+```
+
+`phargus:run` builds `dist/` and runs it with `--import @pharn-dev/phargus/agent`, writing samples to `.phargus/raw.ndjson` every 250 ms. `phargus:collect` serves the collector and dashboard on loopback from the copied tools in `.phargus/tools/` (the `phargus-setup` skill's scripts). Captures under `.phargus/` are gitignored; the tools are tracked. The CLI serves no HTTP, so there are no request spans — only runtime samples. The `phargus-*` skills in `.agents/skills/` diagnose, compare and replay those captures.
+
 ## Debug flag
 
 `PHARN_DEBUG=1` enables full error output for catalog fetch and install failures. Document new debug surfaces in [troubleshooting.md](./troubleshooting.md).

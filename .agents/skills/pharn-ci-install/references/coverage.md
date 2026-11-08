@@ -1,4 +1,4 @@
-# Coverage output per ecosystem (pharn-ci 0.1.0)
+# Coverage output per ecosystem (pharn-ci 0.1.0 to 0.9.1)
 
 pharn-ci reads lcov and Cobertura XML only, decides which by the first 1 KiB
 (`auto`), and matches each file path in the report against the tracked files.
@@ -25,6 +25,12 @@ Use the project's own runner and add only what it needs to write one of these.
   the test `.csproj`). In CI it can be installed in the workflow instead, as
   pharn-ci's vitest example does (`npm install --no-save
   @vitest/coverage-v8`), but a dev dependency keeps local runs the same.
+- A dependency the setup PR adds is a dependency pharn-ci 0.8.0 and later
+  checks (the `dependencies` input, `references/workflows.md`): the manifest
+  and its lockfile must change together, written by the package manager and
+  never by hand, or the setup PR itself shows D04, lockfile drift. A
+  dependency from a git repository, a URL or a local file is D05. Both fail
+  the check.
 
 ## New files must show up
 
