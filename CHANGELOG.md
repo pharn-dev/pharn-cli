@@ -13,6 +13,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 - **Phargus for local runtime diagnostics.** `@pharn-dev/phargus` 0.1.x is a dev dependency (not in the published package), with `phargus.config.json`, a copied collector in `.phargus/tools/`, and two scripts: `phargus:run` (the built CLI with the Phargus agent preloaded) and `phargus:collect`. The project-scoped `phargus-*` skills are installed from `pharn-dev/skills`, and the `pharn-ci-*` skills are refreshed. See [docs/contributing.md](docs/contributing.md#runtime-diagnostics-phargus).
 
+### Changed
+
+- **CI: pharn-ci reinstalled at 0.9.1.** Removed the pharn-ci setup and re-installed it with the updated `pharn-ci-install` skill: the Action moves from 0.4.0 to 0.9.1 in `ci.yml` and `pharn-ci-comment.yml` (`fail-on-threshold` renamed `fail-on-verdict`), the `Test` job gets `pull-requests: read` for the `pharn/accepted` sign-off, and the `pharn-ci-*` skills and the `pharn-cli` skill are refreshed. No change to the published CLI.
+
 ## [0.16.1] — 2026-11-03
 
 ### Changed

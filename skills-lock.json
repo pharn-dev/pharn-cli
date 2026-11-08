@@ -48,6 +48,12 @@
       "sourceType": "github",
       "skillPath": "plugins/pharn-ci/skills/pharn-ci-install/SKILL.md",
       "computedHash": "3d66c84de56245b555c7a175a4c8215491e19489718b3c4142f2b493b6655c27"
+    },
+    "pharn-cli": {
+      "source": "pharn-dev/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/pharn/skills/pharn-cli/SKILL.md",
+      "computedHash": "7b78be99778ebdb517bafed53c0d8355c3748b74a5fcdc3add60545e289add14"
     }
   }
 }
