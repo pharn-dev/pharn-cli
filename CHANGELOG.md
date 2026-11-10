@@ -9,6 +9,14 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Added
+
+- **`updatedAt` in `pharn.config.json`.** `pharn update` records when it last rewrote the config, as an ISO timestamp. The key is additive: a config without it still loads, `pharn init` never writes it (a re-run drops it), and `add`/`remove` carry it unchanged. See [docs/reference/pharn-config.md](docs/reference/pharn-config.md#top-level-fields-archetype-install).
+
+### Fixed
+
+- **`pharn update` recorded the wrong CLI version and lost the install date.** It kept `pharnVersion` from the CLI that first installed PHARN (e.g. `"0.4.0"` after an update by 0.16.2) and replaced `installedAt` with the update time. It now sets `pharnVersion` to the CLI that wrote the install state and keeps `installedAt` as the first install's date; the update time goes in the new `updatedAt`. This applies to an update that withholds the version bump too.
+
 ## [0.16.2] — 2026-11-08
 
 ### Added

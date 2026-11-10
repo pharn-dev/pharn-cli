@@ -338,6 +338,7 @@ const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
     isMultiTenant: true,
     modules: true,
     installedAt: true,
+    updatedAt: true,
     models: true,
     seam: true,
     stackAnswers: true,

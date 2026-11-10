@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import { codeloadArchive } from './support/tar-fixture.js';
+import { PHARN_VERSION } from '../src/version.js';
 
 // ---------------------------------------------------------------------------
 // One UNMOCKED happy path per command (F-36).
@@ -371,11 +372,13 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
       'node_modules\r\ndist\r\n# PHARN run state and update backups (added by pharn)\r\npharn/.run/\r\npharn/.backup/\r\n';
     expect(read('.gitignore')).toBe(full);
 
-    const installedAt = JSON.parse(read('pharn.config.json')).installedAt;
+    const installed = read('pharn.config.json');
+    const { installedAt } = JSON.parse(installed);
+    expect(JSON.parse(installed)).not.toHaveProperty('updatedAt');
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(read('.gitignore')).toBe(full);
     // The early return: nothing re-applied, so the config was not rewritten.
-    expect(JSON.parse(read('pharn.config.json')).installedAt).toBe(installedAt);
+    expect(read('pharn.config.json')).toBe(installed);
 
     writeFileSync(at('.gitignore'), full.replace('pharn/.backup/\r\n', ''));
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
@@ -386,6 +389,13 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(read('.gitignore')).toBe(
       full.replace('pharn/.backup/\r\n', '') + 'pharn/.backup/\r\n',
     );
+    // The re-opened run rewrote the config: it records this CLI and the time of
+    // the update, and keeps the first install's date.
+    const updated = JSON.parse(read('pharn.config.json'));
+    expect(updated.installedAt).toBe(installedAt);
+    expect(updated.pharnVersion).toBe(PHARN_VERSION);
+    expect(typeof updated.updatedAt).toBe('string');
+    expect(new Date(updated.updatedAt).toISOString()).toBe(updated.updatedAt);
   });
 
   it('update --yes upgrades a clean file, skips an edited one, and withholds the bump', async () => {

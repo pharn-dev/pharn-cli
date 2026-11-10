@@ -14,20 +14,21 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 
 ## Top-level fields (archetype install)
 
-| Field           | Type           | Description                                                                                                   |     |
-| --------------- | -------------- | ------------------------------------------------------------------------------------------------------------- | --- |
-| `pharnVersion`  | string         | Version of the PHARN CLI that ran the install                                                                 |     |
-| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                                           |     |
-| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                                           |     |
-| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                                           |     |
-| `ref`           | string         | `"latest"` follows verified releases (`pharn init`'s default, or `--ref latest`); absent → the tip of main    |     |
-| `installedAt`   | string         | ISO timestamp set by `init`, and by `update` when it writes the config; `add` and `remove` leave it unchanged |     |
-| `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype`      |     |
-| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                            |     |
-| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                                         |     |
-| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)                                       |     |
-| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                  |     |
-| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))                                     |     |
+| Field           | Type           | Description                                                                                                            |     |
+| --------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- | --- |
+| `pharnVersion`  | string         | Version of the PHARN CLI that last wrote the install (`init` or `update`)                                              |     |
+| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                                                    |     |
+| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                                                    |     |
+| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                                                    |     |
+| `ref`           | string         | `"latest"` follows verified releases (`pharn init`'s default, or `--ref latest`); absent → the tip of main             |     |
+| `installedAt`   | string         | ISO timestamp of the first install, set by `init` (a re-run included); `update`, `add` and `remove` leave it unchanged |     |
+| `updatedAt`     | string         | ISO timestamp of the last `pharn update` that rewrote the config; absent until one does, never written by `init`       |     |
+| `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype`               |     |
+| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                                     |     |
+| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                                                  |     |
+| `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)                                                |     |
+| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                           |     |
+| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))                                              |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 A `capabilities` that is present but **not** an array (for example `"capabilities": "x"` or `null`) is a
@@ -353,7 +354,8 @@ How each command keeps them:
   ([troubleshooting](../troubleshooting.md#the-config-is-not-valid-json)), then copy your keys back.
 
 `init` **never** carries over a key pharn owns. It writes `pharnVersion`, `skillsVersion`, `repo`,
-`commit`, `installedAt`, `archetypes`, `capabilities`, `layout` and `modules` fresh. `models` becomes
+`commit`, `installedAt`, `archetypes`, `capabilities`, `layout` and `modules` fresh, and writes no
+`updatedAt` (a carried one is dropped). `models` becomes
 pharn-oss's block again (or is left out, when pharn-oss ships none) and `seam` goes back to its
 default, so a hand-edit in either does not survive a re-run `init` — unlike `pharn update`, which
 keeps an edited `models` block.

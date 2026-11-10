@@ -1109,10 +1109,13 @@ describe('re-running init keeps the config keys pharn does not own', () => {
     const proj = join(tmp.path(), 'proj');
     await firstInstall(repo, proj);
     const fresh = readRaw(proj);
+    // A fresh install records when it was made, and no update time.
+    expect(fresh).not.toHaveProperty('updatedAt');
     handEdit(proj, (c) => {
       c.testResults = testResults;
       // State an earlier run recorded, stale the moment init reinstalls.
       c.pharnVersion = '0.0.1';
+      c.updatedAt = '2026-10-01T00:00:00.000Z';
       c.skillsVersion = '0.0.1';
       c.repo = 'someone/else';
       c.commit = 'stale-sha';
