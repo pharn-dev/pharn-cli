@@ -15,3 +15,7 @@ prompts
 # Phargus captures (the copied collector in .phargus/tools stays tracked)
 .phargus/*
 !.phargus/tools/
+
+# PHARN run state and update backups (local only)
+/pharn/.run/
+/pharn/.backup/
