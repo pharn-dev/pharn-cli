@@ -366,6 +366,87 @@ describe('buildUpdatePlan', () => {
     });
   });
 
+  describe('the executable-unit hold', () => {
+    const OLD_FLOOR = 'pharn/floor/reconcile-baseline.mjs';
+    const NEW_FLOOR = 'pharn/floor/worktree-fingerprint.mjs';
+
+    // A pharn-layout install at 6.0.0 with an EDITED floor file and a root
+    // memory-bank/; the clone is 7.0.0 and adds a floor file.
+    async function unitFixture(skillsVersion = '6.0.0'): Promise<PharnConfig> {
+      const cfg = config({ layout: 'pharn', capabilities: [], skillsVersion });
+      write(join(proj, OLD_FLOOR), 'baseline v6, edited');
+      write(join(proj, 'pharn/CONSTITUTION.md'), 'constitution v6');
+      write(join(proj, 'memory-bank/notes.md'), 'mine');
+      await writeRecords(proj, {
+        skillsVersion: cfg.skillsVersion,
+        commit: cfg.commit,
+        files: {
+          [OLD_FLOOR]: 'f'.repeat(64),
+          'pharn/CONSTITUTION.md': contentHash(
+            join(proj, 'pharn/CONSTITUTION.md'),
+          ),
+        },
+      });
+      write(join(repo, 'SKILLS_VERSION'), '7.0.0\n');
+      mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
+      write(join(repo, 'pharn/pharn-contracts/c.md'), 'contract');
+      write(join(repo, OLD_FLOOR), 'baseline v7');
+      write(join(repo, NEW_FLOOR), 'fingerprint v7');
+      write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v7');
+      resolveCapabilities.mockReturnValue({ selected: [], skipped: [] });
+      return cfg;
+    }
+
+    it('holds the new floor file, withholds the version, records nothing pending', async () => {
+      const cfg = await unitFixture();
+      const { report, apply } = plan(cfg);
+      expect(report.executableUnit).toEqual({
+        blocking: [{ rel: OLD_FLOOR, label: 'modified' }],
+        held: [NEW_FLOOR],
+      });
+      expect(report.writes).not.toContain(NEW_FLOOR);
+      // A non-unit file still upgrades.
+      expect(report.writes).toContain('pharn/CONSTITUTION.md');
+      expect(report.versionWithheld).toBe(true);
+      expect(report.recordedVersion).toBe('6.0.0');
+      // The unit is NOT at 7.0.0, so `add` must not install at it.
+      expect(report.pendingSkillsVersion).toBeNull();
+      expect(apply.nextSkillsVersion).toBe('6.0.0');
+      expect(NEW_FLOOR in apply.plan.nextRecords).toBe(false);
+    });
+
+    it('holds the root migration with the unit (the old floor reads the old paths)', async () => {
+      const cfg = await unitFixture();
+      const { report, apply } = plan(cfg);
+      expect(report.rootMigration).toBeNull();
+      expect(report.rootMoveBackups).toEqual([]);
+      expect(apply.rootMoveBackups).toEqual([]);
+      // Without the blocker the same fixture migrates.
+      write(join(proj, OLD_FLOOR), 'baseline v7');
+      const unheld = plan(cfg);
+      expect(unheld.report.executableUnit).toBeNull();
+      expect(unheld.report.rootMigration?.moves).toContainEqual(
+        expect.objectContaining({ from: 'memory-bank/', action: 'move' }),
+      );
+    });
+
+    it('--force holds nothing', async () => {
+      const cfg = await unitFixture();
+      const { report } = plan(cfg, { force: true });
+      expect(report.executableUnit).toBeNull();
+      expect(report.writes).toContain(NEW_FLOOR);
+      expect(report.backups).toContain(OLD_FLOOR);
+    });
+
+    it('holds nothing when the run does not move the version', async () => {
+      const cfg = await unitFixture('7.0.0');
+      const { report } = plan(cfg);
+      expect(report.executableUnit).toBeNull();
+      // Same version: restoring the missing file puts back same-version bytes.
+      expect(report.writes).toContain(NEW_FLOOR);
+    });
+  });
+
   it('shares one path for the real run and the preview: report fields mirror apply', async () => {
     await fixture();
     const { report, apply } = plan(config());

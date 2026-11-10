@@ -17,6 +17,7 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
   return {
     gitignore: { action: 'none' },
     prettierignore: { action: 'none' },
+    executableUnit: null,
     currentVersion: '1.0.0',
     installedVersion: '1.1.0',
     recordedVersion: '1.0.0',
@@ -335,6 +336,34 @@ describe('buildUpdateReport — planned', () => {
   // F-10: the declared surfaces the clone ships no file for, as data. Present
   // ONLY when there is one, so a report with none stays byte-identical to the
   // one 0.10.0 shipped (pinned below).
+  // 0.18.0: the executable-unit hold, additive and present ONLY on a hold.
+  it('omits executableUnit when nothing was held', () => {
+    expect('executableUnit' in r.plan!).toBe(false);
+  });
+
+  it('projects executableUnit right after counts, only on a hold', () => {
+    const held = buildUpdateReport(
+      input({
+        plan: planReport({
+          executableUnit: {
+            blocking: [
+              { rel: 'pharn/floor/reconcile-baseline.mjs', label: 'modified' },
+            ],
+            held: ['pharn/floor/worktree-fingerprint.mjs'],
+          },
+        }),
+      }),
+    );
+    const keys = Object.keys(held.plan!);
+    expect(keys.indexOf('executableUnit')).toBe(keys.indexOf('counts') + 1);
+    expect(held.plan!.executableUnit).toEqual({
+      blocking: [
+        { rel: 'pharn/floor/reconcile-baseline.mjs', label: 'modified' },
+      ],
+      held: ['pharn/floor/worktree-fingerprint.mjs'],
+    });
+  });
+
   it('omits absentUpstream when the clone ships every declared surface', () => {
     expect('absentUpstream' in r.plan!).toBe(false);
   });

@@ -482,6 +482,87 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(existsSync(at('pharn/.backup'))).toBe(false);
   });
 
+  // 0.18.0, the measured mixed-version failure: a NEW floor file beside an
+  // EDITED one. The executable unit (floor + hooks + pharn-* commands) is
+  // written all or none, so nothing in it lands; everything else still
+  // upgrades, the bump is withheld with nothing pending, and the run exits 0.
+  it('update --yes holds the whole executable unit when one floor file is edited', async () => {
+    await init();
+    const OLD = 'pharn/floor/validate.mjs';
+    const NEW = 'pharn/floor/worktree-fingerprint.mjs';
+    writeFileSync(at(OLD), 'export const mine = 1;\n');
+    const before = {
+      hook: read('.claude/hooks/guard.cjs'),
+      command: read(PLAN_COMMAND),
+      records: records(),
+    };
+
+    serveTip(SHA_V2, '2.0.0');
+    tip.tree[OLD] = 'export const STATE_ROOT_SEGMENT = 1;\n';
+    tip.tree[NEW] = "import { STATE_ROOT_SEGMENT } from './validate.mjs';\n";
+    tip.tree['.claude/hooks/guard.cjs'] = 'module.exports = { v: 2 };\n';
+    tip.tree[PLAN_COMMAND] = 'plan 2.0.0\n';
+    vi.mocked(clack.note).mockClear();
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+
+    // No unit file was written: the edited one is the user's, the new one is
+    // absent, and the clean hook and command stay at 1.0.0.
+    expect(read(OLD)).toBe('export const mine = 1;\n');
+    expect(existsSync(at(NEW))).toBe(false);
+    expect(read('.claude/hooks/guard.cjs')).toBe(before.hook);
+    expect(read(PLAN_COMMAND)).toBe(before.command);
+    // Outside the unit, files still upgrade.
+    expect(read(SECURITY)).toContain('security 2.0.0');
+    expect(read(CONSTITUTION)).toBe('constitution 2.0.0\n');
+
+    // The held files keep their old records; the new one gets none.
+    const rec = records();
+    expect(rec.files['.claude/hooks/guard.cjs']).toBe(
+      before.records.files['.claude/hooks/guard.cjs'],
+    );
+    expect(rec.files[PLAN_COMMAND]).toBe(before.records.files[PLAN_COMMAND]);
+    expect(NEW in rec.files).toBe(false);
+
+    // The version is withheld and nothing is pending: the unit is not at 2.0.0.
+    const cfg = config();
+    expect(cfg.skillsVersion).toBe('1.0.0');
+    expect(cfg.pendingSkillsVersion).toBeUndefined();
+
+    // Named before the apply (future tense) and in the report after it.
+    const unitNotes = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'EXECUTABLE UNIT')
+      .map(([body]) => String(body));
+    expect(unitNotes).toHaveLength(2);
+    expect(unitNotes[0]).toContain('would be skipped');
+    expect(unitNotes[1]).toContain('were skipped');
+    for (const body of unitNotes) {
+      expect(body).toContain(`modified     ${OLD}`);
+      expect(body).toContain('So 3 other unit file(s)');
+      expect(body).toContain('`pharn update --force`');
+    }
+    const skipped = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'SKIPPED')
+      .map(([body]) => String(body))
+      .join('\n');
+    expect(skipped).toContain('HELD');
+    expect(skipped).toContain(NEW);
+
+    // --force then writes the unit whole, backing up the edited file first.
+    expect(await run(() => runUpdate({ yes: true, force: true }))).toBeNull();
+    expect(read(OLD)).toBe('export const STATE_ROOT_SEGMENT = 1;\n');
+    expect(existsSync(at(NEW))).toBe(true);
+    expect(config().skillsVersion).toBe('2.0.0');
+    const backups = readdirSync(at('pharn/.backup'));
+    expect(backups).toHaveLength(1);
+    expect(
+      readFileSync(join(at('pharn/.backup'), backups[0]!, OLD), 'utf8'),
+    ).toBe('export const mine = 1;\n');
+  });
+
   it('remove <name> deletes that capability, its config entry and its records', async () => {
     await init();
     expect(await run(() => runAdd('a11y'))).toBeNull();

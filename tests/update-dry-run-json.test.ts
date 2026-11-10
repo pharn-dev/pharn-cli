@@ -530,6 +530,32 @@ describe('runUpdate --dry-run --json', () => {
       });
     });
 
+    // 0.18.0: an edited hook holds the whole executable unit.
+    it('reports an executable-unit hold as plan.executableUnit and held labels', async () => {
+      await installed();
+      write(join(proj, HOOK), 'hook v1, edited');
+      write(join(repo, '.dev/floor/new-cli.mjs'), 'new v2');
+      const { json } = await run();
+      expectOnlyTheObject();
+      expect(json.plan.executableUnit).toEqual({
+        blocking: [{ rel: HOOK, label: 'modified' }],
+        held: ['.claude/commands/pharn-plan.md', '.dev/floor/new-cli.mjs'],
+      });
+      expect(json.plan.writes).toEqual(expect.arrayContaining([CAP_FILE, DOC]));
+      expect(json.plan.writes).not.toContain(CMD);
+      expect(json.plan.skipped).toContainEqual({
+        label: 'held',
+        rels: ['.claude/commands/pharn-plan.md', '.dev/floor/new-cli.mjs'],
+      });
+      expect(json.version).toMatchObject({ withheld: true, pending: null });
+    });
+
+    it('omits plan.executableUnit when nothing is held', async () => {
+      await installed();
+      const { json } = await run();
+      expect('executableUnit' in json.plan).toBe(false);
+    });
+
     // F-10: the declared surfaces the clone ships no file for, structured.
     it('lists the declared surfaces the clone does not ship as absentUpstream', async () => {
       await installed();

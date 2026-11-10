@@ -279,3 +279,149 @@ describe('planUpdate — the whole-run planner', () => {
     expect(p.writes).toEqual(['x.md']);
   });
 });
+
+describe('planUpdate — the executable-unit hold', () => {
+  const file = (hash: string): DiskState => ({ kind: 'file', hash });
+  // A unit of floor + hooks, beside a non-unit doc.
+  const unit = (rel: string): boolean =>
+    rel.startsWith('pharn/floor/') || rel.startsWith('.claude/hooks/');
+
+  // The measured failure: a new floor file (row 1) beside an edited one (row 4).
+  function plan(
+    over: {
+      force?: boolean;
+      holdUnit?: boolean;
+      edited?: DiskState;
+      records?: Record<string, string> | null;
+    } = {},
+  ) {
+    return planUpdate({
+      latestHashes: new Map([
+        ['pharn/floor/reconcile-baseline.mjs', LATEST],
+        ['pharn/floor/worktree-fingerprint.mjs', LATEST],
+        ['pharn/floor/already.mjs', LATEST],
+        ['.claude/hooks/h.cjs', LATEST],
+        ['pharn/CONSTITUTION.md', LATEST],
+      ]),
+      diskStates: new Map<string, DiskState>([
+        ['pharn/floor/reconcile-baseline.mjs', over.edited ?? file(USER)],
+        ['pharn/floor/worktree-fingerprint.mjs', { kind: 'absent' }],
+        ['pharn/floor/already.mjs', file(LATEST)],
+        ['.claude/hooks/h.cjs', file(RECORDED)],
+        ['pharn/CONSTITUTION.md', file(RECORDED)],
+      ]),
+      records:
+        over.records === undefined
+          ? {
+              'pharn/floor/reconcile-baseline.mjs': RECORDED,
+              'pharn/floor/already.mjs': RECORDED,
+              '.claude/hooks/h.cjs': RECORDED,
+              'pharn/CONSTITUTION.md': RECORDED,
+            }
+          : over.records,
+      force: over.force ?? false,
+      unit,
+      holdUnit: over.holdUnit ?? true,
+    });
+  }
+
+  it('one skipped unit file withholds every unit write; non-unit files still upgrade', () => {
+    const p = plan();
+    expect(p.writes).toEqual(['pharn/CONSTITUTION.md']);
+    expect(p.held).toEqual({
+      blocking: [
+        { rel: 'pharn/floor/reconcile-baseline.mjs', label: 'modified' },
+      ],
+      held: ['.claude/hooks/h.cjs', 'pharn/floor/worktree-fingerprint.mjs'],
+    });
+    expect(p.skipped).toEqual([
+      { label: 'modified', rels: ['pharn/floor/reconcile-baseline.mjs'] },
+      {
+        label: 'held',
+        rels: ['.claude/hooks/h.cjs', 'pharn/floor/worktree-fingerprint.mjs'],
+      },
+    ]);
+    expect(p.counts).toEqual({
+      updated: 1,
+      restored: 0,
+      ok: 1,
+      forced: 0,
+      skipped: 3,
+    });
+    expect(
+      p.files.find((f) => f.rel === 'pharn/floor/worktree-fingerprint.mjs'),
+    ).toEqual({
+      rel: 'pharn/floor/worktree-fingerprint.mjs',
+      action: 'skip',
+      label: 'held',
+      backup: false,
+      forced: false,
+    });
+  });
+
+  it('a held file keeps its previous record (or none): nothing was written', () => {
+    const p = plan();
+    expect(p.nextRecords['.claude/hooks/h.cjs']).toBe(RECORDED);
+    expect('pharn/floor/worktree-fingerprint.mjs' in p.nextRecords).toBe(false);
+    // A row-2 file is already upstream's bytes: its record is still refreshed.
+    expect(p.nextRecords['pharn/floor/already.mjs']).toBe(LATEST);
+    expect(p.nextRecords['pharn/CONSTITUTION.md']).toBe(LATEST);
+  });
+
+  it.each([
+    ['unrecorded', { records: { 'pharn/CONSTITUTION.md': RECORDED } }],
+    ['unverifiable', { records: null }],
+    [
+      'unreadable',
+      {
+        edited: {
+          kind: 'unreadable',
+          reason: 'not a regular file',
+        } as DiskState,
+      },
+    ],
+  ] as const)('a %s unit file blocks the unit too', (label, over) => {
+    const p = plan(over);
+    expect(p.held?.blocking.map((b) => b.label)).toContain(label);
+    expect(p.writes).not.toContain('pharn/floor/worktree-fingerprint.mjs');
+  });
+
+  it('--force never holds: the unit is written whole, the skip backed up', () => {
+    const p = plan({ force: true });
+    expect(p.held).toBeNull();
+    expect(p.writes).toEqual([
+      'pharn/floor/reconcile-baseline.mjs',
+      'pharn/floor/worktree-fingerprint.mjs',
+      '.claude/hooks/h.cjs',
+      'pharn/CONSTITUTION.md',
+    ]);
+    expect(p.backups).toEqual(['pharn/floor/reconcile-baseline.mjs']);
+  });
+
+  it('no hold when the run does not move the version (a same-version restore cannot mix)', () => {
+    const p = plan({ holdUnit: false });
+    expect(p.held).toBeNull();
+    expect(p.writes).toContain('pharn/floor/worktree-fingerprint.mjs');
+  });
+
+  it('no skipped unit file → output identical to a planner with no unit at all', () => {
+    const args = {
+      latestHashes: new Map([
+        ['pharn/floor/a.mjs', LATEST],
+        ['pharn/floor/b.mjs', LATEST],
+        ['doc.md', LATEST],
+      ]),
+      diskStates: new Map<string, DiskState>([
+        ['pharn/floor/a.mjs', file(RECORDED)],
+        ['pharn/floor/b.mjs', { kind: 'absent' }],
+        ['doc.md', file(USER)], // a NON-unit skip never holds anything
+      ]),
+      records: { 'pharn/floor/a.mjs': RECORDED, 'doc.md': RECORDED },
+      force: false,
+    };
+    const withUnit = planUpdate({ ...args, unit, holdUnit: true });
+    const without = planUpdate(args);
+    expect(withUnit).toEqual(without);
+    expect(withUnit.held).toBeNull();
+  });
+});

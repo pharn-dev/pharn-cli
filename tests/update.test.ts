@@ -20,6 +20,7 @@ import {
   restoreTTY,
   setNodeVersion,
   setTTY,
+  snapshotTree,
   stubProcessExit,
   useTmpDir,
 } from './helpers.js';
@@ -3762,6 +3763,49 @@ describe('runUpdate (drift-safe)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  // 0.18.0: the executable unit (floor + hooks + pharn-* commands) is written
+  // all or none. An edited hook holds the clean command; the dry run names it.
+  describe('the executable-unit hold', () => {
+    const CMD = '.claude/commands/pharn-plan.md';
+    const unitNotes = (): string[] =>
+      vi
+        .mocked(prompts.note)
+        .mock.calls.filter(([, title]) => title === 'EXECUTABLE UNIT')
+        .map(([body]) => String(body));
+
+    it('the text dry run names the blocker, the held count and --force, and writes nothing', async () => {
+      await installed();
+      write(join(proj, HOOK), 'hook v1, edited');
+      const before = snapshotTree(proj);
+      await runUpdate({ dryRun: true });
+      expect(snapshotTree(proj)).toEqual(before);
+      const [body] = unitNotes();
+      expect(unitNotes()).toHaveLength(1);
+      expect(body).toContain('would be skipped');
+      expect(body).toContain(`modified     ${HOOK}`);
+      expect(body).toContain('So 1 other unit file(s) would not be written');
+      expect(body).toContain('`pharn update --force`');
+    });
+
+    it('the real run leaves the clean command at v1 and still upgrades the rest', async () => {
+      await installed();
+      write(join(proj, HOOK), 'hook v1, edited');
+      await runUpdate();
+      expect(readFileSync(join(proj, CMD), 'utf8')).toBe('plan v1');
+      expect(readFileSync(join(proj, CAP_FILE), 'utf8')).toBe('a11y v2');
+      expect(unitNotes().map((b) => b.includes('were skipped'))).toEqual([
+        false,
+        true,
+      ]);
+    });
+
+    it('prints no EXECUTABLE UNIT note when nothing is held', async () => {
+      await installed();
+      await runUpdate();
+      expect(unitNotes()).toEqual([]);
+    });
+  });
+
   it('does NOT mint a record store on a partial failure when there was no baseline', async () => {
     // Minting from a handful of paths would flip the rest of the install from the
     // honest `unverifiable` to a false `unrecorded` (the rule `add` also follows).
@@ -3770,21 +3814,23 @@ describe('runUpdate (drift-safe)', () => {
     // A DIFFERENT mechanism from the test above, and it has to be: with the store
     // deleted every PRESENT file is `unverifiable` and skipped (row 6), so a
     // read-only dest file would leave plan.writes EMPTY and the run would resolve.
-    // The hook must stay ABSENT — row 1, `restored`, the one row that survives a
-    // deleted store — and its PARENT must be what refuses the write. A read-only
-    // directory does exactly that: applyWrites' mkdirSync({recursive:true}) is a
-    // no-op on an existing directory, and the copyFileSync after it fails EACCES.
-    const hooks = join(proj, '.claude/hooks');
-    rmSync(hooks, { recursive: true, force: true });
-    mkdirSync(hooks);
-    chmodSync(hooks, 0o555);
+    // The capability file must stay ABSENT — row 1, `restored`, the one row that
+    // survives a deleted store — and its PARENT must be what refuses the write. A
+    // read-only directory does exactly that: applyWrites' mkdirSync({recursive:
+    // true}) is a no-op on an existing directory, and the copyFileSync after it
+    // fails EACCES. A capability file, not a hook: a restored hook beside skipped
+    // unit files is HELD (lib/executable-unit.ts), so it would never be written.
+    const capDir = join(proj, CAP_FILE, '..');
+    rmSync(capDir, { recursive: true, force: true });
+    mkdirSync(capDir);
+    chmodSync(capDir, 0o555);
 
     try {
       await expect(runUpdate()).rejects.toMatchObject(new ProcessExit(1));
 
       expect(readRecords(proj)).toEqual({ kind: 'absent' });
     } finally {
-      chmodSync(hooks, 0o755);
+      chmodSync(capDir, 0o755);
     }
   });
 

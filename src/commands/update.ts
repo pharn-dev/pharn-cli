@@ -13,6 +13,7 @@ import {
   reportDryRun,
   reportOutcome,
   reportRootMigration,
+  reportExecutableUnit,
   type Backup,
   type UpdateOutcome,
 } from '../lib/update-render.js';
@@ -597,6 +598,9 @@ async function runArchetypeUpdate(
       // The root docs it would delete and the user data it would move
       // (lib/root-migration.ts), named before the question as well.
       reportRootMigration(confirmed.rootMigration, null);
+      // The executable unit it would hold (lib/executable-unit.ts), so a user
+      // who would rather revert their edits first learns it before applying.
+      reportExecutableUnit(confirmed.executableUnit, true);
       const deletes = confirmed.removals.filter((r) => r.present).length;
       // `--yes` skips THE CONFIRM AND NOTHING ELSE. The notes above have
       // already printed (a non-interactive log deserves the same context a

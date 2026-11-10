@@ -47,9 +47,11 @@ import {
   planUpdate,
   type DiskState,
   type PlannedFile,
-  type UpdateLabel,
+  type SkipLabel,
+  type UnitHold,
   type UpdatePlan,
 } from './update-decision.js';
+import { isExecutableUnitPath } from './executable-unit.js';
 import { diffHookWiring, type HookWiringDiff } from './hook-wiring.js';
 import { readSkillsVersion } from './skills-version.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
@@ -73,10 +75,7 @@ import type {
 
 // The skips that are the user's own kept edits — the only ones that may leave a
 // `pendingSkillsVersion` behind.
-export const USER_EDIT_SKIPS = new Set<UpdateLabel | 'unreadable'>([
-  'modified',
-  'unrecorded',
-]);
+export const USER_EDIT_SKIPS = new Set<SkipLabel>(['modified', 'unrecorded']);
 
 // The two merge outcomes that take an entry OUT of the config (rows 5, 7, 9 of
 // lib/merge-capabilities.ts). Membership on the reason enum (P5): a reason not
@@ -118,6 +117,9 @@ export interface UpdatePlanReport {
   backups: string[];
   skipped: UpdatePlan['skipped'];
   counts: UpdatePlan['counts'];
+  // The executable-unit hold (lib/executable-unit.ts): the unit files that were
+  // skipped and the unit writes withheld because of them; null when none.
+  executableUnit: UnitHold | null;
   models: ModelsUpdate;
   modelsFloor: string;
   hookWiring: HookWiringDiff;
@@ -250,7 +252,18 @@ export function buildUpdatePlan(input: {
     commit: config.commit,
   });
 
-  const plan = planUpdate({ latestHashes, diskStates, records, force });
+  // The unit is held only when this run moves the version: at the same version
+  // a write puts back same-version bytes, so nothing can be mixed. The unit is
+  // judged at the CLONE's layout — the paths the manifest is keyed by.
+  const unitPaths = layoutPaths(layout);
+  const plan = planUpdate({
+    latestHashes,
+    diskStates,
+    records,
+    force,
+    unit: (rel) => isExecutableUnitPath(rel, unitPaths),
+    holdUnit: installedVersion !== config.skillsVersion,
+  });
 
   // What the drops delete, judged against the same record baseline. In the
   // real run this runs under the project lock immediately before the writes, so
@@ -334,14 +347,20 @@ export function buildUpdatePlan(input: {
   // usable baseline. A root doc it deletes leaves the orphan list and the
   // carried records: it is retired by this run, not left behind. A doc it KEEPS
   // (edited, unverifiable) stays an orphan — listed, its record carried.
-  const rootMigration = planRootMigration({
-    projectRoot: cwd,
-    repoDir,
-    layout,
-    installedLayout: previousLayout,
-    skillsVersion: installedVersion,
-    records,
-  });
+  // Held while the executable unit is held: the migration moves and deletes
+  // paths the OLD floor still reads, so it waits for the run that upgrades the
+  // unit (pendingRootMigration re-opens it then).
+  const rootMigration =
+    plan.held !== null
+      ? null
+      : planRootMigration({
+          projectRoot: cwd,
+          repoDir,
+          layout,
+          installedLayout: previousLayout,
+          skillsVersion: installedVersion,
+          records,
+        });
   const retired = new Set(
     (rootMigration?.report.docs ?? [])
       .filter((d) => d.action === 'delete')
@@ -411,6 +430,7 @@ export function buildUpdatePlan(input: {
       backups,
       skipped: plan.skipped,
       counts: plan.counts,
+      executableUnit: plan.held,
       models,
       modelsFloor: paths.floor,
       // Read-only, never throws, and `update` never writes the settings files it

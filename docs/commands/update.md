@@ -215,9 +215,10 @@ key. Treat a `status` you do not recognise as "do not apply".
 | `channel`                                   | `main` or `latest`, the channel this run used. `channelChange` is `{from, to}` when `--ref` would switch the recorded channel, else `null`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `source`                                    | `kind` (`main` or `release`) and the release `tag` (else `null`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `version`                                   | `installed` (recorded now) and `latest` (upstream). With a plan: `recorded` is the version a real run would record, `withheld` says skips would hold it back, `pending` is the version `pharn add` could still install at (else `null`). All three are `null` without a plan.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `plan.files`                                | Every file the install covers, with the `action` (`write`, `noop`, `skip`), the `label` (`restored`, `updated`, `ok`, or a skip reason `modified`, `unrecorded`, `unverifiable`, `unreadable`), whether `--force` made it a write (`forced`) and whether it would be backed up first (`backup`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `plan.files`                                | Every file the install covers, with the `action` (`write`, `noop`, `skip`), the `label` (`restored`, `updated`, `ok`, or a skip reason `modified`, `unrecorded`, `unverifiable`, `unreadable`, `held`), whether `--force` made it a write (`forced`) and whether it would be backed up first (`backup`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `plan.writes`                               | The files a real run would write, in install order. `plan.backups` are the files it would copy to `pharn/.backup/<timestamp>/` first (including `pharn.config.json` when `--force` would replace your `models` block).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `plan.skipped`                              | Skipped files grouped by reason (most actionable first). `plan.counts` are the totals.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `plan.executableUnit`                       | Present **only** when a real run would [hold the executable unit](#the-executable-unit-is-upgraded-all-or-none): `{blocking, held}`, where `blocking` lists the unit files that would be skipped as `{rel, label}` and `held` lists the unit files that would not be written because of them. Those files then carry the label `held` in `plan.files` and `plan.skipped`. Added in 0.18.0.                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `plan.capabilities`                         | The `count` after the update and every membership `changes[{role, name, source, reason}]` (`added`, `dropped-unselected`, `dropped-gone`, `kept-manual`, `kept-frozen`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `plan.capabilities.removals`                | Present **only** when this update drops at least one capability: one entry per capability whose directory a real run would **delete**, as `{role, name, reason, dir, present, backups}` — `dir` is the directory, `present` says there is anything there, and `backups` are the files in it a real run would copy to `pharn/.backup/<timestamp>/` first. With none, the key is **absent** (not `[]`), so such a report is byte-identical to earlier releases; read it as `plan.capabilities.removals ?? []`.                                                                                                                                                                                                                                                                               |
 | `plan.models`                               | What would happen to your `models` block: `outcome` (`restored`, `updated`, `ok`, `kept`, `forced`, `upstream-absent`, `upstream-invalid`), its `label`, a `conversion` of an old-format block, and the `problems`/`upstreamReasons`. The block itself is not included.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -425,7 +426,7 @@ only the name inside your project gets the new bytes. The file keeps upstream's 
 installed file you made read-only is replaced like any other: what `update` needs is write permission on
 its folder.
 
-### The three skip labels
+### The skip labels
 
 - **`modified`** — you changed this file after `pharn` wrote it. This is the label the feature exists
   for.
@@ -434,11 +435,69 @@ its folder.
 - **`unverifiable`** — there is no usable `pharn.records.json` at all, so nothing can be proven about
   any file. Every install created before `pharn` 0.4.0 starts here (see
   [First update after upgrading](#first-update-after-upgrading)).
+- **`held`** — not a reason of its own: the file would have been written, but it belongs to the
+  [executable unit](#the-executable-unit-is-upgraded-all-or-none) and another file of the unit was
+  skipped.
 
 Skips **exit 0**. A skip is the outcome you asked for, not a failure. `pharn update` also never
 **deletes a file** it decides about here: a file upstream no longer ships stays exactly where it is — and is listed, see
 [Orphaned files](#orphaned-files). The one thing it deletes is the directory of a capability it drops from
 the config — see [Dropped capabilities are deleted](#dropped-capabilities-are-deleted).
+
+## The executable unit is upgraded all or none
+
+Some installed files run together: the floor checkers (`pharn/floor/`, or `.dev/floor/` in the flat
+layout — every file `pharn` installs there, including the `.json` maps the checkers read), the hooks
+(`.claude/hooks/*.cjs` / `*.mjs`) and the product commands (`.claude/commands/pharn-*.md`, which call the
+floor checkers by name and flag). Upgrading part of that set leaves two versions side by side, and a new
+checker that imports something an old, edited sibling does not export fails as soon as it loads.
+
+So when a run **moves you to a new skills version** without `--force` and **any** file of that set would
+be skipped (`modified`, `unrecorded`, `unverifiable` or `unreadable`), `update` writes **none** of the
+set's other files either. Those are reported as **`held`**. Everything outside the set — capability
+directories, the trusted docs, contracts, `pharn-core`, the license and the features README — is still
+decided file by file.
+
+Membership is decided by **path only**. `pharn` does not read a file or follow its imports to decide
+whether it belongs. Before the question, and again after the run, an `EXECUTABLE UNIT` note names the
+files that blocked the set and says how many were held:
+
+```text
+◇  EXECUTABLE UNIT
+│    The floor, the hooks and the pharn-* commands run together, so pharn
+│    writes them all or none. These unit files were skipped:
+│    modified     pharn/floor/reconcile-baseline.mjs
+│
+│    So 3 other unit file(s) were not written either, and the
+│    unit stays at the version you had: upgrading part of it would mix two
+│    versions that may not load together.
+│
+│    To upgrade the unit: revert the files above, or run
+│    `pharn update --force` (it backs them up to pharn/.backup/ first).
+```
+
+What follows from a hold:
+
+- The recorded `skillsVersion` is **withheld**, as for any skip. **No** `pendingSkillsVersion` is
+  recorded, because the unit is not at the new version, so `pharn add` keeps installing at the version
+  you have.
+- A held file keeps its old record, and a file new upstream gets none. The next run decides them again.
+- The [root-footprint migration](#the-root-footprint-migration) waits too. It moves and deletes paths the
+  old floor still reads, so it runs with the update that upgrades the set.
+- The run **exits 0**, like every skip: nothing you edited was overwritten and nothing failed. The note is
+  the signal, not the exit code.
+- `--force` never holds. It backs up the skipped files and writes the whole set (an `unreadable` path is
+  still skipped, as always).
+- At the **same** skills version (a run reopened to restore a missing file, for example) nothing is held:
+  restoring a file then puts back bytes of the version you already have.
+
+What `pharn` can promise here is only that it wrote no file of the set. It cannot prove that your edited
+files work together, and a file that was already identical to upstream before the run is left as it is.
+Editing a `/pharn-*` command, including its `model:` or `effort:` line, also holds the floor and the hooks
+until you revert the edit or use `--force`.
+
+`--dry-run` prints the same note, and `--dry-run --json` adds `plan.executableUnit` (see
+[JSON output](#json-output)).
 
 ## Orphaned files
 

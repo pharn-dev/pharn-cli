@@ -145,6 +145,13 @@ function skipOrForce(label: UpdateLabel, force: boolean): FileDecision {
 // ---------------------------------------------------------------------------
 
 /**
+ * Why a planned file was not written: a decision-table SKIP label, the
+ * `unreadable` terminal below, or `held` — a write the executable-unit pass
+ * withheld because a sibling in the unit was skipped (see `planUpdate`).
+ */
+export type SkipLabel = UpdateLabel | 'unreadable' | 'held';
+
+/**
  * What the project holds at an expected path. `unreadable` is the deterministic
  * terminal for a path that exists but cannot be hashed (a directory where a file
  * is expected, an EACCES file): it is reported by name and skipped, never
@@ -158,8 +165,8 @@ export type DiskState =
 export interface PlannedFile {
   rel: string;
   action: UpdateAction;
-  // The skip/outcome label, widened by the `unreadable` terminal above.
-  label: UpdateLabel | 'unreadable';
+  // The skip/outcome label, widened by the `unreadable` terminal and `held`.
+  label: SkipLabel;
   backup: boolean;
   forced: boolean;
 }
@@ -171,7 +178,7 @@ export interface UpdatePlan {
   // rel paths whose current bytes must be backed up BEFORE any write.
   backups: string[];
   // Skipped files grouped by why, for the report.
-  skipped: { label: UpdateLabel | 'unreadable'; rels: string[] }[];
+  skipped: { label: SkipLabel; rels: string[] }[];
   counts: {
     updated: number;
     restored: number;
@@ -183,15 +190,25 @@ export interface UpdatePlan {
   // applied, so entries for paths no longer installed are pruned rather than
   // accumulating forever. Skipped files carry their previous entry forward.
   nextRecords: FileRecords;
+  // The executable-unit hold, or null when none happened: the unit files that
+  // were skipped (the blockers, with their labels) and the unit writes that
+  // were withheld because of them.
+  held: UnitHold | null;
+}
+
+export interface UnitHold {
+  blocking: { rel: string; label: SkipLabel }[];
+  held: string[];
 }
 
 // The order skip groups are reported in — most actionable first (P5:
 // deterministic output, never dependent on map iteration order).
-const SKIP_ORDER: (UpdateLabel | 'unreadable')[] = [
+const SKIP_ORDER: SkipLabel[] = [
   'modified',
   'unrecorded',
   'unverifiable',
   'unreadable',
+  'held',
 ];
 
 export function planUpdate(params: {
@@ -202,13 +219,21 @@ export function planUpdate(params: {
   // The validated baseline, or null when records are unavailable.
   records: FileRecords | null;
   force: boolean;
+  // The executable unit (lib/executable-unit.ts): membership by path. When set
+  // together with `holdUnit`, the unit is written all-or-nothing.
+  unit?: (rel: string) => boolean;
+  // True when the run moves the installed version. At the same version a
+  // write puts back same-version bytes, so no mix is possible and nothing is
+  // held — which also keeps a same-version re-open able to restore a deleted
+  // file (it would otherwise re-open every run without progress).
+  holdUnit?: boolean;
 }): UpdatePlan {
-  const { latestHashes, diskStates, records, force } = params;
+  const { latestHashes, diskStates, records, force, unit, holdUnit } = params;
   const files: PlannedFile[] = [];
   const writes: string[] = [];
   const backups: string[] = [];
   const nextRecords: FileRecords = {};
-  const groups = new Map<UpdateLabel | 'unreadable', string[]>();
+  const groups = new Map<SkipLabel, string[]>();
   const counts = { updated: 0, restored: 0, ok: 0, forced: 0, skipped: 0 };
 
   for (const [rel, latestHash] of latestHashes) {
@@ -267,16 +292,75 @@ export function planUpdate(params: {
     else if (previous !== undefined) nextRecords[rel] = previous;
   }
 
+  // The executable-unit hold (P5: label membership + a path predicate). Never
+  // under --force: there every skip became a backed-up write, so the unit is
+  // written whole. Otherwise, one skipped unit file withholds EVERY unit write,
+  // so the unit stays at the old version rather than becoming a mix. A row-2
+  // file already identical to upstream is left as it is: nothing is written.
+  const held =
+    force || !holdUnit || !unit
+      ? null
+      : holdUnitWrites({
+          files,
+          writes,
+          groups,
+          counts,
+          unit,
+          records,
+          nextRecords,
+        });
+
   const skipped = SKIP_ORDER.filter((label) => groups.has(label)).map(
     (label) => ({ label, rels: groups.get(label)!.slice().sort() }),
   );
 
-  return { files, writes, backups, skipped, counts, nextRecords };
+  return { files, writes, backups, skipped, counts, nextRecords, held };
+}
+
+// Turn every unit write into a `held` skip when any unit file was skipped.
+// Mutates the planner's own accumulators in place; returns the hold or null.
+function holdUnitWrites(acc: {
+  files: PlannedFile[];
+  writes: string[];
+  groups: Map<SkipLabel, string[]>;
+  counts: UpdatePlan['counts'];
+  unit: (rel: string) => boolean;
+  records: FileRecords | null;
+  nextRecords: FileRecords;
+}): UnitHold | null {
+  const { files, writes, groups, counts, unit, records, nextRecords } = acc;
+  const blocking = files
+    .filter((f) => f.action === 'skip' && unit(f.rel))
+    .map((f) => ({ rel: f.rel, label: f.label }))
+    .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+  if (blocking.length === 0) return null;
+  const heldRels: string[] = [];
+  for (const file of files) {
+    if (file.action !== 'write' || !unit(file.rel)) continue;
+    // Not forced (force never reaches here), so a write is `restored` or
+    // `updated`: take it back out of the counts it went into.
+    if (file.label === 'restored') counts.restored -= 1;
+    else counts.updated -= 1;
+    counts.skipped += 1;
+    file.action = 'skip';
+    file.label = 'held';
+    heldRels.push(file.rel);
+    pushGroup(groups, 'held', file.rel);
+    // Nothing was written, so the previous record (if any) stays true.
+    const previous = records?.[file.rel];
+    if (previous !== undefined) nextRecords[file.rel] = previous;
+    else delete nextRecords[file.rel];
+  }
+  if (heldRels.length === 0) return null;
+  const heldSet = new Set(heldRels);
+  for (let i = writes.length - 1; i >= 0; i -= 1)
+    if (heldSet.has(writes[i]!)) writes.splice(i, 1);
+  return { blocking, held: heldRels.slice().sort() };
 }
 
 function pushGroup(
-  groups: Map<UpdateLabel | 'unreadable', string[]>,
-  label: UpdateLabel | 'unreadable',
+  groups: Map<SkipLabel, string[]>,
+  label: SkipLabel,
   rel: string,
 ): void {
   const existing = groups.get(label);
