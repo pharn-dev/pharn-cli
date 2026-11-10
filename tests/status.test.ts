@@ -1161,6 +1161,74 @@ describe('runStatus — ORPHANED', () => {
   });
 });
 
+// 0.17.0: a project that uses Prettier and whose `.prettierignore` does not
+// cover the paths pharn recorded gets an advisory PRETTIER note — on both
+// paths (it is local), never a --strict failure.
+describe('runStatus — PRETTIER', () => {
+  stubProcessExit();
+  const tmp = useTmpDir();
+  let repo = '';
+  let proj = '';
+  const KEPT = '.claude/commands/pharn-plan.md';
+
+  const put = (root: string, rel: string, content: string) => {
+    mkdirSync(join(root, rel, '..'), { recursive: true });
+    writeFileSync(join(root, rel), content);
+  };
+
+  beforeEach(() => {
+    repo = join(tmp.path(), 'repo');
+    proj = join(tmp.path(), 'proj');
+    put(repo, KEPT, 'plan');
+    put(proj, KEPT, 'plan');
+    put(
+      proj,
+      'pharn.records.json',
+      JSON.stringify({
+        schemaVersion: 1,
+        skillsVersion: '1.0.0',
+        commit: 'old',
+        files: { [KEPT]: contentHash(join(proj, KEPT)) },
+      }),
+    );
+    vi.spyOn(process, 'cwd').mockReturnValue(proj);
+    loadArchetypeConfigOrExit.mockReturnValue(config());
+    fetchRepo.mockResolvedValue({ dir: repo, cleanup: vi.fn() });
+    fetchRemoteSkillsVersion.mockResolvedValue('1.0.0');
+    readSkillsVersion.mockReturnValue('1.0.0');
+    diffInstalledCapabilities.mockReturnValue(CLEAN);
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('says nothing for a project without Prettier', async () => {
+    await runStatus({});
+    expect(noteBody('PRETTIER')).toBe('');
+  });
+
+  it.each([{}, { drift: false }])(
+    'names the missing lines and pharn update, and --strict still exits 0 (%j)',
+    async (opts) => {
+      put(proj, '.prettierignore', 'dist/\n');
+      await runStatus({ ...opts, strict: true });
+      const body = noteBody('PRETTIER');
+      expect(body).toContain('.prettierignore does not cover');
+      expect(body).toContain(`/${KEPT}`);
+      expect(body).toContain('/pharn.config.json');
+      expect(body).toContain('pharn update adds them.');
+    },
+  );
+
+  it('says nothing once the file covers them', async () => {
+    put(
+      proj,
+      '.prettierignore',
+      `/${KEPT}\n/pharn.config.json\n/pharn.records.json\n`,
+    );
+    await runStatus({});
+    expect(noteBody('PRETTIER')).toBe('');
+  });
+});
+
 // F-10: a declared product surface the clone ships NO file for is named in the
 // DRIFT note and fails --strict. It is computed at the CLONE's own layout, so it
 // means exactly "upstream ships nothing there" — a recorded layout that differs

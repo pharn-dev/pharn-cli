@@ -15,6 +15,7 @@ const BIDI = String.fromCharCode(0x202e);
 function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
   return {
     gitignore: { action: 'none' },
+    prettierignore: { action: 'none' },
     archetypes: ['ssr'],
     archetypeOrigin: {
       kind: 'detected',

@@ -68,7 +68,9 @@ Before anything is written, `uninstall` prints a `PLAN` note: how many files it 
 it keeps because you changed them, paths it cannot verify, recorded paths outside the install paths, and
 how many recorded files are already gone. It always ends with the reminder that `.claude/settings.json`,
 `.claude/settings.local.json`, every `pharn/.backup/` directory and the lines pharn added to `.gitignore`
-are left untouched (they are harmless without PHARN; delete them by hand if you like).
+and `.prettierignore` are left untouched (they are harmless without PHARN; delete them by hand if you
+like). pharn only ever appends to those two files, so `uninstall` does not edit them either — not even a
+`.prettierignore` pharn created, which may hold your own lines by now.
 
 In a terminal it then asks one question, defaulting to **No**:
 

@@ -32,6 +32,11 @@ import {
 } from '../lib/install-manifest.js';
 import { readRecords, recordsBaseline } from '../lib/install-records.js';
 import { findOrphans, orphanNoteLines, type Orphan } from '../lib/orphans.js';
+import {
+  planPrettierignore,
+  prettierignoreLines,
+  type PrettierignorePlan,
+} from '../lib/prettierignore.js';
 import { row } from '../lib/format.js';
 import { checkModelsBlock } from '../lib/model-config.js';
 import {
@@ -131,6 +136,7 @@ async function runArchetypeStatusJson(
         latest,
         source,
         drift: null,
+        prettierignore: statusPrettierignore(cwd, config),
         strict,
       }),
     );
@@ -177,6 +183,7 @@ async function runArchetypeStatusJson(
         }),
         upstreamLayout,
       },
+      prettierignore: statusPrettierignore(cwd, config),
       strict,
     });
   } catch (err) {
@@ -250,6 +257,7 @@ async function runArchetypeStatus(
     }
     const outdated = printArchetypeVersion(config, latest, source, channel);
     printModels(config);
+    printPrettierignore(cwd, config);
     if (strict && strictFails({ outdated })) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
     return;
@@ -276,6 +284,7 @@ async function runArchetypeStatus(
       channel,
     );
     printModels(config);
+    printPrettierignore(cwd, config);
     // Exclude FROZEN capabilities — the ones the fetch boundary could not parse
     // in this clone. `update` deliberately keeps their config entry but never
     // writes their files, so comparing them here would report drift that no
@@ -454,6 +463,34 @@ function modelsNoteLines(block: unknown, floor: string): string[] {
     '',
     ...modelsLabelLines(floor).map((line) => pc.dim(line)),
   ];
+}
+
+// What `pharn update` would add to `.prettierignore` (lib/prettierignore.ts),
+// derived from the usable record store — the paths pharn recorded writing, the
+// same input as update's same-version re-open. null without a usable store
+// (nothing local says what pharn wrote). Local and read-only, so it is
+// answered with or without `--no-drift`.
+function statusPrettierignore(
+  cwd: string,
+  config: PharnConfig,
+): PrettierignorePlan | null {
+  const { records } = recordsBaseline(readRecords(cwd), {
+    skillsVersion: config.skillsVersion,
+    commit: config.commit,
+  });
+  return records === null
+    ? null
+    : planPrettierignore(cwd, Object.keys(records));
+}
+
+// PRETTIER note: the project uses Prettier and its `.prettierignore` does not
+// cover what pharn installs and rewrites. Advisory — never a `--strict` input
+// (`pharn update` adds the lines; a refused file needs the user).
+function printPrettierignore(cwd: string, config: PharnConfig): void {
+  const plan = statusPrettierignore(cwd, config);
+  const lines =
+    plan === null ? null : prettierignoreLines(plan, { status: true });
+  if (lines !== null) note(lines.text, 'PRETTIER');
 }
 
 // Recorded files the install no longer owns (lib/orphans.ts), or null when

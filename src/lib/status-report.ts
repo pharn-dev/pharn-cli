@@ -14,6 +14,11 @@ import { cap, serializeJsonReport } from './json-report.js';
 import { versionStatus } from './version-status.js';
 import type { AbsentSurface, InstallSurface } from './install-manifest.js';
 import { configLayout } from './layout.js';
+import {
+  prettierignoreReport,
+  type PrettierignorePlan,
+  type PrettierignoreReport,
+} from './prettierignore.js';
 import type { Orphan, OrphanState } from './orphans.js';
 import type { Layout, PharnConfig, UnknownCapability } from '../types.js';
 
@@ -96,6 +101,12 @@ export interface StatusReport {
   // pharn.records.json, or a clone at another layout than the install. Never a
   // `--strict` input.
   orphans: { path: string; state: OrphanState; reason?: string }[] | null;
+  // What `pharn update` would add to the project's `.prettierignore`
+  // (lib/prettierignore.ts), or a refusal. null when there is nothing to say:
+  // the project does not use Prettier, the file covers pharn's paths, or there
+  // is no usable pharn.records.json to derive them from. Never a `--strict`
+  // input. Added in 0.17.0.
+  prettierignore: PrettierignoreReport | null;
   strict: { enabled: boolean; failed: boolean };
 }
 
@@ -118,6 +129,8 @@ export interface StatusReportInput {
     absentUpstream: readonly AbsentSurface[];
     upstreamLayout: Layout;
   } | null;
+  // null without a usable record store (see StatusReport.prettierignore).
+  prettierignore: PrettierignorePlan | null;
   strict: boolean;
 }
 
@@ -267,6 +280,10 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
               ? { reason: cap(o.reason, MAX_RED_DETAIL) }
               : {}),
           })),
+    prettierignore:
+      input.prettierignore === null
+        ? null
+        : prettierignoreReport(input.prettierignore),
     strict: {
       enabled: input.strict,
       failed:

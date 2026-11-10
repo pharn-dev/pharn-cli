@@ -162,6 +162,26 @@ That is deliberate rather than defensive: the copy would write straight through 
 bytes outside your project, while the backup could not save them. Replace the symlink with a real
 directory (or move it aside) and re-run.
 
+## My Prettier check fails on PHARN's files
+
+pharn copies pharn-oss's files as pharn-oss formats them, which is not necessarily how your Prettier
+config formats them. Since 0.17.0, `pharn init` and `pharn update` add the lines that keep your check
+off those files to `.prettierignore` whenever your project uses Prettier
+([how it works](commands/init.md#prettierignore)); `pharn status` shows a `PRETTIER` note when lines are
+missing.
+
+- **Installed with an older pharn?** Run `pharn update`: at the same skills version it re-opens to add
+  the lines.
+- **No `PRETTIER` note, but the check still fails?** Your Prettier setup may not be visible at the
+  project root (a monorepo package's config, a check run with `--ignore-path` pointing elsewhere or
+  from a subdirectory). Copy the lines from `pharn update --dry-run` (or an existing `.prettierignore`)
+  into the ignore file your check reads.
+- **Already ran `prettier --write` over them?** They now read as changed, so `pharn update` skips them
+  ([above](#pharn-update-skipped-my-files)). Once the lines are in place, `pharn update --force` puts
+  pharn-oss's bytes back, backing up your copies first.
+- **The warning says pharn could not update `.prettierignore`** (a symlink, a directory, no
+  permission)? Add the lines it lists yourself.
+
 ## Line endings (Windows, `core.autocrlf`)
 
 If your project is committed and checked out again with `core.autocrlf=true` (the usual Windows

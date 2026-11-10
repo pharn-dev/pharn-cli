@@ -279,7 +279,7 @@ function listed(rels: readonly string[]): string[] {
   return more > 0 ? [...shown, `  …and ${more} more`] : shown;
 }
 
-const UNTOUCHED = `${CLAUDE_SETTINGS_FILE}, .claude/settings.local.json, every ${BACKUP_DIR}/ directory and the lines pharn added to .gitignore are left untouched.`;
+const UNTOUCHED = `${CLAUDE_SETTINGS_FILE}, .claude/settings.local.json, every ${BACKUP_DIR}/ directory and the lines pharn added to .gitignore and .prettierignore are left untouched.`;
 
 function planLines(plan: UninstallPlan): string[] {
   const lines = [

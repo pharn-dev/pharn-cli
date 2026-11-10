@@ -1,6 +1,12 @@
-import { lstatSync } from 'node:fs';
 import { readBoundedFile } from './bounded-read.js';
-import { writeFileAtomic } from './atomic-write.js';
+import {
+  ignoreAddition,
+  ignorePatterns,
+  readIgnoreFile,
+  writeIgnoreFile,
+  type IgnorePattern,
+  type IgnoreRefusal,
+} from './ignore-file.js';
 import { safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
@@ -22,10 +28,11 @@ import { safeJoin } from './validate.js';
 // own line, which is redundant and harmless.
 //
 // Trust (P2): `.gitignore` is project content and may be hostile. It is read
-// bounded (lib/bounded-read.ts) and only compared against fixed literals; its
-// text never reaches a terminal and never drives a path. The only write target
-// is the fixed root `.gitignore`, replaced atomically — never written through a
-// symlink or into a hard-linked inode (lib/atomic-write.ts).
+// bounded and only compared against fixed literals; its text never reaches a
+// terminal and never drives a path. The only write target is the fixed root
+// `.gitignore`, replaced atomically — never written through a symlink or into a
+// hard-linked inode. The reading, parsing and appending are lib/ignore-file.ts,
+// shared with lib/prettierignore.ts; the covered test below is this file's.
 // ---------------------------------------------------------------------------
 
 export const GITIGNORE_FILE = '.gitignore';
@@ -43,7 +50,7 @@ export const GITIGNORE_COMMENT =
   '# PHARN run state and update backups (added by pharn)';
 
 /** Why `.gitignore` was left alone. Fixed values, never file content. */
-export type GitignoreRefusal = 'symlink' | 'not-a-file' | 'unreadable';
+export type GitignoreRefusal = IgnoreRefusal;
 
 /** What a run would do (or did) to `.gitignore`. */
 export type GitignorePlan =
@@ -55,68 +62,12 @@ export type GitignorePlan =
 export type GitignoreOutcome =
   GitignorePlan | { action: 'failed'; code: string; entries: GitignoreEntry[] };
 
-// A gitignore pattern reduced to what decides whether it covers one of our
-// directories. `floating` = it matches at any depth (no slash before its end,
-// or a leading `**/`).
-interface Pattern {
-  negated: boolean;
-  core: string;
-  floating: boolean;
-}
-
-// One line → its pattern, or null for a blank line or a comment. Git strips
-// unescaped TRAILING spaces but keeps leading ones (they are part of the
-// pattern), so only the end is trimmed; one trailing CR is a CRLF file's line
-// ending. Then one leading `/` (anchored) or `**/` (any depth), and one
-// trailing `/`, `/*` or `/**` (the directory itself, or everything in it).
-function parsePattern(raw: string): Pattern | null {
-  const line = (raw.endsWith('\r') ? raw.slice(0, -1) : raw).replace(
-    /[ \t]+$/,
-    '',
-  );
-  if (line === '' || line.startsWith('#')) return null;
-  let p = line;
-  const negated = p.startsWith('!');
-  if (negated) p = p.slice(1);
-  let anyDepth = false;
-  let anchored = false;
-  if (p.startsWith('**/')) {
-    anyDepth = true;
-    p = p.slice(3);
-  } else if (p.startsWith('/')) {
-    anchored = true;
-    p = p.slice(1);
-  }
-  // `/*` and `/**` put a slash before the end, which anchors the pattern; a
-  // lone trailing `/` only limits it to directories.
-  const suffix = /(\/\*\*|\/\*|\/)$/.exec(p)?.[0] ?? '';
-  p = p.slice(0, p.length - suffix.length);
-  const floating =
-    anyDepth ||
-    (!anchored && suffix !== '/*' && suffix !== '/**' && !p.includes('/'));
-  return { negated, core: p, floating };
-}
-
 // Does `pattern` decide `entry`? Its exact path does (anchored or not, both
 // include the root one); a bare basename (`.run`) does only while it floats.
-function decides(pattern: Pattern, entry: GitignoreEntry): boolean {
+function decides(pattern: IgnorePattern, entry: GitignoreEntry): boolean {
   const path = entry.slice(0, -1); // 'pharn/.run'
   const base = path.slice(path.lastIndexOf('/') + 1); // '.run'
   return pattern.core === path || (pattern.core === base && pattern.floating);
-}
-
-// A UTF-8 byte-order mark, as latin1 decodes it. Git strips one at the start
-// of a `.gitignore`, so the first line is read without it too — detection
-// only: the file's bytes are never changed.
-const UTF8_BOM = '\u00ef\u00bb\u00bf';
-
-function lines(bytes: Buffer): string[] {
-  // latin1 is a 1:1 byte decode: our literals are ASCII, and no byte is lost
-  // or merged (the bytes are never re-encoded — only appended to).
-  const text = bytes.toString('latin1');
-  return (text.startsWith(UTF8_BOM) ? text.slice(UTF8_BOM.length) : text).split(
-    '\n',
-  );
 }
 
 /**
@@ -125,9 +76,7 @@ function lines(bytes: Buffer): string[] {
  * and never overridden.
  */
 export function decidedEntries(bytes: Buffer): Set<GitignoreEntry> {
-  const patterns = lines(bytes)
-    .map(parsePattern)
-    .filter((p): p is Pattern => p !== null);
+  const patterns = ignorePatterns(bytes);
   return new Set(
     PHARN_GITIGNORE_ENTRIES.filter((entry) =>
       patterns.some((p) => decides(p, entry)),
@@ -148,21 +97,9 @@ export function gitignoreAddition(bytes: Buffer | null): {
   entries: GitignoreEntry[];
   append: Buffer;
 } {
-  const old = bytes ?? Buffer.alloc(0);
-  const decided = decidedEntries(old);
+  const decided = decidedEntries(bytes ?? Buffer.alloc(0));
   const entries = PHARN_GITIGNORE_ENTRIES.filter((e) => !decided.has(e));
-  if (entries.length === 0) return { entries, append: Buffer.alloc(0) };
-  const text = old.toString('latin1');
-  const firstLf = text.indexOf('\n');
-  const eol = firstLf > 0 && text[firstLf - 1] === '\r' ? '\r\n' : '\n';
-  const hasComment = lines(old).some(
-    (l) => l.replace(/[ \t\r]+$/, '') === GITIGNORE_COMMENT,
-  );
-  const parts: string[] = [];
-  if (text.length > 0 && !text.endsWith('\n')) parts.push(eol);
-  if (!hasComment) parts.push(GITIGNORE_COMMENT + eol);
-  for (const entry of entries) parts.push(entry + eol);
-  return { entries, append: Buffer.from(parts.join(''), 'latin1') };
+  return { entries, append: ignoreAddition(bytes, entries, GITIGNORE_COMMENT) };
 }
 
 // The plan plus the bytes it was made from, so apply writes exactly what it
@@ -172,36 +109,22 @@ function readPlan(projectRoot: string): {
   old: Buffer | null;
   append: Buffer;
 } {
-  const all = [...PHARN_GITIGNORE_ENTRIES];
-  const target = safeJoin(projectRoot, GITIGNORE_FILE);
-  const refused = (reason: GitignoreRefusal) => ({
-    plan: { action: 'refused' as const, reason, entries: all },
-    old: null,
-    append: Buffer.alloc(0),
-  });
-  let isLink: boolean;
-  try {
-    isLink = lstatSync(target).isSymbolicLink();
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT')
-      return refused('unreadable');
-    const { entries, append } = gitignoreAddition(null);
-    return { plan: { action: 'create', entries }, old: null, append };
-  }
-  // A link is never written through, nor replaced (it is the user's).
-  if (isLink) return refused('symlink');
-  const read = readBoundedFile(target);
-  if (read.kind === 'absent') return refused('unreadable'); // gone since lstat
-  if (read.kind === 'unusable')
-    return refused(
-      read.code === 'not-a-file' || read.code === 'EISDIR'
-        ? 'not-a-file'
-        : 'unreadable',
-    );
-  const { entries, append } = gitignoreAddition(read.bytes);
-  if (entries.length === 0)
-    return { plan: { action: 'none' }, old: read.bytes, append };
-  return { plan: { action: 'append', entries }, old: read.bytes, append };
+  const read = readIgnoreFile(projectRoot, GITIGNORE_FILE);
+  if (read.kind === 'refused')
+    return {
+      plan: {
+        action: 'refused',
+        reason: read.reason,
+        entries: [...PHARN_GITIGNORE_ENTRIES],
+      },
+      old: null,
+      append: Buffer.alloc(0),
+    };
+  const old = read.kind === 'ok' ? read.bytes : null;
+  const { entries, append } = gitignoreAddition(old);
+  if (old === null) return { plan: { action: 'create', entries }, old, append };
+  if (entries.length === 0) return { plan: { action: 'none' }, old, append };
+  return { plan: { action: 'append', entries }, old, append };
 }
 
 /** What a run would do to `.gitignore`. Read-only; never throws. */
@@ -220,23 +143,10 @@ export async function applyGitignore(
 ): Promise<GitignoreOutcome> {
   const { plan, old, append } = readPlan(projectRoot);
   if (plan.action !== 'create' && plan.action !== 'append') return plan;
-  try {
-    await writeFileAtomic(
-      safeJoin(projectRoot, GITIGNORE_FILE),
-      Buffer.concat([old ?? Buffer.alloc(0), append]),
-    );
-    return plan;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    return {
-      action: 'failed',
-      code:
-        typeof code === 'string' && /^[A-Z0-9_]{1,32}$/.test(code)
-          ? code
-          : 'EUNKNOWN',
-      entries: plan.entries,
-    };
-  }
+  const code = await writeIgnoreFile(projectRoot, GITIGNORE_FILE, old, append);
+  return code === null
+    ? plan
+    : { action: 'failed', code, entries: plan.entries };
 }
 
 /** Would a run add an entry (a plan pharn can carry out)? */

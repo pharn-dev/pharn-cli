@@ -9,8 +9,11 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-11-10
+
 ### Added
 
+- **A project's Prettier check no longer goes red on the files pharn installs.** pharn copies pharn-oss's files as pharn-oss formats them, so a project gating on `prettier . --check` under its own settings failed on hundreds of them (250 under `pharn/pharn-review/` in the measured case, which stopped `/pharn-loop` at its gates-at-entry check), and `prettier --write` made them "changed", so `pharn update` then skipped them. When the project uses Prettier (a root `.prettierignore`, a Prettier config file, or `prettier` in `package.json`), `pharn init` and `pharn update` now make sure `.prettierignore` covers what pharn writes: the install directories (capability trees, contracts, core, floor), `pharn/features/` (its artifacts are partly hash-pinned), each product command, hook and trusted doc, and `pharn.config.json` / `pharn.records.json`. The lines are derived from the files pharn records writing, appended only when missing (your bytes kept, a line already covered by an exact, parent-directory or negated pattern left alone), never written through a symlink; a refusal is a warning listing the lines to add yourself. An install made before this release gets its lines on the next `pharn update`, even at the same skills version. `--dry-run` previews the lines; `init --dry-run --json` and `update --dry-run --json` carry them as an additive `prettierignore` / `plan.prettierignore`, present only when something would change. `pharn status` prints an advisory `PRETTIER` note when lines are missing, and `status --json` carries `prettierignore` (`null` when there is nothing to say); neither affects `--strict`. `pharn uninstall` leaves the lines. ESLint and markdownlint are not handled. See [docs/commands/init.md](docs/commands/init.md#prettierignore).
 - **`updatedAt` in `pharn.config.json`.** `pharn update` records when it last rewrote the config, as an ISO timestamp. The key is additive: a config without it still loads, `pharn init` never writes it (a re-run drops it), and `add`/`remove` carry it unchanged. See [docs/reference/pharn-config.md](docs/reference/pharn-config.md#top-level-fields-archetype-install).
 
 ### Fixed
@@ -329,7 +332,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.2...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.15.0...v0.16.0

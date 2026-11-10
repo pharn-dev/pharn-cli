@@ -50,6 +50,7 @@ function input(extra: Partial<StatusReportInput> = {}): StatusReportInput {
       unknown: [],
       orphans: [],
     },
+    prettierignore: null,
     strict: false,
     ...extra,
   };
@@ -88,6 +89,7 @@ describe('buildStatusReport', () => {
       models: null,
       unknownCapabilities: [],
       orphans: [],
+      prettierignore: null,
       strict: { enabled: false, failed: false },
     });
   });

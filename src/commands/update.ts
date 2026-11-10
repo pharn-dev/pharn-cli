@@ -53,6 +53,12 @@ import {
   planGitignore,
 } from '../lib/gitignore.js';
 import {
+  applyPrettierignore,
+  planPrettierignore,
+  prettierignoreLines,
+  prettierignorePending,
+} from '../lib/prettierignore.js';
+import {
   buildRecords,
   MODELS_RECORD_KEY,
   readRecords,
@@ -389,6 +395,20 @@ async function runArchetypeUpdate(
   // file whose write fails (EACCES) re-opens every run, named in its warning.
   const gitignoreMissing =
     current && !force && gitignorePending(planGitignore(cwd));
+  // A project that uses Prettier and whose `.prettierignore` does not cover the
+  // paths pharn recorded re-opens the gate too (lib/prettierignore.ts) — the
+  // install predates 0.17.0, Prettier came later, or a line was deleted. Read
+  // from the usable record store (no store, no check: nothing local says what
+  // pharn wrote). Bounded like `.gitignore`'s: the opened run covers a superset
+  // of the store it writes (update-plan.ts → prettierignorePaths), so the next
+  // run finds nothing missing. Same residual: a write that keeps failing.
+  const prettierignoreMissing =
+    current &&
+    !force &&
+    baselineRecords !== null &&
+    prettierignorePending(
+      planPrettierignore(cwd, Object.keys(baselineRecords)),
+    );
   if (
     current &&
     !force &&
@@ -398,7 +418,8 @@ async function runArchetypeUpdate(
     missing === null &&
     !staleRecords &&
     rootDoc === null &&
-    !gitignoreMissing
+    !gitignoreMissing &&
+    !prettierignoreMissing
   ) {
     if (json) {
       emitEarlyReturn('up-to-date');
@@ -462,6 +483,13 @@ async function runArchetypeUpdate(
           ? [
               pc.dim(
                 "  .gitignore does not yet keep PHARN's run state and backups out of git — this run re-applies the install and adds them.",
+              ),
+            ]
+          : []),
+        ...(prettierignoreMissing
+          ? [
+              pc.dim(
+                '  .prettierignore does not yet cover the files pharn installs and rewrites — this run re-applies the install and adds them.',
               ),
             ]
           : []),
@@ -663,6 +691,12 @@ async function runArchetypeUpdate(
     outcome.gitignore === undefined ? null : gitignoreLines(outcome.gitignore);
   if (gitignore?.warn) log.warn(gitignore.text);
   else if (gitignore !== null) log.info(gitignore.text);
+  const prettierignore =
+    outcome.prettierignore === undefined
+      ? null
+      : prettierignoreLines(outcome.prettierignore);
+  if (prettierignore?.warn) log.warn(prettierignore.text);
+  else if (prettierignore !== null) log.info(prettierignore.text);
   reportOutcome(outcome, force);
   // A user-data move that could not be made (a conflict, a symlink, a failed
   // rename) fails the run, after everything else it did has been reported and
@@ -992,6 +1026,12 @@ async function applyPlannedUpdate(
   // refusal or a failed write is reported, never thrown — the update above has
   // already landed.
   const gitignore = await applyGitignore(cwd);
+  // The same for `.prettierignore` (lib/prettierignore.ts), over the paths the
+  // planner derived (a superset of the records written above).
+  const prettierignore = await applyPrettierignore(
+    cwd,
+    apply.prettierignorePaths,
+  );
 
   // The user-data moves, LAST: everything pharn-owned is in place, so a move
   // that fails (or was refused at plan time) costs nothing but itself, and the
@@ -1019,6 +1059,7 @@ async function applyPlannedUpdate(
     modelsFloor: report.modelsFloor,
     orphans: report.orphans,
     gitignore,
+    prettierignore,
     rootMigration: migration,
     rootMigrationResult:
       migration === null ? null : { ...docResult, ...moveResult },
