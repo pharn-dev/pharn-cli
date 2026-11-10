@@ -20,6 +20,11 @@ import {
   type GitignorePlan,
   type GitignoreReport,
 } from './gitignore.js';
+import {
+  prettierignoreReport,
+  type PrettierignorePlan,
+  type PrettierignoreReport,
+} from './prettierignore.js';
 import type { InstallSurface } from './install-manifest.js';
 import type { Layout } from '../types.js';
 
@@ -171,6 +176,10 @@ export interface UpdateReport {
     // refused), so a report with nothing to add keeps its earlier bytes;
     // additive within schemaVersion 1. Added in 0.16.0.
     gitignore?: GitignoreReport;
+    // What a real run would add to the project's `.prettierignore`
+    // (lib/prettierignore.ts). Present ONLY when it would add something (or
+    // would have to leave the file alone). Added in 0.17.0.
+    prettierignore?: PrettierignoreReport;
   } | null;
 }
 
@@ -323,7 +332,16 @@ function planReport(
         }
       : {}),
     ...gitignoreKey(p.gitignore),
+    ...prettierignoreKey(p.prettierignore),
   };
+}
+
+// `{prettierignore}` when a real run would touch `.prettierignore`, else nothing.
+function prettierignoreKey(plan: PrettierignorePlan): {
+  prettierignore?: PrettierignoreReport;
+} {
+  const report = prettierignoreReport(plan);
+  return report === null ? {} : { prettierignore: report };
 }
 
 // `{gitignore}` when a real run would touch `.gitignore`, else nothing.

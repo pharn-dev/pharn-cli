@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import * as prettier from 'prettier';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import { codeloadArchive } from './support/tar-fixture.js';
@@ -396,6 +397,62 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(updated.pharnVersion).toBe(PHARN_VERSION);
     expect(typeof updated.updatedAt).toBe('string');
     expect(new Date(updated.updatedAt).toISOString()).toBe(updated.updatedAt);
+  });
+
+  // 0.17.0 (lib/prettierignore.ts): in a project that uses Prettier, init
+  // makes `.prettierignore` cover every file it wrote — checked with Prettier's
+  // own matcher, not pharn's — a same-version update changes nothing, status
+  // is quiet, and uninstall leaves the lines.
+  it('init keeps a Prettier project’s check off every file pharn wrote; update, status and uninstall leave it', async () => {
+    writeFileSync(at('.prettierrc'), '{}\n');
+    await init();
+    const written = read('.prettierignore');
+    const owned = [
+      ...INSTALLED.filter((f) => f !== '.claude/settings.json'),
+      'pharn.config.json',
+      'pharn.records.json',
+    ];
+    for (const rel of owned) {
+      const info = await prettier.getFileInfo(at(rel), {
+        ignorePath: at('.prettierignore'),
+      });
+      expect(info.ignored, rel).toBe(true);
+    }
+    // The user's own settings and files stay under their check.
+    for (const rel of ['.claude/settings.json', 'src/index.ts', 'README.md'])
+      expect(
+        (
+          await prettier.getFileInfo(at(rel), {
+            ignorePath: at('.prettierignore'),
+          })
+        ).ignored,
+        rel,
+      ).toBe(false);
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('.prettierignore')).toBe(written);
+
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    expect(JSON.parse(stdout.at(-1) ?? '').prettierignore).toBeNull();
+
+    // A deleted line comes back, once.
+    writeFileSync(
+      at('.prettierignore'),
+      written.replace('/pharn.config.json\n', ''),
+    );
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    expect(JSON.parse(stdout.at(-1) ?? '').prettierignore).toEqual({
+      action: 'append',
+      entries: ['/pharn.config.json'],
+    });
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('.prettierignore')).toBe(
+      written.replace('/pharn.config.json\n', '') + '/pharn.config.json\n',
+    );
+
+    const before = read('.prettierignore');
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+    expect(read('.prettierignore')).toBe(before);
   });
 
   it('update --yes upgrades a clean file, skips an edited one, and withholds the bump', async () => {

@@ -228,6 +228,7 @@ key. Treat a `status` you do not recognise as "do not apply".
 | `frozenCapabilities`, `unknownCapabilities` | Capabilities upstream ships that this CLI cannot read, kept as they are: `role:name` keys, and `{role, name, subtree, reason}`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `plan.recordsNote`                          | Why `pharn.records.json` could not be used (then every difference is `unverifiable`), else `null`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `plan.gitignore`                            | Present only when a real run would change [`.gitignore`](#gitignore): `{action, entries}` with `action` `create` or `append` and `entries` the lines it adds, or `{action: "refused", reason, entries}` (`reason` `symlink`, `not-a-file` or `unreadable`) when it would have to leave the file alone. Absent otherwise, so such a report is byte-identical to earlier releases. Added in 0.16.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                               |
+| `plan.prettierignore`                       | Present only when a real run would change [`.prettierignore`](#prettierignore) in a project that uses Prettier: `{action, entries}` (`create`/`append`, the lines it adds) or `{action: "refused", reason, entries}`. Absent otherwise. Added in 0.17.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `plan.orphans`                              | Present only when there is at least one: every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). With none, the key is **absent** (not `[]`), so such a report is byte-identical to the one 0.10.0 printed; read it as `plan.orphans ?? []`. Never filtered by `--compact`.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 #### `--compact`: leave out the unchanged files
@@ -538,7 +539,7 @@ whatever merged last.
 - **An install on `main` is never moved for you.** Verified releases are the default for _new_ installs
   only. An `update` on a `main` install keeps it on `main` and prints one line saying so:
   `Verified releases are now the default for new installs. This install keeps following pharn-oss main;
-  run`pharn update --ref latest`to switch (recorded on first use).` It prints on every such run —
+run`pharn update --ref latest`to switch (recorded on first use).` It prints on every such run —
   the up-to-date return and `--dry-run` included — but not when you pass `--ref`, and not under
   `--json` (the report's `channel` says `main`).
 
@@ -895,6 +896,29 @@ symlink, a directory, unreadable) does not re-open it. One residual: a regular f
 failing (no permission) re-opens every run, each with its warning.
 
 `--dry-run` prints `.gitignore: would add …`, and `--dry-run --json` carries `plan.gitignore`.
+
+## `.prettierignore`
+
+In a project that uses Prettier, every applied `update` makes sure the root `.prettierignore` covers the
+files it records writing, the same way [`init` does](init.md#prettierignore) — the same detection, the
+same derived lines (including `/pharn/features/`, `/pharn.config.json` and `/pharn.records.json`), the
+same append-only rules. It runs after `.gitignore`, under the lock, and prints `Added N paths to
+.prettierignore …` (or `Created .prettierignore with …`); a refusal or a failed write is a warning
+listing the lines, never a failed update.
+
+**At the same skills version**, a `.prettierignore` that does not cover the files in
+[`pharn.records.json`](../reference/pharn-records.md) re-opens the "Already up to date" return (the
+header note says so), so an install made before 0.17.0 — or a project that adopted Prettier later —
+gets its lines on the next `update`, and the following run returns early again. Without a usable
+`pharn.records.json` nothing local says what pharn wrote, so it does not re-open; the lines come with
+the next version bump. A file pharn cannot write does not re-open it; a write that keeps failing does,
+each run.
+
+If you already ran `prettier --write` over pharn's files, they now read as changed: add the lines (or
+let `update` add them), then `pharn update --force` puts pharn-oss's bytes back, backing your copies up
+first.
+
+`--dry-run` prints `.prettierignore: would add …`, and `--dry-run --json` carries `plan.prettierignore`.
 
 ## What is protected by default
 

@@ -1,4 +1,9 @@
 import { planGitignore, type GitignorePlan } from './gitignore.js';
+import { findOrphans } from './orphans.js';
+import {
+  planPrettierignore,
+  type PrettierignorePlan,
+} from './prettierignore.js';
 import {
   planRootMigration,
   type RootMigration,
@@ -18,6 +23,7 @@ import {
 import {
   readRecords,
   recordsBaseline,
+  recordsUnderCapabilities,
   type FileRecords,
 } from './install-records.js';
 import { configLayout, detectLayout, layoutPaths } from './layout.js';
@@ -317,6 +323,37 @@ export function reinstallBaseline(
 }
 
 /**
+ * The paths the record store of an install from `manifest` will hold: the
+ * kept (frozen) capabilities' carried records, the replaced install's orphans
+ * (lib/orphans.ts) and the manifest — the composition runInstallArchetype
+ * writes (steps/install-archetype.ts). The dry run derives its
+ * `.prettierignore` preview from it; the real run uses the keys it actually
+ * wrote. Read-only.
+ */
+export function initRecordedPaths(params: {
+  cwd: string;
+  manifest: ReadonlyMap<string, string>;
+  carry: InstallCarry;
+  capabilities: readonly InstalledCapability[];
+  layout: Layout;
+}): string[] {
+  const { cwd, manifest, carry, capabilities, layout } = params;
+  const baseline = reinstallBaseline(cwd, carry.previousStamp);
+  const kept =
+    carry.kept.length === 0 || baseline === null
+      ? {}
+      : recordsUnderCapabilities(baseline, layoutPaths(layout), carry.kept);
+  const orphans = findOrphans({
+    projectRoot: cwd,
+    records: baseline,
+    expected: manifest,
+    capabilities: [...capabilities, ...carry.kept],
+    frozen: carry.kept,
+  }).records;
+  return [...Object.keys(kept), ...Object.keys(orphans), ...manifest.keys()];
+}
+
+/**
  * The user-owned top-level entries (`userOwnedConfigEntries`) of the
  * pharn.config.json this install is about to replace — `{}` on ANY failure.
  * Read TOLERANTLY, like readPreviousConfig: init is the command every other one
@@ -411,6 +448,10 @@ export interface InitPlanReport {
   // What the install would append to the project's `.gitignore`
   // (lib/gitignore.ts); `none` when it already covers pharn's entries.
   gitignore: GitignorePlan;
+  // What the install would append to the project's `.prettierignore`
+  // (lib/prettierignore.ts); `none` when the project does not use Prettier or
+  // the file already covers the paths pharn writes.
+  prettierignore: PrettierignorePlan;
 }
 
 /**
@@ -601,5 +642,15 @@ export function buildInitPlan(params: {
     carriedConfigKeys: Object.keys(readCarriedEntries(cwd)),
     rootMigration: rootMigration?.report ?? null,
     gitignore: planGitignore(cwd),
+    prettierignore: planPrettierignore(
+      cwd,
+      initRecordedPaths({
+        cwd,
+        manifest,
+        carry,
+        capabilities: selection.selected,
+        layout,
+      }),
+    ),
   };
 }

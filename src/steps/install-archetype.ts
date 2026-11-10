@@ -66,6 +66,10 @@ import {
   gitignoreLines,
   planGitignore,
 } from '../lib/gitignore.js';
+import {
+  applyPrettierignore,
+  prettierignoreLines,
+} from '../lib/prettierignore.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import { PHARN_VERSION } from '../version.js';
 import type {
@@ -381,32 +385,29 @@ export async function runInstallArchetype(
   //
   // Keyed by the SAME manifest the copy just applied — it depends only on the
   // clone, the selection and the layout, none of which change during a run.
-  await writeRecords(cwd, {
-    skillsVersion,
-    commit,
-    files: {
-      ...keptRecords(baseline, carry, layout),
-      // Files the replaced install recorded that upstream no longer ships and
-      // that are still on disk keep their record, so `update` and `status`
-      // keep naming them (lib/orphans.ts). Disjoint from the manifest.
-      ...Object.fromEntries(
-        Object.entries(
-          findOrphans({
-            projectRoot: cwd,
-            records: baseline,
-            expected: prepared.manifest,
-            capabilities: [...capabilities, ...carry.kept],
-            frozen: carry.kept,
-          }).records,
-        ).filter(([rel]) => !retired.has(rel)),
-      ),
-      ...buildRecords(cwd, prepared.manifest.keys()),
-      // The block pharn just wrote, so `pharn update` can tell it from an edit.
-      ...(models !== undefined
-        ? { [MODELS_RECORD_KEY]: modelsRecordHash(models) }
-        : {}),
-    },
-  });
+  const files = {
+    ...keptRecords(baseline, carry, layout),
+    // Files the replaced install recorded that upstream no longer ships and
+    // that are still on disk keep their record, so `update` and `status`
+    // keep naming them (lib/orphans.ts). Disjoint from the manifest.
+    ...Object.fromEntries(
+      Object.entries(
+        findOrphans({
+          projectRoot: cwd,
+          records: baseline,
+          expected: prepared.manifest,
+          capabilities: [...capabilities, ...carry.kept],
+          frozen: carry.kept,
+        }).records,
+      ).filter(([rel]) => !retired.has(rel)),
+    ),
+    ...buildRecords(cwd, prepared.manifest.keys()),
+    // The block pharn just wrote, so `pharn update` can tell it from an edit.
+    ...(models !== undefined
+      ? { [MODELS_RECORD_KEY]: modelsRecordHash(models) }
+      : {}),
+  };
+  await writeRecords(cwd, { skillsVersion, commit, files });
   // The config this install replaces may hold keys pharn does not own —
   // upstream's `testResults` / `ship`, which users add by hand — and the object
   // above is built from pharn's own fields alone. Carry them over (why every
@@ -429,6 +430,13 @@ export async function runInstallArchetype(
   const gitignore = await applyGitignore(cwd);
   const gitignoreReport = gitignoreLines(gitignore);
   if (gitignoreReport?.warn) log.warn(gitignoreReport.text);
+
+  // Keep the project's Prettier check off the files pharn installs and
+  // rewrites (lib/prettierignore.ts): when the project uses Prettier, append
+  // the `.prettierignore` lines the paths just recorded need, the same way.
+  const prettierignore = await applyPrettierignore(cwd, Object.keys(files));
+  const prettierignoreReport = prettierignoreLines(prettierignore);
+  if (prettierignoreReport?.warn) log.warn(prettierignoreReport.text);
 
   // The user-data moves, LAST — after every pharn-owned write — and the note
   // that says what happened (the wording `update` prints too). A move that
@@ -484,6 +492,12 @@ export async function runInstallArchetype(
       ...(gitignore.action === 'create' || gitignore.action === 'append'
         ? [
             `${check} .gitignore ${gitignore.action === 'create' ? 'created' : 'updated'} → ${pc.dim(gitignore.entries.join(', '))}`,
+          ]
+        : []),
+      ...(prettierignore.action === 'create' ||
+      prettierignore.action === 'append'
+        ? [
+            `${check} .prettierignore ${prettierignore.action === 'create' ? 'created' : 'updated'} → ${pc.dim(`${prettierignore.entries.length} path${prettierignore.entries.length === 1 ? '' : 's'} pharn installs or rewrites`)}`,
           ]
         : []),
       `${pc.dim(`Done in ${elapsed}s`)}`,

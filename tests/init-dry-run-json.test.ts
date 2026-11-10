@@ -351,6 +351,21 @@ describe('runInit --dry-run --json', () => {
     expect(await run()).not.toHaveProperty('gitignore');
   });
 
+  it('carries prettierignore when the project uses Prettier, and omits it otherwise', async () => {
+    expect(await run()).not.toHaveProperty('prettierignore');
+
+    logSpy.mockClear();
+    writeFileSync(
+      join(proj, 'package.json'),
+      '{"devDependencies":{"prettier":"3"}}',
+    );
+    const r = await run();
+    expect(r.prettierignore.action).toBe('create');
+    expect(r.prettierignore.entries).toContain('/pharn.config.json');
+    expect(r.prettierignore.entries).toContain('/pharn.records.json');
+    expect(existsSync(join(proj, '.prettierignore'))).toBe(false);
+  });
+
   it('--ref main reports the main channel and no tag', async () => {
     const r = await run({ ref: 'main' });
     expect(r.channel).toBe('main');

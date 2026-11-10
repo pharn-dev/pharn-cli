@@ -764,6 +764,20 @@ describe('runUpdate --dry-run --json', () => {
       });
     });
 
+    it('carries plan.prettierignore for a Prettier project, and omits it otherwise', async () => {
+      await installed();
+      expect((await run()).json.plan).not.toHaveProperty('prettierignore');
+
+      logSpy.mockClear();
+      writeFileSync(join(proj, '.prettierignore'), 'dist/\n');
+      const before = snapshotTree(proj);
+      const { json } = await run();
+      expect(json.plan.prettierignore.action).toBe('append');
+      expect(json.plan.prettierignore.entries).toContain('/pharn.config.json');
+      expect(json.plan.prettierignore.entries).toContain(`/${CMD}`);
+      expect(snapshotTree(proj)).toEqual(before);
+    });
+
     it('omits plan.orphans when there is none', async () => {
       await installed();
       const { json } = await run();

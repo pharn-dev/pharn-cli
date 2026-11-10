@@ -38,6 +38,10 @@ import { decideModelsUpdate, type ModelsUpdate } from './models-update.js';
 import { readUpstreamModels } from './upstream-models.js';
 import { findOrphans, type Orphan } from './orphans.js';
 import { planGitignore, type GitignorePlan } from './gitignore.js';
+import {
+  planPrettierignore,
+  type PrettierignorePlan,
+} from './prettierignore.js';
 import { planRootMigration, type RootMigration } from './root-migration.js';
 import {
   planUpdate,
@@ -141,6 +145,11 @@ export interface UpdatePlanReport {
   // `none` when it already covers pharn's entries. Re-planned under the lock
   // by the writer, like every other read-only answer here.
   gitignore: GitignorePlan;
+  // What this run adds to the project's `.prettierignore`
+  // (lib/prettierignore.ts): `none` when the project does not use Prettier or
+  // the file already covers the paths this run records. Re-planned under the
+  // lock by the writer over `apply.prettierignorePaths`.
+  prettierignore: PrettierignorePlan;
 }
 
 export interface UpdateApplyInputs {
@@ -163,6 +172,8 @@ export interface UpdateApplyInputs {
   removalPaths: LayoutPaths;
   // Regular files the user-data moves back up first (lib/root-migration.ts).
   rootMoveBackups: string[];
+  // The paths `.prettierignore` must cover (report.prettierignore's input).
+  prettierignorePaths: string[];
 }
 
 export interface PlannedUpdate {
@@ -337,6 +348,16 @@ export function buildUpdatePlan(input: {
       .map((d) => d.rel),
   );
   const orphans = orphanScan.orphans.filter((o) => !retired.has(o.path));
+  // The paths `.prettierignore` must cover: everything this run may record —
+  // the manifest, the frozen capabilities' and the orphans' carried records. A
+  // superset of the store the run writes (a root doc the migration retires is
+  // kept here: its delete may fail), so the same-version re-open, which reads
+  // the store, never finds a line this run did not add (commands/update.ts).
+  const prettierignorePaths = [
+    ...expected.keys(),
+    ...Object.keys(frozenRecords),
+    ...Object.keys(orphanScan.records),
+  ];
 
   // Only KEPT entries count: an unparseable capability this project never had
   // must not pin every future run to a re-fetch. And one the LAST run listed
@@ -403,6 +424,7 @@ export function buildUpdatePlan(input: {
       rootMigration: rootMigration?.report ?? null,
       rootMoveBackups: rootMigration?.backups ?? [],
       gitignore: planGitignore(cwd),
+      prettierignore: planPrettierignore(cwd, prettierignorePaths),
     },
     apply: {
       expected,
@@ -418,6 +440,7 @@ export function buildUpdatePlan(input: {
       frozenKeys,
       removalPaths,
       rootMoveBackups: rootMigration?.backups ?? [],
+      prettierignorePaths,
     },
   };
 }

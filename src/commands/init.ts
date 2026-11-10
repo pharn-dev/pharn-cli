@@ -1,4 +1,5 @@
 import { gitignoreLines } from '../lib/gitignore.js';
+import { prettierignoreLines } from '../lib/prettierignore.js';
 import { rootMigrationNoteLines } from '../lib/root-migration.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
@@ -668,6 +669,12 @@ function reportInitDryRun(r: InitPlanReport): void {
   // wording); a refusal is a warning, printed after the note.
   const gitignore = gitignoreLines(r.gitignore, { preview: true });
   if (gitignore !== null && !gitignore.warn) lines.push(`  ${gitignore.text}`);
+  // The same for `.prettierignore` (lib/prettierignore.ts).
+  const prettierignore = prettierignoreLines(r.prettierignore, {
+    preview: true,
+  });
+  if (prettierignore !== null && !prettierignore.warn)
+    lines.push(`  ${prettierignore.text}`);
   lines.push(
     '',
     deletes.length > 0
@@ -678,6 +685,7 @@ function reportInitDryRun(r: InitPlanReport): void {
   );
   note(lines.join('\n'), 'PLAN');
   if (gitignore?.warn) log.warn(gitignore.text);
+  if (prettierignore?.warn) log.warn(prettierignore.text);
 
   // The ROOT MIGRATION note a real re-run prints after the install, as a
   // preview (lib/root-migration.ts owns the wording).

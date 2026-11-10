@@ -1,4 +1,8 @@
 import { gitignoreReport, type GitignoreReport } from './gitignore.js';
+import {
+  prettierignoreReport,
+  type PrettierignoreReport,
+} from './prettierignore.js';
 import type { ArchetypeEvidence } from './archetype.js';
 import type { DriftLabel } from './dest-drift.js';
 import type {
@@ -138,6 +142,10 @@ export interface InitReport {
   // `.gitignore`, or would have to leave it alone (lib/gitignore.ts) — so a
   // report with nothing to add keeps its earlier bytes. Added in 0.16.0.
   gitignore?: GitignoreReport;
+  // Present ONLY when the install would add to (or create) the project's
+  // `.prettierignore`, or would have to leave it alone (lib/prettierignore.ts).
+  // Added in 0.17.0.
+  prettierignore?: PrettierignoreReport;
 }
 
 const key = (c: { role: string; name: string }): string =>
@@ -254,7 +262,16 @@ export function buildInitReport(p: InitPlanReport): InitReport {
       carriedKeys: p.carriedConfigKeys.map((k) => cap(k, MAX_UNKNOWN_FIELD)),
     },
     ...gitignoreKey(p.gitignore),
+    ...prettierignoreKey(p.prettierignore),
   };
+}
+
+// `{prettierignore}` when a real run would touch `.prettierignore`, else nothing.
+function prettierignoreKey(plan: InitPlanReport['prettierignore']): {
+  prettierignore?: PrettierignoreReport;
+} {
+  const report = prettierignoreReport(plan);
+  return report === null ? {} : { prettierignore: report };
 }
 
 // `{gitignore}` when a real run would touch `.gitignore`, else nothing.

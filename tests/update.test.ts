@@ -786,6 +786,65 @@ describe('runUpdate (drift-safe)', () => {
       expect(readFileSync(outside, 'utf8')).toBe('node_modules\n');
     });
 
+    // 0.17.0: a project that uses Prettier and whose `.prettierignore` does
+    // not cover the paths pharn recorded re-opens the gate too
+    // (lib/prettierignore.ts) — bounded the same way.
+    it('a Prettier project without pharn’s .prettierignore lines re-opens it; the run adds them, the next run early-returns', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      writeFileSync(join(proj, '.prettierrc'), '{}\n');
+
+      await runUpdate();
+
+      expect(fetchRepo).toHaveBeenCalledTimes(1);
+      expect(noteText()).toContain(
+        '  .prettierignore does not yet cover the files pharn installs and rewrites — this run re-applies the install and adds them.',
+      );
+      const written = readFileSync(join(proj, '.prettierignore'), 'utf8');
+      expect(written).toMatch(
+        /^# Files installed and rewritten by pharn \(added by pharn\)\n/,
+      );
+      expect(written).toContain('/pharn-pipeline/grillers/\n');
+      expect(written).toContain('/.claude/commands/pharn-plan.md\n');
+      expect(written).toContain('/pharn.config.json\n');
+      expect(
+        vi.mocked(prompts.log.info).mock.calls.map((c) => String(c[0])),
+      ).toContainEqual(
+        expect.stringMatching(/^Created \.prettierignore with /),
+      );
+
+      vi.clearAllMocks();
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
+      await runUpdate();
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    it('a project without Prettier, or with a symlinked .prettierignore, does not re-open it', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      await runUpdate();
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(existsSync(join(proj, '.prettierignore'))).toBe(false);
+
+      const outside = join(tmp.path(), 'outside-prettierignore');
+      writeFileSync(outside, 'dist/\n');
+      symlinkSync(outside, join(proj, '.prettierignore'));
+      vi.clearAllMocks();
+      await runUpdate();
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(readFileSync(outside, 'utf8')).toBe('dist/\n');
+    });
+
+    it('no usable records store: no .prettierignore re-open (nothing says what pharn wrote)', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, RECORDS_FILE));
+      writeFileSync(join(proj, '.prettierrc'), '{}\n');
+      await runUpdate();
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(existsSync(join(proj, '.prettierignore'))).toBe(false);
+    });
+
     it('a .gitignore that is a directory does not re-open it', async () => {
       await installed({ skillsVersion: '1.1.0' });
       rmSync(join(proj, '.gitignore'));

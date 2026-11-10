@@ -16,6 +16,7 @@ const LS = String.fromCodePoint(0x2028);
 function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
   return {
     gitignore: { action: 'none' },
+    prettierignore: { action: 'none' },
     currentVersion: '1.0.0',
     installedVersion: '1.1.0',
     recordedVersion: '1.0.0',

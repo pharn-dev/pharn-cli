@@ -196,7 +196,14 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
   }, // null unless preserved
   "models": { "outcome": "copy", "reasons": [] }, // "copy" | "none" | "rejected"
   "config": { "carriedKeys": ["testResults"] }, // your own keys, by name only
-  "gitignore": { "action": "create", "entries": ["pharn/.run/", "pharn/.backup/"] }, // present only when .gitignore would change
+  "gitignore": {
+    "action": "create",
+    "entries": ["pharn/.run/", "pharn/.backup/"],
+  }, // present only when .gitignore would change
+  "prettierignore": {
+    "action": "append",
+    "entries": ["/pharn.config.json", "/pharn/pharn-review/"],
+  }, // present only when .prettierignore would change
 }
 ```
 
@@ -204,6 +211,10 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
 `create` or `append` with the lines it adds, or `refused` with a `reason` (`symlink`, `not-a-file`,
 `unreadable`) and the lines to add yourself. With nothing to add the key is absent, so the report is
 byte-identical to earlier releases. Added in 0.16.0.
+
+`prettierignore` follows the same rule for [`.prettierignore`](#prettierignore): present only when a
+project that uses Prettier would get lines added (`create`, `append`) or pharn would have to leave the
+file alone (`refused`, with the lines to add yourself). Added in 0.17.0.
 
 `archetypeSource`, `detectedArchetypes` and `archetypeEvidence` say where `archetypes` came from.
 `archetypeEvidence` is always detection's — one entry per archetype detection found, with the dependency
@@ -509,6 +520,7 @@ cannot find them; PHARN still runs them. Delete them by hand.
 | Copy the `models` block    | pharn-oss's own, verbatim, from its root `pharn.config.json`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                                |
 | Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
 | Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                                  |
+| Update `.prettierignore`   | Only when the project uses Prettier: appends the lines that keep its check off the files pharn installs and rewrites ([below](#prettierignore))                                                                                                                    |
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
 the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
@@ -549,6 +561,59 @@ prints the line it would add, and `--dry-run --json` carries it as `gitignore`. 
 one of the [write targets](#install-without-prompts---yes), so `init --yes` never refuses because of it.
 A `.gitignore` line does not untrack files you already committed: `git rm -r --cached pharn/.run`
 does that.
+
+#### `.prettierignore`
+
+pharn copies pharn-oss's files verbatim, formatted for pharn-oss's own Prettier settings. A project
+whose gate is `prettier . --check` under **its** settings would go red on hundreds of them — and
+`prettier --write` is no fix, because a reformatted file is one you changed, so
+[`pharn update`](update.md) then skips it. `pharn.config.json` is also written in a shape Prettier
+rewrites, and every `init`/`update` writes it again. So, when the project uses Prettier, `init` makes
+sure your root `.prettierignore` covers what it just wrote.
+
+The project **uses Prettier** when any of these is at its root: a `.prettierignore`, a Prettier config
+file (`.prettierrc`, `.prettierrc.{json,json5,yaml,yml,toml,js,cjs,mjs,ts,cts,mts}`,
+`prettier.config.{js,cjs,mjs,ts,cts,mts}`), or a `package.json` with a `prettier` key or `prettier` in
+`dependencies`/`devDependencies`. Otherwise nothing is read or written. A Prettier setup that lives only
+in a workspace package of a monorepo is not detected; add the lines yourself.
+
+The lines are **derived from the files pharn records writing**, never a fixed list. Each file becomes
+the install directory it sits in, or itself:
+
+| What pharn wrote                                                                                     | Line                                                                 |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Anything under a capability tree, `pharn-contracts`, `pharn-core` or the floor                       | That directory, e.g. `/pharn/pharn-review/`, `/pharn/floor/`         |
+| `pharn/features/README.md` (pharn layout)                                                            | `/pharn/features/` — the whole directory ([why](#why-pharnfeatures)) |
+| A product command, a hook, a trusted doc, the `LICENSE` copy, the flat layout's `features/README.md` | The file, e.g. `/.claude/commands/pharn-ship.md`                     |
+| Always, beside them                                                                                  | `/pharn.config.json` and `/pharn.records.json`                       |
+
+Every line starts with `/`, so it matches only at the project root. One line per command and hook keeps
+your own commands and hooks under your check; it also means a command pharn-oss later drops leaves a
+line behind, which is harmless.
+
+<a id="why-pharnfeatures"></a>**Why `pharn/features/` is covered.** It holds the artifacts PHARN's
+stages write for each feature, several of them pinned by a hash of their content (the approved
+`SPEC.md`, `AC-TESTS.lock.json`). Reformatting one breaks its pin, and an artifact written mid-run in
+pharn-oss's formatting would turn the run's own gate red. In the legacy flat layout `features/` sits at
+your root under a generic name that may be your own code, so there only `features/README.md` is
+covered. `pharn/memory-bank/` is yours and is not covered.
+
+The file is handled exactly like `.gitignore`: **created** with a comment and the lines when absent;
+**appended to** with only the missing lines (your bytes kept, line endings followed); **left alone** for
+a line already covered — named exactly (with or without the leading `/`), by a bare name such as
+`pharn-review/`, by a directory above it (`pharn/`, `/pharn/**`), or by your own negation — of the
+line itself, of a directory above it (`!pharn/`), or of something inside it
+(`!pharn/pharn-review/a11y/`, to keep one lens under your check) — which pharn never overrides; and **never written through a symlink**, nor when it is not a regular file
+or cannot be read — then the install succeeds with a warning listing the lines to add yourself.
+Patterns pharn does not recognise as covering (`*.md`) get pharn's lines appended anyway, redundant but
+harmless.
+
+The outro says `.prettierignore created` or `.prettierignore updated`. `--dry-run` prints the lines it
+would add, and `--dry-run --json` carries them as `prettierignore`. Like `.gitignore`, it is not a
+[write target](#install-without-prompts---yes), so `init --yes` never refuses because of it.
+
+This keeps the **expected** effect, not a guarantee: pharn never runs Prettier. A check that passes its
+own `--ignore-path`, or runs from a subdirectory, does not read this file.
 
 #### A surface pharn-oss does not ship
 

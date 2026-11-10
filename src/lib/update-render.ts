@@ -3,6 +3,11 @@ import {
   gitignorePending,
   type GitignoreOutcome,
 } from './gitignore.js';
+import {
+  prettierignoreLines,
+  prettierignorePending,
+  type PrettierignoreOutcome,
+} from './prettierignore.js';
 import { log, note, outro } from '@clack/prompts';
 import { hookWiringLines, type HookWiringDiff } from './hook-wiring.js';
 import { absentSurfaceLines } from './absent-surfaces.js';
@@ -103,6 +108,9 @@ export interface UpdateOutcome {
   // What this run did to the project's `.gitignore` (lib/gitignore.ts).
   // Absent on paths that never applied.
   gitignore?: GitignoreOutcome;
+  // What this run did to the project's `.prettierignore`
+  // (lib/prettierignore.ts). Absent on paths that never applied.
+  prettierignore?: PrettierignoreOutcome;
   // The old root footprint this run retired (lib/root-migration.ts), and what
   // the writer actually did. Both null when nothing applied.
   rootMigration: RootMigration | null;
@@ -352,11 +360,18 @@ export function reportDryRun(
   const gitignore = gitignoreLines(r.gitignore, { preview: true });
   if (gitignore !== null && !gitignore.warn)
     lines.push(`  ${gitignore.text}`, '');
+  // The same for `.prettierignore` (lib/prettierignore.ts).
+  const prettierignore = prettierignoreLines(r.prettierignore, {
+    preview: true,
+  });
+  if (prettierignore !== null && !prettierignore.warn)
+    lines.push(`  ${prettierignore.text}`, '');
   if (
     writes.length === 0 &&
     deletes.length === 0 &&
     !migrates &&
-    !gitignorePending(r.gitignore)
+    !gitignorePending(r.gitignore) &&
+    !prettierignorePending(r.prettierignore)
   )
     lines.push('  Nothing would be written.', '');
   lines.push(
@@ -367,6 +382,7 @@ export function reportDryRun(
   }
   note(lines.join('\n'), 'PLAN');
   if (gitignore?.warn) log.warn(gitignore.text);
+  if (prettierignore?.warn) log.warn(prettierignore.text);
 
   reportCapabilityChanges(r.capabilityChanges, r.removals, true);
   reportModels(r.models, r.modelsFloor, null, true);
