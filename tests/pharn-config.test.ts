@@ -9,7 +9,15 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from 'vitest';
 import { log } from '@clack/prompts';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import { ProjectChangedError } from '../src/lib/project-lock.js';
@@ -809,6 +817,18 @@ describe('pharn-config', () => {
       expect(read).toEqual(archetypeConfig);
       expect(read).not.toHaveProperty('updatedAt');
       expect(loadArchetypeConfigOrExit(tmp.path())).toEqual(archetypeConfig);
+    });
+
+    // The type is the contract the other commands compile against: `updatedAt`
+    // is OPTIONAL (every config before it, and every config `init` writes, has
+    // none), while `installedAt` stays required. Checked by `npm run typecheck`.
+    it('types updatedAt as optional and installedAt as required', () => {
+      expectTypeOf<Pick<PharnConfig, 'updatedAt'>>().toEqualTypeOf<{
+        updatedAt?: string;
+      }>();
+      expectTypeOf<Pick<PharnConfig, 'installedAt'>>().toEqualTypeOf<{
+        installedAt: string;
+      }>();
     });
 
     it('round-trips a config with updatedAt beside installedAt', async () => {
