@@ -1,6 +1,10 @@
 import type { InstallDiff } from './diff.js';
 import { hookWiringFails } from './hook-wiring.js';
-import type { HookEntry, HookWiringDiff } from './hook-wiring.js';
+import type {
+  HookEntry,
+  HookReplacement,
+  HookWiringDiff,
+} from './hook-wiring.js';
 import { resolveStageRows, type StageRow } from './model-config-format.js';
 import { checkModelsBlock, type ModelsRed } from './model-config.js';
 import { needsModelsConversion } from './models-update.js';
@@ -74,6 +78,9 @@ export interface StatusReport {
     localOnly: HookEntry[];
     file: string | null;
     reason: string | null;
+    // Present ONLY when non-empty: missing hooks the project already wires
+    // in another spelling (same script, event and matcher) — replace, not add.
+    replace?: HookReplacement[];
   } | null;
   // null when the config carries no `models` block.
   models: {
@@ -236,6 +243,9 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
             localOnly: drift.hooks.localOnly ?? [],
             file: drift.hooks.file ?? null,
             reason: drift.hooks.reason ?? null,
+            ...(drift.hooks.replace?.length
+              ? { replace: drift.hooks.replace }
+              : {}),
           },
     models: modelsReport(config.models),
     unknownCapabilities:

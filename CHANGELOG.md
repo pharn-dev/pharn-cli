@@ -16,6 +16,7 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 ### Fixed
 
 - **`pharn update` recorded the wrong CLI version and lost the install date.** It kept `pharnVersion` from the CLI that first installed PHARN (e.g. `"0.4.0"` after an update by 0.16.2) and replaced `installedAt` with the update time. It now sets `pharnVersion` to the CLI that wrote the install state and keeps `installedAt` as the first install's date; the update time goes in the new `updatedAt`. This applies to an update that withholds the version bump too.
+- **The hook-wiring note told you to add a hook you already had.** When a project wired a hook script in a different spelling from upstream (e.g. `node .claude/hooks/protect-trusted-paths.cjs` vs upstream's `node "${CLAUDE_PROJECT_DIR}"/.claude/hooks/protect-trusted-paths.cjs`), `pharn status`, `pharn update` and `pharn init` listed upstream's line under "merge these by hand", and adding it ran the script twice. A missing upstream hook whose script you already wire under the same event and matcher is now listed under `REPLACE`, with your current line shown beside upstream's. Every other missing hook keeps the add advice. The `--json` reports of `status`, `update --dry-run` and `init --dry-run` carry these as an additive `hooks.replace` list, present only when non-empty. The hook status and `--strict` are unchanged.
 
 ## [0.16.2] — 2026-11-08
 

@@ -278,6 +278,42 @@ describe('buildUpdateReport — planned', () => {
     expect(plain.plan!.hooks.localOnly).toEqual([]);
   });
 
+  it('carries the hooks replace list additively, only when non-empty', () => {
+    const upstream = {
+      event: 'Stop',
+      matcher: '',
+      command: 'node',
+      args: ['${CLAUDE_PROJECT_DIR}/.claude/hooks/x.cjs'],
+    };
+    const mine = {
+      ...upstream,
+      command: 'node .claude/hooks/x.cjs',
+      args: [],
+    };
+    const replace = [
+      {
+        upstream,
+        existing: [{ file: '.claude/settings.local.json', entry: mine }],
+      },
+    ];
+    const withReplace = buildUpdateReport(
+      input({
+        plan: planReport({
+          hookWiring: { status: 'missing', missing: [upstream], replace },
+        }),
+      }),
+    );
+    expect(withReplace.plan!.hooks.replace).toEqual(replace);
+    const without = buildUpdateReport(
+      input({
+        plan: planReport({
+          hookWiring: { status: 'missing', missing: [upstream] },
+        }),
+      }),
+    );
+    expect(without.plan!.hooks).not.toHaveProperty('replace');
+  });
+
   it('omits the models block and its record, keeping the outcome and the reasons', () => {
     expect(r.plan!.models).toEqual({
       outcome: 'kept',

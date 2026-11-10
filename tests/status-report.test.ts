@@ -239,6 +239,31 @@ describe('buildStatusReport', () => {
     });
   });
 
+  it('carries the hooks replace list additively, only when non-empty', () => {
+    const upstream = {
+      event: 'PreToolUse',
+      matcher: 'Write',
+      command: 'node "${CLAUDE_PROJECT_DIR}"/.claude/hooks/x.cjs',
+      args: [],
+    };
+    const mine = { ...upstream, command: 'node .claude/hooks/x.cjs' };
+    const replace = [
+      { upstream, existing: [{ file: '.claude/settings.json', entry: mine }] },
+    ];
+    const build = (hooks: HookWiringDiff) =>
+      buildStatusReport(
+        input({
+          drift: { ...SURFACES, diff: CLEAN, hooks, unknown: [], orphans: [] },
+        }),
+      );
+    expect(
+      build({ status: 'missing', missing: [upstream], replace }).hooks?.replace,
+    ).toEqual(replace);
+    expect(
+      build({ status: 'missing', missing: [upstream] }).hooks,
+    ).not.toHaveProperty('replace');
+  });
+
   it('caps unknown-capability fields at 200 characters', () => {
     const r = buildStatusReport(
       input({

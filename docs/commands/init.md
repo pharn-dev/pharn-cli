@@ -596,7 +596,9 @@ prints the same `HOOKS` note as [`pharn status`](status.md) and [`pharn update`]
   the note names the file and the reason and lists every hook pharn-oss wires. The install still
   completes.
 
-Matching is textual: a hook you wrote differently but equivalently is listed too. On a fresh install
+Matching is textual: a hook you wrote differently but equivalently is listed too. If you already wire
+the same script under the same event and matcher in another spelling, the note lists it under
+`REPLACE` with your current line, so you swap it rather than add it twice. On a fresh install
 there is no note — `.claude/settings.json` is written from pharn-oss.
 
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).

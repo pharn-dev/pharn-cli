@@ -30,11 +30,19 @@ import { isPlainObject, safeJoin } from './validate.js';
 // (a FIFO is refused, not waited on), regular files only, JSON-parsed, never
 // executed. Upstream's may not be a symlink at any component. A project file
 // may be a symlinked FILE (a dotfiles-managed settings.json — Claude Code reads
-// through it too); a symlinked `.claude/` directory is still refused. The drift
-// report prints only UPSTREAM entries. `hooksReferencing` (for `pharn uninstall`)
-// is the one reader that prints PROJECT entries — the user's own hooks, shown
-// back so they can unwire them — and it too renders every one through
+// through it too); a symlinked `.claude/` directory is still refused. Two
+// readers print PROJECT entries — the user's own hooks, shown back so they can
+// edit them: `hooksReferencing` (for `pharn uninstall`, to unwire them) and the
+// drift note's REPLACE section (the line that already wires a missing upstream
+// hook's script). Every entry, project or upstream, renders through
 // `displayHook`, escaped and capped.
+//
+// REPLACE vs ADD: a missing upstream hook whose `.claude/hooks/<name>` the
+// project already names, under the same event and matcher, is a differently
+// spelled wiring of the same script (typically the relative form, which does
+// not run after a `cd`). Adding upstream's line beside it would run the script
+// twice, so the note says to replace it. Same substring test as
+// `hooksReferencing`; advisory, and it changes no status.
 //
 // Determinism (P5): an entry is `Event · matcher · command · args` compared as
 // an exact string. Equality is TEXTUAL — a user's equivalent rewrite of a hook
@@ -75,6 +83,19 @@ export interface HookWiringDiff {
   /** Which project file is unreadable, and why (only for `unreadable`). */
   file?: string;
   reason?: string;
+  /**
+   * The members of `missing` whose script the project already wires under the
+   * same event and matcher, spelled differently — each with the project's own
+   * line(s), `settings.json` first. Only for `missing`, only when non-empty.
+   * Adding upstream's line beside them would run the script twice.
+   */
+  replace?: HookReplacement[];
+}
+
+/** A missing upstream hook and the project lines that wire its script now. */
+export interface HookReplacement {
+  upstream: HookEntry;
+  existing: { file: string; entry: HookEntry }[];
 }
 
 const MAX_SETTINGS_BYTES = 256 * 1024;
@@ -185,13 +206,61 @@ function entryKey(e: HookEntry): string {
   return JSON.stringify([e.event, e.matcher, e.command, e.args]);
 }
 
-/** The entry keys a project file wires; an absent file wires nothing. */
-function wiredKeys(
+/** The entries a project file wires; an absent file wires nothing. */
+function projectEntries(
   result: ReadResult & { kind: 'ok' | 'absent' },
-): Set<string> {
-  return new Set(
-    result.kind === 'ok' ? (hookEntries(result.value) ?? []).map(entryKey) : [],
-  );
+): HookEntry[] {
+  return result.kind === 'ok' ? (hookEntries(result.value) ?? []) : [];
+}
+
+/**
+ * Does the hook's `command` or any `args` element CONTAIN one of `rels`? A
+ * substring test, so the plain, the `$CLAUDE_PROJECT_DIR`-anchored and the
+ * exec (`args`) forms all match. TEXTUAL: a wrapper script is not seen through.
+ */
+function entryMentions(e: HookEntry, rels: readonly string[]): boolean {
+  const mentions = (text: string): boolean =>
+    rels.some((rel) => text.includes(rel));
+  return mentions(e.command) || e.args.some(mentions);
+}
+
+const HOOK_SCRIPT_RE = /\.claude\/hooks\/[A-Za-z0-9._-]+/g;
+
+/** Every `.claude/hooks/<name>` an entry's command or args names. */
+function hookScriptRels(e: HookEntry): string[] {
+  const out = new Set<string>();
+  for (const text of [e.command, ...e.args])
+    for (const m of text.matchAll(HOOK_SCRIPT_RE)) out.add(m[0]);
+  return [...out];
+}
+
+/**
+ * For each missing upstream entry, the project lines that already wire one of
+ * its scripts under the same event and matcher. A project line that IS some
+ * upstream entry is never offered: it is a correct wiring, not one to replace.
+ */
+function findReplacements(
+  missing: readonly HookEntry[],
+  upstreamKeys: ReadonlySet<string>,
+  project: readonly { file: string; entries: HookEntry[] }[],
+): HookReplacement[] {
+  const out: HookReplacement[] = [];
+  for (const upstream of missing) {
+    const rels = hookScriptRels(upstream);
+    if (rels.length === 0) continue;
+    const existing: HookReplacement['existing'] = [];
+    for (const { file, entries } of project)
+      for (const entry of entries)
+        if (
+          entry.event === upstream.event &&
+          entry.matcher === upstream.matcher &&
+          !upstreamKeys.has(entryKey(entry)) &&
+          entryMentions(entry, rels)
+        )
+          existing.push({ file, entry });
+    if (existing.length > 0) out.push({ upstream, existing });
+  }
+  return out;
 }
 
 /** Compare the project's hook wiring with the fetched upstream clone's. */
@@ -224,15 +293,33 @@ export function diffHookWiring(
   if (shared.kind === 'absent' && local.kind === 'absent')
     return { status: 'project-absent', missing: upstreamEntries };
 
-  const inShared = wiredKeys(shared as ReadResult & { kind: 'ok' | 'absent' });
-  const inLocal = wiredKeys(local as ReadResult & { kind: 'ok' | 'absent' });
+  const sharedEntries = projectEntries(
+    shared as ReadResult & { kind: 'ok' | 'absent' },
+  );
+  const localEntries = projectEntries(
+    local as ReadResult & { kind: 'ok' | 'absent' },
+  );
+  const inShared = new Set(sharedEntries.map(entryKey));
+  const inLocal = new Set(localEntries.map(entryKey));
   const missing = upstreamEntries.filter(
     (e) => !inShared.has(entryKey(e)) && !inLocal.has(entryKey(e)),
   );
   const localOnly = upstreamEntries.filter(
     (e) => !inShared.has(entryKey(e)) && inLocal.has(entryKey(e)),
   );
-  if (missing.length) return { status: 'missing', missing };
+  if (missing.length) {
+    const replace = findReplacements(
+      missing,
+      new Set(upstreamEntries.map(entryKey)),
+      [
+        { file: CLAUDE_SETTINGS_FILE, entries: sharedEntries },
+        { file: LOCAL_SETTINGS_FILE, entries: localEntries },
+      ],
+    );
+    return replace.length > 0
+      ? { status: 'missing', missing, replace }
+      : { status: 'missing', missing };
+  }
   if (localOnly.length) return { status: 'local-only', missing, localOnly };
   return { status: 'match', missing };
 }
@@ -260,8 +347,6 @@ export function hooksReferencing(
   scriptRels: readonly string[],
 ): HookReference[] {
   if (scriptRels.length === 0) return [];
-  const mentions = (text: string): boolean =>
-    scriptRels.some((rel) => text.includes(rel));
   const out: HookReference[] = [];
   for (const file of [CLAUDE_SETTINGS_FILE, LOCAL_SETTINGS_FILE]) {
     const read = readSettings(projectRoot, file, true);
@@ -270,8 +355,8 @@ export function hooksReferencing(
       out.push({ file, kind: 'unreadable', reason: read.reason });
       continue;
     }
-    const entries = (hookEntries(read.value) ?? []).filter(
-      (e) => mentions(e.command) || e.args.some(mentions),
+    const entries = (hookEntries(read.value) ?? []).filter((e) =>
+      entryMentions(e, scriptRels),
     );
     if (entries.length > 0) out.push({ file, kind: 'ok', entries });
   }
@@ -326,6 +411,8 @@ export function hookWiringLines(diff: HookWiringDiff): string[] | null {
       ...only.map((e) => `  ${displayHook(e)}`),
     ];
   }
+  const replace = diff.status === 'missing' ? (diff.replace ?? []) : [];
+  if (replace.length > 0) return replaceAndAddLines(diff.missing, replace);
   const head =
     diff.status === 'project-absent'
       ? `  Neither ${FILES} exists. Upstream wires:`
@@ -337,8 +424,49 @@ export function hookWiringLines(diff: HookWiringDiff): string[] | null {
     ...diff.missing.map((e) => `  ${displayHook(e)}`),
     '',
     `  pharn never writes ${CLAUDE_SETTINGS_FILE} after init — merge these by hand:`,
-    '  each line is one hook, as JSON, under its event [matcher]. Matching is',
-    '  textual: an equivalent hook you wrote differently is listed too.',
+    ...FOOTER,
+  ];
+}
+
+const FOOTER = [
+  '  each line is one hook, as JSON, under its event [matcher]. Matching is',
+  '  textual: an equivalent hook you wrote differently is listed too.',
+];
+
+/**
+ * The `missing` note when some upstream hooks have a differently spelled
+ * counterpart in the project: those are REPLACE (the project's current line
+ * shown, through displayHook), the rest keep the ADD advice.
+ */
+function replaceAndAddLines(
+  missing: readonly HookEntry[],
+  replace: readonly HookReplacement[],
+): string[] {
+  const replaced = new Set(replace.map((r) => r.upstream));
+  const add = missing.filter((e) => !replaced.has(e));
+  const lines = [
+    `  Upstream wires ${missing.length} hook(s) that neither ${FILES} does.`,
+    '',
+    `  REPLACE — ${replace.length} of them run a script you already wire under the same`,
+    "  event [matcher], spelled differently. Replace your line with upstream's;",
+    '  adding it beside yours would run the script twice:',
+  ];
+  for (const r of replace) {
+    for (const { file, entry } of r.existing)
+      lines.push(`    yours (${file}): ${displayHook(entry)}`);
+    lines.push(`    upstream: ${displayHook(r.upstream)}`);
+  }
+  if (add.length > 0)
+    lines.push(
+      '',
+      `  ADD — ${add.length} wired in neither file:`,
+      ...add.map((e) => `  ${displayHook(e)}`),
+    );
+  return [
+    ...lines,
+    '',
+    `  pharn never writes ${CLAUDE_SETTINGS_FILE} after init — edit these by hand:`,
+    ...FOOTER,
   ];
 }
 
