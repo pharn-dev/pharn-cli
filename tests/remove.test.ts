@@ -161,7 +161,7 @@ describe('runRemove (archetype)', () => {
     expect(lastWritten().capabilities).toEqual([]);
   });
 
-  // F-23: `installedAt` is the time of the install / last update. A remove is
+  // F-23: `installedAt` is the time of the first install. A remove is
   // a partial edit, so it carries the recorded time through — it used to stamp
   // the moment of the remove.
   it('keeps installedAt unchanged', async () => {

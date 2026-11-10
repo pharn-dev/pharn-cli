@@ -964,6 +964,8 @@ async function applyPlannedUpdate(
   } = config;
   await writePharnConfig(cwd, {
     ...rest,
+    // The CLI that wrote this install state, as `init` records it.
+    pharnVersion: PHARN_VERSION,
     skillsVersion: apply.nextSkillsVersion,
     commit: apply.nextCommit,
     // The channel this run used — even when the version bump is withheld: it is
@@ -977,7 +979,9 @@ async function applyPlannedUpdate(
       : {}),
     capabilities: configCapabilities,
     layout: report.layout,
-    installedAt: new Date().toISOString(),
+    // `installedAt` rides the spread: it is the first install's date, not this
+    // run's. The time of this rewrite goes in `updatedAt`.
+    updatedAt: new Date().toISOString(),
     // In place: the key keeps its position in the file, and `undefined` (there
     // was none and there is none to write) writes no key.
     models: models.next,

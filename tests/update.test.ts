@@ -25,6 +25,7 @@ import {
 } from './helpers.js';
 import { LOCK_FILE } from '../src/lib/project-lock.js';
 import type { PharnConfig } from '../src/types.js';
+import { PHARN_VERSION } from '../src/version.js';
 
 // One ordered record of what a run showed — spinner starts/stops and info/warn
 // lines together — so a test can assert ORDER: a line logged while a clack
@@ -2934,6 +2935,76 @@ describe('runUpdate (drift-safe)', () => {
       expect(vi.mocked(prompts.outro)).toHaveBeenCalledWith(
         expect.stringContaining('Already up to date'),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // The metadata a config write records. `pharnVersion` is the CLI that wrote
+  // the install state; `installedAt` is the first install's date and survives
+  // every update; `updatedAt` (additive) is the time of the last update that
+  // rewrote the config.
+  // -------------------------------------------------------------------------
+  describe('config metadata', () => {
+    const isIsoBetween = (value: unknown, before: number, after: number) =>
+      typeof value === 'string' &&
+      new Date(value).toISOString() === value &&
+      Date.parse(value) >= before &&
+      Date.parse(value) <= after;
+
+    it('an update over a 0.4.0-era config records this CLI and keeps installedAt', async () => {
+      const config = await installed();
+      expect(config.pharnVersion).toBe('0.4.0');
+      expect(config).not.toHaveProperty('updatedAt');
+
+      const before = Date.now();
+      await runUpdate();
+      const after = Date.now();
+
+      const written = readPharnConfig(proj)!;
+      expect(written.skillsVersion).toBe('1.1.0');
+      expect(written.pharnVersion).toBe(PHARN_VERSION);
+      expect(written.installedAt).toBe('2026-06-11T00:00:00.000Z');
+      expect(isIsoBetween(written.updatedAt, before, after)).toBe(true);
+    });
+
+    it('a withheld-version update still records this CLI and updatedAt, and keeps installedAt', async () => {
+      await installed();
+      write(join(proj, DOC), 'MY LOCAL EDIT');
+
+      const before = Date.now();
+      await runUpdate();
+      const after = Date.now();
+
+      const written = readPharnConfig(proj)!;
+      // Withheld: the user's edit was skipped, so the recorded version stays.
+      expect(body(DOC)).toBe('MY LOCAL EDIT');
+      expect(written.skillsVersion).toBe('1.0.0');
+      // The config was still rewritten by this CLI.
+      expect(written.pharnVersion).toBe(PHARN_VERSION);
+      expect(written.installedAt).toBe('2026-06-11T00:00:00.000Z');
+      expect(isIsoBetween(written.updatedAt, before, after)).toBe(true);
+    });
+
+    it('the same-version early return writes no config: no updatedAt, pharnVersion untouched', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      // Disk at v2 and recorded as such: nothing re-opens the early return.
+      scaffoldClone(proj, '1.1.0', 'v2');
+      rmSync(join(proj, 'SKILLS_VERSION'));
+      await writeRecords(proj, {
+        skillsVersion: '1.1.0',
+        commit: null,
+        files: Object.fromEntries(
+          [CAP_FILE, DOC, HOOK, '.claude/commands/pharn-plan.md'].map((rel) => [
+            rel,
+            contentHash(join(proj, rel)),
+          ]),
+        ),
+      });
+
+      await runUpdate();
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(readPharnConfig(proj)).toBeNull();
     });
   });
 

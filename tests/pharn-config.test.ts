@@ -784,6 +784,42 @@ describe('pharn-config', () => {
     // No constitution variant is recorded for an archetype install.
     expect(read?.constitution).toBeUndefined();
   });
+
+  // `updatedAt` is additive: every config written before it existed (and every
+  // config `init` writes) has none, and must still load through the archetype
+  // gate every non-init command uses.
+  describe('updatedAt (additive)', () => {
+    const archetypeConfig: PharnConfig = {
+      pharnVersion: '0.4.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: null,
+      modules: [],
+      installedAt: '2026-06-11T00:00:00.000Z',
+      archetypes: ['ssr'],
+      capabilities: [{ name: 'a11y', role: 'griller' }],
+    };
+
+    it('loads a config with no updatedAt', () => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify(archetypeConfig),
+      );
+      const read = readPharnConfig(tmp.path());
+      expect(read).toEqual(archetypeConfig);
+      expect(read).not.toHaveProperty('updatedAt');
+      expect(loadArchetypeConfigOrExit(tmp.path())).toEqual(archetypeConfig);
+    });
+
+    it('round-trips a config with updatedAt beside installedAt', async () => {
+      const updated: PharnConfig = {
+        ...archetypeConfig,
+        updatedAt: '2026-11-10T08:00:00.000Z',
+      };
+      await writePharnConfig(tmp.path(), updated);
+      expect(readPharnConfig(tmp.path())).toEqual(updated);
+    });
+  });
 });
 
 // Audit finding P-7. `!existsSync → null` and the `JSON.parse` catch `→ null`

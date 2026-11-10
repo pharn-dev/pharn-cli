@@ -122,7 +122,14 @@ export interface PharnConfig {
   // CLI treat this install as absent. The legacy module entries it held are no
   // longer read (P7: they still load, untyped).
   modules: unknown[];
+  // When the install was first made: written by `init` (a re-run included, since
+  // it rebuilds the install) and carried unchanged by `update`, `add` and
+  // `remove`.
   installedAt: string;
+  // Additive (P7). When the last `pharn update` rewrote the config (ISO string).
+  // Absent until an update writes it; `init` never writes it (a re-run drops it,
+  // as a pharn-owned key, so it never outlives the install it described).
+  updatedAt?: string;
   // The `models` block — pharn-oss's schema (see above), carried VERBATIM: never
   // validated at load, so an old-format block `update` must migrate, pharn-oss's
   // format, and a newer one all load. `init` writes pharn-oss's block (none when

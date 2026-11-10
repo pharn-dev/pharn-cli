@@ -259,7 +259,7 @@ describe('runAdd (archetype)', () => {
     });
   });
 
-  // F-23: `installedAt` is the time of the install / last update. An add is a
+  // F-23: `installedAt` is the time of the first install. An add is a
   // partial edit, so it carries the recorded time through — it used to stamp
   // the moment of the add.
   it('keeps installedAt unchanged', async () => {

@@ -64,7 +64,9 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    anything `--force` is about to overwrite and every file in a dropped capability's directory that
    `pharn` cannot prove it wrote, **deletes the directories of the capabilities it drops** (see
    [Dropped capabilities are deleted](#dropped-capabilities-are-deleted)), copies the files it may
-   write, then updates `pharn.records.json` and `pharn.config.json`.
+   write, then updates `pharn.records.json` and `pharn.config.json` — recording this CLI in
+   `pharnVersion` and the time of the update in `updatedAt`, and keeping `installedAt`, the date of
+   the first install.
 
 Because `update` re-resolves your archetypes against the latest index, a capability upstream added for
 one of your archetypes since your last install is picked up, and one it removed is dropped — and its
