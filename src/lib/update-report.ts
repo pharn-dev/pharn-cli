@@ -10,6 +10,7 @@ import type { ModelsOutcome } from './models-update.js';
 import type { InstallSource, RefChoice } from './release.js';
 import type {
   PlannedFile,
+  SkipLabel,
   UpdateLabel,
   UpdatePlan,
 } from './update-decision.js';
@@ -134,8 +135,18 @@ export interface UpdateReport {
     filesOmitted?: { action: 'noop'; count: number };
     writes: string[];
     backups: string[];
-    skipped: { label: UpdateLabel | 'unreadable'; rels: string[] }[];
+    skipped: { label: SkipLabel; rels: string[] }[];
     counts: UpdatePlan['counts'];
+    // The executable-unit hold (lib/executable-unit.ts): the unit files a real
+    // run would skip, and the unit writes it would withhold because of them —
+    // the floor, hooks and pharn-* commands are written all or none. Present
+    // ONLY when a hold happens (then `held` is also a `label` in `files` and
+    // `skipped`), so a report without one keeps its earlier bytes; additive
+    // within schemaVersion 1. Added in 0.18.0.
+    executableUnit?: {
+      blocking: { rel: string; label: SkipLabel }[];
+      held: string[];
+    };
     models: {
       outcome: ModelsOutcome;
       label: UpdateLabel | null;
@@ -279,6 +290,17 @@ function planReport(
       forced: p.counts.forced,
       skipped: p.counts.skipped,
     },
+    ...(p.executableUnit !== null
+      ? {
+          executableUnit: {
+            blocking: p.executableUnit.blocking.map((b) => ({
+              rel: b.rel,
+              label: b.label,
+            })),
+            held: [...p.executableUnit.held],
+          },
+        }
+      : {}),
     models: {
       outcome: p.models.outcome,
       label: p.models.label,

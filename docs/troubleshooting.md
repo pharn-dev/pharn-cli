@@ -85,7 +85,7 @@ raw `\x1b[…m` sequences.)
 ## `pharn update` skipped my files
 
 By default, `update` skips **present** PHARN-owned files it cannot prove are untouched (missing
-expected files are still restored). It prints each skipped file under one of four labels:
+expected files are still restored). It prints each skipped file under one of four labels (plus `held`, [below](#update-held-the-floor-hooks-and-commands-executable-unit)):
 
 - **`modified`** — you edited it after `pharn` wrote it.
 - **`unrecorded`** — `pharn` has no record of writing that path.
@@ -110,6 +110,25 @@ Files already identical to upstream are left alone (`ok`) — line endings aside
 A run with skips deliberately leaves `skillsVersion` at the previous value, so `pharn status` keeps
 showing an update as available and the next `pharn update` still has work to do. See
 [update](commands/update.md) for the full decision table.
+
+### `update` held the floor, hooks and commands (`EXECUTABLE UNIT`)
+
+The floor checkers, the hooks and the `pharn-*` commands run together, so an update to a new skills
+version writes them all or none. If one of them is skipped (most often an edited floor checker or a
+command whose `model:` line you changed), the others are listed under **`held`**: they are not written
+either, and stay at the version you had. Before 0.18.0, `update` wrote the new files beside the skipped
+one, and a new checker could fail on import against an old sibling.
+
+The `EXECUTABLE UNIT` note names the files that blocked it. The run exits **0**, and the recorded version
+stays where it was. To finish the upgrade, either revert those files to what `pharn` installed and run
+`pharn update` again, or let `pharn` replace them:
+
+```bash
+pharn update --force   # backs up the blocking files to pharn/.backup/<timestamp>/, then writes the whole set
+```
+
+`pharn update --dry-run` shows the same note without writing anything. See
+[The executable unit](commands/update.md#the-executable-unit-is-upgraded-all-or-none).
 
 ### `--force` aborted with a backup error
 

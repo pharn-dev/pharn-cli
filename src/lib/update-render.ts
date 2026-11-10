@@ -31,7 +31,7 @@ import {
   type RootMigration,
   type RootMigrationResult,
 } from './root-migration.js';
-import type { UpdateLabel, UpdatePlan } from './update-decision.js';
+import type { SkipLabel, UnitHold, UpdatePlan } from './update-decision.js';
 import { channelOf, type RefChoice } from './release.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
 import type { Layout, PharnConfig } from '../types.js';
@@ -138,11 +138,58 @@ export function reportRootMigration(
 // check (there is no shared enum and no test pinning the two lists): a new skip
 // label has to be added HERE as well as there, or the heading will say UNREADABLE
 // while the advice offers `--force`.
-const FORCEABLE_SKIPS = new Set<UpdateLabel | 'unreadable'>([
+const FORCEABLE_SKIPS = new Set<SkipLabel>([
   'modified',
   'unrecorded',
   'unverifiable',
+  // `--force` writes the whole unit, so it clears a hold too.
+  'held',
 ]);
+
+// How many blocking files the EXECUTABLE UNIT note lists before a count.
+const MAX_UNIT_BLOCKERS = 20;
+
+/**
+ * The EXECUTABLE UNIT note's lines (lib/executable-unit.ts): why the unit's
+ * writes were withheld, the files that blocked it, and the two ways out. Null
+ * when nothing was held. `preview` switches to the dry run's future tense.
+ */
+export function executableUnitLines(
+  hold: UnitHold | null,
+  preview: boolean,
+): string[] | null {
+  if (hold === null) return null;
+  const shown = hold.blocking.slice(0, MAX_UNIT_BLOCKERS);
+  const more = hold.blocking.length - shown.length;
+  return [
+    '  The floor, the hooks and the pharn-* commands run together, so pharn',
+    '  writes them all or none. These unit files ' +
+      (preview ? 'would be skipped' : 'were skipped') +
+      ':',
+    ...shown.map(
+      (b) => `  ${b.label.padEnd(12)} ${terminalSafe(b.rel, { max: 300 })}`,
+    ),
+    ...(more > 0 ? [`  … and ${more} more`] : []),
+    '',
+    `  So ${hold.held.length} other unit file(s) ` +
+      (preview ? 'would not be written' : 'were not written') +
+      ' either, and the',
+    '  unit stays at the version you had: upgrading part of it would mix two',
+    '  versions that may not load together.',
+    '',
+    '  To upgrade the unit: revert the files above, or run',
+    `  \`pharn update --force\` (it backs them up to ${BACKUP_DIR}/ first).`,
+  ];
+}
+
+/** Print the EXECUTABLE UNIT note; nothing when no hold happened. */
+export function reportExecutableUnit(
+  hold: UnitHold | null,
+  preview: boolean,
+): void {
+  const lines = executableUnitLines(hold, preview);
+  if (lines) note(lines.join('\n'), 'EXECUTABLE UNIT');
+}
 
 // The report. Skips are exit 0 — a skip is a decision the user asked for, not a
 // failure — but they are never silent: each bucket is listed with the one action
@@ -162,6 +209,7 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
   reportAbsentSurfaces(outcome.absentUpstream ?? []);
 
+  reportExecutableUnit(plan.held, false);
   const forceable = reportSkipped(plan.skipped, false);
   reportOrphans(outcome.orphans);
   reportRootMigration(outcome.rootMigration, outcome.rootMigrationResult);
@@ -391,6 +439,7 @@ export function reportDryRun(
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
   reportAbsentSurfaces(r.absentUpstream);
 
+  reportExecutableUnit(r.executableUnit, true);
   const forceable = reportSkipped(r.skipped, true);
   reportOrphans(r.orphans);
   reportRootMigration(r.rootMigration, null);
@@ -690,6 +739,8 @@ function skipHeading(label: string): string {
       return 'UNRECORDED — pharn has no record of writing these';
     case 'unverifiable':
       return `UNVERIFIABLE — no usable ${RECORDS_FILE} to compare against`;
+    case 'held':
+      return 'HELD — not written, so the executable unit stays at one version';
     default:
       return 'UNREADABLE — not a regular readable file';
   }

@@ -9,6 +9,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-11-10
+
+### Fixed
+
+- **`pharn update` no longer leaves the floor at two versions.** Without `--force`, `update` decided each file on its own: it wrote a file that is new upstream and skipped an edited one beside it. Measured on 0.16.2 (skills 4.0.0 → 7.3.1): it wrote the new `pharn/floor/worktree-fingerprint.mjs` next to an old, edited `pharn/floor/reconcile-baseline.mjs` that lacks an export the new file imports, so every floor checker importing it failed at load and `/pharn-loop` stopped. In an old install that is the normal case (144 of 465 recorded files differed from their records in that project). The floor (every file `pharn` installs under `pharn/floor/` or `.dev/floor/`, including its `.json` maps), the hooks and the `pharn-*` commands are now one **executable unit**, decided by path only. When a run moves to a new skills version and any unit file would be skipped, no unit file is written. The others are reported as `held`, and an `EXECUTABLE UNIT` note names the blocking files and the remedy (revert them, or `pharn update --force`, which backs them up first). The note prints before the confirm and again in the report. Files outside the unit still upgrade one by one. On a hold, the recorded version is withheld, no `pendingSkillsVersion` is recorded, and the root-footprint migration waits. The run exits 0 like any skip. At the same skills version nothing is held, and `--force` never holds. `update --dry-run` prints the same note, and `update --dry-run --json` adds `plan.executableUnit: {blocking, held}` (present only on a hold, which is also the only time `held` appears as a label). `schemaVersion` stays 1, and a report without a hold is byte-identical. Editing a `/pharn-*` command now also holds the floor and hooks until the edit is reverted or forced. See [docs/commands/update.md](docs/commands/update.md#the-executable-unit-is-upgraded-all-or-none).
+
 ## [0.17.0] — 2026-11-10
 
 ### Added
@@ -332,7 +338,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.0...v0.16.1
