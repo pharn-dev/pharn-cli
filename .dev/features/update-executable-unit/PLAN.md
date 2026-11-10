@@ -42,6 +42,7 @@
 - `tests/update-report.test.ts` — fixture gains `executableUnit: null`; projection of the additive key (added at build: the JSON projection's own suite) — test
 - `tests/update.test.ts` — the no-mint partial-failure test moves its failing write off the unit (a held hook is no longer written); hold tests for the command (added at build) — test
 - `tests/release-consistency.test.ts` — `KNOWN_TAGS` gains `v0.17.0`, the previous release's tag, which every release PR adds (added at build) — test
+- `tests/update-render.test.ts` — direct unit test of `executableUnitLines` / the `held` skip wording (added after pharn-ci TESTS_NOT_EXERCISING_CHANGES on PR #343) — test
 - `tests/update-dry-run-json.test.ts` — additive key present only on hold; default bytes unchanged — test
 - `tests/commands-integration.test.ts` — fixture clone: one skipped (edited) floor file + one new floor file; assert no unit file written, report content, exit code 0 — test
 - `docs/commands/update.md` — the unit, the hold, exit code, `--force` remedy, JSON key — docs
