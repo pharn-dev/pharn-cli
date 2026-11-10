@@ -1,5 +1,9 @@
 import type { RootDocAction, RootMoveAction } from './root-migration.js';
-import type { HookEntry, HookWiringDiff } from './hook-wiring.js';
+import type {
+  HookEntry,
+  HookReplacement,
+  HookWiringDiff,
+} from './hook-wiring.js';
 import { cap } from './json-report.js';
 import type { CapabilityChange } from './merge-capabilities.js';
 import type { ModelsOutcome } from './models-update.js';
@@ -142,6 +146,9 @@ export interface UpdateReport {
       localOnly: HookEntry[];
       file: string | null;
       reason: string | null;
+      // Present ONLY when non-empty: missing hooks the project already wires
+      // in another spelling (same script, event and matcher) — replace, not add.
+      replace?: HookReplacement[];
     };
     // The declared product surfaces the clone ships no file for. Present ONLY
     // when there is one, so a report with none keeps the 0.10.0 bytes.
@@ -284,6 +291,9 @@ function planReport(
       localOnly: p.hookWiring.localOnly ?? [],
       file: p.hookWiring.file ?? null,
       reason: p.hookWiring.reason ?? null,
+      ...(p.hookWiring.replace?.length
+        ? { replace: p.hookWiring.replace }
+        : {}),
     },
     ...(p.absentUpstream.length > 0
       ? {

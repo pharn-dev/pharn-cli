@@ -194,7 +194,7 @@ files, an unwired upstream hook). The report's `strict.failed` says the same thi
 | `capabilities`        | `count` of installed capabilities (the list is `pharn list --json`).                                                                                                                                                                                                                                                                                  |
 | `layout`              | `recorded` (the layout in `pharn.config.json`) and `upstream` (the fetched clone's), each `flat` or `pharn`; a difference is the `LAYOUT` note, never a `--strict` input. `upstream` is **`null` under `--no-drift`**.                                                                                                                                |
 | `drift`               | `modified[]`, `missing[]`, `unreadable[{rel, reason}]`, `okCount` and `absentUpstream[{surface, path}]` (the declared surfaces the clone ships no file for, at its own layout; `surface` is `commands`, `hooks`, `trusted-doc`, `license`, `features-readme`, `contracts`, `core` or `floor`), as in the `DRIFT` note. **`null` under `--no-drift`.** |
-| `hooks`               | `status` (`match`, `local-only`, `missing`, `no-upstream`, `project-absent`, `unreadable`), the `missing[]` and `localOnly[]` hooks as `{event, matcher, command, args}`, and `file`/`reason` (else `null`). **`null` under `--no-drift`.**                                                                                                           |
+| `hooks`               | `status` (`match`, `local-only`, `missing`, `no-upstream`, `project-absent`, `unreadable`), the `missing[]` and `localOnly[]` hooks as `{event, matcher, command, args}`, `file`/`reason` (else `null`), and `replace[]` (present only when non-empty): hooks to replace, not add. **`null` under `--no-drift`.**                                     |
 | `models`              | `null` without a `models` block; otherwise `conversionNeeded`, a `verdict` (`valid`, `no-stages`, `invalid`, `old-format`), `stages[{stage, model, effort, viaDefault}]` when valid, or `reds[{kind, detail}]` when invalid.                                                                                                                          |
 | `unknownCapabilities` | Upstream capabilities the CLI could not read and skipped: `{role, name, subtree, reason}`. **`null` under `--no-drift`.**                                                                                                                                                                                                                             |
 | `orphans`             | Every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). **`null`** under `--no-drift`, without a usable `pharn.records.json`, or when the clone is at another layout than the install. Never a `--strict` input.                                                         |
@@ -219,6 +219,11 @@ project. The `HOOKS` section works like this:
 - **Missing.** It names every hook the upstream `settings.json` wires that neither project file does.
   Extra hooks of your own never count, and matching is textual. `--strict` exits `1` while any is
   missing, or while a project settings file cannot be read.
+- **Replace, not add.** If a project file already wires the same `.claude/hooks/` script under the
+  same event and matcher in another spelling (say, the relative `node .claude/hooks/x.cjs` where
+  upstream anchors it on `${CLAUDE_PROJECT_DIR}`), the hook is listed under `REPLACE`, with your
+  current line next to upstream's. Replace your line: adding upstream's beside it would run the
+  script twice. Hooks with no such line are listed under `ADD`. This changes no status.
 - **Paste-ready.** Each line is `Event [matcher]: <the hook as JSON>`, so you can paste it into your
   settings under that event. An exec-form hook (`command` plus `args`) prints its `args`, so it no
   longer reads like a shell command. Characters that could move or hide text are shown as `\uXXXX`

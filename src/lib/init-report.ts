@@ -1,7 +1,11 @@
 import { gitignoreReport, type GitignoreReport } from './gitignore.js';
 import type { ArchetypeEvidence } from './archetype.js';
 import type { DriftLabel } from './dest-drift.js';
-import type { HookEntry, HookWiringDiff } from './hook-wiring.js';
+import type {
+  HookEntry,
+  HookReplacement,
+  HookWiringDiff,
+} from './hook-wiring.js';
 import type { InitPlanReport } from './init-plan.js';
 import type { InstallSurface } from './install-manifest.js';
 import { cap } from './json-report.js';
@@ -121,6 +125,9 @@ export interface InitReport {
     localOnly: HookEntry[];
     file: string | null;
     reason: string | null;
+    // Present ONLY when non-empty: missing hooks the project already wires
+    // in another spelling (same script, event and matcher) — replace, not add.
+    replace?: HookReplacement[];
   } | null;
   // Present ONLY when there is one: the declared surfaces the clone ships no
   // file for (as `update --dry-run --json`'s `plan.absentUpstream`).
@@ -227,6 +234,9 @@ export function buildInitReport(p: InitPlanReport): InitReport {
             localOnly: p.hookWiring.localOnly ?? [],
             file: p.hookWiring.file ?? null,
             reason: p.hookWiring.reason ?? null,
+            ...(p.hookWiring.replace?.length
+              ? { replace: p.hookWiring.replace }
+              : {}),
           },
     ...(p.absentUpstream.length > 0
       ? {

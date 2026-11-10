@@ -603,3 +603,299 @@ describe('hooksReferencing', () => {
     expect(line).toContain('\\u001b');
   });
 });
+
+// A project wiring `node .claude/hooks/x.cjs` (relative) while upstream wires
+// the CLAUDE_PROJECT_DIR-anchored form: the textual diff rightly lists
+// upstream's line as missing, but "merge these by hand" led users to ADD it and
+// run the script twice. Those entries are now REPLACE, showing the project's
+// current line; everything else keeps the ADD advice. No status changes.
+describe('diffHookWiring — REPLACE vs ADD', () => {
+  const tmp = useTmpDir();
+
+  function setup(project: unknown | undefined, local?: unknown) {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(join(repo, '.claude'), { recursive: true });
+    mkdirSync(join(proj, '.claude'), { recursive: true });
+    writeFileSync(join(repo, '.claude/settings.json'), JSON.stringify(NEW));
+    if (project !== undefined)
+      writeFileSync(
+        join(proj, '.claude/settings.json'),
+        JSON.stringify(project),
+      );
+    if (local !== undefined)
+      writeFileSync(
+        join(proj, '.claude/settings.local.json'),
+        JSON.stringify(local),
+      );
+    return { repo, proj };
+  }
+
+  const WRITE_MATCHER = 'Write|Edit|MultiEdit|NotebookEdit';
+  const preToolUse = (...commands: string[]) => ({
+    matcher: WRITE_MATCHER,
+    hooks: commands.map((command) => ({ type: 'command', command })),
+  });
+  const REL_PROTECT = 'node .claude/hooks/protect-trusted-paths.cjs';
+  const REL_SCOPE = 'node .claude/hooks/enforce-writes-scope.cjs';
+  const STOP_LINE =
+    'Stop: {"type":"command","command":"node","args":["${CLAUDE_PROJECT_DIR}/.claude/hooks/require-loop-record.cjs"]}';
+
+  it('relative vs anchored spelling → REPLACE, showing the project line; the new Stop hook stays ADD', () => {
+    const { repo, proj } = setup(OLD);
+    const diff = diffHookWiring(repo, proj);
+    expect(diff.status).toBe('missing');
+    expect(diff.missing).toHaveLength(3);
+    expect(hookWiringFails(diff)).toBe(true);
+    expect(diff.replace).toEqual([
+      {
+        upstream: diff.missing[0],
+        existing: [
+          {
+            file: '.claude/settings.json',
+            entry: {
+              event: 'PreToolUse',
+              matcher: WRITE_MATCHER,
+              command: REL_PROTECT,
+              args: [],
+            },
+          },
+        ],
+      },
+      {
+        upstream: diff.missing[1],
+        existing: [
+          {
+            file: '.claude/settings.json',
+            entry: {
+              event: 'PreToolUse',
+              matcher: WRITE_MATCHER,
+              command: REL_SCOPE,
+              args: [],
+            },
+          },
+        ],
+      },
+    ]);
+    const lines = hookWiringLines(diff)!;
+    const text = lines.join('\n');
+    expect(text).toContain('REPLACE — 2 of them');
+    expect(text).toContain('would run the script twice');
+    expect(lines).toContain(
+      `    yours (.claude/settings.json): PreToolUse [${WRITE_MATCHER}]: {"type":"command","command":"${REL_PROTECT}"}`,
+    );
+    expect(lines).toContain(`    upstream: ${displayHook(diff.missing[0]!)}`);
+    // Only the Stop hook is under ADD.
+    const add = lines.slice(lines.indexOf('  ADD — 1 wired in neither file:'));
+    expect(add[1]).toBe(`  ${STOP_LINE}`);
+    expect(add.join('\n')).not.toContain('protect-trusted-paths');
+    expect(text).not.toContain('merge these by hand');
+    expect(text).toContain('edit these by hand');
+  });
+
+  it('exec form (args) vs shell form → REPLACE, both ways round', () => {
+    // Project: shell form of upstream's exec-form Stop hook.
+    const project = structuredClone(NEW) as {
+      hooks: { Stop: unknown[] };
+    };
+    project.hooks.Stop = [
+      {
+        hooks: [
+          {
+            type: 'command',
+            command: 'node .claude/hooks/require-loop-record.cjs',
+          },
+        ],
+      },
+    ];
+    const shell = setup(project);
+    const diff = diffHookWiring(shell.repo, shell.proj);
+    expect(diff.missing.map((e) => e.event)).toEqual(['Stop']);
+    expect(diff.replace).toHaveLength(1);
+    expect(diff.replace![0]!.existing[0]!.entry.command).toBe(
+      'node .claude/hooks/require-loop-record.cjs',
+    );
+    expect(hookWiringLines(diff)!.join('\n')).not.toContain('ADD —');
+
+    // Project: exec form of upstream's shell-form PreToolUse hook.
+    const exec = structuredClone(NEW) as {
+      hooks: { PreToolUse: { hooks: unknown[] }[] };
+    };
+    exec.hooks.PreToolUse[0]!.hooks[0] = {
+      type: 'command',
+      command: 'node',
+      args: ['.claude/hooks/protect-trusted-paths.cjs'],
+    };
+    const ex = setup(exec);
+    const d2 = diffHookWiring(ex.repo, ex.proj);
+    expect(d2.missing).toHaveLength(1);
+    expect(d2.replace![0]!.existing[0]!.entry.args).toEqual([
+      '.claude/hooks/protect-trusted-paths.cjs',
+    ]);
+    expect(hookWiringLines(d2)!.join('\n')).toContain(
+      '"args":[".claude/hooks/protect-trusted-paths.cjs"]',
+    );
+  });
+
+  it('the same script under a different event, or a different matcher, stays ADD', () => {
+    const project = {
+      hooks: {
+        PreToolUse: NEW.hooks.PreToolUse,
+        PostToolUse: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: 'node .claude/hooks/require-loop-record.cjs',
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const ev = setup(project);
+    const diff = diffHookWiring(ev.repo, ev.proj);
+    expect(diff.missing.map((e) => e.event)).toEqual(['Stop']);
+    expect(diff).not.toHaveProperty('replace');
+
+    const matcher = setup({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [{ type: 'command', command: REL_PROTECT }],
+          },
+        ],
+      },
+    });
+    const d2 = diffHookWiring(matcher.repo, matcher.proj);
+    expect(d2.missing).toHaveLength(3);
+    expect(d2).not.toHaveProperty('replace');
+  });
+
+  it('with no counterpart the note is byte-identical to the ADD-only wording', () => {
+    const { repo, proj } = setup({ hooks: {} });
+    const diff = diffHookWiring(repo, proj);
+    expect(diff).not.toHaveProperty('replace');
+    expect(hookWiringLines(diff)).toEqual([
+      '  Upstream wires 3 hook(s) that neither .claude/settings.json or .claude/settings.local.json does:',
+      ...diff.missing.map((e) => `  ${displayHook(e)}`),
+      '',
+      '  pharn never writes .claude/settings.json after init — merge these by hand:',
+      '  each line is one hook, as JSON, under its event [matcher]. Matching is',
+      '  textual: an equivalent hook you wrote differently is listed too.',
+    ]);
+  });
+
+  it('a counterpart in settings.local.json names that file', () => {
+    const { repo, proj } = setup(
+      { hooks: { Stop: NEW.hooks.Stop } },
+      { hooks: { PreToolUse: [preToolUse(REL_PROTECT)] } },
+    );
+    const diff = diffHookWiring(repo, proj);
+    expect(diff.missing).toHaveLength(2);
+    expect(diff.replace).toHaveLength(1);
+    expect(diff.replace![0]!.existing).toEqual([
+      {
+        file: '.claude/settings.local.json',
+        entry: {
+          event: 'PreToolUse',
+          matcher: WRITE_MATCHER,
+          command: REL_PROTECT,
+          args: [],
+        },
+      },
+    ]);
+    const text = hookWiringLines(diff)!.join('\n');
+    expect(text).toContain('yours (.claude/settings.local.json):');
+    expect(text).toContain('ADD — 1 wired in neither file:');
+  });
+
+  it('lists every project line for the script, settings.json first', () => {
+    const { repo, proj } = setup(
+      { hooks: { PreToolUse: [preToolUse(REL_PROTECT)] } },
+      {
+        hooks: {
+          PreToolUse: [
+            preToolUse(
+              'bash -c "node ./.claude/hooks/protect-trusted-paths.cjs"',
+            ),
+          ],
+        },
+      },
+    );
+    const diff = diffHookWiring(repo, proj);
+    expect(diff.replace![0]!.existing.map((x) => x.file)).toEqual([
+      '.claude/settings.json',
+      '.claude/settings.local.json',
+    ]);
+  });
+
+  it('never offers a line that IS an upstream entry as the one to replace', () => {
+    // Upstream wires one script twice (shell + exec form, same event and
+    // matcher); the project wires only the shell form, exactly. The exec form
+    // is missing, but the shell line is correct and must not be replaced.
+    const upstream = {
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              { type: 'command', command: 'node .claude/hooks/s.cjs' },
+              {
+                type: 'command',
+                command: 'node',
+                args: ['.claude/hooks/s.cjs'],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(join(repo, '.claude'), { recursive: true });
+    mkdirSync(join(proj, '.claude'), { recursive: true });
+    writeFileSync(
+      join(repo, '.claude/settings.json'),
+      JSON.stringify(upstream),
+    );
+    writeFileSync(
+      join(proj, '.claude/settings.json'),
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [{ type: 'command', command: 'node .claude/hooks/s.cjs' }],
+            },
+          ],
+        },
+      }),
+    );
+    const diff = diffHookWiring(repo, proj);
+    expect(diff.missing).toHaveLength(1);
+    expect(diff).not.toHaveProperty('replace');
+  });
+
+  it('escapes and caps the project line it prints', () => {
+    const hostile = `node .claude/hooks/protect-trusted-paths.cjs \x1b[31m${'x'.repeat(400)}`;
+    const { repo, proj } = setup({
+      hooks: { PreToolUse: [preToolUse(hostile)] },
+    });
+    const lines = hookWiringLines(diffHookWiring(repo, proj))!;
+    const mine = lines.find((l) => l.startsWith('    yours'))!;
+    expect(mine).not.toContain('\x1b');
+    expect(mine).toContain('\\u001b');
+    expect(mine.endsWith('…')).toBe(true);
+  });
+
+  it('is not computed for an unreadable or absent project', () => {
+    const unreadable = setup(OLD, 'x');
+    writeFileSync(
+      join(unreadable.proj, '.claude/settings.local.json'),
+      '{ not json',
+    );
+    expect(diffHookWiring(unreadable.repo, unreadable.proj)).not.toHaveProperty(
+      'replace',
+    );
+  });
+});

@@ -379,6 +379,33 @@ describe('buildInitReport', () => {
     });
   });
 
+  it('carries the hooks replace list additively, only when non-empty', () => {
+    const upstream = {
+      event: 'Stop',
+      matcher: '',
+      command: 'node "${CLAUDE_PROJECT_DIR}"/.claude/hooks/x.cjs',
+      args: [],
+    };
+    const mine = { ...upstream, command: 'node .claude/hooks/x.cjs' };
+    const replace = [
+      { upstream, existing: [{ file: '.claude/settings.json', entry: mine }] },
+    ];
+    const r = buildInitReport(
+      plan({
+        settingsPreserved: true,
+        hookWiring: { status: 'missing', missing: [upstream], replace },
+      }),
+    );
+    expect(r.hooks?.replace).toEqual(replace);
+    const empty = buildInitReport(
+      plan({
+        settingsPreserved: true,
+        hookWiring: { status: 'missing', missing: [upstream], replace: [] },
+      }),
+    );
+    expect(empty.hooks).not.toHaveProperty('replace');
+  });
+
   it('caps and escapes untrusted text, losslessly', () => {
     const long = 'r'.repeat(5000);
     const hostile = `a${ESC}[31mb${LS}c${BIDI}d`;
