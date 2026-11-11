@@ -625,10 +625,13 @@ describe("parseCapabilityIndex — the frontmatter fence is upstream's", () => {
     ['a fence that is not at column 0', ` ---\n${FIELDS}\n---\n`],
     // pharn-oss 7.3.0 (family-grammar-crlf): CRLF lines, and the displaced
     // leads — whitespace or a format character before the fence.
-    ['CRLF line endings', `---\r\n${FIELDS.replace('\n', '\r\n')}\r\n---\r\n`],
+    [
+      'CRLF line endings',
+      `---\r\n${FIELDS.replaceAll('\n', '\r\n')}\r\n---\r\n`,
+    ],
     [
       'a byte-order mark and CRLF line endings',
-      `${BOM}---\r\n${FIELDS.replace('\n', '\r\n')}\r\n---\r\n`,
+      `${BOM}---\r\n${FIELDS.replaceAll('\n', '\r\n')}\r\n---\r\n`,
     ],
     ['two byte-order marks', `${BOM}${BOM}---\n${FIELDS}\n---\n`],
     ['a byte-order mark and a blank line', `${BOM}\n---\n${FIELDS}\n---\n`],
