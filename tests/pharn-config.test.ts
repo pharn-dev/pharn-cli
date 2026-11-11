@@ -190,7 +190,7 @@ describe('pharn-config', () => {
       },
     ],
     ['a block pharn-oss rejects', { default: { model: 'gpt-4', effort: 'x' } }],
-    ['a newer format', { stages: { triage: {} }, profiles: ['fast'] }],
+    ['a newer format', { stages: { deploy: {} }, profiles: ['fast'] }],
     ['not even an object', 'opus'],
   ])('loads %s verbatim, without validating it', (_label, models) => {
     const raw = { skillsVersion: '0.1.0', modules: [], models };

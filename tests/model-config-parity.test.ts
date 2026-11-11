@@ -31,11 +31,19 @@ const CHECKER = resolve(
   'fixtures/pharn-oss/check-model-config.mjs',
 );
 
-// The vendored checker, pinned: pharn-dev/pharn-oss `main` @ 767bf61
-// (SKILLS_VERSION 6.22.0), where the file last changed in 8ba9308. A refresh
+// The vendored checker, pinned: pharn-dev/pharn-oss `main` @ 3afbb125
+// (SKILLS_VERSION 7.7.1), where the file last changed in 4467407d. A refresh
 // changes this line in the same commit as the file.
 const PINNED_SHA256 =
-  '361bc3ce71d0c0b1e7caf1020ab80e7cc6ba8ee4990eff94de038baeeef82414';
+  'aa437fd898612c05b7860f22242ff3dd2a8ea4636724de8fdcece861fcdc0388';
+
+// The one module the checker imports, vendored beside it from the same commit
+// (it last changed in 73a2bfc7) so the checker loads. It serves only the
+// checker's `agreement` mode, which this suite never runs; it is pinned so it
+// cannot be edited either.
+const FRONTMATTER_CORE = resolve(dirname(CHECKER), 'frontmatter-core.mjs');
+const FRONTMATTER_CORE_SHA256 =
+  'e883dbe7b3b5bf381ba512d57ac1c9e88230fb52f17fa99893a1aa7eb4be24e0';
 
 function runChecker(args: string[]): { status: number | null; stdout: string } {
   const r = spawnSync(process.execPath, [CHECKER, ...args], {
@@ -100,6 +108,13 @@ const BLOCKS: [string, string | null][] = [
     '{"default":{"model":"sonnet-5","effort":"high"},"stages":{"plan":{"model":"opus-4-8","effort":"max"},"review":{"model":"fable-5","effort":"max"}}}',
   ],
   ['only default', `{"stages":{${D}}}`],
+  // `triage` joined the product stages in pharn-oss 7.7.0; its own root block
+  // names no `triage` key, so the stage resolves through `default` there.
+  ['a triage entry', `{"stages":{${D},"triage":${entry('"opus"')}}}`],
+  [
+    'a triage entry with a bad model',
+    `{"stages":{${D},"triage":${entry('"gpt-4"')}}}`,
+  ],
   ['an unknown stage', `{"stages":{${D},"deploy":${entry('"opus"')}}}`],
   [
     'inherited names as stage keys',
@@ -191,6 +206,10 @@ const FILES: [string, string | null][] = [
 describe('the vendored checker is pharn-oss’s, unedited', () => {
   it('matches the pinned sha256', () => {
     expect(sha256File(CHECKER)).toBe(PINNED_SHA256);
+  });
+
+  it('its one import, frontmatter-core.mjs, matches its pinned sha256', () => {
+    expect(sha256File(FRONTMATTER_CORE)).toBe(FRONTMATTER_CORE_SHA256);
   });
 });
 

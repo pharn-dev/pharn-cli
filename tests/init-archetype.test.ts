@@ -410,7 +410,7 @@ describe('archetype install (fixture e2e)', () => {
           models: {
             stages: {
               default: { model: 'sonnet', effort: 'high' },
-              triage: { model: 'opus', effort: 'high' },
+              deploy: { model: 'opus', effort: 'high' },
               plan: { model: `${RLO}opus`, effort: 'high' },
             },
           },
@@ -425,7 +425,7 @@ describe('archetype install (fixture e2e)', () => {
       expect(warning).toContain(
         "pharn-oss's models block was not written; this pharn rejects it:",
       );
-      expect(warning).toContain('stage "triage" is not a product stage');
+      expect(warning).toContain('stage "deploy" is not a product stage');
       expect(warning).toContain('stage "plan" model "opus" is not an alias');
       expect(warning).toContain('upgrade pharn');
       expect(warning).not.toContain(RLO);

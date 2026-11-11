@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 // pharn/floor/check-model-config.mjs — the deterministic PRODUCT-surface model/effort configuration
 // checker: `pharn.config.json`'s `models.stages` block VALIDATED, RESOLVED per stage, and held in
-// EQUALITY with the eleven `/pharn-*` product commands' platform `model:` / `effort:` frontmatter.
+// EQUALITY with the twelve `/pharn-*` product commands' platform `model:` / `effort:` frontmatter.
 //
 // ── THE MECHANISM, read live rather than assumed (P6) ────────────────────────────────────────────────
-// Claude Code selects a command's model through STATIC FRONTMATTER and nothing else. `model:` accepts
+// Claude Code selects a COMMAND's model through STATIC FRONTMATTER and nothing else. `model:` accepts
 // the `/model` values (`sonnet` | `opus` | `haiku` | `fable` | a full `claude-*` id | `inherit`) and
-// `effort:` accepts `low` | `medium` | `high` | `xhigh` | `max`. There is NO runtime routing hook: no
-// command can read a JSON file and switch its own model, and nothing reads the `models.stages` BLOCK
-// at run time — the FILE is read elsewhere (LIMITS.md §8). So `models.stages` cannot BE the runtime control — it can only be the
-// SOURCE OF TRUTH the static frontmatter is held to, which is what this checker enforces. Simulating
-// runtime routing (a command "consulting" the config in prose) would be the exact P0 disease: written in
-// the config, therefore believed guaranteed.
+// `effort:` accepts `low` | `medium` | `high` | `xhigh` | `max`. No command can read a JSON file and switch
+// its OWN model. So, for a stage a person invokes directly, `models.stages` is the SOURCE OF TRUTH the static
+// frontmatter is held to, which is what this checker's `agreement` mode enforces.
+// SINCE 6.27.0 THE BLOCK HAS A SECOND READER, at run time: `pharn/floor/stage-agent.mjs route` shells THIS
+// checker's `resolve <stage>` to pick the model a `/pharn-ship` or `/pharn-loop` STAGE AGENT is REQUESTED on —
+// the Agent tool takes a `model` parameter (it takes no effort). The two readers ask different questions
+// (L39): the frontmatter agreement accepts `inherit` and `claude-*` ids and the Agent tool does not, so
+// `route` sends those stages inline, each with its own reason. Simulating routing in prose — a command
+// "consulting" the config — would still be the exact P0 disease: the route decision is tested code, and
+// what a routed stage was SERVED is read from the transcript (`cost.json`), never asserted from this file.
 //
 // ── Floor primitives (ARCHITECTURE §2) ───────────────────────────────────────────────────────────────
 // #3 (enum / regex / presence) throughout: every `model` is bounded to the Claude model namespace (the
@@ -22,17 +26,25 @@
 // NON-LLM, dependency-free (Node stdlib only). No network, no child_process, no eval, no dynamic import.
 //
 // ── Honest scope (P0) — what GREEN does and does NOT buy ─────────────────────────────────────────────
-// FLOOR: the config is shape/enum-valid; a stage resolves deterministically; and each of the eleven product
+// FLOOR: the config is shape/enum-valid; a stage resolves deterministically; and each of the twelve product
 //   commands' static `model:` / `effort:` frontmatter EQUALS its config-resolved value, in both
 //   directions (no product command carries model/effort outside the map, no mapped command is missing).
 // NOT guaranteed — and these are real holes, not formalities:
 //   • THE STAGE IS NOT PROVEN TO HAVE RUN UNDER THAT MODEL. Model and effort are applied by the Claude
 //     Code platform, invisible to any hook, hash or enum. "check-model-config GREEN" must NEVER read as
 //     "/pharn-plan ran on opus". That conflation is what this repo exists to prevent.
-//   • TURN SCOPE. The platform states the override "applies for the rest of the current turn". So it
-//     takes effect when a human invokes the stage command DIRECTLY (`/pharn-plan`). A stage invoked as a
-//     STEP INSIDE `/pharn-ship` or `/pharn-loop` runs inside the ORCHESTRATOR's turn — those stages do
-//     NOT get per-stage routing, and this checker cannot see the difference.
+//   • TURN SCOPE — the frontmatter path's bound. The platform states the override "applies for the rest of
+//     the current turn". So it takes effect when a human invokes the stage command DIRECTLY (`/pharn-plan`).
+//     A stage run INLINE as a step inside `/pharn-ship` or `/pharn-loop` runs inside the ORCHESTRATOR's turn
+//     and does not get its frontmatter model: every stage the routing policy keeps inline, every routing
+//     fallback, and the orchestrators themselves. Since 6.27.0 a ROUTED stage gets its model from the Agent
+//     call instead (`stage-agent.mjs`); its EFFORT keeps this bound, because the Agent tool takes none. This
+//     checker cannot see any of it. OBSERVED, 2026-10-05, one session (`.dev/features/orchestrator-direct-stage-calls/
+//     PLAN.md`, "Why"): "directly" means a PERSON's slash invocation. A person's `/pharn-loop` (frontmatter `sonnet`)
+//     was served `claude-sonnet-5-5` for that turn; in the next turn, served the session's `claude-opus-5-5`, the
+//     MODEL invoked `/pharn-loop` through the Skill tool, and every request after it — through the `/pharn-regress`
+//     and `/pharn-verify` it invoked the same way, both `sonnet` too — was served `claude-opus-5-5`. So a command a
+//     model invokes does not get its frontmatter model either. One observation of the platform, never a guarantee.
 //   • PLATFORM VETO. A value excluded by an organization's `availableModels` allowlist is not used, and
 //     in auto mode a model auto mode does not support is not used; the session silently keeps its
 //     current model. A GREEN here says nothing about either.
@@ -67,13 +79,14 @@
 //   node pharn/floor/check-model-config.mjs resolve <stage> [--config <path>]
 //        print {"model":..,"effort":..} for <stage>, via the own-property pick with a `default` fallback
 //   node pharn/floor/check-model-config.mjs agreement [--config <path>] [--commands-dir <dir>]
-//        validate + BIDIRECTIONAL config↔frontmatter agreement over the eleven product commands
+//        validate + BIDIRECTIONAL config↔frontmatter agreement over the twelve product commands
 //
 // Exit: 1 on any RED / unreadable / malformed; 0 otherwise (including the two GREEN-by-design
 // no-configuration states).
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { looseFrontmatter, looseScalar } from "./frontmatter-core.mjs";
 
 // ── The enumeration IS the deliverable (L29 / L36) ───────────────────────────────────────────────────
 // The closed stage → product-command map. Every pass below iterates THIS object; no pass re-derives the
@@ -83,6 +96,7 @@ const PRODUCT_STAGES = {
   spec: "pharn-spec.md",
   plan: "pharn-plan.md",
   grill: "pharn-grill.md",
+  triage: "pharn-triage.md",
   build: "pharn-build.md",
   regress: "pharn-regress.md",
   verify: "pharn-verify.md",
@@ -224,21 +238,21 @@ function resolveStage(stages, stage) {
   return { model: entry.model, effort: entry.effort };
 }
 
-// Parse a command file's frontmatter `model:` / `effort:`. Same `---` fence + `^([A-Za-z0-9_]+):\s*(.*)$`
-// line parse + quote-strip as `count-grillers.mjs`'s `frontmatterRole` and `.dev/floor/check-config.mjs`
-// — a STRUCTURED read of the structured location, never a substring grep (L6). The key match is EXACT,
-// which is what keeps `model_tier:` from ever being read as `model:`.
-function frontmatterModelEffort(text) {
-  if (!text.startsWith("---")) return {};
-  const end = text.indexOf("\n---", 3);
-  if (end === -1) return {};
-  const raw = text.slice(3, end).trim();
+// Parse a command file's frontmatter `model:` / `effort:` through frontmatter-core.mjs `looseFrontmatter` (7.3.0) —
+// the one loose reader `count-grillers.mjs` and `.dev/floor/check-config.mjs` share — a STRUCTURED read of the
+// structured location, never a substring grep (L6). The key match is EXACT, which is what keeps `model_tier:` from
+// ever being read as `model:`. One leading BOM is stripped (6.65.2) and CRLF lines are read (7.3.0; the hand copy this
+// replaced split on "\n" alone, so a CRLF command lost every key but its last). A DISPLACED fence (a blank line or an
+// invisible character before `---`) reads as NO frontmatter here, deliberately: this checker's subject is what Claude
+// Code reads from a command file, and reading a block the platform may not see would certify an agreement that does
+// not hold.
+function frontmatterModelEffort(rawText) {
+  const lf = looseFrontmatter(rawText);
+  if (!lf || lf.displaced) return {};
   const out = {};
-  for (const line of raw.split("\n")) {
-    const m = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
-    if (!m) continue;
-    if (m[1] === "model") out.model = m[2].trim().replace(/^["']|["']$/g, "");
-    else if (m[1] === "effort") out.effort = m[2].trim().replace(/^["']|["']$/g, "");
+  for (const { key, raw } of lf.entries) {
+    if (key === "model") out.model = looseScalar(raw);
+    else if (key === "effort") out.effort = looseScalar(raw);
   }
   return out;
 }
@@ -311,7 +325,7 @@ function doAgreement(configPath, commandsDir) {
 
   // Forward pass (config → command), over the CLOSED product enumeration — every stage, whether it has
   // its own config entry or resolves through `default`. That is what makes the config the source of
-  // truth for all eleven rather than only for the keys someone remembered to write down.
+  // truth for all twelve rather than only for the keys someone remembered to write down.
   const checked = [];
   for (const [stage, fileName] of Object.entries(PRODUCT_STAGES)) {
     const cmdPath = join(commandsDir, fileName);
@@ -421,4 +435,7 @@ function main() {
   return 1;
 }
 
-process.exit(main());
+// THE FLUSH RULE (6.20.4; this CLI since 6.71.1): the exit code is SET and the process ends naturally, after Node has
+// drained stdout — stage-agent-core.mjs JSON.parses `resolve`'s document through spawnSync, and an immediate exit
+// dropped queued writes past a pipe's 64 KiB buffer on darwin. pharn/floor/cli-stdout-flush.test.mjs pins it.
+process.exitCode = main();

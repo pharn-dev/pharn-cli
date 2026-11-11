@@ -9,6 +9,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-11-11
+
+### Fixed
+
+- **A `triage` entry in `models.stages` is accepted.** pharn-oss 7.7.0 added the `/pharn-triage` stage, which a full `/pharn-loop` runs after its grill, and its checker (`check-model-config.mjs`) accepts `triage` as a product stage. pharn's copy of those rules did not, so a block naming `triage` was reported as `stage "triage" is not a product stage`: `pharn status` and `pharn update` listed your block as rejected, and `pharn init` and `pharn update` would not have applied such a block from pharn-oss. `triage` now sits between `grill` and `build`, in the checker's order, and the MODELS notes and `status --json` list it. pharn-oss's own block names no `triage` key, so the stage still resolves through `default`, and pharn-oss's `MIN_CLI` needs no change. The vendored copy of the checker that the parity test runs is refreshed to pharn-oss 7.7.1, together with the `frontmatter-core.mjs` module it now imports. See [docs/reference/pharn-config.md](docs/reference/pharn-config.md).
+
 ## [0.18.0] — 2026-11-10
 
 ### Fixed
@@ -338,7 +344,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.1...HEAD
+[0.18.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.1...v0.16.2

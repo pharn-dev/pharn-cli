@@ -110,9 +110,10 @@ RED kinds.
 When pharn-oss changes its checker:
 
 1. Copy `pharn/floor/check-model-config.mjs` from pharn-oss `main` over
-   `tests/fixtures/pharn-oss/check-model-config.mjs`, unedited.
+   `tests/fixtures/pharn-oss/check-model-config.mjs`, unedited, together with every pharn-oss module it
+   imports (today `pharn/floor/frontmatter-core.mjs`, vendored beside it), so the checker loads.
 2. Update `PINNED_SHA256`, and the commit and `SKILLS_VERSION` in the comment above it, in
-   `tests/model-config-parity.test.ts`.
+   `tests/model-config-parity.test.ts`, and the sha256 pin of each imported module beside it.
 3. Run `npx vitest run tests/model-config-parity.test.ts`, and change `src/lib/model-config.ts` until it
    passes: port pharn-oss's change, never a rule of your own. If the checker gained a branch, extend the
    corpus to reach it.

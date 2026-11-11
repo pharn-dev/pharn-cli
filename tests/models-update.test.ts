@@ -470,7 +470,7 @@ describe('decideModelsUpdate — the per-file rows, over the block', () => {
       current: EDITED,
       upstream: {
         kind: 'invalid',
-        reasons: ['stage "triage" is not a product stage'],
+        reasons: ['stage "deploy" is not a product stage'],
       },
       force: true,
     });
@@ -478,7 +478,7 @@ describe('decideModelsUpdate — the per-file rows, over the block', () => {
       outcome: 'upstream-invalid',
       next: EDITED,
       backup: false,
-      upstreamReasons: ['stage "triage" is not a product stage'],
+      upstreamReasons: ['stage "deploy" is not a product stage'],
     });
   });
 });

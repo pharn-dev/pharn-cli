@@ -265,6 +265,10 @@ verification. `/pharn-loop` runs that same chain unattended: the model approves
 the spec, iterates build -> regress -> verify until green, an iteration cap, or
 a terminal failure, commits a green result to a new local branch (never pushed
 or merged), and leaves the merge/fix/abandon decision to you after the run.
+From pharn-oss 7.7.0, a full `/pharn-loop` (not `--quick`) also runs
+`/pharn-triage` after the grill: it gives every grill finding one disposition,
+and any verdict but proceed stops the run for you. You can run `/pharn-triage`
+yourself after a full `/pharn-grill`.
 
 `/pharn-spec` fills PHARN's default SPEC template, or your own if you put one at
 `pharn.spec-template.md` in the project root. The write guard denies Claude
