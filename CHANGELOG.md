@@ -9,6 +9,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.18.2] — 2026-11-11
+
+### Fixed
+
+- **A capability whose markdown starts with a byte-order mark is no longer skipped.** pharn reads each capability's `role` and `applies` by pharn-oss's own validator rules, so that a capability pharn-oss's CI passes is installed and one its CI refuses is not. Since pharn-oss 7.3.0 that validator strips one leading byte-order mark (U+FEFF) before looking for the `---` fence. pharn did not, so such a capability was reported as unknown (`missing a "---"-fenced frontmatter block`) and left out of `pharn init`, `pharn add` and `pharn update`. It is now read like any other. A fence that follows only whitespace or invisible characters (a blank line, a space, a second byte-order mark, U+200B) was already refused, and pharn-oss's validator now refuses it too; the reason pharn prints now says the fence is not at the start of the file. CRLF line endings were already read; pharn-oss now reads them the same way, so no difference is left. The vendored copy of the validator that the differential test runs is refreshed to pharn-oss 7.7.1, together with the two modules it now imports (`frontmatter-core.mjs`, shared with the models checker, and `capability-files-core.mjs`).
+
 ## [0.18.1] — 2026-11-11
 
 ### Fixed
@@ -344,7 +350,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.2...HEAD
+[0.18.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.16.2...v0.17.0

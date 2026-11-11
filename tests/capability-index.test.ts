@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { parseCapabilityIndex } from '../src/lib/capability-index.js';
@@ -222,7 +223,27 @@ describe('parseCapabilityIndex', () => {
     {
       label: 'no frontmatter fence',
       body: '# no frontmatter here\n',
-      reason: /frontmatter/,
+      reason: /missing a "---"-fenced frontmatter block/,
+    },
+    // pharn-oss 7.3.0: a fence after only whitespace or invisible characters
+    // is DISPLACED — upstream reads it and REDs it (P6/frontmatter-offset),
+    // so the reason names the offset, not a missing fence.
+    {
+      label: 'a frontmatter fence after a blank line',
+      body: '\n---\nrole: griller\napplies: ["universal"]\n---\n# x\n',
+      reason: /fence is not at the start of the file/,
+    },
+    {
+      label: 'a frontmatter fence after a byte-order mark and a blank line',
+      body: '\uFEFF\n---\nrole: griller\napplies: ["universal"]\n---\n# x\n',
+      reason: /fence is not at the start of the file/,
+    },
+    // Upstream only calls a fence displaced when it also closes; an
+    // unterminated one is no fence at all.
+    {
+      label: 'an unterminated frontmatter fence after a blank line',
+      body: '\n---\nrole: griller\napplies: ["universal"]\n# x\n',
+      reason: /missing a "---"-fenced frontmatter block/,
     },
     {
       label: 'a missing applies field (what a YAML block-list produces)',
@@ -439,26 +460,41 @@ describe('parseCapabilityIndex', () => {
 
 // ---------------------------------------------------------------------------
 // pharn-oss's validator, vendored byte-for-byte: pharn-dev/pharn-oss `main` @
-// 44b12e8 (SKILLS_VERSION 6.62.0), where pharn/floor/validate.mjs last changed
-// in d851a08. A refresh changes this line in the same commit as the file
-// (docs/contributing.md). The file runs its checks on import (it exits the
-// process), so the pieces this CLI ports are extracted from its SOURCE by name
-// and built on their own — there is no second copy to drift: the day upstream's
-// rule changes, these tests run the new one.
+// 3afbb125 (SKILLS_VERSION 7.7.1), where pharn/floor/validate.mjs last changed
+// in 73a2bfc7. Beside it, byte-for-byte from the same commit, the two pharn-oss
+// modules it imports: frontmatter-core.mjs (shared with the models checker,
+// tests/model-config-parity.test.ts) and capability-files-core.mjs. A refresh
+// changes these lines in the same commit as the files (docs/contributing.md).
+// The validator runs its checks on import (it ends the process), so the pieces
+// this CLI ports are extracted from its SOURCE by name and built on their own,
+// with its frontmatter-core imports injected — there is no second copy to
+// drift: the day upstream's rule changes, these tests run the new one.
 // ---------------------------------------------------------------------------
-const UPSTREAM_VALIDATOR = join(
-  import.meta.dirname,
-  'fixtures',
-  'pharn-oss',
-  'validate.mjs',
-);
+const VENDORED = join(import.meta.dirname, 'fixtures', 'pharn-oss');
+const UPSTREAM_VALIDATOR = join(VENDORED, 'validate.mjs');
 const UPSTREAM_VALIDATOR_SHA256 =
-  '6049e18ff762d8927f3a313edf88d1196e00a1c1fcd1cf0a41d251db331e3ea0';
+  '361eff5ea794bf69024f399b106b9614e5603e4e82a695e62c5404a43e266a16';
+const FRONTMATTER_CORE = join(VENDORED, 'frontmatter-core.mjs');
+const FRONTMATTER_CORE_SHA256 =
+  'e883dbe7b3b5bf381ba512d57ac1c9e88230fb52f17fa99893a1aa7eb4be24e0';
+const CAPABILITY_FILES_CORE = join(VENDORED, 'capability-files-core.mjs');
+const CAPABILITY_FILES_CORE_SHA256 =
+  'bcfb4349454070333d98fe66be2046d3aaedc74ee902c87efb050cab81b1551d';
+
+// The three names the validator's parseFrontmatter reads from its import.
+interface FrontmatterCore {
+  looseFrontmatter: unknown;
+  looseValue: unknown;
+  stripBom: unknown;
+}
+const frontmatterCore = (await import(
+  pathToFileURL(FRONTMATTER_CORE).href
+)) as FrontmatterCore;
 
 type UpstreamFm = Record<string, unknown> | null;
 
 interface Upstream {
-  parseFrontmatter: (text: string) => { fm: UpstreamFm };
+  parseFrontmatter: (text: string) => { fm: UpstreamFm; displaced: boolean };
   // CHECK 4b's normalization: an array as-is, a non-empty scalar as [scalar].
   appliesOf: (fm: Record<string, unknown>) => unknown[];
   ROLE_ENUM: string[];
@@ -479,9 +515,27 @@ function upstream(): Upstream {
         '',
       ),
     ) as string[];
+  // parseFrontmatter delegates to frontmatter-core.mjs. The import line is
+  // pinned exactly, so the names injected below are the ones it imports.
+  one(
+    /^import \{ looseFrontmatter, looseValue, stripBom \} from "\.\/frontmatter-core\.mjs";$/gm,
+  );
   const parseFrontmatter = new Function(
-    `${one(/^function parseFrontmatter\(text\) \{\n[\s\S]*?\n\}\n/gm)}; return parseFrontmatter;`,
-  )() as Upstream['parseFrontmatter'];
+    'looseFrontmatter',
+    'looseValue',
+    'stripBom',
+    `${one(/^function parseFrontmatter\(rawText\) \{\n[\s\S]*?\n\}\n/gm)}; return parseFrontmatter;`,
+  )(
+    frontmatterCore.looseFrontmatter,
+    frontmatterCore.looseValue,
+    frontmatterCore.stripBom,
+  ) as Upstream['parseFrontmatter'];
+  // pharn-oss 7.3.0: a role-bearing capability whose fence is displaced is a
+  // blocking finding. A lexical pin on that finding (not a behavioural one):
+  // the verdicts below refuse a displaced block on the strength of it.
+  one(
+    /^ {4}if \(displaced\) \{\n {6}finding\(\n {8}"blocking",\n {8}"P6\/frontmatter-offset",$/gm,
+  );
   const appliesLine = one(/^ {2}const applies = .*;$/gm);
   const appliesOf = new Function(
     'fm',
@@ -539,9 +593,10 @@ describe("parseCapabilityIndex — the frontmatter fence is upstream's", () => {
   // Upstream's verdict for the two fields this CLI reads: a block exists and
   // carries a role and a non-empty applies.
   function upstreamAccepts(body: string): boolean {
-    const { fm } = upstreamParseFrontmatter()(body);
+    const { fm, displaced } = upstreamParseFrontmatter()(body);
     return (
       fm !== null &&
+      !displaced &&
       typeof fm.role === 'string' &&
       fm.role !== '' &&
       Array.isArray(fm.applies) &&
@@ -568,21 +623,60 @@ describe("parseCapabilityIndex — the frontmatter fence is upstream's", () => {
     ['a blank line before the fence', `\n---\n${FIELDS}\n---\n`],
     ['a byte-order mark before the fence', `${BOM}---\n${FIELDS}\n---\n`],
     ['a fence that is not at column 0', ` ---\n${FIELDS}\n---\n`],
+    // pharn-oss 7.3.0 (family-grammar-crlf): CRLF lines, and the displaced
+    // leads — whitespace or a format character before the fence.
+    ['CRLF line endings', `---\r\n${FIELDS.replace('\n', '\r\n')}\r\n---\r\n`],
+    [
+      'a byte-order mark and CRLF line endings',
+      `${BOM}---\r\n${FIELDS.replace('\n', '\r\n')}\r\n---\r\n`,
+    ],
+    ['two byte-order marks', `${BOM}${BOM}---\n${FIELDS}\n---\n`],
+    ['a byte-order mark and a blank line', `${BOM}\n---\n${FIELDS}\n---\n`],
+    ['a zero-width space before the fence', `\u200B---\n${FIELDS}\n---\n`],
+    ['a tab before the fence', `\t---\n${FIELDS}\n---\n`],
+    ['a no-break space before the fence', `\u00A0---\n${FIELDS}\n---\n`],
+    ['an unterminated fence after a blank line', `\n---\n${FIELDS}\n# x\n`],
+    ['a letter before the fence', `x---\n${FIELDS}\n---\n`],
   ];
 
   it.each(SHAPES)("gives upstream's verdict for %s", (_label, body) => {
     expect(accepted(body)).toBe(upstreamAccepts(body));
   });
 
-  // The one named difference, and its direction. Upstream reads each line with
-  // `(.*)$` and no multiline flag, so a line ending in CR yields no field and
-  // its validator refuses the file — upstream never ships one. This CLI drops
-  // one trailing CR from each line before applying the same line rule, so it
-  // reads them. More lenient, never less: nothing upstream ships is refused.
-  it('is more lenient than upstream on CRLF, never less', () => {
+  // Before pharn-oss 7.3.0 upstream split the block on "\n" alone, so a CRLF
+  // file read no field there, and this CLI's CRLF reading was its one named
+  // difference. Upstream now splits on CRLF or LF: the two agree.
+  it('reads CRLF as upstream does', () => {
     const crlf = `---\r\nrole: griller\r\napplies: ["universal"]\r\n---\r\n# x\r\n`;
-    expect(upstreamAccepts(crlf)).toBe(false);
+    expect(upstreamAccepts(crlf)).toBe(true);
     expect(accepted(crlf)).toBe(true);
+  });
+
+  // Non-vacuity: the byte-order-mark and CRLF rows are ACCEPTED upstream, so
+  // their differential rows hold the CLI to reading them.
+  it('upstream accepts the byte-order-mark and CRLF rows', () => {
+    for (const label of [
+      'a byte-order mark before the fence',
+      'CRLF line endings',
+      'a byte-order mark and CRLF line endings',
+    ]) {
+      expect(upstreamAccepts(SHAPES.find(([l]) => l === label)![1])).toBe(true);
+    }
+  });
+
+  // Non-vacuity: the displaced rows are refused upstream BECAUSE they are
+  // displaced — the block itself parses, role and applies included.
+  it('the displaced rows parse upstream and are refused only for the offset', () => {
+    const parse = upstreamParseFrontmatter();
+    for (const label of [
+      'a blank line before the fence',
+      'two byte-order marks',
+      'a zero-width space before the fence',
+    ]) {
+      const { fm, displaced } = parse(SHAPES.find(([l]) => l === label)![1]);
+      expect(displaced).toBe(true);
+      expect(fm?.role).toBe('griller');
+    }
   });
 });
 
@@ -596,6 +690,25 @@ describe("parseCapabilityIndex — role and applies values are upstream's (F-26)
 
   it('reads the vendored validator at its pinned sha256', () => {
     expect(sha256File(UPSTREAM_VALIDATOR)).toBe(UPSTREAM_VALIDATOR_SHA256);
+  });
+
+  it('reads its two imports at their pinned sha256', () => {
+    expect(sha256File(FRONTMATTER_CORE)).toBe(FRONTMATTER_CORE_SHA256);
+    expect(sha256File(CAPABILITY_FILES_CORE)).toBe(
+      CAPABILITY_FILES_CORE_SHA256,
+    );
+  });
+
+  // The vendored set is complete: the validator loads with its siblings and
+  // runs (an empty target is GREEN over zero capabilities). A missing import
+  // fails here with node's module-not-found error.
+  it('runs the vendored validator with its imports', () => {
+    const out = execFileSync(
+      process.execPath,
+      [UPSTREAM_VALIDATOR, tmp.path()],
+      { encoding: 'utf8' },
+    );
+    expect(out).toMatch(/^FLOOR: GREEN — 0 capabilities/m);
   });
 
   function entry(body: string): CapabilityEntry | undefined {
@@ -613,8 +726,8 @@ describe("parseCapabilityIndex — role and applies values are upstream's (F-26)
   // so every row that should pass declares griller.
   function upstreamVerdict(body: string): { ok: boolean; applies: unknown[] } {
     const u = upstream();
-    const { fm } = u.parseFrontmatter(body);
-    if (fm === null) return { ok: false, applies: [] };
+    const { fm, displaced } = u.parseFrontmatter(body);
+    if (fm === null || displaced) return { ok: false, applies: [] };
     const applies = u.appliesOf(fm);
     const ok =
       Boolean(fm.role) &&

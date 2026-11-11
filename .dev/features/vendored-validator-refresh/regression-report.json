@@ -1,0 +1,28 @@
+{
+  "base": "58522acbc8f35201d1366c4dd462feab848a02ac",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/contributing.md",
+    "package-lock.json",
+    "package.json",
+    "src/lib/capability-index.ts",
+    "tests/capability-index.test.ts",
+    "tests/fixtures/pharn-oss/validate.mjs",
+    "tests/release-consistency.test.ts",
+    "tests/fixtures/pharn-oss/capability-files-core.mjs"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

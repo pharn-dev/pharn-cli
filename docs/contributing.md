@@ -127,19 +127,23 @@ When pharn-oss changes its checker:
 `pharn/floor/validate.mjs`. A capability pharn-oss's CI passes must not be skipped as unknown, and
 nothing its CI refuses may be installed. `tests/capability-index.test.ts` runs the validator, vendored
 byte-for-byte at `tests/fixtures/pharn-oss/validate.mjs` and pinned by sha256, over the fence shapes
-and the value shapes (scalar, array, mixed, duplicate keys, quoting) and requires the same verdict.
+(a byte-order mark, CRLF and displaced leads included) and the value shapes (scalar, array, mixed, duplicate keys, quoting) and requires the same verdict.
 It extracts `parseFrontmatter`, the `applies` normalization line and the role and applies enums from
 the file's source, so they cannot drift.
 
 When pharn-oss changes its validator:
 
 1. Copy `pharn/floor/validate.mjs` from pharn-oss `main` over
-   `tests/fixtures/pharn-oss/validate.mjs`, unedited.
+   `tests/fixtures/pharn-oss/validate.mjs`, unedited, together with every pharn-oss module it imports
+   (today `pharn/floor/frontmatter-core.mjs`, shared with the models checker, and
+   `pharn/floor/capability-files-core.mjs`), vendored beside it, so the validator loads.
 2. Update `UPSTREAM_VALIDATOR_SHA256`, and the commit and `SKILLS_VERSION` in the comment above it, in
-   `tests/capability-index.test.ts`.
+   `tests/capability-index.test.ts`, and the sha256 pin of each imported module beside it.
 3. Run `npx vitest run tests/capability-index.test.ts`, and change `src/lib/capability-index.ts` until
    it passes. Port pharn-oss's change; do not add a rule of your own. If a piece the test extracts was
-   renamed or moved, update the extraction, not the verdicts.
+   renamed or moved, update the extraction, not the verdicts. `parseFrontmatter` reads through
+   `frontmatter-core.mjs` (`looseFrontmatter`, `looseValue`, `stripBom`): the test injects those from
+   the vendored copy and pins the import line, so a new name there means a new injection.
 
 ### The fetch boundary
 
