@@ -214,33 +214,68 @@ function readCapabilityMarkdown(
 }
 
 /**
+ * One leading U+FEFF (a byte-order mark), and the lead that makes a fence
+ * DISPLACED: only whitespace or Unicode format characters before `---` (`\s`
+ * covers a newline, a space, a tab, NBSP and a second U+FEFF; `\p{Cf}` covers
+ * U+200B and the other invisible marks). Both are pharn-oss's own, from
+ * pharn/floor/frontmatter-core.mjs (`stripBom`, `DISPLACED_LEAD_RE`).
+ */
+const BOM_RE = /^\uFEFF/;
+const DISPLACED_LEAD_RE = /^[\s\p{Cf}]+(?=---)/u;
+
+/**
  * Extract the raw `---`-fenced frontmatter block from a capability markdown
  * file. Only this block is parsed — a field-looking line in the prose body is
  * never read. Hard-fails (naming the capability) when no frontmatter fence is
- * present (P5).
+ * present, or when the fence is displaced (P5).
  *
  * The fence is UPSTREAM'S rule, ported literally from pharn-oss's own validator
- * (this repo's copy: .dev/floor/validate.mjs → parseFrontmatter), so a
- * capability upstream's CI passes is never skipped here for its fence (P4):
- *   - the file must START with `---`;
+ * (pharn/floor/validate.mjs → parseFrontmatter, which reads through
+ * frontmatter-core.mjs `looseFrontmatter`; both vendored for the differential
+ * test at tests/fixtures/pharn-oss/), so a capability upstream's CI passes is
+ * never skipped here for its fence, and one its CI refuses is never installed:
+ *   - exactly ONE leading byte-order mark is stripped first (a second one is a
+ *     displaced lead, below);
+ *   - the file must then START with `---`;
  *   - the block is everything from the fourth character up to the first newline
  *     followed by `---` — so it closes at the next line that STARTS with `---`
  *     (`---`, `----`, `--- note`), and the rest of the opening line belongs to
  *     the block;
- *   - the block is trimmed, as upstream trims it.
+ *   - the block is trimmed, as upstream trims it;
+ *   - a fence that opens after a DISPLACED lead and closes is refused with its
+ *     own reason: upstream reads such a block and REDs it when it declares a
+ *     role (`P6/frontmatter-offset`, pharn-oss 7.3.0). A role-less one is "not a
+ *     capability" upstream; here it is refused the same way, since a capability
+ *     directory's markdown with no role is refused anyway. A displaced lead whose
+ *     fence never closes is no fence at all, upstream and here.
+ * Any other lead (a letter, an HTML comment) leaves the file without a fence.
  * An empty block (`---` then `---`) is '' — every field is missing, and both
  * parsers refuse it rather than reading the BODY as frontmatter (PHARN-14).
  * tests/capability-index.test.ts runs every fence shape through the validator's
  * own function and requires the same verdict.
  */
 function extractFrontmatter(content: string, name: string): string {
-  const end = content.startsWith('---') ? content.indexOf('\n---', 3) : -1;
+  let text = content.replace(BOM_RE, '');
+  let displaced = false;
+  if (!text.startsWith('---')) {
+    const lead = DISPLACED_LEAD_RE.exec(text);
+    if (lead) {
+      text = text.slice(lead[0].length);
+      displaced = true;
+    }
+  }
+  const end = text.startsWith('---') ? text.indexOf('\n---', 3) : -1;
   if (end === -1) {
     throw new ManifestValidationError(
       `Capability "${name}" is missing a "---"-fenced frontmatter block.`,
     );
   }
-  return content.slice(3, end).trim();
+  if (displaced) {
+    throw new ManifestValidationError(
+      `Capability "${name}": the frontmatter fence is not at the start of the file (whitespace or an invisible character precedes the opening ---).`,
+    );
+  }
+  return text.slice(3, end).trim();
 }
 
 /**
@@ -249,7 +284,7 @@ function extractFrontmatter(content: string, name: string): string {
  * parseFrontmatter; vendored for the differential test at
  * tests/fixtures/pharn-oss/validate.mjs), so the CLI and upstream's CI read the
  * same value from the same block (F-26):
- *   - the block is split on `\n`; a line is a field when it matches
+ *   - the block is split on `\r?\n` (CRLF or LF); a line is a field when it matches
  *     `^([A-Za-z0-9_]+):\s*(.*)$` (so a key never has leading whitespace, and
  *     `roles:` is not `role:`), and its value is the trimmed rest of the line;
  *   - a value wrapped in `[` … `]` is an array: split on `,`, each element
@@ -263,10 +298,8 @@ function extractFrontmatter(content: string, name: string): string {
  * is still validated against the role / applies enums below before anything
  * uses it — an earlier occurrence is discarded, never read.
  *
- * The one deliberate difference: a single trailing `\r` is dropped from each
- * line first. Upstream's `(.*)$` cannot match across a CR, so it reads no field
- * from a CRLF file and refuses it — upstream never ships one; this reader is
- * more lenient there, never less.
+ * A lone `\r` inside a line is not a line break: `(.*)$` cannot match across
+ * it, so that line yields no field, upstream and here.
  *
  * `undefined` = the field is absent (or its last occurrence is empty — upstream
  * reads that as missing too).
@@ -282,8 +315,7 @@ function readField(
   field: string,
 ): string | string[] | undefined {
   let value: string | string[] | undefined;
-  for (const raw of frontmatter.split('\n')) {
-    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+  for (const line of frontmatter.split(/\r?\n/)) {
     const m = FIELD_LINE_RE.exec(line);
     if (!m || m[1] !== field) continue;
     const val = m[2]!.trim();
