@@ -21,21 +21,21 @@ None. Every guarantee the increment states reduces to a floor primitive:
 
 ```yaml
 - type: FINDING
-  rule_id: "P0"
+  rule_id: 'P0'
   severity: minor
-  file: "tests/capability-index.test.ts:534"
+  file: 'tests/capability-index.test.ts:534'
   problem: "The displaced rule is held to upstream by a regex over validate.mjs's text; it is labelled a lexical pin in the comment, which is honest, but an upstream reformat of that finding call fails the test with no behaviour change."
-  evidence: "A lexical pin on that finding (not a behavioural one)"
+  evidence: 'A lexical pin on that finding (not a behavioural one)'
 ```
 
 ### L-eval → P1
 
 ```yaml
 - type: FINDING
-  rule_id: "P1"
+  rule_id: 'P1'
   severity: minor
-  file: "tests/capability-index.test.ts:657"
-  problem: "The non-vacuity test pins that the displaced rows are refused only for the offset, but nothing names that upstream ACCEPTS the BOM row; the differential compare carries it (and was red before the port), yet a parser that refused everything upstream would make that row vacuous without a named failure."
+  file: 'tests/capability-index.test.ts:657'
+  problem: 'The non-vacuity test pins that the displaced rows are refused only for the offset, but nothing names that upstream ACCEPTS the BOM row; the differential compare carries it (and was red before the port), yet a parser that refused everything upstream would make that row vacuous without a named failure.'
   evidence: "it('the displaced rows parse upstream and are refused only for the offset', () => {"
 ```
 
@@ -54,9 +54,9 @@ vendored fixture, not a sibling `src/` module.
 
 ```yaml
 - type: FINDING
-  rule_id: "P7"
+  rule_id: 'P7'
   severity: minor
-  file: "tests/release-consistency.test.ts:86"
+  file: 'tests/release-consistency.test.ts:86'
   problem: "v0.18.1 is listed before its tag exists, against the list's own rule; it is the maintainer's GATE 1 choice (stacked on #354) and holds only if #354 releases 0.18.1 unchanged — the PR should say so."
   evidence: "'v0.18.1',"
 ```

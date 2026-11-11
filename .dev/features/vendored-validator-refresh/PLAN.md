@@ -33,7 +33,7 @@
 ## Discovery — verified this run (P6)
 
 - Diff vendored vs `origin/main:pharn/floor/validate.mjs` read in full. `ROLE_ENUM`, `APPLIES_ENUM`
-  and CHECK 4b's line (`  const applies = Array.isArray(fm.applies) ? …`) are unchanged in text and
+  and CHECK 4b's line (`const applies = Array.isArray(fm.applies) ? …`) are unchanged in text and
   still match the test's extraction regexes. `parseFrontmatter`'s signature changed to `(rawText)`, so
   the extraction regex (`\(text\)`) no longer matches and must follow it.
 - Imports: `validate.mjs` → `./frontmatter-core.mjs`, `./capability-files-core.mjs`;
@@ -86,7 +86,7 @@
 - pin: vendored `validate.mjs`, `frontmatter-core.mjs`, `capability-files-core.mjs` match their sha256s.
 - load: `node tests/fixtures/pharn-oss/validate.mjs <empty tmp dir>` → exit 0, stdout `FLOOR: GREEN`.
 - fence differential (existing `SHAPES`, run against the NEW upstream parser): `a byte-order mark before
-  the fence` → both accept (fails today: CLI refuses); blank-line / space leads → both refuse.
+the fence` → both accept (fails today: CLI refuses); blank-line / space leads → both refuse.
 - new shapes: CRLF, BOM + CRLF → both accept; double BOM, U+200B lead, tab lead → both refuse.
 - CRLF: upstream accepts and the CLI accepts (replaces "more lenient than upstream").
 - displaced reason: a blank-line-led capability is `unknown` with a reason naming the fence offset;
