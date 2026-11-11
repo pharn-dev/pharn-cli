@@ -4062,7 +4062,7 @@ describe('runUpdate (drift-safe)', () => {
     it('replaces an old default it had to convert, once pharn-oss’s block is usable', async () => {
       write(
         join(repo, 'pharn.config.json'),
-        JSON.stringify({ models: { stages: { triage: {} } } }),
+        JSON.stringify({ models: { stages: { deploy: {} } } }),
       );
       await installedWith(OLD_DEFAULT);
 
@@ -4220,7 +4220,7 @@ describe('runUpdate (drift-safe)', () => {
       write(
         join(repo, 'pharn.config.json'),
         JSON.stringify({
-          models: { stages: { default: UPSTREAM.stages.default, triage: {} } },
+          models: { stages: { default: UPSTREAM.stages.default, deploy: {} } },
         }),
       );
       await installedWith(OLD_DEFAULT);
@@ -4239,7 +4239,7 @@ describe('runUpdate (drift-safe)', () => {
       expect(note).toContain(
         "pharn-oss's models block was not applied; this pharn rejects it:",
       );
-      expect(note).toContain('stage "triage" is not a product stage');
+      expect(note).toContain('stage "deploy" is not a product stage');
       expect(note).toContain('upgrade pharn');
     });
   });

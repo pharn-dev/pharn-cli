@@ -788,6 +788,7 @@ describe('runStatus (archetype)', () => {
     expect(models).toContain('plan             opus · high');
     expect(models).toContain('review           claude-opus-4-8 · xhigh');
     // A stage with no entry of its own shows the default it resolves to.
+    expect(models).toContain('triage           sonnet · high  (default)');
     expect(models).toContain('memory-promote   sonnet · high  (default)');
     expect(models).toContain('ac-test          sonnet · high  (default)');
     expect(models).toContain(

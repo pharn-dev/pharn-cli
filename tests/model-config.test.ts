@@ -59,6 +59,21 @@ describe('checkModelsBlock', () => {
     });
   });
 
+  it('accepts a triage entry (pharn-oss 7.7.0) and resolves triage to it', () => {
+    const stages = valid({
+      default: { model: 'sonnet', effort: 'high' },
+      triage: { model: 'opus', effort: 'max' },
+    });
+    expect(resolveStageModel(stages, 'triage')).toEqual({
+      model: 'opus',
+      effort: 'max',
+    });
+    // Between grill and build, in the checker's order.
+    expect(PRODUCT_STAGES.indexOf('triage')).toBe(
+      PRODUCT_STAGES.indexOf('grill') + 1,
+    );
+  });
+
   it('refuses a shape before it reads any stage', () => {
     expect(checkModelsBlock([])).toEqual({
       kind: 'invalid',
