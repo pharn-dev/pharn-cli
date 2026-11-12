@@ -1,0 +1,37 @@
+{
+  "base": "95426567c2197a0dc4807382287c44b1a1385077",
+  "inside": [
+    ".dev/features/release-tag-ref/GRILL.md",
+    ".dev/features/release-tag-ref/PLAN.md",
+    ".dev/features/release-tag-ref/REGRESSION.md",
+    ".dev/features/release-tag-ref/REVIEW.md",
+    ".dev/features/release-tag-ref/SHIP.md",
+    ".dev/features/release-tag-ref/VERIFY.md",
+    ".dev/features/release-tag-ref/regression-report.json",
+    ".dev/features/release-tag-ref/verify-report.json",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "package-lock.json",
+    "package.json",
+    "src/lib/release.ts",
+    "src/lib/repo.ts",
+    "tests/commands-integration.test.ts",
+    "tests/release-consistency.test.ts",
+    "tests/release.test.ts",
+    "tests/repo-signals.test.ts",
+    "tests/repo.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
