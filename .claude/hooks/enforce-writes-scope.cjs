@@ -17,20 +17,48 @@
 // blocks. fix #7 is scope-only and does NOT re-implement the trusted-doc denylist — fix #2 remains the
 // hard backstop for CONSTITUTION/ARCHITECTURE/THREAT-MODEL/LIMITS + CODEOWNERS, regardless of scope.
 // The allow/deny decision rests ONLY on path/glob membership (P2: never on a free-text/tainted field).
+//
+// Session root: the scope file and every glob are relative to the SESSION's work tree — the payload `cwd`'s
+// work tree when it is this repository's own (the hook process's cwd, or a verified linked worktree of the
+// same repository) — so a session working in `.claude/worktrees/<name>/` is judged against the scope its own
+// setter wrote there, not the main checkout's. Anything else falls back to the process cwd (session-root.cjs).
 
 "use strict";
 
 const fs = require("fs");
 const path = require("path");
 
-// Repo root with symlinks resolved, so a canonicalized target shares a common prefix with it (else a
-// symlinked temp/CI dir — e.g. macOS /var -> /private/var — would make every write look like it
-// escapes the root).
+function readStdin() {
+  try {
+    return fs.readFileSync(0, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+const payload = (() => {
+  try {
+    const parsed = JSON.parse(readStdin() || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+})();
+
+// Session work tree with symlinks resolved, so a canonicalized target shares a common prefix with it (else
+// a symlinked temp/CI dir — e.g. macOS /var -> /private/var — would make every write look like it escapes
+// the root). A throw while loading or calling session-root.cjs (a missing or broken file) falls back to
+// the process cwd, the previous root: an uncaught throw exits 1, which Claude Code treats as a NON-blocking
+// hook error and lets the write through (fail-open).
 const ROOT = (() => {
   try {
-    return fs.realpathSync(process.cwd());
+    return require("./session-root.cjs").sessionRoot(payload.cwd);
   } catch {
-    return process.cwd();
+    try {
+      return fs.realpathSync(process.cwd());
+    } catch {
+      return process.cwd();
+    }
   }
 })();
 
@@ -70,14 +98,6 @@ const ALWAYS = [".pharn/**"];
 const DEFAULT_SAFE_SET = ["src/**", "tests/**", "features/**", ".dev/features/**"];
 
 const SCOPE_FILE = ".pharn/writes-scope.json";
-
-function readStdin() {
-  try {
-    return fs.readFileSync(0, "utf8");
-  } catch {
-    return "";
-  }
-}
 
 function extractPaths(toolInput) {
   if (!toolInput || typeof toolInput !== "object") return [];
@@ -124,7 +144,7 @@ function toRel(p) {
 // scope[] from .pharn/writes-scope.json, or null (absent/unparseable -> fail-closed to safe-set).
 function loadScope() {
   try {
-    const parsed = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), SCOPE_FILE), "utf8"));
+    const parsed = JSON.parse(fs.readFileSync(path.join(ROOT, SCOPE_FILE), "utf8"));
     if (parsed && Array.isArray(parsed.scope)) return parsed.scope.filter((s) => typeof s === "string");
   } catch {
     // absent or unparseable -> fail-closed to the default-safe-set
@@ -143,7 +163,7 @@ function denyMessage(blockedPath, scope) {
     "  • If this path SHOULD be written by the current work: add it to the active Capability's `writes:`, then re-run the scope-setter so .pharn/writes-scope.json reflects it.\n" +
     '  • If running a command (/build, /review, …): scope is set in the command\'s FIRST step. If "(none set)", that step did not run — restart the command from the top; do not write ad hoc.\n' +
     "  • If this is a one-off outside any Capability: it is intentionally blocked (fail-closed). Declare a scope, or do the write by hand outside the agent.\n" +
-    "Scope file: .pharn/writes-scope.json (set by a command's first step; delete to reset; absence = fail-closed default-safe-set)."
+    `Scope file: ${path.join(ROOT, SCOPE_FILE)} (set by a command's first step; delete to reset; absence = fail-closed default-safe-set).`
   );
 }
 
@@ -163,14 +183,6 @@ function deny(blockedPath, scope) {
   process.stderr.write(reason + "\n");
   process.exit(2);
 }
-
-const payload = (() => {
-  try {
-    return JSON.parse(readStdin() || "{}");
-  } catch {
-    return {};
-  }
-})();
 
 const toolName = payload.tool_name || payload.toolName || "";
 const toolInput = payload.tool_input || payload.toolInput || {};

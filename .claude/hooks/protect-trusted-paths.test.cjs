@@ -70,3 +70,38 @@ test("allows a real (non-symlink) file in a nested allowed dir (no false positiv
   const r = run({ tool_name: "Write", tool_input: { file_path: "features/notes.md" } }, cwd);
   assert.equal(r.status, 0);
 });
+
+// --- Session root: hook process cwd = the main checkout, payload `cwd` = the session's worktree ---
+
+const fixture = require("./git-worktree-fixture.cjs");
+
+test("session in a worktree: the worktree's trusted docs stay BLOCKED (absolute and relative)", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  const abs = fixture.runHook(HOOK, main, fixture.writePayload(join(wt, "CONSTITUTION.md"), wt));
+  assert.equal(abs.status, 2);
+  const rel = fixture.runHook(HOOK, main, fixture.writePayload("CONSTITUTION.md", wt));
+  assert.equal(rel.status, 2);
+  assert.equal(fixture.runHook(HOOK, main, fixture.writePayload("src/foo.js", wt)).status, 0);
+});
+
+test("session in a worktree: a relative target resolves in the WORKTREE, so its symlink onto a trusted doc is BLOCKED", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  fs.writeFileSync(join(wt, "CONSTITUTION.md"), "trusted\n");
+  fs.mkdirSync(join(wt, "features"));
+  fs.symlinkSync(join("..", "CONSTITUTION.md"), join(wt, "features", "notes.md"));
+  const r = fixture.runHook(HOOK, main, fixture.writePayload("features/notes.md", wt));
+  assert.equal(r.status, 2);
+  assert.ok(r.stderr.includes(`-> ${join(wt, "CONSTITUTION.md")}`));
+  // Without the payload cwd it resolves against the main checkout, where no such link exists.
+  assert.equal(fixture.runHook(HOOK, main, fixture.writePayload("features/notes.md")).status, 0);
+});
+
+test("a missing or throwing session-root.cjs fails CLOSED: a trusted doc is still BLOCKED with exit 2", () => {
+  for (const source of [null, 'throw new Error("broken");\n']) {
+    const copy = fixture.hookBesideResolver(HOOK, source);
+    const cwd = tmp();
+    const r = fixture.runHook(copy, cwd, fixture.writePayload("CONSTITUTION.md", cwd));
+    assert.equal(r.status, 2, String(source));
+    assert.match(r.stderr, /BLOCKED by PHARN floor/);
+  }
+});
