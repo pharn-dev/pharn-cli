@@ -116,10 +116,11 @@ jobs:
         run: npm ci
       - name: Test
         run: npm run test:coverage
-      # pharn-ci diff-coverage gate. comment: false — this token is read-only on a
-      # fork PR, so the sticky comment is posted separately by
-      # pharn-ci-comment.yml (workflow_run from the default branch), fed by the
-      # artifact this job uploads below. This step still gates on the threshold.
+      # pharn-ci diff-coverage gate. comment: false — this job runs `npm ci` and
+      # the test suite, so it holds no write grant. The sticky comment is posted
+      # by the `pharn-ci comment` job below (same-repo PRs) or by
+      # pharn-ci-comment.yml (fork PRs), both fed by the artifact this job
+      # uploads. This step still gates on the threshold.
       - id: pharn-ci
         if: github.event_name == 'pull_request'
         uses: pharn-dev/pharn-ci@38aca1f95b3f5e4bfa83ff08a98d0d3147869a90 # v0.10.0
@@ -146,6 +147,59 @@ jobs:
         with:
           name: pharn-ci-report
           path: ${{ steps.pharn-ci.outputs.report-path }}
+
+  # pharn-ci's sticky PR comment for a pull request from THIS repository.
+  #
+  # It measures the PR as the `Test` job's pharn-ci step did: the same checkout
+  # (the PR merge commit, fetch-depth 0), the same coverage file at the same
+  # path (restored from the artifact `Test` uploaded in this run), the same
+  # `.pharn/ci.yml`, and the same inputs except `comment` and `fail-on-verdict`.
+  # So its verdict is computed from the gate's inputs. `tests/ci-workflow.test.ts`
+  # pins that the two steps' `with:` maps differ in exactly those two keys.
+  #
+  # Why a separate job: it is the only job here with a write grant
+  # (`pull-requests: write`), and it runs NO repository code (no `run:` step, no
+  # setup-node, no npm), so no dependency or test code executes next to the
+  # write token. `Test`, which runs `npm ci` and the suite, stays read-only.
+  #
+  # Why not pharn-ci-comment.yml (workflow_run) for every PR: pharn-ci's
+  # PR-number mode never reads the PR's file text, so it reports test integrity
+  # (TI02/TI05), the agent-config secret scan and dependency safety as not
+  # checked, and its verdict disagrees with the gate. That workflow now runs
+  # for fork PRs only, where this job's token would be read-only.
+  #
+  # Not a required check: the `main` ruleset does not list it, and it never
+  # gates (fail-on-verdict: false). It runs whether `Test` passed or failed.
+  # When `Test` failed before its pharn-ci step there is no gating report to
+  # agree with, and `Test` is red anyway. On a Dependabot PR the token is
+  # read-only unless a permissions block raises it, as the one below is meant
+  # to (not yet seen on a Dependabot PR here). If it is not raised, pharn-ci
+  # warns and keeps the report in the job summary instead of failing the step.
+  pharn-ci-comment:
+    name: pharn-ci comment
+    needs: test
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Into the workspace, so coverage/lcov.info lands where .pharn/ci.yml
+      # points, as in `Test`. The artifact's pr-number file lands untracked at
+      # the root; pharn-ci lists files with git ls-files, so it is never read.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pharn-ci-input
+      - uses: pharn-dev/pharn-ci@38aca1f95b3f5e4bfa83ff08a98d0d3147869a90 # v0.10.0
+        timeout-minutes: 5
+        with:
+          comment: true
+          test-integrity: block
+          fail-on-verdict: false # the Test job gates
 
   build:
     name: Build

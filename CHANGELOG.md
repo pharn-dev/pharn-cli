@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **CI: the pharn-ci PR comment now agrees with the gating report.** The comment came from `pharn-ci-comment.yml`, a `workflow_run` run in pharn-ci's PR-number mode. That mode never reads the pull request's file text, so every comment showed ❌ Fail (`TEST_INTEGRITY_INDEX_UNAVAILABLE`, `AGENT_CONFIG_SECRET_UNSCANNED`, and `package.json`/`package-lock.json` unreadable to dependency safety) while the `Test` job's `pharn-ci-report` said `pass` (#354, #355, #356). A pull request from this repository is now commented by a new `pharn-ci comment` job in `ci.yml`. It runs after `Test` with the same checkout, coverage file and pharn-ci inputs except `comment` and `fail-on-verdict`, holds the workflow's only write grant (`pull-requests: write`), and runs no repository code. `pharn-ci-comment.yml` now comments on fork pull requests only, where its PR-number-mode limits still apply. The job is not a required check, and the six required check names are unchanged. `tests/ci-workflow.test.ts` pins the new job, its inputs and the fork-only condition. No change to the published CLI.
+
 ## [0.18.3] — 2026-11-12
 
 ### Fixed
