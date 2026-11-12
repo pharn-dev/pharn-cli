@@ -158,7 +158,15 @@ async function resolveLatestRelease(): Promise<InstallSource> {
 
   // The tag's COMMIT, dereferenced by GitHub (annotated or lightweight alike).
   // `tag` passed RELEASE_TAG_RE, so it is safe as a URL segment.
-  const shaUrl = `${API}/repos/${REPO}/commits/${tag}`;
+  //
+  // Asked through the FULL tag ref, never the bare name: GitHub does not say
+  // whether `commits/<name>` picks a branch or a tag when both exist, and a
+  // branch named like the release tag would otherwise stand in for the
+  // verified release (its SKILLS_VERSION can match the tag too). The documented
+  // `commits/tags/<tag>` form answers 422 (measured 2026-11-11 and 2026-11-12);
+  // `commits/refs/tags/<tag>` answers the same commit as the bare name. That it
+  // resolves ONLY the tag is GitHub's behaviour, measured, not documented.
+  const shaUrl = `${API}/repos/${REPO}/commits/refs/tags/${tag}`;
   const commit = await get(shaUrl, 'application/vnd.github.sha', MAX_SHA_BYTES);
   if (commit.text === null) {
     throw refusal(

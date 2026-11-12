@@ -33,7 +33,7 @@ const VALID_SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
 // for a host the code should never contact (CodeQL
 // js/incomplete-url-substring-sanitization). Comparing the whole string also
 // makes the discriminator an assertion about the resolve URL.
-const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/${REPO_BRANCH}`;
+const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/refs/heads/${REPO_BRANCH}`;
 
 // Each test gets a FRESH module instance. The handlers install once per module
 // (that is the property under test), so sharing one instance would make every

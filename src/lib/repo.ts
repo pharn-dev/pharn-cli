@@ -286,7 +286,10 @@ async function downloadArchive(ref: string): Promise<Buffer> {
  * as it refused a malformed string `sha` before.
  */
 export async function fetchCommitSha(): Promise<string | null> {
-  const url = `${API}/repos/${REPO}/commits/${REPO_BRANCH}`;
+  // The FULL branch ref, so a tag named like the branch cannot answer for it —
+  // the same reason the release channel asks for `commits/refs/tags/<tag>`
+  // (lib/release.ts), and the ref the float download already uses (fetchAt).
+  const url = `${API}/repos/${REPO}/commits/refs/heads/${REPO_BRANCH}`;
   try {
     // Same hard deadline as the download (lib/deadline.ts); a timeout is just
     // one more failure that degrades to `null`.

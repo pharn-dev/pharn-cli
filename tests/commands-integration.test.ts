@@ -63,10 +63,12 @@ const { runStatus } = await import('../src/commands/status.js');
 const { runUninstall } = await import('../src/commands/uninstall.js');
 
 const REPO = 'pharn-dev/pharn-oss';
-const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/main`;
+// Both resolves ask for a FULL ref (CORE-169): a same-named tag or branch
+// cannot answer for the other.
+const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/refs/heads/main`;
 const RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const tagCommitUrl = (tag: string): string =>
-  `https://api.github.com/repos/${REPO}/commits/${tag}`;
+  `https://api.github.com/repos/${REPO}/commits/refs/tags/${tag}`;
 const VERSION_URL = `https://raw.githubusercontent.com/${REPO}/main/SKILLS_VERSION`;
 const tarballUrl = (sha: string): string =>
   `https://codeload.github.com/${REPO}/tar.gz/${sha}`;
