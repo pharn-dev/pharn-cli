@@ -5,7 +5,6 @@ import {
   CAPABILITY_NAME_RE,
   COPY_FILENAME_RE,
   COMMIT_RE,
-  CONTROL_CHARS_RE,
   assertSafeString,
   assertRole,
   assertAppliesToken,
@@ -14,8 +13,9 @@ import {
   safeJoin,
   toPosix,
 } from '../src/lib/validate.js';
+import { hasUnsafeChars } from '../src/lib/terminal-safe.js';
 
-// These four pin `assertSafeString`'s own behavior (the reject/pass ladder); the
+// These pin `assertSafeString`'s own behavior (the reject/pass ladder); the
 // pattern is a prop, so they are written against a LIVE regex — CAPABILITY_NAME_RE,
 // the one the archetype install actually validates fetched names with.
 describe('assertSafeString', () => {
@@ -30,6 +30,37 @@ describe('assertSafeString', () => {
     expect(() =>
       assertSafeString(withControl, 'x', CAPABILITY_NAME_RE),
     ).toThrow(/control/);
+  });
+
+  // CORE-170: the early reject is the ONE unsafe set (lib/terminal-safe.ts),
+  // so a format character or a line separator never reaches the format check,
+  // whose message would quote the value.
+  it.each([
+    ['a right-to-left override', '\u202e'],
+    ['a zero-width space', '\u200b'],
+    ['a line separator', '\u2028'],
+    ['a C1 CSI', '\u009b'],
+  ])('rejects %s as a control character, not as a bad format', (_l, ch) => {
+    expect(() => assertSafeString(`a${ch}b`, 'x', CAPABILITY_NAME_RE)).toThrow(
+      /contains control characters/,
+    );
+  });
+
+  // The label interpolates the untrusted name at its call sites
+  // (`capability "${name}"`), so both messages are escaped as a whole.
+  it.each([
+    ['the control-character message', 'a\u202eb'],
+    ['the invalid-format message', 'Nope'],
+  ])('escapes a hostile label in %s', (_l, value) => {
+    const label = `capability "x\u009b\u202e\u001b[31m"`;
+    let message = '';
+    try {
+      assertSafeString(value, label, CAPABILITY_NAME_RE);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain('x\\u009b\\u202e\\u001b[31m');
+    expect(hasUnsafeChars(message)).toBe(false);
   });
 
   it('rejects a value that does not match the pattern', () => {
@@ -74,26 +105,6 @@ describe('the name allowlists admit no `..`', () => {
   it('both still accept their ordinary names', () => {
     expect(CAPABILITY_NAME_RE.test('n-plus-one')).toBe(true);
     expect(COPY_FILENAME_RE.test('set-writes-scope.cjs')).toBe(true);
-  });
-});
-
-// The one C0 + DEL + C1 definition (pharn-config.ts's path escaper derives from
-// it): its boundaries, and that it is NOT global (a /g regex's `.test` would
-// carry lastIndex between calls).
-describe('CONTROL_CHARS_RE', () => {
-  it.each([0x00, 0x09, 0x0a, 0x1b, 0x1f, 0x7f, 0x80, 0x9b, 0x9f])(
-    'matches char code %i',
-    (code) => {
-      expect(CONTROL_CHARS_RE.test(String.fromCharCode(code))).toBe(true);
-    },
-  );
-
-  it.each([0x20, 0x7e, 0xa0, 0x200b])('does not match char code %i', (code) => {
-    expect(CONTROL_CHARS_RE.test(String.fromCharCode(code))).toBe(false);
-  });
-
-  it('is not global', () => {
-    expect(CONTROL_CHARS_RE.global).toBe(false);
   });
 });
 

@@ -303,9 +303,14 @@ interface StampMismatch {
  * Values go through JSON.stringify like this file's other untrusted-value
  * messages: both stamp fields are deliberately TYPE-checked, not format-checked
  * (see the reader above), so either side may hold an empty string or control
- * characters from a hand edit — quoting makes `""` visible instead of blank and
- * escapes the rest, and it renders a null commit as `null` (the legal
- * floated-branch case) rather than as nothing.
+ * characters from a hand edit. Quoting makes `""` visible instead of blank and
+ * renders a null commit as `null` (the legal floated-branch case) rather than
+ * as nothing. It is NOT a sanitizer: JSON.stringify escapes C0 controls but
+ * leaves DEL, C1 (the 8-bit CSI U+009B), bidi overrides and the line
+ * separators raw. This note — like every `invalid` message above — is DATA
+ * until printed, and each print site escapes it with `escapeUnsafe`
+ * (update-render.ts, uninstall.ts); the `--json` report carries it raw for its
+ * serializer to escape (CORE-170).
  *
  * The commit is printed in FULL. It is not COMMIT_RE-checked here, so no prefix
  * length is guaranteed to identify it — and two distinct SHAs sharing a short

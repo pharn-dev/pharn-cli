@@ -9,7 +9,6 @@ import {
   assertSafeString,
   CAPABILITY_NAME_RE,
   COMMIT_RE,
-  CONTROL_CHARS_RE,
   isPlainObject,
   ROLE_VALUES,
   VERSION_RE,
@@ -268,10 +267,6 @@ function parseLocation(err: unknown): string {
   return at ? ` (line ${at[1]}, column ${at[2]})` : '';
 }
 
-// The C0 + DEL + C1 ranges `validate.ts` REJECTS names over (its
-// `CONTROL_CHARS_RE`, the one definition), as a global regex for `replace`.
-const CONTROL_CHARS_GLOBAL_RE = new RegExp(CONTROL_CHARS_RE.source, 'g');
-
 /**
  * The config path, made safe to PRINT. The filesystem path is untouched — this
  * is a display transform applied at the one place the string enters a message.
@@ -291,16 +286,16 @@ const CONTROL_CHARS_GLOBAL_RE = new RegExp(CONTROL_CHARS_RE.source, 'g');
  * ESCAPED, not stripped, and that is the whole design choice. Stripping would
  * print a path that DOES NOT EXIST — actively worse in a message whose entire job
  * is "here is the file to go fix", since the user would look in the wrong place.
- * `\xNN` keeps the path recognisable, byte-recoverable, and inert. Deliberately
- * NOT length-capped either: a cwd is bounded by the OS (PATH_MAX), unlike the
- * multi-megabyte upstream strings `unknown-capabilities.ts` caps, and truncating
- * would again name a path that is not the file.
+ * `escapeUnsafe` (lib/terminal-safe.ts — the one unsafe set, so a bidi override
+ * or a line separator in a directory name is escaped too) writes each such
+ * character as `\uXXXX`, which keeps the path recognisable, recoverable, and
+ * inert. Deliberately NOT length-capped either: a cwd is bounded by the OS
+ * (PATH_MAX), unlike the multi-megabyte upstream strings
+ * `unknown-capabilities.ts` caps, and truncating would again name a path that
+ * is not the file.
  */
 function displayPath(path: string): string {
-  return path.replace(
-    CONTROL_CHARS_GLOBAL_RE,
-    (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
-  );
+  return escapeUnsafe(path);
 }
 
 export function configPath(cwd: string): string {

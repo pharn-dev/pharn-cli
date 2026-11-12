@@ -949,13 +949,13 @@ describe('ConfigParseError — a corrupt config is reported as corrupt, not abse
     expect(msg).not.toContain(String.fromCharCode(27));
     // Escaped, NOT stripped: a stripped path would name a directory that does
     // not exist, which is worse than useless in a "go fix this file" message.
-    expect(msg).toContain('evil\\x1b[31m');
+    expect(msg).toContain('evil\\u001b[31m');
   });
 
   posixOnly('escapes a newline in the cwd, so stderr cannot be forged', () => {
     const msg = inHostileDir('evil\nnot-really-pharn:');
     expect(msg).not.toContain('\n');
-    expect(msg).toContain('evil\\x0anot-really-pharn:');
+    expect(msg).toContain('evil\\u000anot-really-pharn:');
   });
 
   it('joins isConfigValidationError, so both call sites report it loudly', () => {

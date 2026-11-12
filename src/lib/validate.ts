@@ -1,4 +1,5 @@
 import { dirname, resolve, sep } from 'node:path';
+import { escapeUnsafe, hasUnsafeChars } from './terminal-safe.js';
 
 export class ManifestValidationError extends Error {
   constructor(message: string) {
@@ -40,14 +41,6 @@ export const ARCHETYPE_VALUES = ['ssr', 'backend', 'spa', 'lib'] as const;
 // Capability `applies` frontmatter tokens: `universal` (→ always selected) or a
 // project archetype (ssr|backend|spa|lib). Membership, not judgment (P5).
 export const APPLIES_TOKEN_VALUES = ['universal', ...ARCHETYPE_VALUES] as const;
-// C0 controls, DEL and C1 controls — the ONE definition of this range.
-// `assertSafeString` REJECTS a name over it; `pharn-config.ts` derives its
-// display escaper from `.source`. terminal-safe.ts deliberately uses a WIDER set
-// (this one plus Unicode format characters), defined there. Non-global, so
-// `.test` carries no `lastIndex` between calls.
-// eslint-disable-next-line no-control-regex
-export const CONTROL_CHARS_RE = /[\x00-\x1f\x7f-\x9f]/;
-
 /**
  * Assert a fetched capability `role` value is one of the installable kinds
  * ({griller, lens}); hard-fail otherwise (P2/P5 — no silent trust of untrusted
@@ -94,12 +87,20 @@ export function assertSafeString(
   if (typeof value !== 'string') {
     throw new ManifestValidationError(`${label} must be a string`);
   }
-  if (CONTROL_CHARS_RE.test(value)) {
-    throw new ManifestValidationError(`${label} contains control characters`);
+  // The early reject is the ONE unsafe set (lib/terminal-safe.ts), so this
+  // message never quotes the value. The name allowlists exclude every such
+  // character anyway; rejecting first keeps the format message below from
+  // echoing one. Both messages are escaped as a whole because the LABEL is not
+  // ours either: call sites interpolate the untrusted name into it
+  // (`capability "${name}"`, `${relDir}/${entry.name}`).
+  if (hasUnsafeChars(value)) {
+    throw new ManifestValidationError(
+      escapeUnsafe(`${label} contains control characters`),
+    );
   }
   if (!pattern.test(value)) {
     throw new ManifestValidationError(
-      `${label} has invalid format: ${JSON.stringify(value)}`,
+      escapeUnsafe(`${label} has invalid format: ${JSON.stringify(value)}`),
     );
   }
   return value;

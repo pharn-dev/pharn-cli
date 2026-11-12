@@ -24,7 +24,7 @@ import {
 import { RECORDS_FILE } from './install-records.js';
 import { modelsLabelLines } from './model-config-format.js';
 import type { ModelsUpdate } from './models-update.js';
-import { terminalSafe } from './terminal-safe.js';
+import { escapeUnsafe, terminalSafe } from './terminal-safe.js';
 import { orphanNoteLines, type Orphan } from './orphans.js';
 import {
   rootMigrationNoteLines,
@@ -198,7 +198,10 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   const { plan, recordsNote, versionWithheld } = outcome;
   const { counts } = plan;
 
-  if (recordsNote) log.warn(`⚠ ${recordsNote}`);
+  // The note quotes strings from the hand-editable pharn.records.json (a key,
+  // the stamp): escape the VALUE here, never the line (CORE-170). The JSON
+  // report carries it raw, because its serializer escapes it.
+  if (recordsNote) log.warn(`⚠ ${escapeUnsafe(recordsNote)}`);
 
   reportCapabilityChanges(outcome.capabilityChanges, outcome.removals, false);
   reportModels(outcome.models, outcome.modelsFloor, outcome.backup);
@@ -352,7 +355,8 @@ export function reportDryRun(
   channel: RefChoice,
   config: PharnConfig,
 ): void {
-  if (r.recordsNote) log.warn(`⚠ ${r.recordsNote}`);
+  // Escaped at print, as in reportOutcome (CORE-170).
+  if (r.recordsNote) log.warn(`⚠ ${escapeUnsafe(r.recordsNote)}`);
 
   const writes = r.files.filter((f) => f.action === 'write');
   const sections: { heading: string; rels: string[] }[] = [

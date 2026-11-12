@@ -9,7 +9,15 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import * as prettier from 'prettier';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
 import { codeloadArchive } from './support/tar-fixture.js';
 import { PHARN_VERSION } from '../src/version.js';
@@ -635,6 +643,120 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(existsSync(at('pharn/pharn-pipeline'))).toBe(false);
     expect(existsSync(at('.claude/commands'))).toBe(false);
     expect(existsSync(at(REPO_DIR))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CORE-170: pharn.records.json is committed and hand-editable, and the note
+// `update` prints when it cannot use the store quotes strings from it (a key,
+// the stamp) through JSON.stringify — which escapes ESC but leaves an 8-bit
+// CSI (U+009B) and a bidi override (U+202E) raw. Two setups, because only a
+// STALE store re-opens update's same-version early return: an invalid one
+// prints nothing until upstream moves.
+// ---------------------------------------------------------------------------
+
+describe('a hostile pharn.records.json reaches the terminal escaped', () => {
+  const CSI = '\u009b';
+  const RLO = '\u202e';
+  const ESC = '\u001b';
+
+  /** Everything the commands handed to clack, one string. */
+  const printed = (): string =>
+    [clack.note, clack.outro, clack.log.info, clack.log.warn, clack.log.error]
+      .flatMap((fn) => (fn as Mock).mock.calls as unknown[][])
+      .map((args) => args.map(String).join(' '))
+      .join('\n');
+
+  const clearPrinted = (): void => {
+    for (const fn of [
+      clack.note,
+      clack.outro,
+      clack.log.info,
+      clack.log.warn,
+      clack.log.error,
+    ])
+      (fn as Mock).mockClear();
+  };
+
+  const expectNoRaw = (text: string): void => {
+    expect(text).not.toContain(CSI);
+    expect(text).not.toContain(RLO);
+    expect(text).not.toContain(ESC);
+  };
+
+  /** Rewrite the store pharn wrote, changed by `edit`. */
+  const plantStore = (edit: (r: Records) => void): void => {
+    const r = records();
+    edit(r);
+    writeFileSync(at('pharn.records.json'), JSON.stringify(r, null, 2));
+  };
+
+  it('a hostile stamp at the same upstream version: update prints it escaped, --json escapes it once', async () => {
+    await init();
+    plantStore((r) => {
+      r.skillsVersion = `1.0.0${CSI}2J${RLO}x${ESC}[31m`;
+    });
+    // JSON.stringify escaped ESC when the note was built; the two it leaves
+    // raw are escaped at print.
+    const shown = '"1.0.0\\u009b2J\\u202ex\\u001b[31m"';
+
+    clearPrinted();
+    expect(await run(() => runUpdate({ dryRun: true }))).toBeNull();
+    expect(
+      vi.mocked(clack.log.warn).mock.calls.map(String).join('\n'),
+    ).toContain(shown);
+    expectNoRaw(printed());
+
+    // The JSON report carries the note RAW and the serializer escapes it,
+    // losslessly: escaping it at build time as well would escape it twice.
+    stdout = [];
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
+    expect(stdout).toHaveLength(1);
+    expectNoRaw(stdout[0]!);
+    const report = JSON.parse(stdout[0]!) as {
+      plan: { recordsNote: string | null };
+    };
+    expect(report.plan.recordsNote).toContain(
+      `"1.0.0${CSI}2J${RLO}x\\u001b[31m"`,
+    );
+
+    clearPrinted();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(
+      vi.mocked(clack.log.warn).mock.calls.map(String).join('\n'),
+    ).toContain(shown);
+    expectNoRaw(printed());
+  });
+
+  it('a hostile key in an invalid store: update (newer upstream) and uninstall print it escaped', async () => {
+    await init();
+    const plant = (): void =>
+      plantStore((r) => {
+        r.files[`pharn/x${CSI}2J${RLO}y${ESC}[31m.md`] = 'not-a-sha256';
+      });
+    const shown = 'invalid hash for "pharn/x\\u009b2J\\u202ey\\u001b[31m.md"';
+    // An invalid store does not re-open the same-version early return, so
+    // upstream moves: the run gets far enough to print the note.
+    serveTip(SHA_V2, '2.0.0');
+    plant();
+
+    clearPrinted();
+    expect(await run(() => runUpdate({ dryRun: true }))).toBeNull();
+    expect(printed()).toContain(shown);
+    expectNoRaw(printed());
+
+    clearPrinted();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(printed()).toContain(shown);
+    expectNoRaw(printed());
+
+    // update rewrote the store; plant the hostile one again.
+    plant();
+    clearPrinted();
+    expect(await run(() => runUninstall({ yes: true }))).toBe(1);
+    expect(printed()).toContain(shown);
+    expectNoRaw(printed());
+    expect(existsSync(at('pharn.config.json'))).toBe(true);
   });
 });
 
