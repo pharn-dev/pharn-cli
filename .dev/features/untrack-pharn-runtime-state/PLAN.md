@@ -90,7 +90,9 @@ Nothing depends on them being tracked:
   - `git check-ignore -q` exits 0 for each of the eight runtime paths and for a future
     `.pharn/pharn-dev-memory-promote/candidate.json`;
   - `git check-ignore -q .pharn/ci.yml` exits 1 (the config is never ignored).
-  - Skips (`describe.skipIf`) when the cwd is not a git work tree, so a tarball test run is not a false RED.
+  - No skip (amended after pharn-ci TI03 flagged the original `describe.skipIf` as an added skip): every
+    place the suite runs (local, the CI `Test` job, `publish.yml`'s build job) is a git checkout, so a run
+    without git fails instead of passing silently.
 
 ## Guarantee audit (P0)
 

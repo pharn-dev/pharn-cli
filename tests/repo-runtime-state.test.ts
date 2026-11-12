@@ -15,9 +15,10 @@ import { describe, expect, it } from 'vitest';
 // ignored, so a re-added runtime file fails the second half too.
 //
 // git runs in the process cwd, which is the repo root under vitest (the other
-// tests that read repo files use cwd-relative paths the same way). A run
-// outside a work tree (an unpacked tarball) has no index to check, so the
-// suite skips there rather than going RED.
+// tests that read repo files use cwd-relative paths the same way). There is
+// no skip: every place this suite runs (local, the CI `Test` job, the publish
+// build job) is a git checkout, so a run without git fails instead of passing
+// silently.
 
 const RUNTIME_PATHS = [
   '.pharn/writes-scope.json',
@@ -38,26 +39,18 @@ function runGit(...args: string[]): { status: number | null; stdout: string } {
   return { status: r.status, stdout: r.stdout ?? '' };
 }
 
-const insideWorkTree =
-  runGit('rev-parse', '--is-inside-work-tree').stdout.trim() === 'true';
+describe('.pharn/ runtime state stays out of git', () => {
+  it('tracks nothing under .pharn/ but the pharn-ci config', () => {
+    const r = runGit('ls-files', '--', '.pharn');
+    expect(r.status).toBe(0);
+    expect(r.stdout.split('\n').filter(Boolean)).toEqual(['.pharn/ci.yml']);
+  });
 
-describe.skipIf(!insideWorkTree)(
-  '.pharn/ runtime state stays out of git',
-  () => {
-    it('tracks nothing under .pharn/ but the pharn-ci config', () => {
-      const r = runGit('ls-files', '--', '.pharn');
-      expect(r.status).toBe(0);
-      expect(r.stdout.split('\n').filter(Boolean)).toEqual(['.pharn/ci.yml']);
-    });
+  it.each(RUNTIME_PATHS)('ignores %s', (path) => {
+    expect(runGit('check-ignore', '-q', '--', path).status).toBe(0);
+  });
 
-    it.each(RUNTIME_PATHS)('ignores %s', (path) => {
-      expect(runGit('check-ignore', '-q', '--', path).status).toBe(0);
-    });
-
-    it('never ignores .pharn/ci.yml', () => {
-      expect(runGit('check-ignore', '-q', '--', '.pharn/ci.yml').status).toBe(
-        1,
-      );
-    });
-  },
-);
+  it('never ignores .pharn/ci.yml', () => {
+    expect(runGit('check-ignore', '-q', '--', '.pharn/ci.yml').status).toBe(1);
+  });
+});
