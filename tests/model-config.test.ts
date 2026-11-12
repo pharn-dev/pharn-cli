@@ -74,6 +74,21 @@ describe('checkModelsBlock', () => {
     );
   });
 
+  it('accepts a supervise entry (pharn-oss 7.9.0) and resolves supervise to it', () => {
+    const stages = valid({
+      default: { model: 'sonnet', effort: 'high' },
+      supervise: { model: 'opus', effort: 'high' },
+    });
+    expect(resolveStageModel(stages, 'supervise')).toEqual({
+      model: 'opus',
+      effort: 'high',
+    });
+    // Between triage and build, in the checker's order.
+    expect(PRODUCT_STAGES.indexOf('supervise')).toBe(
+      PRODUCT_STAGES.indexOf('triage') + 1,
+    );
+  });
+
   it('refuses a shape before it reads any stage', () => {
     expect(checkModelsBlock([])).toEqual({
       kind: 'invalid',

@@ -9,6 +9,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.18.3] — 2026-11-12
+
+### Fixed
+
+- **A `supervise` entry in `models.stages` is accepted.** pharn-oss 7.9.0 added the `/pharn-supervise` stage, which decides what an escalated full `/pharn-loop` does next, and its checker (`check-model-config.mjs`) accepts `supervise` as a product stage. pharn's copy of those rules did not, so a block naming `supervise` was reported as `stage "supervise" is not a product stage`: `pharn status` and `pharn update` listed your block as rejected, and `pharn init` and `pharn update` would not have applied such a block from pharn-oss. `supervise` now sits between `triage` and `build`, in the checker's order, and the MODELS notes and `status --json` list it. pharn-oss's own block names no `supervise` key, so the stage still resolves through `default`, and pharn-oss's `MIN_CLI` needs no change. The vendored copy of the checker that the parity test runs is refreshed to pharn-oss 7.10.2. README and getting-started now describe what a full `/pharn-loop` does after triage since pharn-oss 7.8.0 (re-plan rounds, then `/pharn-supervise`) instead of saying any verdict but proceed stops the run. See [docs/reference/pharn-config.md](docs/reference/pharn-config.md).
+
 ## [0.18.2] — 2026-11-11
 
 ### Fixed
@@ -350,7 +356,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.2...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.3...HEAD
+[0.18.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.17.0...v0.18.0

@@ -231,22 +231,23 @@ pharn-oss's block, as of pharn-oss 6.55.0:
 
 The rules are those of pharn-oss's checker (`check-model-config.mjs validate`):
 
-| Rule        | What pharn-oss accepts                                                                                                                                |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shape       | `models.stages` maps a stage name to `{ "model": …, "effort": … }`                                                                                    |
-| `default`   | Required, **inside** `stages` — what every stage without its own entry resolves to                                                                    |
-| Stage names | `default`, or a product stage: `spec`, `plan`, `grill`, `triage`, `build`, `regress`, `verify`, `ship`, `loop`, `review`, `memory-promote`, `ac-test` |
-| `model`     | An alias — `sonnet`, `opus`, `haiku`, `fable`, `inherit` — or a full id matching `claude-[a-z0-9][a-z0-9-]*`                                          |
-| `effort`    | `low`, `medium`, `high`, `xhigh` or `max`                                                                                                             |
+| Rule        | What pharn-oss accepts                                                                                                                                             |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Shape       | `models.stages` maps a stage name to `{ "model": …, "effort": … }`                                                                                                 |
+| `default`   | Required, **inside** `stages` — what every stage without its own entry resolves to                                                                                 |
+| Stage names | `default`, or a product stage: `spec`, `plan`, `grill`, `triage`, `supervise`, `build`, `regress`, `verify`, `ship`, `loop`, `review`, `memory-promote`, `ac-test` |
+| `model`     | An alias — `sonnet`, `opus`, `haiku`, `fable`, `inherit` — or a full id matching `claude-[a-z0-9][a-z0-9-]*`                                                       |
+| `effort`    | `low`, `medium`, `high`, `xhigh` or `max`                                                                                                                          |
 
 A config with no `models` block, or a block with no `stages`, declares nothing, and pharn-oss's
 checker passes it by design.
 
-`triage` is the stage of `/pharn-triage`, which pharn-oss added in 7.7.0. pharn-oss's own block
-names no `triage` key, so the stage resolves through `default`. pharn 0.18.0 and older do not know
-the stage: `pharn status` and `pharn update` report a block that names it as rejected (your own
-block is kept as it is), and `pharn init` and `pharn update` do not apply such a block from
-pharn-oss.
+`triage` is the stage of `/pharn-triage`, which pharn-oss added in 7.7.0, and `supervise` the
+stage of `/pharn-supervise`, which it added in 7.9.0. pharn-oss's own block names neither key, so
+both stages resolve through `default`. pharn 0.18.0 and older do not know `triage`, and pharn 0.18.2
+and older do not know `supervise`: `pharn status` and `pharn update` report a block that names an
+unknown stage as rejected (your own block is kept as it is), and `pharn init` and `pharn update` do
+not apply such a block from pharn-oss.
 
 ### What each command does with it
 
