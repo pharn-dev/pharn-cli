@@ -213,14 +213,6 @@ describe('diffHookWiring', () => {
     });
   });
 
-  it('still refuses a symlinked UPSTREAM settings.json', () => {
-    const { repo, proj } = setup(undefined, NEW);
-    const outside = join(tmp.path(), 'outside-upstream.json');
-    writeFileSync(outside, JSON.stringify(NEW));
-    symlinkSync(outside, join(repo, '.claude/settings.json'));
-    expect(diffHookWiring(repo, proj).status).toBe('no-upstream');
-  });
-
   // A FIFO used to block `pharn status` / `update` forever in open(2) — and
   // with fetchRepo's signal handlers installed, only SIGKILL ended it. The
   // open is SYNCHRONOUS, so a regression would hang this test worker past any
@@ -997,18 +989,6 @@ describe('upstreamSettingsSummary', () => {
     expect(upstreamSettingsSummary(repoWith(big))).toEqual({
       status: 'unreadable',
       reason: 'it is larger than 256 KB',
-    });
-  });
-
-  it('refuses a symlinked upstream settings.json (the upstream reader)', () => {
-    const repo = join(tmp.path(), 'repo');
-    mkdirSync(join(repo, '.claude'), { recursive: true });
-    const outside = join(tmp.path(), 'outside.json');
-    writeFileSync(outside, JSON.stringify(NEW));
-    symlinkSync(outside, join(repo, '.claude/settings.json'));
-    expect(upstreamSettingsSummary(repo)).toEqual({
-      status: 'unreadable',
-      reason: '.claude/settings.json is a symbolic link',
     });
   });
 

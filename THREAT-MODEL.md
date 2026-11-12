@@ -46,7 +46,8 @@ surface:
 1. **Malicious capability / product path** — a poisoned capability directory name, frontmatter
    field, or product command/hook filename containing `..`, an absolute path, or control chars →
    a write **outside the intended subtree** (arbitrary file overwrite in the user's repo). Symlinks
-   planted in the clone are a variant (copied verbatim unless rejected). The highest-value target.
+   planted in the archive are a variant — refused by the extractor's typeflag allowlist, so the
+   clone never holds one (the clone invariant, §2). The highest-value target.
 2. **Malformed capability frontmatter** — broken `role`/`applies` values, or a capability in the
    wrong subtree, to crash the install or mis-drive selection into an unintended capability set.
 3. **Oversized / slow response** — a huge clone or a hanging fetch → DoS the install. Every pharn
@@ -91,20 +92,37 @@ a test.
   three buckets:
   - **ACCEPT** typeflag `0`/NUL (regular file) and `5` (directory) — the only content types the
     archive holds.
-  - **SKIP** typeflag `g` (pax global header) and `x` (pax extended header), advancing past the
-    padded payload with **no** path rules applied. Every codeload tarball opens with a
-    `pax_global_header` whose single-segment name has no leading component to strip, so an extractor
-    that runs the path rules over it rejects every real archive on its first block.
-  - **REJECT** `1`/`2` (hard/symlink), `3`/`4` (devices), `6` (fifo), `7`, and any unknown byte. The
-    archive contains none today, so a rejection is a real signal rather than noise.
+  - **SKIP** typeflag `g` (pax global header), advancing past the padded payload **unread**, with
+    **no** path rules applied; it still counts toward the entry cap. Every codeload tarball opens with
+    a `pax_global_header` whose single-segment name has no leading component to strip, so an
+    extractor that runs the path rules over it rejects every real archive on its first block. pharn
+    reads only the ustar fields, so a `g` default (`path`, `size`) is never honoured: the entries
+    after it land at their own ustar paths under every rule below.
+  - **REJECT** `x` (pax extended header — refused on the typeflag alone, payload unread, because its
+    records would override the next entry's path and size), `1`/`2` (hard/symlink), `3`/`4`
+    (devices), `6` (fifo), `7`, and any unknown byte. The archive contains none today, so a rejection
+    is a real signal rather than noise.
 - **Paths are reassembled before they are judged.** The full path is `prefix + '/' + name` — ustar
   splits anything over 100 characters across those two header fields, and a large fraction of the
   live archive's entries use it. Reading `name` alone yields a bare leaf, which the strip-1 rule then
   rejects for having no leading component: a third of the tree silently lost, not merely misplaced.
-  After reassembly: absolute paths and `..` segments are rejected, exactly one leading component is
-  stripped, every entry must share the **same** root component, and every write resolves through
-  `safeJoin` (`src/lib/validate.ts`). Entry count and total extracted bytes are both capped. Header
-  checksums are verified, and the GNU base-256 numeric encoding is rejected rather than misparsed.
+  After reassembly: absolute paths, `..` segments and any `\` or `:` in a name are rejected (POSIX
+  would write `a\..\..\evil` as one literal name; win32 would read it as a path), exactly one
+  leading component is stripped, every entry must share the **same** root component, and every write resolves through
+  `safeJoin` (`src/lib/validate.ts`). The entry count is capped by the extractor and the total
+  extracted bytes by gunzip's decompressed-size cap (the decompressed tar holds every byte an entry
+  writes). Header checksums are verified, and numeric fields are octal only, so the GNU base-256
+  encoding is rejected rather than misparsed.
+- **The clone invariant.** The tree `fetchRepo` returns contains only regular files and
+  directories, created by this process in a private `mkdtemp` dir (0700) that nothing else writes:
+  the typeflag allowlist above admits nothing else, the extractor's only writes are `mkdirSync` and
+  `writeFileSync` through `safeJoin`, and a test pins that `src/lib/repo.ts` is the only producer of
+  a clone. Clone-side readers rely on it and carry no symlink, FIFO or device checks of their own;
+  they keep type checks where a directory (or a file where a directory belongs) can be produced.
+  The premise is an OS property — a process running as the same user can write the temp dir, but it
+  can already do anything pharn can. Every **destination** guard (symlink walks over project paths,
+  `prepareInstall`, `linkedComponent` before `rmSync`, `O_EXCL` temps, bounded non-blocking project
+  reads, the hard-link-safe copy) is separate and unchanged.
 - **No cache, anywhere.** Each fetch downloads into a fresh `mkdtemp` dir and removes it on both the
   error path and `cleanup()`. The previous implementation left a SHA-named `.tar.gz` plus
   `map.json`/`access.json` in a shared, cross-project cache directory on every fetch, reused entries
@@ -141,19 +159,19 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 
 | Surface | Structural answer | Floor primitive (current file/function) |
 | --- | --- | --- |
-| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `parseCapabilityIndex`, `installCapabilityDirs`, `copyFilteredDir`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; symlink rejection at copy roots (`isSymlink` / `noSymlinks` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + symlink backstop |
+| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `parseCapabilityIndex`, `installCapabilityDirs`, `copyFilteredDir`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar`'s typeflag allowlist) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
 | malformed capability frontmatter | `parseCapabilityIndex` hard-fails naming the offending capability on missing subtree/markdown, unknown `role` (`assertRole`), unknown `applies` token (`assertAppliesToken`), or subtree/role mismatch — never a silent skip | shape check |
 | oversized / slow `SKILLS_VERSION` fetch | 256 KB body cap + 8s timeout + `redirect: 'error'` | `fetchRemoteSkillsVersion` (`src/lib/skills-version.ts`) |
 | oversized / slow commit-SHA resolve | 8s timeout + `redirect: 'error'` + `MAX_SHA_BYTES` (1 KiB) body cap | `fetchCommitSha` (`src/lib/repo.ts`) |
-| oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + a separate cap on the **decompressed** size + `redirect: 'error'`; entry-count and total-byte caps in the extractor. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
+| oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + a separate cap on the **decompressed** size + `redirect: 'error'`; an entry-count cap in the extractor. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
 | redirect to attacker host | `redirect: 'error'` on every pharn `fetch()` call, the tarball included | `fetchRemoteSkillsVersion`, `fetchCommitSha`, `downloadArchive` |
-| malformed / hostile archive entry | typeflag allowlist (files + dirs only; symlinks, hardlinks, devices and fifos **rejected**), `prefix`+`name` reassembly, `..`/absolute rejection, single-root check, `safeJoin` on every write, header-checksum verification | `extractTar` (`src/lib/tar-extract.ts`) |
+| malformed / hostile archive entry | typeflag allowlist (files + dirs only; symlinks, hardlinks, devices and fifos **rejected**), `prefix`+`name` reassembly, `..`/absolute/`\`/`:` rejection, single-root check, `safeJoin` on every write, header-checksum verification | `extractTar` (`src/lib/tar-extract.ts`) |
 | poisoned tarball cache | **not applicable — pharn keeps no cache.** Every fetch downloads into a fresh temp dir | `fetchRepo` (`src/lib/repo.ts`) |
 | malformed / hostile upstream `models` block | bounded (1 MiB), non-blocking read; checked against pharn-oss's rules through the pinned copy; an unserializable block is refused; a failing block is **not written** and each reason is printed through `terminalSafe`; never executed | `readUpstreamModels` (`src/lib/upstream-models.ts`), `checkModelsBlock` (`src/lib/model-config.ts`) |
 | hostile `pharn.records.json` keys / stamp (committed, hand-editable; only type-checked) quoted into a terminal message | the records note `update` prints (`recordsNote`, built with `JSON.stringify`, which leaves C1 — the 8-bit CSI U+009B — and bidi overrides raw) is escaped with `escapeUnsafe` at both print sites; `--dry-run --json` carries it raw for `serializeJsonReport` to escape once; `uninstall`'s refusal escapes the same message. One unsafe-character set (C0, DEL, C1, `\p{Cf}`, U+2028/2029) in `terminal-safe.ts`, which `terminalSafe` / `hasUnsafeChars` / `escapeUnsafe` / `assertSafeString` all derive from — a static test refuses a second definition in `src/` | `reportOutcome` / `reportDryRun` (`src/lib/update-render.ts`), `escapeUnsafe` (`src/lib/terminal-safe.ts`) |
 | consent bypass / silent overwrite | install summary confirm (`runArchetypeSummary`); overwrite-conflict list derived from `collectExpectedInstallPaths` + default **No** (`confirmWriteTargets` in `src/steps/overwrite-check.ts`) | consent gate |
 | copied methodology (Surface A) | validated for placement only; content trust is provenance + user review (`LIMITS.md §1`) | (labeled limit) |
-| upstream `.claude/settings.json` hook commands (copied verbatim on a fresh install; Claude Code runs them later) | an existing file is never overwritten; on a fresh install the file is copied only when the clone's exists and is not a symlink (`upstreamSettingsCopyable`), and `init` (real run, `--yes`, `--dry-run`) lists every wired command through `displayHook` (escaped, capped) and names the other top-level keys through `escapeUnsafe`, from a bounded (256 KiB), non-blocking, symlink-refusing read; entries that read does not recognise are counted, and a file it refuses is still copied with a note that its hooks could not be listed; never executed by pharn — content trust is provenance (§4a) | `upstreamSettingsSummary` / `freshSettingsHookLines` (`src/lib/hook-wiring.ts`), `upstreamSettingsCopyable` (`src/lib/install-capabilities.ts`) |
+| upstream `.claude/settings.json` hook commands (copied verbatim on a fresh install; Claude Code runs them later) | an existing file is never overwritten; on a fresh install the file is copied only when the clone ships one (`upstreamSettingsCopyable`), and `init` (real run, `--yes`, `--dry-run`) lists every wired command through `displayHook` (escaped, capped) and names the other top-level keys through `escapeUnsafe`, from a bounded (256 KiB), non-blocking read of a tree that holds no links (the clone invariant, §2); entries that read does not recognise are counted, and a file it refuses is still copied with a note that its hooks could not be listed; never executed by pharn — content trust is provenance (§4a) | `upstreamSettingsSummary` / `freshSettingsHookLines` (`src/lib/hook-wiring.ts`), `upstreamSettingsCopyable` (`src/lib/install-capabilities.ts`) |
 | stale / renamed upstream | drift derived live; a missing expected path is **reported**, never guessed | `diffInstalledCapabilities` (`src/lib/diff.ts`) |
 
 ### 3.1 The config write (`pharn.config.json`) as a sink
@@ -192,7 +210,7 @@ not a "the source repo is ours" assumption (P0).
 - **4a. Provenance, not verification.** pharn trusts the configured source repo by **provenance**
   (plus validation), not by a signature over a release. A compromised upstream serving valid-**shaped**
   but malicious methodology passes the structural floor. _Backstop:_ the floor still contains **where**
-  bytes land (`safeJoin` + symlink rejection) and **how** the lightweight fetches are bounded — a
+  bytes land (`safeJoin` + destination symlink walks) and **how** the lightweight fetches are bounded — a
   hostile upstream is bounded to "content inside the mirrored install paths you can read and review,"
   never arbitrary-path write via validated names; off-host egress is blocked on pharn's `fetch()` calls.
   On a fresh install `init` shows the user every hook command the copied `.claude/settings.json`

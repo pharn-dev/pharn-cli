@@ -83,11 +83,9 @@ export interface MinCliRead {
 export function readMinCli(repoDir: string): MinCliRead {
   const path = safeJoin(repoDir, MIN_CLI_FILE);
 
-  // ONE descriptor, opened once and read once. Not `existsSync` + `readFileSync`
-  // and not `statSync` + `readFileSync`: both check one file and then read
-  // whatever is at that name afterwards, which is a TOCTOU race on an untrusted
-  // clone directory. Opening first and reading from the SAME fd means the bytes
-  // that arrive are the bytes of the file that was opened.
+  // ONE descriptor, so the read below can be bounded without a separate size
+  // check. (No race to close: the clone is pharn's own private temp dir, the
+  // clone invariant in lib/repo.ts.)
   let fd: number;
   try {
     fd = openSync(path, 'r');

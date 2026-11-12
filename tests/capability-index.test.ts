@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -343,32 +343,6 @@ describe('parseCapabilityIndex', () => {
       },
     ]);
   });
-
-  it('never follows a SYMLINKED <name>.md (it could point outside the clone)', () => {
-    const repo = join(tmp.path(), 'repo');
-    scaffold(repo);
-    const outside = join(tmp.path(), 'outside-cap.md');
-    writeFileSync(outside, fm('griller', '["universal"]'));
-    mkdirSync(join(repo, GRILLERS, 'linked'), { recursive: true });
-    symlinkSync(outside, join(repo, GRILLERS, 'linked', 'linked.md'));
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities).toEqual([]);
-    expect(index.unknown.map((u) => u.name)).toEqual(['linked']);
-  });
-
-  it.skipIf(process.platform === 'win32')(
-    'refuses a FIFO <name>.md without reading it (a read would block forever)',
-    () => {
-      const repo = tmp.path();
-      scaffold(repo);
-      mkdirSync(join(repo, GRILLERS, 'piped'), { recursive: true });
-      execFileSync('mkfifo', [join(repo, GRILLERS, 'piped', 'piped.md')]);
-
-      const index = parseCapabilityIndex(repo);
-      expect(index.unknown.map((u) => u.name)).toEqual(['piped']);
-    },
-  );
 
   it('skips and reports a directory with no capability markdown (the live repro)', () => {
     const repo = tmp.path();

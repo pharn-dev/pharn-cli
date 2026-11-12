@@ -1,7 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { hasUnsafeChars, terminalSafe } from './terminal-safe.js';
+import { escapeUnsafe, hasUnsafeChars } from './terminal-safe.js';
 import { safeJoin } from './validate.js';
 
 /**
@@ -20,52 +20,44 @@ import { safeJoin } from './validate.js';
  * every unexpected entry is a THROW: the archive pharn fetches contains only
  * regular files and directories, so anything else is a signal, not noise.
  *
- * Three buckets, not two — the middle one is load-bearing:
+ * WHAT THE TREE CAN HOLD (the invariant `fetchRepo` states, lib/repo.ts): only
+ * regular files and directories, under `destDir`. Nothing else is ever created:
+ * the only writes are `mkdirSync` and `writeFileSync`, each through `safeJoin`.
+ * Clone-side readers rely on this instead of re-checking for links.
+ *
+ * Three buckets:
  *
  *   ACCEPT  typeflag '0' / NUL (regular file) and '5' (directory).
- *   SKIP    typeflag 'g' (pax global header) — but only once its records have
- *           been READ and found harmless. Every GitHub codeload tarball opens
- *           with a `pax_global_header` whose single-segment name has no leading
- *           component to strip, so an extractor that runs the path rules over it
- *           rejects every real archive on its FIRST block; it is the one entry
- *           that must be skipped rather than judged as a path.
- *   REJECT  typeflag 'x' (pax extended header), a 'g' that sets a path/size
- *           default, and everything else: '1'/'2' (hard/symlink), '3'/'4'
- *           (devices), '6' (fifo), '7', GNU 'L'/'K' (long name / long link
- *           name), and any unknown byte.
+ *   SKIP    typeflag 'g' (pax global header), its payload UNREAD. Every GitHub
+ *           codeload tarball opens with a `pax_global_header` whose
+ *           single-segment name has no leading component to strip, so it is the
+ *           one entry that must be skipped rather than judged as a path. It
+ *           still counts toward `maxEntries`.
+ *   REJECT  everything else: 'x' (pax extended header), '1'/'2' (hard/symlink),
+ *           '3'/'4' (devices), '6' (fifo), '7', GNU 'L'/'K' (long name / long
+ *           link name), and any unknown byte.
  *
- * WHY PAX IS REFUSED RATHER THAN HONOURED. A pax header's records OVERRIDE the
- * ustar header they precede, and two of them decide what this module does:
- * `path=` replaces prefix+name, and `size=` replaces how many bytes the entry
- * occupies. A writer emits `path=` exactly when the real path does not fit
- * ustar — and writes the path TRUNCATED to the 100-byte `name` field in the
- * header it cannot represent. That truncated path is relative, has a leading
- * component and contains no '..', so it passes every rule below: discarding the
- * record lands the file at a wrong-but-contained path, SILENTLY. A discarded
- * `size=` is worse — it mis-frames every following header, so the reader starts
- * parsing attacker-controlled file CONTENT as tar headers.
- *
- * The refusal is asymmetric, and the asymmetry is measured rather than assumed.
- * The live archive (1,968 entries) contains ZERO 'x' headers and exactly one
- * 'g', carrying `comment=<sha>`. So for 'x', PRESENCE is the signal: the throw
- * reads the typeflag byte alone and never consults the payload, which is why no
- * malformed payload can suppress it. 'g' is mandatory in every real archive, so
- * only its CONTENTS can be the signal: its records are parsed, and a `path`,
- * `linkpath` or `size` default — or a payload that does not parse cleanly —
- * throws, while `comment`/`mtime`/vendor records are skipped as before.
- *
- * Honouring pax is deliberately NOT the fix. pharn fetches one known archive
- * shape; implementing `path=` would mean running the path rules over a second
- * untrusted path source, which is new attack surface bought for a case that
- * does not occur.
+ * WHY PAX IS NEVER HONOURED. pharn reads ONLY the ustar fields: `name`,
+ * `prefix`, `size`, `typeflag`. A pax record would override two of them —
+ * `path=` replaces prefix+name, `size=` how many bytes the entry spans — so
+ * honouring pax would mean a second untrusted path source. A per-file 'x' header
+ * exists to carry exactly those overrides, and a writer emits one when the real
+ * path does not fit ustar (writing it TRUNCATED into `name`, where it would pass
+ * every rule below), so 'x' is refused on its typeflag alone, payload unread.
+ * A global 'g' header cannot be refused (every real archive has one), and
+ * ignoring it is safe: its defaults are never consulted, so the entries that
+ * follow land at their own ustar paths under every rule below, and the walk is
+ * framed by the ustar `size` alone — a stream that does not agree with it fails
+ * the next header's checksum or magic. The cost, named: an archive whose `g`
+ * meant "put everything at X" is extracted at its ustar paths, contained.
  *
  * Untrusted input (P2): the archive is remote bytes. Every accepted path is
- * reconstructed from `prefix` + `name`, checked for absoluteness and `..`
- * segments, stripped of exactly one leading component, and resolved through
- * `safeJoin` against the destination — the same lexical containment gate the
- * install writers use. Contents are written verbatim, never executed.
+ * reconstructed from `prefix` + `name`, checked for absoluteness, `..`
+ * segments, `\` and `:`, stripped of exactly one leading component, and
+ * resolved through `safeJoin` against the destination — the same lexical
+ * containment gate the install writers use. Contents are written verbatim,
+ * never executed.
  */
-
 /** A ustar header block is exactly 512 bytes; payloads are padded to that. */
 const BLOCK = 512;
 
@@ -84,7 +76,11 @@ const LEN_PREFIX = 155;
 export interface TarLimits {
   /** Maximum number of ACCEPTed entries. */
   maxEntries: number;
-  /** Maximum total bytes written across all ACCEPTed files. */
+  /**
+   * The largest DECOMPRESSED tar `extractTarGz` accepts (gunzip's
+   * `maxOutputLength`). The tar holds every byte an entry writes, so this is
+   * also the bound on bytes written; `extractTar` itself does not re-count.
+   */
   maxTotalBytes: number;
 }
 
@@ -144,18 +140,13 @@ function readPathField(block: Buffer, offset: number, length: number): string {
 
 /**
  * A ustar numeric field: octal digits, space- or NUL-terminated. GNU's base-256
- * extension (high bit set on the first byte) is REJECTED rather than
- * misparsed — this archive's largest file is far under the 8 GB octal ceiling,
- * so a base-256 size here is malformed input, not a large file.
+ * extension (high bit set on the first byte) is never misread: no such byte is
+ * an octal digit, so it fails the octal test below. Only ASCII space is trimmed
+ * — `String#trim` would also strip U+00A0 (latin1 0xA0, a high-bit byte) and
+ * read the digits behind it.
  */
 function readOctal(block: Buffer, offset: number, length: number): number {
-  const raw = block.subarray(offset, offset + length);
-  if (raw.length > 0 && (raw[0]! & 0x80) !== 0) {
-    throw new TarExtractError(
-      'tar header uses the GNU base-256 numeric encoding, which pharn does not accept.',
-    );
-  }
-  const text = readString(block, offset, length).trim();
+  const text = readString(block, offset, length).replace(/^ +| +$/g, '');
   if (text === '') return 0;
   if (!/^[0-7]+$/.test(text)) {
     throw new TarExtractError(
@@ -166,74 +157,6 @@ function readOctal(block: Buffer, offset: number, length: number): number {
     );
   }
   return parseInt(text, 8);
-}
-
-/**
- * The pax record keywords that override what this module reads out of the ustar
- * header that follows: where the entry is written, and how many bytes it spans.
- * Membership here is an exact string compare against the raw keyword, so no
- * encoding trick can spoof it.
- */
-const PAX_OVERRIDE_KEYWORDS = new Set(['path', 'linkpath', 'size']);
-
-/** Keyword shape allowed into an error message, so no remote byte reaches a terminal raw. */
-const PAX_KEYWORD_RE = /^[A-Za-z0-9._-]{1,64}$/;
-
-/** At most this many keywords are named in a message; the rest are elided. */
-const PAX_KEYWORDS_IN_MESSAGE = 8;
-
-/**
- * Read a pax header's payload as its list of record KEYWORDS, or `null` when it
- * does not parse cleanly under the POSIX grammar `<len> SP <keyword>=<value> LF`
- * (where `<len>` counts the whole record, its own digits included).
- *
- * `null` is a refusal, not a shrug: callers throw on it. Returning "the
- * keywords I managed to find" would let a record whose length prefix disagrees
- * with its own bytes hide a `path=` between two mis-split records — so a payload
- * this reader cannot account for END TO END is treated as unexpected input,
- * which is the same posture the rest of the module takes.
- *
- * Values are never returned. Only the keyword is ever used, and only for a
- * membership test or a filtered message.
- */
-function readPaxKeywords(payload: Buffer): string[] | null {
-  const keywords: string[] = [];
-  let at = 0;
-  while (at < payload.length) {
-    const space = payload.indexOf(0x20, at); // ' '
-    if (space === -1) return null;
-    const digits = payload.subarray(at, space).toString('latin1');
-    if (!/^[0-9]{1,10}$/.test(digits)) return null;
-    const end = at + Number(digits);
-    // The record must end inside the payload, past its own length field (which
-    // also guarantees forward progress), and on its own newline.
-    if (end > payload.length || end <= space || payload[end - 1] !== 0x0a) {
-      return null;
-    }
-    // ...with a non-empty keyword and a '=' before that newline.
-    const eq = payload.indexOf(0x3d, space + 1); // '='
-    if (eq === -1 || eq < space + 2 || eq > end - 2) return null;
-    keywords.push(payload.subarray(space + 1, eq).toString('latin1'));
-    at = end;
-  }
-  return keywords;
-}
-
-/**
- * Render keywords for an error message: shape-filtered, deduped and capped, so
- * a hostile payload cannot push control characters or unbounded text into a
- * terminal. Diagnosis only — no branch reads this.
- */
-function describeKeywords(keywords: string[] | null): string {
-  if (keywords === null) return 'its records could not be read';
-  if (keywords.length === 0) return 'it carries no records';
-  const shown = [...new Set(keywords)]
-    .map((keyword) =>
-      PAX_KEYWORD_RE.test(keyword) ? keyword : '<unprintable>',
-    )
-    .slice(0, PAX_KEYWORDS_IN_MESSAGE);
-  const more = new Set(keywords).size - shown.length;
-  return `records ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}`;
 }
 
 /**
@@ -249,22 +172,24 @@ function describeKeywords(keywords: string[] | null): string {
 function assertDisplayablePath(fullPath: string): void {
   if (hasUnsafeChars(fullPath)) {
     throw new TarExtractError(
-      `tar entry path contains a control or format character: ${JSON.stringify(
-        terminalSafe(fullPath, { max: 200 }),
-      )}`,
+      // Escaped HERE, not only at the print site: under PHARN_DEBUG the raw
+      // error object is printed, past logError's strip.
+      `tar entry path contains a control or format character: "${escapeUnsafe(
+        fullPath.length > 200 ? `${fullPath.slice(0, 200)}…` : fullPath,
+      )}"`,
     );
   }
 }
 
 /** A typeflag for a message: the character if printable, else its code. */
 function describeTypeflag(typeflag: string): string {
+  if (typeflag === 'x') {
+    return "'x' (a pax extended header, whose records would override the next entry's path and size)";
+  }
   return hasUnsafeChars(typeflag)
     ? `0x${typeflag.charCodeAt(0).toString(16).padStart(2, '0')}`
     : `'${typeflag}'`;
 }
-
-/** The largest pax (`g`/`x`) payload whose records are parsed at all. */
-const MAX_PAX_BYTES = 64 * 1024;
 
 /** Refuse any non-zero byte from `from` to the end (after the end marker). */
 function assertZeroTail(tar: Buffer, from: number): void {
@@ -324,6 +249,13 @@ function resolveEntryPath(
   }
   if (fullPath.startsWith('/')) {
     throw new TarExtractError(`tar entry has an absolute path: ${fullPath}`);
+  }
+  // POSIX writes `a\..\..\evil` as ONE literal name; win32 reads the same
+  // bytes as a path (and `C:` as a drive). pharn-oss ships neither character.
+  if (/[\\:]/.test(fullPath)) {
+    throw new TarExtractError(
+      `tar entry path contains a backslash or colon, which pharn does not accept: ${fullPath}`,
+    );
   }
   const segments = fullPath.replace(/\/+$/, '').split('/');
   for (const segment of segments) {
@@ -395,11 +327,6 @@ export function extractTar(
 ): void {
   let offset = 0;
   let entries = 0;
-  let totalBytes = 0;
-  // Pax payload bytes parsed so far, across EVERY global header. The per-header
-  // cap alone bounded one payload, not their number: 2030 headers of 64 KiB each
-  // still cost seconds of CPU. A real archive carries one, of ~52 bytes.
-  let paxBytes = 0;
   let expectedRoot: string | null = null;
 
   while (offset + BLOCK <= tar.length) {
@@ -435,62 +362,13 @@ export function extractTar(
     const next = dataStart + Math.ceil(size / BLOCK) * BLOCK;
     const typeflag = String.fromCharCode(header[OFF_TYPEFLAG]!);
 
-    // A pax header's records are parsed (below) only when its payload is small:
-    // git archive writes one `comment=<sha>` record (~52 bytes), while a payload
-    // inflated to the decompression cap cost seconds of CPU and a gigabyte of
-    // memory to parse. Refused on the size field alone, before any parse.
-    if ((typeflag === 'x' || typeflag === 'g') && size > MAX_PAX_BYTES) {
-      throw new TarExtractError(
-        `tar archive has a pax header of ${size} bytes, over the ${MAX_PAX_BYTES}-byte limit pharn accepts.`,
-      );
-    }
-
-    // REJECT — a per-file pax extended header. The decision is the typeflag
-    // ALONE; the payload is read only afterwards, to name what was seen. (The
-    // ustar size field above is still read first, so an 'x' whose size field is
-    // itself malformed surfaces as that numeric refusal rather than this one —
-    // both are a TarExtractError and neither writes.)
-    if (typeflag === 'x') {
-      throw new TarExtractError(
-        "tar archive contains a pax extended header (typeflag 'x'), which pharn does not " +
-          `support — its records override the next entry's path and size: ${describeKeywords(
-            readPaxKeywords(tar.subarray(dataStart, dataEnd)),
-          )}.`,
-      );
-    }
-
-    // SKIP — a pax GLOBAL header, but only after reading it. No path rules are
-    // applied to the header itself (see the module comment); its records are
-    // what is judged, because a global record is a default for every entry that
-    // follows it.
+    // SKIP — a pax GLOBAL header, payload unread (see the module comment). It
+    // counts toward the entry cap like any other header.
     if (typeflag === 'g') {
-      // Every header counts toward the entry cap, a global one included, and the
-      // payload toward the per-archive pax budget — both before any parse.
       entries += 1;
       if (entries > limits.maxEntries) {
         throw new TarExtractError(
           `tar archive has more than ${limits.maxEntries} entries.`,
-        );
-      }
-      paxBytes += size;
-      if (paxBytes > MAX_PAX_BYTES) {
-        throw new TarExtractError(
-          `tar archive's pax global headers total ${paxBytes} bytes, over the ${MAX_PAX_BYTES}-byte limit pharn accepts.`,
-        );
-      }
-      const keywords = readPaxKeywords(tar.subarray(dataStart, dataEnd));
-      if (keywords === null) {
-        throw new TarExtractError(
-          'tar archive has a pax global header whose records could not be read.',
-        );
-      }
-      const overrides = keywords.filter((keyword) =>
-        PAX_OVERRIDE_KEYWORDS.has(keyword),
-      );
-      if (overrides.length > 0) {
-        throw new TarExtractError(
-          'tar archive has a pax global header setting a default that overrides every ' +
-            `following entry, which pharn does not support: ${describeKeywords(overrides)}.`,
         );
       }
       offset = next;
@@ -521,12 +399,6 @@ export function extractTar(
       if (entries > limits.maxEntries) {
         throw new TarExtractError(
           `tar archive has more than ${limits.maxEntries} entries.`,
-        );
-      }
-      totalBytes += size;
-      if (totalBytes > limits.maxTotalBytes) {
-        throw new TarExtractError(
-          `tar archive expands past ${limits.maxTotalBytes} bytes.`,
         );
       }
       // safeJoin is the lexical containment gate (lib/validate.ts) every path

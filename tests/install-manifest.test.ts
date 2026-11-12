@@ -3,7 +3,6 @@ import {
   mkdirSync,
   readdirSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -210,32 +209,6 @@ describe('collectExpectedInstallPaths (flat)', () => {
   });
 });
 
-describe('collectExpectedInstallPaths (untrusted symlinks)', () => {
-  const tmp = useTmpDir();
-
-  it('skips a symlink inside a walked dir (mirrors install, which never copies symlinks)', () => {
-    const repo = join(tmp.path(), 'repo');
-    scaffoldRepo(repo);
-    // Plant a symlink inside a walked capability dir — the clone is untrusted (P2)
-    // and installCapabilities never materializes symlinks, so the mirror must not
-    // enumerate one either (a symlink's Dirent.isDirectory() is false).
-    symlinkSync(
-      join(repo, 'CONSTITUTION.md'),
-      join(repo, 'pharn-pipeline/grillers/a11y/evil.md'),
-    );
-    const keys = [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'flat',
-      }).keys(),
-    ];
-    expect(keys).not.toContain('pharn-pipeline/grillers/a11y/evil.md');
-    // The real (non-symlink) sibling in the same dir is still enumerated.
-    expect(keys).toContain('pharn-pipeline/grillers/a11y/a11y.md');
-  });
-});
-
 describe('collectExpectedInstallPaths (pharn layout)', () => {
   const tmp = useTmpDir();
 
@@ -278,31 +251,6 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).not.toContain('pharn/floor/validate.test.mjs');
     // .claude/* stays layout-invariant (at root, not under pharn/).
     expect(k).toContain('.claude/commands/pharn-plan.md');
-  });
-
-  // P2: the manifest is the SOURCE side of every update write, so a symlinked
-  // pharn-core root must contribute nothing — the writer refuses it, and a
-  // mirror that enumerated it would have `update` copy files from outside the
-  // clone into the user's repo.
-  it('a symlinked pharn-core root contributes NO keys', () => {
-    const repo = join(tmp.path(), 'repo');
-    const outside = join(tmp.path(), 'outside');
-    scaffoldRepoPharn(repo);
-    write(join(outside, 'secret.md'), 'not from the clone');
-    rmSync(join(repo, 'pharn/pharn-core'), { recursive: true, force: true });
-    symlinkSync(outside, join(repo, 'pharn/pharn-core'));
-
-    const k = [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'pharn',
-      }).keys(),
-    ];
-    expect(k.some((p) => p.startsWith('pharn/pharn-core/'))).toBe(false);
-    expect(k.some((p) => p.includes('secret'))).toBe(false);
-    // The sibling surfaces are unaffected — the skip is scoped to this root.
-    expect(k).toContain('pharn/pharn-contracts/finding-shape.md');
   });
 });
 
@@ -587,80 +535,6 @@ describe('collectExpectedInstallPaths ⟷ the update writer (mirror)', () => {
   });
 });
 
-// The manifest is the SOURCE side of every update write, so a symlinked source
-// root would let a hostile clone source files from anywhere on disk into the
-// user's repo. installCapabilities never copies through such a root; the mirror
-// must not enumerate one either.
-describe('collectExpectedInstallPaths — symlinked SOURCE roots (P2)', () => {
-  const tmp = useTmpDir();
-
-  function keysWith(plant: (repo: string, outside: string) => void): string[] {
-    const repo = join(tmp.path(), 'repo');
-    const outside = join(tmp.path(), 'outside');
-    scaffoldRepo(repo);
-    write(join(outside, 'secret.md'), 'not from the clone');
-    plant(repo, outside);
-    return [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'flat',
-      }).keys(),
-    ];
-  }
-
-  it('a symlinked capability dir contributes NOTHING (never files from outside the clone)', () => {
-    const keys = keysWith((repo, outside) => {
-      rmSync(join(repo, 'pharn-review/n-plus-one'), {
-        recursive: true,
-        force: true,
-      });
-      symlinkSync(outside, join(repo, 'pharn-review/n-plus-one'));
-    });
-    expect(keys).not.toContain('pharn-review/n-plus-one/secret.md');
-    expect(keys.some((k) => k.includes('secret'))).toBe(false);
-    // The real sibling capability is unaffected.
-    expect(keys).toContain('pharn-pipeline/grillers/a11y/a11y.md');
-  });
-
-  it('a symlinked contracts/floor dir contributes nothing', () => {
-    const keys = keysWith((repo, outside) => {
-      rmSync(join(repo, 'pharn-contracts'), { recursive: true, force: true });
-      symlinkSync(outside, join(repo, 'pharn-contracts'));
-    });
-    expect(keys.some((k) => k.startsWith('pharn-contracts/'))).toBe(false);
-  });
-
-  it('a symlinked trusted doc is not expected', () => {
-    const keys = keysWith((repo, outside) => {
-      rmSync(join(repo, 'CONSTITUTION.md'), { force: true });
-      symlinkSync(join(outside, 'secret.md'), join(repo, 'CONSTITUTION.md'));
-    });
-    expect(keys).not.toContain('CONSTITUTION.md');
-  });
-
-  // lstat refuses to dereference only the FINAL component, so checking the leaf
-  // alone still enumerates a clone whose ANCESTOR directory is a symlink.
-  it('a symlinked ANCESTOR of a capability dir contributes nothing', () => {
-    const keys = keysWith((repo, outside) => {
-      write(join(outside, 'n-plus-one/n-plus-one.md'), 'planted');
-      rmSync(join(repo, 'pharn-review'), { recursive: true, force: true });
-      symlinkSync(outside, join(repo, 'pharn-review'));
-    });
-    expect(keys.some((k) => k.startsWith('pharn-review/'))).toBe(false);
-    expect(keys).toContain('pharn-pipeline/grillers/a11y/a11y.md');
-  });
-
-  it('a symlinked ANCESTOR of the floor dir contributes nothing', () => {
-    const keys = keysWith((repo, outside) => {
-      write(join(outside, 'floor/evil.mjs'), 'planted');
-      rmSync(join(repo, '.dev'), { recursive: true, force: true });
-      symlinkSync(outside, join(repo, '.dev'));
-    });
-    expect(keys.some((k) => k.startsWith('.dev/'))).toBe(false);
-  });
-});
-
 // The CLI's own metadata is not part of the install: it is never copied from the
 // clone and must never be reported as drift or as an overwrite conflict.
 describe('CLI-owned metadata is outside the install set', () => {
@@ -746,23 +620,6 @@ describe('capabilityCloneFiles', () => {
     ).toEqual(['pharn/pharn-pipeline/grillers/a11y/a11y.md']);
   });
 
-  it('skips a symlink inside the capability dir, matching the copy filter', () => {
-    // installCapabilityDirs' cpSync passes `filter: noSymlinks`, so a symlinked
-    // entry is never written — claiming it here would put a path in the drift set
-    // and the record store that the copy never touches.
-    const repo = tmp.path();
-    write(join(repo, 'pharn-review/x/x.md'));
-    write(join(repo, 'outside.md'));
-    symlinkSync(join(repo, 'outside.md'), join(repo, 'pharn-review/x/link.md'));
-
-    expect(
-      capabilityCloneFiles(repo, layoutPaths('flat'), {
-        name: 'x',
-        role: 'lens',
-      }),
-    ).toEqual(['pharn-review/x/x.md']);
-  });
-
   it('is [] when the capability dir is absent — the pre-flight owns that refusal', () => {
     // A raw ENOENT from here would pre-empt installCapabilityDirs' curated
     // `Capability "ghost" (lens) is missing at …` message, which is the one the
@@ -775,26 +632,12 @@ describe('capabilityCloneFiles', () => {
     ).toEqual([]);
   });
 
-  it('is [] when the capability dir is itself a symlink', () => {
-    const repo = tmp.path();
-    write(join(repo, 'elsewhere/x.md'));
-    mkdirSync(join(repo, 'pharn-review'), { recursive: true });
-    symlinkSync(join(repo, 'elsewhere'), join(repo, 'pharn-review/x'));
-
-    expect(
-      capabilityCloneFiles(repo, layoutPaths('flat'), {
-        name: 'x',
-        role: 'lens',
-      }),
-    ).toEqual([]);
-  });
-
   // The MIRROR pin, the same one collectExpectedInstallPaths carries against a
   // real installCapabilities run. capabilityCloneFiles drives a DESTRUCTIVE
   // decision (which files `add` backs up) and a DURABLE one (which it records),
   // so its agreement with what the copy actually writes must be tested, not
-  // argued: the two traversals are independent (walkFiles' Dirent check vs
-  // cpSync's noSymlinks filter) and could drift apart silently.
+  // argued: the two traversals are independent (walkFiles vs cpSync's own
+  // recursion) and could drift apart silently.
   it('MIRROR: equals exactly what a real installCapabilityDirs copy writes', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -802,9 +645,6 @@ describe('capabilityCloneFiles', () => {
     write(join(repo, 'pharn-review/a11y/a11y.md'));
     write(join(repo, 'pharn-review/a11y/evals/cases/basic.md'));
     write(join(repo, 'pharn-review/a11y/evals/expected/basic.json'));
-    // A symlink the copy skips — the divergence the mirror exists to catch.
-    write(join(repo, 'outside.md'));
-    symlinkSync(join(repo, 'outside.md'), join(repo, 'pharn-review/a11y/l.md'));
     const cap = { name: 'a11y', role: 'lens' } as const;
 
     installCapabilityDirs(repo, proj, [cap]);
@@ -1118,17 +958,6 @@ describe('absentInstallSurfaces', () => {
     expect(absentInstallSurfaces({ repoDir: repo, layout: 'pharn' })).toEqual(
       [],
     );
-  });
-
-  it('a symlinked surface root is absent — the copy refuses it too', () => {
-    const repo = repoOf(scaffoldRepoPharn);
-    const outside = join(tmp.path(), 'outside');
-    write(join(outside, 'x.md'));
-    rmSync(join(repo, 'pharn/pharn-core'), { recursive: true, force: true });
-    symlinkSync(outside, join(repo, 'pharn/pharn-core'));
-    expect(absentInstallSurfaces({ repoDir: repo, layout: 'pharn' })).toEqual([
-      { surface: 'core', path: 'pharn/pharn-core' },
-    ]);
   });
 });
 

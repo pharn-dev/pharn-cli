@@ -184,35 +184,6 @@ describe('scanDest', () => {
     expect(scan.unsafe.map((u) => u.rel)).toEqual([NESTED]);
   });
 
-  it('does NOT hash through a symlinked CLONE file', () => {
-    // The untrusted side. installCapabilityDirs' noSymlinks filter never copies
-    // one, so it can never be the source of an overwrite either.
-    const { repo, proj } = trees();
-    write(join(repo, 'outside.md'), 'clone-external bytes');
-    mkdirSync(join(repo, REL, '..'), { recursive: true });
-    symlinkSync(join(repo, 'outside.md'), join(repo, REL));
-    write(join(proj, REL), 'MY EDIT');
-
-    expect(
-      scanDest({ repoDir: repo, projectRoot: proj, rels: [REL] }).drifted,
-    ).toEqual([]);
-  });
-
-  it('does NOT hash through a symlinked CLONE parent component', () => {
-    // The untrusted side gets the same per-component walk the project side does:
-    // lstat refuses to dereference only the final component, so a leaf-only check
-    // would read a file from outside the clone through a symlinked parent.
-    const { repo, proj } = trees();
-    write(join(repo, 'elsewhere/a11y.md'), 'clone-external bytes');
-    mkdirSync(join(repo, 'pharn-review'), { recursive: true });
-    symlinkSync(join(repo, 'elsewhere'), join(repo, 'pharn-review/a11y'));
-    write(join(proj, REL), 'MY EDIT');
-
-    expect(
-      scanDest({ repoDir: repo, projectRoot: proj, rels: [REL] }).drifted,
-    ).toEqual([]);
-  });
-
   it('does NOT report a destination that is a directory', () => {
     const { repo, proj } = trees();
     write(join(repo, REL), 'upstream');

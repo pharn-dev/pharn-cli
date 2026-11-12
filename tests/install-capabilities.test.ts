@@ -27,18 +27,6 @@ function write(path: string, content = 'x'): void {
   writeFileSync(path, content);
 }
 
-// True if ANYTHING exists at `path` (file, dir, OR symlink). Uses lstatSync so a
-// copied symlink is detected even when its target is absent (existsSync follows
-// the link and would report a dangling symlink as missing).
-function isPresent(path: string): boolean {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // A fake fetched pharn-oss clone with the full product + dev surface, so the
 // copy's dev-only exclusions can be asserted.
 function scaffoldRepo(repo: string): void {
@@ -337,48 +325,6 @@ describe('installCapabilities', () => {
   // into the user's tree. Sources below point at REAL files so existsSync passes
   // and the isSymlink/filter guards (not the missing-source path) are exercised.
 
-  it('does NOT copy a symlink planted inside a selected capability dir', () => {
-    const repo = join(tmp.path(), 'repo');
-    const proj = join(tmp.path(), 'proj');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepo(repo);
-    symlinkSync(
-      join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'),
-      join(repo, 'pharn-pipeline/grillers/a11y/evil-link'),
-    );
-    installCapabilities(repo, proj, selection());
-    // real files copied; the nested symlink was skipped by the cpSync filter.
-    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
-      true,
-    );
-    expect(
-      isPresent(join(proj, 'pharn-pipeline/grillers/a11y/evil-link')),
-    ).toBe(false);
-  });
-
-  it('rejects (pre-flight, nothing written) a selected capability whose source dir is a symlink', () => {
-    const repo = join(tmp.path(), 'repo');
-    const proj = join(tmp.path(), 'proj');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepo(repo);
-    rmSync(join(repo, 'pharn-pipeline/grillers/a11y'), {
-      recursive: true,
-      force: true,
-    });
-    // swap the griller dir for a symlink onto another real capability dir.
-    symlinkSync(
-      join(repo, 'pharn-review/n-plus-one'),
-      join(repo, 'pharn-pipeline/grillers/a11y'),
-    );
-    expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      ManifestValidationError,
-    );
-    // pre-flight threw before any copy: no product surfaces leaked in.
-    expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(
-      false,
-    );
-  });
-
   it('installs features/README.md at the project root (flat layout)', () => {
     const { proj } = run();
     expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
@@ -395,52 +341,6 @@ describe('installCapabilities', () => {
 
     expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
     expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
-    const keys = [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'flat',
-      }).keys(),
-    ];
-    expect(keys).not.toContain('features/README.md');
-  });
-
-  it('does NOT copy a symlinked features/README.md', () => {
-    const repo = join(tmp.path(), 'link-feat-repo');
-    const proj = join(tmp.path(), 'link-feat-proj');
-    const outside = join(tmp.path(), 'outside-readme.md');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepo(repo);
-    write(outside, 'NOT FROM THE CLONE');
-    rmSync(join(repo, 'features/README.md'));
-    symlinkSync(outside, join(repo, 'features/README.md'));
-
-    installCapabilities(repo, proj, selection());
-
-    expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
-  });
-
-  // The asymmetry this closes, MEASURED not assumed: with a symlinked `features/`
-  // PARENT, `existsSync(features/README.md)` is true and
-  // `lstat(leaf).isSymbolicLink()` is FALSE, so a leaf-only guard lets cpSync
-  // copy the pointed-to bytes — from outside the clone — into the user's project.
-  // safeJoin cannot catch it: it is lexical and never resolves a link. This is
-  // the first root-relative file the install copies that HAS an intermediate
-  // directory, which is what makes the hole newly reachable.
-  it('does NOT copy through a symlinked features/ PARENT directory', () => {
-    const repo = join(tmp.path(), 'link-parent-repo');
-    const proj = join(tmp.path(), 'link-parent-proj');
-    const outside = join(tmp.path(), 'outside-dir');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepo(repo);
-    write(join(outside, 'README.md'), 'NOT FROM THE CLONE');
-    rmSync(join(repo, 'features'), { recursive: true, force: true });
-    symlinkSync(outside, join(repo, 'features'));
-
-    installCapabilities(repo, proj, selection());
-
-    expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
-    // …and the manifest agrees, so update never writes it either.
     const keys = [
       ...collectExpectedInstallPaths({
         repoDir: repo,
@@ -624,29 +524,6 @@ describe('installCapabilities', () => {
     );
   });
 
-  it('does NOT copy a symlinked upstream LICENSE, and does not expect it', () => {
-    const repo = join(tmp.path(), 'liclink-repo');
-    const proj = join(tmp.path(), 'liclink-proj');
-    const outside = join(tmp.path(), 'outside-license');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepo(repo);
-    write(outside, 'NOT FROM THE CLONE');
-    rmSync(join(repo, 'LICENSE'));
-    symlinkSync(outside, join(repo, 'LICENSE'));
-
-    installCapabilities(repo, proj, selection());
-
-    expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(false);
-    const keys = [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'flat',
-      }).keys(),
-    ];
-    expect(keys).not.toContain('PHARN-LICENSE');
-  });
-
   it('installs cleanly from a clone with no LICENSE, and expects none', () => {
     const repo = join(tmp.path(), 'nolic-repo');
     const proj = join(tmp.path(), 'nolic-proj');
@@ -656,46 +533,6 @@ describe('installCapabilities', () => {
 
     expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
     expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(false);
-  });
-
-  it('does NOT copy symlinked fixed surfaces (settings, trusted docs, contracts, floor)', () => {
-    const repo = join(tmp.path(), 'repo');
-    const proj = join(tmp.path(), 'proj');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepo(repo);
-    // single-file surfaces: replace the real file with a symlink onto a real file.
-    rmSync(join(repo, '.claude/settings.json'));
-    symlinkSync(
-      join(repo, 'CONSTITUTION.md'),
-      join(repo, '.claude/settings.json'),
-    );
-    rmSync(join(repo, 'ARCHITECTURE.md'));
-    symlinkSync(join(repo, 'CONSTITUTION.md'), join(repo, 'ARCHITECTURE.md'));
-    // whole-dir surfaces: plant a nested symlink alongside the real files.
-    symlinkSync(
-      join(repo, 'pharn-contracts/finding-shape.md'),
-      join(repo, 'pharn-contracts/evil-link'),
-    );
-    symlinkSync(
-      join(repo, '.dev/floor/validate.mjs'),
-      join(repo, '.dev/floor/evil-link'),
-    );
-
-    const result = installCapabilities(repo, proj, selection());
-
-    // symlinked single-file surfaces skipped (settings not preserved, not copied).
-    expect(upstreamSettingsCopyable(repo)).toBe(false);
-    expect(result.settingsPreserved).toBe(false);
-    expect(result.settingsWritten).toBe(false);
-    expect(isPresent(join(proj, '.claude/settings.json'))).toBe(false);
-    expect(isPresent(join(proj, 'ARCHITECTURE.md'))).toBe(false);
-    // real siblings still copied; planted nested symlinks skipped.
-    expect(existsSync(join(proj, 'pharn-contracts/finding-shape.md'))).toBe(
-      true,
-    );
-    expect(isPresent(join(proj, 'pharn-contracts/evil-link'))).toBe(false);
-    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
-    expect(isPresent(join(proj, '.dev/floor/evil-link'))).toBe(false);
   });
 });
 
@@ -887,29 +724,6 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     ).toBe(true);
   });
 
-  // P2: the clone is untrusted. A symlinked copy ROOT is rejected outright (the
-  // same isSymlink guard contracts/floor get), so nothing under it materializes —
-  // never a file sourced from outside the clone.
-  it('SKIPS a symlinked pharn-core root (nothing materialized)', () => {
-    const repo = join(tmp.path(), 'repo');
-    const proj = join(tmp.path(), 'proj');
-    const outside = join(tmp.path(), 'outside');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepoPharn(repo);
-    write(join(outside, 'secret.md'), 'not from the clone');
-    rmSync(join(repo, 'pharn/pharn-core'), { recursive: true, force: true });
-    symlinkSync(outside, join(repo, 'pharn/pharn-core'));
-
-    installCapabilities(repo, proj, selection());
-
-    expect(existsSync(join(proj, 'pharn/pharn-core'))).toBe(false);
-    expect(existsSync(join(proj, 'pharn/pharn-core/secret.md'))).toBe(false);
-    // The sibling surfaces are unaffected — the skip is scoped to this root.
-    expect(
-      existsSync(join(proj, 'pharn/pharn-contracts/finding-shape.md')),
-    ).toBe(true);
-  });
-
   it('leaks no flat-layout RUNTIME surface to the project root', () => {
     const { proj } = run();
     // The root docs are the exception and have their own case above: they are at
@@ -1012,38 +826,6 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(keys).not.toContain('THREAT-MODEL.md');
     expect(keys).not.toContain('LIMITS.md');
     expect(keys).toContain('pharn/CONSTITUTION.md');
-  });
-
-  // P2: the clone is untrusted, and the root docs get the same symlink refusal
-  // the pharn/-prefixed ones already had — never copied, never expected, and
-  // never reported as written. Reading through one would pull bytes from outside
-  // the clone into the user's repo.
-  it('never copies, expects, or reports a symlinked root LIMITS.md', () => {
-    const repo = join(tmp.path(), 'link-repo');
-    const proj = join(tmp.path(), 'link-proj');
-    const outside = join(tmp.path(), 'outside.md');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepoPharn(repo);
-    write(outside, 'not from the clone');
-    rmSync(join(repo, 'LIMITS.md'));
-    symlinkSync(outside, join(repo, 'LIMITS.md'));
-
-    const result = installCapabilities(repo, proj, selection());
-
-    expect(existsSync(join(proj, 'LIMITS.md'))).toBe(false);
-    // The reported list is collected inside the copy branch, so a doc the guard
-    // rejected cannot appear in it.
-    expect(result.docs).not.toContain('LIMITS.md');
-    const keys = [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'pharn',
-      }).keys(),
-    ];
-    expect(keys).not.toContain('LIMITS.md');
-    // The real sibling doc at the same root is still installed.
-    expect(readFileSync(join(proj, 'THREAT-MODEL.md'), 'utf8')).toBe('T');
   });
 
   it('keeps .claude/* at root (layout-invariant), excluding pharn-dev + *.test', () => {
