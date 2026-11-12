@@ -19,18 +19,46 @@
 // bypass PreToolUse hooks entirely — a separate, pre-existing limit, not addressed here.)
 //
 // Wired via .claude/settings.json (PreToolUse matcher: Write|Edit|MultiEdit).
+//
+// Session root: a relative target and the symlink walk resolve in the SESSION's work tree — the payload
+// `cwd`'s work tree when it is this repository's own (the hook process's cwd, or a verified linked worktree
+// of the same repository), else the process cwd (session-root.cjs). The protected-name test itself is
+// root-independent.
 
 "use strict";
 
 const fs = require("fs");
 const path = require("path");
 
-// Repo root with symlinks resolved, so a canonicalized target below shares a common prefix with it.
+function readStdin() {
+  try {
+    return fs.readFileSync(0, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+const payload = (() => {
+  try {
+    const parsed = JSON.parse(readStdin() || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+})();
+
+// Session work tree with symlinks resolved, so a canonicalized target below shares a common prefix with it.
+// A throw while loading or calling session-root.cjs falls back to the process cwd, the previous root: an
+// uncaught throw exits 1, which Claude Code treats as a NON-blocking hook error (fail-open).
 const ROOT = (() => {
   try {
-    return fs.realpathSync(process.cwd());
+    return require("./session-root.cjs").sessionRoot(payload.cwd);
   } catch {
-    return process.cwd();
+    try {
+      return fs.realpathSync(process.cwd());
+    } catch {
+      return process.cwd();
+    }
   }
 })();
 
@@ -62,14 +90,6 @@ const extra = (process.env.PHARN_PROTECTED || "")
   .filter(Boolean);
 const PROTECTED = [...DEFAULT_PROTECTED, ...extra];
 
-function readStdin() {
-  try {
-    return fs.readFileSync(0, "utf8");
-  } catch {
-    return "";
-  }
-}
-
 function extractPaths(toolInput) {
   if (!toolInput || typeof toolInput !== "object") return [];
   const paths = [];
@@ -88,14 +108,6 @@ function isProtected(p) {
     const x = prot.replace(/\\/g, "/");
     return norm === x || norm.endsWith("/" + x) || norm.includes("/" + x) || norm.split("/").pop() === x;
   });
-}
-
-const raw = readStdin();
-let payload;
-try {
-  payload = JSON.parse(raw || "{}");
-} catch {
-  payload = {};
 }
 
 const toolName = payload.tool_name || payload.toolName || "";

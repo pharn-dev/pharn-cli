@@ -180,3 +180,21 @@ test("--from-plan over the real pharn-plan.md template exits 1 (its `## Files` `
   assert.equal(r.status, 1);
   assert.equal(fs.existsSync(join(cwd, ".pharn", "writes-scope.json")), false);
 });
+
+// --- Round trip in a worktree session: setter (Bash, cwd = the worktree) -> hook (process cwd = main) ---
+
+test("setter run in a worktree writes ITS .pharn/writes-scope.json, and the hook run from the main checkout honours it", () => {
+  const fixture = require("./git-worktree-fixture.cjs");
+  const HOOK = join(__dirname, "enforce-writes-scope.cjs");
+  const { main, wt } = fixture.repoWithWorktree();
+  const plan = join(wt, ".dev", "features", "x", "PLAN.md");
+  fs.mkdirSync(join(wt, ".dev", "features", "x"), { recursive: true });
+  fs.writeFileSync(plan, "# PLAN\n\n## Files\n\n- `src/a.ts` — one file\n");
+  const r = setter(wt, "--from-plan", plan);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(join(wt, ".pharn", "writes-scope.json"), "utf8")).scope, ["src/a.ts"]);
+  assert.equal(fs.existsSync(join(main, ".pharn", "writes-scope.json")), false);
+  const allowed = fixture.runHook(HOOK, main, fixture.writePayload(join(wt, "src", "a.ts"), wt));
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.equal(fixture.runHook(HOOK, main, fixture.writePayload(join(wt, "src", "b.ts"), wt)).status, 2);
+});

@@ -500,3 +500,99 @@ test("scope [features/foo/**]: a symlink resolving to an IN-scope real target is
   setScope(cwd, ["features/foo/**"]);
   assert.equal(hook(cwd, "features/foo/link.md").status, 0);
 });
+
+// --- Session root: hook process cwd = the main checkout, payload `cwd` = the session's worktree ---
+// Claude Code runs the hook in the directory the session STARTED in and reports the session's directory in
+// the payload's `cwd` (session-root.cjs). Fixture: a real repo `main/` + `git worktree add` at
+// `main/.claude/worktrees/wt`.
+
+const fixture = require("./git-worktree-fixture.cjs");
+
+function sessionHook(processCwd, filePath, sessionCwd) {
+  return fixture.runHook(HOOK, processCwd, fixture.writePayload(filePath, sessionCwd));
+}
+
+test("session in a worktree, no scope anywhere: wt/src/x.ts is ALLOWED (judged at the worktree, not as .claude/worktrees/wt/src/x.ts)", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  assert.equal(sessionHook(main, join(wt, "src", "x.ts"), wt).status, 0);
+});
+
+test("session in a worktree, payload cwd ABSENT: the same write is DENIED (process-cwd fallback = previous behaviour)", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  const r = sessionHook(main, join(wt, "src", "x.ts"), undefined);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /Blocked path : \.claude\/worktrees\/wt\/src\/x\.ts/);
+});
+
+test("session in a worktree: the WORKTREE's scope governs, the main checkout's is not read", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  setScope(main, [".claude/worktrees/wt/**"]); // would allow everything in wt if it were read
+  setScope(wt, ["src/a.ts"]);
+  assert.equal(sessionHook(main, join(wt, "src", "a.ts"), wt).status, 0);
+  const r = sessionHook(main, join(wt, "src", "b.ts"), wt);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /Active scope : src\/a\.ts/);
+  assert.ok(r.stderr.includes(`Scope file: ${join(wt, ".pharn", "writes-scope.json")}`));
+});
+
+test("session cwd = a subdirectory of the worktree: judged at the worktree root", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  fs.mkdirSync(join(wt, "src"), { recursive: true });
+  setScope(wt, ["src/a.ts"]);
+  assert.equal(sessionHook(main, join(wt, "src", "a.ts"), join(wt, "src")).status, 0);
+  assert.equal(sessionHook(main, join(wt, "src", "b.ts"), join(wt, "src")).status, 2);
+});
+
+test("session in a worktree: its sensitive zones stay DENIED (.claude/, the setter-only scope file)", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  assert.equal(sessionHook(main, join(wt, ".claude", "hooks", "x.cjs"), wt).status, 2);
+  assert.equal(sessionHook(main, join(wt, ".pharn", "writes-scope.json"), wt).status, 2);
+  assert.equal(sessionHook(main, join(wt, ".pharn", "other"), wt).status, 0);
+});
+
+test("session in a worktree: a write to the MAIN checkout is DENIED (outside the session's tree)", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  assert.equal(sessionHook(main, join(main, "src", "x.ts"), wt).status, 2);
+});
+
+test("session cwd under a forged .git file: DENIED where the main-checkout root denies (no root change)", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  const evil = join(main, ".dev", "evil");
+  fs.mkdirSync(evil, { recursive: true });
+  fs.writeFileSync(join(evil, ".git"), `gitdir: ${fixture.adminDir(wt)}\n`);
+  const r = sessionHook(main, join(evil, "src", "x.ts"), evil);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /Blocked path : \.dev\/evil\/src\/x\.ts/);
+});
+
+test("session cwd in a foreign repository: its files are DENIED (outside the main-checkout root)", () => {
+  const { base, main } = fixture.repoWithWorktree();
+  const other = fixture.makeRepo(join(base, "other"));
+  assert.equal(sessionHook(main, join(other, "src", "x.ts"), other).status, 2);
+});
+
+test("session cwd that is not a usable absolute directory (42, relative, missing): worktree writes stay DENIED", () => {
+  const { main, wt } = fixture.repoWithWorktree();
+  for (const bad of [42, ".claude/worktrees/wt", join(wt, "missing")]) {
+    assert.equal(sessionHook(main, join(wt, "src", "x.ts"), bad).status, 2, String(bad));
+  }
+});
+
+test("session in the main checkout (payload cwd = process cwd): unchanged — main's scope governs", () => {
+  const { main } = fixture.repoWithWorktree();
+  setScope(main, ["src/a.ts"]);
+  assert.equal(sessionHook(main, join(main, "src", "a.ts"), main).status, 0);
+  assert.equal(sessionHook(main, join(main, "src", "b.ts"), main).status, 2);
+});
+
+test("a missing or throwing session-root.cjs fails CLOSED: exit 2 at the process-cwd root, never exit 1 (non-blocking)", () => {
+  const cases = { missing: null, "throws on load": 'throw new Error("broken");\n', "throws on call": "module.exports = { sessionRoot() { throw new Error(\"broken\"); } };\n" };
+  for (const [label, source] of Object.entries(cases)) {
+    const copy = fixture.hookBesideResolver(HOOK, source);
+    const cwd = tmp();
+    const denied = fixture.runHook(copy, cwd, fixture.writePayload(".claude/x", cwd));
+    assert.equal(denied.status, 2, `${label}: ${denied.stderr}`);
+    assert.match(denied.stderr, /Blocked path : \.claude\/x/, label);
+    assert.equal(fixture.runHook(copy, cwd, fixture.writePayload("src/x.ts", cwd)).status, 0, label);
+  }
+});
