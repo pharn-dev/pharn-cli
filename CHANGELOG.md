@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **CodeRabbit now skips internal workflow and asset directories during review.** Its repository configuration excludes `.agents/`, `.claude/`, `.codex/`, `.dev/`, `.phargus/`, `.pharn/`, `pharn/` and `assets/`. The Phargus logo asset was also refreshed.
+
 ## [0.19.0] — 2026-11-12
 
 ### Added
