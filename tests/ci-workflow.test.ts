@@ -277,14 +277,18 @@ describe('the required status checks this repo declares', () => {
 describe('ci.yml required status checks', () => {
   const ci = parse(CI_WORKFLOW);
 
-  it('defines exactly one job per required gate, plus the comment job, and no others', () => {
+  it('defines exactly one job per required gate, and no others', () => {
     // Set equality in both directions: a rename, an addition, or a deletion all
-    // fail. A one-directional `toContain` sweep would miss a stray eighth job.
-    // The comment job is declared by name, so it cannot hide a second extra.
-    expect([...ci.jobNames].sort()).toEqual(
-      [...EXPECTED_GATES.keys(), COMMENT_JOB_NAME].sort(),
-    );
+    // fail. A one-directional `toContain` sweep would miss a stray extra job.
+    // The ONE non-gate job (the comment job) is set aside by name and pinned in
+    // the next test, so it cannot hide a second extra.
+    const gateNames = ci.jobNames.filter((n) => n !== COMMENT_JOB_NAME);
+    expect([...gateNames].sort()).toEqual([...EXPECTED_GATES.keys()].sort());
     expect(ci.blocks.size).toBe(EXPECTED_GATES.size + 1);
+  });
+
+  it('declares exactly one non-gate job, the pharn-ci comment job', () => {
+    expect(ci.jobNames.filter((n) => n === COMMENT_JOB_NAME)).toHaveLength(1);
     expect(
       new RegExp(`^ {4}name: ${COMMENT_JOB_NAME}$`, 'm').test(
         ci.blocks.get(COMMENT_JOB_ID) ?? '',
