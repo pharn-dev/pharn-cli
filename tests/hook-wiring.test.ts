@@ -1093,8 +1093,8 @@ describe('freshSettingsHookLines', () => {
     expect(also).toBeDefined();
     expect(also).toContain('permissions, bad\\u001b[31mkey, rtl\\u202eevil');
     expect(also).toContain('line\\u2028sep');
-    // eslint-disable-next-line no-control-regex
-    expect(also).not.toMatch(/[\u001b\u202e\u2028]/);
+    for (const raw of ['\u001b', '\u202e', '\u2028'])
+      expect(also).not.toContain(raw);
     expect(also).toContain(`${'k'.repeat(100)}…`);
     expect(also).not.toContain('k'.repeat(101));
     expect(lines.at(-1)).toBe(REVIEW);
