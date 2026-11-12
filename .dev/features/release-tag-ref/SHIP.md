@@ -30,4 +30,20 @@ Manual check recorded for the PR (CORE-169 AC): against real pharn-oss on 2026-1
 
 Not done by the agent (hook-protected): the LIMITS.md §3e and THREAT-MODEL.md text proposed in `PLAN.md`.
 
+## After GATE 2 — "fix advisories first"
+
+The human chose to fix the advisories before pushing.
+
+- The CHANGELOG wording was corrected ("today's releases" → "the latest release").
+- The test-comment note needed no change.
+- The protected-docs finding stays with the human.
+
+Re-run on the fixed tree:
+
+- `CI=1 npm run check` → 0
+- verify gates → `check-verify.mjs` `PASS` (same report)
+- regress head side → `check-regress.mjs` `no-regressions` (same report; the base side is unchanged, same base commit and outside tests)
+
+The committed `regression-report.json` / `verify-report.json` are unchanged.
+
 Chain ran; the named floor verdicts are as shown. This is NOT a judgment that the increment is good or wise; that is the human's call at the post-review gate.

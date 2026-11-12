@@ -23,6 +23,8 @@ None.
   evidence: "which answers the same commit for today's releases (checked against pharn-oss v7.10.3, an annotated tag)"
 ```
 
+**Fixed after GATE 2:** the entry now says "for the latest release".
+
 ### L-eval (P1)
 
 ```yaml
@@ -33,6 +35,8 @@ None.
   problem: "The one-request test can't prove GitHub dereferences an annotated tag, because the stub answers a commit id directly. It proves only that the CLI makes no second request. Its comment says exactly that and cites the live measurement, so this is noted, not a gap (it follows GRILL's P1 finding: one case, not a fake annotated/lightweight pair)."
   evidence: "That happens on GitHub's side, so the CLI makes no second request for either tag type."
 ```
+
+**No change after GATE 2:** this is a note, not a gap. The test claims only what it proves, and its comment says so.
 
 ### L-trust (P2)
 
@@ -53,8 +57,10 @@ No findings. Each file keeps one reason to change. `src/lib/repo.ts:290` mention
   evidence: 'waits for a verified release. The'
 ```
 
+**Still open after GATE 2:** the files are hook-protected, so only the human can apply the PLAN's proposed text.
+
 ## Lesson candidate
 
 None proposed. The release-consistency gate refusing a link to the previous tag (`KNOWN_TAGS` lagging one release) is a step of the documented bump procedure, not a new failure.
 
-VERDICT: GREEN, 0 floor-gate findings. 3 advisory findings (1 important, 2 minor) for the human.
+VERDICT: GREEN, 0 floor-gate findings. 3 advisory findings (1 important, 2 minor). After GATE 2: 1 fixed, 1 needs no change, 1 open for the human (protected docs).
