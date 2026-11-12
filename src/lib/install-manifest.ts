@@ -14,7 +14,6 @@ import {
   resolveTrustedDocs,
   type LayoutPaths,
 } from './layout.js';
-import { findSymlinkComponent } from './symlink-guard.js';
 import {
   assertSafeString,
   COPY_FILENAME_RE,
@@ -115,13 +114,9 @@ interface SurfaceAccount extends AbsentSurface {
 
 // Relative paths (posix) of every file (not directory) under `dir`, recursively.
 function* walkFiles(dir: string, prefix = ''): Generator<string> {
+  // The clone holds only regular files and directories (the clone invariant,
+  // lib/repo.ts), so every non-directory entry is a file.
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    // Untrusted clone (P2): a symlink's Dirent reports isDirectory()===false, so
-    // it would otherwise be yielded as a file. installCapabilities NEVER copies
-    // symlinks (isSymlink guards + noSymlinks cpSync filters), so the mirror must
-    // skip them too — else the manifest claims a path the installer never writes
-    // (spurious status drift; a symlink-following read in diff.ts).
-    if (entry.isSymbolicLink()) continue;
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       yield* walkFiles(resolve(dir, entry.name), rel);
@@ -153,7 +148,7 @@ export function collectExpectedInstallPaths(params: {
  * one the install would otherwise skip in silence. Derived from the SAME
  * enumeration as the manifest (collectInstallManifest), so "absent" means
  * exactly "contributes zero files to what the install writes": a missing
- * source, a symlinked or wrong-typed one, or a dir with no file passing its
+ * source, a wrong-typed one, or a dir with no file passing its
  * filter (hooks renamed to `.js`, say). In declaration order.
  *
  * `pharn-core` is declared for the `pharn` layout only: the flat path is a
@@ -194,13 +189,8 @@ function collectInstallManifest(params: {
     surfaces.push({ surface, path, files });
   };
   // Enumerate one source dir's files (optionally filtered by relative name) into
-  // the expected map at the mirrored path. The root is lstat-checked, NOT
-  // stat-checked: a symlinked source root would otherwise resolve outside the
-  // clone and contribute paths sourced from anywhere on disk. installCapabilities
-  // never copies through such a root (isSymlink guards / noSymlinks filters), so
-  // the mirror must not enumerate one either — and since this manifest now drives
-  // `pharn update`'s WRITES (not just status's comparison), that is the
-  // difference between reporting a phantom file and copying one in (P2).
+  // the expected map at the mirrored path. A root that is not a directory
+  // contributes nothing (the clone holds no links: lib/repo.ts).
   //
   // `validate` (optional) runs AFTER `keep` and BEFORE `add` — the exact ordering
   // copyFilteredDir uses — so a name that is not a copy candidate (a `README.md`,
@@ -213,7 +203,6 @@ function collectInstallManifest(params: {
     validate?: (rel: string) => void,
   ): number => {
     const from = safeJoin(repoDir, relDir);
-    if (findSymlinkComponent(repoDir, relDir) !== null) return 0;
     if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return 0;
     let added = 0;
     for (const rel of walkFiles(from)) {
@@ -269,8 +258,7 @@ function collectInstallManifest(params: {
   // except that a pre-7.0 clone still ships THREAT-MODEL + LIMITS at the root).
   // The probe is existence-only, so this loop needs no per-entry knowledge of
   // the split.
-  // lstat, not exists: a symlinked doc is never copied by the installer, so it is
-  // never expected here either (see addDir's note).
+  // isFile, not exists: a directory can stand where a doc is expected.
   // Absent → named at the LAYOUT's own path, not the fallback the probe
   // returned (the features-readme rule below): the root path is only a
   // pre-7.0 window on the pharn layout.
@@ -278,34 +266,27 @@ function collectInstallManifest(params: {
   resolveTrustedDocs(repoDir, layout).forEach((doc, i) => {
     const from = safeJoin(repoDir, doc);
     const shipped =
-      findSymlinkComponent(repoDir, doc) === null &&
       lstatSync(from, { throwIfNoEntry: false })?.isFile() === true;
     if (shipped) add(doc, from);
     account('trusted-doc', shipped ? doc : layoutDocs[i]!, shipped ? 1 : 0);
   });
   // Upstream's LICENSE at a MAPPED destination — the one entry whose dest differs
   // from its source, which is exactly what this map's dest→source shape exists
-  // for. A symlinked source must be absent here as well as unwritten by the
-  // installer: a manifest entry the installer never writes is phantom drift, and
-  // since this map drives `update`'s WRITES it would also copy one in.
+  // for.
   let licenseShipped = false;
-  if (findSymlinkComponent(repoDir, paths.license.from) === null) {
-    const licenseFrom = safeJoin(repoDir, paths.license.from);
-    if (lstatSync(licenseFrom, { throwIfNoEntry: false })?.isFile()) {
-      add(paths.license.to, licenseFrom);
-      licenseShipped = true;
-    }
+  const licenseFrom = safeJoin(repoDir, paths.license.from);
+  if (lstatSync(licenseFrom, { throwIfNoEntry: false })?.isFile()) {
+    add(paths.license.to, licenseFrom);
+    licenseShipped = true;
   }
   account('license', paths.license.from, licenseShipped ? 1 : 0);
   // features/README.md — layout-dependent since pharn-oss 5.0.0; see resolveFeaturesReadme.
   const featuresRel = resolveFeaturesReadme(repoDir, layout);
   let featuresShipped = false;
-  if (findSymlinkComponent(repoDir, featuresRel) === null) {
-    const featuresFrom = safeJoin(repoDir, featuresRel);
-    if (lstatSync(featuresFrom, { throwIfNoEntry: false })?.isFile()) {
-      add(featuresRel, featuresFrom);
-      featuresShipped = true;
-    }
+  const featuresFrom = safeJoin(repoDir, featuresRel);
+  if (lstatSync(featuresFrom, { throwIfNoEntry: false })?.isFile()) {
+    add(featuresRel, featuresFrom);
+    featuresShipped = true;
   }
   // Absent → named at the LAYOUT's own path, not the fallback the resolver
   // returned: the root path is only a pre-relocation window on the pharn layout.
@@ -408,8 +389,8 @@ export function conflictingWriteTargets(params: {
  * capability directory out of them — a dest walk would sweep it in and record it
  * as pharn-written.
  *
- * READ-SIDE guards, deliberately not the writer's: a source that is absent, is a
- * symlink at any component, or is not a directory contributes NOTHING. The
+ * READ-SIDE guards, deliberately not the writer's: a source that is absent or
+ * is not a directory contributes NOTHING. The
  * curated refusal for those cases belongs to installCapabilityDirs' pre-flight
  * (lib/install-capabilities.ts), which runs after this and must be the message
  * the user sees — the same skips-here/throws-there split `addDir` above uses.
@@ -421,7 +402,6 @@ export function capabilityCloneFiles(
 ): string[] {
   const subtree = capabilitySubtree(paths, capability.role);
   const relDir = `${subtree}/${capability.name}`;
-  if (findSymlinkComponent(repoDir, relDir) !== null) return [];
   const from = safeJoin(repoDir, relDir);
   if (!lstatSync(from, { throwIfNoEntry: false })?.isDirectory()) return [];
   return [...walkFiles(from)].map((rel) => `${relDir}/${rel}`).sort();

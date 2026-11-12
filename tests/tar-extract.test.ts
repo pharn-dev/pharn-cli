@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +9,7 @@ import {
   TarExtractError,
 } from '../src/lib/tar-extract.js';
 import { hasUnsafeChars } from '../src/lib/terminal-safe.js';
+import { codeloadArchive } from './support/tar-fixture.js';
 
 // Fixtures are built here, byte by byte, rather than shelled out to `tar`.
 // That is the whole point: the entries worth testing are the ones a system tar
@@ -158,215 +159,73 @@ describe('extractTar', () => {
 
   // --- pax extended headers (typeflag 'x') ------------------------------------
   //
-  // These REPLACE an earlier test that asserted an `x` header was skipped like a
-  // `g` one. That was the defect: an `x` header's records OVERRIDE the ustar
-  // header that follows it, so discarding them changes where a file lands (or
-  // how the rest of the stream is framed) without a word of complaint.
-
-  it('rejects a pax extended header carrying path=, instead of writing the TRUNCATED path', () => {
-    // The real shape, reproduced from `tar --format=pax` output: a writer emits
-    // `path=` exactly when the path does not fit ustar, and writes that path
-    // truncated to the 100-byte `name` field in the header it cannot represent.
-    // The truncated path is relative, rooted and `..`-free, so every other rule
-    // in the module passes it — which is what made the loss silent.
-    const real = `${'z'.repeat(140)}.txt`;
-    const truncated = 'z'.repeat(100);
-    const dest = tmp.path();
-
-    expect(() =>
-      extractTar(
-        githubArchive([
-          {
-            name: 'PaxHeaders/0/zzz',
-            prefix: 'pharn-oss-abc1234/deep',
-            type: 'x',
-            data: paxRecord('path', `pharn-oss-abc1234/deep/${real}`),
-          },
-          { name: truncated, prefix: 'pharn-oss-abc1234/deep', data: 'hi' },
-        ]),
-        dest,
-        LIMITS,
-      ),
-    ).toThrow(TarExtractError);
-
-    // ...and it did not land at either name on the way out.
-    expect(existsSync(join(dest, 'deep', truncated))).toBe(false);
-    expect(existsSync(join(dest, 'deep', real))).toBe(false);
-  });
-
-  it('rejects a pax extended header carrying size=, which would re-frame the stream', () => {
-    // Worse than a misplaced file: `size=` overrides how many bytes the next
-    // entry occupies, so ignoring it makes the reader parse that entry's
-    // attacker-controlled CONTENT as the following tar header.
-    expect(() =>
-      extractTar(
-        githubArchive([
-          {
-            name: 'PaxHeaders/0/big',
-            type: 'x',
-            data: paxRecord('size', '8589934592'),
-          },
-          { name: 'pharn-oss-abc1234/big.bin', data: '' },
-        ]),
-        tmp.path(),
-        LIMITS,
-      ),
-    ).toThrow(TarExtractError);
-  });
-
-  it('rejects a pax extended header carrying only benign metadata', () => {
-    // Pins that the decision is the TYPEFLAG, not the payload. `git archive`
-    // emits `x` only for path/linkpath/size — all three load-bearing — and the
-    // live archive has none, so presence alone is the signal. Reading the
-    // payload to decide would be a parse of untrusted bytes standing between
-    // the archive and the refusal.
-    expect(() =>
-      extractTar(
-        githubArchive([
-          {
-            name: 'PaxHeaders/0/f',
-            type: 'x',
-            data: paxRecord('mtime', '1700000000.0'),
-          },
-          { name: 'pharn-oss-abc1234/f.txt', data: 'x' },
-        ]),
-        tmp.path(),
-        LIMITS,
-      ),
-    ).toThrow(/pax extended header/);
-  });
+  // An `x` header's records OVERRIDE the ustar header that follows it (`path=`,
+  // `size=`), so it is refused on the TYPEFLAG alone. Its payload is never read,
+  // so no payload, well-formed or not, can change the answer.
 
   it.each([
+    ['path=', paxRecord('path', 'pharn-oss-abc1234/deep/elsewhere.txt')],
+    ['size=', paxRecord('size', '8589934592')],
+    ['only benign metadata', paxRecord('mtime', '1700000000.0')],
+    ['an unparseable payload', '7 comment=xyz\n'],
     ['an empty payload', ''],
-    ['a length prefix that lies', '99 path=elsewhere\n'],
-    ['no length prefix at all', 'path=elsewhere\n'],
   ])(
-    'rejects a pax extended header with %s — an unreadable payload cannot dodge the throw',
+    'refuses a pax extended header carrying %s, on its typeflag alone',
     (_label, data) => {
       expect(() =>
         extractTar(
           githubArchive([
-            { name: 'PaxHeaders/0/f', type: 'x', data },
+            { name: 'pharn-oss-abc1234/PaxHeaders/f.txt', type: 'x', data },
             { name: 'pharn-oss-abc1234/f.txt', data: 'x' },
           ]),
           tmp.path(),
           LIMITS,
         ),
-      ).toThrow(/pax extended header/);
+      ).toThrow(/unsupported type 'x'.*pax extended header/);
     },
   );
-
-  it('names the typeflag and the records it read, so the cause is one read away', () => {
-    // A future upstream change that starts emitting pax must be diagnosable
-    // from the error alone — not from a debugger.
-    expect(() =>
-      extractTar(
-        githubArchive([
-          {
-            name: 'PaxHeaders/0/f',
-            type: 'x',
-            data: paxRecord('path', 'pharn-oss-abc1234/somewhere/else.txt'),
-          },
-        ]),
-        tmp.path(),
-        LIMITS,
-      ),
-    ).toThrow(/typeflag 'x'.*records path/s);
-  });
-
-  it('caps how many keywords it names, so a padded payload cannot flood the message', () => {
-    // The other half of bounding untrusted text: the shape filter stops any ONE
-    // keyword being hostile, this stops a payload supplying hundreds of benign
-    // ones. Ten distinct keywords in, eight named, the rest counted.
-    const many = Array.from({ length: 10 }, (_, i) =>
-      paxRecord(`kw${i}`, 'v'),
-    ).join('');
-    let message = '';
-    try {
-      extractTar(
-        githubArchive([{ name: 'PaxHeaders/0/f', type: 'x', data: many }]),
-        tmp.path(),
-        LIMITS,
-      );
-    } catch (err) {
-      message = (err as Error).message;
-    }
-    expect(message).toMatch(/pax extended header/);
-    expect(message).toContain('(+2 more)');
-    expect(message).toContain('kw0');
-    expect(message).toContain('kw7');
-    // ...and the two past the cap are counted, not printed.
-    expect(message).not.toContain('kw8');
-    expect(message).not.toContain('kw9');
-  });
-
-  it('keeps a hostile keyword out of the message rather than echoing it', () => {
-    // The payload is remote bytes. Only the keyword is ever read, and only
-    // through a shape filter, so control characters cannot reach a terminal.
-    let message = '';
-    try {
-      extractTar(
-        githubArchive([
-          {
-            name: 'PaxHeaders/0/f',
-            type: 'x',
-            data: paxRecord(`pa${ESC}[31mth`, 'x'),
-          },
-        ]),
-        tmp.path(),
-        LIMITS,
-      );
-    } catch (err) {
-      message = (err as Error).message;
-    }
-    expect(message).toMatch(/pax extended header/);
-    expect(message).toContain('<unprintable>');
-    expect(message).not.toContain(ESC);
-  });
 
   // --- pax GLOBAL headers (typeflag 'g') --------------------------------------
   //
-  // 'g' cannot take the same rule: every codeload archive opens with one, so an
-  // unconditional throw would reject 100% of real fetches on the first block.
-  // Its records are judged instead — a global record is a default applied to
-  // every entry that follows it.
+  // Every codeload archive opens with one, so 'g' is SKIPPED, payload unread.
+  // pharn reads only the ustar fields, so a `g` default for `path`/`size` is
+  // never honoured: the entries that follow land at their own ustar paths, and
+  // a size the default would imply cannot re-frame pharn's walk.
 
   it.each([['path'], ['linkpath'], ['size']])(
-    'rejects a pax global header setting a default %s=',
+    'skips a pax global header setting a default %s=, never honouring it',
     (keyword) => {
-      expect(() =>
-        extractTar(
-          tar([
-            {
-              name: 'pax_global_header',
-              type: 'g',
-              data: paxRecord(keyword, '1'),
-            },
-            { name: 'pharn-oss-abc1234/', type: '5' },
-            { name: 'pharn-oss-abc1234/f.txt', data: 'x' },
-          ]),
-          tmp.path(),
-          LIMITS,
-        ),
-      ).toThrow(/pax global header setting a default/);
-    },
-  );
-
-  it('rejects a pax global header whose records do not parse', () => {
-    // Fail-closed in the only direction that is honest: a payload the reader
-    // cannot account for END TO END could hide a `path=` between two mis-split
-    // records, so "the keywords I managed to find" is not an answer.
-    expect(() =>
+      const dest = tmp.path();
       extractTar(
         tar([
-          { name: 'pax_global_header', type: 'g', data: '7 comment=xyz\n' },
+          {
+            name: 'pax_global_header',
+            type: 'g',
+            data: paxRecord(keyword, 'elsewhere'),
+          },
           { name: 'pharn-oss-abc1234/', type: '5' },
           { name: 'pharn-oss-abc1234/f.txt', data: 'x' },
         ]),
-        tmp.path(),
+        dest,
         LIMITS,
-      ),
-    ).toThrow(/records could not be read/);
+      );
+      expect(readdirSync(dest)).toEqual(['f.txt']);
+      expect(readFileSync(join(dest, 'f.txt'), 'utf8')).toBe('x');
+    },
+  );
+
+  it('skips a pax global header whose payload does not parse, unread', () => {
+    const dest = tmp.path();
+    extractTar(
+      tar([
+        { name: 'pax_global_header', type: 'g', data: '7 comment=xyz\n' },
+        { name: 'pharn-oss-abc1234/', type: '5' },
+        { name: 'pharn-oss-abc1234/f.txt', data: 'x' },
+      ]),
+      dest,
+      LIMITS,
+    );
+    expect(readdirSync(dest)).toEqual(['f.txt']);
   });
 
   it('still skips the global header GitHub actually sends', () => {
@@ -499,6 +358,7 @@ describe('extractTar', () => {
     ['a character device', '3'],
     ['a block device', '4'],
     ['a fifo', '6'],
+    ['a pax extended header', 'x'],
     // GNU's long-name typeflags are the other way a writer escapes ustar's
     // 100-byte name field. They need no branch of their own — they are neither
     // '0'/NUL nor '5', so they land in this reject — but they are pinned HERE
@@ -667,24 +527,6 @@ describe('extractTar', () => {
     expect(onDisk(dest)).toEqual([]);
   });
 
-  // PHARN-18 capped one pax payload, not their number: 2030 global headers of
-  // 64 KiB each still cost seconds of CPU. The budget is per ARCHIVE now, and
-  // every header counts toward the entry cap.
-  it('refuses global headers each under the pax cap but over it together', () => {
-    const g: EntryInit = {
-      name: 'pax_global_header',
-      type: 'g',
-      data: paxRecord('comment', 'x'.repeat(40 * 1024)),
-    };
-    expect(() =>
-      extractTar(
-        tar([g, g, { name: 'pharn-oss-abc1234/', type: '5' }]),
-        tmp.path(),
-        LIMITS,
-      ),
-    ).toThrow(/pax global headers total \d+ bytes, over the 65536-byte limit/);
-  });
-
   it('counts every pax global header toward the entry cap', () => {
     const empty: EntryInit = { name: 'pax_global_header', type: 'g', data: '' };
     expect(() =>
@@ -726,8 +568,7 @@ describe('extractTar', () => {
     expect(message).toContain('1\\x0a Done');
   });
 
-  // PHARN-18: strict framing and bounded pax parsing. Each case was ACCEPTED
-  // by the base source (or, for the pax payload, parsed at full size).
+  // PHARN-18: strict framing. Each case was ACCEPTED by the base source.
   const refusal = (archive: Buffer): string => {
     try {
       extractTar(archive, tmp.path(), LIMITS);
@@ -737,20 +578,6 @@ describe('extractTar', () => {
     }
     return 'accepted';
   };
-
-  it('refuses a pax global header over the payload cap, before parsing it', () => {
-    // Well-formed records, so the base source parsed every one and accepted.
-    const record = paxRecord('comment', 'x'.repeat(100));
-    const big = record.repeat(Math.ceil((64 * 1024 + 1) / record.length));
-    expect(
-      refusal(
-        tar([
-          { name: 'pax_global_header', type: 'g', data: big },
-          { name: 'pharn-oss-abc1234/', type: '5' },
-        ]),
-      ),
-    ).toMatch(/pax header of \d+ bytes, over the 65536-byte limit/);
-  });
 
   it('refuses entries hidden after a zero block mid-archive', () => {
     const archive = Buffer.concat([
@@ -827,18 +654,6 @@ describe('extractTar', () => {
     ).toThrow(/more than 3 entries/);
   });
 
-  it('enforces the total-bytes cap', () => {
-    expect(() =>
-      extractTar(
-        githubArchive([
-          { name: 'pharn-oss-abc1234/big.txt', data: 'x'.repeat(600) },
-        ]),
-        tmp.path(),
-        { maxEntries: 100, maxTotalBytes: 100 },
-      ),
-    ).toThrow(/expands past 100 bytes/);
-  });
-
   it('rejects a truncated archive', () => {
     const full = githubArchive([
       { name: 'pharn-oss-abc1234/f.txt', data: 'x'.repeat(600) },
@@ -865,13 +680,63 @@ describe('extractTar', () => {
     ).toThrow(/checksum/);
   });
 
-  it('rejects the GNU base-256 numeric encoding rather than misreading it', () => {
-    const bytes = Buffer.concat([
-      header({ name: 'pharn-oss-abc1234/', type: '5' }),
-      header({ name: 'pharn-oss-abc1234/f.txt', forgeSizeByte: 0x80 }),
-      Buffer.alloc(BLOCK * 2),
-    ]);
-    expect(() => extractTar(bytes, tmp.path(), LIMITS)).toThrow(/base-256/);
+  // A GNU base-256 field sets the high bit of its first byte. No such byte is
+  // an octal digit, so the non-octal check refuses it: 0x80 directly, and 0xA0
+  // because only ASCII space is trimmed (String#trim would strip U+00A0 and
+  // then read the octal digits behind it as the size).
+  it.each([
+    ['0x80', 0x80],
+    ['0xa0 (U+00A0 in latin1)', 0xa0],
+    ['0xff', 0xff],
+  ])(
+    'rejects a size field whose first byte is %s (GNU base-256), never misreading it',
+    (_label, byte) => {
+      const bytes = Buffer.concat([
+        header({ name: 'pharn-oss-abc1234/', type: '5' }),
+        header({
+          name: 'pharn-oss-abc1234/f.txt',
+          data: 'x',
+          forgeSizeByte: byte,
+        }),
+        Buffer.alloc(BLOCK),
+        Buffer.alloc(BLOCK * 2),
+      ]);
+      expect(() => extractTar(bytes, tmp.path(), LIMITS)).toThrow(
+        /non-octal numeric field/,
+      );
+    },
+  );
+
+  // CORE-173: `\` and `:` in an entry name. POSIX writes `a\..\..\evil` as
+  // ONE literal file name; win32 would read the same bytes as a path. pharn-oss
+  // ships neither character, so either is refused, naming the entry.
+  it.each([
+    ['a backslash path', 'pharn-oss-abc1234/a\\..\\..\\evil'],
+    ['a drive letter', 'pharn-oss-abc1234/C:/x'],
+    ['a colon in a name', 'pharn-oss-abc1234/a:b.md'],
+    ['a backslash in a directory segment', 'pharn-oss-abc1234/d\\e/f.md'],
+  ])('refuses %s, writing nothing', (_label, name) => {
+    const dest = tmp.path();
+    let message = '';
+    try {
+      extractTar(githubArchive([{ name, data: 'x' }]), dest, LIMITS);
+    } catch (err) {
+      expect(err).toBeInstanceOf(TarExtractError);
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/backslash or colon/);
+    expect(message).toContain(name);
+    expect(readdirSync(dest)).toEqual([]);
+  });
+
+  it('refuses a backslash or colon in the ustar prefix too', () => {
+    expect(() =>
+      extractTar(
+        githubArchive([{ name: 'f.md', prefix: 'pharn-oss-abc1234/x:y' }]),
+        tmp.path(),
+        LIMITS,
+      ),
+    ).toThrow(/backslash or colon/);
   });
 });
 
@@ -894,6 +759,22 @@ describe('extractTarGz', () => {
     ).toThrow(TarExtractError);
   });
 
+  it('bounds the bytes written by the decompressed size (maxTotalBytes)', () => {
+    // Moved from extractTar: the decompressed tar holds every byte an entry
+    // writes, so gunzip's maxOutputLength is the one total-bytes bound.
+    expect(() =>
+      extractTarGz(
+        gzipSync(
+          githubArchive([
+            { name: 'pharn-oss-abc1234/big.txt', data: 'x'.repeat(600) },
+          ]),
+        ),
+        tmp.path(),
+        { maxEntries: 100, maxTotalBytes: 100 },
+      ),
+    ).toThrow(/could not decompress/);
+  });
+
   it('caps the DECOMPRESSED size, so a zip bomb is bounded', () => {
     // Neither content-length nor the compressed size bounds this: 1 MB of zeros
     // gzips to about a kilobyte.
@@ -906,5 +787,81 @@ describe('extractTarGz', () => {
     expect(() =>
       extractTarGz(bomb, tmp.path(), { maxEntries: 10, maxTotalBytes: 4096 }),
     ).toThrow(TarExtractError);
+  });
+});
+
+// CORE-173: the invariant fetchRepo states and clone-side readers rely on — the
+// extracted tree holds only regular files and directories. Asserted on what is
+// ON DISK (lstat), over the real codeload shape and over the partial tree a
+// refused archive leaves behind before fetchRepo removes it.
+describe('the extracted tree holds only regular files and directories', () => {
+  const tmp = useTmpDir();
+
+  /** Every path under `dir` that lstat says is neither a file nor a directory. */
+  function nonFileOrDir(dir: string): string[] {
+    const odd: string[] = [];
+    for (const rel of readdirSync(dir, { recursive: true }) as string[]) {
+      const st = lstatSync(join(dir, rel));
+      if (!st.isFile() && !st.isDirectory()) odd.push(rel);
+    }
+    return odd;
+  }
+
+  it('over the codeload shape', () => {
+    const dest = tmp.path();
+    extractTarGz(
+      codeloadArchive('0123456789abcdef0123456789abcdef01234567', {
+        SKILLS_VERSION: '1.0.0\n',
+        'pharn-review/a11y/a11y.md': '# a11y\n',
+        '.claude/hooks/h.cjs': 'module.exports = 1;\n',
+        '.claude/settings.json': '{}\n',
+      }),
+      dest,
+      LIMITS,
+    );
+    expect(readdirSync(dest, { recursive: true }).length).toBeGreaterThan(4);
+    expect(nonFileOrDir(dest)).toEqual([]);
+  });
+
+  it.each([
+    ['a symlink', '2'],
+    ['a hard link', '1'],
+    ['a fifo', '6'],
+    ['a pax extended header', 'x'],
+  ])(
+    'in the partial tree left when %s entry is refused part-way',
+    (_label, type) => {
+      const dest = tmp.path();
+      expect(() =>
+        extractTar(
+          githubArchive([
+            { name: 'pharn-oss-abc1234/d/', type: '5' },
+            { name: 'pharn-oss-abc1234/d/before.md', data: 'x' },
+            { name: 'pharn-oss-abc1234/d/odd', type },
+          ]),
+          dest,
+          LIMITS,
+        ),
+      ).toThrow(TarExtractError);
+      expect(readFileSync(join(dest, 'd/before.md'), 'utf8')).toBe('x');
+      expect(nonFileOrDir(dest)).toEqual([]);
+    },
+  );
+
+  // The invariant holds only while fetchRepo is the one place a clone is made.
+  // If another src/ file starts extracting or creating temp trees, the
+  // clone-side readers that skip symlink checks would trust a tree nobody
+  // vouched for — so that is a failure here, not a code-review hope.
+  it('fetchRepo (src/lib/repo.ts) is the only producer of a clone tree', () => {
+    const srcDir = join(import.meta.dirname, '..', 'src');
+    const producers: string[] = [];
+    for (const rel of readdirSync(srcDir, { recursive: true }) as string[]) {
+      if (!rel.endsWith('.ts') || rel.includes('.updated.')) continue;
+      const text = readFileSync(join(srcDir, rel), 'utf8');
+      if (/\b(extractTarGz|extractTar|mkdtempSync|mkdtemp)\s*\(/.test(text)) {
+        producers.push(rel.split('\\').join('/'));
+      }
+    }
+    expect(producers.sort()).toEqual(['lib/repo.ts', 'lib/tar-extract.ts']);
   });
 });

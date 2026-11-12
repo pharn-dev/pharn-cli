@@ -1,6 +1,5 @@
 import {
   closeSync,
-  constants as fsConstants,
   existsSync,
   fstatSync,
   openSync,
@@ -103,7 +102,7 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
     }
 
     const names = readdirSync(subtreeDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.isSymbolicLink())
+      .filter((e) => e.isDirectory())
       .map((e) => e.name)
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
@@ -159,14 +158,6 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
   return { capabilities, unknown };
 }
 
-// O_NOFOLLOW refuses a symlinked final component (ELOOP) and O_NONBLOCK keeps
-// the open of a FIFO from blocking forever. Both are POSIX; where a platform
-// lacks one (win32) the constant is absent and the flag is simply not set.
-const OPEN_FLAGS =
-  fsConstants.O_RDONLY |
-  (fsConstants.O_NOFOLLOW ?? 0) |
-  (fsConstants.O_NONBLOCK ?? 0);
-
 /**
  * Read one capability's markdown, refusing anything that is not a regular file
  * with a ManifestValidationError — the error the per-capability loop tolerates.
@@ -175,9 +166,9 @@ const OPEN_FLAGS =
  * and then threw EISDIR, which is NOT a validation error, so one oddly-shaped
  * upstream capability aborted the whole index for every deployed CLI. The
  * type check is made on the OPENED descriptor and the read goes through that
- * same descriptor, so nothing can swap the path between the check and the read.
- * A directory, a symlink (never followed — it could point outside the clone)
- * or a FIFO becomes `unknown`. Other I/O failures still propagate.
+ * same descriptor. A directory becomes `unknown`; a link, FIFO or device cannot
+ * be there (the clone invariant, lib/repo.ts). Other I/O failures still
+ * propagate.
  */
 function readCapabilityMarkdown(
   capFile: string,
@@ -186,7 +177,7 @@ function readCapabilityMarkdown(
 ): string {
   let fd: number;
   try {
-    fd = openSync(capFile, OPEN_FLAGS);
+    fd = openSync(capFile, 'r');
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') {
@@ -194,7 +185,7 @@ function readCapabilityMarkdown(
         `Capability "${name}" in ${subtreeDir} is missing its markdown ${name}/${name}.md.`,
       );
     }
-    if (code === 'ELOOP' || code === 'EISDIR') {
+    if (code === 'EISDIR') {
       throw new ManifestValidationError(
         `Capability "${name}" in ${subtreeDir}: ${name}/${name}.md is not a regular file.`,
       );

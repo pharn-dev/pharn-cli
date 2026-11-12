@@ -159,15 +159,10 @@ export function scanDest(params: {
     }
     if (!lstatSync(dest, { throwIfNoEntry: false })?.isFile()) continue;
 
-    // The clone side is walked the same way, but a hit here is a SKIP, not a
-    // refusal: the copy's own `noSymlinks` filter never copies such an entry, so
-    // there is no destination hazard to refuse over. No rel capabilityCloneFiles
-    // produces can even carry one (walkFiles recurses only into real dirs) — this
-    // is defense in depth for a function that is exported and takes a plain
-    // string[], the same reasoning install-records.ts records for shape-checking
-    // a key it never path-joins.
-    if (findSymlinkComponentOr(repoDir, srcRel, UNREADABLE) !== null) continue;
-    if (!lstatSync(src, { throwIfNoEntry: false })?.isFile()) continue;
+    // The clone side needs no link walk (the clone invariant, lib/repo.ts), but
+    // its types still vary: a directory where a file is expected, or a FILE
+    // where a directory is (lstat then throws ENOTDIR), is a skip.
+    if (!isRegularFile(src)) continue;
 
     // contentHash's failure on a path that IS a regular file (EACCES) deliberately
     // PROPAGATES: it aborts the caller before any write, with the clone cleaned
@@ -254,3 +249,12 @@ function driftLabel(decision: FileDecision): DriftLabel | null {
  * before calling — so this fallback cannot swallow a containment violation.
  */
 const UNREADABLE = Symbol('unreadable');
+
+/** A regular file at `path`; anything else — absent, a directory, an ENOTDIR walk — is not. */
+function isRegularFile(path: string): boolean {
+  try {
+    return lstatSync(path, { throwIfNoEntry: false })?.isFile() === true;
+  } catch {
+    return false;
+  }
+}

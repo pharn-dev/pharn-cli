@@ -108,21 +108,18 @@ type ReadResult =
 // O_NONBLOCK keeps open(2) on a FIFO from blocking forever — the PHARN-14/15
 // rule for every reader of a path it does not control. POSIX-only constants are
 // simply absent on win32, where the flag is not set.
-const PROJECT_OPEN = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
-const UPSTREAM_OPEN = PROJECT_OPEN | (constants.O_NOFOLLOW ?? 0);
+const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
 
 /**
- * Read one settings file under `base`. `followLeaf` is the project side: a
- * symlinked FILE is followed, a symlinked directory on the way is not.
+ * Read one settings file under `base`: a symlinked FILE is followed (as Claude
+ * Code does), a symlinked directory on the way is not. The project's files and
+ * the clone's go through this one reader; the clone holds no links at all (the
+ * clone invariant, lib/repo.ts), so the walk only ever matters for the project.
  */
-function readSettings(
-  base: string,
-  rel: string,
-  followLeaf: boolean,
-): ReadResult {
+function readSettings(base: string, rel: string): ReadResult {
   let linked: string | null;
   try {
-    linked = findSymlinkComponent(base, followLeaf ? dirname(rel) : rel);
+    linked = findSymlinkComponent(base, dirname(rel));
   } catch {
     return {
       kind: 'unreadable',
@@ -133,15 +130,11 @@ function readSettings(
     return { kind: 'unreadable', reason: `${linked} is a symbolic link` };
   let fd: number;
   try {
-    fd = openSync(
-      safeJoin(base, rel),
-      followLeaf ? PROJECT_OPEN : UPSTREAM_OPEN,
-    );
+    fd = openSync(safeJoin(base, rel), OPEN_FLAGS);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return { kind: 'absent' };
-    // Only the project side reaches this with a non-directory component (the
-    // upstream walk above covers every component): `.claude` is a file.
+    // A non-directory component the walk did not raise on: `.claude` is a file.
     if (code === 'ENOTDIR')
       return {
         kind: 'unreadable',
@@ -268,14 +261,14 @@ export function diffHookWiring(
   repoDir: string,
   projectRoot: string,
 ): HookWiringDiff {
-  const upstream = readSettings(repoDir, CLAUDE_SETTINGS_FILE, false);
+  const upstream = readSettings(repoDir, CLAUDE_SETTINGS_FILE);
   const upstreamEntries =
     upstream.kind === 'ok' ? hookEntries(upstream.value) : null;
   if (upstreamEntries === null || upstreamEntries.length === 0)
     return { status: 'no-upstream', missing: [] };
 
-  const shared = readSettings(projectRoot, CLAUDE_SETTINGS_FILE, true);
-  const local = readSettings(projectRoot, LOCAL_SETTINGS_FILE, true);
+  const shared = readSettings(projectRoot, CLAUDE_SETTINGS_FILE);
+  const local = readSettings(projectRoot, LOCAL_SETTINGS_FILE);
   // An unreadable file could wire anything: the answer is "unknown", never a
   // guess from the other file.
   for (const [file, result] of [
@@ -349,7 +342,7 @@ export function hooksReferencing(
   if (scriptRels.length === 0) return [];
   const out: HookReference[] = [];
   for (const file of [CLAUDE_SETTINGS_FILE, LOCAL_SETTINGS_FILE]) {
-    const read = readSettings(projectRoot, file, true);
+    const read = readSettings(projectRoot, file);
     if (read.kind === 'absent') continue;
     if (read.kind === 'unreadable') {
       out.push({ file, kind: 'unreadable', reason: read.reason });
@@ -494,8 +487,8 @@ export function preservedSettingsHookLines(
 // signatures; THREAT-MODEL.md §4a). The copy itself is unchanged; what is new
 // is that init LISTS what the file wires, real run and `--dry-run` alike.
 //
-// Read through the upstream reader above (symlink-refused at every component,
-// O_NOFOLLOW, non-blocking, 256 KiB). The copy has no size cap and no JSON
+// Read through the settings reader above (non-blocking, regular files only,
+// 256 KiB). The copy has no size cap and no JSON
 // check, so a file this reader refuses was still installed: the summary says
 // `unreadable`, and the note says it could not list the hooks — never nothing.
 // Advisory: the entries are the ones `hookEntries` recognises; a member it
@@ -548,7 +541,7 @@ function countSkipped(settings: Record<string, unknown>): number {
  * Never throws; JSON that is not an object lists nothing.
  */
 export function upstreamSettingsSummary(repoDir: string): FreshSettingsSummary {
-  const read = readSettings(repoDir, CLAUDE_SETTINGS_FILE, false);
+  const read = readSettings(repoDir, CLAUDE_SETTINGS_FILE);
   if (read.kind === 'absent')
     return { status: 'unreadable', reason: 'it does not exist' };
   if (read.kind === 'unreadable')

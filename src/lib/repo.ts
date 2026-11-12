@@ -83,6 +83,16 @@ function installCleanupHandlers(): void {
 }
 
 export interface FetchedRepo {
+  // THE CLONE INVARIANT: the returned tree contains only regular files and
+  // directories, created by this process in a private temp dir (`mkdtemp`,
+  // mode 0700) that nothing else writes. lib/tar-extract.ts creates nothing
+  // else (its typeflag allowlist), and this module is the only place a clone is
+  // made (pinned by tests/tar-extract.test.ts). Clone-side readers rely on it
+  // and do NOT re-check for symlinks, FIFOs or devices; they still check type
+  // where a directory can stand in for a file. The premise is an OS property: a
+  // process running as the same user could write the temp dir, but it can
+  // already do anything pharn can. Every DESTINATION (project-side) guard is
+  // separate and stays.
   dir: string;
   // The commit the tree was pinned to — recorded verbatim as pharn.config.json
   // `commit`. It is EITHER the resolved SHA (the tarball was fetched at exactly
@@ -133,6 +143,10 @@ export interface FetchedRepo {
  * handlers drain, so an interrupted run cannot leak it — see the block above
  * `FetchedRepo`. That is a backstop under each caller's `finally`, not a
  * replacement for it.
+ *
+ * The returned tree holds only regular files and directories, created by this
+ * process in a private temp dir that nothing else writes — the clone invariant
+ * stated on `FetchedRepo.dir`, which clone-side readers rely on.
  *
  * The network floor is the same three guards `lib/skills-version.ts` carries —
  * `redirect: 'error'`, a timeout cleared in `finally`, and a body cap — and the

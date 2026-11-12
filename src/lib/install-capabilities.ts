@@ -103,14 +103,17 @@ const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
 const inFloorFixtures = (floorFrom: string, src: string): boolean =>
   isFloorTestFixturePath(toPosix(relative(floorFrom, src)));
 
-// Trust (P2): the fetched repo is untrusted, and a recursive cpSync copies
-// symlinks VERBATIM by default — so a malicious clone could plant a symlink
-// (e.g. onto a file outside the project) that lands in the user's tree and is
-// later followed by their tools. Reject symlinks the same way copyFilteredDir
-// does (skip, never materialize): `isSymlink` guards each whole-dir/single-file
-// copy root; `noSymlinks` is the cpSync filter that skips nested symlinks.
-const isSymlink = (p: string): boolean => lstatSync(p).isSymbolicLink();
-const noSymlinks = (src: string): boolean => !isSymlink(src);
+// Clone side (P2): the source tree holds only regular files and directories —
+// the clone invariant fetchRepo states (lib/repo.ts) — so nothing here checks
+// the SOURCE for links. The DESTINATION is guarded (prepareInstall,
+// destAcceptsWrite).
+//
+// F-19: every recursive cpSync passes a filter, and this one exists for that
+// alone. Measured on Node 24.13.1, a recursive copy WITH a filter unlinks each
+// destination before writing it, while one WITHOUT a filter writes into the
+// existing inode — through a hard-linked destination, out of the project.
+// Pinned by tests/install-capabilities.test.ts ("HARD-LINKED destination").
+const unlinkFirst = (): boolean => true;
 
 /**
  * Copy the resolved capabilities + the fixed product surfaces from `repoDir`
@@ -143,18 +146,13 @@ export function installCapabilityDirs(
         `Capability "${cap.name}" (${cap.role}) is missing at ${subtree}/${cap.name} in the fetched repo.`,
       );
     }
-    if (isSymlink(from)) {
-      throw new ManifestValidationError(
-        `Capability "${cap.name}" (${cap.role}) is a symlink at ${subtree}/${cap.name}; refusing to copy from the untrusted repo.`,
-      );
-    }
     return { name: cap.name, role: cap.role, subtree, from };
   });
 
   const installed: InstalledCapability[] = [];
   for (const cap of planned) {
     const to = safeJoin(projectRoot, `${cap.subtree}/${cap.name}`);
-    cpSync(cap.from, to, { recursive: true, force: true, filter: noSymlinks });
+    cpSync(cap.from, to, { recursive: true, force: true, filter: unlinkFirst });
     installed.push({ name: cap.name, role: cap.role });
   }
   return installed;
@@ -269,16 +267,12 @@ export function installCapabilities(
   // still ships THREAT-MODEL/LIMITS at the root, which the install mirrors; see
   // PHARN_TRUSTED_DOCS in constants.ts) --------------------------------------
   //
-  // The leaf-only isSymlink is sufficient here and NOT the weaker form of the
-  // features/README.md guard: a root-level fallback has no intermediate
-  // directory at all, and every pharn/-prefixed doc's only intermediate is
-  // `pharn/` itself, which prepareInstall's destination walk already covers.
   // `written` collects only the docs this branch actually copied — the outro
   // reports that, never the expected list.
   const written: string[] = [];
   for (const doc of resolveTrustedDocs(repoDir, paths.layout)) {
     const from = safeJoin(repoDir, doc);
-    if (existsSync(from) && !isSymlink(from)) {
+    if (existsSync(from)) {
       cpSync(from, safeJoin(projectRoot, doc), { force: true });
       written.push(doc);
     }
@@ -292,7 +286,7 @@ export function installCapabilities(
   // (`pharn/LICENSE` / `PHARN-LICENSE`), because copying to a root `LICENSE`
   // would overwrite the user's with `{ force: true }` and no prompt.
   const licenseFrom = safeJoin(repoDir, paths.license.from);
-  if (existsSync(licenseFrom) && !isSymlink(licenseFrom)) {
+  if (existsSync(licenseFrom)) {
     cpSync(licenseFrom, safeJoin(projectRoot, paths.license.to), {
       force: true,
     });
@@ -303,17 +297,7 @@ export function installCapabilities(
   // name. Deliberately NOT called a trusted doc: it is not write-protected by
   // the installed hook.
   //
-  // findSymlinkComponent, not just the leaf isSymlink the trusted docs use. This
-  // is the first ROOT-RELATIVE file the install copies that has an INTERMEDIATE
-  // directory, so the leaf-only check is newly insufficient: measured on this
-  // Node, a clone whose `features/` is a symlink reports existsSync true and
-  // lstat(leaf).isSymbolicLink() FALSE, and cpSync copies the pointed-to bytes
-  // straight through — bytes from outside the clone, into the user's project.
-  // safeJoin cannot catch it (it is lexical and never resolves a link). The
-  // manifest already walks every component; the writer must agree, or the two
-  // trust floors diverge on exactly the path this increment adds (P2).
-  //
-  // The DESTINATION is walked too, for the mirror-image reason: measured, a
+  // The DESTINATION is walked (it has an intermediate directory): measured, a
   // project whose own `features/` is a symlink to an external directory takes
   // the copy straight THROUGH it, creating or overwriting a README.md outside
   // the project root — and the pre-install overwrite check never warns, because
@@ -322,17 +306,12 @@ export function installCapabilities(
   // every write it makes; the install path must match it for the one surface
   // whose destination has an intermediate directory (P2).
   //
-  // ORDER MATTERS: the SOURCE checks come first and short-circuit. The file is
+  // ORDER MATTERS: the SOURCE check comes first and short-circuits. The file is
   // optional (an older pinned clone has none), and its absence must stay a
   // silent no-op — so a clone without it must never reach the destination walk,
   // which can raise on a project the copy would not have touched anyway.
   const featuresFrom = safeJoin(repoDir, featuresRel);
-  if (
-    findSymlinkComponent(repoDir, featuresRel) === null &&
-    existsSync(featuresFrom) &&
-    !isSymlink(featuresFrom) &&
-    destAcceptsWrite(projectRoot, featuresRel)
-  ) {
+  if (existsSync(featuresFrom) && destAcceptsWrite(projectRoot, featuresRel)) {
     cpSync(featuresFrom, safeJoin(projectRoot, featuresRel), {
       force: true,
     });
@@ -340,38 +319,38 @@ export function installCapabilities(
 
   // --- contracts (whole dir; mirrored at the layout's path) ------------------
   const contractsFrom = safeJoin(repoDir, paths.contracts);
-  if (existsSync(contractsFrom) && !isSymlink(contractsFrom)) {
+  if (existsSync(contractsFrom)) {
     cpSync(contractsFrom, safeJoin(projectRoot, paths.contracts), {
       recursive: true,
       force: true,
-      filter: noSymlinks,
+      filter: unlinkFirst,
     });
   }
 
   // --- pharn-core (whole dir; mirrored at the layout's path) -----------------
   // The agnostic mechanism layer the copied product commands cite by path (today
   // the seam-resolver skill + its evals). Copied like pharn-contracts — whole,
-  // verbatim, no filter: its evals are content, not test files. Contents are
+  // verbatim, no test-file filter (unlinkFirst keeps only F-19's path): its
+  // evals are content, not test files. Contents are
   // NEVER parsed; its `role: skill` frontmatter is deliberately outside
   // ROLE_VALUES and never reaches the capability index. A flat clone has no such
   // dir upstream, so this is a no-op there (P7).
   const coreFrom = safeJoin(repoDir, paths.core);
-  if (existsSync(coreFrom) && !isSymlink(coreFrom)) {
+  if (existsSync(coreFrom)) {
     cpSync(coreFrom, safeJoin(projectRoot, paths.core), {
       recursive: true,
       force: true,
-      filter: noSymlinks,
+      filter: unlinkFirst,
     });
   }
 
   // --- floor checkers (whole dir minus test files + test-fixture dirs) -------
   const floorFrom = safeJoin(repoDir, paths.floor);
-  if (existsSync(floorFrom) && !isSymlink(floorFrom)) {
+  if (existsSync(floorFrom)) {
     cpSync(floorFrom, safeJoin(projectRoot, paths.floor), {
       recursive: true,
       force: true,
-      filter: (src) =>
-        !isTestFile(src) && !inFloorFixtures(floorFrom, src) && noSymlinks(src),
+      filter: (src) => !isTestFile(src) && !inFloorFixtures(floorFrom, src),
     });
   }
 
@@ -386,14 +365,13 @@ export function installCapabilities(
 
 /**
  * Would the install copy the clone's `.claude/settings.json` into a project
- * that has none? Only when the clone ships one that is not a symbolic link —
- * the leaf `isSymlink` guard every single-file surface here carries. ONE
+ * that has none? Only when the clone ships one. ONE
  * predicate for the copy above and for `init --dry-run`'s plan
  * (lib/init-plan.ts), so the preview and the run cannot disagree.
  */
 export function upstreamSettingsCopyable(repoDir: string): boolean {
   const from = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
-  return existsSync(from) && !isSymlink(from);
+  return existsSync(from);
 }
 
 /**
@@ -571,7 +549,8 @@ function copyFilteredDir(
   const entries = readdirSync(fromDir, { withFileTypes: true });
   let ensured = false;
   for (const entry of entries) {
-    if (!entry.isFile() || entry.isSymbolicLink()) continue;
+    // A directory can sit here; nothing else can (the clone invariant).
+    if (!entry.isFile()) continue;
     if (!keep(entry.name)) continue;
     assertSafeString(entry.name, `${relDir}/${entry.name}`, COPY_FILENAME_RE);
     if (!ensured) {
