@@ -12,6 +12,22 @@ import {
 } from './helpers.js';
 import { LOCK_FILE } from '../src/lib/project-lock.js';
 
+// Time control (CORE-171): a same-host lock is also judged against the boot
+// time (`now - os.uptime()`), so a lock planted with an OLD `startedAt` must not
+// depend on how long the test machine has been up. `uptime` is a mock (30 days
+// by default); the rest of `node:os` stays real.
+const LONG_UPTIME_S = 30 * 24 * 60 * 60;
+const { uptime } = vi.hoisted(() => ({ uptime: vi.fn<() => number>() }));
+vi.mock('node:os', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:os')>();
+  return { ...real, default: { ...real, uptime }, uptime };
+});
+uptime.mockImplementation(() => LONG_UPTIME_S);
+afterEach(() => {
+  uptime.mockReset();
+  uptime.mockImplementation(() => LONG_UPTIME_S);
+});
+
 // The end-to-end half of the lock: the four write commands must REFUSE while
 // one is held, and must leave the project byte-identical when they do.
 //
@@ -201,13 +217,14 @@ describe('a held lock refuses a writing command', () => {
   });
 
   it('breaks a stale lock rather than wedging the project forever', async () => {
-    // The holder was SIGKILLed a week ago. Refusing forever would make the
-    // project permanently unusable, which is the worse failure.
+    // The holder was SIGKILLed a week ago, so its pid is gone on this host.
+    // Refusing forever would make the project permanently unusable, which is
+    // the worse failure.
     mkdirSync(join(proj, 'pharn'), { recursive: true });
     writeFileSync(
       join(proj, LOCK_FILE),
       JSON.stringify({
-        pid: process.pid,
+        pid: 2147483646, // cannot be running: process.kill(pid, 0) → ESRCH
         host: hostname(),
         command: 'update',
         startedAt: new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),

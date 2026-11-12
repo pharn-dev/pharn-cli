@@ -644,17 +644,30 @@ would then stop mid-write. `pharn` breaks such a lock by itself when any of thes
   the last 10 seconds (a lock is briefly empty while its owner writes it);
 - its start time is more than five minutes in the future (no running `pharn` writes that; it is
   treated like a malformed payload);
-- it is more than six hours old;
-- it names a pid on **this** host that is no longer running.
+- it comes from **another host** and is more than six hours old;
+- it names a pid on **this** host that is no longer running;
+- it comes from **this** host and started before this host last booted.
 
-A lock from **another host** is only retired by age — a pid means nothing across machines. If you are
-certain nothing is running, deleting `pharn/.lock` is safe and is the documented escape.
+A lock from **this** host is never broken by age: while its pid is running, `pharn` refuses, however
+long ago it started (a `pharn add` picker left open over lunch keeps the project). A lock from
+**another host** is only retired by age — a pid means nothing across machines. If you are certain
+nothing is running, deleting `pharn/.lock` is safe and is the documented escape.
 
-**A recycled pid keeps a dead run's lock alive.** "No longer running" is checked by asking the
-operating system whether that pid exists. If the run that took the lock was killed and its pid has
-since been reused by an unrelated process, the check finds that process and the lock reads as live, so
-`pharn` keeps refusing until the lock is six hours old. If the refusal names a pid that is not a
-`pharn` process (check with `ps -p <pid>`), delete `pharn/.lock`.
+**A recycled pid keeps a dead run's lock alive until the next reboot.** "No longer running" is checked
+by asking the operating system whether that pid exists. If the run that took the lock was killed and
+its pid has since been reused by an unrelated process, the check finds that process and the lock reads
+as live, so `pharn` keeps refusing until this host reboots (a lock started before the last boot is
+broken). If the refusal names a pid that is not a `pharn` process (check with `ps -p <pid>`), delete
+`pharn/.lock`.
+
+The boot check trusts the clock. On a machine with no battery-backed clock, or one whose clock is
+corrected forward by a long way after it boots, a running `pharn` can look as if it started before
+boot, and another run on the same machine may then break its lock; small corrections (under five
+minutes) are tolerated. A clock set **back** by more than five minutes makes a running lock look as if
+it started in the future, and it is then broken after 10 seconds like a malformed one. "This host"
+means the machine's hostname: if it changes while `pharn` runs (macOS can rename itself when the
+network changes), the lock is treated as one from another host — retired after six hours — and the run
+cannot remove it when it finishes, so delete `pharn/.lock` yourself if no `pharn` is running.
 
 **A directory named `pharn/.lock`** is never a lock — `pharn` does not create one — so it is refused
 with its own message rather than broken:
