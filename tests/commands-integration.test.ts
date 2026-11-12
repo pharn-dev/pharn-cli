@@ -344,6 +344,28 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     for (const rel of owned) expect(rec.files[rel], rel).toBe(sha256(rel));
   });
 
+  // CORE-172: the settings.json a fresh init writes is the hook commands
+  // Claude Code will run; init lists them, read from the clone it copied.
+  it('init --yes lists the hooks of the settings.json it writes', async () => {
+    vi.mocked(clack.note).mockClear();
+    await init();
+    const hooks = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'HOOKS')
+      .map(([body]) => String(body));
+    expect(hooks).toHaveLength(1);
+    expect(hooks[0]).toContain(
+      'Wrote .claude/settings.json from upstream. It wires 1 hook(s):',
+    );
+    expect(hooks[0]).toContain(
+      'PreToolUse [Write]: {"type":"command","command":"node .claude/hooks/guard.cjs"}',
+    );
+    expect(hooks[0]).toContain(
+      'Claude Code runs these commands; review `.claude/settings.json`.',
+    );
+    expect(read('.claude/settings.json')).toBe(HOOK_SETTINGS);
+  });
+
   // The layout-gate class: `add` copies at the CLONE's layout, while `remove`,
   // `status` and `update` address the project at the RECORDED one. Through the
   // real modules the capability must land where the readers look.

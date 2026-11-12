@@ -32,7 +32,10 @@ import {
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
-import { preservedSettingsHookLines } from '../lib/hook-wiring.js';
+import {
+  freshSettingsHookLines,
+  preservedSettingsHookLines,
+} from '../lib/hook-wiring.js';
 import { serializeJsonReport } from '../lib/json-report.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { BACKUP_DIR, legacyBackupNotice } from '../lib/backup.js';
@@ -666,6 +669,10 @@ function reportInitDryRun(r: InitPlanReport): void {
     lines.push(
       `  Would preserve the existing ${CLAUDE_SETTINGS_FILE} — pharn never overwrites it.`,
     );
+  } else if (r.freshSettings !== null) {
+    lines.push(
+      `  Would write ${CLAUDE_SETTINGS_FILE} from upstream; see HOOKS.`,
+    );
   }
   // What the install would append to `.gitignore` (lib/gitignore.ts owns the
   // wording); a refusal is a warning, printed after the note.
@@ -697,10 +704,14 @@ function reportInitDryRun(r: InitPlanReport): void {
       : rootMigrationNoteLines(r.rootMigration, null);
   if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
 
-  // The same note a real run prints over a preserved settings.json
-  // (steps/install-archetype.ts), from the same function.
+  // The same note a real run prints over a preserved settings.json, or after
+  // writing a fresh one (steps/install-archetype.ts), from the same functions.
   const hookLines =
-    r.hookWiring === null ? null : preservedSettingsHookLines(r.hookWiring);
+    r.hookWiring !== null
+      ? preservedSettingsHookLines(r.hookWiring)
+      : r.freshSettings !== null
+        ? freshSettingsHookLines(r.freshSettings)
+        : null;
   if (hookLines) note(hookLines.join('\n'), 'HOOKS');
 
   // The not-shipped warning a real run prints after the copy, as a preview.

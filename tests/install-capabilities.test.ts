@@ -16,6 +16,7 @@ import {
   installCapabilities,
   installCapabilityDirs,
   prepareInstall,
+  upstreamSettingsCopyable,
 } from '../src/lib/install-capabilities.js';
 import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
@@ -263,10 +264,25 @@ describe('installCapabilities', () => {
     expect(existsSync(join(proj, '.dev/memory-bank'))).toBe(false);
   });
 
-  it('copies settings.json into a fresh project (settingsPreserved false)', () => {
+  it('copies settings.json into a fresh project (settingsPreserved false, settingsWritten true)', () => {
     const { proj, result } = run();
     expect(existsSync(join(proj, '.claude/settings.json'))).toBe(true);
     expect(result.settingsPreserved).toBe(false);
+    expect(result.settingsWritten).toBe(true);
+  });
+
+  // CORE-172: "not preserved" is not "written" — init reports the write.
+  it('writes no settings.json when upstream ships none (settingsWritten false)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    scaffoldRepo(repo);
+    rmSync(join(repo, '.claude/settings.json'));
+    expect(upstreamSettingsCopyable(repo)).toBe(false);
+    const result = installCapabilities(repo, proj, selection());
+    expect(result.settingsPreserved).toBe(false);
+    expect(result.settingsWritten).toBe(false);
+    expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false);
   });
 
   it('PRESERVES an existing .claude/settings.json — never overwrites it (grill F1)', () => {
@@ -276,6 +292,7 @@ describe('installCapabilities', () => {
     write(join(proj, '.claude/settings.json'), '{"USER":"config"}');
     const result = installCapabilities(repo, proj, selection());
     expect(result.settingsPreserved).toBe(true);
+    expect(result.settingsWritten).toBe(false);
     expect(existsSync(join(proj, '.claude/settings.json'))).toBe(true);
     // The user's content is intact.
     expect(readFileSync(join(proj, '.claude/settings.json'), 'utf8')).toContain(
@@ -667,7 +684,9 @@ describe('installCapabilities', () => {
     const result = installCapabilities(repo, proj, selection());
 
     // symlinked single-file surfaces skipped (settings not preserved, not copied).
+    expect(upstreamSettingsCopyable(repo)).toBe(false);
     expect(result.settingsPreserved).toBe(false);
+    expect(result.settingsWritten).toBe(false);
     expect(isPresent(join(proj, '.claude/settings.json'))).toBe(false);
     expect(isPresent(join(proj, 'ARCHITECTURE.md'))).toBe(false);
     // real siblings still copied; planted nested symlinks skipped.
@@ -1139,6 +1158,7 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     const result = installCapabilities(repo, proj, selection());
 
     expect(result.settingsPreserved).toBe(true);
+    expect(result.settingsWritten).toBe(false);
     expect(readFileSync(join(dotfiles, 'settings.json'), 'utf8')).toBe(
       '{"mine":true}',
     );

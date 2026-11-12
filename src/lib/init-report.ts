@@ -133,6 +133,19 @@ export interface InitReport {
     // in another spelling (same script, event and matcher) — replace, not add.
     replace?: HookReplacement[];
   } | null;
+  // Present ONLY when the install would WRITE `.claude/settings.json` from
+  // upstream (the project has none, the clone ships a copyable one): what that
+  // file wires — the HOOKS note a real run prints (CORE-172). `hooks` above
+  // stays null then; it compares a PRESERVED file. Hook strings are not capped
+  // (as `hooks.missing`); keys and the reason are. Added in 0.19.0.
+  settingsHooks?:
+    | {
+        status: 'ok';
+        hooks: HookEntry[];
+        otherKeys: string[];
+        skipped: number;
+      }
+    | { status: 'unreadable'; reason: string };
   // Present ONLY when there is one: the declared surfaces the clone ships no
   // file for (as `update --dry-run --json`'s `plan.absentUpstream`).
   absentUpstream?: { surface: InstallSurface; path: string }[];
@@ -246,6 +259,29 @@ export function buildInitReport(p: InitPlanReport): InitReport {
               ? { replace: p.hookWiring.replace }
               : {}),
           },
+    ...(p.freshSettings === null
+      ? {}
+      : {
+          settingsHooks:
+            p.freshSettings.status === 'ok'
+              ? {
+                  status: 'ok' as const,
+                  hooks: p.freshSettings.hooks.map((e) => ({
+                    event: e.event,
+                    matcher: e.matcher,
+                    command: e.command,
+                    args: [...e.args],
+                  })),
+                  otherKeys: p.freshSettings.otherKeys.map((k) =>
+                    cap(k, MAX_UNKNOWN_FIELD),
+                  ),
+                  skipped: p.freshSettings.skipped,
+                }
+              : {
+                  status: 'unreadable' as const,
+                  reason: cap(p.freshSettings.reason, MAX_REASON),
+                },
+        }),
     ...(p.absentUpstream.length > 0
       ? {
           absentUpstream: p.absentUpstream.map((a) => ({

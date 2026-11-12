@@ -153,6 +153,7 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 | hostile `pharn.records.json` keys / stamp (committed, hand-editable; only type-checked) quoted into a terminal message | the records note `update` prints (`recordsNote`, built with `JSON.stringify`, which leaves C1 — the 8-bit CSI U+009B — and bidi overrides raw) is escaped with `escapeUnsafe` at both print sites; `--dry-run --json` carries it raw for `serializeJsonReport` to escape once; `uninstall`'s refusal escapes the same message. One unsafe-character set (C0, DEL, C1, `\p{Cf}`, U+2028/2029) in `terminal-safe.ts`, which `terminalSafe` / `hasUnsafeChars` / `escapeUnsafe` / `assertSafeString` all derive from — a static test refuses a second definition in `src/` | `reportOutcome` / `reportDryRun` (`src/lib/update-render.ts`), `escapeUnsafe` (`src/lib/terminal-safe.ts`) |
 | consent bypass / silent overwrite | install summary confirm (`runArchetypeSummary`); overwrite-conflict list derived from `collectExpectedInstallPaths` + default **No** (`confirmWriteTargets` in `src/steps/overwrite-check.ts`) | consent gate |
 | copied methodology (Surface A) | validated for placement only; content trust is provenance + user review (`LIMITS.md §1`) | (labeled limit) |
+| upstream `.claude/settings.json` hook commands (copied verbatim on a fresh install; Claude Code runs them later) | an existing file is never overwritten; on a fresh install the file is copied only when the clone's exists and is not a symlink (`upstreamSettingsCopyable`), and `init` (real run, `--yes`, `--dry-run`) lists every wired command through `displayHook` (escaped, capped) and names the other top-level keys through `escapeUnsafe`, from a bounded (256 KiB), non-blocking, symlink-refusing read; entries that read does not recognise are counted, and a file it refuses is still copied with a note that its hooks could not be listed; never executed by pharn — content trust is provenance (§4a) | `upstreamSettingsSummary` / `freshSettingsHookLines` (`src/lib/hook-wiring.ts`), `upstreamSettingsCopyable` (`src/lib/install-capabilities.ts`) |
 | stale / renamed upstream | drift derived live; a missing expected path is **reported**, never guessed | `diffInstalledCapabilities` (`src/lib/diff.ts`) |
 
 ### 3.1 The config write (`pharn.config.json`) as a sink
@@ -194,6 +195,9 @@ not a "the source repo is ours" assumption (P0).
   bytes land (`safeJoin` + symlink rejection) and **how** the lightweight fetches are bounded — a
   hostile upstream is bounded to "content inside the mirrored install paths you can read and review,"
   never arbitrary-path write via validated names; off-host egress is blocked on pharn's `fetch()` calls.
+  On a fresh install `init` shows the user every hook command the copied `.claude/settings.json`
+  wires (§3), but showing is not verifying: trusting those commands still rests on provenance and the
+  user's review.
 - **4b. The archive is bounded and strictly parsed, but its CONTENTS are still only provenance.**
   `fetchRepo` now owns the whole download-and-extract path, so the residual is much smaller than it
   was — and what is left is worth stating precisely rather than implying it is closed:

@@ -486,3 +486,129 @@ export function preservedSettingsHookLines(
     ? [...lines, '  `pharn status --strict` fails until they are wired.']
     : lines;
 }
+
+// ---------------------------------------------------------------------------
+// A FRESH install (CORE-172). When the project has no `.claude/settings.json`,
+// init copies upstream's verbatim — the hook commands Claude Code will run in
+// this project, the largest trust surface of an install (provenance only, no
+// signatures; THREAT-MODEL.md §4a). The copy itself is unchanged; what is new
+// is that init LISTS what the file wires, real run and `--dry-run` alike.
+//
+// Read through the upstream reader above (symlink-refused at every component,
+// O_NOFOLLOW, non-blocking, 256 KiB). The copy has no size cap and no JSON
+// check, so a file this reader refuses was still installed: the summary says
+// `unreadable`, and the note says it could not list the hooks — never nothing.
+// Advisory: the entries are the ones `hookEntries` recognises; a member it
+// drops is COUNTED (`skipped`) so the note can point at the file, and what
+// Claude Code finally runs is its own parser's answer.
+// ---------------------------------------------------------------------------
+
+/** What a fresh `.claude/settings.json` from upstream wires. */
+export type FreshSettingsSummary =
+  | {
+      status: 'ok';
+      /** `hookEntries` of the file, in file order (empty when none). */
+      hooks: HookEntry[];
+      /** Top-level own keys other than `hooks` and `_comment`, sorted. */
+      otherKeys: string[];
+      /** Members of `hooks` that `hookEntries` drops (see countSkipped). */
+      skipped: number;
+    }
+  | { status: 'unreadable'; reason: string };
+
+/**
+ * The members `hookEntries` drops, one per `continue` it takes: an event whose
+ * value is not an array, a group that is not an object with a `hooks` array, a
+ * hook that is not an object with a string `command` (a `prompt` hook, say).
+ * A `hooks` value that is present but not an object counts as one.
+ */
+function countSkipped(settings: Record<string, unknown>): number {
+  if (!('hooks' in settings)) return 0;
+  if (!isPlainObject(settings.hooks)) return 1;
+  let skipped = 0;
+  for (const groups of Object.values(settings.hooks)) {
+    if (!Array.isArray(groups)) {
+      skipped++;
+      continue;
+    }
+    for (const group of groups) {
+      if (!isPlainObject(group) || !Array.isArray(group.hooks)) {
+        skipped++;
+        continue;
+      }
+      for (const hook of group.hooks)
+        if (!isPlainObject(hook) || typeof hook.command !== 'string') skipped++;
+    }
+  }
+  return skipped;
+}
+
+/**
+ * Summarize the clone's `.claude/settings.json` for the fresh-install note.
+ * Never throws; JSON that is not an object lists nothing.
+ */
+export function upstreamSettingsSummary(repoDir: string): FreshSettingsSummary {
+  const read = readSettings(repoDir, CLAUDE_SETTINGS_FILE, false);
+  if (read.kind === 'absent')
+    return { status: 'unreadable', reason: 'it does not exist' };
+  if (read.kind === 'unreadable')
+    return { status: 'unreadable', reason: read.reason };
+  if (!isPlainObject(read.value))
+    return { status: 'ok', hooks: [], otherKeys: [], skipped: 0 };
+  return {
+    status: 'ok',
+    hooks: hookEntries(read.value) ?? [],
+    otherKeys: Object.keys(read.value)
+      .filter((k) => k !== 'hooks' && k !== '_comment')
+      .sort(),
+    skipped: countSkipped(read.value),
+  };
+}
+
+/** Longest key, and most keys, the fresh note names. */
+const MAX_KEY = 100;
+const MAX_KEYS = 20;
+
+/** One untrusted key, capped then escaped (capping first never splits an escape). */
+function displayKey(key: string): string {
+  return escapeUnsafe(key.length > MAX_KEY ? `${key.slice(0, MAX_KEY)}…` : key);
+}
+
+/**
+ * The HOOKS note `init` prints after WRITING `.claude/settings.json` from
+ * upstream. ONE composition for the real run (steps/install-archetype.ts) and
+ * `init --dry-run` (commands/init.ts) — the `preservedSettingsHookLines`
+ * pattern — and always lines: the file was written, so the note is never
+ * empty. Every hook goes through `displayHook`; keys and the reason through
+ * `escapeUnsafe`, capped.
+ */
+export function freshSettingsHookLines(
+  summary: FreshSettingsSummary,
+): string[] {
+  const review =
+    '  Claude Code runs these commands; review `.claude/settings.json`.';
+  if (summary.status === 'unreadable')
+    return [
+      `  Wrote ${CLAUDE_SETTINGS_FILE} from upstream, but could not list its hooks (${escapeUnsafe(summary.reason)}).`,
+      review,
+    ];
+  const lines =
+    summary.hooks.length > 0
+      ? [
+          `  Wrote ${CLAUDE_SETTINGS_FILE} from upstream. It wires ${summary.hooks.length} hook(s):`,
+          ...summary.hooks.map((e) => `  ${displayHook(e)}`),
+        ]
+      : [`  Wrote ${CLAUDE_SETTINGS_FILE} from upstream. It wires no hooks.`];
+  if (summary.skipped > 0)
+    lines.push(
+      `  ${summary.skipped} other hook entr${summary.skipped === 1 ? 'y' : 'ies'} not shown — review the file.`,
+    );
+  if (summary.otherKeys.length > 0) {
+    const shown = summary.otherKeys.slice(0, MAX_KEYS).map(displayKey);
+    const more = summary.otherKeys.length - shown.length;
+    lines.push(
+      `  It also sets: ${shown.join(', ')}${more > 0 ? ` and ${more} more` : ''}`,
+    );
+  }
+  return [...lines, review];
+}

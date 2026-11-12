@@ -25,7 +25,9 @@ actual install targets (the selected capability dirs, the product commands/hooks
 and floor dirs, all four trusted docs, pharn's `LICENSE` copy, `pharn/features/README.md`, and
 `pharn.config.json`) already exist in your project. If any do, it lists them and asks you to confirm
 before overwriting — default **no**; if none do, there is no prompt at all. Your
-`.claude/settings.json` is never overwritten, so it is not part of the check.
+`.claude/settings.json` is never overwritten, so it is not part of the check. When your project has
+none, `init` copies pharn-oss's and lists the hook commands it wires, so you can review what Claude
+Code will run.
 
 ## Running the CLI
 
@@ -101,7 +103,8 @@ surfaces:
 | `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites all but `unreadable`                       |
 
 `.claude/*` is **layout-invariant** — commands, hooks and `settings.json` sit at those paths either
-way, and an existing `.claude/settings.json` is never overwritten. Everything else follows the fetched
+way, and an existing `.claude/settings.json` is never overwritten (a fresh one is copied, and `init`
+lists the hooks it wires). Everything else follows the fetched
 version: the CLI **mirrors** whichever layout `pharn-dev/pharn-oss` ships and never rewrites a copied
 file's contents, so the paths above are the `pharn` layout it installs today. The legacy **flat**
 layout puts the same surfaces at the project root instead — `pharn-pipeline/grillers/`,

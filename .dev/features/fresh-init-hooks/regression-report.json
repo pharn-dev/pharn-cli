@@ -1,0 +1,39 @@
+{
+  "base": "e8d0b0497955fc0901ceb7ee2cf1bb62b760d8bb",
+  "inside": [
+    ".dev/features/fresh-init-hooks/GRILL.md",
+    ".dev/features/fresh-init-hooks/PLAN.md",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/init.md",
+    "docs/getting-started.md",
+    "src/commands/init.ts",
+    "src/lib/hook-wiring.ts",
+    "src/lib/init-plan.ts",
+    "src/lib/init-report.ts",
+    "src/lib/install-capabilities.ts",
+    "src/steps/install-archetype.ts",
+    "tests/commands-integration.test.ts",
+    "tests/hook-wiring.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/init-dry-run-json.test.ts",
+    "tests/init-dry-run.test.ts",
+    "tests/init-report.test.ts",
+    "tests/install-capabilities.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [
+    "tests"
+  ],
+  "verdict": "no-regressions"
+}
