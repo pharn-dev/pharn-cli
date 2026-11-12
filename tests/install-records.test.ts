@@ -24,6 +24,7 @@ import {
   writeRecords,
 } from '../src/lib/install-records.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
+import { escapeUnsafe, hasUnsafeChars } from '../src/lib/terminal-safe.js';
 import type { UpdateLabel } from '../src/lib/update-decision.js';
 
 // The atomic write's temp name carries a random nonce. It is wrapped (not
@@ -350,6 +351,28 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
 });
 
 describe('recordsBaseline — the stamp gate', () => {
+  // CORE-170: the stamp is only TYPE-checked, and JSON.stringify is not a
+  // sanitizer — it leaves C1 (the 8-bit CSI) and bidi overrides raw. The note
+  // stays DATA here; each print site escapes it with escapeUnsafe.
+  it('a hostile stamp stays raw in the note, and escapeUnsafe makes it inert', () => {
+    const CSI = '\u009b';
+    const RLO = '\u202e';
+    const store = {
+      schemaVersion: 1,
+      skillsVersion: `1.0.0${CSI}2J${RLO}`,
+      commit: null,
+      files: { 'a.md': sha('a') },
+    };
+    const { records, note } = recordsBaseline(
+      { kind: 'ok', store },
+      { skillsVersion: '1.0.0', commit: null },
+    );
+    expect(records).toBeNull();
+    expect(note).toContain(`"1.0.0${CSI}2J${RLO}"`);
+    const printed = escapeUnsafe(note!);
+    expect(printed).toContain('"1.0.0\\u009b2J\\u202e"');
+    expect(hasUnsafeChars(printed)).toBe(false);
+  });
   it('a matching stamp yields the records', () => {
     const files = { 'a.md': sha('a') };
     expect(

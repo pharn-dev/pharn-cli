@@ -18,9 +18,10 @@
 - `src/lib/update-render.ts` — `log.warn(`⚠ ${escapeUnsafe(recordsNote)}`)` at both sites (value, never the whole line).
 - `src/lib/install-records.ts` — comment only: `stampMismatches` no longer claims JSON.stringify "escapes the rest"; the print sites escape.
 - `tests/terminal-safe.test.ts` — the one set in all three functions (C0, DEL, C1, U+202E, U+2028/2029); static test: no `src/**/*.ts` except terminal-safe.ts holds a control-range class (`\xNN-\xNN` / `\u00NN-\u00NN` spellings) or a `\p{Cf}`/`\p{Cc}` class; `DISPLACED_LEAD_RE` in capability-index.ts is the one named exemption (asserted present, so it cannot rot); the detector itself is checked against the old literals.
-- `tests/update-render.test.ts` — `reportOutcome` / `reportDryRun` with a hostile `recordsNote` print `\u009b`/`‮`/`\u001b`, no raw character.
+- `tests/update-render.test.ts` — `reportOutcome` / `reportDryRun` with a hostile `recordsNote` print `\u009b`/`\u202e`/`\u001b`, no raw character.
 - `tests/validate.test.ts` — remove the `CONTROL_CHARS_RE` block; add: U+202E / U+2028 rejected early; neither message echoes a raw character from a hostile label.
 - `tests/tar-extract.test.ts` — an entry name holding U+2028 is refused (the accepted side effect; GRILL P1).
+- `tests/install-records.test.ts` — the stamp note keeps a C1 character raw as DATA, and `escapeUnsafe` makes it inert (pharn-ci TESTS_NOT_EXERCISING_CHANGES).
 - `tests/pharn-config.test.ts` — :952/:958 expectations `\x1b`/`\x0a` → `\u001b`/`\u000a`.
 - `tests/commands-integration.test.ts` — the repro, real modules: (a) hostile STAMP at the same upstream version → `update --dry-run`, `update --yes` print escaped; `update --dry-run --json` keeps the raw characters in `plan.recordsNote` (no double escape) while stdout holds none; (b) hostile KEY (valid key, bad hash → invalid store) with upstream NEWER → `update --dry-run`, `update --yes` print escaped; `uninstall --yes` refuses with it escaped.
 - `CLAUDE.md` — rewrite the :66 `CONTROL_CHARS_RE` clause (one set in terminal-safe.ts; `assertSafeString` rejects through `hasUnsafeChars`).
@@ -34,7 +35,7 @@
 
 ## Evals to write (P1) — tests first, each must fail before the code change
 
-- terminal-safe: `terminalSafe('a b')` → `'ab'`; `hasUnsafeChars(' ')` → true; each class member in each function → stripped / true / `\uXXXX`.
+- terminal-safe: `terminalSafe('a\u2028b')` → `'ab'`; `hasUnsafeChars('\u2029')` → true; each class member in each function → stripped / true / `\uXXXX`.
 - static: today's terminal-safe literals + CONTROL_CHARS_RE are detected by the detector; src scan → `[]` (fails today on validate.ts and pharn-config.ts's derivation? — validate.ts:49 literal, yes).
 - update-render: hostile note → escapes present, raw absent (fails today: raw printed).
 - validate: `assertSafeString('Nope', 'x\u009b', RE)` message → contains `\u009b`, no raw (fails today).
