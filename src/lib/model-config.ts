@@ -42,6 +42,7 @@ export const PRODUCT_STAGES = [
   'plan',
   'grill',
   'triage',
+  'supervise',
   'build',
   'regress',
   'verify',

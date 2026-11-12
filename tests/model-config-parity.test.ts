@@ -31,14 +31,14 @@ const CHECKER = resolve(
   'fixtures/pharn-oss/check-model-config.mjs',
 );
 
-// The vendored checker, pinned: pharn-dev/pharn-oss `main` @ 3afbb125
-// (SKILLS_VERSION 7.7.1), where the file last changed in 4467407d. A refresh
+// The vendored checker, pinned: pharn-dev/pharn-oss `main` @ 5568d4ce
+// (SKILLS_VERSION 7.10.2), where the file last changed in 7c5c51b8. A refresh
 // changes this line in the same commit as the file.
 const PINNED_SHA256 =
-  'aa437fd898612c05b7860f22242ff3dd2a8ea4636724de8fdcece861fcdc0388';
+  '6fbc74044bb81bfb7899e40709da926efd7cea743a472b59920c19b4ea04ba96';
 
-// The one module the checker imports, vendored beside it from the same commit
-// (it last changed in 73a2bfc7) so the checker loads. It serves only the
+// The one module the checker imports, vendored beside it (it last changed in
+// 73a2bfc7, and is byte-identical at 5568d4ce) so the checker loads. It serves only the
 // checker's `agreement` mode, which this suite never runs; it is pinned so it
 // cannot be edited either.
 const FRONTMATTER_CORE = resolve(dirname(CHECKER), 'frontmatter-core.mjs');
@@ -114,6 +114,13 @@ const BLOCKS: [string, string | null][] = [
   [
     'a triage entry with a bad model',
     `{"stages":{${D},"triage":${entry('"gpt-4"')}}}`,
+  ],
+  // `supervise` (the stage of `/pharn-supervise`) joined in pharn-oss 7.9.0;
+  // its root block names no `supervise` key either.
+  ['a supervise entry', `{"stages":{${D},"supervise":${entry('"opus"')}}}`],
+  [
+    'a supervise entry with a bad model',
+    `{"stages":{${D},"supervise":${entry('"gpt-4"')}}}`,
   ],
   ['an unknown stage', `{"stages":{${D},"deploy":${entry('"opus"')}}}`],
   [

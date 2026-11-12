@@ -266,8 +266,13 @@ the spec, iterates build -> regress -> verify until green, an iteration cap, or
 a terminal failure, commits a green result to a new local branch (never pushed
 or merged), and leaves the merge/fix/abandon decision to you after the run.
 From pharn-oss 7.7.0, a full `/pharn-loop` (not `--quick`) also runs
-`/pharn-triage` after the grill: it gives every grill finding one disposition,
-and any verdict but proceed stops the run for you. You can run `/pharn-triage`
+`/pharn-triage` after the grill: it gives every grill finding one disposition.
+Since 7.8.0 a `replan` verdict sends the run back to `/pharn-plan` for at most
+two re-plan rounds, and since 7.9.0 a verdict that still escalates goes to
+`/pharn-supervise`, a fresh agent that decides `stop` or `proceed-at-risk` (the
+escalated findings are then named as known risk in the green commit and the run
+report); since 7.10.0 it may instead amend the SPEC once per run (`amend-spec`).
+That decision is one model's judgment, not a check. You can run `/pharn-triage`
 yourself after a full `/pharn-grill`.
 
 `/pharn-spec` fills PHARN's default SPEC template, or your own if you put one at
