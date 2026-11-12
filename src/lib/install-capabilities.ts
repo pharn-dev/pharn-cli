@@ -69,6 +69,11 @@ export interface InstallCapabilitiesResult {
   // NOT overwrite it (the user's Claude Code config is preserved). The caller
   // surfaces this so the user knows the hooks may need wiring by hand.
   settingsPreserved: boolean;
+  // True when the install WROTE .claude/settings.json from upstream. Not the
+  // negation of settingsPreserved: a clone that ships no settings.json, or a
+  // symlinked one, gets none written (upstreamSettingsCopyable). The caller
+  // lists what the written file wires — the hook commands Claude Code runs.
+  settingsWritten: boolean;
   // The layout mirrored from the fetched clone (flat OR pharn/). Recorded in
   // pharn.config.json so status/remove address the project the same way.
   layout: Layout;
@@ -251,11 +256,9 @@ export function installCapabilities(
   const settingsFrom = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
   const settingsTo = safeJoin(projectRoot, CLAUDE_SETTINGS_FILE);
   const settingsPreserved = existsSync(settingsTo);
-  if (
-    !settingsPreserved &&
-    existsSync(settingsFrom) &&
-    !isSymlink(settingsFrom)
-  ) {
+  const settingsWritten =
+    !settingsPreserved && upstreamSettingsCopyable(repoDir);
+  if (settingsWritten) {
     mkdirSync(safeJoin(projectRoot, '.claude'), { recursive: true });
     cpSync(settingsFrom, settingsTo, { force: true });
   }
@@ -375,9 +378,22 @@ export function installCapabilities(
   return {
     capabilities,
     settingsPreserved,
+    settingsWritten,
     layout: paths.layout,
     docs: written,
   };
+}
+
+/**
+ * Would the install copy the clone's `.claude/settings.json` into a project
+ * that has none? Only when the clone ships one that is not a symbolic link —
+ * the leaf `isSymlink` guard every single-file surface here carries. ONE
+ * predicate for the copy above and for `init --dry-run`'s plan
+ * (lib/init-plan.ts), so the preview and the run cannot disagree.
+ */
+export function upstreamSettingsCopyable(repoDir: string): boolean {
+  const from = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
+  return existsSync(from) && !isSymlink(from);
 }
 
 /**

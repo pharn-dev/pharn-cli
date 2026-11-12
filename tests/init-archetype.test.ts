@@ -2020,10 +2020,21 @@ describe('init over a preserved .claude/settings.json — the HOOKS note', () =>
     expect(body).not.toContain('--strict');
   });
 
-  it('prints no HOOKS note on a fresh install — settings.json is written from upstream', async () => {
+  // CORE-172: the fresh file is the hook commands Claude Code will run —
+  // init lists them instead of writing them in silence.
+  it('lists the hooks a fresh install writes from upstream, then the review line', async () => {
     const { proj } = await install({});
-    expect(hooksNotes()).toEqual([]);
+    const notes = hooksNotes();
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.split('\n')).toEqual([
+      '  Wrote .claude/settings.json from upstream. It wires 2 hook(s):',
+      `  ${SCOPE_LINE}`,
+      `  ${STOP_LINE}`,
+      '  Claude Code runs these commands; review `.claude/settings.json`.',
+    ]);
+    // Not the preserved case: no "preserved" line, no merge advice.
     expect(logged('info')).not.toContain('preserved');
+    expect(notes[0]).not.toContain('--strict');
     expect(
       JSON.parse(readFileSync(join(proj, '.claude/settings.json'), 'utf8')),
     ).toEqual(UPSTREAM_SETTINGS);

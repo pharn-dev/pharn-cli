@@ -12,8 +12,16 @@ import {
 import { existsSync } from 'node:fs';
 import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import { readJsonBounded } from './bounded-read.js';
-import { diffHookWiring, type HookWiringDiff } from './hook-wiring.js';
-import { prepareInstall } from './install-capabilities.js';
+import {
+  diffHookWiring,
+  upstreamSettingsSummary,
+  type FreshSettingsSummary,
+  type HookWiringDiff,
+} from './hook-wiring.js';
+import {
+  prepareInstall,
+  upstreamSettingsCopyable,
+} from './install-capabilities.js';
 import {
   absentInstallSurfaces,
   collectExpectedInstallPaths,
@@ -431,6 +439,11 @@ export interface InitPlanReport {
   // Compared only when settings.json would be preserved (a fresh one is
   // written from upstream); null otherwise.
   hookWiring: HookWiringDiff | null;
+  // What the settings.json a fresh install would WRITE from upstream wires —
+  // the HOOKS note the real run prints (CORE-172). Non-null only when the
+  // project has none AND the clone ships a copyable one
+  // (upstreamSettingsCopyable, the install's own predicate); null otherwise.
+  freshSettings: FreshSettingsSummary | null;
   // pharn-oss's models block: copied, absent upstream, or rejected (reasons
   // quote upstream bytes).
   models: { outcome: 'copy' | 'none' | 'rejected'; reasons: string[] };
@@ -632,6 +645,10 @@ export function buildInitPlan(params: {
     },
     settingsPreserved,
     hookWiring: settingsPreserved ? diffHookWiring(repoDir, cwd) : null,
+    freshSettings:
+      !settingsPreserved && upstreamSettingsCopyable(repoDir)
+        ? upstreamSettingsSummary(repoDir)
+        : null,
     models:
       upstreamModels.kind === 'ok'
         ? { outcome: 'copy', reasons: [] }

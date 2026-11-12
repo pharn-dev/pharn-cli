@@ -122,10 +122,11 @@ It prints:
   directories of [dropped capabilities](#dropped-capabilities-are-deleted) it would **delete**
   (`WOULD DELETE`); the files it would back up first, the existing `pharn.config.json` included; the `pharn.config.json` it
   would write (noting that an existing one's `seam` and `models` would be reset), and which of your own
-  keys in it would be kept; whether your `.claude/settings.json` would be preserved; and whether
-  `pharn init --yes` would install or refuse;
-- the `HOOKS` note a real run would print over a preserved `.claude/settings.json`
-  ([below](#an-existing-claudesettingsjson));
+  keys in it would be kept; whether your `.claude/settings.json` would be preserved, or written from
+  pharn-oss; and whether `pharn init --yes` would install or refuse;
+- the `HOOKS` note a real run would print: over a preserved `.claude/settings.json`, the hooks it does
+  not wire ([below](#an-existing-claudesettingsjson)); on a fresh install, the hooks the file it would
+  write wires ([below](#a-fresh-claudesettingsjson));
 - why pharn-oss's `models` block would not be copied, when this pharn rejects it.
 
 A project the install could not finish in, a `MIN_CLI` newer than your pharn, a release that cannot be
@@ -194,6 +195,8 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
     "file": null,
     "reason": null,
   }, // null unless preserved
+  // "settingsHooks": { "status": "ok", "hooks": [{ "event": "Stop", "matcher": "", "command": "node", "args": ["…"] }],
+  //                    "otherKeys": ["permissions"], "skipped": 0 } — present only when settings.json would be written
   "models": { "outcome": "copy", "reasons": [] }, // "copy" | "none" | "rejected"
   "config": { "carriedKeys": ["testResults"] }, // your own keys, by name only
   "gitignore": {
@@ -215,6 +218,15 @@ byte-identical to earlier releases. Added in 0.16.0.
 `prettierignore` follows the same rule for [`.prettierignore`](#prettierignore): present only when a
 project that uses Prettier would get lines added (`create`, `append`) or pharn would have to leave the
 file alone (`refused`, with the lines to add yourself). Added in 0.17.0.
+
+`settingsHooks` is present **only** when the install would write `.claude/settings.json` from pharn-oss
+— your project has none, and pharn-oss ships one ([below](#a-fresh-claudesettingsjson)). It is what that
+file wires: `hooks` (each `{event, matcher, command, args}`, in file order), `otherKeys` (its other
+top-level keys, sorted, each capped at 200 characters) and `skipped` (hook entries pharn could not read
+as a command). When pharn cannot read the file it is `{"status": "unreadable", "reason": "…"}` instead
+— the file would still be written. `hooks` above stays `null` then: it compares a _preserved_ file.
+Over a preserved file, or when pharn-oss ships none, the key is absent, so the report is byte-identical
+to earlier releases. Added in 0.19.0.
 
 `archetypeSource`, `detectedArchetypes` and `archetypeEvidence` say where `archetypes` came from.
 `archetypeEvidence` is always detection's — one entry per archetype detection found, with the dependency
@@ -513,7 +525,7 @@ cannot find them; PHARN still runs them. Delete them by hand.
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                     |
 | Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files, `test-fixtures/` and `fixtures/`)    |
-| Preserve settings          | An existing `.claude/settings.json` is **never** overwritten or merged; a `HOOKS` note lists every PHARN hook it does not wire ([below](#an-existing-claudesettingsjson))                                                                                          |
+| Write or preserve settings | An existing `.claude/settings.json` is **never** overwritten or merged ([below](#an-existing-claudesettingsjson)); with none, pharn-oss's is copied and a `HOOKS` note lists what it wires ([below](#a-fresh-claudesettingsjson))                                  |
 | Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
 | Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `seam`, `modules: []`, `frozenCapabilities` (see above)       |
@@ -663,8 +675,23 @@ prints the same `HOOKS` note as [`pharn status`](status.md) and [`pharn update`]
 
 Matching is textual: a hook you wrote differently but equivalently is listed too. If you already wire
 the same script under the same event and matcher in another spelling, the note lists it under
-`REPLACE` with your current line, so you swap it rather than add it twice. On a fresh install
-there is no note — `.claude/settings.json` is written from pharn-oss.
+`REPLACE` with your current line, so you swap it rather than add it twice.
+
+#### A fresh `.claude/settings.json`
+
+When your project has no `.claude/settings.json`, `init` copies pharn-oss's verbatim. Its hooks are
+commands Claude Code runs in your project, so `init` lists what the file wires in a `HOOKS` note
+(`init --yes` and `init --dry-run` print the same note):
+
+- every hook, one line of JSON under its event and matcher;
+- how many hook entries it could not show (one with no `command`, say), when there are any;
+- the file's other top-level settings by name (`It also sets: permissions, statusLine`);
+- the line `Claude Code runs these commands; review .claude/settings.json.`
+
+If `init` cannot read the file (not valid JSON, larger than 256 KB) the note says it was written but
+its hooks could not be listed — read it yourself. Nothing is printed when pharn-oss ships no
+`settings.json`, since none is written. The list is there for you to review: pharn trusts pharn-oss by
+where the files come from, not by a signature, and never runs these commands itself.
 
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 

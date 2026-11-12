@@ -13,7 +13,9 @@ import {
 } from '../lib/constants.js';
 import {
   diffHookWiring,
+  freshSettingsHookLines,
   preservedSettingsHookLines,
+  upstreamSettingsSummary,
 } from '../lib/hook-wiring.js';
 import {
   installCapabilities,
@@ -241,6 +243,7 @@ export async function runInstallArchetype(
   s.start('Installing capabilities');
   let capabilities: InstalledCapability[];
   let settingsPreserved: boolean;
+  let settingsWritten: boolean;
   let skillsVersion: string;
   let layout: Layout;
   let docsWritten: string[];
@@ -253,6 +256,7 @@ export async function runInstallArchetype(
     );
     capabilities = result.capabilities;
     settingsPreserved = result.settingsPreserved;
+    settingsWritten = result.settingsWritten;
     layout = result.layout;
     docsWritten = result.docs;
     skillsVersion = readSkillsVersion(repoDir);
@@ -278,15 +282,25 @@ export async function runInstallArchetype(
   // does not wire — and only now can that be answered: the clone is deleted
   // right after this step. So init prints the same paste-ready HOOKS note
   // `status` and `update` print (lib/hook-wiring.ts), plus the consequence
-  // `status` would report. Nothing on a fresh install: the file was just
-  // written from upstream. diffHookWiring never throws — an unreadable project
+  // `status` would report. diffHookWiring never throws — an unreadable project
   // file is a status of its own, reported in the note.
+  //
+  // A FRESH install wrote upstream's file verbatim: the hook commands Claude
+  // Code will run here. init lists them (and names the other settings it
+  // sets) from the same clone, before it is deleted — the note `init
+  // --dry-run` previews, from the same composition (lib/hook-wiring.ts).
+  // Nothing when upstream ships no file, or a symlinked one: none was written.
   if (settingsPreserved) {
     log.info(
       `Existing ${CLAUDE_SETTINGS_FILE} preserved — pharn never overwrites it.`,
     );
     const hookLines = preservedSettingsHookLines(diffHookWiring(repoDir, cwd));
     if (hookLines) note(hookLines.join('\n'), 'HOOKS');
+  } else if (settingsWritten) {
+    note(
+      freshSettingsHookLines(upstreamSettingsSummary(repoDir)).join('\n'),
+      'HOOKS',
+    );
   }
 
   // The `models` block is pharn-oss's: copied VERBATIM from its root

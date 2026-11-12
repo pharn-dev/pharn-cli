@@ -65,6 +65,7 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     counts: { create: 1, overwrite: 2, backup: 2 },
     settingsPreserved: false,
     hookWiring: null,
+    freshSettings: null,
     models: { outcome: 'copy', reasons: [] },
     absentUpstream: [],
     carriedConfigKeys: ['testResults'],
@@ -368,6 +369,7 @@ describe('buildInitReport', () => {
       plan({
         settingsPreserved: true,
         hookWiring: { status: 'missing', missing: [entry] },
+        freshSettings: null,
       }),
     );
     expect(r.settings).toEqual({ preserved: true });
@@ -395,6 +397,7 @@ describe('buildInitReport', () => {
       plan({
         settingsPreserved: true,
         hookWiring: { status: 'missing', missing: [upstream], replace },
+        freshSettings: null,
       }),
     );
     expect(r.hooks?.replace).toEqual(replace);
@@ -402,9 +405,58 @@ describe('buildInitReport', () => {
       plan({
         settingsPreserved: true,
         hookWiring: { status: 'missing', missing: [upstream], replace: [] },
+        freshSettings: null,
       }),
     );
     expect(empty.hooks).not.toHaveProperty('replace');
+  });
+
+  // CORE-172: what a fresh settings.json wires — present ONLY when the install
+  // would write one (the absentUpstream convention), right after `hooks`.
+  it('omits settingsHooks when no fresh settings.json would be written', () => {
+    const r = buildInitReport(plan());
+    expect('settingsHooks' in r).toBe(false);
+    expect(r.hooks).toBeNull();
+  });
+
+  it('projects a readable fresh settings.json: hooks uncapped, keys capped', () => {
+    const long = `x${'c'.repeat(5000)}`;
+    const hook = { event: 'Stop', matcher: '', command: long, args: ['a'] };
+    const r = buildInitReport(
+      plan({
+        freshSettings: {
+          status: 'ok',
+          hooks: [hook],
+          otherKeys: ['permissions', 'k'.repeat(500)],
+          skipped: 2,
+        },
+      }),
+    );
+    const keys = Object.keys(r);
+    expect(keys.indexOf('settingsHooks')).toBe(keys.indexOf('hooks') + 1);
+    expect(r.settings).toEqual({ preserved: false });
+    expect(r.hooks).toBeNull();
+    expect(r.settingsHooks).toEqual({
+      status: 'ok',
+      hooks: [{ event: 'Stop', matcher: '', command: long, args: ['a'] }],
+      otherKeys: ['permissions', `${'k'.repeat(200)}…`],
+      skipped: 2,
+    });
+    // A projection, not the plan's own arrays.
+    if (r.settingsHooks?.status === 'ok')
+      expect(r.settingsHooks.hooks[0]).not.toBe(hook);
+  });
+
+  it('projects an unreadable fresh settings.json with its reason, capped', () => {
+    const r = buildInitReport(
+      plan({
+        freshSettings: { status: 'unreadable', reason: 'r'.repeat(1000) },
+      }),
+    );
+    expect(r.settingsHooks).toEqual({
+      status: 'unreadable',
+      reason: `${'r'.repeat(300)}…`,
+    });
   });
 
   it('caps and escapes untrusted text, losslessly', () => {

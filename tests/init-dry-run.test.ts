@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -458,6 +459,53 @@ describe('pharn init --dry-run', () => {
       vi.clearAllMocks();
       await init(repo, proj);
       expect(notes('HOOKS')).toEqual(preview);
+    });
+  });
+
+  // CORE-172: a fresh install writes upstream's settings.json — the hook
+  // commands Claude Code will run. The preview lists them exactly as the real
+  // run does (one composition, lib/hook-wiring.ts → freshSettingsHookLines).
+  describe('a fresh .claude/settings.json', () => {
+    beforeEach(() => {
+      setTTY(true, true);
+      vi.clearAllMocks();
+    });
+
+    it('says it would be written, lists its hooks as a real run does, and writes nothing', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      const before = [snapshotTree(proj), snapshotTree(repo)];
+
+      await init(repo, proj, { dryRun: true });
+
+      expect([snapshotTree(proj), snapshotTree(repo)]).toEqual(before);
+      noWriteReached();
+      const plan = notes('PLAN')[0]!;
+      expect(plan).toContain(
+        'Would write .claude/settings.json from upstream; see HOOKS.',
+      );
+      expect(plan).not.toContain('Would preserve');
+      const preview = notes('HOOKS');
+      expect(preview).toHaveLength(1);
+      expect(preview[0]).toContain(
+        'Stop: {"type":"command","command":"node","args":[".claude/hooks/x.cjs"]}',
+      );
+      expect(preview[0]).toContain(
+        'Claude Code runs these commands; review `.claude/settings.json`.',
+      );
+
+      vi.clearAllMocks();
+      await init(repo, proj, { yes: true });
+      expect(notes('HOOKS')).toEqual(preview);
+    });
+
+    it('prints no HOOKS note and no write line when upstream ships no settings.json', async () => {
+      const { repo, proj } = fixture(tmp.path());
+      rmSync(join(repo, '.claude/settings.json'));
+
+      await init(repo, proj, { dryRun: true });
+
+      expect(notes('HOOKS')).toEqual([]);
+      expect(notes('PLAN')[0]).not.toContain('.claude/settings.json');
     });
   });
 

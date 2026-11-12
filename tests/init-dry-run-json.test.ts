@@ -259,6 +259,13 @@ describe('runInit --dry-run --json', () => {
     });
     expect(r.settings).toEqual({ preserved: false });
     expect(r.hooks).toBeNull();
+    // CORE-172: what the settings.json it would write wires (none, here).
+    expect(r.settingsHooks).toEqual({
+      status: 'ok',
+      hooks: [],
+      otherKeys: [],
+      skipped: 0,
+    });
     expect(r.models).toEqual({ outcome: 'copy', reasons: [] });
     // F-10: the scaffold ships no hooks and no contracts — named as data.
     expect(r.absentUpstream).toContainEqual({
@@ -298,6 +305,69 @@ describe('runInit --dry-run --json', () => {
     expect(r.config).toEqual({ carriedKeys: ['testResults'] });
     expect(r.settings).toEqual({ preserved: true });
     expect(r.hooks).toMatchObject({ status: 'no-upstream' });
+    // Nothing would be written, so nothing is listed.
+    expect('settingsHooks' in r).toBe(false);
+  });
+
+  // CORE-172: the hooks a fresh install would write — present only then.
+  it('carries settingsHooks with the hooks and other keys upstream would write, escaped once', async () => {
+    write(
+      join(repo, '.claude/settings.json'),
+      JSON.stringify({
+        permissions: {},
+        [`k${String.fromCharCode(27)}[31m`]: 1,
+        _comment: 'not a setting',
+        hooks: {
+          Stop: [
+            {
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'node',
+                  args: ['.claude/hooks/s.cjs'],
+                },
+                { type: 'prompt', prompt: 'p' },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    await runInit({ dryRun: true, json: true });
+    const out = String(logSpy.mock.calls[0]![0]);
+    expect(out).not.toContain(String.fromCharCode(27));
+    const r = JSON.parse(out);
+    expect(r.schemaVersion).toBe(1);
+    expect(r.settingsHooks).toEqual({
+      status: 'ok',
+      hooks: [
+        {
+          event: 'Stop',
+          matcher: '',
+          command: 'node',
+          args: ['.claude/hooks/s.cjs'],
+        },
+      ],
+      otherKeys: [`k${String.fromCharCode(27)}[31m`, 'permissions'],
+      skipped: 1,
+    });
+  });
+
+  it('reports an unreadable upstream settings.json as such', async () => {
+    write(join(repo, '.claude/settings.json'), '{ not json');
+    const r = await run();
+    expect(r.settingsHooks).toEqual({
+      status: 'unreadable',
+      reason: 'it is not valid JSON',
+    });
+  });
+
+  it('omits settingsHooks when upstream ships no settings.json', async () => {
+    rmSync(join(repo, '.claude/settings.json'));
+    const r = await run();
+    expect(r.schemaVersion).toBe(1);
+    expect(r.settings).toEqual({ preserved: false });
+    expect('settingsHooks' in r).toBe(false);
   });
 
   // F-04: the directory a re-install would delete — absent when none.

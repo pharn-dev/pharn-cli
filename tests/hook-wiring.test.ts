@@ -6,11 +6,13 @@ import { useTmpDir } from './helpers.js';
 import {
   diffHookWiring,
   displayHook,
+  freshSettingsHookLines,
   hookEntries,
   hookWiringFails,
   hookWiringLines,
   preservedSettingsHookLines,
   hooksReferencing,
+  upstreamSettingsSummary,
 } from '../src/lib/hook-wiring.js';
 
 // PHARN-04: upstream re-wired its hooks twice (6.1.0 CLAUDE_PROJECT_DIR anchoring,
@@ -897,5 +899,241 @@ describe('diffHookWiring — REPLACE vs ADD', () => {
     expect(diffHookWiring(unreadable.repo, unreadable.proj)).not.toHaveProperty(
       'replace',
     );
+  });
+});
+
+// CORE-172: a fresh init writes upstream's settings.json — the hook commands
+// Claude Code will run — and used to say nothing about them.
+describe('upstreamSettingsSummary', () => {
+  const tmp = useTmpDir();
+
+  function repoWith(content: unknown): string {
+    const repo = join(tmp.path(), 'repo');
+    mkdirSync(join(repo, '.claude'), { recursive: true });
+    writeFileSync(
+      join(repo, '.claude/settings.json'),
+      typeof content === 'string' ? content : JSON.stringify(content),
+    );
+    return repo;
+  }
+
+  it('lists every hook in file order, and the other top-level keys sorted', () => {
+    const repo = repoWith({
+      statusLine: { type: 'command', command: 'x' },
+      ...NEW,
+      permissions: { allow: [] },
+    });
+    const s = upstreamSettingsSummary(repo);
+    expect(s).toEqual({
+      status: 'ok',
+      hooks: hookEntries(NEW),
+      // `hooks` and `_comment` are never listed as settings.
+      otherKeys: ['permissions', 'statusLine'],
+      skipped: 0,
+    });
+  });
+
+  it('counts each member hookEntries drops: a non-array event, a malformed group, a hook without a string command', () => {
+    const repo = repoWith({
+      hooks: {
+        Notification: 'not-an-array',
+        PreToolUse: [
+          'not-a-group',
+          { matcher: 'Bash' },
+          {
+            matcher: 'Write',
+            hooks: [
+              { type: 'command', command: 'node a.cjs' },
+              { type: 'prompt', prompt: 'is this ok?' },
+              { type: 'command', command: 42 },
+              'not-a-hook',
+            ],
+          },
+        ],
+      },
+    });
+    const s = upstreamSettingsSummary(repo);
+    expect(s.status).toBe('ok');
+    if (s.status !== 'ok') return;
+    expect(s.hooks.map((e) => e.command)).toEqual(['node a.cjs']);
+    // 1 event + 2 groups + 3 hooks.
+    expect(s.skipped).toBe(6);
+  });
+
+  it('counts a hooks value that is not an object as one skipped entry', () => {
+    expect(upstreamSettingsSummary(repoWith({ hooks: ['x'] }))).toEqual({
+      status: 'ok',
+      hooks: [],
+      otherKeys: [],
+      skipped: 1,
+    });
+  });
+
+  it('reads a file that wires no hooks', () => {
+    expect(upstreamSettingsSummary(repoWith({ model: 'opus' }))).toEqual({
+      status: 'ok',
+      hooks: [],
+      otherKeys: ['model'],
+      skipped: 0,
+    });
+  });
+
+  it('lists nothing for JSON that is not an object', () => {
+    for (const value of ['[1,2]', '"text"', 'null', '7'])
+      expect(upstreamSettingsSummary(repoWith(value))).toEqual({
+        status: 'ok',
+        hooks: [],
+        otherKeys: [],
+        skipped: 0,
+      });
+  });
+
+  it('is unreadable for invalid JSON and for a file over 256 KiB', () => {
+    expect(upstreamSettingsSummary(repoWith('{ not json'))).toEqual({
+      status: 'unreadable',
+      reason: 'it is not valid JSON',
+    });
+    const big = JSON.stringify({ pad: 'x'.repeat(256 * 1024) });
+    expect(upstreamSettingsSummary(repoWith(big))).toEqual({
+      status: 'unreadable',
+      reason: 'it is larger than 256 KB',
+    });
+  });
+
+  it('refuses a symlinked upstream settings.json (the upstream reader)', () => {
+    const repo = join(tmp.path(), 'repo');
+    mkdirSync(join(repo, '.claude'), { recursive: true });
+    const outside = join(tmp.path(), 'outside.json');
+    writeFileSync(outside, JSON.stringify(NEW));
+    symlinkSync(outside, join(repo, '.claude/settings.json'));
+    expect(upstreamSettingsSummary(repo)).toEqual({
+      status: 'unreadable',
+      reason: '.claude/settings.json is a symbolic link',
+    });
+  });
+
+  it('never throws on an absent file', () => {
+    const repo = join(tmp.path(), 'empty');
+    mkdirSync(repo);
+    expect(upstreamSettingsSummary(repo)).toEqual({
+      status: 'unreadable',
+      reason: 'it does not exist',
+    });
+  });
+});
+
+describe('freshSettingsHookLines', () => {
+  const REVIEW =
+    '  Claude Code runs these commands; review `.claude/settings.json`.';
+  const entries = hookEntries(NEW) ?? [];
+
+  it('lists each hook through displayHook, then the review line', () => {
+    expect(
+      freshSettingsHookLines({
+        status: 'ok',
+        hooks: entries,
+        otherKeys: [],
+        skipped: 0,
+      }),
+    ).toEqual([
+      '  Wrote .claude/settings.json from upstream. It wires 3 hook(s):',
+      ...entries.map((e) => `  ${displayHook(e)}`),
+      REVIEW,
+    ]);
+  });
+
+  it('says so when the file wires no hooks — still with the review line', () => {
+    expect(
+      freshSettingsHookLines({
+        status: 'ok',
+        hooks: [],
+        otherKeys: [],
+        skipped: 0,
+      }),
+    ).toEqual([
+      '  Wrote .claude/settings.json from upstream. It wires no hooks.',
+      REVIEW,
+    ]);
+  });
+
+  it('names the entries it could not show', () => {
+    const one = freshSettingsHookLines({
+      status: 'ok',
+      hooks: [],
+      otherKeys: [],
+      skipped: 1,
+    });
+    expect(one).toContain('  1 other hook entry not shown — review the file.');
+    const two = freshSettingsHookLines({
+      status: 'ok',
+      hooks: [],
+      otherKeys: [],
+      skipped: 2,
+    });
+    expect(two).toContain(
+      '  2 other hook entries not shown — review the file.',
+    );
+    expect(two.at(-1)).toBe(REVIEW);
+  });
+
+  it('names the other top-level keys, escaping and capping each', () => {
+    const lines = freshSettingsHookLines({
+      status: 'ok',
+      hooks: [],
+      otherKeys: [
+        'permissions',
+        'bad\u001b[31mkey',
+        'rtl\u202eevil',
+        'line\u2028sep',
+        'k'.repeat(500),
+      ],
+      skipped: 0,
+    });
+    const also = lines.find((l) => l.startsWith('  It also sets: '));
+    expect(also).toBeDefined();
+    expect(also).toContain('permissions, bad\\u001b[31mkey, rtl\\u202eevil');
+    expect(also).toContain('line\\u2028sep');
+    for (const raw of ['\u001b', '\u202e', '\u2028'])
+      expect(also).not.toContain(raw);
+    expect(also).toContain(`${'k'.repeat(100)}…`);
+    expect(also).not.toContain('k'.repeat(101));
+    expect(lines.at(-1)).toBe(REVIEW);
+  });
+
+  it('lists at most 20 keys and counts the rest', () => {
+    const keys = Array.from(
+      { length: 25 },
+      (_, i) => `k${String(i).padStart(2, '0')}`,
+    );
+    const lines = freshSettingsHookLines({
+      status: 'ok',
+      hooks: [],
+      otherKeys: keys,
+      skipped: 0,
+    });
+    const also = lines.find((l) => l.startsWith('  It also sets: '));
+    expect(also).toBe(
+      `  It also sets: ${keys.slice(0, 20).join(', ')} and 5 more`,
+    );
+  });
+
+  it('never prints nothing for an unreadable file — it was still written', () => {
+    expect(
+      freshSettingsHookLines({
+        status: 'unreadable',
+        reason: 'it is larger than 256 KB',
+      }),
+    ).toEqual([
+      '  Wrote .claude/settings.json from upstream, but could not list its hooks (it is larger than 256 KB).',
+      REVIEW,
+    ]);
+  });
+
+  it('escapes an unreadable reason (it can quote a clone path)', () => {
+    const [head] = freshSettingsHookLines({
+      status: 'unreadable',
+      reason: 'a\u001bb is a symbolic link',
+    });
+    expect(head).toContain('a\\u001bb is a symbolic link');
   });
 });
