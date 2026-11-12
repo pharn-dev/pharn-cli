@@ -9,8 +9,13 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.18.4] — 2026-11-12
+
+The published CLI behaves exactly as 0.18.3: apart from the version number, nothing it is built from changed (`src/`, `README.md`, `LICENSE`, `package.json`, `package-lock.json`, `tsconfig.json`, `scripts/`). This release carries two repository changes for contributors.
+
 ### Changed
 
+- **Dev loop: the `.pharn/` runtime state is no longer tracked.** The `/pharn-dev-*` loop rewrites `.pharn/writes-scope.json` on every stage and its regress/verify captures on every run, but all eight files were committed, so a fresh checkout started with whatever scope the last committed run left behind and every ship run had to restore them before committing. They are removed from the index and ignored (`/.pharn/*`); `.pharn/ci.yml`, the pharn-ci config, stays tracked. With no scope file the writes-scope hook falls back to its fail-closed default set. `tests/repo-runtime-state.test.ts` pins both halves (#358). No change to the published CLI.
 - **CI: the pharn-ci PR comment now agrees with the gating report.** The comment came from `pharn-ci-comment.yml`, a `workflow_run` run in pharn-ci's PR-number mode. That mode never reads the pull request's file text, so every comment showed ❌ Fail (`TEST_INTEGRITY_INDEX_UNAVAILABLE`, `AGENT_CONFIG_SECRET_UNSCANNED`, and `package.json`/`package-lock.json` unreadable to dependency safety) while the `Test` job's `pharn-ci-report` said `pass` (#354, #355, #356). A pull request from this repository is now commented by a new `pharn-ci comment` job in `ci.yml`. It runs after `Test` with the same checkout, coverage file and pharn-ci inputs except `comment` and `fail-on-verdict`, holds the workflow's only write grant (`pull-requests: write`), and runs no repository code. `pharn-ci-comment.yml` now comments on fork pull requests only, where its PR-number-mode limits still apply. The job is not a required check, and the six required check names are unchanged. `tests/ci-workflow.test.ts` pins the new job, its inputs and the fork-only condition. No change to the published CLI.
 
 ## [0.18.3] — 2026-11-12
@@ -360,7 +365,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.3...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.4...HEAD
+[0.18.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.3...v0.18.4
 [0.18.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.0...v0.18.1
