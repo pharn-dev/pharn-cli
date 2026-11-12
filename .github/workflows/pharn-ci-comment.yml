@@ -4,9 +4,18 @@ on:
     workflows: [ci]
     types: [completed]
 
+# pharn-ci's sticky comment for FORK pull requests only. A PR from this
+# repository is commented by the `pharn-ci comment` job in ci.yml, which reads
+# the PR head the way the gating `Test` job does.
+#
 # This workflow runs from the default branch and never checks out a PR, so it
 # is safe to grant pull-requests: write even though the Test job that feeds it
-# ran on a fork PR's read-only token.
+# ran on a fork PR's read-only token. The cost of that safety is pharn-ci's
+# PR-number mode: the PR's file text is never read, so the comment reports test
+# integrity (TI02/TI05, TEST_INTEGRITY_INDEX_UNAVAILABLE), the agent-config
+# secret scan and dependency safety as not checked, and its verdict can
+# disagree with the Test job's report. That report is the gate. See pharn-ci's
+# README, "Fork PRs: comment from workflow_run".
 permissions:
   contents: read
   pull-requests: write
@@ -14,7 +23,7 @@ permissions:
 
 jobs:
   comment:
-    if: github.event.workflow_run.event == 'pull_request'
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       # The default branch: the trusted .pharn/ci.yml, never the PR.

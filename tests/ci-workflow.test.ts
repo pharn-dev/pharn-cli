@@ -10,7 +10,8 @@ import { describe, expect, it } from 'vitest';
 // defined one job), which is the real need this test exists to serve (P7).
 //
 // FOUR workflows produce the nine required contexts, and all four are pinned
-// below: `ci.yml` (six named jobs), `floor.yml` and `gitleaks.yml` (one job
+// below: `ci.yml` (six named gate jobs, plus one non-required comment job
+// pinned on its own further down), `floor.yml` and `gitleaks.yml` (one job
 // each with NO `name:`, so each reports under its id), and `codeql.yml` (one
 // job whose name is a matrix template). `publish.yml` is deliberately absent —
 // it runs only on push to `main` (and `workflow_dispatch`), never on a pull
@@ -70,11 +71,11 @@ const SMOKE_RUN = 'node dist/index.js --version && node dist/index.js --help';
  * responsibility) therefore survives; it is not loosened into a `toContain`.
  */
 /**
- * The `Test` job's one EXTRA `run:` — pharn-ci's diff-coverage gate reads a PR
- * number for the artifact that feeds `pharn-ci-comment.yml` (the fork-PR
- * sticky comment, posted from the default branch since a fork's token on
- * `pull_request` cannot comment). The gate step itself (`uses:
- * pharn-dev/pharn-ci@...`) is not a `run:` command, so only this line shows up.
+ * The `Test` job's one EXTRA `run:` — it writes the PR number into the artifact
+ * that feeds `pharn-ci-comment.yml` (the fork-PR sticky comment, posted from the
+ * default branch since a fork's token on `pull_request` cannot comment). The
+ * gate step itself (`uses: pharn-dev/pharn-ci@...`) is not a `run:` command, so
+ * only this line shows up.
  */
 const PR_NUMBER_RUN = 'echo "$PR_NUMBER" > pr-number';
 
@@ -123,6 +124,37 @@ const REQUIRED_CONTEXTS: readonly string[] = [
 const RUNNER = 'ubuntu-latest';
 const NODE_VERSION = '24';
 
+const PHARN_CI_COMMENT_WORKFLOW = '.github/workflows/pharn-ci-comment.yml';
+
+/**
+ * The ONE job in ci.yml that is not a gate: pharn-ci's sticky PR comment for a
+ * pull request from this repository. It exists because pharn-ci's PR-number
+ * mode (`pharn-ci-comment.yml`, `workflow_run`) never reads the PR's file text,
+ * so its comment reported TI02/TI05, the agent-config secret scan and
+ * dependency safety as not checked and disagreed with the gating report
+ * (#354, #355, #356). It is NOT required — its name must never join
+ * `REQUIRED_CONTEXTS` — and it holds the workflow's only write grant, which is
+ * safe only while it executes no repository code. Both are pinned below.
+ */
+const COMMENT_JOB_ID = 'pharn-ci-comment';
+const COMMENT_JOB_NAME = 'pharn-ci comment';
+/** Same-repo pull requests only; a fork's `pull_request` token is read-only. */
+const COMMENT_JOB_IF =
+  "${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}";
+/** The complement: `pharn-ci-comment.yml` comments on fork pull requests only. */
+const FORK_ONLY_IF =
+  "github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name != github.repository";
+/**
+ * The only `with:` keys in which the comment job's pharn-ci step may differ
+ * from the gate's: whether it comments, and whether it gates.
+ */
+const COMMENT_ONLY_INPUTS: ReadonlyMap<string, readonly [string, string]> =
+  new Map([
+    // key → [value in Test, value in the comment job]
+    ['comment', ['false', 'true']],
+    ['fail-on-verdict', ['(unset)', 'false']],
+  ]);
+
 /**
  * Split the `jobs:` mapping into one text block per job, keyed by job id.
  *
@@ -168,6 +200,42 @@ function captureAll(block: string, re: RegExp): string[] {
   return [...block.matchAll(re)].map((m) => m[1]!);
 }
 
+/**
+ * Split a job block into its steps (each starts with a six-space `- `).
+ * Same indentation-is-the-parse rule as `jobBlocks`.
+ */
+function steps(block: string): string[] {
+  const out: string[] = [];
+  for (const line of block.split('\n')) {
+    if (/^ {6}- /.test(line)) out.push(line);
+    else if (out.length > 0 && /^ {7,}\S/.test(line))
+      out[out.length - 1] += `\n${line}`;
+  }
+  return out;
+}
+
+interface ActionStep {
+  /** The `uses:` value, comment stripped (`owner/repo@<sha>`). */
+  readonly uses: string;
+  /** The step's `with:` inputs, YAML comments stripped. */
+  readonly inputs: Map<string, string>;
+}
+
+/** The ONE step in `block` whose `uses:` starts with `prefix`. */
+function actionStep(block: string, prefix: string): ActionStep {
+  const found = steps(block).filter((s) =>
+    new RegExp(`^ {6,8}(?:- )?uses: ${prefix}`, 'm').test(s),
+  );
+  expect(found, `expected exactly one ${prefix} step`).toHaveLength(1);
+  const step = found[0]!;
+  const uses = /^ {6,8}(?:- )?uses: (\S+)/m.exec(step)![1]!;
+  const inputs = new Map<string, string>();
+  for (const m of step.matchAll(/^ {10}([a-z-]+): (.*?)(?:\s+#.*)?$/gm)) {
+    inputs.set(m[1]!, m[2]!);
+  }
+  return { uses, inputs };
+}
+
 interface Workflow {
   /** The whole file, for the decoy assertions. */
   readonly source: string;
@@ -209,11 +277,26 @@ describe('the required status checks this repo declares', () => {
 describe('ci.yml required status checks', () => {
   const ci = parse(CI_WORKFLOW);
 
-  it('defines exactly one job per required gate, and no others', () => {
+  it('defines exactly one job per required gate, plus the comment job, and no others', () => {
     // Set equality in both directions: a rename, an addition, or a deletion all
-    // fail. A one-directional `toContain` sweep would miss a stray seventh job.
-    expect([...ci.jobNames].sort()).toEqual([...EXPECTED_GATES.keys()].sort());
-    expect(ci.blocks.size).toBe(EXPECTED_GATES.size);
+    // fail. A one-directional `toContain` sweep would miss a stray eighth job.
+    // The comment job is declared by name, so it cannot hide a second extra.
+    expect([...ci.jobNames].sort()).toEqual(
+      [...EXPECTED_GATES.keys(), COMMENT_JOB_NAME].sort(),
+    );
+    expect(ci.blocks.size).toBe(EXPECTED_GATES.size + 1);
+    expect(
+      new RegExp(`^ {4}name: ${COMMENT_JOB_NAME}$`, 'm').test(
+        ci.blocks.get(COMMENT_JOB_ID) ?? '',
+      ),
+    ).toBe(true);
+  });
+
+  it('never declares the comment job a required context', () => {
+    // It never gates (fail-on-verdict: false) and the ruleset does not list it;
+    // a mirror that claimed otherwise would be false (see the header).
+    expect(REQUIRED_CONTEXTS).not.toContain(COMMENT_JOB_NAME);
+    expect([...EXPECTED_GATES.keys()]).not.toContain(COMMENT_JOB_NAME);
   });
 
   it('reads job names only, never the workflow name or a step name', () => {
@@ -271,6 +354,7 @@ describe('ci.yml required status checks', () => {
 
   it('pins every gate to the same runner and node version', () => {
     for (const [jobId, block] of ci.blocks) {
+      if (jobId === COMMENT_JOB_ID) continue; // sets up no node; pinned below
       expect(captureAll(block, /^ {4}runs-on: (.+)$/gm), jobId).toEqual([
         RUNNER,
       ]);
@@ -278,6 +362,91 @@ describe('ci.yml required status checks', () => {
         NODE_VERSION,
       ]);
     }
+  });
+});
+
+describe('ci.yml pharn-ci comment job', () => {
+  const ci = parse(CI_WORKFLOW);
+  const comment = ci.blocks.get(COMMENT_JOB_ID) ?? '';
+  const test = [...ci.blocks.values()].find((b) => /^ {4}name: Test$/m.test(b));
+
+  it('exists, runs after Test, and only for same-repo pull requests', () => {
+    expect(comment, `ci.yml has no ${COMMENT_JOB_ID} job`).not.toBe('');
+    expect(captureAll(comment, /^ {4}needs: (.+)$/gm)).toEqual(['test']);
+    expect(captureAll(comment, /^ {4}if: (.+)$/gm)).toEqual([COMMENT_JOB_IF]);
+    expect(captureAll(comment, /^ {4}runs-on: (.+)$/gm)).toEqual([RUNNER]);
+  });
+
+  it('runs no repository code (it holds a write token)', () => {
+    // No `run:` step, no toolchain, no install: nothing from the PR or its
+    // dependencies executes in the job that can write to pull requests.
+    expect(captureAll(comment, /^\s+run: (.+)$/gm)).toEqual([]);
+    expect(comment).not.toMatch(/^\s+run:/m);
+    expect(comment).not.toMatch(/setup-node|node-version|\bnpm\b|\bnpx\b/);
+    expect(
+      steps(comment).map((s) => /uses: ([^@\s]+)@/.exec(s)?.[1] ?? '(none)'),
+    ).toEqual([
+      'actions/checkout',
+      'actions/download-artifact',
+      'pharn-dev/pharn-ci',
+    ]);
+  });
+
+  it('holds the only write grant in ci.yml', () => {
+    // Test runs `npm ci` and the suite; it must never get a write grant.
+    expect(captureAll(ci.source, /^\s+([a-z-]+: write)$/gm)).toEqual([
+      'pull-requests: write',
+    ]);
+    expect(comment).toMatch(/^ {6}pull-requests: write$/m);
+  });
+
+  it("measures the gate's inputs: same action, checkout, coverage and with: keys", () => {
+    expect(test, 'no Test job').toBeDefined();
+    const gate = actionStep(test!, 'pharn-dev/pharn-ci@');
+    const mirror = actionStep(comment, 'pharn-dev/pharn-ci@');
+    expect(mirror.uses).toBe(gate.uses);
+
+    // Every input but the two COMMENT_ONLY_INPUTS is identical, key for key,
+    // so an input added to one step alone (a threshold, a coverage-file, an
+    // exclude) fails here instead of making the verdicts drift.
+    const strip = (m: Map<string, string>): [string, string][] =>
+      [...m].filter(([k]) => !COMMENT_ONLY_INPUTS.has(k)).sort();
+    expect(strip(mirror.inputs)).toEqual(strip(gate.inputs));
+    expect(strip(gate.inputs).length).toBeGreaterThan(0); // anti-vacuity
+    for (const [key, [inTest, inComment]] of COMMENT_ONLY_INPUTS) {
+      expect(gate.inputs.get(key) ?? '(unset)', `Test ${key}`).toBe(inTest);
+      expect(mirror.inputs.get(key) ?? '(unset)', `comment ${key}`).toBe(
+        inComment,
+      );
+    }
+
+    // The same full-history checkout: a shallow one sends pharn-ci to the
+    // compare API, the PR-number-mode gap this job exists to close.
+    for (const block of [test!, comment]) {
+      const checkout = actionStep(block, 'actions/checkout@');
+      expect(checkout.inputs.get('fetch-depth')).toBe('0');
+      expect(checkout.inputs.get('persist-credentials')).toBe('false');
+    }
+
+    // The coverage file comes from the artifact Test uploads in this run,
+    // restored into the workspace where .pharn/ci.yml expects it.
+    const upload = steps(test!).find((s) => /name: pharn-ci-input$/m.test(s));
+    expect(upload, 'Test uploads no pharn-ci-input artifact').toMatch(
+      /^ {12}coverage\/lcov\.info$/m,
+    );
+    const download = actionStep(comment, 'actions/download-artifact@');
+    expect([...download.inputs]).toEqual([['name', 'pharn-ci-input']]);
+    expect(readFileSync('.pharn/ci.yml', 'utf8')).toMatch(
+      /^ {2}file: coverage\/lcov\.info$/m,
+    );
+  });
+});
+
+describe('pharn-ci-comment.yml', () => {
+  it('comments on fork pull requests only, the complement of the comment job', () => {
+    const wf = parse(PHARN_CI_COMMENT_WORKFLOW);
+    expect(wf.blocks.size).toBe(1);
+    expect(captureAll(wf.source, /^ {4}if: (.+)$/gm)).toEqual([FORK_ONLY_IF]);
   });
 });
 
