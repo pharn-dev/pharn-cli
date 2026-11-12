@@ -19,3 +19,8 @@ prompts
 # PHARN run state and update backups (local only)
 /pharn/.run/
 /pharn/.backup/
+
+# Dev-loop runtime state: the writes-scope and the /pharn-dev-* stage captures,
+# rewritten on every run. .pharn/ci.yml is the pharn-ci config and stays tracked.
+/.pharn/*
+!/.pharn/ci.yml

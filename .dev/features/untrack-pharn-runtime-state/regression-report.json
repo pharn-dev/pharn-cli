@@ -1,0 +1,28 @@
+{
+  "base": "f83b736a98867eed28c12f6d164189627e4be0e1",
+  "inside": [
+    ".gitignore",
+    ".pharn/pharn-dev-memory-promote/body.md",
+    ".pharn/pharn-dev-regress/base-results.json",
+    ".pharn/pharn-dev-regress/head-results.json",
+    ".pharn/pharn-dev-regress/verdict.json",
+    ".pharn/pharn-dev-verify/results-capture1.json",
+    ".pharn/pharn-dev-verify/results.json",
+    ".pharn/pharn-dev-verify/verdict.json",
+    ".pharn/writes-scope.json",
+    "tests/repo-runtime-state.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
