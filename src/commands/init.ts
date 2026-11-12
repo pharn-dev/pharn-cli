@@ -412,8 +412,10 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         // (repo.ts — 8s SHA resolve, 60s download), while a prompt is capped only
         // by human attention, and `init` hard-fails off a TTY so it is ALWAYS a
         // human at a keyboard. A walked-away init would refuse every other pharn
-        // command in the project for up to STALE_MS (6h). The lock REFUSES rather
-        // than queues, so a longer hold is a wider refusal window.
+        // command in the project for as long as its prompt stayed open: age never
+        // breaks a live holder on the same host (project-lock.ts, isStale). The
+        // lock REFUSES rather than queues, so a longer hold is a wider refusal
+        // window.
         //
         // The cost is named, not hidden: a second writer racing `pharn init`
         // still pays the full download before being refused. Accepted — init is

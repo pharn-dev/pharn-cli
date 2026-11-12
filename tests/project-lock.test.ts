@@ -13,7 +13,7 @@ import {
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   FUTURE_SKEW_MS,
@@ -22,8 +22,30 @@ import {
   LOCK_FILE,
   MALFORMED_GRACE_MS,
   ProjectLockedError,
+  STALE_MS,
   withProjectLock,
 } from '../src/lib/project-lock.js';
+
+// Time control (CORE-171). A same-host lock is judged by liveness plus a
+// boot-time check (`startedAt` before `now - os.uptime()`), so a test that
+// plants an OLD `startedAt` would otherwise depend on how long the machine
+// running it has been up — minutes on a CI runner, weeks on a laptop. `uptime`
+// is a mock defaulting to 30 days; the rest of `node:os` stays real.
+const LONG_UPTIME_S = 30 * 24 * 60 * 60;
+const { uptime } = vi.hoisted(() => ({ uptime: vi.fn<() => number>() }));
+vi.mock('node:os', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:os')>();
+  return { ...real, default: { ...real, uptime }, uptime };
+});
+uptime.mockImplementation(() => LONG_UPTIME_S);
+afterEach(() => {
+  uptime.mockReset();
+  uptime.mockImplementation(() => LONG_UPTIME_S);
+});
+
+const HOUR = 60 * 60 * 1000;
+/** A pid that cannot be running: process.kill(pid, 0) throws ESRCH. */
+const DEAD_PID = 2147483646;
 
 // Nothing serialized the four commands that write project state, so two pharn
 // runs in one project could interleave: A backs up and overwrites F, B — planned
@@ -162,11 +184,13 @@ describe('withProjectLock', () => {
     expect(payload(dir).pid).toBe(process.pid);
   });
 
-  it('breaks a lock whose startedAt is older than the stale window', async () => {
+  it('breaks a lock from another host whose startedAt is older than the stale window', async () => {
     const dir = tmp.path();
     plantLock(dir, {
-      pid: process.pid, // alive — so ONLY the age can justify the break
-      host: hostname(),
+      // Another host: its pid is never consulted, so ONLY the age can justify
+      // the break. (On THIS host age never breaks a live holder — CORE-171.)
+      pid: process.pid,
+      host: `${hostname()}-elsewhere`,
       command: 'update',
       startedAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
     });
@@ -421,6 +445,116 @@ describe('withProjectLock — a startedAt in the future (F-39)', () => {
       withProjectLock(dir, 'update', () => {}),
     ).rejects.toBeInstanceOf(ProjectLockedError);
     expect(payload(dir).command).toBe('update');
+  });
+});
+
+// CORE-171. Age used to be checked BEFORE liveness, so a live holder on this
+// host was broken once it was older than STALE_MS — and `add`'s picker holds
+// the lock across a prompt. On the same host liveness now decides, plus one
+// boot-time check (a lock started before the last boot cannot be held by a
+// running process); age retires only a lock from another host. And `release`
+// used to delete any lock it could not parse, which can only ever be ANOTHER
+// run's lock (ours parses), caught between its O_EXCL create and its write.
+describe('withProjectLock — same-host liveness decides, not age (CORE-171)', () => {
+  const tmp = useTmpDir();
+
+  function sameHost(pid: number, startedAt: number): Record<string, unknown> {
+    return {
+      pid,
+      host: hostname(),
+      command: 'add',
+      startedAt: new Date(startedAt).toISOString(),
+    };
+  }
+
+  async function refused(dir: string): Promise<void> {
+    const fn = vi.fn();
+    await expect(withProjectLock(dir, 'update', fn)).rejects.toBeInstanceOf(
+      ProjectLockedError,
+    );
+    expect(fn).not.toHaveBeenCalled();
+  }
+
+  async function broken(dir: string): Promise<void> {
+    const fn = vi.fn();
+    await withProjectLock(dir, 'update', fn);
+    expect(fn).toHaveBeenCalledOnce();
+    expect(existsSync(lockPath(dir))).toBe(false);
+  }
+
+  it('a live same-host holder 7 h old is NOT stale: the second run is refused', async () => {
+    const dir = tmp.path();
+    plantLock(dir, sameHost(process.pid, Date.now() - 7 * HOUR));
+    const before = readFileSync(lockPath(dir), 'utf8');
+    await refused(dir);
+    // A refusal never touches the lock it refused on.
+    expect(readFileSync(lockPath(dir), 'utf8')).toBe(before);
+  });
+
+  it('a same-host lock whose pid is dead is broken, whatever its age', async () => {
+    const dir = tmp.path();
+    plantLock(dir, sameHost(DEAD_PID, Date.now() - 7 * HOUR));
+    await broken(dir);
+  });
+
+  it('a lock from another host older than STALE_MS is broken', async () => {
+    const dir = tmp.path();
+    plantLock(dir, {
+      pid: process.pid,
+      host: `${hostname()}-elsewhere`,
+      command: 'add',
+      startedAt: new Date(Date.now() - STALE_MS - HOUR).toISOString(),
+    });
+    await broken(dir);
+  });
+
+  it('a live same-host lock started before the last boot is stale', async () => {
+    const dir = tmp.path();
+    uptime.mockImplementation(() => 60 * 60); // booted an hour ago
+    plantLock(dir, sameHost(process.pid, Date.now() - 2 * HOUR));
+    await broken(dir);
+  });
+
+  it('a lock started just before the computed boot (inside FUTURE_SKEW_MS) is still refused', async () => {
+    const dir = tmp.path();
+    uptime.mockImplementation(() => 60 * 60);
+    const boot = Date.now() - HOUR;
+    plantLock(dir, sameHost(process.pid, boot - 2 * 60 * 1000));
+    await refused(dir);
+  });
+
+  it.each([
+    ['0', () => 0],
+    ['NaN', () => Number.NaN],
+    ['Infinity', () => Number.POSITIVE_INFINITY],
+    [
+      'a throw',
+      () => {
+        throw new Error('uptime unavailable');
+      },
+    ],
+  ])(
+    'an uptime of %s never makes a live lock stale',
+    async (_label, impl: () => number) => {
+      const dir = tmp.path();
+      uptime.mockImplementation(impl);
+      plantLock(dir, sameHost(process.pid, Date.now() - 7 * HOUR));
+      await refused(dir);
+    },
+  );
+
+  it('release leaves an unparseable lock in place — it cannot be ours', async () => {
+    const dir = tmp.path();
+    const garbage = '{"pid": 4821, "host": "half-writ';
+    await withProjectLock(dir, 'update', () => {
+      // Our lock was broken and another run is between its O_EXCL create and
+      // its payload write: the file at the lock path is not ours to delete.
+      writeFileSync(lockPath(dir), garbage, 'utf8');
+    });
+    expect(readFileSync(lockPath(dir), 'utf8')).toBe(garbage);
+    // Fresh (inside MALFORMED_GRACE_MS), so it is presumed a live holder.
+    await refused(dir);
+    expect(readFileSync(lockPath(dir), 'utf8')).toBe(garbage);
   });
 });
 
@@ -702,8 +836,9 @@ describe('withProjectLock — a fatal signal while held', () => {
 
   // After a normal release the cleanup is DEregistered. An empty lock file is
   // what another process's lock looks like between its O_EXCL create and its
-  // payload write — and `release` deletes an unparseable lock — so a cleanup
-  // left registered would delete a live lock that is not ours.
+  // payload write. `release` now leaves an unparseable lock alone (CORE-171),
+  // so the empty file alone no longer proves the cleanup is gone; a cleanup left
+  // registered would still print a false "interrupted while writing" line.
   it('a later signal leaves alone a lock another process is creating', async () => {
     const dir = tmp.path();
     // Pre-existing, so the run does not remove it on release and the child
@@ -721,6 +856,32 @@ describe('withProjectLock — a fatal signal while held', () => {
       [dir, 'SIGTERM'],
     );
     expect(r.stdout).not.toContain('SURVIVED-THE-SIGNAL');
+    expect(diedBy(r, 'SIGTERM')).toBe(true);
+    expect(existsSync(lockPath(dir))).toBe(true);
+    expect(r.stderr).not.toContain('interrupted while writing');
+  }, 40_000);
+
+  // The strong form of the deregistration check (CORE-171): a lock naming THIS
+  // pid on this host is exactly what `release` deletes, so it survives the later
+  // signal only if the cleanup really is gone.
+  it('a later signal deletes nothing once the lock was released, even a lock naming this pid', async () => {
+    const dir = tmp.path();
+    mkdirSync(join(dir, LOCK_DIR));
+    const r = await runChild(
+      `
+      const { hostname } = await import('node:os');
+      await withProjectLock(dir, 'update', () => undefined);
+      writeFileSync(
+        join(dir, ${JSON.stringify(LOCK_FILE)}),
+        JSON.stringify({ pid: process.pid, host: hostname(), command: 'update', startedAt: new Date().toISOString() }),
+      );
+      const handled = signalHandled(sig);
+      process.kill(process.pid, sig);
+      await handled;
+      console.log('SURVIVED-THE-SIGNAL');
+      `,
+      [dir, 'SIGTERM'],
+    );
     expect(diedBy(r, 'SIGTERM')).toBe(true);
     expect(existsSync(lockPath(dir))).toBe(true);
     expect(r.stderr).not.toContain('interrupted while writing');
@@ -867,7 +1028,7 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
   it('a STALE root lock (a crashed old run) is broken, its corpses swept, and the run proceeds', async () => {
     const dir = tmp.path();
     plantLegacy(dir, {
-      pid: process.pid,
+      pid: DEAD_PID, // the old run crashed: its pid is gone on this host
       host: hostname(),
       command: 'update',
       startedAt: new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
@@ -885,6 +1046,21 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
     expect(readdirSync(dir).filter((n) => n.startsWith('.pharn.lock'))).toEqual(
       ['.pharn.lock.keepme'],
     );
+  });
+
+  it('a LIVE same-host root lock older than six hours still refuses (age never breaks it)', async () => {
+    const dir = tmp.path();
+    plantLegacy(dir, {
+      pid: process.pid,
+      host: hostname(),
+      command: 'update',
+      startedAt: new Date(Date.now() - 7 * HOUR).toISOString(),
+    });
+    const fn = vi.fn();
+    const err = await withProjectLock(dir, 'update', fn).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(ProjectLockedError);
+    expect(fn).not.toHaveBeenCalled();
+    expect(existsSync(legacy(dir))).toBe(true);
   });
 
   it('a directory at the root path is not a lock: ignored', async () => {

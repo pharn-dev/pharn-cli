@@ -12,7 +12,7 @@ import {
   statSync,
   writeSync,
 } from 'node:fs';
-import { hostname } from 'node:os';
+import { hostname, uptime } from 'node:os';
 import { readBoundedFile } from './bounded-read.js';
 import { onFatalSignal } from './fatal-signal.js';
 import { findSymlinkComponent } from './symlink-guard.js';
@@ -47,14 +47,41 @@ import { safeJoin } from './validate.js';
 //     STALE lock is broken.
 //   - Stealing. Break too eagerly and the lock is decorative. So a lock is only
 //     broken on evidence: it is malformed (a `startedAt` more than
-//     FUTURE_SKEW_MS in the future counts), it is older than STALE_MS, or its
-//     pid is provably dead ON THIS HOST.
+//     FUTURE_SKEW_MS in the future counts) and past MALFORMED_GRACE_MS; it
+//     comes from ANOTHER host and is older than STALE_MS; or it comes from THIS
+//     host and its pid is provably dead, or it started before this host last
+//     booted. Age never breaks a live holder on this host (CORE-171): a prompt
+//     held under the lock may sit for as long as a human takes.
 //
 // PID RECYCLING, named (P0): "provably dead" means the existence probe says
 // ESRCH. When a SIGKILLed run's pid has since been reused by an unrelated
 // process, the probe finds that process alive, and the dead run's lock reads as
-// LIVE until age retires it — up to STALE_MS. A refusal, never a steal, so it
-// errs the safe way; deleting `pharn/.lock` by hand is the documented escape.
+// LIVE — until this host reboots (the boot check retires it) or someone deletes
+// `pharn/.lock` by hand, the documented escape. The worst case is a committed
+// or hand-edited lock naming pid 1 (always alive) with a `startedAt` after the
+// last boot. A refusal, never a steal, so it errs the safe way.
+//
+// CLOCK CORRECTION, named (P0): the boot check compares `startedAt` with
+// `Date.now() - os.uptime()`. It assumes the wall clock was right when the lock
+// was written and that `os.uptime()` counts time spent suspended (libuv reads
+// /proc/uptime or CLOCK_BOOTTIME on Linux and kern.boottime on macOS; both do).
+// A host with no battery-backed clock, or one whose clock is stepped forward a
+// long way by NTP after boot, can make a LIVE lock look as if it started before
+// boot, and it is then broken. The FUTURE_SKEW_MS margin absorbs small steps
+// and only ever errs toward refusing. The opposite step has its own hole: a
+// clock stepped BACKWARD by more than FUTURE_SKEW_MS after a lock was written
+// makes that lock's `startedAt` read as future-dated, and it is judged like a
+// malformed one — broken once the file is older than MALFORMED_GRACE_MS, while
+// its owner may still be running. Where /proc/uptime is namespaced
+// (LXCFS), "boot" is the container's start, which is the right answer for a
+// restarted container: its pids start again from 1.
+//
+// HOSTNAME CHANGE, named (P0): "this host" means `os.hostname()` equals the
+// lock's `host`. A machine whose hostname changes while a run holds the lock
+// (macOS can rename itself when the network changes) sees its own lock as one
+// from another host: another run breaks it by the STALE_MS age rule, and the
+// holder's own `release` leaves it in place, so it then refuses for up to
+// STALE_MS. "Age never breaks a live holder" holds only while the name holds.
 //
 // Zero-cost for readers by construction: `list` and `status` never call this, so
 // `status --strict` stays runnable in CI while an update holds the lock.
@@ -135,17 +162,23 @@ function legacySite(cwd: string): LockSite {
 }
 
 /**
- * How long a lock may sit before age alone justifies breaking it.
+ * How long a lock FROM ANOTHER HOST may sit before age alone justifies breaking
+ * it.
  *
- * This is a backstop for the cases process-liveness cannot answer — a holder on
- * another host, or a pid the OS has recycled. It is deliberately generous
- * because not every held window is bounded: bare `pharn add` holds the lock
- * across its multi-select, so a lock a few minutes old may well be a human
- * still reading. (`pharn init` does NOT hold it across its prompts — it
- * acquires after both; see `withProjectLock` for where each command acquires,
- * and why.) Six hours is far past any plausible prompt and still far short of
- * "forever". Breaking a live lock is the worse error, so when the two hazards
- * trade off, age errs toward waiting.
+ * A pid means nothing across machines, so liveness cannot answer for a lock
+ * another host wrote into a shared project directory; age is the only evidence.
+ * A lock from THIS host is never broken by age — liveness and the boot check
+ * decide it (`isStale`). It is deliberately generous because not every held
+ * window is bounded: bare `pharn add` holds the lock across its multi-select,
+ * so a lock a few minutes old may well be a human still reading. (`pharn init`
+ * does NOT hold it across its prompts — it acquires after both; see
+ * `withProjectLock` for where each command acquires, and why.) Six hours is far
+ * past any plausible prompt and still far short of "forever". Breaking a live
+ * lock is the worse error, so when the two hazards trade off, age errs toward
+ * waiting.
+ *
+ * The corpse sweep also ages corpse FILES by it (`sweepCorpses`) — a separate
+ * use about leftovers, not live holders.
  */
 export const STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -273,9 +306,12 @@ function readPayload(site: LockSite): LockPayload | null {
  *
  * Only answerable for a lock taken on THIS host: a pid means nothing across
  * machines, so a foreign-host lock is never broken on liveness grounds — only
- * age can retire it. `kill(pid, 0)` sends no signal; it tests existence.
- * `EPERM` means the process exists but belongs to another user, which is very
- * much alive.
+ * age (STALE_MS) can retire it. `kill(pid, 0)` sends no signal; it tests
+ * existence. `EPERM` means the process exists but belongs to another user,
+ * which is very much alive.
+ *
+ * `isStale` only calls this for a same-host lock; the host check is kept so the
+ * function stays safe on its own (a foreign pid must never be probed here).
  */
 function isDead(held: LockPayload): boolean {
   if (held.host !== hostname()) return false;
@@ -296,20 +332,49 @@ function lockAgeMs(site: LockSite): number | null {
   }
 }
 
+/**
+ * When this host last booted, in epoch ms — or `null` when `os.uptime()` gives
+ * no usable answer.
+ *
+ * The guard is the point: with an uptime of 0 the boot time would be NOW, every
+ * lock would read as started before boot, and a live one would be broken. So
+ * anything but a finite number above 0 (0, NaN, Infinity, a throw) yields
+ * `null`, and the boot check is skipped — the caller falls through to liveness,
+ * the refusing side.
+ */
+function bootMs(): number | null {
+  let up: number;
+  try {
+    up = uptime();
+  } catch {
+    return null;
+  }
+  return Number.isFinite(up) && up > 0 ? Date.now() - up * 1000 : null;
+}
+
 function isStale(held: LockPayload | null, ageMs: number | null): boolean {
   // Malformed or unreadable — or started in the future (FUTURE_SKEW_MS), which
-  // the age rule below can never retire. Young → presumed a holder
-  // mid-tryCreate (see MALFORMED_GRACE_MS); old, or not stat-able → stale, so
-  // it never wedges.
+  // no age or boot rule can retire. Young → presumed a holder mid-tryCreate
+  // (see MALFORMED_GRACE_MS); old, or not stat-able → stale, so it never wedges.
   //
-  // The future check lives in this function, not in parsePayload: release()
-  // reads a null payload as held by nobody else and removes the file, so
-  // rejecting a future startedAt at parse time would let our release remove
-  // the live lock of a host whose clock runs ahead.
-  const startedIn = held === null ? 0 : Date.parse(held.startedAt) - Date.now();
-  if (held === null || startedIn > FUTURE_SKEW_MS)
+  // The future check lives in this function, not in parsePayload, and that is
+  // also what keeps release() safe. release() unlinks only a payload it can
+  // parse AND prove is its own; were a future startedAt rejected at parse time,
+  // our own lock would read as null after a backward clock step and release()
+  // would strand it, and the refusal could no longer name the holder.
+  const started = held === null ? 0 : Date.parse(held.startedAt);
+  if (held === null || started - Date.now() > FUTURE_SKEW_MS)
     return ageMs === null || ageMs >= MALFORMED_GRACE_MS;
-  if (-startedIn > STALE_MS) return true;
+  // Another host: a pid means nothing here, so age is the only evidence.
+  if (held.host !== hostname()) return Date.now() - started > STALE_MS;
+  // This host: a lock started before the last boot cannot be held by a running
+  // process, whatever its pid now names (the recycled-pid case). The margin
+  // absorbs small clock steps after boot and only errs toward refusing; see
+  // CLOCK CORRECTION in the header.
+  const boot = bootMs();
+  if (boot !== null && started < boot - FUTURE_SKEW_MS) return true;
+  // Otherwise liveness alone decides, whatever the age (CORE-171): a live
+  // holder may be a human still answering a prompt.
   return isDead(held);
 }
 
@@ -396,7 +461,8 @@ function tryCreate(site: LockSite, command: string): boolean {
  *     happens to have named `.lock.<digits>.<8 hex>` WOULD be removed, and
  *     that is the deliberate (and remote) cost of sweeping at all.
  *   - Only past STALE_MS. A corpse seconds old may belong to a breaker racing us
- *     right now, mid-verify. STALE_MS is already this file's age-of-death.
+ *     right now, mid-verify. STALE_MS is already this file's longest age rule
+ *     (the one for a lock from another host).
  *   - Only on the break path. The uncontended acquire stays two syscalls; nobody
  *     pays a directory listing for a lock that was never contended.
  *
@@ -551,13 +617,21 @@ function breakStaleLock(
 
 /**
  * Release our own lock. Idempotent, never throws, and re-reads before unlinking
- * so it can never delete a lock ANOTHER process legitimately took after ours
- * was broken or vanished.
+ * so it can never delete a lock ANOTHER process took after ours was broken or
+ * vanished: it unlinks only a payload that parses AND names this pid on this
+ * host.
+ *
+ * An unparseable or unreadable file is left in place (CORE-171). Our own lock
+ * always parses once `tryCreate` has returned, so such a file can only be
+ * another run's — one caught between its O_EXCL create and its payload write.
+ * A genuinely corrupt file left this way is broken by the next run once it is
+ * older than MALFORMED_GRACE_MS. RESIDUAL, named (P0): the read and the unlink
+ * are two syscalls; a lock broken and re-taken in that gap is still deleted.
  */
 function release(site: LockSite): void {
   try {
     const held = readPayload(site);
-    if (held !== null && (held.pid !== process.pid || held.host !== hostname()))
+    if (held === null || held.pid !== process.pid || held.host !== hostname())
       return;
     rmSync(lockPath(site), { force: true });
   } catch {
@@ -593,8 +667,10 @@ function release(site: LockSite): void {
  * not. A fetch is capped by construction (repo.ts: 8s resolve, 60s download); a
  * prompt is capped only by human attention, and holding one would block an agent
  * hook for as long as a human takes to answer. `add`'s picker is the deliberate
- * exception, and it is why STALE_MS is a generous six hours rather than
- * minutes.
+ * exception. It is safe to hold because age never breaks a live holder on this
+ * host — however long the human takes, the lock stays theirs (see `isStale`).
+ * STALE_MS is a generous six hours for the one case where age still decides: a
+ * picker held open on ANOTHER host sharing the directory.
  */
 export async function withProjectLock<T>(
   cwd: string,
@@ -642,7 +718,9 @@ export async function withProjectLock<T>(
   // PREMISE, stated so the next edit sees it: no lock callback shows a prompt
   // whose graceful cancel exits 0 — `update`'s and the `remove` picker's
   // confirms run before the lock, and the `add` picker returns `cancelled` and
-  // exits after it. A new prompt inside a lock must keep that shape.
+  // exits after it. A new prompt inside a lock must keep that shape. The
+  // premise is about exit codes only: how long a prompt stays open does not
+  // matter to the lock, since age never breaks a live holder on this host.
   const onExit = (code: number): void => {
     tidy();
     if (code === 0) {

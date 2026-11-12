@@ -54,6 +54,21 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
+// Time control (CORE-171): a same-host lock is also judged against the boot
+// time (`now - os.uptime()`); the mock keeps that independent of the test
+// machine's real uptime. The rest of `node:os` stays real.
+const LONG_UPTIME_S = 30 * 24 * 60 * 60;
+const { uptime } = vi.hoisted(() => ({ uptime: vi.fn<() => number>() }));
+vi.mock('node:os', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:os')>();
+  return { ...real, default: { ...real, uptime }, uptime };
+});
+uptime.mockImplementation(() => LONG_UPTIME_S);
+afterEach(() => {
+  uptime.mockReset();
+  uptime.mockImplementation(() => LONG_UPTIME_S);
+});
+
 const {
   existsSync,
   mkdirSync,
@@ -240,6 +255,27 @@ describe('withProjectLock — breaking a stale lock under a race', () => {
 
     expect(ran).toBe(true);
     expect(existsSync(lockPath(dir))).toBe(false);
+    expect(lockSiblings(dir)).toEqual([]);
+  });
+
+  it('never reaches the break for a LIVE same-host holder, however old (CORE-171)', async () => {
+    // Age used to be checked before liveness, so this lock — 7 h old, pid
+    // alive — was renamed aside and replaced while its owner was still running.
+    const held = {
+      ...live('add'),
+      startedAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
+    };
+    write(dir, held);
+    // A flag, not a throw: a throw inside renameSync would land in the break's
+    // own catch and come out as a refusal, hiding that the break ran at all.
+    let breakReached = false;
+    seam.before = () => {
+      breakReached = true;
+    };
+
+    await refusalOf(withProjectLock(dir, 'update', () => undefined));
+    expect(breakReached).toBe(false);
+    expect(JSON.parse(readFileSync(lockPath(dir), 'utf8'))).toEqual(held);
     expect(lockSiblings(dir)).toEqual([]);
   });
 });
