@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-11-12
+
 ### Added
 
 - **A fresh `pharn init` now lists the hooks of the `.claude/settings.json` it writes.** When your project has no `.claude/settings.json`, `init` copies pharn-oss's — the hook commands Claude Code will run in your project — and used to say nothing about them. It now prints a `HOOKS` note after the install: every hook the file wires, one line of JSON under its event and matcher; how many hook entries it could not show, if any; the file's other top-level settings by name (`It also sets: permissions`); and `Claude Code runs these commands; review .claude/settings.json.` If the file cannot be read (not valid JSON, larger than 256 KB) the note says it was written but its hooks could not be listed. `init --yes` prints the same note, and `init --dry-run` prints it as a preview, with `Would write .claude/settings.json from upstream; see HOOKS.` in its `PLAN`. `init --dry-run --json` adds a `settingsHooks` key (`status`, `hooks`, `otherKeys`, `skipped`, or `status: "unreadable"` with a `reason`), present only when the file would be written; `schemaVersion` stays 1. Over an existing `.claude/settings.json`, and when pharn-oss ships none, the output is unchanged. pharn never runs these commands; the list is for you to review.
@@ -385,7 +387,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.5...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.5...v0.19.0
 [0.18.5]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.4...v0.18.5
 [0.18.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.3...v0.18.4
 [0.18.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.2...v0.18.3
