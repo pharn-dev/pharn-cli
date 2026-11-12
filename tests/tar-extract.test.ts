@@ -543,6 +543,11 @@ describe('extractTar', () => {
       'a control byte in the ustar prefix',
       { name: 'f.md', prefix: `pharn-oss-abc1234/d${ESC}x` },
     ],
+    // CORE-170: the one unsafe set now holds the two line separators too.
+    [
+      'a line separator (U+2028)',
+      { name: utf8AsLatin1('pharn-oss-abc1234/a\u2028b.md') },
+    ],
   ])('refuses %s, naming it without the raw character', (_label, entry) => {
     let message = '';
     try {

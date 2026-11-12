@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Security
+
+- **A warning built from `pharn.records.json` is now escaped before it reaches the terminal, and every unsafe-character check uses one set.** When `pharn update` cannot use the record store it warns, quoting a file key or the store's `skillsVersion`/`commit` stamp. `pharn.records.json` is committed and can be edited by hand, and the quoting (`JSON.stringify`) escapes ESC but leaves an 8-bit CSI (U+009B) and a right-to-left override (U+202E) as they are, so a crafted store could move the cursor, recolour or reorder what `update` and `update --dry-run` printed. Both now print the quoted value with every unsafe character written as `\uXXXX`, as `pharn uninstall` already did. `update --dry-run --json` is unchanged: its report already escaped the note, once. The unsafe-character set used to be written out five times with drifting members; it is now defined once (C0 and C1 controls, DEL, Unicode format characters, and U+2028/U+2029), and a test fails on a second definition in `src/`. Visible side effects: messages that print the path of a broken `pharn.config.json` now escape control characters in a directory name as `\u001b` instead of `\x1b`, and also escape format characters and line separators; terminal output now strips U+2028/U+2029 like the other unsafe characters; a pharn-oss archive entry whose name contains U+2028 or U+2029 is refused; and a capability name holding a format character is refused as containing control characters rather than as an invalid format, with the name in both messages escaped. Messages for ordinary input, and the `status --json` and `update --dry-run --json` bytes, are unchanged.
+
 ## [0.18.5] — 2026-11-12
 
 ### Security
