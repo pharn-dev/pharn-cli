@@ -129,32 +129,6 @@ describe('the one unsafe set', () => {
   });
 });
 
-// The boundaries validate.ts's CONTROL_CHARS_RE pinned (it is deleted; its
-// reject now goes through hasUnsafeChars), kept on the function that replaced
-// it. U+200B moved across: the one set holds every format character.
-describe('hasUnsafeChars — the boundaries CONTROL_CHARS_RE pinned', () => {
-  it.each([0x00, 0x09, 0x0a, 0x1b, 0x1f, 0x7f, 0x80, 0x9b, 0x9f, 0x200b])(
-    'matches char code %i',
-    (code) => {
-      expect(hasUnsafeChars(String.fromCharCode(code))).toBe(true);
-    },
-  );
-
-  it.each([0x20, 0x7e, 0xa0])('does not match char code %i', (code) => {
-    expect(hasUnsafeChars(String.fromCharCode(code))).toBe(false);
-  });
-
-  it('is not global', () => {
-    // A /g regex's `.test` would carry lastIndex and answer false here.
-    const value = String.fromCharCode(0x1b);
-    expect([1, 2, 3].map(() => hasUnsafeChars(value))).toEqual([
-      true,
-      true,
-      true,
-    ]);
-  });
-});
-
 // A static check that the set stays ONE: no other src/ file may spell a
 // control-character range or a Cf/Cc class. It reads source spellings, so it
 // catches the forms this repo has used (`\x00-\x1f`, `\x7f-\x9f`, their

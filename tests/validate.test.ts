@@ -108,6 +108,40 @@ describe('the name allowlists admit no `..`', () => {
   });
 });
 
+// The C0 + DEL + C1 boundaries the deleted CONTROL_CHARS_RE pinned. Its job,
+// rejecting a name over that range, is now assertSafeString's early reject
+// through hasUnsafeChars (the ONE set, lib/terminal-safe.ts), so the same
+// boundaries are asserted there, under the old names. U+200B moved across:
+// the one set holds every Unicode format character.
+describe('CONTROL_CHARS_RE', () => {
+  const rejects = (value: string): boolean => {
+    try {
+      assertSafeString(value, 'x', CAPABILITY_NAME_RE);
+      return false;
+    } catch (err) {
+      return /contains control characters/.test((err as Error).message);
+    }
+  };
+
+  it.each([0x00, 0x09, 0x0a, 0x1b, 0x1f, 0x7f, 0x80, 0x9b, 0x9f, 0x200b])(
+    'matches char code %i',
+    (code) => {
+      expect(rejects(`a${String.fromCharCode(code)}`)).toBe(true);
+    },
+  );
+
+  it.each([0x20, 0x7e, 0xa0])('does not match char code %i', (code) => {
+    expect(rejects(`a${String.fromCharCode(code)}`)).toBe(false);
+  });
+
+  it('is not global', () => {
+    // A /g regex's `.test` carries lastIndex, so a second identical call
+    // would pass the value; every call must reject it.
+    const value = `a${String.fromCharCode(0x1b)}`;
+    expect([1, 2, 3].map(() => rejects(value))).toEqual([true, true, true]);
+  });
+});
+
 describe('isPlainObject', () => {
   it('accepts a plain object and rejects arrays/null/primitives', () => {
     expect(isPlainObject({})).toBe(true);
