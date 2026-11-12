@@ -1,0 +1,10 @@
+reviews:
+  path_filters:
+    - "!.agents/**"
+    - "!.claude/**"
+    - "!.codex/**"
+    - "!.dev/**"
+    - "!.phargus/**"
+    - "!.pharn/**"
+    - "!pharn/**"
+    - "!assets/**"
