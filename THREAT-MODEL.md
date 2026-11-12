@@ -70,7 +70,8 @@ had to describe _measured properties of a dependency_, which a version bump coul
 pharn test noticing. Every property below is now pharn's own code, and every one of them is pinned by
 a test.
 
-- **One resolve, one download.** `fetchCommitSha` reads the branch head over the GitHub REST API; the
+- **One resolve, one download.** `fetchCommitSha` reads the branch head over the GitHub REST API through its
+  full ref (`commits/refs/heads/main`, so a tag named `main` cannot answer); the
   `COMMIT_RE`-validated result is the last URL segment **and** the recorded `commit`. Nothing
   re-resolves the ref. The previous path resolved it a second time inside the dependency and matched
   the result only against **current ref tips**, so an upstream push landing between the two failed the
@@ -143,7 +144,7 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 | malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/control-char rejection (`assertSafeString`, `assertNoDotDot` in `src/lib/validate.ts`); `safeJoin` guards **every** read/write in `parseCapabilityIndex`, `installCapabilityDirs`, `copyFilteredDir`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; symlink rejection at copy roots (`isSymlink` / `noSymlinks` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + symlink backstop |
 | malformed capability frontmatter | `parseCapabilityIndex` hard-fails naming the offending capability on missing subtree/markdown, unknown `role` (`assertRole`), unknown `applies` token (`assertAppliesToken`), or subtree/role mismatch — never a silent skip | shape check |
 | oversized / slow `SKILLS_VERSION` fetch | 256 KB body cap + 8s timeout + `redirect: 'error'` | `fetchRemoteSkillsVersion` (`src/lib/skills-version.ts`) |
-| oversized / slow commit-SHA resolve | 8s timeout + `redirect: 'error'` (JSON body; no separate cap) | `fetchCommitSha` (`src/lib/repo.ts`) |
+| oversized / slow commit-SHA resolve | 8s timeout + `redirect: 'error'` + `MAX_SHA_BYTES` (1 KiB) body cap | `fetchCommitSha` (`src/lib/repo.ts`) |
 | oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + a separate cap on the **decompressed** size + `redirect: 'error'`; entry-count and total-byte caps in the extractor. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
 | redirect to attacker host | `redirect: 'error'` on every pharn `fetch()` call, the tarball included | `fetchRemoteSkillsVersion`, `fetchCommitSha`, `downloadArchive` |
 | malformed / hostile archive entry | typeflag allowlist (files + dirs only; symlinks, hardlinks, devices and fifos **rejected**), `prefix`+`name` reassembly, `..`/absolute rejection, single-root check, `safeJoin` on every write, header-checksum verification | `extractTar` (`src/lib/tar-extract.ts`) |
@@ -168,7 +169,8 @@ against `CAPABILITY_NAME_RE` (`parseCapabilityIndex` / `installCapabilityDirs`,
 `src/lib/capability-index.ts` + `src/lib/install-capabilities.ts`); the `commit`
 SHA against `COMMIT_RE` — a full 40-hex sha — at the fetch boundary in `fetchRepo`
 (`src/lib/repo.ts`), with `null` the documented degraded mode of the `main` channel only (§4,
-`LIMITS.md §3b`); the release `tag_name` against `RELEASE_TAG_RE` and the tag's commit against
+`LIMITS.md §3b`); the release `tag_name` against `RELEASE_TAG_RE` and the tag's commit — resolved through the full
+tag ref `commits/refs/tags/<tag>`, never a bare name a same-named branch could answer — against
 `COMMIT_RE` (`src/lib/release.ts`), with the fetched tree's `SKILLS_VERSION` required to equal the tag;
 and the `models` block, copied from pharn-oss's root `pharn.config.json`, against
 pharn-oss's own rules — `checkModelsBlock` (`src/lib/model-config.ts`, a copy pinned
