@@ -10,11 +10,11 @@ plan's `spec_content_hash` (match, content-hash floor primitive) · registered g
 
 ```yaml
 - type: FINDING
-  rule_id: "P6"
+  rule_id: 'P6'
   severity: important
-  file: ".dev/features/pharn-ci-comment-pr-head/PLAN.md:56"
+  file: '.dev/features/pharn-ci-comment-pr-head/PLAN.md:56'
   problem: "Dependabot PRs are same-repo PRs whose pull_request token is read-only unless the workflow's permissions key raises it; the plan assumes the job-level `pull-requests: write` takes effect there, which no read this run confirmed."
-  evidence: "It is the **only** job in `ci.yml` with a write grant."
+  evidence: 'It is the **only** job in `ci.yml` with a write grant.'
 ```
 
 Bounded: pharn-ci 0.10.0 does not fail the step when it lacks comment permission. It warns and keeps
@@ -27,11 +27,11 @@ lost. Verify on the next Dependabot PR; record the residual in the workflow comm
 
 ```yaml
 - type: FINDING
-  rule_id: "P1"
+  rule_id: 'P1'
   severity: important
-  file: ".dev/features/pharn-ci-comment-pr-head/PLAN.md:106"
-  problem: "Pinning only the action SHA and `test-integrity` leaves room for the comment step to gain another input (`coverage-file`, `threshold`, `exclude`, …) that Test lacks, so the two verdicts drift with the test still green."
-  evidence: "uses the same `pharn-dev/pharn-ci@<sha>` and `test-integrity:` value as `Test`"
+  file: '.dev/features/pharn-ci-comment-pr-head/PLAN.md:106'
+  problem: 'Pinning only the action SHA and `test-integrity` leaves room for the comment step to gain another input (`coverage-file`, `threshold`, `exclude`, …) that Test lacks, so the two verdicts drift with the test still green.'
+  evidence: 'uses the same `pharn-dev/pharn-ci@<sha>` and `test-integrity:` value as `Test`'
 ```
 
 Suggest: compare the two steps' whole `with:` maps, key by key, minus exactly `comment` and
@@ -42,11 +42,11 @@ the compare API (the `Test` job's own comment says so).
 
 ```yaml
 - type: FINDING
-  rule_id: "P0"
+  rule_id: 'P0'
   severity: minor
-  file: ".dev/features/pharn-ci-comment-pr-head/PLAN.md:53"
+  file: '.dev/features/pharn-ci-comment-pr-head/PLAN.md:53'
   problem: "When `npm run test:coverage` fails, Test's pharn-ci step never runs (no gating report), but the comment job still runs on whatever the artifact holds. Its comment then has no gating report to agree with."
-  evidence: "whether `Test` passed or failed (like the `workflow_run` comment did)"
+  evidence: 'whether `Test` passed or failed (like the `workflow_run` comment did)'
 ```
 
 Acceptable: `Test` is red in that case and is the gate. It should be named in the workflow comment so
@@ -56,11 +56,11 @@ Acceptable: `Test` is red in that case and is the gate. It should be named in th
 
 ```yaml
 - type: FINDING
-  rule_id: "P2"
+  rule_id: 'P2'
   severity: minor
-  file: ".dev/features/pharn-ci-comment-pr-head/PLAN.md:63"
-  problem: "Downloading `pharn-ci-input` into the workspace also writes `pr-number` at the repo root; it is untracked and pharn-ci lists files with `git ls-files`, so it is inert, but the plan does not say so."
-  evidence: "into the workspace, which restores `coverage/lcov.info` at the path"
+  file: '.dev/features/pharn-ci-comment-pr-head/PLAN.md:63'
+  problem: 'Downloading `pharn-ci-input` into the workspace also writes `pr-number` at the repo root; it is untracked and pharn-ci lists files with `git ls-files`, so it is inert, but the plan does not say so.'
+  evidence: 'into the workspace, which restores `coverage/lcov.info` at the path'
 ```
 
 ### P3 / P5 / P7

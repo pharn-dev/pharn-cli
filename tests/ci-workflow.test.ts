@@ -394,9 +394,12 @@ describe('ci.yml pharn-ci comment job', () => {
 
   it('holds the only write grant in ci.yml', () => {
     // Test runs `npm ci` and the suite; it must never get a write grant.
-    expect(captureAll(ci.source, /^\s+([a-z-]+: write)$/gm)).toEqual([
-      'pull-requests: write',
-    ]);
+    // A trailing YAML comment must not hide a grant (`contents: write # …`).
+    expect(
+      captureAll(ci.source, /^\s+([a-z-]+:\s*write)\b/gm).map((g) =>
+        g.replace(/:\s*/, ': '),
+      ),
+    ).toEqual(['pull-requests: write']);
     expect(comment).toMatch(/^ {6}pull-requests: write$/m);
   });
 

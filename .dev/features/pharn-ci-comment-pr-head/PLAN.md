@@ -16,7 +16,7 @@ Read from disk and from GitHub this run:
 - `.github/workflows/pharn-ci-comment.yml` runs on `workflow_run` (`ci` completed). It checks out the
   **default branch**, downloads the `pharn-ci-input` artifact (coverage + `pr-number`) and runs
   `pharn-dev/pharn-ci@38aca1f…` (v0.10.0) with `pr-number`, `head-sha:
-  github.event.workflow_run.head_sha`, `test-integrity: block`, `fail-on-verdict: false`. Its `if:`
+github.event.workflow_run.head_sha`, `test-integrity: block`, `fail-on-verdict: false`. Its `if:`
   is only `github.event.workflow_run.event == 'pull_request'`, so it runs for **every** PR,
   same-repo ones included.
 - The `Test` job in `ci.yml` runs pharn-ci on `pull_request` with `comment: false`,
@@ -24,10 +24,10 @@ Read from disk and from GitHub this run:
   `coverage.file: coverage/lcov.info`. It holds `contents: read` + `pull-requests: read` and runs
   `npm ci` + the test suite (dependency code) in the same job.
 - **Root cause (pharn-ci source, `~/Projects/pharn-ci` at v0.10.0, `packages/action/src/run.ts:687,
-  726, 766, 842, 885, 934`):** when `pr-number` is set (`from.target`), pharn-ci *unconditionally*
+726, 766, 842, 885, 934`):** when `pr-number` is set (`from.target`), pharn-ci _unconditionally_
   returns "unavailable" for the test-file texts (`pr-number mode: the diff came from the GitHub
-  API`) and the agent-config / settings / instruction texts (`the checkout is not the pull request
-  head`). pharn-ci's README ("Fork PRs: comment from workflow_run") documents it:
+API`) and the agent-config / settings / instruction texts (`the checkout is not the pull request
+head`). pharn-ci's README ("Fork PRs: comment from workflow_run") documents it:
   `TEST_INTEGRITY_INDEX_UNAVAILABLE` is an error under `test-integrity: block` there. So the three
   messages are by design in PR-number mode. No v0.10.0 input changes this, and `main` (4e968b2) adds
   none. The "headSha = main's commit" seen in `gh run list` is the `workflow_run` run's own context
@@ -38,7 +38,7 @@ Read from disk and from GitHub this run:
   `pharn-ci-report` from run 43217801531 = `verdict: pass`, its one message the info
   `NO_COVERABLE_CHANGES`.
 - `tests/ci-workflow.test.ts` pins `ci.yml` to **exactly** the six gate jobs (`ci.blocks.size ===
-  EXPECTED_GATES.size`, name set equality) and pins `node-version: 24` on **every** block. Adding a
+EXPECTED_GATES.size`, name set equality) and pins `node-version: 24` on **every** block. Adding a
   job turns it RED unless the test declares the job in the same increment.
 - `.dev/floor/check-run-pins.test.mjs` asserts `skipped === 10` (`npm ci` count). The new job runs no
   `npm`, so the count holds. `.dev/floor/check-action-pins.test.mjs` asserts every `uses:` is
@@ -49,7 +49,7 @@ Read from disk and from GitHub this run:
 **New job `pharn-ci-comment` (`name: pharn-ci comment`) in `ci.yml`:**
 
 - `needs: test`; `if: ${{ !cancelled() && github.event_name == 'pull_request' &&
-  github.event.pull_request.head.repo.full_name == github.repository }}`. It runs after `Test`
+github.event.pull_request.head.repo.full_name == github.repository }}`. It runs after `Test`
   whether `Test` passed or failed (like the `workflow_run` comment did), and never on push or on a
   fork PR.
 - `permissions: contents: read, pull-requests: write`. It is the **only** job in `ci.yml` with a
@@ -67,6 +67,7 @@ Read from disk and from GitHub this run:
 
   The inputs are the same as `Test`'s pharn-ci step except `comment`, so the comment's verdict is
   computed from the same diff, files, coverage and mode as the gating report.
+
 - Not a required check: its name is not in the ruleset or in `REQUIRED_CONTEXTS`. The six gate names
   are unchanged.
 

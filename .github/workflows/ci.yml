@@ -171,9 +171,10 @@ jobs:
   # Not a required check: the `main` ruleset does not list it, and it never
   # gates (fail-on-verdict: false). It runs whether `Test` passed or failed.
   # When `Test` failed before its pharn-ci step there is no gating report to
-  # agree with, and `Test` is red anyway. A Dependabot PR's token is raised by
-  # the permissions block below. If it ever is not, pharn-ci warns and keeps the
-  # report in the job summary instead of failing the step.
+  # agree with, and `Test` is red anyway. On a Dependabot PR the token is
+  # read-only unless a permissions block raises it, as the one below is meant
+  # to (not yet seen on a Dependabot PR here). If it is not raised, pharn-ci
+  # warns and keeps the report in the job summary instead of failing the step.
   pharn-ci-comment:
     name: pharn-ci comment
     needs: test
