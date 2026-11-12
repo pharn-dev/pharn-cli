@@ -19,8 +19,11 @@ import {
 
 const SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
 const RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+// The full tag ref, never a bare name a same-named branch could answer. The
+// stub below answers this prefix only, so a bare `commits/<tag>` request is an
+// "unexpected request" failure in every test.
 const shaUrl = (tag: string) =>
-  `https://api.github.com/repos/${REPO}/commits/${tag}`;
+  `https://api.github.com/repos/${REPO}/commits/refs/tags/${tag}`;
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status });
@@ -88,6 +91,44 @@ describe('resolveSource', () => {
   it('trims the bare SHA the sha media type answers with', async () => {
     stub(json({ tag_name: 'v1.0.0' }), new Response(`${SHA}\n`));
     await expect(resolveSource('latest')).resolves.toMatchObject({ sha: SHA });
+  });
+
+  describe('resolves the release tag as a TAG, never a branch of the same name', () => {
+    it('asks for the full tag ref, refs/tags/<tag>', async () => {
+      const mock = stub(json({ tag_name: 'v7.10.3' }));
+      await resolveSource('latest');
+      // Literal, not via shaUrl(): the assertion must not share the helper
+      // it checks.
+      expect(mock.mock.calls[1]![0]).toBe(
+        'https://api.github.com/repos/pharn-dev/pharn-oss/commits/refs/tags/v7.10.3',
+      );
+    });
+
+    it('never asks for the bare name, nor the 422-answering tags/<tag> form', async () => {
+      const mock = stub(json({ tag_name: 'v7.10.3' }));
+      await resolveSource('latest');
+      const urls = mock.mock.calls.map((c) => String(c[0]));
+      expect(urls).not.toContain(
+        `https://api.github.com/repos/${REPO}/commits/v7.10.3`,
+      );
+      expect(urls).not.toContain(
+        `https://api.github.com/repos/${REPO}/commits/tags/v7.10.3`,
+      );
+    });
+
+    it('takes the commit GitHub answers in ONE request — no tag-object follow-up', async () => {
+      // An annotated tag points at a tag object, not a commit. With the sha
+      // media type GitHub dereferences it and answers the COMMIT id (measured
+      // for v7.10.3, an annotated tag: refs/tags/v7.10.3 → 39ec5825…, the
+      // ^{} commit, not the d153adb5… tag object). That happens on GitHub's
+      // side, so the CLI makes no second request for either tag type.
+      const commit = '39ec5825b7b811e36993b48957f66a8521749b98';
+      const mock = stub(json({ tag_name: 'v7.10.3' }), new Response(commit));
+      await expect(resolveSource('latest')).resolves.toMatchObject({
+        sha: commit,
+      });
+      expect(mock).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('FAILS CLOSED, naming --ref main — never a fallback to the tip', () => {
@@ -202,10 +243,15 @@ describe('resolveSource', () => {
       expect(await refusal()).toContain(`marked ${label}`);
     });
 
-    it('when the tag cannot be resolved to a commit', async () => {
-      stub(json({ tag_name: 'v1.0.0' }), json({}, 422));
-      expect(await refusal()).toContain('could not resolve v1.0.0 to a commit');
-    });
+    it.each([404, 422])(
+      'when the tag ref cannot be resolved to a commit (%i)',
+      async (status) => {
+        stub(json({ tag_name: 'v1.0.0' }), json({}, status));
+        const message = await refusal();
+        expect(message).toContain('could not resolve v1.0.0 to a commit');
+        expect(message).toContain(`HTTP ${status} from ${shaUrl('v1.0.0')}`);
+      },
+    );
 
     it('when the commit id is malformed', async () => {
       stub(json({ tag_name: 'v1.0.0' }), new Response('not-a-sha'));

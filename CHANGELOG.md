@@ -9,6 +9,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.18.5] — 2026-11-12
+
+### Security
+
+- **The verified release is resolved as a tag, never as a branch of the same name.** To turn the newest release tag into a commit, pharn asked GitHub for `commits/<tag>`, a bare name. GitHub does not say whether a bare name picks a branch or a tag when both exist, so a branch named like the release tag (for example `v7.10.3`) could have stood in for the verified release. A branch can carry a matching `SKILLS_VERSION`, so the check that the tree's version equals the tag would not have caught it. pharn now asks for `commits/refs/tags/<tag>`, which answers the same commit for the latest release (checked against pharn-oss v7.10.3, an annotated tag). The documented `commits/tags/<tag>` form answers HTTP 422, so it is not used. A failed resolve still refuses and names `--ref main`. The `main` channel's commit lookup likewise asks for `commits/refs/heads/main`, so a tag named `main` cannot stand in for the branch. Shadowing was never reproduced: GitHub's behaviour for a bare name is undocumented, and this removes the dependence on it.
+
 ## [0.18.4] — 2026-11-12
 
 The published CLI behaves exactly as 0.18.3: apart from the version number, nothing it is built from changed (`src/`, `README.md`, `LICENSE`, `package.json`, `package-lock.json`, `tsconfig.json`, `scripts/`). This release carries two repository changes for contributors.
@@ -365,7 +371,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.4...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.5...HEAD
+[0.18.5]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.4...v0.18.5
 [0.18.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.3...v0.18.4
 [0.18.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.1...v0.18.2

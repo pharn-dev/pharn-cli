@@ -159,7 +159,8 @@ channel, `src/lib/release.ts` — the default for a new install from 0.15.0) or 
 default) and can never pin older content, so upstream's newest release — and, for the `main` channel,
 its newest merge — is a **live input to every deployed CLI at once**. On the `main` channel that
 includes a merge whose post-merge CI has not finished, been cancelled or failed; the release channel
-waits for a verified release. The
+waits for a verified release, and resolves its commit through the tag ref itself
+(`commits/refs/tags/<tag>`), so a branch named like the tag cannot stand in for it. The
 capability grammar it parses is closed (`src/lib/validate.ts`, frozen enums), and that is
 deliberate — the fail-closed posture is the security property (P2).
 

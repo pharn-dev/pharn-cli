@@ -18,8 +18,11 @@ const { fetchRepo, fetchCommitSha } = await import('../src/lib/repo.js');
 // form fetchRepo validates against COMMIT_RE before it fetches or records it.
 const VALID_SHA = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
 
-/** The one URL fetchCommitSha builds — the stub answers this and nothing else. */
-const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/${REPO_BRANCH}`;
+/**
+ * The one URL fetchCommitSha builds — the stub answers this and nothing else.
+ * The FULL branch ref, so a tag named like the branch cannot answer for it.
+ */
+const RESOLVE_URL = `https://api.github.com/repos/${REPO}/commits/refs/heads/${REPO_BRANCH}`;
 
 // ---------------------------------------------------------------------------
 // A real gzipped ustar archive, shaped like codeload's: a leading
@@ -379,6 +382,21 @@ describe('fetchCommitSha', () => {
     expect(url).toBe(RESOLVE_URL);
     expect(init.headers.Accept).toBe('application/vnd.github.sha');
     expect(init.redirect).toBe('error');
+  });
+
+  // CORE-169: the branch is asked for by its full ref, never the bare name a
+  // same-named TAG could answer. Literal, so it does not lean on RESOLVE_URL.
+  it('resolves the branch through refs/heads/, never the bare name', async () => {
+    const mock = vi.fn(() => new Response(VALID_SHA));
+    vi.stubGlobal('fetch', mock);
+    await fetchCommitSha();
+    const url = (mock.mock.calls[0] as unknown as [string])[0];
+    expect(url).toBe(
+      'https://api.github.com/repos/pharn-dev/pharn-oss/commits/refs/heads/main',
+    );
+    expect(url).not.toBe(
+      'https://api.github.com/repos/pharn-dev/pharn-oss/commits/main',
+    );
   });
 
   // F-21: the body used to be read with no cap. Over the cap the read is
