@@ -26,8 +26,12 @@ pharn-oss `5568d4ce` (7.10.2) and re-pinned (`frontmatter-core.mjs` unchanged); 
 tests; the reference doc, README and getting-started; `KNOWN_TAGS` += `v0.18.2`; CHANGELOG `0.18.3`
 and the version bump. pharn-oss `MIN_CLI` needs no change (its own block names no `supervise` key).
 
-Not committed. `.pharn/writes-scope.json` (tracked) carries this run's scope and must be restored
-(`git restore .pharn/writes-scope.json`) before any commit.
+## GATE 2 decision
+
+The maintainer's answer, relayed from the starting session on 2026-11-12: "Yes, ship it". The work
+was committed and opened as pharn-dev/pharn-cli#356; merging waits for the required checks and a
+clean pharn-ci report. The tracked runtime files (`.pharn/writes-scope.json`,
+`.pharn/pharn-dev-verify/results.json`) were restored before each commit.
 
 Chain ran; the named floor verdicts are as shown — this is NOT a judgment that the increment is good or
 wise; that is the human's call at the post-review gate.
