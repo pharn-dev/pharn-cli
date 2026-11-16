@@ -1,0 +1,51 @@
+{
+  "base": "790d9c39b33f80083ed5cfff5899a575542f71b0",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/architecture.md",
+    "docs/commands/add.md",
+    "docs/commands/init.md",
+    "docs/troubleshooting.md",
+    "eslint.config.mjs",
+    "src/commands/add.ts",
+    "src/commands/update.ts",
+    "src/lib/apply-update.ts",
+    "src/lib/dest-drift.ts",
+    "src/lib/install-capabilities.ts",
+    "src/lib/install-manifest.ts",
+    "src/steps/install-archetype.ts",
+    "tests/apply-update.test.ts",
+    "tests/commands/add.test.ts",
+    "tests/commands/init.test.ts",
+    "tests/dest-drift.test.ts",
+    "tests/install-capabilities.test.ts",
+    "tests/install-manifest.test.ts",
+    "tests/lint-rules.test.ts"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
