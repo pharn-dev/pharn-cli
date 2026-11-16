@@ -14,7 +14,7 @@ Worktree `.claude/worktrees/agent-a6c46d928cc8614a3`, branch `przemek/core-164-c
 3. `/pharn-dev-build`. Build note:
    - `readPharnConfig`'s guard reads a config iff it has a string `skillsVersion` and either a `modules` array or a `capabilities` key.
    - `readPreviousConfig` returns `unreadable`: a validation error's first sentence (without its period), escaped and capped, or fixed text for a `null` read of a file that exists.
-   - `previousConfigLines` prints the line in the summary of the real run, `--yes` and the text dry run.
+   - `previousConfigLines` prints the line in the summary of the real run and the text dry run (the `--yes` branch passes it too, but see the rebase note below).
    - `PharnConfig.modules` is now optional on read. Every "0.3.0–0.12.0" became "0.3.0–0.19.x".
    - One existing test row changed its premise: in `init-archetype.test.ts`, "keeps them from a config that every other command refuses" used no-`modules` as the refused shape and now uses no-`skillsVersion`.
    - The 23 new tests fail against the pre-change src.
@@ -24,6 +24,15 @@ Worktree `.claude/worktrees/agent-a6c46d928cc8614a3`, branch `przemek/core-164-c
 6. `/pharn-dev-review` → [REVIEW.md](REVIEW.md), advisory: 0 floor-gate findings and 4 advisory ones. The comment-wrap finding was fixed at GATE 2 (comment only).
 
 Ended at: GATE 2. The decision rule delegated by the orchestrator was applied: regress and verify are green and review has no blocking finding, so the decision is "ship" (commit, push, PR, no merge).
+
+## Rebase onto da9d79b (CORE-166/167/168), after the PR opened
+
+CORE-168 made `init --yes` refuse any existing `pharn.config.json` before the fetch (`existingConfigRefusal`). So over an unreadable config, `--yes` never reaches the summary, and the "could not be read" line is printed only by the real run and the text dry run.
+
+- The `--yes` test was rewritten to that order: refused, exit 1, no fetch, no summary line, no prompt, config untouched.
+- The `--yes` claims were removed from `init-plan.ts`, `docs/commands/init.md`, the CHANGELOG and CLAUDE.md.
+- The conflicts in CHANGELOG.md, CLAUDE.md and `tests/commands-integration.test.ts` were resolved keeping both sides.
+- The full `CI=1 npm run check` was re-run.
 
 ## Structural verdicts, verbatim
 
