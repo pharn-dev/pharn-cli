@@ -914,7 +914,7 @@ describe('runUpdate (drift-safe)', () => {
   // recorded hash proves authorship whatever the stamp, so such a store is used
   // as is — the same-version run has nothing to repair (no re-open), and the
   // next version bump upgrades every unedited file instead of skipping it.
-  describe('records stamped for another install state (a torn add)', () => {
+  describe('same version, records stamped for another install state (F-22)', () => {
     const noteText = () =>
       vi
         .mocked(prompts.note)
@@ -965,6 +965,63 @@ describe('runUpdate (drift-safe)', () => {
       expect(noteText()).not.toContain('unverifiable');
       expect(noteText()).not.toContain('UNVERIFIABLE');
       expect(backupDirs()).toEqual([]);
+    });
+
+    it('an ABSENT store does not re-open it', async () => {
+      await tornAdd();
+      rmSync(join(proj, RECORDS_FILE));
+
+      await runUpdate();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(existsSync(join(proj, RECORDS_FILE))).toBe(false);
+    });
+
+    it('a CORRUPT store does not re-open it, and is left byte-identical', async () => {
+      await tornAdd();
+      writeFileSync(join(proj, RECORDS_FILE), '{ not json');
+
+      await runUpdate();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe('{ not json');
+    });
+
+    it('a store whose stamp matches still early-returns', async () => {
+      await tornAdd();
+      await writeRecords(proj, {
+        skillsVersion: '1.1.0',
+        commit: null,
+        files: records()!,
+      });
+
+      await runUpdate();
+
+      expect(prompts.outro).toHaveBeenCalledWith(
+        'Already up to date (skills v1.1.0).',
+      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+    });
+
+    // The ahead-of-source guard still wins over a torn store.
+    it('does not re-open an install ahead of its source', async () => {
+      await tornAdd();
+      loadArchetypeConfigOrExit.mockReturnValue(
+        baseConfig({ skillsVersion: '2.0.0' }),
+      );
+
+      await runUpdate();
+
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(String(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0])).toContain(
+        'newer than pharn-oss main',
+      );
     });
   });
 
