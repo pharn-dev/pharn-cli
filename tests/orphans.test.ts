@@ -14,12 +14,13 @@ const { readDiskState } = await import('../src/lib/apply-update.js');
 
 import {
   findOrphans,
-  isInstallRootPath,
+  isInstallRootPath as reexportedIsInstallRootPath,
   MAX_ORPHANS_PER_GROUP,
   orphanNoteLines,
   type Orphan,
 } from '../src/lib/orphans.js';
 import { MODELS_RECORD_KEY } from '../src/lib/install-records.js';
+import { isInstallRootPath } from '../src/lib/install-surfaces.js';
 import { contentHash } from '../src/lib/hash.js';
 import type { InstalledCapability } from '../src/types.js';
 
@@ -33,6 +34,10 @@ function write(root: string, rel: string, content: string): void {
 }
 
 describe('isInstallRootPath', () => {
+  it('orphans.ts re-exports the install-surfaces predicate itself', () => {
+    expect(reexportedIsInstallRootPath).toBe(isInstallRootPath);
+  });
+
   it.each([
     // capability files, both layouts
     'pharn-pipeline/grillers/a11y/a11y.md',
