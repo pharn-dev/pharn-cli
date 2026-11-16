@@ -115,20 +115,12 @@ export async function runUpdate(
     compact?: boolean;
   } = {},
 ): Promise<void> {
-  const dryRun = opts.dryRun ?? false;
-  const json = opts.json ?? false;
+  // `--compact` filters the JSON report, and `--json` is the dry run's
+  // machine-readable form, so each implies the next (the argv parser applies
+  // the same rule).
   const compact = opts.compact ?? false;
-  // `--json` is the dry run's machine-readable form only; a direct caller fails
-  // closed rather than printing clack chrome into a JSON consumer.
-  if (json && !dryRun) {
-    reportFatalPlain('--json is only available with --dry-run.');
-    process.exit(1);
-  }
-  // `--compact` filters the JSON report and nothing else.
-  if (compact && !json) {
-    reportFatalPlain('--compact is only available with --json.');
-    process.exit(1);
-  }
+  const json = (opts.json ?? false) || compact;
+  const dryRun = (opts.dryRun ?? false) || json;
   // Under `--json` NOTHING reaches stdout but the one report: no clack at all.
   if (!json) intro(dryRun ? 'pharn update --dry-run' : 'pharn update');
 
