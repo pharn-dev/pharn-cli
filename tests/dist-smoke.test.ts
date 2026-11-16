@@ -30,8 +30,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // process only.
 //
 // No test here reaches the network: `--version`/`--help` and the option
-// refusal short-circuit before any command runs, and `status` stops at the
-// missing config, before it resolves a source.
+// refusal short-circuit before any command runs, and every command stops at
+// the missing `.git` or config (or, for `uninstall`, finds nothing to do)
+// before it resolves a source.
 
 const ROOT = resolve(import.meta.dirname, '..');
 const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
@@ -75,19 +76,28 @@ function pharn(
   nodeArgs: string[] = [],
 ): {
   status: number | null;
+  signal: NodeJS.Signals | null;
+  ms: number;
   stdout: string;
   stderr: string;
 } {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
   // Full error output would print a stack on purpose; the default must not.
   delete env.PHARN_DEBUG;
+  const started = Date.now();
   const r = spawnSync(process.execPath, [...nodeArgs, bin, ...args], {
     cwd: project,
     encoding: 'utf8',
     timeout: 30_000,
     env,
   });
-  return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+  return {
+    status: r.status,
+    signal: r.signal,
+    ms: Date.now() - started,
+    stdout: r.stdout,
+    stderr: r.stderr,
+  };
 }
 
 // A stack frame line (`    at fn (file:1:2)`) — what an uncaught throw prints.
@@ -189,6 +199,37 @@ describe('the built bundle (dist/index.js)', { timeout: 30_000 }, () => {
     expect(r.stderr).toContain('Unknown option: "--no-dry-run"');
     expect(r.stdout).toBe('');
   });
+
+  // THE ONE EXIT POINT, end to end: no command calls process.exit, so a run
+  // ends only when the event loop drains. Each command here refuses (no .git,
+  // no pharn.config.json) or succeeds without the network, and must exit on its
+  // own, with today's code, well inside the spawn's 30 s timeout — a handle left
+  // open (a timer, a socket, a raw stdin) would hold it until the kill.
+  it.each([
+    { args: ['init'], code: 1, says: 'git not found.' },
+    { args: ['init', '--dry-run', '--json'], code: 1, says: 'git not found.' },
+    { args: ['add', 'a11y'], code: 1, says: 'No pharn.config.json found.' },
+    { args: ['remove', 'a11y'], code: 1, says: 'No pharn.config.json found.' },
+    { args: ['update'], code: 1, says: 'No pharn.config.json found.' },
+    { args: ['list'], code: 1, says: 'No pharn.config.json found.' },
+    {
+      args: ['status', '--json'],
+      code: 1,
+      says: 'No pharn.config.json found.',
+    },
+    { args: ['status', '--force'], code: 1, says: 'Unsupported option' },
+    { args: ['uninstall'], code: 0, says: 'PHARN is not installed here' },
+  ])(
+    '`pharn $args` exits on its own, promptly, with code $code',
+    ({ args, code, says }) => {
+      const r = pharn(args);
+      expect(r.signal).toBeNull();
+      expect(r.status).toBe(code);
+      expect(r.ms).toBeLessThan(10_000);
+      expect(`${r.stdout}${r.stderr}`).toContain(says);
+      expect(r.stderr).not.toMatch(STACK_FRAME);
+    },
+  );
 
   it('`status --help` prints only that command page (exit 0)', () => {
     const r = pharn(['status', '--help']);

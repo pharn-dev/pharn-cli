@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { logError, logErrorPlain } from '../lib/report-error.js';
+import { CliError } from '../lib/cli-error.js';
 import { escapeUnsafe } from '../lib/terminal-safe.js';
 
 // The git prerequisite, run up-front. `json` (init --dry-run --json): one plain
@@ -37,10 +37,8 @@ export function findAncestorGitRoot(start: string): string | null {
   }
 }
 
-// Through the shared reporter, NOT clack's `cancel()`, which writes to stdout:
-// this is an error, not a user cancellation.
+// An error line (stderr), NOT clack's `cancel()`, which writes to stdout: this
+// is an error, not a user cancellation.
 function fail(message: string, json: boolean): never {
-  if (json) logErrorPlain(message);
-  else logError(message);
-  process.exit(1);
+  throw CliError.error(message, { json });
 }

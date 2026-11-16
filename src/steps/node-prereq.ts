@@ -1,4 +1,4 @@
-import { logError, logErrorPlain } from '../lib/report-error.js';
+import { CliError } from '../lib/cli-error.js';
 import { nodeFloorRefusal, nodeFloorStatus } from '../lib/node-floor.js';
 
 // The Node-floor preflight for `init` and `update`, which install or refresh
@@ -17,7 +17,5 @@ export function runNodePrereq(
   );
   if (refusal === null) return;
   // `--json` keeps stdout and the clack chrome out of it: one plain stderr line.
-  if (opts.json) logErrorPlain(refusal);
-  else logError(refusal);
-  process.exit(1);
+  throw CliError.error(refusal, opts);
 }

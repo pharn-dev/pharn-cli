@@ -42,6 +42,8 @@ import { contentHash } from '../../src/lib/hash.js';
 import { LOCK_FILE } from '../../src/lib/project-lock.js';
 import { runAdd } from '../../src/commands/add.js';
 import { runRemove } from '../../src/commands/remove.js';
+import { CliError } from '../../src/lib/cli-error.js';
+import { reportCliError } from '../../src/lib/report-error.js';
 
 // A pass-through `node:fs` with ONE hook: run a callback right after the
 // project lock file is created. On the named path that is the only moment
@@ -804,5 +806,43 @@ describe('pharn remove backs up before it deletes', () => {
     expect(exists(USER)).toBe(true);
     expect(exists(`${LENS}/n.md`)).toBe(true);
     expect(read('pharn.config.json')).toBe(configBefore);
+  });
+});
+
+// THE ONE EXIT POINT: remove never exits and never prints its own ending. A
+// refusal and a cancel reject with a CliError carrying the exit code, and the
+// line the user sees comes out once, from the top-level reporter.
+describe('pharn remove ends through a CliError', () => {
+  const thrown = (p: Promise<void>): Promise<unknown> =>
+    p.then(
+      () => null,
+      (err: unknown) => err,
+    );
+
+  it('a refusal (not installed): CliError exit 1, its one error line printed by reportCliError', async () => {
+    seedConfig([{ name: 'a11y', role: 'griller' }]);
+    const before = snapshot();
+    const err = await thrown(runRemove('bogus'));
+    expect(err).toBeInstanceOf(CliError);
+    expect(err).toMatchObject({ exitCode: 1 });
+    expect(logs('error')).toEqual([]);
+    expect(reportCliError(err)).toBe(1);
+    expect(logs('error')).toEqual([
+      '"bogus" is not an installed capability. Installed: griller:a11y. Nothing was removed.',
+    ]);
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('a cancel (the multi-select cancelled): CliError exit 0, one "Cancelled" line', async () => {
+    seedConfig([{ name: 'a11y', role: 'griller' }]);
+    interactive({ groupMultiselect: [CANCEL] });
+    const err = await thrown(runRemove(undefined));
+    expect(err).toBeInstanceOf(CliError);
+    expect(err).toMatchObject({ exitCode: 0 });
+    const cancelled = (): string[] =>
+      logs('info').filter((l) => l.includes('Cancelled. Nothing was changed.'));
+    expect(cancelled()).toEqual([]);
+    expect(reportCliError(err)).toBe(0);
+    expect(cancelled()).toHaveLength(1);
   });
 });

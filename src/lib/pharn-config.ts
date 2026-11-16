@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeJsonAtomic } from './atomic-write.js';
 import { readBoundedFile, readJsonBounded } from './bounded-read.js';
 import { resolve } from 'node:path';
-import { errorMessage, logError, logErrorPlain } from './report-error.js';
+import { CliError, errorMessage } from './cli-error.js';
 import { escapeUnsafe, terminalSafe } from './terminal-safe.js';
 import {
   ARCHETYPE_VALUES,
@@ -383,17 +383,18 @@ function isFrozenKeyList(value: unknown): value is string[] {
 }
 
 /**
- * Load pharn.config.json for a command, or exit(1): `null` → "Run `pharn
- * init`"; a named config error → its own message, never "run init". Any other
- * error is a bug and is rethrown.
+ * Load pharn.config.json for a command, or throw a CliError (one error line,
+ * exit 1): `null` → "Run `pharn init`"; a named config error → its own
+ * message, never "run init". Under `opts.json` the line is plain stderr (no
+ * clack chrome), so a JSON reader on stdout stays clean. Any other error is a
+ * bug and is rethrown.
  */
 export function loadConfigOrExit(
   cwd: string,
   opts: { json?: boolean } = {},
 ): PharnConfig {
   const fail = (message: string): never => {
-    reportLoadError(message, opts.json ?? false);
-    process.exit(1);
+    throw CliError.error(message, opts);
   };
   try {
     const config = readPharnConfig(cwd);
@@ -404,13 +405,6 @@ export function loadConfigOrExit(
   }
   // Only for a `null` read; a file that exists but does not parse threw above.
   return fail('No pharn.config.json found. Run `pharn init` first.');
-}
-
-// Under `--json` a load failure is a plain stderr line (no clack chrome), so a
-// JSON reader on stdout stays clean.
-function reportLoadError(message: string, json: boolean): void {
-  if (json) logErrorPlain(message);
-  else logError(message);
 }
 
 /**
@@ -520,8 +514,9 @@ export const LEGACY_CONFIG_MESSAGE =
   'This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` to reinstall with the archetype/capability model.';
 
 /**
- * Load pharn.config.json and require an archetype install, or exit(1) with
- * `LEGACY_CONFIG_MESSAGE`. `opts.json` keeps every error a plain stderr line.
+ * Load pharn.config.json and require an archetype install, or throw a CliError
+ * (exit 1) with `LEGACY_CONFIG_MESSAGE` — or `loadConfigOrExit`'s own.
+ * `opts.json` keeps every error a plain stderr line.
  */
 export function loadArchetypeConfigOrExit(
   cwd: string,
@@ -529,8 +524,7 @@ export function loadArchetypeConfigOrExit(
 ): PharnConfig {
   const config = loadConfigOrExit(cwd, opts);
   if (!isArchetypeConfig(config)) {
-    reportLoadError(LEGACY_CONFIG_MESSAGE, opts.json ?? false);
-    process.exit(1);
+    throw CliError.error(LEGACY_CONFIG_MESSAGE, opts);
   }
   return config;
 }

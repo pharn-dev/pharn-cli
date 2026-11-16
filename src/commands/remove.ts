@@ -7,7 +7,7 @@ import {
   outro,
 } from '@clack/prompts';
 import pc from '../lib/color.js';
-import { cancelAndExit } from '../lib/confirm.js';
+import { CliError } from '../lib/cli-error.js';
 import { configLayout, layoutPaths, type LayoutPaths } from '../lib/layout.js';
 import {
   capabilityDir,
@@ -16,7 +16,7 @@ import {
   linkedComponent,
 } from '../lib/capability-dir.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
-import { errorMessage, logError } from '../lib/report-error.js';
+import { errorMessage } from '../lib/report-error.js';
 import { createBackup, printBackupNotice } from '../lib/backup.js';
 import { backupDirIgnored } from '../lib/gitignore.js';
 import { removalBackupSet } from '../lib/removal-backup.js';
@@ -58,23 +58,16 @@ export async function runRemove(arg: string | undefined): Promise<void> {
   try {
     await removeCapability(cwd, config, arg);
   } catch (err) {
-    // A held lock is a policy refusal, not a crash: no stack trace. `remove`
-    // takes no clone, so there is nothing to clean up before the exit.
-    if (err instanceof ProjectLockedError) {
-      logError(err.message);
-      process.exit(1);
-    }
-    // A failed backup fired BEFORE the first delete, so "Nothing was removed"
-    // is true, and the unwinding released the lock.
-    if (err instanceof RemoveBackupError) {
-      logError(err.message);
-      process.exit(1);
-    }
-    // A target under a symlinked component. Thrown rather than exiting in place
-    // so that, under the lock, the unwinding releases `pharn/.lock` first.
-    if (err instanceof SymlinkedTargetError) {
-      logError(err.message);
-      process.exit(1);
+    // A held lock is a policy refusal, not a crash: no stack trace. A failed
+    // backup fired BEFORE the first delete, so "Nothing was removed" is true.
+    // A target under a symlinked component is refused before any write. The
+    // unwinding has already released the lock.
+    if (
+      err instanceof ProjectLockedError ||
+      err instanceof RemoveBackupError ||
+      err instanceof SymlinkedTargetError
+    ) {
+      throw CliError.error(err.message);
     }
     throw err;
   }
@@ -255,10 +248,7 @@ async function removeNamed(
   address: string,
 ): Promise<void> {
   const parsed = parseCapabilityArg(address);
-  if (parsed.error) {
-    logError(parsed.error);
-    process.exit(1);
-  }
+  if (parsed.error) throw CliError.error(parsed.error);
   const matches = installed.filter(
     (c) =>
       c.name === parsed.name &&
@@ -273,16 +263,14 @@ async function removeNamed(
     const hint = valid.length
       ? ` Installed: ${valid.join(', ')}.`
       : ' No capabilities are installed.';
-    logError(
+    throw CliError.error(
       `"${address}" is not an installed capability.${hint} Nothing was removed.`,
     );
-    process.exit(1);
   }
   if (matches.length > 1) {
-    logError(
+    throw CliError.error(
       `"${parsed.name}" is ambiguous — use ${matches.map((m) => `${m.role}:${m.name}`).join(' or ')}.`,
     );
-    process.exit(1);
   }
 
   const target = matches[0]!;
@@ -344,10 +332,9 @@ async function runRemovePicker(
       stdoutIsTTY: process.stdout.isTTY,
     })
   ) {
-    logError(
+    throw CliError.error(
       'Specify a capability to remove (e.g. `pharn remove a11y`), or run `pharn remove` in an interactive terminal to pick from a list.',
     );
-    process.exit(1);
   }
 
   const { groups } = buildRemoveSelection(installed);
@@ -357,7 +344,7 @@ async function runRemovePicker(
     required: false,
     selectableGroups: false,
   });
-  if (isCancel(picked)) cancelAndExit();
+  if (isCancel(picked)) throw CliError.cancel();
   const values = picked as string[];
   if (values.length === 0) {
     outro('Nothing selected. No capabilities were removed.');
@@ -386,7 +373,7 @@ async function runRemovePicker(
       .join(', ')}?`,
     initialValue: false,
   });
-  if (isCancel(ok) || ok !== true) cancelAndExit();
+  if (isCancel(ok) || ok !== true) throw CliError.cancel();
 
   // Taken AFTER the confirm (an unanswered destructive prompt must not hold the
   // lock) and spanning the whole selection.

@@ -47,12 +47,8 @@ import { needsModelsConversion } from '../lib/models-update.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { nodeFloorLines, nodeFloorStatus } from '../lib/node-floor.js';
 import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
-import {
-  errorMessage,
-  logErrorPlain,
-  reportFatal,
-  reportFatalPlain,
-} from '../lib/report-error.js';
+import { CliError } from '../lib/cli-error.js';
+import { logErrorPlain } from '../lib/report-error.js';
 import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
@@ -101,16 +97,11 @@ export async function runStatus(
     else log.warn(message);
   }
 
-  const fatal = (err: unknown): void => {
-    if (json) reportFatalPlain(errorMessage(err), { err });
-    else reportFatal(errorMessage(err), { err });
-  };
-
   // The channel the install follows, never a flag. An unresolvable release
   // fails the command (exit 1) on both paths.
   const channel = channelOf(config);
   const s = json ? null : spinner();
-  let input: StatusReportInput | undefined;
+  let input: StatusReportInput;
 
   if (!drift) {
     s?.start('Checking for updates');
@@ -120,8 +111,7 @@ export async function runStatus(
       s?.stop(`Latest skills v${found.latest}`);
     } catch (err) {
       s?.stop('Failed to check for updates');
-      fatal(err);
-      process.exit(1);
+      throw CliError.failure(err, { json });
     }
     input = {
       node,
@@ -140,29 +130,28 @@ export async function runStatus(
       s?.stop(`Compared against ${sourceLabel(repo.source)}`);
     } catch (err) {
       s?.stop(`Failed to reach ${REPO}`);
-      fatal(err);
-      process.exit(1);
+      throw CliError.failure(err, { json });
     }
     try {
       input = cloneInput(repo, { node, config, channel, strict }, cwd);
     } catch (err) {
-      fatal(err);
+      // A failure to gather ends the run with stdout empty, after the cleanup.
+      throw CliError.failure(err, { json });
     } finally {
       repo.cleanup();
     }
-    // Cleanup has run; a failure to gather exits with stdout empty.
-    if (input === undefined) process.exit(1);
   }
 
   const report = buildStatusReport(input);
   if (json) {
-    // No `process.exit`: a large piped object must be flushed.
+    // A normal return, so a large piped object is flushed.
     console.log(serializeStatusReport(report));
     if (report.strict.failed) process.exitCode = 1;
     return;
   }
   renderStatus(report, input);
-  if (report.strict.failed) process.exit(1);
+  // The notes above are the verdict; only the exit code is left.
+  if (report.strict.failed) throw CliError.reported();
   outro(
     pc.dim(
       drift

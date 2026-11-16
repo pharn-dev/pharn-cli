@@ -29,14 +29,11 @@ import {
   spinner,
 } from '@clack/prompts';
 import pc from '../lib/color.js';
-import { cancelAndExit } from '../lib/confirm.js';
+import { CliError } from '../lib/cli-error.js';
 import {
   errorMessage,
-  logError,
   logErrorPlain,
   reportFatal,
-  reportFatalPlain,
-  type FatalCause,
 } from '../lib/report-error.js';
 import { serializeJsonReport } from '../lib/json-report.js';
 import { buildUpdateReport, type UpdateStatus } from '../lib/update-report.js';
@@ -132,8 +129,8 @@ export async function runUpdate(
   const config = loadArchetypeConfigOrExit(cwd, { json });
 
   // Non-TTY (CI, a pipe) → hard-fail before any network call, never a prompt
-  // into the void: the confirm would cancel on stream end through
-  // cancelAndExit's exit(0), a pipeline that "passes" having updated nothing.
+  // into the void: the confirm would cancel on stream end with exit 0, a
+  // pipeline that "passes" having updated nothing.
   // The config load runs first so an uninitialized directory gets its
   // actionable error. A dry run never prompts, so it is not gated.
   const yes = opts.yes ?? false;
@@ -145,10 +142,9 @@ export async function runUpdate(
       stdoutIsTTY: process.stdout.isTTY,
     })
   ) {
-    logError(
+    throw CliError.error(
       'pharn update needs to confirm before it writes. Run it in an interactive terminal, or pass --yes to confirm automatically (e.g. `pharn update --yes`).',
     );
-    process.exit(1);
   }
 
   // The channel: `--ref` when passed (and then recorded), else the one this
@@ -208,8 +204,7 @@ async function runArchetypeUpdate(
     s.stop(`Latest skills v${latest} (${sourceDescription(source)})`);
   } catch (err) {
     s.stop('Failed to check for updates');
-    (json ? reportFatalPlain : reportFatal)(errorMessage(err), { err });
-    process.exit(1);
+    throw CliError.failure(err, { json });
   }
 
   // `--json` at an early return: the planned report's shape with `plan: null`.
@@ -435,49 +430,32 @@ async function runArchetypeUpdate(
   // no prompt is held under it. The clone is removed in the `finally` below.
   const pre = spinner();
   pre.start(`Planning from ${REPO_URL}`);
-  const repo: FetchedRepo = await fetchRepo(source).catch(
-    (err: unknown): never => {
-      pre.stop('Update failed');
-      reportFatal(errorMessage(err), { err });
-      process.exit(1);
-    },
-  );
+  let repo: FetchedRepo;
+  try {
+    repo = await fetchRepo(source);
+  } catch (err) {
+    pre.stop('Update failed');
+    throw CliError.failure(err);
+  }
 
-  let outcome: UpdateOutcome | null = null;
-  let cancelled = false;
-  // The backup pointer, carried OUT the moment it exists: everything after
-  // createBackup can throw, and the user's bytes have already moved. A HOLDER,
-  // because TypeScript drops narrowing for a `let` assigned only in a closure.
-  const backupRef: { current: Backup | null } = { current: null };
-  // The spinner is started INSIDE the lock, so a refused run never renders a
-  // frame; `null` is also the case where `withProjectLock` throws before `fn`.
-  const spinnerRef: { current: ReturnType<typeof spinner> | null } = {
-    current: null,
-  };
-  // The refusal message, assigned from several closures (hence a holder).
-  const refusalRef: { current: string | null } = { current: null };
-  // The ERROR OBJECT, not its message: the reporter tells an exception (which
-  // earns the PHARN_DEBUG hint) from a curated refusal. Boxed so a thrown
-  // nullish value stays distinguishable from "nothing failed".
-  let failure: FatalCause | null = null;
+  let outcome: UpdateOutcome;
   try {
     // THE MIN_CLI GATE and the plan, from the clone fetched above. The
     // unknown-capabilities warning is logged here, once.
-    const snapshot = planFromClone(repo, config, cwd, force, channel, (m) =>
-      log.warn(m),
-    );
-    pre.stop(planStopMessage(snapshot));
-    if (snapshot.kind === 'refused') refusalRef.current = snapshot.refusal;
-    else if (snapshot.kind === 'failed') failure = snapshot.failure;
-    else if (snapshot.planned.report.changesNothing) {
+    const planned = planFromClone(repo, config, cwd, force, channel, {
+      spin: pre,
+      warn: (m) => log.warn(m),
+      json: false,
+    });
+    if (planned.report.changesNothing) {
       // THE PLAN CHANGES NOTHING (lib/update-next.ts): no confirm, no lock, no
       // backup, no rewrite of pharn.config.json (no updatedAt churn). Every
       // note still prints — a kept edit is worth naming on every run. Skipping
       // the lock is safe because nothing is written; the opposite race (the
       // locked re-plan changes nothing) is applyPlannedUpdate's own check.
-      outcome = unchangedOutcome(snapshot.planned);
+      outcome = unchangedOutcome(planned);
     } else {
-      const confirmed = snapshot.planned.report;
+      const confirmed = planned.report;
       // Membership changes in the future tense, as the dry run renders them.
       reportCapabilityChanges(
         confirmed.capabilityChanges,
@@ -500,58 +478,28 @@ async function runArchetypeUpdate(
           message: confirmMessage(force, deletes),
           initialValue: deletes === 0,
         });
-        cancelled = isCancel(ok) || ok !== true;
+        if (isCancel(ok) || ok !== true) throw CliError.cancel();
       }
-      if (!cancelled)
-        outcome = await applyUnderLock(confirmed, {
-          config,
-          cwd,
-          force,
-          channel,
-          repo,
-          backupRef,
-          spinnerRef,
-          refusalRef,
-        });
+      outcome = await applyUnderLock(confirmed, {
+        config,
+        cwd,
+        force,
+        channel,
+        repo,
+      });
     }
   } catch (err) {
     // A held lock, or a drop the PLANNER refuses to delete safely, is a POLICY
-    // refusal: no PHARN_DEBUG hint, the message names the action. `?.` because
-    // a lock refusal is thrown before `fn` runs, with no spinner to stop.
+    // refusal: no PHARN_DEBUG hint, the message names the action. A CliError
+    // thrown above (a refusal, the cancel) passes through.
     if (
       err instanceof ProjectLockedError ||
       err instanceof CapabilityRemovalError
-    ) {
-      spinnerRef.current?.stop('Update refused');
-      refusalRef.current = err.message;
-    } else {
-      spinnerRef.current?.stop('Update failed');
-      failure = { err };
-    }
+    )
+      throw CliError.refusal(err.message);
+    throw CliError.failure(err);
   } finally {
     repo.cleanup();
-  }
-  // Every exit below runs AFTER the clone's cleanup (Node skips finally on exit).
-  if (cancelled) cancelAndExit();
-  const refusal = refusalRef.current;
-
-  // A policy refusal is not a failure to debug — no PHARN_DEBUG hint, and the
-  // message already names the one action that resolves it.
-  if (refusal) {
-    reportFatal(refusal);
-    process.exit(1);
-  }
-
-  if (failure || !outcome) {
-    // No `failure` means the defensive `!outcome` branch, so no hint is offered.
-    if (failure) reportFatal(errorMessage(failure.err), failure);
-    else reportFatal('Update failed.');
-    // Past the backup the originals may already be overwritten, and the success
-    // report never runs, so this is the last chance to name the backup.
-    if (backupRef.current) {
-      reportBackup(backupRef.current, { aborted: true });
-    }
-    process.exit(1);
   }
 
   // Before the report, whose outro is the run's last line.
@@ -617,8 +565,8 @@ function membershipDrift(
   return `The capabilities this update would change are no longer what you confirmed — shown but not planned now: ${list(shown)}; planned now but not shown: ${list(added)}. Nothing was changed. Run \`pharn update\` again.`;
 }
 
-// Everything under the project lock: re-plan, membership guard, writes. Returns
-// null after setting `refusalRef` when the guard refuses.
+// Everything under the project lock: re-plan, membership guard, writes. Throws
+// a CliError refusal when the guard refuses.
 async function applyUnderLock(
   confirmed: UpdatePlanReport,
   ctx: {
@@ -627,73 +575,82 @@ async function applyUnderLock(
     force: boolean;
     channel: RefChoice;
     repo: FetchedRepo;
-    backupRef: { current: Backup | null };
-    spinnerRef: { current: ReturnType<typeof spinner> | null };
-    refusalRef: { current: string | null };
   },
-): Promise<UpdateOutcome | null> {
+): Promise<UpdateOutcome> {
   const { config, cwd, force, channel, repo } = ctx;
-  const { backupRef, spinnerRef, refusalRef } = ctx;
   // THE SINGLE-WRITER LOCK — taken AFTER the confirm: holding it across an
   // unanswered prompt would block every other pharn run for as long as a human
   // takes. What runs under it is bounded local work. (`init` cannot have this
   // shape: both its prompts sit between its fetch and its install.)
   return withProjectLock(cwd, 'update', async () => {
     // The config was read before the lock; refuse if another run rewrote it.
+    // Before the spinner, so a refused run never renders a frame.
     assertConfigUnchanged(cwd, config, 'update');
-    const s2 = spinner();
-    spinnerRef.current = s2;
-    s2.start('Updating');
-    // AUTHORITATIVE: re-decided from disk under the lock; the snapshot was a
-    // preview. No warning callback: the snapshot already logged it.
-    const planned = buildUpdatePlan({
-      repoDir: repo.dir,
-      sha: repo.sha,
-      config,
-      cwd,
-      force,
-      channel,
-    });
-    const drift = membershipDrift(confirmed, planned.report);
-    if (drift !== null) {
-      s2.stop('Update refused');
-      refusalRef.current = drift;
-      return null;
+    let s = spinner();
+    s.start('Updating');
+    // Set the moment a backup exists: everything after createBackup can throw,
+    // and the user's bytes have already moved. (`as`: a `let` assigned only in
+    // the callback below would otherwise stay narrowed to `null`.)
+    let backup = null as Backup | null;
+    try {
+      // AUTHORITATIVE: re-decided from disk under the lock; the snapshot was a
+      // preview. No warning callback: the snapshot already logged it.
+      const planned = buildUpdatePlan({
+        repoDir: repo.dir,
+        sha: repo.sha,
+        config,
+        cwd,
+        force,
+        channel,
+      });
+      const drift = membershipDrift(confirmed, planned.report);
+      if (drift !== null) throw CliError.refusal(drift);
+      const applied = await applyPlannedUpdate(
+        planned,
+        config,
+        cwd,
+        repo.dir,
+        channel,
+        (written) => {
+          backup = written;
+          // Named the moment it exists: everything after it can throw, and
+          // this pointer is the user's only route back. The spinner is stopped
+          // first (a line logged under clack's spinner is glued to its frame,
+          // and in a narrow terminal erased by its stop), then a new one is
+          // started.
+          s.stop('Backup written');
+          reportBackup(written, { aborted: false });
+          s = spinner();
+          s.start('Writing files');
+        },
+      );
+      s.stop(
+        applied.unchanged
+          ? 'Nothing to change'
+          : applied.plan.writes.length
+            ? 'Capabilities updated'
+            : 'Nothing to write',
+      );
+      return applied;
+    } catch (err) {
+      const refused =
+        err instanceof CliError || err instanceof CapabilityRemovalError;
+      s.stop(refused ? 'Update refused' : 'Update failed');
+      if (refused || backup === null) throw err;
+      // Past the backup the originals may already be overwritten, and the
+      // success report never runs: name the failure, then the backup, as the
+      // last lines of the run.
+      reportFatal(errorMessage(err), { err });
+      reportBackup(backup, { aborted: true });
+      throw CliError.reported();
     }
-    const applied = await applyPlannedUpdate(
-      planned,
-      config,
-      cwd,
-      repo.dir,
-      channel,
-      (backup) => {
-        backupRef.current = backup;
-        // Named the moment it exists: everything after it can throw, and this
-        // pointer is the user's only route back. The spinner is stopped first
-        // (a line logged under clack's spinner is glued to its frame, and in a
-        // narrow terminal erased by its stop), then a new one is started.
-        s2.stop('Backup written');
-        reportBackup(backup, { aborted: false });
-        const s3 = spinner();
-        spinnerRef.current = s3;
-        s3.start('Writing files');
-      },
-    );
-    spinnerRef.current.stop(
-      applied.unchanged
-        ? 'Nothing to change'
-        : applied.plan.writes.length
-          ? 'Capabilities updated'
-          : 'Nothing to write',
-    );
-    return applied;
   });
 }
 
 // The write half: back up, write, persist. The decisions were made by
-// `buildUpdatePlan` (lib/update-plan.ts), which the dry run shares. Never calls
-// process.exit. `onBackup` fires the instant a backup exists, because the
-// caller needs that path on the throwing paths too.
+// `buildUpdatePlan` (lib/update-plan.ts), which the dry run shares. `onBackup`
+// fires the instant a backup exists, because the caller needs that path on the
+// throwing paths too.
 async function applyPlannedUpdate(
   planned: PlannedUpdate,
   config: PharnConfig,
@@ -878,27 +835,32 @@ function emitJson(report: object): void {
   console.log(serializeJsonReport(report));
 }
 
-// What a clone phase produced — exactly one of the three.
-type PlanOutcome =
-  | { kind: 'planned'; planned: PlannedUpdate }
-  | { kind: 'refused'; refusal: string }
-  | { kind: 'failed'; failure: FatalCause | null };
+// How a clone phase reports: its spinner, where a warning goes, and whether a
+// refusal or failure is printed plain (`--json`).
+interface PlanUi {
+  spin: Pick<ReturnType<typeof spinner>, 'start' | 'stop'>;
+  warn: (message: string) => void;
+  json: boolean;
+}
 
-// The MIN_CLI gate → plan phase over a clone the CALLER owns. Never throws: a
-// planner refusal to delete a dropped capability directory is a policy
-// refusal; anything else is a failure.
+// The MIN_CLI gate → plan phase over a clone the CALLER owns; stops `ui.spin`
+// either way. Throws a CliError: a MIN_CLI refusal and a planner refusal to
+// delete a dropped capability directory are policy refusals; anything else is
+// a failure.
 function planFromClone(
   repo: FetchedRepo,
   config: PharnConfig,
   cwd: string,
   force: boolean,
   channel: RefChoice,
-  warn: (message: string) => void,
-): PlanOutcome {
+  ui: PlanUi,
+): PlannedUpdate {
+  const { spin, warn, json } = ui;
+  let planned: PlannedUpdate;
   try {
     const refusal = checkMinCli(repo.dir, warn).refusal;
-    if (refusal) return { kind: 'refused', refusal };
-    const planned = buildUpdatePlan({
+    if (refusal) throw CliError.refusal(refusal, { json });
+    planned = buildUpdatePlan({
       repoDir: repo.dir,
       sha: repo.sha,
       config,
@@ -907,51 +869,38 @@ function planFromClone(
       channel,
       onUnknownWarning: warn,
     });
-    return { kind: 'planned', planned };
   } catch (err) {
-    if (err instanceof CapabilityRemovalError)
-      return { kind: 'refused', refusal: err.message };
-    return { kind: 'failed', failure: { err } };
+    const removal = err instanceof CapabilityRemovalError;
+    spin.stop(
+      removal || err instanceof CliError ? 'Update refused' : 'Planning failed',
+    );
+    if (removal) throw CliError.refusal(err.message, { json });
+    throw CliError.failure(err, { json });
   }
-}
-
-function planStopMessage(outcome: PlanOutcome): string {
-  switch (outcome.kind) {
-    case 'planned':
-      return 'Plan ready';
-    case 'refused':
-      return 'Update refused';
-    case 'failed':
-      return 'Planning failed';
-  }
+  spin.stop('Plan ready');
+  return planned;
 }
 
 // The clone → MIN_CLI gate → plan phase of the text and `--json` dry runs; the
-// clone is removed before this returns, and every exit is the caller's.
+// clone is removed before this returns or throws.
 async function fetchAndPlan(
   config: PharnConfig,
   cwd: string,
   force: boolean,
   channel: RefChoice,
   source: InstallSource,
-  ui: {
-    spin: Pick<ReturnType<typeof spinner>, 'start' | 'stop'>;
-    warn: (message: string) => void;
-  },
-): Promise<PlanOutcome> {
-  const { spin, warn } = ui;
-  spin.start(`Planning from ${REPO_URL}`);
+  ui: PlanUi,
+): Promise<PlannedUpdate> {
+  ui.spin.start(`Planning from ${REPO_URL}`);
   let repo: FetchedRepo;
   try {
     repo = await fetchRepo(source);
   } catch (err) {
-    spin.stop('Planning failed');
-    return { kind: 'failed', failure: { err } };
+    ui.spin.stop('Planning failed');
+    throw CliError.failure(err, { json: ui.json });
   }
   try {
-    const outcome = planFromClone(repo, config, cwd, force, channel, warn);
-    spin.stop(planStopMessage(outcome));
-    return outcome;
+    return planFromClone(repo, config, cwd, force, channel, ui);
   } finally {
     repo.cleanup();
   }
@@ -970,27 +919,15 @@ async function runDryRun(
   latest: string,
   compact: boolean,
 ): Promise<void> {
-  const outcome = await fetchAndPlan(config, cwd, force, channel, source, {
+  const planned = await fetchAndPlan(config, cwd, force, channel, source, {
     spin: json ? silentSpinner() : spinner(),
     warn: json
       ? (message) => logErrorPlain(message)
       : (message) => log.warn(message),
+    json,
   });
 
-  // Every exit AFTER the clone's cleanup above (Node skips finally on exit).
-  const fatal = json ? reportFatalPlain : reportFatal;
-  if (outcome.kind === 'refused') {
-    fatal(outcome.refusal);
-    process.exit(1);
-  }
-  if (outcome.kind === 'failed') {
-    if (outcome.failure)
-      fatal(errorMessage(outcome.failure.err), outcome.failure);
-    else fatal('Update failed.');
-    process.exit(1);
-  }
-
-  const { report } = outcome.planned;
+  const { report } = planned;
   if (json) {
     emitJson(
       buildUpdateReport({

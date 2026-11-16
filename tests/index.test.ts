@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseCliArgs } from '../src/lib/cli-args.js';
 import { PHARN_VERSION } from '../src/version.js';
-import { ProcessExit, stubProcessExit } from './helpers.js';
+import { stubProcessExit } from './helpers.js';
 // Importing the module does not auto-run main(): under vitest, argv[1] is the
 // test runner, not this module, so the isEntryPoint() guard is false. Nor does
 // it load a command: main() imports the one it dispatches to.
@@ -88,7 +88,10 @@ describe('main (argv dispatch)', () => {
     setArgv('status', '--help');
     await main();
     setArgv('status', '--force');
-    await expect(main()).rejects.toBeInstanceOf(ProcessExit);
+    await expect(main()).rejects.toMatchObject({
+      name: 'CliError',
+      exitCode: 1,
+    });
     expect(loaded).toEqual([]);
 
     setArgv('list');
@@ -148,7 +151,12 @@ describe('main (argv dispatch)', () => {
   ])(
     'refuses %j: one stderr line and the pointer, nothing on stdout, exit 1',
     async (args, message) => {
-      await expect(run(...args)).rejects.toMatchObject(new ProcessExit(1));
+      // Already printed; the code reaches runCli as a CliError, never an exit.
+      await expect(run(...args)).rejects.toMatchObject({
+        name: 'CliError',
+        exitCode: 1,
+      });
+      expect(process.exit).not.toHaveBeenCalled();
       expect(lines(errSpy)).toEqual([message, 'Run `pharn --help` for usage.']);
       expect(lines(logSpy)).toEqual([]);
       noCommandRan();
@@ -171,4 +179,72 @@ describe('main (argv dispatch)', () => {
       noCommandRan();
     },
   );
+});
+
+// THE ONE EXIT POINT: `runCli` awaits `main()` and is the only catch for what a
+// command throws. It prints through `reportCliError`, sets process.exitCode and
+// resolves — never rejects, never calls process.exit.
+const { runCli } = await import('../src/index.js');
+// Looked up per test: an earlier case resets the module registry, and the
+// error must be the class runCli's own (lazy) reporter will see.
+const cliError = async () => (await import('../src/lib/cli-error.js')).CliError;
+
+describe('runCli (the one exit point)', () => {
+  stubProcessExit();
+  const realArgv = process.argv;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.stubEnv('PHARN_DEBUG', '');
+    process.exitCode = undefined;
+  });
+  afterEach(() => {
+    process.argv = realArgv;
+    process.exitCode = undefined;
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+  const stderr = (): string =>
+    errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+
+  it('leaves the exit code unset when the command returns', async () => {
+    setArgv('list');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(runList).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBeUndefined();
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('sets exit code 0 for a cancel, and resolves', async () => {
+    runInit.mockRejectedValueOnce((await cliError()).cancel());
+    setArgv('init');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(process.exitCode).toBe(0);
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('sets exit code 1 for a refusal and prints its one line', async () => {
+    runStatus.mockRejectedValueOnce(
+      (await cliError()).refusal('Locked by another run.', { json: true }),
+    );
+    setArgv('status', '--json');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(process.exitCode).toBe(1);
+    expect(stderr()).toBe('⚠ Locked by another run.');
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('turns an unexpected Error into exit 1 with no stack trace', async () => {
+    runUpdate.mockRejectedValueOnce(new TypeError('x is undefined'));
+    setArgv('update');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(process.exitCode).toBe(1);
+    expect(stderr()).toContain('⚠ x is undefined');
+    expect(stderr()).toContain('PHARN_DEBUG=1');
+    expect(stderr()).not.toMatch(/^\s+at .+/m);
+  });
 });

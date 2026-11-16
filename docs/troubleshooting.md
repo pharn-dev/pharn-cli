@@ -504,8 +504,9 @@ anything is written:
 
 Every fatal error that came from an **exception** ends with
 `Re-run with PHARN_DEBUG=1 for full error output.` — a failed clone, a failed `SKILLS_VERSION`
-fetch, a copy that could not be completed. Re-running with the variable set prints the original
-error (including its `cause`) instead of the hint.
+fetch, a copy that could not be completed. That includes an unexpected internal error: it prints
+`⚠ <message>` and the hint, not a stack trace, and exits 1. Re-running with the variable set prints
+the original error (including its `cause` and stack) instead of the hint.
 
 A **policy refusal** deliberately prints no hint, because there is no stack behind it: the
 `MIN_CLI` refusal, the `pharn add` version / layout gates, an unknown capability name, and the

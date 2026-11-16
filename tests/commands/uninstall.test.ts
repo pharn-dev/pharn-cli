@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as clack from '@clack/prompts';
-import { CANCEL, ProcessExit, setTTY } from '../helpers.js';
+import { CANCEL, setTTY } from '../helpers.js';
 import {
   AGENT,
   REPO_DIR,
@@ -542,18 +542,14 @@ describe('pharn uninstall over a hand-seeded install', () => {
       JSON.stringify({ ...seedConfig(), capabilities: undefined }),
     );
     const before = snapshot();
-    await expect(runUninstall({ yes: true })).rejects.toMatchObject(
-      new ProcessExit(1),
-    );
+    expect(await run(() => runUninstall({ yes: true }))).toBe(1);
     expect(snapshot()).toEqual(before);
   });
 
   describe('refuses with nothing removed', () => {
     async function expectRefusal(match: RegExp | string): Promise<void> {
       const before = snapshot();
-      await expect(runUninstall({ yes: true })).rejects.toMatchObject(
-        new ProcessExit(1),
-      );
+      expect(await run(() => runUninstall({ yes: true }))).toBe(1);
       expect(snapshot()).toEqual(before);
       expect(errorText()).toMatch(match);
     }
@@ -629,7 +625,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
       await install(FLAT_FILES);
       setTTY(undefined, undefined);
       const before = snapshot();
-      await expect(runUninstall()).rejects.toMatchObject(new ProcessExit(1));
+      expect(await run(() => runUninstall())).toBe(1);
       expect(snapshot()).toEqual(before);
       expect(errorText()).toContain('pass --yes');
       expect(prompts.confirm).not.toHaveBeenCalled();
@@ -640,7 +636,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
       setTTY(true, true);
       vi.mocked(prompts.confirm).mockResolvedValueOnce(false);
       const before = snapshot();
-      await expect(runUninstall()).rejects.toMatchObject(new ProcessExit(0));
+      expect(await run(() => runUninstall())).toBe(0);
       expect(snapshot()).toEqual(before);
       expect(vi.mocked(prompts.confirm).mock.calls[0]![0]).toMatchObject({
         initialValue: false,
@@ -653,7 +649,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
       setTTY(true, true);
       vi.mocked(prompts.confirm).mockResolvedValueOnce(CANCEL as never);
       const before = snapshot();
-      await expect(runUninstall()).rejects.toMatchObject(new ProcessExit(0));
+      expect(await run(() => runUninstall())).toBe(0);
       expect(snapshot()).toEqual(before);
     });
 
@@ -672,7 +668,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
         await writePharnConfig(proj(), seedConfig({ archetypes: ['spa'] }));
         return true;
       });
-      await expect(runUninstall()).rejects.toMatchObject(new ProcessExit(1));
+      expect(await run(() => runUninstall())).toBe(1);
       for (const rel of FLAT_FILES) expect(existsSync(at(rel))).toBe(true);
       expect(errorText()).toContain(
         'changed while `pharn uninstall` was running',
@@ -701,9 +697,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
       const locked = at('pharn-contracts');
       chmodSync(locked, 0o555);
       try {
-        await expect(runUninstall({ yes: true })).rejects.toMatchObject(
-          new ProcessExit(1),
-        );
+        expect(await run(() => runUninstall({ yes: true }))).toBe(1);
         expect(errorText()).toMatch(
           /Could not delete pharn-contracts\/finding-shape\.md.*re-running `pharn uninstall` continues/,
         );
@@ -773,7 +767,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
       symlinkSync(shared, at('pharn'));
       return true;
     });
-    await expect(runUninstall()).rejects.toMatchObject(new ProcessExit(1));
+    expect(await run(() => runUninstall())).toBe(1);
     expect(errorText()).toMatch(/pharn is a symbolic link/);
     expect(existsSync(join(shared, 'pharn-contracts/x.md'))).toBe(true);
     expect(existsSync(at('pharn.config.json'))).toBe(true);
@@ -786,7 +780,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
       rmSync(at('pharn.records.json'));
       return true;
     });
-    await expect(runUninstall()).rejects.toMatchObject(new ProcessExit(1));
+    expect(await run(() => runUninstall())).toBe(1);
     expect(errorText()).toContain('there is no pharn.records.json');
     for (const rel of FLAT_FILES) expect(existsSync(at(rel))).toBe(true);
   });
@@ -877,9 +871,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
         });
       }
     };
-    await expect(runUninstall({ yes: true })).rejects.toMatchObject(
-      new ProcessExit(1),
-    );
+    expect(await run(() => runUninstall({ yes: true }))).toBe(1);
     expect(errorText()).toMatch(
       /Could not delete pharn\.config\.json: EACCES: permission denied\. Every file pharn could prove it wrote is already gone; delete pharn\.config\.json yourself to finish\./,
     );
@@ -899,9 +891,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
         });
       }
     };
-    await expect(runUninstall({ yes: true })).rejects.toMatchObject(
-      new ProcessExit(1),
-    );
+    expect(await run(() => runUninstall({ yes: true }))).toBe(1);
     expect(errorText()).toContain('Could not delete pharn.records.json');
     expect(existsSync(at('pharn.config.json'))).toBe(true);
   });

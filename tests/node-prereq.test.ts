@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { exitCodeOf } from './support/exit-code.js';
 import {
-  ProcessExit,
   restoreNodeVersion,
   setNodeVersion,
   stubProcessExit,
@@ -34,7 +34,7 @@ describe('runNodePrereq', () => {
     'exits 1 on %s, naming the requirement and the current version',
     (v) => {
       setNodeVersion(v);
-      expect(() => runNodePrereq('init')).toThrow(ProcessExit);
+      expect(exitCodeOf(() => runNodePrereq('init'))).toBe(1);
 
       const [msg, opts] = vi.mocked(log.error).mock.calls.at(-1)!;
       expect(msg).toContain('24.2.0');
@@ -47,12 +47,12 @@ describe('runNodePrereq', () => {
 
   it('exits with code 1', () => {
     setNodeVersion('22.0.0');
-    expect(() => runNodePrereq('update')).toThrow(new ProcessExit(1));
+    expect(exitCodeOf(() => runNodePrereq('update'))).toBe(1);
   });
 
   it('exits 1 on an UNPARSEABLE version', () => {
     setNodeVersion('not.a.version');
-    expect(() => runNodePrereq('init')).toThrow(new ProcessExit(1));
+    expect(exitCodeOf(() => runNodePrereq('init'))).toBe(1);
     expect(String(vi.mocked(log.error).mock.calls.at(-1)![0])).toContain(
       'could not read',
     );
@@ -60,7 +60,7 @@ describe('runNodePrereq', () => {
 
   it('exits 1 when the runtime reports no version at all', () => {
     setNodeVersion(undefined);
-    expect(() => runNodePrereq('init')).toThrow(new ProcessExit(1));
+    expect(exitCodeOf(() => runNodePrereq('init'))).toBe(1);
   });
 });
 
@@ -76,9 +76,7 @@ describe('runNodePrereq under --json', () => {
     setNodeVersion('22.0.0');
     const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const out = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    expect(() => runNodePrereq('update', { json: true })).toThrow(
-      new ProcessExit(1),
-    );
+    expect(exitCodeOf(() => runNodePrereq('update', { json: true }))).toBe(1);
     expect(log.error).not.toHaveBeenCalled();
     expect(out).not.toHaveBeenCalled();
     const printed = err.mock.calls

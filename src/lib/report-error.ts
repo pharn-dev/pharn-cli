@@ -1,10 +1,14 @@
 import { log } from '@clack/prompts';
+import { CliError, errorMessage, type FatalCause } from './cli-error.js';
 import { terminalSafe } from './terminal-safe.js';
 
 // The ONE place the CLI turns a failure into user-visible output: which stream
 // the line goes to, and whether the failure came from an exception. Nothing
-// here exits: each call site's exit must come AFTER its
-// `finally { repo.cleanup() }` (Node skips `finally` on `process.exit`).
+// here exits. A command THROWS a CliError (lib/cli-error.ts); `runCli`
+// (src/index.ts) hands it to `reportCliError` once, after every `finally` on
+// the way up has run, and sets `process.exitCode` from the result.
+
+export { errorMessage, type FatalCause };
 
 /**
  * The next step offered after an exception-derived failure — the only copy in
@@ -12,21 +16,6 @@ import { terminalSafe } from './terminal-safe.js';
  */
 export const PHARN_DEBUG_HINT =
   'Re-run with PHARN_DEBUG=1 for full error output.';
-
-/**
- * The message of a caught `unknown`. `String(err)` can itself throw (a
- * null-prototype object, a hostile `toString`), and this is the last thing
- * between a failure and the user, so it names the class of value instead of
- * crashing inside the reporter.
- */
-export function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  try {
-    return String(err);
-  } catch {
-    return 'an unstringifiable value was thrown';
-  }
-}
 
 /**
  * Print one error-level line to **stderr** (clack's `log.*` defaults to
@@ -38,16 +27,6 @@ export function logError(message: string): void {
   log.error(terminalSafe(message, { keepNewlines: true }), {
     output: process.stderr,
   });
-}
-
-/**
- * A caught exception, BOXED: `throw undefined` is legal, so a bare
- * `err?: unknown` could not tell a curated refusal from an exception whose
- * value is `undefined`. Callers that defer their exit past a `finally` carry
- * this shape through to the reporter.
- */
-export interface FatalCause {
-  err: unknown;
 }
 
 /**
@@ -89,4 +68,36 @@ export function reportFatalPlain(message: string, cause?: FatalCause): void {
     return;
   }
   console.error(PHARN_DEBUG_HINT);
+}
+
+/**
+ * THE TOP-LEVEL CATCH's printer: report what a command threw and return the
+ * exit code to set. A CliError is printed by its form, through the reporters
+ * above (`plain` → the `--json` twins). Anything else is a bug that escaped a
+ * command: `⚠ <message>` plus the PHARN_DEBUG hint as plain stderr lines (no
+ * clack chrome, nothing on stdout, so a `--json` consumer stays clean), the
+ * original with its stack only under PHARN_DEBUG, exit 1.
+ */
+export function reportCliError(err: unknown): number {
+  if (!(err instanceof CliError)) {
+    reportFatalPlain(errorMessage(err), { err });
+    return 1;
+  }
+  switch (err.form) {
+    case 'refusal':
+      (err.plain ? reportFatalPlain : reportFatal)(err.message);
+      break;
+    case 'failure':
+      (err.plain ? reportFatalPlain : reportFatal)(err.message, err.fatalCause);
+      break;
+    case 'error':
+      (err.plain ? logErrorPlain : logError)(err.message);
+      break;
+    case 'cancel':
+      log.info(err.message);
+      break;
+    case 'reported':
+      break;
+  }
+  return err.exitCode;
 }

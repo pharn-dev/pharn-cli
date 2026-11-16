@@ -54,10 +54,9 @@ function recordedSkillsVersion(cwd: string): string | null {
 
 /**
  * What the user decided about overwriting existing write targets. Three
- * states, and this stage NEVER calls process.exit: it runs inside init's `try`,
- * whose `finally` disposes of the temp clone, which Node skips on exit. The
- * caller exits after the finally. `decline` and `cancel` stay DISTINCT even
- * though init maps both to `cancelled`.
+ * states, returned rather than thrown: init decides what each means (it throws
+ * the cancel). `decline` and `cancel` stay DISTINCT even though init maps both
+ * to a cancel.
  */
 export type WriteTargetsAction = 'proceed' | 'decline' | 'cancel';
 
@@ -162,8 +161,6 @@ export async function confirmWriteTargets(
     version === null
       ? 'PHARN installs into your existing project.'
       : `PHARN installs into your existing project (currently at skills v${version}).`;
-  // Direct clack rather than a confirm.ts helper: every helper there ends in
-  // cancelAndExit, and this stage must not exit.
   log.warn(
     `${intro} These paths already exist and may be overwritten:\n${list}${editsLine}${configLine}${deleteBlock ? `\n${deleteBlock}` : ''}`,
   );

@@ -14,7 +14,7 @@ import { readMinCli } from './skills-version.js';
 // present file), so one upstream typo cannot become a fleet-wide exit(1).
 //
 // Call it from INSIDE each command's try, so the clone's `finally` cleanup
-// still runs before any process.exit.
+// runs on the refusal too.
 // ---------------------------------------------------------------------------
 
 export interface MinCliGateResult {

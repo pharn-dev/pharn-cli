@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { minCliGate } from '../src/lib/min-cli-gate.js';
 
@@ -52,6 +52,23 @@ describe('minCliGate', () => {
     expect(refusal).toContain('0.9.0');
     expect(refusal).toContain('0.4.0');
     expect(refusal).toContain('@pharn-dev/pharn');
+  });
+
+  it('a refusal is RETURNED, never thrown and never an exit: the caller throws it inside its try', () => {
+    // The gate runs inside each command's try so the clone's `finally` runs on
+    // the refusal too; that holds only while the gate itself neither throws nor
+    // exits.
+    writeMinCli(tmp.path(), '0.9.0\n');
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('process.exit');
+    });
+    try {
+      expect(() => minCliGate(tmp.path(), '0.4.0')).not.toThrow();
+      expect(minCliGate(tmp.path(), '0.4.0').refusal).not.toBeNull();
+      expect(exit).not.toHaveBeenCalled();
+    } finally {
+      exit.mockRestore();
+    }
   });
 
   it('compares numerically, not lexically (0.10.0 requires more than 0.9.0)', () => {
