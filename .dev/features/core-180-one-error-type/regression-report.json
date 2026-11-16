@@ -1,0 +1,66 @@
+{
+  "base": "790d9c39b33f80083ed5cfff5899a575542f71b0",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/architecture.md",
+    "docs/contributing.md",
+    "docs/troubleshooting.md",
+    "eslint.config.mjs",
+    "src/commands/add.ts",
+    "src/commands/init.ts",
+    "src/commands/remove.ts",
+    "src/commands/status.ts",
+    "src/commands/uninstall.ts",
+    "src/commands/update.ts",
+    "src/index.ts",
+    "src/lib/cli-error.ts",
+    "src/lib/confirm.ts",
+    "src/lib/min-cli-gate.ts",
+    "src/lib/pharn-config.ts",
+    "src/lib/project-lock.ts",
+    "src/lib/repo.ts",
+    "src/lib/report-error.ts",
+    "src/lib/update-render.ts",
+    "src/steps/node-prereq.ts",
+    "src/steps/overwrite-check.ts",
+    "src/steps/prereqs.ts",
+    "tests/cli-error.test.ts",
+    "tests/commands/clone-cleanup.test.ts",
+    "tests/commands/uninstall.test.ts",
+    "tests/confirm.test.ts",
+    "tests/dist-smoke.test.ts",
+    "tests/index.test.ts",
+    "tests/lint-rules.test.ts",
+    "tests/node-prereq.test.ts",
+    "tests/pharn-config.test.ts",
+    "tests/prereqs.test.ts",
+    "tests/support/exit-code.ts",
+    "tests/support/harness.ts"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
