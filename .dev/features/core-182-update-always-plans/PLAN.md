@@ -81,6 +81,9 @@
 - `docs/troubleshooting.md` — :57 (`up-to-date` = empty plan), :191 — layer docs
 - `docs/architecture.md` — the "Same-version early return" bullet → "Every run plans; an empty plan is up to date" — layer docs
 - `CLAUDE.md` — module map: drop `agent-surface`, `missing-installed` — layer docs
+- `src/steps/install-archetype.ts` — (post-GATE-2 addendum) passes the records baseline to `deleteRootDocs`, so init keeps a root doc edited while a prompt is open — layer step
+- `docs/commands/init.md` — (addendum) a root doc edited while a prompt is open is kept — layer docs
+- `tests/commands/init.test.ts` — (addendum) a root doc edited during init's overwrite prompt survives byte for byte, record kept — layer test
 - `CHANGELOG.md` — **Changed** under `[Unreleased]`: "`pharn update` always checks upstream" — every run downloads and plans; an empty plan says "Up to date." and asks/writes nothing; `--dry-run --json` `up-to-date` now means that (with `plan: null`), and the 0.20.0 `plan.changesNothing` key is gone; missing files, ignore lines, an old models block, a channel switch, frozen capabilities, root docs and a removed auto capability are all handled by a plain `update` — layer docs
 
 ## Test changes needing a decision (pharn-ci TI01/TI02)
@@ -162,3 +165,13 @@
 ## GATE 1 — RESOLVED (2026-11-16, orchestrator for the user)
 
 Approved. (1) Header note after the plan, only when the plan changes something. (2) Delete agent-surface.ts as long as nothing else still needs it (status, init, add); otherwise keep the part used. (3) Remove `plan.changesNothing`, and fix the [Unreleased] CHANGELOG text and docs (JSON reference) that mention it. (4) Keep C1.5's text dry-run rendering. (5) Fix the stale comments outside the ticket's list. (6) The delete/rename list is accepted; listed in the PR body under "Test-integrity: expected findings", with each behaviour-driven expected-value change explained. The vendored .agents/ skill is not edited.
+
+## Addendum after GATE 2 (orchestrator request, 2026-11-16)
+
+1. `deleteRootDocs` re-hashes each `delete` root doc against its record at delete time and keeps one that no longer
+   matches (CLAUDE.md "Records are the proof"). `update` refuses before any write when a planned root-doc delete changed
+   while the confirm was open (C5.2's `changedSince` refusal, same message); `init` proceeds and keeps the doc (it is not
+   deleted, so nothing needs a backup). Own commit `fix(update): a root doc edited while the prompt is open is never
+   deleted (CORE-182)`.
+2. `src/types.ts`: the `frozenCapabilities` comment fix is restored; `tests/update-plan.test.ts` (already modified,
+   already `import type`s it) gains an `expectTypeOf` assertion on `frozenCapabilities`.
