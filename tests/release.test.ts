@@ -210,6 +210,32 @@ describe('resolveSource', () => {
       expect(await refusal()).toContain('more than');
     });
 
+    // Each way the bounded GET stops reads as one reason naming the URL, not
+    // the URL twice: the cap as the URL's own answer, the rest as unreachable.
+    it('words the cap, the deadline and a transport failure once each, naming the URL', async () => {
+      stub(new Response('x'.repeat(1024 * 1024 + 1)));
+      expect(await refusal()).toContain(
+        `: ${RELEASE_URL} answered with more than 1048576 bytes.`,
+      );
+      stub(json({ tag_name: 'v1.0.0' }), new Response('a'.repeat(1025)));
+      expect(await refusal()).toContain(
+        `${shaUrl('v1.0.0')} answered with more than 1024 bytes`,
+      );
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new TypeError('fetch failed', {
+            cause: new Error('getaddrinfo ENOTFOUND api.github.com'),
+          });
+        }),
+      );
+      const message = await refusal();
+      expect(message).toContain(
+        `could not reach ${RELEASE_URL}: fetch failed (getaddrinfo ENOTFOUND api.github.com).`,
+      );
+      expect(message).not.toContain('Could not reach');
+    });
+
     it.each([
       ['a prerelease tag', 'v1.2.3-rc.1'],
       ['a tag without the v', '1.2.3'],

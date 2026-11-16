@@ -367,6 +367,31 @@ describe('fetchRemoteSkillsVersion', () => {
     expect(err.message).not.toContain('Could not reach');
   });
 
+  it('names the cap and the URL in the oversize refusal (troubleshooting.md quotes it)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('9'.repeat(256 * 1024 + 1)),
+    );
+    expect((await rejection()).message).toBe(
+      'SKILLS_VERSION too large (over 262144 bytes) from https://raw.githubusercontent.com/pharn-dev/pharn-oss/main/SKILLS_VERSION',
+    );
+  });
+
+  it('names the 8s deadline in the timeout, as a transport failure', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(
+        () => new Promise<never>(() => undefined),
+      );
+      const pending = rejection();
+      await vi.advanceTimersByTimeAsync(8000);
+      expect((await pending).message).toBe(
+        'Could not reach https://raw.githubusercontent.com/pharn-dev/pharn-oss/main/SKILLS_VERSION: This operation was aborted (timed out after 8s)',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does NOT re-label an invalid version as a transport failure', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(fakeResponse('garbage!!'));
     const err = await rejection();

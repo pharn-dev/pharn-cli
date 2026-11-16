@@ -1,5 +1,6 @@
-import { withDeadline } from './deadline.js';
 import { REPO, REPO_BRANCH } from './constants.js';
+import { fetchCapped } from './fetch-capped.js';
+import type { CappedResponse, FetchCappedError } from './fetch-capped.js';
 import { terminalSafe } from './terminal-safe.js';
 import { COMMIT_RE, RELEASE_TAG_RE } from './validate.js';
 
@@ -168,41 +169,31 @@ interface Got {
 }
 
 /**
- * One bounded GET. A transport failure or the deadline becomes a
- * `ReleaseResolveError` naming the URL; a non-2xx is returned (body released)
- * for the caller to word.
+ * One bounded GET (`fetchCapped`). A transport failure, the deadline or an
+ * oversized body becomes a `ReleaseResolveError` naming the URL; a non-2xx is
+ * returned (body released) for the caller to word.
  */
 async function get(
   url: string,
   accept: string,
   maxBytes: number,
 ): Promise<Got> {
+  let got: CappedResponse;
   try {
-    return await withDeadline(
-      FETCH_TIMEOUT_MS,
-      () => new Error(`timed out after ${FETCH_TIMEOUT_MS / 1000}s`),
-      async (signal) => {
-        const res = await fetch(url, {
-          redirect: 'error',
-          signal,
-          headers: { Accept: accept, 'X-GitHub-Api-Version': '2022-11-28' },
-        });
-        if (!res.ok) {
-          // Released, not left streaming: an unread body holds its socket.
-          await res.body?.cancel().catch(() => undefined);
-          return { status: res.status, text: null };
-        }
-        return {
-          status: res.status,
-          text: await readCapped(res, signal, maxBytes, url),
-        };
-      },
-    );
+    got = await fetchCapped(url, { accept, maxBytes, ms: FETCH_TIMEOUT_MS });
   } catch (err) {
-    if (err instanceof ReleaseResolveError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    throw refusal(`could not reach ${url}: ${message}`, err);
+    const capped = err as FetchCappedError;
+    throw refusal(
+      capped.kind === 'too-large'
+        ? capped.message
+        : `could not reach ${url}: ${capped.reason}`,
+      err,
+    );
   }
+  return {
+    status: got.status,
+    text: got.ok ? got.body.toString('utf8') : null,
+  };
 }
 
 /** The JSON object of a successful release response, or a refusal. */
@@ -226,40 +217,6 @@ function httpReason(status: number, url: string): string {
   return status === 403 || status === 429
     ? `GitHub refused the request (HTTP ${status} from ${url}) — the unauthenticated API allows 60 requests an hour per address`
     : `HTTP ${status} from ${url}`;
-}
-
-/**
- * The body as UTF-8 under a hard byte cap, read through our own reader and
- * cancelled on our signal (a still-streaming body holds its socket). Over the
- * cap the read is cancelled and a {@link ReleaseResolveError} thrown. Also
- * used by `fetchCommitSha`, which maps any throw to `null`.
- */
-export async function readCapped(
-  res: Response,
-  signal: AbortSignal,
-  maxBytes: number,
-  url: string,
-): Promise<string> {
-  if (!res.body) return '';
-  const reader = res.body.getReader();
-  const cancel = (): void => {
-    reader.cancel().catch(() => undefined);
-  };
-  if (signal.aborted) cancel();
-  else signal.addEventListener('abort', cancel, { once: true });
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      cancel();
-      throw refusal(`${url} answered with more than ${maxBytes} bytes`);
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString('utf8');
 }
 
 /** An untrusted value, displayed: control characters stripped, then quoted. */

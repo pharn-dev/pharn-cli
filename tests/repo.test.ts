@@ -288,6 +288,40 @@ describe('fetchRepo', () => {
     );
     expect(leftoverTempDirs()).toEqual([]);
   });
+
+  // The compressed cap, counted as the body streams (codeload sends no
+  // content-length): the read stops just past 32 MiB and the tree is removed.
+  it('refuses an archive over the compressed cap, and removes the temp dir', async () => {
+    let sent = 0;
+    const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        sent += chunk.byteLength;
+        c.enqueue(chunk);
+      },
+    });
+    stubFetches(VALID_SHA, { ok: true, status: 200, body });
+    await expect(fetchRepo({ kind: 'main' })).rejects.toThrow(
+      /archive exceeds 33554432 bytes/,
+    );
+    expect(sent).toBeLessThanOrEqual(36 * 1024 * 1024);
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  // A transport failure stays the runtime's own error, for the caller's
+  // "Could not reach <repo>:" prefix and the PHARN_DEBUG dump.
+  it('rethrows a transport failure as the runtime raised it', async () => {
+    const offline = new TypeError('fetch failed');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === RESOLVE_URL) return new Response(VALID_SHA);
+        throw offline;
+      }),
+    );
+    await expect(fetchRepo({ kind: 'main' })).rejects.toBe(offline);
+    expect(leftoverTempDirs()).toEqual([]);
+  });
 });
 
 // A verified release (lib/release.ts) is downloaded at the commit its tag

@@ -1,10 +1,11 @@
-import { withDeadline } from './deadline.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { REPO, REPO_BRANCH, SKILLS_VERSION_FILE } from './constants.js';
 import { onFatalSignal } from './fatal-signal.js';
-import { MAX_SHA_BYTES, readCapped } from './release.js';
+import { fetchCapped } from './fetch-capped.js';
+import type { CappedResponse, FetchCappedError } from './fetch-capped.js';
+import { MAX_SHA_BYTES } from './release.js';
 import type { InstallSource } from './release.js';
 import { readSkillsVersion } from './skills-version.js';
 import { extractTarGz } from './tar-extract.js';
@@ -155,105 +156,61 @@ async function fetchAt(
 
 /**
  * Download the repo tarball at `ref` into memory, bounded on both time and
- * size. `ref` is either a COMMIT_RE-validated SHA or the literal
+ * size (`fetchCapped`; the decompressed size is bounded by the extract).
+ * `ref` is either a COMMIT_RE-validated SHA or the literal
  * `refs/heads/<branch>` — never user input.
  */
 async function downloadArchive(ref: string): Promise<Buffer> {
   const url = `${CODELOAD}/${REPO}/tar.gz/${ref}`;
-  // withDeadline, not a bare abort timer: the abort may never reach the body
-  // stream (lib/deadline.ts).
-  return withDeadline(
-    CLONE_TIMEOUT_MS,
-    () =>
-      new Error(
-        `Timed out downloading ${url} after ${CLONE_TIMEOUT_MS / 1000}s.`,
-      ),
-    async (signal) => {
-      const res = await fetch(url, { redirect: 'error', signal });
-      if (!res.ok) {
-        // An unread body holds its socket, and with it the process.
-        await discardBody(res);
-        throw new Error(`Failed to download ${url}: HTTP ${res.status}`);
-      }
-      if (!res.body) {
-        throw new Error(`Failed to download ${url}: empty response body`);
-      }
-      // An explicit reader, cancelled by OUR listener on OUR signal, so the
-      // socket is released at the deadline even when undici drops the abort.
-      const reader = res.body.getReader();
-      signal.addEventListener('abort', () => {
-        reader.cancel().catch(() => undefined);
-      });
-      const chunks: Buffer[] = [];
-      let total = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const buf = Buffer.from(value);
-        total += buf.byteLength;
-        if (total > MAX_ARCHIVE_BYTES) {
-          await reader.cancel().catch(() => undefined);
-          throw new Error(
-            `Refusing ${url}: archive exceeds ${MAX_ARCHIVE_BYTES} bytes.`,
-          );
-        }
-        chunks.push(buf);
-      }
-      if (signal.aborted) {
-        throw new Error(
-          `Timed out downloading ${url} after ${CLONE_TIMEOUT_MS / 1000}s.`,
-        );
-      }
-      return Buffer.concat(chunks);
-    },
-  );
+  let got: CappedResponse;
+  try {
+    got = await fetchCapped(url, {
+      maxBytes: MAX_ARCHIVE_BYTES,
+      ms: CLONE_TIMEOUT_MS,
+    });
+  } catch (err) {
+    // A transport failure surfaces as the runtime's own error: the callers
+    // already prefix "Could not reach <repo>:", and PHARN_DEBUG dumps it.
+    const capped = err as FetchCappedError;
+    if (capped.kind === 'unreachable') throw capped.cause;
+    throw new Error(
+      capped.kind === 'timeout'
+        ? `Timed out downloading ${url} after ${CLONE_TIMEOUT_MS / 1000}s.`
+        : `Refusing ${url}: archive exceeds ${MAX_ARCHIVE_BYTES} bytes.`,
+      { cause: err },
+    );
+  }
+  if (!got.ok) {
+    throw new Error(`Failed to download ${url}: HTTP ${got.status}`);
+  }
+  if (got.body.byteLength === 0) {
+    throw new Error(`Failed to download ${url}: empty response body`);
+  }
+  return got.body;
 }
 
 /**
  * Best-effort: resolve the default branch's commit SHA, or null on any failure
- * (rate limit, offline, a body over `MAX_SHA_BYTES`, a body that is not one
- * whitespace-free token) — the LIMITS §3b float. Asks for the bare id
- * (`application/vnd.github.sha`). A single token that is not a SHA is RETURNED,
- * so fetchAt's COMMIT_RE check refuses it loudly instead of a catch here
- * swallowing it to null.
+ * (rate limit, offline, the deadline, a body over `MAX_SHA_BYTES`, a body that
+ * is not one whitespace-free token) — the LIMITS §3b float. Asks for the bare
+ * id (`application/vnd.github.sha`). A single token that is not a SHA is
+ * RETURNED, so fetchAt's COMMIT_RE check refuses it loudly instead of a catch
+ * here swallowing it to null. A null SHA is not an exit — the command carries
+ * on — which is why fetchCapped releasing every unread body matters here.
  */
 export async function fetchCommitSha(): Promise<string | null> {
   // The FULL branch ref, so a tag named like the branch cannot answer for it.
   const url = `${API}/repos/${REPO}/commits/refs/heads/${REPO_BRANCH}`;
   try {
-    // A timeout is one more failure that degrades to `null`.
-    return await withDeadline(
-      FETCH_TIMEOUT_MS,
-      () => new Error(`Timed out resolving ${url}`),
-      async (signal) => {
-        const res = await fetch(url, {
-          redirect: 'error',
-          signal,
-          headers: {
-            Accept: 'application/vnd.github.sha',
-            'X-GitHub-Api-Version': '2022-11-28',
-          },
-        });
-        // A null SHA is not an exit — the command carries on — so a body left
-        // streaming would keep the process alive after it finished.
-        if (!res.ok) {
-          await discardBody(res);
-          return null;
-        }
-        const text = (await readCapped(res, signal, MAX_SHA_BYTES, url)).trim();
-        return /^\S+$/.test(text) ? text : null;
-      },
-    );
+    const got = await fetchCapped(url, {
+      accept: 'application/vnd.github.sha',
+      maxBytes: MAX_SHA_BYTES,
+      ms: FETCH_TIMEOUT_MS,
+    });
+    if (!got.ok) return null;
+    const text = got.body.toString('utf8').trim();
+    return /^\S+$/.test(text) ? text : null;
   } catch {
     return null;
-  }
-}
-
-/** Release a response body that will not be read. Never throws. */
-async function discardBody(res: Response): Promise<void> {
-  try {
-    await res.body?.cancel();
-  } catch {
-    /* already errored or locked: there is nothing left to release */
   }
 }
