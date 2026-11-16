@@ -155,9 +155,10 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
   }
 
   // The banner and intro come only now, AFTER the Node floor, the git
-  // prerequisite, the TTY gate and the `--yes` config check: a refused init prints its one error and
-  // nothing else, rather than a logo on stdout above an error on stderr. Under
-  // `--json` NOTHING reaches stdout but the one report: no banner, no clack.
+  // prerequisite, the TTY gate and the `--yes` config check: a refused init
+  // prints its one error and nothing else, rather than a logo on stdout above
+  // an error on stderr. Under `--json` NOTHING reaches stdout but the one
+  // report: no banner, no clack.
   if (!json) {
     showBanner();
     intro(dryRun ? 'pharn init --dry-run' : 'init wizard');
