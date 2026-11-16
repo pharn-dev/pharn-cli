@@ -1325,6 +1325,20 @@ describe('runStatus — NOT SHIPPED UPSTREAM and LAYOUT (F-10)', () => {
     );
   });
 
+  // CORE-167 inverted this case: it used to pass --strict with "No drift".
+  it('a recorded layout upstream no longer ships is a LAYOUT note, and --strict exits 1', async () => {
+    mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
+    loadArchetypeConfigOrExit.mockReturnValue(config({ layout: 'flat' }));
+    await expect(runStatus({ strict: true })).rejects.toMatchObject(
+      new ProcessExit(1),
+    );
+    const layout = plain('LAYOUT');
+    expect(layout).toContain('flat');
+    expect(layout).toContain('pharn');
+    expect(layout).toContain('pharn update');
+    expect(plain('DRIFT')).toBe('');
+  });
+
   describe('a recorded layout upstream no longer ships (CORE-167)', () => {
     beforeEach(() => {
       // A flat install against a pharn-layout clone.
@@ -1359,12 +1373,9 @@ describe('runStatus — NOT SHIPPED UPSTREAM and LAYOUT (F-10)', () => {
       expect(layout).toContain('`pharn status --strict` fails');
     });
 
-    it('exits 0 without --strict, and 1 under --strict when it is the ONLY finding', async () => {
+    it('exits 0 without --strict', async () => {
       await runStatus({});
       expect(process.exit).not.toHaveBeenCalled();
-      await expect(runStatus({ strict: true })).rejects.toMatchObject(
-        new ProcessExit(1),
-      );
     });
 
     it('still checks the hook wiring, which does not depend on the layout', async () => {
