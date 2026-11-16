@@ -93,10 +93,11 @@ Run [`pharn update`](update.md) to bring your install to the current version, th
 (`modified` / `unrecorded`), it leaves `skillsVersion` at the old value but records the version it
 applied as `pendingSkillsVersion` in `pharn.config.json`. That includes an update that
 [held the executable unit](update.md#the-executable-unit-is-upgraded-all-or-none) because of your
-edit: the floor, hooks and `pharn-*` commands stay at the old version, and every other file is at the
-new one. `add` accepts a clone at that version too, because it writes capability directories only, and
-it still does not advance `skillsVersion` or `commit`. The refusal then reads
-`records v1.0.0 (partly at v1.1.0)`.
+edit: the floor, hooks and `pharn-*` commands stay at the old version, and every other file you did not
+edit is at the new one. `add` accepts a clone at that version too, because it writes capability
+directories only, and it still does not advance `skillsVersion` or `commit`. If upstream has moved on
+again, the refusal reads `pharn.config.json records v1.0.0 (partly at v1.1.0)` and names the same ways
+out as below.
 
 When an update could not finish for another reason (a file it cannot verify because there is no usable
 record store, or one it cannot read), nothing is recorded as pending and `add` refuses. Run
