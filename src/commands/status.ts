@@ -576,14 +576,20 @@ function printDriftSection(
     if (lines.length) lines.push('');
     lines.push('  MISSING (expected but absent)');
     for (const p of result.missing) lines.push(`  ${p}`);
+    // A plain `update` restores these and keeps edits: `findMissingInstalled`
+    // re-opens its same-version early return for a provably missing capability
+    // dir or a key of a USABLE records store. `--force` also overwrites every
+    // edited file, so it is named only as the fallback for what that re-open
+    // cannot see (no usable store, or a file upstream added at the same
+    // skills version), never as the first advice (CORE-163).
     lines.push(
       pc.dim(
-        '  For recorded capabilities: `pharn update` when a newer skills version is',
+        '  Run `pharn update` to restore them (files you edited are kept).',
       ),
       pc.dim(
-        '  available, or `pharn update --force` at the current version (a plain',
+        '  If it answers "Already up to date", `pharn update --force` restores',
       ),
-      pc.dim('  `pharn update` exits early when already up to date).'),
+      pc.dim('  them but also overwrites files you edited (backed up first).'),
       pc.dim(
         '  To add a capability not yet in pharn.config.json, use `pharn add`',
       ),

@@ -53,11 +53,15 @@ v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, 
      `pharn update` keeps files you've edited and cleanly upgrades the rest; `--force` overwrites edits
      too (backed up to `pharn/.backup/` first).
    - **Missing (expected but absent)** — expected files that aren't on disk (from your recorded
-     `capabilities` and the fixed product surfaces). For those, run `pharn update` when a newer skills
-     version is available, or `pharn update --force` at the current version — a plain `pharn update`
-     exits early when already up to date. To install a capability **not yet** in `pharn.config.json`,
-     use `pharn add` (additive-only — already-listed capabilities are a no-op, even if their files are
-     missing); `add` also requires your install to match the current skills version.
+     `capabilities` and the fixed product surfaces). Run `pharn update` to restore them (files you
+     edited are kept). If it answers "Already up to date", `pharn update --force` restores them but
+     also overwrites files you edited (backed up first) — a plain `pharn update` sees a missing file
+     only for a capability directory that is gone or a file recorded in a usable
+     [`pharn.records.json`](../reference/pharn-records.md), so with no usable record store, or for a
+     file upstream added at the same skills version, it still answers "Already up to date". To install
+     a capability **not yet** in `pharn.config.json`, use `pharn add` (additive-only — already-listed
+     capabilities are a no-op, even if their files are missing); `add` also requires your install to
+     match the current skills version.
    - **Unreadable (not a regular readable file)** — expected paths that **cannot be compared**: a
      symlink (live _or_ dangling), a file **under a symlinked parent directory** (say `.claude/hooks`
      pointed at a dotfiles repo), a directory, another non-regular file, an unreadable file, or a path

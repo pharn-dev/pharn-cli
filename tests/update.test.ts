@@ -698,6 +698,29 @@ describe('runUpdate (drift-safe)', () => {
       expect(backupDirs()).toEqual([]);
     });
 
+    // CORE-163: the run a missing file re-opens is at the SAME version, so a
+    // skip withholds nothing worth naming — there is no upgrade to finish.
+    it('restores the missing file, keeps an edit, and does not speak of finishing an upgrade', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, DOC));
+      write(join(proj, CAP_FILE), 'MY LOCAL EDIT');
+
+      await runUpdate();
+
+      expect(body(DOC)).toBe('constitution v2');
+      expect(body(CAP_FILE)).toBe('MY LOCAL EDIT');
+      const warned = vi
+        .mocked(prompts.log.warn)
+        .mock.calls.map((c) => stripVTControlCharacters(String(c[0])));
+      const line = warned.find((m) => m.includes('were skipped'));
+      expect(line).toBe(
+        '1 file(s) were skipped; your install is already at skills v1.1.0, so there is no upgrade to finish — re-run with --force to overwrite them (backed up to pharn/.backup/ first), or keep them as they are.',
+      );
+      expect(warned.join('\n')).not.toContain('finish the upgrade');
+      expect(warned.join('\n')).not.toContain('still recorded as skills');
+      expect(readPharnConfig(proj)!.skillsVersion).toBe('1.1.0');
+    });
+
     it('restores a missing capability dir even with no records store', async () => {
       await installed({ skillsVersion: '1.1.0' });
       rmSync(join(proj, RECORDS_FILE));

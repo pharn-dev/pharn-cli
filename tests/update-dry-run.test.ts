@@ -612,6 +612,20 @@ describe('runUpdate --dry-run', () => {
       expect(logged('info')).toContain('v1.1.0 as pending');
     });
 
+    // CORE-163: at the same version a skip withholds no upgrade.
+    it('does not speak of finishing an upgrade when a skip happens at the current version', async () => {
+      await installed({ skillsVersion: '1.1.0' });
+      rmSync(join(proj, CMD));
+      write(join(proj, DOC), 'MY EDIT');
+      await runUpdate({ dryRun: true });
+      expect(noteBody('SKIPPED')).toContain('MODIFIED');
+      expect(logged('warn')).toContain(
+        '1 file(s) would be skipped; your install is already at skills v1.1.0, so there is no upgrade to finish — run with --force to overwrite them (backed up to pharn/.backup/ first), or keep them as they are.',
+      );
+      expect(logged('warn')).not.toContain('finish the upgrade.');
+      expect(logged('warn')).not.toContain('would stay recorded');
+    });
+
     it('says the version would be recorded on a complete run', async () => {
       await installed();
       await runUpdate({ dryRun: true });
