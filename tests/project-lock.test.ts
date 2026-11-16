@@ -173,11 +173,20 @@ describe('withProjectLock', () => {
 
     expect(ran).toBe(false);
     // The refusal must be actionable: what is held, by whom, and how to clear it.
+    let refusal = '';
     await withProjectLock(dir, 'add', () => undefined).catch((err: Error) => {
-      expect(err.message).toContain(LOCK_FILE);
-      expect(err.message).toContain(String(process.pid));
-      expect(err.message).toContain('update');
+      refusal = err.message;
     });
+    expect(refusal).toContain(LOCK_FILE);
+    expect(refusal).toContain(String(process.pid));
+    expect(refusal).toContain('update');
+    // Every writer holds the lock across its prompts (C5.2), so the holder may
+    // be idle at one — said in static words, whatever the payload holds.
+    expect(refusal).toMatch(
+      new RegExp(
+        `^Another pharn process is writing to this project: pharn update \\(pid ${process.pid} on .+\\)\\. It may be waiting for input in another terminal\\.\\n`,
+      ),
+    );
 
     // ...and a refusal must NEVER delete the lock it refused on.
     expect(existsSync(lockPath(dir))).toBe(true);

@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -15,6 +16,8 @@ import { useTmpDir } from './helpers.js';
 import {
   applyWrites,
   ApplyError,
+  changedSince,
+  changedSincePlan,
   readDiskState,
   writtenBeforeFailureLines,
 } from '../src/lib/apply-update.js';
@@ -400,6 +403,79 @@ describe('applyWrites', () => {
       ).toThrow(ApplyError);
       expect(readFileSync(outside, 'utf8')).toBe('outside');
     });
+  });
+});
+
+// update's write-time check (C5.2): which planned files changed while its
+// confirm was open, decided before the first write.
+describe('changedSince / changedSincePlan', () => {
+  const tmp = useTmpDir();
+
+  it('reports an edited and an appeared file, in plan order; not an unchanged, vanished or unplanned one', () => {
+    const proj = join(tmp.path(), 'proj');
+    const repo = join(tmp.path(), 'repo');
+    for (const rel of ['edited.md', 'same.md', 'vanished.md'])
+      write(join(proj, rel), `old ${rel}`);
+    for (const rel of ['edited.md', 'same.md', 'vanished.md', 'appeared.md'])
+      write(join(repo, rel), `new ${rel}`);
+    const seen = new Map<string, string | null>([
+      ['appeared.md', null],
+      ['edited.md', contentHash(join(proj, 'edited.md'))],
+      ['same.md', contentHash(join(proj, 'same.md'))],
+      ['vanished.md', contentHash(join(proj, 'vanished.md'))],
+    ]);
+    const expected = new Map(
+      [...seen.keys()].map((rel) => [rel, join(repo, rel)]),
+    );
+    write(join(proj, 'edited.md'), 'my edit');
+    write(join(proj, 'appeared.md'), 'mine');
+    rmSync(join(proj, 'vanished.md'));
+    write(join(proj, 'unplanned.md'), 'not in seen');
+
+    const writes = [...seen.keys(), 'unplanned.md'];
+    expect(changedSince(proj, seen, writes, expected)).toEqual([
+      'appeared.md',
+      'edited.md',
+    ]);
+    expect(changedSincePlan(proj, seen, 'unplanned.md')).toBe(false);
+    expect(changedSincePlan(proj, seen, 'vanished.md')).toBe(false);
+    expect(changedSincePlan(proj, seen, 'same.md')).toBe(false);
+  });
+
+  it('leaves out a file now byte-identical to the source it would be written from', () => {
+    const proj = join(tmp.path(), 'proj');
+    const repo = join(tmp.path(), 'repo');
+    write(join(repo, 'a.md'), 'upstream bytes');
+    const seen = new Map<string, string | null>([['a.md', null]]);
+    write(join(proj, 'a.md'), 'upstream bytes');
+    expect(changedSincePlan(proj, seen, 'a.md')).toBe(true);
+    expect(
+      changedSince(
+        proj,
+        seen,
+        ['a.md'],
+        new Map([['a.md', join(repo, 'a.md')]]),
+      ),
+    ).toEqual([]);
+    // No source to compare with: reported.
+    expect(changedSince(proj, seen, ['a.md'], new Map())).toEqual(['a.md']);
+  });
+
+  it('applyWrites leaves such a file unwritten and returns it in `changed`', () => {
+    const proj = join(tmp.path(), 'proj');
+    const repo = join(tmp.path(), 'repo');
+    write(join(repo, 'a.md'), 'upstream');
+    write(join(proj, 'a.md'), 'old');
+    const seen = new Map([['a.md', contentHash(join(proj, 'a.md'))]]);
+    write(join(proj, 'a.md'), 'edited');
+    const result = applyWrites({
+      projectRoot: proj,
+      expected: new Map([['a.md', join(repo, 'a.md')]]),
+      writes: ['a.md'],
+      seen,
+    });
+    expect(result).toEqual({ written: [], changed: ['a.md'] });
+    expect(readFileSync(join(proj, 'a.md'), 'utf8')).toBe('edited');
   });
 });
 

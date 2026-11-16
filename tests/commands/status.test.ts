@@ -1,4 +1,5 @@
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import * as clack from '@clack/prompts';
 import { restoreNodeVersion, setNodeVersion } from '../helpers.js';
@@ -41,6 +42,7 @@ import {
   write,
 } from '../support/harness.js';
 import { runStatus } from '../../src/commands/status.js';
+import { LOCK_FILE } from '../../src/lib/project-lock.js';
 import { runList } from '../../src/commands/list.js';
 import { runUpdate } from '../../src/commands/update.js';
 
@@ -143,6 +145,23 @@ async function installWithOrphan(): Promise<void> {
 }
 
 describe('pharn status, end to end', () => {
+  // A reader never takes the lock: every writer now holds it across its
+  // prompts (C5.2), and `status --strict` must stay runnable meanwhile.
+  it('reports under a held lock, leaving it in place', async () => {
+    await installFresh();
+    const lock = JSON.stringify({
+      pid: process.pid,
+      host: hostname(),
+      command: 'update',
+      startedAt: new Date().toISOString(),
+    });
+    write(LOCK_FILE, lock);
+    const { report, exitCode } = await statusJson();
+    expect(report.version).toMatchObject({ installed: '1.0.0' });
+    expect(exitCode).toBeUndefined();
+    expect(read(LOCK_FILE)).toBe(lock);
+  });
+
   it('status --json prints one report: current, no drift, then the edit it finds', async () => {
     await installFresh();
     setNodeVersion('24.13.1');

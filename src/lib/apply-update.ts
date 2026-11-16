@@ -76,15 +76,53 @@ export function readDiskState(projectRoot: string, rel: string): DiskState {
 }
 
 /**
+ * Has `rel` changed since the plan saw it? `seen` maps a rel to its hash at
+ * plan time (`null`: absent). True only when the path is now a regular file
+ * with another hash (edited, or appeared): one that vanished has nothing to
+ * lose, and one now unreadable (a symlink, a directory) is left to the write's
+ * own refusal. A rel `seen` does not hold was not planned against: false.
+ */
+export function changedSincePlan(
+  projectRoot: string,
+  seen: ReadonlyMap<string, string | null>,
+  rel: string,
+): boolean {
+  if (!seen.has(rel)) return false;
+  const now = readDiskState(projectRoot, rel);
+  return now.kind === 'file' && now.hash !== seen.get(rel);
+}
+
+/**
+ * The planned writes whose destination changed since the plan saw it, in
+ * order — for a caller that must refuse BEFORE its first write rather than
+ * meet the change part-way. A file that is now byte-identical to the source it
+ * would be written from (`expected`: rel → absolute clone path) is left out:
+ * writing it loses nothing.
+ */
+export function changedSince(
+  projectRoot: string,
+  seen: ReadonlyMap<string, string | null>,
+  writes: readonly string[],
+  expected: ReadonlyMap<string, string>,
+): string[] {
+  return writes.filter((rel) => {
+    if (!changedSincePlan(projectRoot, seen, rel)) return false;
+    const from = expected.get(rel);
+    return (
+      from === undefined ||
+      contentHash(safeJoin(projectRoot, rel)) !== contentHash(from)
+    );
+  });
+}
+
+/**
  * Copy each planned write from the clone into the project, creating parent
  * directories (a restore whose whole directory was deleted needs them).
  * Returns the paths written, in order.
  *
  * `seen` maps a rel to the destination's hash at plan time (`null`: absent).
  * Such a file is re-read just before its write and lands in `changed`, not
- * written, when it is now a regular file with another hash (edited, or
- * appeared). One that vanished is written (nothing to lose); one now
- * unreadable (a symlink, a directory) is left to the write's own refusal.
+ * written, when `changedSincePlan` says so.
  */
 export function applyWrites(params: {
   projectRoot: string;
@@ -104,12 +142,9 @@ export function applyWrites(params: {
         written,
       );
     }
-    if (seen?.has(rel) === true) {
-      const now = readDiskState(projectRoot, rel);
-      if (now.kind === 'file' && now.hash !== seen.get(rel)) {
-        changed.push(rel);
-        continue;
-      }
+    if (seen !== undefined && changedSincePlan(projectRoot, seen, rel)) {
+      changed.push(rel);
+      continue;
     }
     try {
       const to = safeJoin(projectRoot, rel);

@@ -175,6 +175,10 @@ export interface UpdateApplyInputs {
   removalPaths: LayoutPaths;
   // The paths `.prettierignore` must cover (report.prettierignore's input).
   prettierignorePaths: string[];
+  // What each planned write's destination held when this plan read it (hash,
+  // or null for absent): the writer refuses a file changed since, so an edit
+  // made while the confirm was open is never overwritten.
+  seen: Map<string, string | null>;
 }
 
 export interface PlannedUpdate {
@@ -256,8 +260,9 @@ export function buildUpdatePlan(input: {
     holdUnit: installedVersion !== config.skillsVersion,
   });
 
-  // What the drops delete, against the same baseline. In the real run this
-  // runs under the lock right before the writes, so it is authoritative.
+  // What the drops delete, against the same baseline. The writer re-reads each
+  // dropped directory's backup set at delete time, so a file edited while the
+  // confirm was open is saved too.
   const removalPaths = layoutPaths(previousLayout);
   const removals = planCapabilityRemovals({
     cwd,
@@ -445,6 +450,12 @@ export function buildUpdatePlan(input: {
     frozenKeys,
     removalPaths,
     prettierignorePaths,
+    seen: new Map(
+      plan.writes.map((rel) => {
+        const disk = diskStates.get(rel);
+        return [rel, disk?.kind === 'file' ? disk.hash : null];
+      }),
+    ),
   };
   const stateChanges = planStateChanges({
     config,

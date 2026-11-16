@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { describe, expect, it, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import {
@@ -6,6 +7,7 @@ import {
   jsonOut,
   logs,
   notes,
+  read,
   run,
   stderr,
   stdout,
@@ -14,6 +16,7 @@ import {
 } from '../support/harness.js';
 import type { PharnConfig } from '../../src/types.js';
 import { LEGACY_CONFIG_MESSAGE as LEGACY } from '../../src/lib/pharn-config.js';
+import { LOCK_FILE } from '../../src/lib/project-lock.js';
 import { runList } from '../../src/commands/list.js';
 
 vi.mock('@clack/prompts', async () =>
@@ -62,6 +65,23 @@ const INVALID_SOURCE = archetypeConfig({
 } as unknown as Partial<PharnConfig>);
 
 describe('pharn list', () => {
+  // A reader never takes the lock: every writer now holds it across its
+  // prompts (C5.2), and `list` must stay usable meanwhile.
+  it('reads under a held lock, leaving it in place', async () => {
+    await installFresh();
+    const lock = JSON.stringify({
+      pid: process.pid,
+      host: hostname(),
+      command: 'update',
+      startedAt: new Date().toISOString(),
+    });
+    write(LOCK_FILE, lock);
+    stdout().length = 0;
+    expect(await run(() => runList({ json: true }))).toBeNull();
+    expect(jsonOut()).toMatchObject({ skillsVersion: '1.0.0' });
+    expect(read(LOCK_FILE)).toBe(lock);
+  });
+
   it('lists what init recorded, as text and as --json', async () => {
     await installFresh();
     expect(await run(() => runList())).toBeNull();

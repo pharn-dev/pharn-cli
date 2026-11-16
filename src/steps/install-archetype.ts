@@ -16,17 +16,10 @@ import {
   preservedSettingsHookLines,
   upstreamSettingsSummary,
 } from '../lib/hook-wiring.js';
-import {
-  installCapabilities,
-  prepareInstall,
-} from '../lib/install-capabilities.js';
-import {
-  absentInstallSurfaces,
-  collectExpectedInstallPaths,
-} from '../lib/install-manifest.js';
+import { installPrepared } from '../lib/install-capabilities.js';
+import { absentInstallSurfaces } from '../lib/install-manifest.js';
 import { absentSurfaceLines } from '../lib/absent-surfaces.js';
-import { detectLayout, layoutPaths } from '../lib/layout.js';
-import { manifestSources, scanDest } from '../lib/dest-drift.js';
+import { layoutPaths } from '../lib/layout.js';
 import {
   backupAction,
   createBackup,
@@ -45,13 +38,11 @@ import {
 } from '../lib/install-records.js';
 import { findOrphans } from '../lib/orphans.js';
 import {
-  initRootMigration,
-  planInitRemovals,
   readCarriedEntries,
-  reinstallBaseline,
+  type InitApplyInputs,
   type InstallCarry,
 } from '../lib/init-plan.js';
-import { removalBackups } from '../lib/capability-removal.js';
+import { removalBackupsNow } from '../lib/capability-removal.js';
 import { deleteCapabilityDir } from '../lib/capability-dir.js';
 import { checkModelsBlock } from '../lib/model-config.js';
 import {
@@ -60,7 +51,10 @@ import {
 } from '../lib/model-config-format.js';
 import { readUpstreamModels } from '../lib/upstream-models.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
-import { writePharnConfig } from '../lib/pharn-config.js';
+import {
+  assertConfigFingerprintUnchanged,
+  writePharnConfig,
+} from '../lib/pharn-config.js';
 import {
   applyGitignore,
   backupDirIgnored,
@@ -81,128 +75,76 @@ import type {
   Selection,
 } from '../types.js';
 
-/**
- * Every file installing `selection` from `repoDir` writes, dest → source, at
- * the clone's own layout. init computes it ONCE per run and hands the same map
- * to the prompt and to runInstallArchetype.
- */
-export function installManifest(
-  repoDir: string,
-  selection: Selection,
-): Map<string, string> {
-  return collectExpectedInstallPaths({
-    repoDir,
-    capabilities: selection.selected,
-    layout: detectLayout(repoDir),
-  });
-}
-
-/**
- * The destination pre-flight (prepareInstall) over init's manifest, run BEFORE
- * the overwrite prompt, so a project the install cannot finish in is refused
- * without first being asked "Continue and overwrite?". Read-only.
- *
- * The EARLY answer only — the tree can change while the prompt is open.
- * runInstallArchetype repeats it under the lock before its backup, and
- * installCapabilities once more before the copy. Keep all three.
- */
-export function preflightInstall(
-  repoDir: string,
-  cwd: string,
-  selection: Selection,
-  manifest: ReadonlyMap<string, string>,
-): void {
-  prepareInstall(repoDir, cwd, selection.selected, manifest);
-}
-
-// Re-exported here, where init has always imported them from.
-export { reinstallBaseline, type InstallCarry };
-
-const NO_CARRY: InstallCarry = {
-  manualKeys: new Set(),
-  kept: [],
-  previousStamp: null,
-};
-
 // The archetype-install apply stage (`pharn init`): copy the resolved
 // capabilities + product surfaces from the already-fetched `repoDir`, then
-// write pharn.config.json. Network-free (the commit SHA is passed in).
+// write pharn.config.json. Network-free (the commit SHA is passed in). It
+// consumes the run's one plan (`buildInitPlan`'s `apply` half, made under the
+// same lock before the overwrite prompt) and recomputes none of it; what may
+// have changed while a prompt was open is checked at write time.
 export async function runInstallArchetype(
   repoDir: string,
   cwd: string,
   archetypes: Archetype[],
   selection: Selection,
   commit: string | null,
-  carry: InstallCarry = NO_CARRY,
-  // The install manifest, when the caller already computed it; absent →
-  // computed by the pre-flight below.
-  manifest?: ReadonlyMap<string, string>,
+  carry: InstallCarry,
+  plan: InitApplyInputs,
 ): Promise<void> {
   const startedAt = Date.now();
+  const { prepared, baseline, removals, rootMigration: migration } = plan;
 
-  // 1. The destination pre-flight, FIRST: a refused install writes nothing,
-  // the backup included. installCapabilities repeats it before copying.
-  const prepared = prepareInstall(repoDir, cwd, selection.selected, manifest);
+  // 1. pharn.config.json still has the bytes the carry-over read: a hand-edit
+  // made while a prompt was open is not overwritten. Before anything is
+  // written, the backup included.
+  assertConfigFingerprintUnchanged(cwd, plan.fingerprint, 'init');
 
   // 2. Back up every existing file this install overwrites that `update` would
   // have SKIPPED, by the records baseline through update's own table
   // (lib/dest-drift.ts): a file still at its recorded hash is a clean upgrade;
   // an edited or unrecorded one is backed up; with no usable store every
-  // differing file is. Each file is compared with its REAL source, so the
-  // mapped LICENSE is covered. Scanned HERE, under the lock right before the
-  // copy, so an edit made while the prompt was open is covered — the prompt's
-  // labels are advisory.
-  const baseline = reinstallBaseline(cwd, carry);
-  const scan = scanDest({
-    repoDir,
-    projectRoot: cwd,
-    rels: [...prepared.manifest.keys()],
-    sources: manifestSources(repoDir, prepared.manifest),
-    records: baseline,
-  });
-  // The dropped capability directories, planned again under the lock — the
-  // authoritative plan. A symlinked component or an unreadable file refuses
-  // before anything is written.
-  const removals = planInitRemovals(cwd, carry);
+  // differing file is (`plan.drifted`, scanned once by the plan). A file
+  // edited since that scan is caught by the writer (`plan.seen`) and backed up
+  // before it is overwritten.
   const deletes = removals.filter((r) => r.present);
-  // The old root footprint a re-run retires; null on a first install.
-  const migration = initRootMigration(repoDir, cwd, carry);
   // The replaced config is rewritten below (`models` reset), so an existing one
   // is always saved too, in the SAME backup as the drifted files and a dropped
-  // directory's unproven files.
-  const overwriteBackups = [...scan.drifted, ...replacedConfigBackup(cwd)];
+  // directory's unproven files — that set read again now, so a file edited in
+  // a dropped directory while a prompt was open is saved too.
+  const overwriteBackups = [...plan.drifted, ...replacedConfigBackup(cwd)];
   const toBackUp = [
-    ...new Set([...overwriteBackups, ...removalBackups(removals)]),
+    ...new Set([
+      ...overwriteBackups,
+      ...removalBackupsNow({
+        cwd,
+        removals,
+        records: baseline,
+        command: 'init',
+      }),
+    ]),
   ];
-  // `unsafe` is empty after a passing pre-flight; non-empty means a link
-  // appeared since and installCapabilities will refuse — so nothing is backed
-  // up or deleted for a copy that will not happen.
-  if (scan.unsafe.length === 0) {
-    if (toBackUp.length > 0) {
-      const backupDir = createBackup(cwd, toBackUp);
-      const action = backupAction(
-        overwriteBackups.length > 0,
-        deletes.length > 0,
-      );
-      // Named at creation, so the pointer survives anything that fails after it.
-      printBackupNotice({
-        dir: backupDir,
-        saved: toBackUp.length,
-        action,
-        // This install may add `pharn/.backup/` to `.gitignore` below.
-        gitignored: backupDirIgnored(cwd, planGitignore(cwd)),
-      });
-    }
-    // Deleted BEFORE the copy, after the backup: a failed delete stops the run
-    // with the replaced config in place, so the next init drops them again.
-    if (deletes.length > 0) {
-      const paths = layoutPaths(carry.previousLayout ?? 'flat');
-      for (const removal of deletes)
-        deleteCapabilityDir(cwd, paths, removal.cap);
-      log.info(
-        `Deleted ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} no longer installed: ${deletes.map((r) => `${r.dir}/`).join(', ')}.`,
-      );
-    }
+  if (toBackUp.length > 0) {
+    const backupDir = createBackup(cwd, toBackUp);
+    const action = backupAction(
+      overwriteBackups.length > 0,
+      deletes.length > 0,
+    );
+    // Named at creation, so the pointer survives anything that fails after it.
+    printBackupNotice({
+      dir: backupDir,
+      saved: toBackUp.length,
+      action,
+      // This install may add `pharn/.backup/` to `.gitignore` below.
+      gitignored: backupDirIgnored(cwd, planGitignore(cwd)),
+    });
+  }
+  // Deleted BEFORE the copy, after the backup: a failed delete stops the run
+  // with the replaced config in place, so the next init drops them again.
+  if (deletes.length > 0) {
+    const paths = layoutPaths(carry.previousLayout ?? 'flat');
+    for (const removal of deletes) deleteCapabilityDir(cwd, paths, removal.cap);
+    log.info(
+      `Deleted ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} no longer installed: ${deletes.map((r) => `${r.dir}/`).join(', ')}.`,
+    );
   }
 
   const s = spinner();
@@ -214,13 +156,13 @@ export async function runInstallArchetype(
   let layout: Layout;
   let docsWritten: string[];
   try {
-    // `scan.seen`: a file edited since the scan is backed up, then overwritten.
-    const result = installCapabilities(
+    // `plan.seen`: a file edited since the plan is backed up, then overwritten.
+    const result = installPrepared(
       repoDir,
       cwd,
       selection,
-      prepared.manifest,
-      scan.seen,
+      prepared,
+      plan.seen,
     );
     capabilities = result.capabilities;
     settingsPreserved = result.settingsPreserved;

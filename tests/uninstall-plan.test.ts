@@ -1,11 +1,17 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { contentHash } from '../src/lib/hash.js';
 import { MODELS_RECORD_KEY } from '../src/lib/install-records.js';
-import { planUninstall } from '../src/lib/uninstall-plan.js';
+import { planUninstall, reclassifyDeletes } from '../src/lib/uninstall-plan.js';
 
 const tmp = useTmpDir();
 
@@ -268,5 +274,45 @@ describe('planUninstall', () => {
       expect(plan.outside).toEqual(['.claude/settings.local.json']);
       expect(plan.delete).toEqual([]);
     });
+  });
+});
+
+// After the confirm (C5.2): only the `delete` bucket is classified again, and
+// a file only ever moves away from it.
+describe('reclassifyDeletes', () => {
+  it('keeps an edited file, notes a vanished one, flags a swapped parent, and leaves the other buckets', () => {
+    const root = proj();
+    const records: Record<string, string> = {};
+    for (const rel of [
+      'CONSTITUTION.md',
+      '.claude/commands/pharn-plan.md',
+      'pharn-contracts/finding-shape.md',
+      'ARCHITECTURE.md',
+    ])
+      recorded(root, records, rel);
+    write(root, 'PHARN-LICENSE', 'edited before the plan');
+    records['PHARN-LICENSE'] = HASH;
+    const plan = planUninstall(root, records);
+    expect(plan.edited).toEqual(['PHARN-LICENSE']);
+
+    // While the confirm is open.
+    write(root, 'CONSTITUTION.md', 'edited while the prompt was open');
+    rmSync(join(root, 'ARCHITECTURE.md'));
+    const elsewhere = join(tmp.path(), 'elsewhere-contracts');
+    write(elsewhere, 'finding-shape.md');
+    rmSync(join(root, 'pharn-contracts'), { recursive: true });
+    symlinkSync(elsewhere, join(root, 'pharn-contracts'));
+
+    const now = reclassifyDeletes(root, records, plan);
+    expect(now.delete).toEqual(['.claude/commands/pharn-plan.md']);
+    expect(now.edited).toEqual(['CONSTITUTION.md', 'PHARN-LICENSE']);
+    expect(now.absent).toEqual(['ARCHITECTURE.md']);
+    expect(now.unsafe).toEqual([
+      {
+        rel: 'pharn-contracts/finding-shape.md',
+        component: 'pharn-contracts',
+      },
+    ]);
+    expect(now.outside).toEqual(plan.outside);
   });
 });

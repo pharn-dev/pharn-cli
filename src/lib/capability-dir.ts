@@ -1,7 +1,11 @@
 import { existsSync, rmSync } from 'node:fs';
 import { capabilitySubtree, type LayoutPaths } from './layout.js';
 import { findSymlinkComponentOr } from './symlink-guard.js';
-import { safeChildJoin, safeJoin } from './validate.js';
+import {
+  ManifestValidationError,
+  safeChildJoin,
+  safeJoin,
+} from './validate.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -51,14 +55,24 @@ export function linkedComponent(
 
 /**
  * Delete the capability's directory, returning whether it existed. Siblings are
- * never touched. Callers check `linkedComponent` (and back up what they must)
- * BEFORE calling this.
+ * never touched. Callers plan with `linkedComponent` (and back up what they
+ * must) BEFORE calling this; the walk is repeated here, at the delete, because
+ * a prompt may have sat between the plan and now and a component swapped for
+ * a link would take `rmSync` outside the project. Throws
+ * ManifestValidationError naming the link. Not atomic with `rmSync` (no
+ * userland walk can be).
  */
 export function deleteCapabilityDir(
   cwd: string,
   paths: LayoutPaths,
   capability: InstalledCapability,
 ): boolean {
+  const linked = linkedComponent(cwd, paths, capability);
+  if (linked !== null) {
+    throw new ManifestValidationError(
+      `${linked} is a symbolic link; refusing to delete through it. Nothing under it was deleted.`,
+    );
+  }
   const dir = capabilityDir(cwd, paths, capability);
   const existed = existsSync(dir);
   if (existed) rmSync(dir, { recursive: true, force: true });

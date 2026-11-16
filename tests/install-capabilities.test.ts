@@ -15,6 +15,7 @@ import { useTmpDir } from './helpers.js';
 import {
   installCapabilities,
   installCapabilityDirs,
+  installPrepared,
   prepareInstall,
   upstreamSettingsCopyable,
 } from '../src/lib/install-capabilities.js';
@@ -1407,5 +1408,34 @@ describe('prepareInstall', () => {
     expect(prepareInstall(repo, proj, selection().selected, ok).manifest).toBe(
       ok,
     );
+  });
+
+  // init's plan runs the pre-flight once, before its prompts (C5.2), and hands
+  // the result to installPrepared, which copies without running it again;
+  // the writer's own per-file walk is the backstop for a link made since.
+  it('installPrepared copies what the pre-flight checked, without running it again', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(proj, { recursive: true });
+    const prepared = prepareInstall(repo, proj, selection().selected);
+
+    const result = installPrepared(repo, proj, selection(), prepared);
+    expect(result.layout).toBe('flat');
+    for (const rel of prepared.manifest.keys())
+      expect(existsSync(join(proj, rel))).toBe(true);
+
+    // A link swapped in after the pre-flight: no whole-install refusal any
+    // more, but the writer refuses to write through it, naming it.
+    const again = join(tmp.path(), 'proj2');
+    mkdirSync(again, { recursive: true });
+    const checked = prepareInstall(repo, again, selection().selected);
+    symlinkSync(outside, join(again, 'pharn-contracts'));
+    expect(() => installPrepared(repo, again, selection(), checked)).toThrow(
+      /pharn-contracts is a symlink; refusing to write through it/,
+    );
+    expect(readdirSync(outside)).toEqual([]);
   });
 });

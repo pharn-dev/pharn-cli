@@ -65,6 +65,10 @@ export interface WriteTargetsParams {
   records: FileRecords | null;
   // The removal plan of the dropped capabilities; absent → none.
   removals?: readonly CapabilityRemoval[];
+  // The drift labels a caller's own `scanDest` over the manifest already
+  // produced (init's plan scans every manifest path once); absent → the
+  // existing targets are scanned here.
+  labels?: ReadonlyMap<string, DriftLabel>;
 }
 
 export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
@@ -82,13 +86,17 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
 
   // Which of those would be backed up — the files `update` would have SKIPPED.
   // `pharn.config.json` is outside the manifest, so it is marked on its own.
-  const { labels } = scanDest({
-    repoDir,
-    projectRoot,
-    rels: conflicts.filter((p) => manifest.has(p)),
-    sources: manifestSources(repoDir, manifest),
-    records,
-  });
+  // A label exists only for an existing regular file, so the caller's labels
+  // over the whole manifest are exactly these targets' labels.
+  const labels =
+    params.labels ??
+    scanDest({
+      repoDir,
+      projectRoot,
+      rels: conflicts.filter((p) => manifest.has(p)),
+      sources: manifestSources(repoDir, manifest),
+      records,
+    }).labels;
   // Ranked right after the labelled files, so a capped list cannot hide it.
   const configBackedUp =
     conflicts.includes(PHARN_CONFIG_FILE) &&
@@ -185,7 +193,16 @@ export function existingConfigRefusal(projectRoot: string): string | null {
 export function assertNoExistingTargets(
   params: Omit<WriteTargetsParams, 'removals'>,
 ): void {
-  const plan = planWriteTargets(params);
+  refuseExistingTargets(planWriteTargets(params));
+}
+
+/**
+ * The same gate over targets the caller already planned (init's one plan):
+ * throws OverwriteRefusedError unless none exists.
+ */
+export function refuseExistingTargets(
+  plan: Pick<WriteTargetsPlan, 'conflicts' | 'labels' | 'configBackedUp'>,
+): void {
   if (plan.conflicts.length === 0) return;
   const n = plan.conflicts.length;
   throw new OverwriteRefusedError(

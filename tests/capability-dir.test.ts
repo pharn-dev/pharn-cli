@@ -48,6 +48,23 @@ describe('capability-dir', () => {
     expect(linkedComponent(proj, pharn, A11Y)).toBe('pharn');
   });
 
+  // The walk is repeated at the delete (C5.2): a prompt may sit between the
+  // plan and the delete, and rmSync would follow a swapped-in link.
+  it('refuses to delete through a symlinked component, deleting nothing behind it', () => {
+    const elsewhere = join(tmp.path(), 'shared');
+    mkdirSync(join(elsewhere, 'a11y'), { recursive: true });
+    writeFileSync(join(elsewhere, 'a11y/NOTES.md'), 'not this project');
+    mkdirSync(join(proj, 'pharn'), { recursive: true });
+    symlinkSync(elsewhere, join(proj, 'pharn/pharn-pipeline'));
+    mkdirSync(join(elsewhere, 'grillers/a11y'), { recursive: true });
+    writeFileSync(join(elsewhere, 'grillers/a11y/a11y.md'), 'outside');
+
+    expect(() => deleteCapabilityDir(proj, pharn, A11Y)).toThrow(
+      'pharn/pharn-pipeline is a symbolic link; refusing to delete through it.',
+    );
+    expect(existsSync(join(elsewhere, 'grillers/a11y/a11y.md'))).toBe(true);
+  });
+
   it('treats a component below a regular file as no link (that dir cannot exist)', () => {
     writeFileSync(join(proj, 'pharn-review'), 'a file, not a dir');
     expect(linkedComponent(proj, flat, N1)).toBeNull();

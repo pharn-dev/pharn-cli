@@ -39,8 +39,9 @@ import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { readSkillsVersion } from '../lib/skills-version.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
-  assertConfigUnchanged,
-  loadArchetypeConfigOrExit,
+  assertConfigFingerprintUnchanged,
+  configFingerprint,
+  loadArchetypeConfig,
   writePharnConfig,
 } from '../lib/pharn-config.js';
 import type {
@@ -53,12 +54,24 @@ import type {
 // archetype project. Bare `pharn add` in a terminal opens a grouped multi-select
 // over the not-yet-installed capabilities — sugar over the SAME per-name install
 // path (resolveArchetypeAdd). Non-TTY keeps a usage error.
+//
+// THE SINGLE-WRITER LOCK is taken FIRST — before the config is read or the
+// network touched — and held to the last write, across the picker's prompt
+// too, so a run that will be refused pays nothing and reads no config.
 export async function runAdd(capabilityArg: string | undefined): Promise<void> {
   intro('pharn add');
 
   const cwd = process.cwd();
-  const config = loadArchetypeConfigOrExit(cwd);
-  await runArchetypeAdd(config, cwd, capabilityArg);
+  try {
+    await withProjectLock(cwd, 'add', () => {
+      // Taken BEFORE the read: checked again before the first write.
+      const fingerprint = configFingerprint(cwd);
+      const config = loadArchetypeConfig(cwd);
+      return runArchetypeAdd(config, cwd, capabilityArg, fingerprint);
+    });
+  } catch (err) {
+    throw addError(err);
+  }
 }
 
 // THE VERSION GATE. The clone can be ahead of (or behind) what this project
@@ -138,79 +151,75 @@ function layoutGate(repoDir: string, config: PharnConfig): string | null {
 // Install one capability into an archetype project (a manual override of
 // archetype auto-selection). Appends to `capabilities`, never touches
 // `archetypes`. A refusal or failure is THROWN as a CliError, so the clone's
-// `finally` and the lock's release run on the way out.
+// `finally` and the lock's release run on the way out. Runs under the lock.
 async function runArchetypeAdd(
   config: PharnConfig,
   cwd: string,
   arg: string | undefined,
+  fingerprint: string,
 ): Promise<void> {
   // Bare invocation → interactive picker (in a TTY) or a usage error (non-TTY).
   if (arg === undefined) {
-    await runAddPicker(config, cwd);
+    await runAddPicker(config, cwd, fingerprint);
     return;
   }
 
   const parsed = parseCapabilityArg(arg);
   if (parsed.error) throw CliError.error(parsed.error);
 
+  // The fetch is inside the lock, so a fetch failure unwinds through
+  // withProjectLock's `finally` and releases it.
+  //
+  // Cost: an UNKNOWN or AMBIGUOUS name is resolved against the index in the
+  // clone, so under a held lock `pharn add bogus` reports the lock instead of
+  // listing valid addresses.
+  //
+  // The proxy notice (fetch never uses a proxy) goes before the spinner so it
+  // survives the frame; inside the lock, so a refused run does not print it.
+  const proxyNotice = detectProxyNotice(process.env);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice));
+  }
+
+  const s = spinner();
+  s.start(`Fetching capabilities from ${REPO_URL}`);
+  let repo;
+  try {
+    // The channel the config records — `add` has no `--ref` of its own.
+    repo = await fetchRepo(await resolveSource(channelOf(config)));
+    s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
+  } catch (err) {
+    s.stop('Failed to fetch capabilities');
+    // Unwinds through the lock's release; runAdd's catch labels it.
+    throw err;
+  }
   let result: AddResult;
   try {
-    // The lock is taken BEFORE the fetch, so a refused run downloads nothing;
-    // this path has no prompt. The fetch is inside `fn` so a fetch failure
-    // unwinds through withProjectLock's `finally` and releases the lock.
-    //
-    // Cost: an UNKNOWN or AMBIGUOUS name is resolved against the index in the
-    // clone, so under a held lock `pharn add bogus` reports the lock instead of
-    // listing valid addresses. Errors decidable without the clone still win.
-    result = await withProjectLock(cwd, 'add', async () => {
-      assertConfigUnchanged(cwd, config, 'add');
-      // The proxy notice (fetch never uses a proxy) goes before the spinner so
-      // it survives the frame; inside the lock, so a refused run does not print it.
-      const proxyNotice = detectProxyNotice(process.env);
-      if (proxyNotice) {
-        log.warn(proxyNoticeMessage(proxyNotice));
-      }
-
-      const s = spinner();
-      s.start(`Fetching capabilities from ${REPO_URL}`);
-      let repo;
-      try {
-        // The channel the config records — `add` has no `--ref` of its own.
-        repo = await fetchRepo(await resolveSource(channelOf(config)));
-        s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
-      } catch (err) {
-        s.stop('Failed to fetch capabilities');
-        // Unwinds through the lock's release; the catch below labels it.
-        throw err;
-      }
-      try {
-        // `??` chain: short-circuit evaluation makes the order of the gates
-        // structural. Version wins over layout when both mismatch, since
-        // `pharn update` fixes both in one pass.
-        const gate = minCliGate(repo.dir, PHARN_VERSION);
-        if (gate.warning) log.warn(gate.warning);
-        // MIN_CLI leads: a CLI too old for this content cannot be fixed by
-        // `pharn update` (refused for the same reason), so upgrading is the
-        // message the user must see.
-        const refusal =
-          gate.refusal ??
-          versionGate(repo.dir, config, repo.source) ??
-          layoutGate(repo.dir, config);
-        if (refusal) throw CliError.refusal(refusal);
-        return await resolveArchetypeAdd(
-          repo.dir,
-          repo.sha,
-          config,
-          cwd,
-          parsed,
-          arg,
-        );
-      } finally {
-        repo.cleanup();
-      }
-    });
-  } catch (err) {
-    throw addError(err);
+    // `??` chain: short-circuit evaluation makes the order of the gates
+    // structural. Version wins over layout when both mismatch, since
+    // `pharn update` fixes both in one pass.
+    const gate = minCliGate(repo.dir, PHARN_VERSION);
+    if (gate.warning) log.warn(gate.warning);
+    // MIN_CLI leads: a CLI too old for this content cannot be fixed by
+    // `pharn update` (refused for the same reason), so upgrading is the
+    // message the user must see.
+    const refusal =
+      gate.refusal ??
+      versionGate(repo.dir, config, repo.source) ??
+      layoutGate(repo.dir, config);
+    if (refusal) throw CliError.refusal(refusal);
+    // No prompt on this path, but the same one check before the first write.
+    assertConfigFingerprintUnchanged(cwd, fingerprint, 'add');
+    result = await resolveArchetypeAdd(
+      repo.dir,
+      repo.sha,
+      config,
+      cwd,
+      parsed,
+      arg,
+    );
+  } finally {
+    repo.cleanup();
   }
 
   // A curated refusal from the resolver (unknown, ambiguous, a symlinked dir).
@@ -231,7 +240,11 @@ async function runArchetypeAdd(
 // Non-TTY (CI, a pipe) → NEVER prompt: a usage error + exit(1), before any
 // fetch. In a TTY, fetch once, then resolve the picker, with cleanup in a
 // finally.
-async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
+async function runAddPicker(
+  config: PharnConfig,
+  cwd: string,
+  fingerprint: string,
+): Promise<void> {
   if (
     !interactiveAllowed({
       stdinIsTTY: process.stdin.isTTY,
@@ -243,58 +256,51 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     );
   }
 
-  let outcome: PickerAddOutcome;
-  try {
-    // ONE lock for the whole selection loop: resolveArchetypeAdd persists config
-    // and records on every pick, so a per-pick lock would let another process
-    // interleave between picks. Taken before the fetch, like the named path.
-    // This path holds the lock across a human prompt (groupMultiselect); the
-    // download only adds a bounded wait to that hold.
-    outcome = await withProjectLock(cwd, 'add', async () => {
-      assertConfigUnchanged(cwd, config, 'add');
-      // The proxy notice goes before the spinner so it survives the frame.
-      const proxyNotice = detectProxyNotice(process.env);
-      if (proxyNotice) {
-        log.warn(proxyNoticeMessage(proxyNotice));
-      }
-
-      const s = spinner();
-      s.start(`Fetching capabilities from ${REPO_URL}`);
-      let repo;
-      try {
-        // The channel the config records — `add` has no `--ref` of its own.
-        repo = await fetchRepo(await resolveSource(channelOf(config)));
-        s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
-      } catch (err) {
-        s.stop('Failed to fetch capabilities');
-        throw err;
-      }
-      try {
-        // Same gate chain as the named path; it runs before resolveAddPicker so
-        // the user is never refused after picking.
-        const gate = minCliGate(repo.dir, PHARN_VERSION);
-        if (gate.warning) log.warn(gate.warning);
-        const refusal =
-          gate.refusal ??
-          versionGate(repo.dir, config, repo.source) ??
-          layoutGate(repo.dir, config);
-        if (refusal) throw CliError.refusal(refusal);
-        return await resolveAddPicker(
-          repo.dir,
-          repo.sha,
-          config,
-          cwd,
-          resolveArchetypeAdd,
-        );
-      } finally {
-        repo.cleanup();
-      }
-    });
-  } catch (err) {
-    throw addError(err);
+  // ONE lock (runAdd's) spans the whole selection loop: resolveArchetypeAdd
+  // persists config and records on every pick, so another process cannot
+  // interleave between picks.
+  // The proxy notice goes before the spinner so it survives the frame.
+  const proxyNotice = detectProxyNotice(process.env);
+  if (proxyNotice) {
+    log.warn(proxyNoticeMessage(proxyNotice));
   }
 
-  if (outcome.kind === 'error') throw CliError.refusal(outcome.message);
+  const s = spinner();
+  s.start(`Fetching capabilities from ${REPO_URL}`);
+  let repo;
+  try {
+    // The channel the config records — `add` has no `--ref` of its own.
+    repo = await fetchRepo(await resolveSource(channelOf(config)));
+    s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
+  } catch (err) {
+    s.stop('Failed to fetch capabilities');
+    throw err;
+  }
+  let outcome: PickerAddOutcome;
+  try {
+    // Same gate chain as the named path; it runs before resolveAddPicker so
+    // the user is never refused after picking.
+    const gate = minCliGate(repo.dir, PHARN_VERSION);
+    if (gate.warning) log.warn(gate.warning);
+    const refusal =
+      gate.refusal ??
+      versionGate(repo.dir, config, repo.source) ??
+      layoutGate(repo.dir, config);
+    if (refusal) throw CliError.refusal(refusal);
+    outcome = await resolveAddPicker(
+      repo.dir,
+      repo.sha,
+      config,
+      cwd,
+      resolveArchetypeAdd,
+      // After the multi-select, before the first pick writes anything: a
+      // config edited while the menu was open is not overwritten.
+      () => assertConfigFingerprintUnchanged(cwd, fingerprint, 'add'),
+    );
+  } finally {
+    repo.cleanup();
+  }
+
   if (outcome.kind === 'all-installed') {
     outro('All available capabilities are already installed.');
     return;

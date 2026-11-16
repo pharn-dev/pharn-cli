@@ -2,7 +2,6 @@ import {
   buildUpdatePlan,
   CapabilityRemovalError,
   type PlannedUpdate,
-  type UpdatePlanReport,
 } from '../lib/update-plan.js';
 import { deleteCapabilityDir } from '../lib/capability-dir.js';
 import { nextConfig, nextRecordStore } from '../lib/update-next.js';
@@ -43,7 +42,8 @@ import { interactiveAllowed } from '../lib/capability-picker.js';
 import { runNodePrereq } from '../steps/node-prereq.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
-import { applyWrites, ApplyError } from '../lib/apply-update.js';
+import { applyWrites, ApplyError, changedSince } from '../lib/apply-update.js';
+import { removalBackupsNow } from '../lib/capability-removal.js';
 import { BACKUP_DIR, createBackup, legacyBackupNotice } from '../lib/backup.js';
 import {
   applyGitignore,
@@ -84,8 +84,9 @@ import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { fetchRemoteSkillsVersion } from '../lib/skills-version.js';
 import { row } from '../lib/format.js';
 import {
-  assertConfigUnchanged,
-  loadArchetypeConfigOrExit,
+  assertConfigFingerprintUnchanged,
+  configFingerprint,
+  loadArchetypeConfig,
   writePharnConfig,
 } from '../lib/pharn-config.js';
 import type { PharnConfig } from '../types.js';
@@ -102,6 +103,11 @@ import type { PharnConfig } from '../types.js';
 // find capabilities by scanning those directories, so a dropped entry's
 // directory would keep running and be unreachable by `pharn remove`.
 // `.claude/settings.json` is never written.
+//
+// A real run takes the project lock FIRST — before the config is read or the
+// network touched — and holds it across the plan, the confirm and the writes,
+// so it plans once and a second pharn writer is refused meanwhile. A dry run
+// takes no lock.
 export async function runUpdate(
   opts: {
     force?: boolean;
@@ -126,7 +132,38 @@ export async function runUpdate(
   runNodePrereq('update', { json });
 
   const cwd = process.cwd();
-  const config = loadArchetypeConfigOrExit(cwd, { json });
+  const run = (): Promise<void> =>
+    updateProject(cwd, { ...opts, dryRun, json, compact });
+  if (dryRun) {
+    await run();
+    return;
+  }
+  try {
+    await withProjectLock(cwd, 'update', run);
+  } catch (err) {
+    // Another run holds the lock: a policy refusal, nothing read or fetched.
+    if (err instanceof ProjectLockedError) throw CliError.refusal(err.message);
+    throw err;
+  }
+}
+
+// Everything after the Node floor; a real run calls it under the project lock.
+async function updateProject(
+  cwd: string,
+  opts: {
+    force?: boolean;
+    yes?: boolean;
+    ref?: RefChoice;
+    dryRun: boolean;
+    json: boolean;
+    compact: boolean;
+  },
+): Promise<void> {
+  const { dryRun, json, compact } = opts;
+  // Taken BEFORE the read: the bytes this run planned against, checked again
+  // after the confirm and before the first write.
+  const fingerprint = configFingerprint(cwd);
+  const config = loadArchetypeConfig(cwd, { json });
 
   // Non-TTY (CI, a pipe) → hard-fail before any network call, never a prompt
   // into the void: the confirm would cancel on stream end with exit 0, a
@@ -162,6 +199,7 @@ export async function runUpdate(
     dryRun,
     json,
     compact,
+    fingerprint,
   );
 }
 
@@ -174,6 +212,7 @@ async function runArchetypeUpdate(
   dryRun: boolean,
   json: boolean,
   compact: boolean,
+  fingerprint: string,
 ): Promise<void> {
   // The proxy notice is emitted ONCE, above both spinners (a log.warn into a
   // live clack spinner frame is overwritten), so it precedes EVERY fetch this
@@ -415,19 +454,18 @@ async function runArchetypeUpdate(
       ].join('\n'),
     );
 
-  // The preview stops here, ahead of the confirm, the lock and every write; it
-  // shares the gates above and the planner below, nothing else.
+  // The preview stops here, ahead of the confirm and every write; it shares
+  // the gates above and the planner below, nothing else.
   if (dryRun) {
     await runDryRun(config, cwd, force, channel, source, json, latest, compact);
     return;
   }
-  // THE PLAN SNAPSHOT — fetched and planned BEFORE the confirm, so the confirm
-  // can name the capabilities this run adds and drops and the directories it
-  // deletes, and a failed download, a MIN_CLI refusal or a refused drop exits 1
-  // before the user is asked. Stated cost: a cancelled confirm (or a lock
-  // refusal) has already downloaded the tarball. The TTY gate still precedes
-  // every network call, and the lock is still taken only AFTER the confirm, so
-  // no prompt is held under it. The clone is removed in the `finally` below.
+  // THE PLAN — fetched and planned ONCE, under the lock and BEFORE the confirm,
+  // so the confirm names the capabilities this run adds and drops and the
+  // directories it deletes, a failed download, a MIN_CLI refusal or a refused
+  // drop exits 1 before the user is asked, and what is confirmed is what is
+  // applied. Stated cost: a cancelled confirm has already downloaded the
+  // tarball. The clone is removed in the `finally` below.
   const pre = spinner();
   pre.start(`Planning from ${REPO_URL}`);
   let repo: FetchedRepo;
@@ -448,11 +486,9 @@ async function runArchetypeUpdate(
       json: false,
     });
     if (planned.report.changesNothing) {
-      // THE PLAN CHANGES NOTHING (lib/update-next.ts): no confirm, no lock, no
-      // backup, no rewrite of pharn.config.json (no updatedAt churn). Every
-      // note still prints — a kept edit is worth naming on every run. Skipping
-      // the lock is safe because nothing is written; the opposite race (the
-      // locked re-plan changes nothing) is applyPlannedUpdate's own check.
+      // THE PLAN CHANGES NOTHING (lib/update-next.ts): no confirm, no backup,
+      // no rewrite of pharn.config.json (no updatedAt churn). Every note still
+      // prints — a kept edit is worth naming on every run.
       outcome = unchangedOutcome(planned);
     } else {
       const confirmed = planned.report;
@@ -480,22 +516,19 @@ async function runArchetypeUpdate(
         });
         if (isCancel(ok) || ok !== true) throw CliError.cancel();
       }
-      outcome = await applyUnderLock(confirmed, {
+      outcome = await applyConfirmed(planned, {
         config,
         cwd,
-        force,
         channel,
-        repo,
+        repoDir: repo.dir,
+        fingerprint,
       });
     }
   } catch (err) {
-    // A held lock, or a drop the PLANNER refuses to delete safely, is a POLICY
-    // refusal: no PHARN_DEBUG hint, the message names the action. A CliError
-    // thrown above (a refusal, the cancel) passes through.
-    if (
-      err instanceof ProjectLockedError ||
-      err instanceof CapabilityRemovalError
-    )
+    // A drop that cannot be deleted safely is a POLICY refusal: no PHARN_DEBUG
+    // hint, the message names the action. A CliError thrown above (a refusal,
+    // the cancel) passes through.
+    if (err instanceof CapabilityRemovalError)
       throw CliError.refusal(err.message);
     throw CliError.failure(err);
   } finally {
@@ -527,124 +560,92 @@ function confirmMessage(force: boolean, deletes: number): string {
   return `${base} It deletes ${deletes} capability director${deletes === 1 ? 'y' : 'ies'}.`;
 }
 
-// What the confirm named, as comparable keys: every membership change and
-// every directory the run deletes (disk-dependent, so guarded too).
-function membershipKeys(r: UpdatePlanReport): string[] {
+// The most changed files a refusal names before "…and N more".
+const MAX_CHANGED_SHOWN = 10;
+
+// The refusal for planned writes whose file changed while the confirm was open.
+// Skipping them and going on would leave the rest of the plan's decisions
+// (the version bump, the executable-unit hold, the root migration) resting on
+// bytes that are no longer there, so the run stops with nothing written; the
+// next run plans the edit as `modified` and keeps it.
+function changedWhileWaiting(changed: readonly string[]): string {
+  const shown = changed
+    .slice(0, MAX_CHANGED_SHOWN)
+    .map((rel) => `  ${terminalSafe(rel)}`);
+  const more = changed.length - shown.length;
   return [
-    ...r.capabilityChanges.map(
-      (c) => `${c.reason} ${c.cap.role}:${c.cap.name}`,
-    ),
-    ...r.removals.filter((x) => x.present).map((x) => `delete ${x.dir}/`),
-    // What the root migration deletes, named before the confirm.
-    ...(r.rootMigration?.docs ?? [])
-      .filter((d) => d.action === 'delete')
-      .map((d) => `delete ${d.rel}`),
-  ];
+    `${changed.length === 1 ? 'A file' : `${changed.length} files`} changed while \`pharn update\` was waiting for your answer:`,
+    ...shown,
+    ...(more > 0 ? [`  …and ${more} more`] : []),
+    'Nothing was written, and your edit is kept. Run `pharn update` again: it plans the file as changed by you and leaves it alone (or, with --force, backs it up first).',
+  ].join('\n');
 }
 
-// THE MEMBERSHIP GUARD: the plan made under the lock must change exactly what
-// the confirm showed. The change list is equal by construction (same config,
-// same clone); the deleted-directory set can move with the disk. An equality
-// test, so "what you confirmed is what is applied" rests on no argument.
-// `null` when they agree.
-function membershipDrift(
-  confirmed: UpdatePlanReport,
-  now: UpdatePlanReport,
-): string | null {
-  const before = membershipKeys(confirmed);
-  const after = membershipKeys(now);
-  if (
-    before.length === after.length &&
-    before.every((key, i) => key === after[i])
-  )
-    return null;
-  const shown = before.filter((key) => !after.includes(key));
-  const added = after.filter((key) => !before.includes(key));
-  const list = (keys: string[]): string =>
-    keys.length > 0 ? keys.join(', ') : '(nothing)';
-  return `The capabilities this update would change are no longer what you confirmed — shown but not planned now: ${list(shown)}; planned now but not shown: ${list(added)}. Nothing was changed. Run \`pharn update\` again.`;
-}
-
-// Everything under the project lock: re-plan, membership guard, writes. Throws
-// a CliError refusal when the guard refuses.
-async function applyUnderLock(
-  confirmed: UpdatePlanReport,
+// The writes of the plan the user confirmed, still under the lock taken before
+// the plan. First the write-time checks for what may have changed while the
+// confirm was open: pharn.config.json (its fingerprint) and every file the
+// plan writes (its hash at plan time). Either refuses with nothing written.
+async function applyConfirmed(
+  planned: PlannedUpdate,
   ctx: {
     config: PharnConfig;
     cwd: string;
-    force: boolean;
     channel: RefChoice;
-    repo: FetchedRepo;
+    repoDir: string;
+    fingerprint: string;
   },
 ): Promise<UpdateOutcome> {
-  const { config, cwd, force, channel, repo } = ctx;
-  // THE SINGLE-WRITER LOCK — taken AFTER the confirm: holding it across an
-  // unanswered prompt would block every other pharn run for as long as a human
-  // takes. What runs under it is bounded local work. (`init` cannot have this
-  // shape: both its prompts sit between its fetch and its install.)
-  return withProjectLock(cwd, 'update', async () => {
-    // The config was read before the lock; refuse if another run rewrote it.
-    // Before the spinner, so a refused run never renders a frame.
-    assertConfigUnchanged(cwd, config, 'update');
-    let s = spinner();
-    s.start('Updating');
-    // Set the moment a backup exists: everything after createBackup can throw,
-    // and the user's bytes have already moved. (`as`: a `let` assigned only in
-    // the callback below would otherwise stay narrowed to `null`.)
-    let backup = null as Backup | null;
-    try {
-      // AUTHORITATIVE: re-decided from disk under the lock; the snapshot was a
-      // preview. No warning callback: the snapshot already logged it.
-      const planned = buildUpdatePlan({
-        repoDir: repo.dir,
-        sha: repo.sha,
-        config,
-        cwd,
-        force,
-        channel,
-      });
-      const drift = membershipDrift(confirmed, planned.report);
-      if (drift !== null) throw CliError.refusal(drift);
-      const applied = await applyPlannedUpdate(
-        planned,
-        config,
-        cwd,
-        repo.dir,
-        channel,
-        (written) => {
-          backup = written;
-          // Named the moment it exists: everything after it can throw, and
-          // this pointer is the user's only route back. The spinner is stopped
-          // first (a line logged under clack's spinner is glued to its frame,
-          // and in a narrow terminal erased by its stop), then a new one is
-          // started.
-          s.stop('Backup written');
-          reportBackup(written, { aborted: false });
-          s = spinner();
-          s.start('Writing files');
-        },
-      );
-      s.stop(
-        applied.unchanged
-          ? 'Nothing to change'
-          : applied.plan.writes.length
-            ? 'Capabilities updated'
-            : 'Nothing to write',
-      );
-      return applied;
-    } catch (err) {
-      const refused =
-        err instanceof CliError || err instanceof CapabilityRemovalError;
-      s.stop(refused ? 'Update refused' : 'Update failed');
-      if (refused || backup === null) throw err;
-      // Past the backup the originals may already be overwritten, and the
-      // success report never runs: name the failure, then the backup, as the
-      // last lines of the run.
-      reportFatal(errorMessage(err), { err });
-      reportBackup(backup, { aborted: true });
-      throw CliError.reported();
-    }
-  });
+  const { config, cwd, channel, repoDir, fingerprint } = ctx;
+  // Before the spinner, so a refused run never renders a frame.
+  assertConfigFingerprintUnchanged(cwd, fingerprint, 'update');
+  const changed = changedSince(
+    cwd,
+    planned.apply.seen,
+    planned.report.writes,
+    planned.apply.expected,
+  );
+  if (changed.length > 0) throw CliError.refusal(changedWhileWaiting(changed));
+  let s = spinner();
+  s.start('Updating');
+  // Set the moment a backup exists: everything after createBackup can throw,
+  // and the user's bytes have already moved. (`as`: a `let` assigned only in
+  // the callback below would otherwise stay narrowed to `null`.)
+  let backup = null as Backup | null;
+  try {
+    const applied = await applyPlannedUpdate(
+      planned,
+      config,
+      cwd,
+      repoDir,
+      channel,
+      (written) => {
+        backup = written;
+        // Named the moment it exists: everything after it can throw, and this
+        // pointer is the user's only route back. The spinner is stopped first
+        // (a line logged under clack's spinner is glued to its frame, and in a
+        // narrow terminal erased by its stop), then a new one is started.
+        s.stop('Backup written');
+        reportBackup(written, { aborted: false });
+        s = spinner();
+        s.start('Writing files');
+      },
+    );
+    s.stop(
+      applied.plan.writes.length ? 'Capabilities updated' : 'Nothing to write',
+    );
+    return applied;
+  } catch (err) {
+    const refused =
+      err instanceof CliError || err instanceof CapabilityRemovalError;
+    s.stop(refused ? 'Update refused' : 'Update failed');
+    if (refused || backup === null) throw err;
+    // Past the backup the originals may already be overwritten, and the
+    // success report never runs: name the failure, then the backup, as the
+    // last lines of the run.
+    reportFatal(errorMessage(err), { err });
+    reportBackup(backup, { aborted: true });
+    throw CliError.reported();
+  }
 }
 
 // The write half: back up, write, persist. The decisions were made by
@@ -662,14 +663,18 @@ async function applyPlannedUpdate(
   const { report, apply } = planned;
   const { expected, records, plan, models } = apply;
 
-  // Checked again here: this plan is the authoritative one made under the lock.
-  if (report.changesNothing) return unchangedOutcome(planned);
-
   // Back up EVERY about-to-be-clobbered file before a single original is
   // touched; a failure here aborts with the tree intact. ONE directory per run:
   // the `--force` casualties (the whole config for a forced models block) and
-  // the unproven files of every dropped capability directory, de-duplicated.
-  const removalBackups = report.removals.flatMap((r) => r.backups);
+  // the unproven files of every dropped capability directory, de-duplicated —
+  // that set read again now, so a file edited in a dropped directory while
+  // the confirm was open is saved too.
+  const removalBackups = removalBackupsNow({
+    cwd,
+    removals: report.removals,
+    records,
+    command: 'update',
+  });
   const backupRels = [...new Set([...report.backups, ...removalBackups])];
   // "removing" whenever a directory will be deleted, even with nothing to copy,
   // so an aborted run never under-reports what may already be gone.
@@ -696,12 +701,16 @@ async function applyPlannedUpdate(
       deleteCapabilityDir(cwd, apply.removalPaths, removal.cap);
   }
 
+  // `seen`: a file changed after applyConfirmed's check (the instant before
+  // its own write) is left unwritten and keeps its old record.
   let written: string[];
+  let unwritten: string[];
   try {
-    ({ written } = applyWrites({
+    ({ written, changed: unwritten } = applyWrites({
       projectRoot: cwd,
       expected,
       writes: plan.writes,
+      seen: apply.seen,
     }));
   } catch (err) {
     // Files pharn just wrote MUST be recorded even on a partial failure, or the
@@ -737,7 +746,11 @@ async function applyPlannedUpdate(
   // the copy, so a record cannot disagree with what landed.
   await writeRecords(
     cwd,
-    nextRecordStore(apply, { written: buildRecords(cwd, written), retired }),
+    nextRecordStore(apply, {
+      written: buildRecords(cwd, written),
+      retired,
+      unwritten,
+    }),
   );
   await writePharnConfig(
     cwd,

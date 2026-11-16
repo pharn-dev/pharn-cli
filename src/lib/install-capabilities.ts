@@ -135,9 +135,10 @@ export interface PreparedInstall {
  * every project the copy could not finish in — a path through a symlink or a
  * type in the way. Read-only; throws ManifestValidationError.
  *
- * Exported so `init` can run it before its backup (a refused install writes
- * nothing, `pharn/.backup/` included); `installCapabilities` runs it again, so
- * no caller can copy without it. `manifest` absent → computed here.
+ * Exported so `init`'s plan runs it once, before any prompt (a refused install
+ * writes nothing, `pharn/.backup/` included) and hands the result to
+ * `installPrepared`; `installCapabilities` runs it itself. `manifest` absent →
+ * computed here.
  */
 export function prepareInstall(
   repoDir: string,
@@ -161,21 +162,38 @@ export function prepareInstall(
   return { paths, manifest: expected };
 }
 
+/** The pre-flight, then the copy: what every caller without a plan uses. */
 export function installCapabilities(
   repoDir: string,
   projectRoot: string,
   selection: Selection,
-  // The pre-flight runs here either way, before the first write.
   manifest?: ReadonlyMap<string, string>,
   // The destination hashes the caller's scan saw (lib/dest-drift.ts).
   seen?: ReadonlyMap<string, string | null>,
 ): InstallCapabilitiesResult {
-  const prepared = prepareInstall(
+  return installPrepared(
     repoDir,
     projectRoot,
-    selection.selected,
-    manifest,
+    selection,
+    prepareInstall(repoDir, projectRoot, selection.selected, manifest),
+    seen,
   );
+}
+
+/**
+ * The copy over a destination `prepareInstall` already checked — init's one
+ * plan runs the pre-flight before its prompts and hands its result here, so it
+ * is not run twice. Between the two, the writer's own per-file symlink walk is
+ * the backstop. Residual: a type collision that appears while a prompt is open
+ * fails the write part-way, and the ApplyError names the files that landed.
+ */
+export function installPrepared(
+  repoDir: string,
+  projectRoot: string,
+  selection: Selection,
+  prepared: PreparedInstall,
+  seen?: ReadonlyMap<string, string | null>,
+): InstallCapabilitiesResult {
   assertCapabilitySources(repoDir, selection.selected, prepared.paths);
 
   // --- settings.json, last: NEVER overwrite the user's existing one ----------

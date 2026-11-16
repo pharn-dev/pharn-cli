@@ -88,6 +88,8 @@ import {
   modelsRecordHash,
 } from '../../src/lib/install-records.js';
 import { PHARN_VERSION } from '../../src/version.js';
+// Spied on (never mocked) to count planner calls per run.
+import * as updatePlanModule from '../../src/lib/update-plan.js';
 
 // A pass-through `node:fs/promises` whose `rename` a test can intercept: the
 // state files (pharn.config.json, pharn.records.json) are written temp-then-
@@ -1295,15 +1297,6 @@ function isolateClones(): { dir: string; list: () => string[] } {
   return { dir, list: () => readdirSync(dir) };
 }
 
-/** The one file under `dir` whose path ends with `suffix`. */
-function findUnder(dir: string, suffix: string): string {
-  const hits = (readdirSync(dir, { recursive: true }) as string[])
-    .map((rel) => join(dir, rel))
-    .filter((p) => p.endsWith(suffix));
-  expect(hits).toHaveLength(1);
-  return hits[0]!;
-}
-
 /** Every spinner start/stop, in call order. */
 function spinnerEvents(): string[] {
   const events: [number, string][] = [];
@@ -1568,6 +1561,60 @@ describe('the confirm', () => {
         commit: SHA_V2,
       });
       expect(lastOutro()).not.toBe('');
+    },
+  );
+
+  // C5.2: the lock is taken before the plan and held across the confirm, so
+  // the run plans ONCE — the confirmed plan is the applied plan.
+  it.each([
+    ['answered at the confirm', false],
+    ['--yes', true],
+  ])('plans exactly once per run (%s)', async (_l, yes) => {
+    await bumped();
+    const planner = vi.spyOn(updatePlanModule, 'buildUpdatePlan');
+    if (yes) setTTY(false, false);
+    else interactive({ confirm: [true] });
+    expect(await run(() => runUpdate({ yes }))).toBeNull();
+    expect(planner).toHaveBeenCalledTimes(1);
+    expect(read(SECURITY)).toContain('security 2.0.0');
+  });
+
+  it.each([
+    ['', {}],
+    [' (--force too)', { force: true }],
+  ])(
+    'a file edited while the confirm is open stops the run before anything is written%s',
+    async (_l, opts) => {
+      await bumped();
+      const cfg = read('pharn.config.json');
+      const rec = read('pharn.records.json');
+      setTTY(true, true);
+      vi.mocked(clack.confirm).mockImplementationOnce(async () => {
+        write(CONSTITUTION, 'edited while the confirm was open\n');
+        return true;
+      });
+      expect(await run(() => runUpdate(opts))).toBe(1);
+      // The edit is kept, and nothing else moved: no file, record, config or
+      // backup — the confirmed plan no longer describes the disk.
+      expect(read(CONSTITUTION)).toBe('edited while the confirm was open\n');
+      expect(read(SECURITY)).toContain('security 1.0.0');
+      expect(read('pharn.config.json')).toBe(cfg);
+      expect(read('pharn.records.json')).toBe(rec);
+      expect(exists('pharn/.backup')).toBe(false);
+      expect(exists('pharn/.lock')).toBe(false);
+      const said = printed();
+      expect(said).toContain(
+        'A file changed while `pharn update` was waiting for your answer:',
+      );
+      expect(said).toContain(`  ${CONSTITUTION}`);
+      expect(said).toContain('Nothing was written, and your edit is kept.');
+      expect(said).not.toContain(DEBUG_HINT);
+
+      // The re-run plans the edit as the user's and keeps it.
+      clearOutput();
+      expect(await updateYes()).toBeNull();
+      expect(read(CONSTITUTION)).toBe('edited while the confirm was open\n');
+      expect(read(SECURITY)).toContain('security 2.0.0');
     },
   );
 });
@@ -2301,48 +2348,37 @@ describe('capability membership', () => {
     },
   );
 
-  it('refuses when the locked re-plan would delete a directory the confirm did not show', async () => {
+  it('a directory that comes back while the confirm is open is not deleted (the plan did not name it)', async () => {
     await droppedA11y(false);
     rmSync(at(A11Y_DIR), { recursive: true });
-    const cfg = read('pharn.config.json');
-    const rec = read('pharn.records.json');
     setTTY(true, true);
     vi.mocked(clack.confirm).mockImplementationOnce(async () => {
       write(A11Y_NOTES, 'my notes\n'); // the directory comes back meanwhile
       return true;
     });
-    expect(await run(() => runUpdate())).toBe(1);
+    expect(await run(() => runUpdate())).toBeNull();
+    // What was confirmed is what is applied: the drop is recorded, and the
+    // directory the plan saw absent is left alone with the notes in it.
     expect(read(A11Y_NOTES)).toBe('my notes\n');
-    expect(read('pharn.config.json')).toBe(cfg);
-    expect(read('pharn.records.json')).toBe(rec);
+    expect(config().capabilities.map((c) => c.name)).not.toContain('a11y');
     expect(exists('pharn/.backup')).toBe(false);
-    const said = printed();
-    expect(said).toContain('no longer what you confirmed');
-    expect(said).toContain(`delete ${A11Y_DIR}/`);
-    expect(said).not.toContain(DEBUG_HINT);
+    expect(printed()).not.toContain(DEBUG_HINT);
   });
 
-  it('refuses when the membership itself differs under the lock, naming both sides', async () => {
-    await droppedA11y();
-    const clones = isolateClones();
+  it('a file added to a dropped directory while the confirm is open is backed up before the delete', async () => {
+    await droppedA11y(false);
     setTTY(true, true);
     vi.mocked(clack.confirm).mockImplementationOnce(async () => {
-      // The clone the locked re-plan reads now selects a11y for every archetype.
-      writeFileSync(
-        findUnder(clones.dir, 'grillers/a11y/a11y.md'),
-        capability('griller', '["universal"]', 'a11y'),
-      );
+      write(A11Y_NOTES, 'written while the confirm was open\n');
       return true;
     });
-    expect(await run(() => runUpdate())).toBe(1);
-    expect(exists(A11Y_DIR)).toBe(true);
-    expect(config().skillsVersion).toBe('1.0.0');
-    const said = printed();
-    expect(said).toContain(
-      'shown but not planned now: dropped-unselected griller:a11y',
+    expect(await run(() => runUpdate())).toBeNull();
+    expect(exists(A11Y_DIR)).toBe(false);
+    expect(backupFiles()).toContain(A11Y_NOTES);
+    const dir = `pharn/.backup/${readdirSync(at('pharn/.backup'))[0]!}`;
+    expect(read(`${dir}/${A11Y_NOTES}`)).toBe(
+      'written while the confirm was open\n',
     );
-    expect(said).toContain('Nothing was changed');
-    expect(clones.list()).toEqual([]);
   });
 
   it('adds a newly selected capability, named before the confirm (default Yes), even when a skip withholds the bump', async () => {
@@ -2973,11 +3009,11 @@ describe('a run that changes nothing asks nothing and writes nothing', () => {
     expect(lastOutro()).toContain('Nothing to change.');
   });
 
-  it('writes nothing when the plan under the lock changes nothing; plans, asks and writes when it does', async () => {
+  it('a file put back with upstream bytes while the confirm is open is not an edit: the confirmed plan applies', async () => {
     await afterWithheld(upstreamTree7, {}, () => undefined);
     const cfg = read('pharn.config.json');
-    const rec = read('pharn.records.json');
     const hook = read(HOOK);
+    const hookRecord = records().files[HOOK];
     rmSync(at(HOOK));
     setTTY(true, true);
     vi.mocked(clack.confirm).mockImplementationOnce(async () => {
@@ -2986,15 +3022,13 @@ describe('a run that changes nothing asks nothing and writes nothing', () => {
     });
     expect(await run(() => runUpdate())).toBeNull();
     expect(clack.confirm).toHaveBeenCalledTimes(1);
-    expect(read('pharn.config.json')).toBe(cfg);
-    expect(read('pharn.records.json')).toBe(rec);
-    expect(lastOutro()).toContain('Nothing to change.');
-
-    rmSync(at(HOOK));
-    interactive({ confirm: [true] });
-    expect(await run(() => runUpdate())).toBeNull();
+    // Byte-identical to what the plan would write, so nothing is lost and the
+    // run is not refused; the record still names those bytes.
     expect(read(HOOK)).toBe(hook);
+    expect(records().files[HOOK]).toBe(hookRecord);
+    expect(records().files[HOOK]).toBe(sha256(HOOK));
     expect(config().updatedAt).not.toBe(JSON.parse(cfg).updatedAt);
+    expect(printed()).not.toContain('changed while `pharn update`');
   });
 });
 

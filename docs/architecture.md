@@ -29,14 +29,25 @@ and `rm` is an alias of `remove`.
   partner.
 - `pharn <cmd> --help` prints only that command's options, rendered from the same tables as the full `USAGE`.
 
+**The project lock first.** `init`, `add`, `remove`, `update` and `uninstall` take `pharn/.lock`
+(`lib/project-lock.ts`) right after the Node floor and the git prerequisite — before they read `pharn.config.json` or
+touch the network — and hold it to their last write, across the fetch, the plan and every prompt. So each plans
+**once**, and a second writer is refused with the holder's command and pid ("it may be waiting for input in another
+terminal"); a live same-host holder is never broken by age. Dry runs take no lock. What can still change while a prompt
+is open — a hand-edit, another program — is checked at write time, not re-planned: `pharn.config.json` against the
+fingerprint taken before its read (`assertConfigFingerprintUnchanged`, after the last prompt), each written file
+against the hash the plan saw (`applyWrites`' `seen`; `update` refuses before its first write via `changedSince`), each
+deleted directory's backup set re-read at the delete (`removalBackupsNow`) with its own symlink walk
+(`deleteCapabilityDir`), and `uninstall`'s `delete` bucket re-classified (`reclassifyDeletes`).
+
 **TTY gate.** `init`, `update`, `uninstall` and the bare `add`/`remove` pickers read `process.std*.isTTY` into the
-shared `interactiveAllowed` predicate and exit 1 off a TTY, so a dead stream never answers a prompt. In `init` and
-`update` the gate sits after the local promptless step (the git prerequisite, the config load) and before any network
-call.
+shared `interactiveAllowed` predicate and exit 1 off a TTY, so a dead stream never answers a prompt. In `init` the gate
+sits after the git prerequisite and before the lock; in the others it sits after the config load (so an uninitialized
+directory gets its actionable error), under the lock, and before any network call.
 
 - `update --yes` skips the confirm and nothing else.
 - `init --yes` skips only the summary confirm. It installs only when none of its write targets exists
-  (`assertNoExistingTargets`). An existing `pharn.config.json` is refused before the fetch (`existingConfigRefusal`).
+  (`refuseExistingTargets`, over the plan's targets). An existing `pharn.config.json` is refused before the fetch (`existingConfigRefusal`).
 - `uninstall --yes` skips its one confirm.
 - `remove` has no `--yes`: its named path never confirms, and the picker's one confirm is the destructive gate.
 
@@ -71,21 +82,24 @@ call.
    - an entry upstream ships but this CLI cannot parse is kept verbatim and listed in `frozenCapabilities`;
    - a manual entry upstream dropped is dropped and named;
    - user-owned top-level keys (everything outside `CLI_OWNED_KEYS`, `seam` included) are copied across.
-6. **Summary, pre-flight, prompt.** The summary prints the archetypes and where they came from. The install manifest is
-   computed once and shared by the pre-flight, the prompt and the copy. `preflightInstall` refuses an unfinishable
-   project before the overwrite prompt. `confirmWriteTargets` lists existing targets (default No). On a re-install it
-   marks exactly the files `update` would skip: `(edited)`, `(no pharn record)`, `(differs from upstream)`. Dropped
-   capabilities are listed under "will be DELETED".
-7. **Install** (`steps/install-archetype.ts`). Under the lock it re-checks the config fingerprint, re-runs the
-   pre-flight and the drift scan, then makes one `createBackup` (drift, the replaced config, and removed capabilities'
-   files). Then it deletes, copies, and writes records, config, `.gitignore` and `.prettierignore` lines.
+6. **Summary, plan, prompt.** The summary prints the archetypes and where they came from. After it is answered,
+   `buildInitPlan` (`lib/init-plan.ts`) runs ONCE: the manifest, the destination pre-flight (`prepareInstall`), one
+   `scanDest` over every manifest path (drift labels, the backup set and the hashes the writer compares with), the
+   dropped capabilities' removals and the root migration. It returns the dry run's JSON-safe `report` and an `apply`
+   half. `confirmWriteTargets` renders the plan's targets (default No). On a re-install it marks exactly the files
+   `update` would skip: `(edited)`, `(no pharn record)`, `(differs from upstream)`. Dropped capabilities are listed
+   under "will be DELETED".
+7. **Install** (`steps/install-archetype.ts`) consumes the plan: the config fingerprint check, one `createBackup`
+   (drift, the replaced config, and removed capabilities' files read again at the delete), the deletes, the copy
+   (`installPrepared`, which does not re-run the pre-flight), then records, config, `.gitignore` and `.prettierignore`
+   lines.
 
 `--archetype <list>` replaces detection. Detection still runs and is shown as "(not used)", and the override is
 recorded as `config.archetypes`, which `update` keeps. A re-run without the flag whose detection differs prints the
 previously recorded archetypes.
 
-**`init --dry-run [--json]`** runs steps 1–5 and `buildInitPlan`. That is read-only, and `planWriteTargets` is the same
-target and label computation the prompt uses. It skips the TTY gate, both prompts, the lock and every write function.
+**`init --dry-run [--json]`** runs steps 1–5 and `buildInitPlan`. That is read-only, and it is the same plan the real
+run's prompt and install consume. It skips the TTY gate, both prompts, the lock and every write function.
 `--json` prints one object (`lib/init-report.ts`, `INIT_SCHEMA_VERSION = 1`).
 
 ## The copy (`lib/install-capabilities.ts`)
@@ -99,16 +113,17 @@ target and label computation the prompt uses. It skips the TTY gate, both prompt
   capability dirs and the fixed surfaces, which are product `pharn-*` commands and agents (never `pharn-dev-*`),
   `.cjs`/`.mjs` hooks (never `*.test.*`), the trusted docs, upstream's `LICENSE` (to a pharn-owned name), the
   product-loop boundary contract, `pharn-contracts/`, `pharn-core`, and `.dev/floor/` minus its tests and test fixtures.
-- Both hand the writer the destination hashes `scanDest` saw. A file edited between that scan and its write is backed
-  up (one `createBackup`) and then written.
+- Both hand the writer the destination hashes `scanDest` saw (`init`: its plan's scan). A file edited between that
+  scan and its write — for `init`, while a prompt was open — is backed up (one `createBackup`) and then written.
 - A write that fails part-way names the files already written (the first ten, then a count) and writes no records and
   no config. The next run treats those files as unrecorded.
 - `.claude/settings.json` is never overwritten or merged. When none exists, upstream's is created with
   `COPYFILE_EXCL` and its hash recorded, so `uninstall` can remove it unchanged. A `HOOKS` note lists what it wires.
 - Every declared surface the clone does not ship is reported (`absentInstallSurfaces`): by `init` as a warning, by
   `update` as `NOT SHIPPED`, and by `status` as drift that fails `--strict`.
-- The destination is guarded by `prepareInstall`, which runs before the prompt, again before the backup, and again
-  before the copy. It refuses a path through a symlinked directory or file, any manifest path whose type is in the way
+- The destination is guarded by `prepareInstall`, which runs once: in `init`'s plan, before any prompt (and inside
+  `installCapabilities` for a caller without a plan). Between it and each write, the writer's own per-file walk is the
+  backstop. It refuses a path through a symlinked directory or file, any manifest path whose type is in the way
   (the features README included), and a directory where `pharn.config.json`/`pharn.records.json` belong. A live
   `.claude/settings.json` link is allowed, since it is never written.
 
@@ -147,7 +162,8 @@ The inverse of `add`, with no clone and no network.
 
 - It deletes one capability dir at the recorded layout (a strict child of its role subtree, via `safeChildJoin`) and
   drops its config entry.
-- It refuses a target whose path crosses a symlink, both before and again inside the lock.
+- It refuses a target whose path crosses a symlink, right before the backup (the picker also before its confirm), and
+  `deleteCapabilityDir` walks again at the delete. Everything runs under the lock, the picker's prompts included.
 - Before deleting, it backs up every file it cannot prove is pharn's (`removalBackupSet`: unrecorded, edited, or all of
   them when the store is unusable).
 - It prunes that capability's keys from `pharn.records.json` by key prefix. The trailing `/` is load-bearing.
@@ -159,8 +175,9 @@ Offline. Without a usable records store it refuses.
 
 - `planUninstall` puts every record key in one bucket: `outside` (not an install path), `unsafe` (a symlinked parent,
   which refuses the run), `absent`, `unverifiable`, `edited` (kept), or `delete` (hash equals the record).
-- Flow: plan note, confirm, then under the lock it re-plans, backs up the config, unlinks the `delete` bucket, removes
-  dirs left empty, and unlinks the records and then the config last.
+- Flow, all under the lock: plan note, confirm, then the config fingerprint and the records store are checked and the
+  `delete` bucket re-classified (`reclassifyDeletes`), it backs up the config, unlinks the `delete` bucket, removes dirs
+  left empty, and unlinks the records and then the config last.
 - A `HOOKS` note names settings entries that point at hooks the run removed.
 
 ## `update` (`commands/update.ts`)
@@ -171,9 +188,10 @@ per-file decisions, models, removals, orphans, hook wiring. It returns a JSON-sa
 alone and reaches no write function. `--dry-run --json` projects the report through `lib/update-report.ts`
 (`schemaVersion: 1`).
 
-**The real run plans before it asks.** It downloads once, plans, prints the membership changes, and asks. A plan that
-changes nothing (`changesNothing`) asks nothing and writes nothing. Then, under the lock: `assertConfigUnchanged`, a
-re-plan from the same clone, and a refusal if the membership changed since the prompt.
+**The real run plans once, before it asks.** Under the lock, it downloads once, plans, prints the membership changes,
+and asks. A plan that changes nothing (`changesNothing`) asks nothing and writes nothing. After the confirm,
+`applyConfirmed` refuses before the first write when `pharn.config.json` or any file the plan writes changed while the
+prompt was open (a file now byte-identical to upstream is not a change), then applies the confirmed plan.
 
 - **Membership** (`lib/merge-capabilities.ts`): the next set is `resolve(archetypes) ∪ manual`. Every change is named in
   a `CAPABILITIES` note. A source-less legacy entry is inferred once, here.

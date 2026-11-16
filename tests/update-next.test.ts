@@ -135,6 +135,32 @@ describe('nextRecordStore / nextConfig — what the writer writes', () => {
     });
   });
 
+  // C5.2: a planned write the writer left alone (its file changed after the
+  // plan read it) keeps its previous record, or none — never the upstream
+  // hash the plan expected for it.
+  it('keeps the previous record of a file left unwritten, and drops a record it never had', () => {
+    const next = nextRecordStore(
+      {
+        ...apply(),
+        records: { 'a.md': H('9') },
+      },
+      {
+        written: {},
+        retired: new Set(),
+        unwritten: ['a.md', 'b.md'],
+      },
+    );
+    expect(next.files).toEqual({ 'a.md': H('9') });
+    // Without `records` (no usable store) every unwritten file has none.
+    expect(
+      nextRecordStore(apply(), {
+        written: {},
+        retired: new Set(),
+        unwritten: ['a.md'],
+      }).files,
+    ).toEqual({ 'b.md': H('2') });
+  });
+
   it('sets the write stamp, the channel and the plan fields, and drops stale ones', () => {
     const next = nextConfig(
       config({ ref: 'latest', frozenCapabilities: ['lens:x'] }),

@@ -1,7 +1,7 @@
 import { intro, note, outro } from '@clack/prompts';
 import pc from '../lib/color.js';
 import { renderCapabilityLines } from '../lib/capability-groups.js';
-import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
+import { loadArchetypeConfig } from '../lib/pharn-config.js';
 import type { Archetype, CapabilitySource, PharnConfig } from '../types.js';
 
 // Archetype (capability) install inventory — the offline view derived entirely
@@ -29,7 +29,7 @@ export async function runList(opts: { json?: boolean } = {}): Promise<void> {
 
   // Under `--json` a load error is a plain stderr line, so stdout carries the
   // inventory or nothing.
-  const config = loadArchetypeConfigOrExit(cwd, { json });
+  const config = loadArchetypeConfig(cwd, { json });
 
   const inventory = buildArchetypeInventory(config);
   if (json) {

@@ -32,7 +32,11 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 1. Checks the Node version before anything else: PHARN's installed floor checkers refuse to run below
    **Node 24.2.0**, so on an older Node (or one whose version cannot be read) `update` exits 1, naming the
    required and the current version, with nothing written — `--yes` and `--force` do not skip it.
-2. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
+2. Takes the project lock (`pharn/.lock`) — before it reads anything or touches the network — and
+   holds it to the end of the run, across the confirm. While it waits for your answer, a second
+   `pharn` command in this project is refused, naming this one (see
+   [Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running)).
+   `--dry-run` takes no lock. Then reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
    a hint to run `pharn init` first. A config that is present but **invalid** gets its own named error
    and exit 1, not the "run `pharn init`" hint.
 3. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
@@ -62,11 +66,15 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    directory each drop would delete, and under `--force` every file it would overwrite (see
    [Before you confirm](#before-you-confirm)), and asks for
    confirmation — unless you passed `--yes`, which skips that one prompt and nothing else.
-9. On confirm, takes the project lock and plans again from the same download, against your project as it
-   is now. If that plan changes nothing (another run did the work meanwhile), it writes nothing. If the capabilities it would change are no longer exactly the ones you were shown, it stops
-   (exit 1) with nothing changed. Otherwise it decides each expected file with the table below — and your `models` block the same way — backs up
+9. On confirm, applies the plan you were shown — it plans once. A file you edit while `update` waits for
+   your answer stops the run before anything is written (exit 1, with or without `--force`): the
+   error names the file, your edit is kept, and re-running `pharn update` plans it as yours and skips
+   it (see [Edits made while update waits for your answer](#edits-made-while-update-waits-for-your-answer)).
+   So does a hand-edit of `pharn.config.json`. Otherwise it writes what the plan decided for each
+   expected file with the table below — and your `models` block the same way — backs up
    anything `--force` is about to overwrite and every file in a dropped capability's directory that
-   `pharn` cannot prove it wrote, **deletes the directories of the capabilities it drops** (see
+   `pharn` cannot prove it wrote (read again at the delete, so a file you add there meanwhile is saved
+   too), **deletes the directories of the capabilities it drops** (see
    [Dropped capabilities are deleted](#dropped-capabilities-are-deleted)), copies the files it may
    write, then updates `pharn.records.json` and `pharn.config.json` — recording this CLI in
    `pharnVersion` and the time of the update in `updatedAt`, and keeping `installedAt`, the date of
@@ -75,6 +83,28 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
 Because `update` re-resolves your archetypes against the latest index, a capability upstream added for
 one of your archetypes since your last install is picked up, and one it removed is dropped — and its
 directory deleted — while your `archetypes` list itself is never changed.
+
+### Edits made while update waits for your answer
+
+`update` holds the project lock from before its plan to its last write, so no other `pharn` command
+changes the project while the confirm is open. You, an editor or an agent still can. Before the first
+write, `update` compares every file it is about to write with what it saw when it planned:
+
+- a file whose bytes changed (or that appeared) stops the run, with nothing written:
+
+  ```text
+  ■  A file changed while `pharn update` was waiting for your answer:
+       pharn/CONSTITUTION.md
+     Nothing was written, and your edit is kept. Run `pharn update` again: it plans the file as
+     changed by you and leaves it alone (or, with --force, backs it up first).
+  ```
+
+- a file you put back with exactly upstream's bytes is not an edit, and the run goes on;
+- a hand-edit of `pharn.config.json` stops the run the same way.
+
+The run stops instead of skipping the file because the rest of the plan — the version it records, the
+[executable unit](#the-executable-unit-is-upgraded-all-or-none), the root migration — was decided
+from the bytes you have since changed. The re-run decides them again.
 
 ## Previewing an update
 
@@ -112,7 +142,7 @@ It prints:
 - whether the recorded `skillsVersion` would be **withheld** (and recorded as pending), and the layout
   and features-README moves it would make.
 
-It is a **snapshot**, not a promise. A real run fetches again and decides again under its own lock,
+It is a **snapshot**, not a promise. A real run fetches again and plans again under its own lock,
 so an edit you make, another process, or a newer upstream merge between the preview and the apply can
 change the outcome. The only thing a dry run creates is the clone's temporary directory under your OS
 temp directory, removed before it exits.
@@ -272,7 +302,7 @@ characters, Unicode format characters, U+2028/U+2029) are written as `\uXXXX` es
 output cannot move or hide text, and parsing returns the exact original string. That is a statement about
 what a terminal can do with the output, not about whether the content is safe: an agent reading these
 fields must not follow instructions found in them. Like the text preview, the plan is a **snapshot**: a
-real run fetches again and decides again under its own lock.
+real run fetches again and plans again under its own lock.
 
 ## What happens to your capability list
 
