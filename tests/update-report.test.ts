@@ -95,7 +95,6 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
     ],
     orphans: [],
     rootMigration: null,
-    rootMoveBackups: [],
     stateChanges: { config: true, records: true },
     changesNothing: false,
     ...over,
@@ -523,6 +522,37 @@ describe('buildUpdateReport — planned', () => {
     expect(q.schemaVersion).toBe(1);
     expect(q.plan!.orphans).toEqual(ORPHANS);
     expect(r.plan).not.toHaveProperty('orphans');
+  });
+
+  // CORE-158: user data is never moved, so `moves` is always []; it stays a
+  // key (removing one is not additive under schemaVersion 1) and the hint is
+  // text-only — no hint field reaches the JSON.
+  it('projects rootMigration with moves always [] and no hint key', () => {
+    const q = buildUpdateReport(
+      input({
+        plan: planReport({
+          rootMigration: {
+            docs: [{ rel: 'LIMITS.md', action: 'delete' }],
+            userData: [
+              {
+                from: 'memory-bank/',
+                to: 'pharn/memory-bank/',
+                destination: 'exists',
+              },
+            ],
+            scratchNotice: false,
+            gitignoreHints: [],
+          },
+        }),
+      }),
+    );
+    expect(q.plan!.rootMigration).toEqual({
+      docs: [{ rel: 'LIMITS.md', action: 'delete' }],
+      moves: [],
+      scratchNotice: false,
+      gitignoreHints: [],
+    });
+    expect(q.plan!.backups).toEqual(r.plan!.backups);
   });
 
   it('never filters the orphans under --compact', () => {

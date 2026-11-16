@@ -79,12 +79,7 @@ import {
   type RefChoice,
 } from '../lib/release.js';
 import { findMissingInstalled } from '../lib/missing-installed.js';
-import {
-  applyRootMoves,
-  deleteRootDocs,
-  pendingRootMigration,
-  rootMigrationFailed,
-} from '../lib/root-migration.js';
+import { deleteRootDocs, pendingRootMigration } from '../lib/root-migration.js';
 import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
@@ -364,10 +359,10 @@ async function runArchetypeUpdate(
       : null;
   // The old root footprint an older CLI left on an install already at SKILLS 7
   // re-opens the gate too (lib/root-migration.ts): a record-equal root doc
-  // whose pharn/ copy was never written, or user data still at the root with
-  // its destination free. Local and read-only, and bounded like `missing`: the
-  // opened run finishes exactly what counted, and nothing it could not finish
-  // ever counts.
+  // whose pharn/ copy was never written. User data still at the root does NOT
+  // (CORE-158): the run would only hint at it. Local and read-only, and bounded
+  // like `missing`: the opened run finishes exactly what counted, and nothing
+  // it could not finish ever counts.
   const rootDoc =
     current && !force
       ? pendingRootMigration(cwd, config, baselineRecords)
@@ -586,8 +581,8 @@ async function runArchetypeUpdate(
         confirmed.removals,
         true,
       );
-      // The root docs it would delete and the user data it would move
-      // (lib/root-migration.ts), named before the question as well.
+      // The root docs it would delete and the hints about the user data it
+      // leaves alone (lib/root-migration.ts), named before the question too.
       reportRootMigration(confirmed.rootMigration, null);
       // The executable unit it would hold (lib/executable-unit.ts), so a user
       // who would rather revert their edits first learns it before applying.
@@ -696,11 +691,6 @@ async function runArchetypeUpdate(
   if (prettierignore?.warn) log.warn(prettierignore.text);
   else if (prettierignore !== null) log.info(prettierignore.text);
   reportOutcome(outcome, force);
-  // A user-data move that could not be made (a conflict, a symlink, a failed
-  // rename) fails the run, after everything else it did has been reported and
-  // kept (lib/root-migration.ts). exitCode, not exit: the report is flushed.
-  if (rootMigrationFailed(outcome.rootMigration, outcome.rootMigrationResult))
-    process.exitCode = 1;
 }
 
 // The confirm's question. "Re-fetch" no longer describes the step (the fetch
@@ -723,13 +713,10 @@ function membershipKeys(r: UpdatePlanReport): string[] {
       (c) => `${c.reason} ${c.cap.role}:${c.cap.name}`,
     ),
     ...r.removals.filter((x) => x.present).map((x) => `delete ${x.dir}/`),
-    // What the root migration deletes and moves, named before the confirm.
+    // What the root migration deletes, named before the confirm.
     ...(r.rootMigration?.docs ?? [])
       .filter((d) => d.action === 'delete')
       .map((d) => `delete ${d.rel}`),
-    ...(r.rootMigration?.moves ?? [])
-      .filter((m) => m.action === 'move')
-      .map((m) => `move ${m.from} → ${m.to}`),
   ];
 }
 
@@ -883,16 +870,8 @@ async function applyPlannedUpdate(
   // dropped capability's directory that pharn cannot prove it wrote
   // (`removals[].backups`). The two sets are disjoint by construction (the
   // manifest holds no dropped capability), and de-duplicated anyway.
-  // The user-data moves (lib/root-migration.ts) join the same directory: their
-  // files are copied before the move, which runs last.
   const removalBackups = report.removals.flatMap((r) => r.backups);
-  const backupRels = [
-    ...new Set([
-      ...report.backups,
-      ...removalBackups,
-      ...apply.rootMoveBackups,
-    ]),
-  ];
+  const backupRels = [...new Set([...report.backups, ...removalBackups])];
   // "removing" whenever a directory will be deleted — even one whose files are
   // all pharn's own and need no copy — so an aborted run never under-reports
   // what may already be gone.
@@ -902,11 +881,7 @@ async function applyPlannedUpdate(
       ? {
           dir: createBackup(cwd, backupRels),
           count: backupRels.length,
-          action: backupAction(
-            report.backups.length > 0,
-            deletes,
-            apply.rootMoveBackups.length > 0,
-          ),
+          action: backupAction(report.backups.length > 0, deletes),
           // This run adds `pharn/.backup/` to `.gitignore` when it is missing
           // (after the config write, below), so the advice would be stale.
           gitignored: backupDirIgnored(cwd, report.gitignore),
@@ -1000,14 +975,6 @@ async function applyPlannedUpdate(
     apply.prettierignorePaths,
   );
 
-  // The user-data moves, LAST: everything pharn-owned is in place, so a move
-  // that fails (or was refused at plan time) costs nothing but itself, and the
-  // caller turns it into exit 1 after the report.
-  const moveResult =
-    migration === null
-      ? { moved: [], failed: [] }
-      : applyRootMoves(cwd, migration.moves);
-
   return {
     installedVersion: report.installedVersion,
     recordedVersion: report.recordedVersion,
@@ -1028,8 +995,7 @@ async function applyPlannedUpdate(
     gitignore,
     prettierignore,
     rootMigration: migration,
-    rootMigrationResult:
-      migration === null ? null : { ...docResult, ...moveResult },
+    rootMigrationResult: migration === null ? null : docResult,
   };
 }
 
@@ -1059,12 +1025,10 @@ function unchangedOutcome(planned: PlannedUpdate): UpdateOutcome {
     gitignore: report.gitignore,
     prettierignore: report.prettierignore,
     rootMigration: report.rootMigration,
-    // What the writer would report with nothing to do — so a blocked move
-    // still fails the run (rootMigrationFailed), as it does when it writes.
+    // What the writer would report with nothing to do — so the note still
+    // prints its hints about root user data (CORE-158), as a writing run does.
     rootMigrationResult:
-      report.rootMigration === null
-        ? null
-        : { deleted: [], kept: [], moved: [], failed: [] },
+      report.rootMigration === null ? null : { deleted: [], kept: [] },
     unchanged: true,
   };
 }

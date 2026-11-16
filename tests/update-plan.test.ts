@@ -598,17 +598,21 @@ describe('buildUpdatePlan', () => {
 
     it('holds the root migration with the unit (the old floor reads the old paths)', async () => {
       const cfg = await unitFixture();
-      const { report, apply } = plan(cfg);
+      const { report } = plan(cfg);
       expect(report.rootMigration).toBeNull();
-      expect(report.rootMoveBackups).toEqual([]);
-      expect(apply.rootMoveBackups).toEqual([]);
-      // Without the blocker the same fixture migrates.
+      // Without the blocker the same fixture migrates — and only hints at the
+      // root memory-bank/, never moves it (CORE-158).
       write(join(proj, OLD_FLOOR), 'baseline v7');
       const unheld = plan(cfg);
       expect(unheld.report.executableUnit).toBeNull();
-      expect(unheld.report.rootMigration?.moves).toContainEqual(
-        expect.objectContaining({ from: 'memory-bank/', action: 'move' }),
-      );
+      expect(unheld.report.rootMigration?.userData).toEqual([
+        {
+          from: 'memory-bank/',
+          to: 'pharn/memory-bank/',
+          destination: 'free',
+        },
+      ]);
+      expect(unheld.report.backups).not.toContain('memory-bank/notes.md');
     });
 
     it('--force holds nothing', async () => {

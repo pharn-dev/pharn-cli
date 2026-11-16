@@ -255,18 +255,13 @@ describe('createBackup — the pharn/.backup root', () => {
 
 describe('backupAction — every combination has a phrase', () => {
   it('joins the reasons in a fixed order', () => {
-    const cases: [boolean, boolean, boolean, string][] = [
-      [false, false, false, 'overwriting'],
-      [true, false, false, 'overwriting'],
-      [false, true, false, 'removing'],
-      [false, false, true, 'moving'],
-      [true, true, false, 'overwriting and removing'],
-      [true, false, true, 'overwriting and moving'],
-      [false, true, true, 'removing and moving'],
-      [true, true, true, 'overwriting, removing and moving'],
+    const cases: [boolean, boolean, string][] = [
+      [false, false, 'overwriting'],
+      [true, false, 'overwriting'],
+      [false, true, 'removing'],
+      [true, true, 'overwriting and removing'],
     ];
-    for (const [o, r, m, phrase] of cases)
-      expect(backupAction(o, r, m)).toBe(phrase);
+    for (const [o, r, phrase] of cases) expect(backupAction(o, r)).toBe(phrase);
   });
 });
 

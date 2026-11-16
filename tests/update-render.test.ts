@@ -207,7 +207,6 @@ describe('the records note is escaped at both print sites', () => {
     unknownCapabilities: [],
     orphans: [],
     rootMigration: null,
-    rootMoveBackups: [],
     stateChanges: { config: false, records: false },
     changesNothing: true,
   };

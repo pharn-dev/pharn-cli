@@ -267,7 +267,7 @@ describe('changesNothing — the one predicate', () => {
     }[],
     rootMigration: null as null | {
       docs: { action: string }[];
-      moves: { action: string }[];
+      userData: { destination: string }[];
     },
     gitignore: { action: 'none' } as { action: string },
     prettierignore: { action: 'none' } as { action: string },
@@ -286,11 +286,7 @@ describe('changesNothing — the one predicate', () => {
     ['a present removal', { removals: [{ present: true }] }],
     [
       'a root-doc delete',
-      { rootMigration: { docs: [{ action: 'delete' }], moves: [] } },
-    ],
-    [
-      'a user-data move',
-      { rootMigration: { docs: [], moves: [{ action: 'move' }] } },
+      { rootMigration: { docs: [{ action: 'delete' }], userData: [] } },
     ],
     ['a .gitignore addition', { gitignore: { action: 'append' } }],
     ['a .prettierignore addition', { prettierignore: { action: 'create' } }],
@@ -304,19 +300,40 @@ describe('changesNothing — the one predicate', () => {
     expect(changesNothing(r({}), { config: false, records: true })).toBe(false);
   });
 
-  it('ignores what writes nothing: an absent removal, a kept doc, a blocked move, a refused .gitignore', () => {
+  it('ignores what writes nothing: an absent removal, a kept doc, a user-data hint, a refused .gitignore', () => {
     expect(
       changesNothing(
         r({
           removals: [{ present: false }],
           rootMigration: {
             docs: [{ action: 'keep-edited' }],
-            moves: [{ action: 'conflict' }],
+            userData: [{ destination: 'exists' }],
           },
           gitignore: { action: 'refused' },
         }),
         same,
       ),
     ).toBe(true);
+  });
+
+  // CORE-158: pharn never moves user data, so a root memory-bank/ hint alone
+  // is not a change (no confirm, no write), while a record-proved root-doc
+  // delete beside it still is.
+  it('a user-data hint alone changes nothing; a root-doc delete beside it does', () => {
+    const hint = { destination: 'free' };
+    expect(
+      changesNothing(
+        r({ rootMigration: { docs: [], userData: [hint] } }),
+        same,
+      ),
+    ).toBe(true);
+    expect(
+      changesNothing(
+        r({
+          rootMigration: { docs: [{ action: 'delete' }], userData: [hint] },
+        }),
+        same,
+      ),
+    ).toBe(false);
   });
 });

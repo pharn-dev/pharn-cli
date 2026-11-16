@@ -233,7 +233,7 @@ key. Treat a `status` you do not recognise as "do not apply".
 | `plan.hooks`                                | The same comparison as `pharn status --json`: `status`, `missing[]` and `localOnly[]` as `{event, matcher, command, args}`, `file`/`reason`, and `replace[]` (present only when non-empty). `update` never writes your settings files.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `plan.absentUpstream`                       | Present **only** when there is one: the declared surfaces the fetched clone ships no file for, at its own layout, as `{surface, path}` (`surface` is `commands`, `hooks`, `trusted-doc`, `license`, `features-readme`, `contracts`, `core` or `floor`) — the `NOT SHIPPED` note. Absent otherwise, so a report without one is byte-identical to earlier releases.                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `plan.layout`                               | The layout the install would be recorded at; `abandonedLayout` is the one it would leave behind, and `featuresReadmeRelocation` says a copy of the boundary contract would be left at the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `plan.rootMigration`                        | Always present: what a real run would do with the [old root footprint](#the-root-footprint-migration), as `{docs, moves, scratchNotice, gitignoreHints}`, or `null` when nothing applies (a flat clone, or one below SKILLS 7 that still keeps both docs at the root). `docs[]` is `{rel, action}` for root `THREAT-MODEL.md` / `LIMITS.md` (`delete`, `keep-edited`, `absent`, `unverifiable`); `moves[]` is `{from, to, action}` for `memory-bank/` and `pharn.spec-template.md` (`move`, `conflict`, `refused-symlink`, `unreadable`, `absent`; empty below SKILLS 7); `scratchNotice` says the old `.pharn/` holds more than `ci.yml`; `gitignoreHints[]` are the replacement `.gitignore` lines. The files the moves would back up are in `plan.backups`. Added in 0.14.0 within `1`. |
+| `plan.rootMigration`                        | Always present: what a real run would do with the [old root footprint](#the-root-footprint-migration), as `{docs, moves, scratchNotice, gitignoreHints}`, or `null` when nothing applies (a flat clone, or one below SKILLS 7 that still keeps both docs at the root). `docs[]` is `{rel, action}` for root `THREAT-MODEL.md` / `LIMITS.md` (`delete`, `keep-edited`, `absent`, `unverifiable`); `moves[]` is always `[]` (`pharn` no longer moves `memory-bank/` or `pharn.spec-template.md`; their hint is text-only); `scratchNotice` says the old `.pharn/` holds more than `ci.yml`; `gitignoreHints[]` are the replacement `.gitignore` lines. Added in 0.14.0 within `1`.                                                                                                           |
 | `frozenCapabilities`, `unknownCapabilities` | Capabilities upstream ships that this CLI cannot read, kept as they are: `role:name` keys, and `{role, name, subtree, reason}`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `plan.recordsNote`                          | Why `pharn.records.json` could not be used (then every difference is `unverifiable`), else `null`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `plan.gitignore`                            | Present only when a real run would change [`.gitignore`](#gitignore): `{action, entries}` with `action` `create` or `append` and `entries` the lines it adds, or `{action: "refused", reason, entries}` (`reason` `symlink`, `not-a-file` or `unreadable`) when it would have to leave the file alone. Absent otherwise, so such a report is byte-identical to earlier releases. Added in 0.16.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                               |
@@ -501,8 +501,8 @@ What follows from a hold:
   script that is not on disk, and that guard does not run until the hold ends (revert your edit, or run
   `pharn update --force`). [`pharn status`](status.md) reports the file as missing in the meantime.
 - A held file keeps its old record, and a file new upstream gets none. The next run decides them again.
-- The [root-footprint migration](#the-root-footprint-migration) waits too. It moves and deletes paths the
-  old floor still reads, so it runs with the update that upgrades the set.
+- The [root-footprint migration](#the-root-footprint-migration) waits too. It deletes paths the old floor
+  still reads, so it runs with the update that upgrades the set.
 - The run **exits 0**, like every skip: nothing you edited was overwritten and nothing failed. The note is
   the signal, not the exit code.
 - `--force` never holds. It backs up the skipped files and writes the whole set (an `unreadable` path is
@@ -961,13 +961,14 @@ it as `plan.rootMigration`):
   and its record dropped. A root copy you edited is **kept** (listed under `ORPHANED`, its record kept);
   one pharn has no record of, a symbolic link, or one it cannot read is left alone. These two names are
   the only files this step can delete.
-- **`memory-bank/` → `pharn/memory-bank/` and `pharn.spec-template.md` → `pharn/spec-template.md`**
-  (pharn-oss SKILLS 7 or newer only). Your data, so it is **moved**, after its files are copied to the
-  run's `pharn/.backup/<timestamp>/`. If the destination already exists, nothing is moved and the run
-  exits **1** after everything else it did — `pharn` never merges canon or templates; merge them by
-  hand. A source (or `pharn/`) that is a symbolic link is refused the same way, and so is one that cannot
-  be read or is not the expected type (`unreadable`: `memory-bank/` must be a directory, the template a
-  regular file).
+- **`memory-bank/` and `pharn.spec-template.md`** (pharn-oss SKILLS 7 or newer only). pharn-oss 7 reads
+  them at `pharn/memory-bank/` and `pharn/spec-template.md`, but `pharn` **never moves, copies or deletes
+  them**: nothing proves a root copy is PHARN's (`memory-bank/` is also the name other tools use, such as
+  Cline's Memory Bank). When either is at the root, the note prints a hint instead. If the `pharn/` path
+  is free, it gives the command: `git mv memory-bank pharn/memory-bank` (or `mv`, if git does not track
+  it). If the `pharn/` path already exists, or cannot be checked, it says to merge the root copy into it
+  by hand and then delete the root copy — never a `git mv`, which would nest one folder inside the other.
+  Either way the run exits **0**.
 - **`.pharn/`** (pharn-oss's runtime scratch) is never moved or deleted. When it holds anything but
   pharn-ci's `ci.yml`, the note says the scratch now lives in `pharn/.run/` and the old contents can
   be deleted.
@@ -976,15 +977,17 @@ it as `plan.rootMigration`):
   first two are appended for you anyway — see [`.gitignore`](#gitignore).)
 
 A real `update` prints the note in the future tense before it asks `Apply this update?` (and under
-`--yes`), and, after taking the lock, refuses with exit 1 if what it would delete or move is no longer
-what it showed. The migration applies only to an install already recorded at the `pharn` layout: a flat
+`--yes`), and, after taking the lock, refuses with exit 1 if what it would delete is no longer what it
+showed. The migration applies only to an install already recorded at the `pharn` layout: a flat
 install moving to `pharn/` leaves its old root files in place, like the rest of the old tree.
 
-Below SKILLS 7 the moves and both notices are inert. An install already at 7.x whose root footprint an
-older `pharn` left behind — a root doc still exactly as pharn wrote it with no `pharn/` copy yet, or
-`memory-bank/` / the template still at the root with its destination free — re-opens the same-version
-early return, so the next `pharn update` finishes the job without `--force`. A move onto existing data,
-an edited doc, or a `pharn/` copy you placed yourself never re-opens it: those are yours to resolve.
+Below SKILLS 7 the hints and both notices are inert. An install already at 7.x whose root footprint an
+older `pharn` left behind — a root doc still exactly as pharn wrote it with no `pharn/` copy yet —
+re-opens the same-version early return, so the next `pharn update` finishes the job without `--force`.
+An edited doc, or a `pharn/` copy you placed yourself, never re-opens it: those are yours to resolve.
+`memory-bank/` or the template at the root never re-opens it either, so on an install already at your
+pharn-oss version the hint appears only with a run that plans (a new version, or `--force`); it never
+appears with "Already up to date".
 
 ## A surface pharn-oss does not ship
 

@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
-  chmodSync,
+  existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -15,12 +14,9 @@ import { layoutPaths, resolveTrustedDocs } from '../src/lib/layout.js';
 import { isInstallRootPath } from '../src/lib/orphans.js';
 import { planUninstall } from '../src/lib/uninstall-plan.js';
 import {
-  applyRootMoves,
   deleteRootDocs,
-  moveBlocks,
   pendingRootMigration,
   planRootMigration,
-  rootMigrationFailed,
   rootMigrationNoteLines,
   versionMajor,
   type RootMigration,
@@ -28,7 +24,8 @@ import {
 import type { PharnConfig } from '../src/types.js';
 
 // The old root footprint of a pharn-layout install (lib/root-migration.ts):
-// the root docs pharn wrote, the user's data that moves, and two notices.
+// the root docs pharn wrote, the user's data it only hints at (never moves —
+// CORE-158), and two notices.
 
 const tmp = useTmpDir();
 
@@ -68,16 +65,14 @@ function plan(
   version: string,
   records: Record<string, string> | null = RECORDED,
 ): RootMigration | null {
-  return (
-    planRootMigration({
-      projectRoot: proj,
-      repoDir: repo,
-      layout: 'pharn',
-      installedLayout: 'pharn',
-      skillsVersion: version,
-      records,
-    })?.report ?? null
-  );
+  return planRootMigration({
+    projectRoot: proj,
+    repoDir: repo,
+    layout: 'pharn',
+    installedLayout: 'pharn',
+    skillsVersion: version,
+    records,
+  });
 }
 
 describe('resolveTrustedDocs — the ordered probe', () => {
@@ -230,7 +225,7 @@ describe('deleteRootDocs', () => {
   });
 });
 
-describe('planRootMigration — user-data moves (SKILLS ≥ 7)', () => {
+describe('planRootMigration — user data is hinted at, never moved (SKILLS ≥ 7)', () => {
   const ITEMS = [
     {
       name: 'memory-bank',
@@ -247,133 +242,77 @@ describe('planRootMigration — user-data moves (SKILLS ≥ 7)', () => {
     },
   ];
   const strip = (p: string): string => p.replace(/\/$/, '');
-  const moveOf = (m: RootMigration | null, from: string) =>
-    m?.moves.find((x) => x.from === from)?.action;
+  const hintOf = (m: RootMigration | null, from: string) =>
+    m?.userData.find((x) => x.from === from);
 
   for (const item of ITEMS) {
     describe(item.name, () => {
-      it('absent → absent', () => {
+      it('absent → no hint', () => {
         expect(
-          moveOf(plan(project(), clone('7.0.0', true), '7.0.0'), item.from),
-        ).toBe('absent');
+          hintOf(plan(project(), clone('7.0.0', true), '7.0.0'), item.from),
+        ).toBeUndefined();
       });
 
-      it('destination free → move, backed up and renamed', () => {
+      it('present, destination free → a `free` hint; nothing is moved', () => {
         const proj = project();
         item.make(proj, strip(item.from));
-        const planned = planRootMigration({
-          projectRoot: proj,
-          repoDir: clone('7.0.0', true),
-          layout: 'pharn',
-          installedLayout: 'pharn',
-          skillsVersion: '7.0.0',
-          records: RECORDED,
-        })!;
-        expect(moveOf(planned.report, item.from)).toBe('move');
-        expect(planned.backups).toContain(
-          item.from.endsWith('/') ? `${strip(item.from)}/canon.md` : item.from,
-        );
-        const result = applyRootMoves(proj, planned.report.moves);
-        expect(result.failed).toEqual([]);
-        expect(result.moved.map((m) => m.from)).toEqual([item.from]);
-        expect(() =>
-          readFileSync(
-            join(
-              proj,
-              item.from.endsWith('/') ? `${strip(item.to)}/canon.md` : item.to,
-            ),
-          ),
-        ).not.toThrow();
+        expect(
+          hintOf(plan(proj, clone('7.0.0', true), '7.0.0'), item.from),
+        ).toEqual({ from: item.from, to: item.to, destination: 'free' });
+        expect(existsSync(join(proj, strip(item.from)))).toBe(true);
+        expect(existsSync(join(proj, strip(item.to)))).toBe(false);
       });
 
-      it('both exist → conflict, nothing moved, the run fails', () => {
+      it('both present → an `exists` hint; both left as they are', () => {
         const proj = project();
         item.make(proj, strip(item.from));
         item.make(proj, strip(item.to));
-        const m = plan(proj, clone('7.0.0', true), '7.0.0')!;
-        expect(moveOf(m, item.from)).toBe('conflict');
-        expect(applyRootMoves(proj, m.moves).moved).toEqual([]);
-        expect(rootMigrationFailed(m, null)).toBe(true);
+        expect(
+          hintOf(plan(proj, clone('7.0.0', true), '7.0.0'), item.from)
+            ?.destination,
+        ).toBe('exists');
       });
 
-      it('a symlinked source → refused-symlink', () => {
+      it('a symlinked source is still hinted at (pharn proves nothing either way)', () => {
         const proj = project();
-        item.make(tmp.path(), `elsewhere-${strip(item.to).replace('/', '-')}`);
-        symlinkSync(
-          join(tmp.path(), `elsewhere-${strip(item.to).replace('/', '-')}`),
-          join(proj, strip(item.from)),
-        );
+        const elsewhere = `elsewhere-${strip(item.to).replace('/', '-')}`;
+        item.make(tmp.path(), elsewhere);
+        symlinkSync(join(tmp.path(), elsewhere), join(proj, strip(item.from)));
         expect(
-          moveOf(plan(proj, clone('7.0.0', true), '7.0.0'), item.from),
-        ).toBe('refused-symlink');
-      });
-
-      it('a symlinked destination parent (pharn/) → refused-symlink', () => {
-        const proj = join(tmp.path(), 'proj');
-        mkdirSync(join(tmp.path(), 'outside'), { recursive: true });
-        mkdirSync(proj);
-        symlinkSync(join(tmp.path(), 'outside'), join(proj, 'pharn'));
-        item.make(proj, strip(item.from));
-        expect(
-          moveOf(plan(proj, clone('7.0.0', true), '7.0.0'), item.from),
-        ).toBe('refused-symlink');
+          hintOf(plan(proj, clone('7.0.0', true), '7.0.0'), item.from)
+            ?.destination,
+        ).toBe('free');
       });
     });
   }
 
-  it('the wrong type, or an unreadable directory, is refused as unreadable — the run does not fail', () => {
-    const proj = project();
-    mkdirSync(join(proj, 'pharn.spec-template.md')); // a directory, not a file
-    put(proj, 'memory-bank', 'a file, not a directory');
-    const m = plan(proj, clone('7.0.0', true), '7.0.0')!;
-    expect(m.moves.map((x) => x.action)).toEqual(['unreadable', 'unreadable']);
-    expect(rootMigrationFailed(m, null)).toBe(true);
-    expect(rootMigrationNoteLines(m, null)!.join('\n')).toContain(
-      'it cannot be read, or it is not a directory',
-    );
+  it('a destination that cannot be checked counts as existing (never a command that nests or fails)', () => {
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj);
+    put(proj, 'pharn', 'a file where pharn/ belongs'); // lstat → ENOTDIR
+    put(proj, 'memory-bank/a.md', 'a');
+    expect(
+      hintOf(plan(proj, clone('7.0.0', true), '7.0.0'), 'memory-bank/'),
+    ).toEqual({
+      from: 'memory-bank/',
+      to: 'pharn/memory-bank/',
+      destination: 'exists',
+    });
   });
 
-  it('a memory-bank/ it cannot list is unreadable, not a crash', () => {
-    if (process.getuid?.() === 0) return; // root reads anything
+  it('lists the two paths in a fixed order, whatever their type', () => {
+    const proj = project();
+    mkdirSync(join(proj, 'pharn.spec-template.md')); // a directory
+    put(proj, 'memory-bank', 'a file');
+    expect(
+      plan(proj, clone('7.0.0', true), '7.0.0')!.userData.map((h) => h.from),
+    ).toEqual(['memory-bank/', 'pharn.spec-template.md']);
+  });
+
+  it('is inert below 7: no hints, no notices, even with everything present', () => {
     const proj = project();
     put(proj, 'memory-bank/a.md', 'a');
-    chmodSync(join(proj, 'memory-bank'), 0o000);
-    try {
-      expect(plan(proj, clone('7.0.0', true), '7.0.0')!.moves[0]!.action).toBe(
-        'unreadable',
-      );
-    } finally {
-      chmodSync(join(proj, 'memory-bank'), 0o755);
-    }
-  });
-
-  it('re-checks under the lock: a destination that appeared since fails the move', () => {
-    const proj = project();
-    put(proj, 'memory-bank/a.md', 'a');
-    const m = plan(proj, clone('7.0.0', true), '7.0.0')!;
-    put(proj, 'pharn/memory-bank/b.md', 'b');
-    const result = applyRootMoves(proj, m.moves);
-    expect(result.moved).toEqual([]);
-    expect(result.failed[0]?.reason).toContain('pharn/memory-bank now exists');
-    expect(rootMigrationFailed(m, { deleted: [], kept: [], ...result })).toBe(
-      true,
-    );
-  });
-
-  it('re-checks under the lock: a source swapped for a link is not moved', () => {
-    const proj = project();
     put(proj, 'pharn.spec-template.md', 't');
-    const m = plan(proj, clone('7.0.0', true), '7.0.0')!;
-    renameSync(join(proj, 'pharn.spec-template.md'), join(tmp.path(), 't.md'));
-    symlinkSync(join(tmp.path(), 't.md'), join(proj, 'pharn.spec-template.md'));
-    expect(applyRootMoves(proj, m.moves).failed[0]?.reason).toContain(
-      'symbolic link',
-    );
-  });
-
-  it('is inert below 7: no moves, no notices, even with everything present', () => {
-    const proj = project();
-    put(proj, 'memory-bank/a.md', 'a');
     put(proj, '.pharn/scratch.json', '{}');
     put(proj, '.gitignore', '.pharn/\n');
     // A 6.x clone that already ships the docs under pharn/: docs only.
@@ -382,10 +321,18 @@ describe('planRootMigration — user-data moves (SKILLS ≥ 7)', () => {
         { rel: 'THREAT-MODEL.md', action: 'absent' },
         { rel: 'LIMITS.md', action: 'absent' },
       ],
-      moves: [],
+      userData: [],
       scratchNotice: false,
       gitignoreHints: [],
     });
+  });
+
+  it('the module has no writer for user data: no rename anywhere in it', () => {
+    const src = readFileSync(
+      join(import.meta.dirname, '../src/lib/root-migration.ts'),
+      'utf8',
+    );
+    expect(src).not.toMatch(/\brenameSync\b|\brename\(/);
   });
 });
 
@@ -457,16 +404,15 @@ describe('pendingRootMigration — the bounded re-open signal', () => {
     expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
   });
 
-  it('fires for user data still at the root with its destination free — and stops once moved or blocked', () => {
+  it('never fires for user data at the root: pharn does not move it (CORE-158)', () => {
     const proj = project();
     put(proj, 'memory-bank/a.md', 'a');
-    expect(pendingRootMigration(proj, cfg(), null)).toBe('memory-bank/');
-    put(proj, 'pharn/memory-bank/b.md', 'b'); // a conflict the run cannot finish
-    expect(pendingRootMigration(proj, cfg(), null)).toBeNull();
     put(proj, 'pharn.spec-template.md', 't');
-    expect(pendingRootMigration(proj, cfg(), null)).toBe(
-      'pharn.spec-template.md',
-    );
+    expect(pendingRootMigration(proj, cfg(), null)).toBeNull();
+    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
+    // The doc half still fires beside it.
+    put(proj, 'LIMITS.md', 'limits');
+    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBe('LIMITS.md');
   });
 
   it('does not fire for an edited doc (its record survives — no endless re-open)', () => {
@@ -505,15 +451,13 @@ describe('the ROOT MIGRATION note', () => {
       { rel: 'X.md', action: 'unverifiable' },
       { rel: 'Y.md', action: 'absent' },
     ],
-    moves: [
-      { from: 'memory-bank/', to: 'pharn/memory-bank/', action: 'move' },
+    userData: [
+      { from: 'memory-bank/', to: 'pharn/memory-bank/', destination: 'free' },
       {
         from: 'pharn.spec-template.md',
         to: 'pharn/spec-template.md',
-        action: 'conflict',
+        destination: 'exists',
       },
-      { from: 'a/', to: 'pharn/a/', action: 'refused-symlink' },
-      { from: 'b/', to: 'pharn/b/', action: 'absent' },
     ],
     scratchNotice: true,
     gitignoreHints: ['pharn/.run/'],
@@ -526,38 +470,63 @@ describe('the ROOT MIGRATION note', () => {
     expect(lines).toContain('(listed under ORPHANED)');
     expect(lines).toContain('kept X.md — pharn cannot prove');
     expect(lines).not.toContain('Y.md');
-    expect(lines).toContain('WOULD MOVE memory-bank/ → pharn/memory-bank/');
-    expect(lines).toContain('pharn never merges them');
-    expect(lines).toContain(
-      'NOT MOVED a/ — it, or the way to pharn/a/, is a symbolic link',
-    );
-    expect(lines).not.toContain('b/');
+    expect(lines).not.toContain('WOULD MOVE');
     expect(lines).toContain('runtime scratch now lives in pharn/.run/');
     expect(lines).toContain('Replace them with: pharn/.run/');
   });
 
-  it('reports what the writer did', () => {
-    const move = m.moves[0]!;
+  it('hints at a free destination with git mv (or mv), never moving it', () => {
+    const lines = rootMigrationNoteLines(m, null)!;
+    expect(lines.find((l) => l.includes('memory-bank/ is at'))).toBe(
+      "  memory-bank/ is at the project root; PHARN 7 reads pharn/memory-bank/. pharn does not move it. If it is PHARN's, move it: git mv memory-bank pharn/memory-bank (or mv, if git does not track it).",
+    );
+  });
+
+  it('says to merge by hand when the destination exists, with no command that would nest it', () => {
+    const lines = rootMigrationNoteLines(m, null)!;
+    expect(lines.find((l) => l.includes('pharn.spec-template.md is at'))).toBe(
+      "  pharn.spec-template.md is at the project root, and pharn/spec-template.md already exists (or cannot be checked); PHARN 7 reads pharn/spec-template.md. pharn does not move or merge them. If the root copy is PHARN's, merge it into pharn/spec-template.md by hand, then delete pharn.spec-template.md.",
+    );
+    expect(lines.join('\n')).not.toContain('git mv pharn.spec-template.md');
+    const both = rootMigrationNoteLines(
+      {
+        docs: [],
+        userData: [
+          {
+            from: 'memory-bank/',
+            to: 'pharn/memory-bank/',
+            destination: 'exists',
+          },
+        ],
+        scratchNotice: false,
+        gitignoreHints: [],
+      },
+      null,
+    )!.join('\n');
+    expect(both).toContain('merge it into pharn/memory-bank/ by hand');
+    expect(both).not.toContain('git mv');
+    expect(both).not.toMatch(/\bmv memory-bank\b/);
+  });
+
+  it('reports what the writer did, and prints the same hints', () => {
     const done = rootMigrationNoteLines(m, {
       deleted: ['THREAT-MODEL.md'],
       kept: [],
-      moved: [move],
-      failed: [],
-    })!.join('\n');
-    expect(done).toContain(
+    })!;
+    expect(done.join('\n')).toContain(
       'deleted THREAT-MODEL.md — pharn now keeps it at pharn/THREAT-MODEL.md',
     );
-    expect(done).toContain('moved memory-bank/ → pharn/memory-bank/');
+    const hints = (lines: string[]): string[] =>
+      lines.filter((l) => l.includes(' is at the project root'));
+    expect(hints(done)).toEqual(hints(rootMigrationNoteLines(m, null)!));
+    expect(hints(done)).toHaveLength(2);
     const failed = rootMigrationNoteLines(m, {
       deleted: [],
       kept: ['THREAT-MODEL.md'],
-      moved: [],
-      failed: [{ move, reason: 'EXDEV: cross-device link not permitted' }],
     })!.join('\n');
     expect(failed).toContain(
       'kept THREAT-MODEL.md — pharn/THREAT-MODEL.md did not land',
     );
-    expect(failed).toContain('NOT MOVED memory-bank/: EXDEV');
   });
 
   it('says nothing when everything is absent', () => {
@@ -565,22 +534,13 @@ describe('the ROOT MIGRATION note', () => {
       rootMigrationNoteLines(
         {
           docs: [{ rel: 'LIMITS.md', action: 'absent' }],
-          moves: [],
+          userData: [],
           scratchNotice: false,
           gitignoreHints: [],
         },
         null,
       ),
     ).toBeNull();
-    expect(rootMigrationFailed(null, null)).toBe(false);
-  });
-
-  it('only conflict, refused-symlink and unreadable block', () => {
-    expect(
-      ['move', 'absent', 'conflict', 'refused-symlink', 'unreadable'].map((a) =>
-        moveBlocks(a as never),
-      ),
-    ).toEqual([false, false, true, true, true]);
     expect(versionMajor('12.3.4')).toBe(12);
     expect(versionMajor('nope')).toBeNull();
   });
