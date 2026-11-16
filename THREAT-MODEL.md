@@ -159,7 +159,7 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 
 | Surface | Structural answer | Floor primitive (current file/function) |
 | --- | --- | --- |
-| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `parseCapabilityIndex`, `installCapabilityDirs`, `copyFilteredDir`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar`'s typeflag allowlist) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
+| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `parseCapabilityIndex`, `installCapabilityDirs`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar`'s typeflag allowlist) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
 | malformed capability frontmatter | `parseCapabilityIndex` hard-fails naming the offending capability on missing subtree/markdown, unknown `role` (`assertRole`), unknown `applies` token (`assertAppliesToken`), or subtree/role mismatch — never a silent skip | shape check |
 | oversized / slow `SKILLS_VERSION` fetch | 256 KB body cap + 8s timeout + `redirect: 'error'` | `fetchRemoteSkillsVersion` (`src/lib/skills-version.ts`) |
 | oversized / slow commit-SHA resolve | 8s timeout + `redirect: 'error'` + `MAX_SHA_BYTES` (1 KiB) body cap | `fetchCommitSha` (`src/lib/repo.ts`) |
@@ -260,8 +260,9 @@ not a "the source repo is ours" assumption (P0).
   the same rename-and-verify rules (`src/lib/project-lock.ts`, `checkLegacyLock`). An older CLI does
   not know `pharn/.lock`, so one started while a 0.14.0 run holds it is **not** refused, and the two
   can interleave as two runs could before the lock existed. _Backstop, partial:_ the config check
-  (`assertConfigUnchanged`) refuses a 0.14.0 run whose config an old run wrote before the lock was
-  taken, but not one written during it. The window closes once no supported CLI predates 0.14.0. A
+  (`assertConfigFingerprintUnchanged`, run after a writer's last prompt and before its first write)
+  refuses a run whose config an old run wrote after this run read it under the lock, but not one
+  written after that check. The window closes once no supported CLI predates 0.14.0. A
   `pharn` that is a symbolic link is refused before the lock is created, so neither the lock nor a
   backup is ever written through it.
 
