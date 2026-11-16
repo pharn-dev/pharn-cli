@@ -367,6 +367,79 @@ describe('scratch notice and .gitignore hints', () => {
   });
 });
 
+// `update` plans on every run, so the root footprint an older CLI left on a 7.x
+// install is finished by the planner at the version the project already has —
+// these are the cases a same-version run meets.
+describe('planRootMigration — what a same-version run finishes', () => {
+  it('retires a record-equal root doc whose pharn/ copy is not there yet', () => {
+    const proj = project();
+    put(proj, 'LIMITS.md', 'limits');
+    const m = plan(proj, clone('7.0.0', true), '7.0.0');
+    expect(m?.docs).toEqual([
+      { rel: 'THREAT-MODEL.md', action: 'absent' },
+      { rel: 'LIMITS.md', action: 'delete' },
+    ]);
+    expect(m?.userData).toEqual([]);
+  });
+
+  it('deletes the root doc only once the pharn/ copy landed as upstream ships it (a hand-placed copy keeps it)', () => {
+    const proj = project();
+    const repo = clone('7.0.0', true);
+    put(proj, 'LIMITS.md', 'limits');
+    put(proj, 'pharn/LIMITS.md', 'a hand-placed copy');
+    const docs = plan(proj, repo, '7.0.0')!.docs;
+    expect(docs).toContainEqual({ rel: 'LIMITS.md', action: 'delete' });
+    expect(deleteRootDocs(proj, repo, docs)).toEqual({
+      deleted: [],
+      kept: ['LIMITS.md'],
+    });
+    expect(readFileSync(join(proj, 'LIMITS.md'), 'utf8')).toBe('limits');
+  });
+
+  it('never moves user data at the root (CORE-158); the doc beside it still retires', () => {
+    const proj = project();
+    put(proj, 'memory-bank/a.md', 'a');
+    put(proj, 'pharn.spec-template.md', 't');
+    put(proj, 'LIMITS.md', 'limits');
+    const m = plan(proj, clone('7.0.0', true), '7.0.0');
+    expect(m?.docs).toContainEqual({ rel: 'LIMITS.md', action: 'delete' });
+    expect(m?.userData.map((h) => h.from)).toEqual([
+      'memory-bank/',
+      'pharn.spec-template.md',
+    ]);
+    expect(readFileSync(join(proj, 'memory-bank/a.md'), 'utf8')).toBe('a');
+  });
+
+  it('keeps an edited root doc: its record survives', () => {
+    const proj = project();
+    put(proj, 'LIMITS.md', 'mine');
+    expect(plan(proj, clone('7.0.0', true), '7.0.0')?.docs).toContainEqual({
+      rel: 'LIMITS.md',
+      action: 'keep-edited',
+    });
+  });
+
+  it('retires nothing below 7, for a flat install, or without a usable store', () => {
+    const proj = project();
+    put(proj, 'LIMITS.md', 'limits');
+    expect(plan(proj, clone('6.9.0', false), '6.9.0')).toBeNull();
+    expect(
+      planRootMigration({
+        projectRoot: proj,
+        repoDir: clone('7.0.0', true),
+        layout: 'pharn',
+        installedLayout: 'flat',
+        skillsVersion: '7.0.0',
+        records: RECORDED,
+      }),
+    ).toBeNull();
+    expect(plan(proj, clone('7.0.0', true), '7.0.0', null)?.docs).toEqual([
+      { rel: 'THREAT-MODEL.md', action: 'absent' },
+      { rel: 'LIMITS.md', action: 'unverifiable' },
+    ]);
+  });
+});
+
 describe('the ROOT MIGRATION note', () => {
   const m: RootMigration = {
     docs: [

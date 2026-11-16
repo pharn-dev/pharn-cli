@@ -368,6 +368,8 @@ describe('pharn remove <name>', () => {
     );
     expect(warnings()).not.toContain('Already up to date');
     expect(warnings()).not.toContain('--force');
+    // One warning, for the one auto entry removed.
+    expect(warnings().match(/selected automatically/g)).toHaveLength(1);
     // Every surviving entry's `source` is untouched.
     expect(config().capabilities).toEqual([
       { name: 'n-plus-one', role: 'lens', source: 'manual' },

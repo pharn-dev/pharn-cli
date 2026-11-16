@@ -357,6 +357,8 @@ describe('buildUpdateReport — planned', () => {
     expect('changesNothing' in quiet.plan!).toBe(false);
     expect('stateChanges' in quiet.plan!).toBe(false);
     expect(serializeJsonReport(quiet)).not.toContain('changesNothing');
+    // The same key set as a plan that changes something.
+    expect(Object.keys(quiet.plan!)).toEqual(Object.keys(r.plan!));
   });
 
   it('omits executableUnit when nothing was held', () => {
