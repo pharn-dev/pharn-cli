@@ -55,6 +55,11 @@
 - `tests/index.test.ts` — APPEND one describe "main (the one exit point)": a command rejecting with `CliError.cancel()` → exitCode 0, a refusal → 1 + its line, a plain Error → 1 and no stack; `main()` itself never rejects — layer test
 - `tests/helpers.ts` — add `exitCodeOf(fn)` / `exitCodeOfAsync(fn)` (run; a CliError → `reportCliError` → its code); `stubProcessExit` kept (index.test, harness safety net) — layer test
 - `tests/support/exit-code.ts` — NEW (build amendment): `exitCodeOf` / `exitCodeOfAsync` live here, not in `tests/helpers.ts`, because `clack-stub.ts` imports helpers from inside the `@clack/prompts` mock factory; a src import there loads the REAL clack mid-factory (measured: 114 command-suite failures) — layer test
+- `tests/min-cli-gate.test.ts` — post-PR amendment (pharn-ci TESTS_NOT_EXERCISING_CHANGES): the gate returns a refusal, never throws or exits — layer test
+- `tests/update-render.test.ts` — post-PR amendment: `reportBackup` for an aborted run (the update failure path's last lines) — layer test
+- `tests/overwrite-check.test.ts` — post-PR amendment: a cancelled prompt returns `cancel` and nothing exits — layer test
+- `tests/commands/init.test.ts` — post-PR amendment: a refusal and a cancel reject with a CliError (exit 1 / 0), printed once by `reportCliError` — layer test
+- `tests/commands/remove.test.ts` — post-PR amendment: the same for remove — layer test
 - `tests/support/harness.ts` — `run()` reports a thrown CliError through the real `reportCliError` and returns its code (the ProcessExit branch kept as a net); add `watchClones()` (the TMPDIR-private clone watcher, today local to init.test) — layer test
 - `tests/confirm.test.ts` — REWRITTEN in place: its two `it`s (same names) now drive `CliError.cancel()` through `reportCliError` (exit 0, `log.info` default / custom message) — layer test
 - `tests/node-prereq.test.ts` — `toThrow(ProcessExit)` → `exitCodeOf(...)`; the log.error / stderr assertions and test names unchanged — layer test

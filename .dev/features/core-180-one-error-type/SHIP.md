@@ -37,7 +37,20 @@ The branch was rebased onto origin/main twice: after #385 (C5.6) and after #386 
 - `process.exit` is therefore lint-confined to `src/lib/fatal-signal.ts` alone, which is narrower than the "index.ts and fatal-signal.ts" that PLAN.md, REVIEW.md and the ticket name. A `lint-rules` row now shows the rule fires in `src/index.ts`.
 - This resolves REVIEW's P3 finding about the argv refusals.
 
-`npm run check` and `npm run build` were re-run after the rebase. Their results are in the PR.
+`npm run check` and `npm run build` were re-run after the rebase. Their results are in the PR. A third rebase, onto #387 (C5.4), conflicted only in `CLAUDE.md`. C5.4's "names the files already written" failure message now reaches the user as `CliError.failure`.
+
+## After the PR: clearing pharn-ci's TESTS_NOT_EXERCISING_CHANGES warning
+
+At the coordinator's instruction:
+
+- `src/lib/repo.ts` was reverted: its old comment is still true. `src/steps/add-picker.ts` and add's matching branch were reverted too. That type-only cleanup is left for C5.2, and REVIEW's P7 finding is unfixed again.
+- Three comment-only files keep their edits, because the old comments described a `process.exit` or `cancelAndExit` that is gone: `min-cli-gate.ts`, `update-render.ts` and `overwrite-check.ts`. Each gets one assertion in its own test file about the behaviour the comment describes:
+  - the gate returns a refusal and never throws or exits;
+  - an aborted run's backup notice goes to stderr;
+  - a cancelled overwrite prompt returns `cancel` and nothing exits.
+- `tests/commands/init.test.ts` and `tests/commands/remove.test.ts` each get a describe that pins the mechanism: a refusal rejects with a CliError carrying exit 1, a cancel rejects with exit 0, and the line comes out once, through `reportCliError`.
+
+All of these test files are declared in PLAN.md.
 
 ## Reports
 
