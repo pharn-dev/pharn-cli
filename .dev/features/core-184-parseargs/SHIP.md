@@ -28,5 +28,12 @@ Pointers: `REVIEW.md` (the findings), `GRILL.md` (advisory).
 The run ended at GATE 2. The orchestrator's GATE 2 rule (regress clean, verify PASS, no blocking review finding)
 is met. Per that rule the next step is commit, push, PR and green CI. No merge.
 
+Post-PR iteration (orchestrator, to clear pharn-ci's TESTS_NOT_EXERCISING_CHANGES warn): `scripts/build.mjs`
+reverted (its stale `minimist` external is harmless; C5.6 #385 rewrites the file); new `tests/main.test.ts` statically
+imports `src/index.ts` and runs `main(argv)` end to end on the real commands (`main` now takes `args`, defaulting to
+`process.argv.slice(2)`); the unreachable `--json`/`--compact` guards in `src/commands/{init,update}.ts` became the
+same implication the parser applies, with their failure rows turned into positive tests. Re-checked with
+`npm run check` and `npm run build` before the push.
+
 The chain ran and the named floor verdicts are as shown. This is NOT a judgment that the increment is good or
 wise; that is the human's call at the post-review gate.

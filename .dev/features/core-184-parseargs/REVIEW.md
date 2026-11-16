@@ -58,8 +58,9 @@ Fixed before verify iteration 2 (both files added to the plan's `## Files`).
   evidence: "reportFatalPlain('--json is only available with --dry-run.');"
 ```
 
-Left as is: they are the backstop for a direct caller (the commands are out of this plan's files), and no CLI path
-prints them. A later cleanup can drop or reword them.
+Resolved after the PR opened (orchestrator's request): both guards now apply the same implication as the parser
+(`json` implies `dryRun`, `compact` implies `json`), and their failure rows in `tests/commands/{init,update}-dry-run`
+became positive "alone is the JSON dry run" tests.
 
 ```yaml
 - type: FINDING

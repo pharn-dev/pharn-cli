@@ -77,7 +77,11 @@
 - `package.json` — drop `minimist`, `@types/minimist` — manifest
 - `package-lock.json` — regenerated with `npm install --package-lock-only --ignore-scripts` (shared
   node_modules untouched) — manifest
-- `scripts/build.mjs` — drop `'minimist'` from `external` — build
+- `src/commands/init.ts` — post-PR (orchestrator): the unreachable `--json`-needs-`--dry-run` guard becomes the same implication the parser applies — command
+- `src/commands/update.ts` — post-PR (orchestrator): likewise for `--json` and `--compact` — command
+- `tests/commands/init-dry-run.test.ts` — the guard's failure row becomes a positive "--json alone is the JSON dry run" test — test
+- `tests/commands/update-dry-run.test.ts` — likewise for `--json` and `--compact` alone — test
+- `tests/main.test.ts` — NEW (post-PR, orchestrator): statically imports `src/index.ts`; `main()` parses and dispatches end to end on the real commands (harness, stubbed fetch, no src mock) — test
 - `CLAUDE.md` — Conventions "Options are per command" paragraph and Module-map `src/index.ts` line (+ new
   `cli-args` in the map) — repo docs
 - `docs/architecture.md` — "Dispatch and options" section rewritten for parseArgs/the one table — docs
@@ -92,7 +96,7 @@
 - `SECURITY.md` — "three runtime dependencies (`@clack/prompts`, `minimist`, `picocolors`)" → two — docs
 - `CHANGELOG.md` — `### Changed` line under `## [Unreleased]` — docs
 
-NOT touched: `src/commands/*` (their direct-caller guards stay), protected root docs, `.agents/skills/` (vendored
+NOT touched: `scripts/build.mjs` (post-PR: its stale `minimist` external is harmless and C5.6 #385 rewrites the file), protected root docs, `.agents/skills/` (vendored
 copy of the published skill; its `--dry-run --json --compact` invocation keeps working).
 
 ## Tests (rewritten / added / deleted)
