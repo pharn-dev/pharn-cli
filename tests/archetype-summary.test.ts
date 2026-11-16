@@ -22,7 +22,7 @@ const selection: Selection = {
     {
       name: 'migrations',
       role: 'griller',
-      reason: 'applies to [backend]; detected [ssr]',
+      reason: 'applies to [backend]; archetypes [ssr]',
     },
   ],
 };
@@ -57,6 +57,27 @@ describe('runArchetypeSummary', () => {
     expect(note).toContain('universal');
     expect(note).toContain('CAPABILITIES SKIPPED (1)');
     expect(note).toContain('migrations (griller)');
+  });
+
+  // CORE-168: a capability name long enough to fill the label column used to
+  // run straight into its value (`missing-error-handling (lens)universal`).
+  it('keeps a gap between a long capability name and its value', () => {
+    const lines = archetypeSummaryLines(archetypes, {
+      selected: [
+        { name: 'missing-error-handling', role: 'lens', matched: 'universal' },
+      ],
+      skipped: [
+        {
+          name: 'missing-error-handling-x',
+          role: 'lens',
+          reason: 'applies to [backend]; archetypes [ssr]',
+        },
+      ],
+    });
+    expect(lines).toContain('  missing-error-handling (lens)  universal');
+    expect(lines).toContain(
+      '  missing-error-handling-x (lens)  applies to [backend]; archetypes [ssr]',
+    );
   });
 
   it('says why a carried-over capability is selected: added by hand', async () => {

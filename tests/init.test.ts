@@ -510,7 +510,7 @@ describe('runInit (archetype default)', () => {
           {
             name: 'path-traversal',
             role: 'lens',
-            reason: 'applies to [backend]; detected [ssr]',
+            reason: 'applies to [backend]; archetypes [ssr]',
           },
         ],
       } as never);
@@ -678,7 +678,7 @@ describe('runInit (archetype default)', () => {
       vi.mocked(process.cwd).mockRestore();
     });
 
-    it('detected: hands the evidence to the summary and labels the note', async () => {
+    it('detected: hands the evidence to the summary, with no separate note', async () => {
       await runInit();
 
       expect(summaryArgs()[0]).toEqual(['ssr']);
@@ -688,7 +688,12 @@ describe('runInit (archetype default)', () => {
         evidence: [{ archetype: 'ssr', source: 'dependency', name: 'next' }],
       });
       expect(summaryArgs()[3]).toBeNull();
-      expect(note).toHaveBeenCalledWith('ssr', 'Detected archetypes');
+      // CORE-168: the archetypes are printed ONCE, by the summary — no
+      // separate note ahead of it.
+      expect(note).not.toHaveBeenCalledWith('ssr', 'Detected archetypes');
+      expect(
+        vi.mocked(note).mock.calls.some((c) => c[1] === 'Detected archetypes'),
+      ).toBe(false);
     });
 
     it('--archetype replaces detection end to end: resolve, summary, install', async () => {
@@ -710,10 +715,11 @@ describe('runInit (archetype default)', () => {
       expect(
         (runInstallArchetype.mock.calls[0] as unknown as unknown[])[2],
       ).toEqual(['backend', 'spa']);
-      expect(note).toHaveBeenCalledWith(
-        'backend, spa',
-        'Archetypes (from --archetype)',
-      );
+      expect(
+        vi
+          .mocked(note)
+          .mock.calls.some((c) => c[1] === 'Archetypes (from --archetype)'),
+      ).toBe(false);
     });
 
     it('passes the replaced config’s recorded archetypes, as canonical members', async () => {

@@ -245,8 +245,9 @@ file tree, and installs whatever capabilities apply.
 Off a TTY, a plain `init` or `update` **exits 1** rather than prompting into a dead stream; `update --yes` is
 the supported way through in CI. `init --yes` runs off a TTY too, but only installs into a project where none
 of its files exists yet — it never answers the overwrite confirmation, so wherever it would overwrite
-something (a re-install always would: `pharn.config.json` exists) it exits 1, lists the files, and points at
-`pharn init` in a terminal, `pharn init --dry-run` or `pharn update`. `init --dry-run` and `update --dry-run`
+something it exits 1, lists the files, and points at `pharn init` in a terminal, `pharn init --dry-run` or
+`pharn update`. A re-install always would (`pharn.config.json` exists), so there it refuses before
+downloading anything, naming only `pharn.config.json`. `init --dry-run` and `update --dry-run`
 need no terminal at all: they never prompt and write nothing.
 
 ### Git not found
@@ -260,6 +261,19 @@ The CLI message says "git not found" but the check is for a **`.git` directory**
 ```
 
 Printed on **stderr**; exits with code **1**.
+
+When the current directory is **inside** a git repository but not at its root (for example a monorepo's
+`apps/web`), `init` does not suggest `git init`, which would create a repository nested inside yours. It
+names the nearest parent directory that has a `.git` instead:
+
+```text
+■ /home/me/mono/apps/web is inside the git repository at /home/me/mono, not at its root.
+  Run `pharn init` from the repository root (/home/me/mono).
+```
+
+That parent is found by its `.git` alone. If it is not your project's repository (a dotfiles repository
+in your home directory, say) and you do want a separate repository here, create one yourself with the
+`git init` command above, then re-run `pharn init`.
 
 ### My Python / Go / Rust project detected as `lib`
 

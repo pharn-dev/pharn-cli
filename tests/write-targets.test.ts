@@ -6,6 +6,7 @@ import {
   assertNoExistingTargets,
   CONFIG_MARKER,
   DRIFT_MARKERS,
+  existingConfigRefusal,
   MAX_LISTED,
   OverwriteRefusedError,
   planWriteTargets,
@@ -241,7 +242,9 @@ describe('assertNoExistingTargets (init --yes)', () => {
 });
 
 // F-04: the dropped capabilities' directories a re-install deletes ride the
-// same plan, and `--yes` never deletes.
+// same plan. `--yes` never deletes — since CORE-168 because it never gets that
+// far: a removal needs a replaced pharn.config.json, which refuses `--yes`
+// before the fetch (existingConfigRefusal, below).
 describe('removals in the write-target plan', () => {
   const tmp = useTmpDir();
   const removal = (
@@ -282,28 +285,79 @@ describe('removals in the write-target plan', () => {
     ]);
   });
 
-  it('--yes refuses a re-install that would delete a directory, naming it', () => {
+  it('assertNoExistingTargets takes no removals: it judges the write targets only', () => {
     const { repo, proj, manifest } = fixture(tmp.path());
-    const params = {
-      repoDir: repo,
-      projectRoot: proj,
-      capabilities: CAPS,
-      manifest,
-      records: null,
-      removals: [removal()],
-    };
-    expect(() => assertNoExistingTargets(params)).toThrow(
-      OverwriteRefusedError,
-    );
-    expect(() => assertNoExistingTargets(params)).toThrow(
-      /--yes never deletes[\s\S]*pharn-review\/old\//,
-    );
-    // An already-gone directory deletes nothing, so it does not refuse.
+    // The removal branch is gone (CORE-168): a removal is unrepresentable in
+    // its parameters, and nothing existing means nothing to refuse.
     expect(() =>
       assertNoExistingTargets({
-        ...params,
-        removals: [removal({ present: false })],
+        repoDir: repo,
+        projectRoot: proj,
+        capabilities: CAPS,
+        manifest,
+        records: null,
       }),
     ).not.toThrow();
+  });
+});
+
+// CORE-168: `init --yes` over an existing pharn.config.json refuses BEFORE the
+// fetch — the config is always a write target, so the refusal is certain and
+// needs no network. Its existence test is conflictingWriteTargets' own.
+describe('existingConfigRefusal', () => {
+  const tmp = useTmpDir();
+
+  it('is null when there is no pharn.config.json', () => {
+    expect(existingConfigRefusal(tmp.path())).toBeNull();
+  });
+
+  it('names pharn.config.json alone and the three ways forward', () => {
+    write(join(tmp.path(), 'pharn.config.json'), '{}');
+    const message = existingConfigRefusal(tmp.path())!;
+    expect(message).toContain(
+      'pharn init --yes installs only into a project where none of its files exists yet, and pharn.config.json already exists.',
+    );
+    expect(message).toContain('--yes never overwrites');
+    expect(message).toContain('`pharn init` in a terminal');
+    expect(message).toContain('`pharn init --dry-run`');
+    expect(message).toContain('`pharn update`');
+    // No marked target list: that needs the clone.
+    expect(message).not.toContain('•');
+  });
+
+  it('closes with the same two lines as the in-run refusal', () => {
+    write(join(tmp.path(), 'pharn.config.json'), '{}');
+    const tail = existingConfigRefusal(tmp.path())!.split('\n').slice(-2);
+    const { repo, proj, manifest } = fixture(join(tmp.path(), 'f'));
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'mine');
+    let inRun = '';
+    try {
+      assertNoExistingTargets({
+        repoDir: repo,
+        projectRoot: proj,
+        capabilities: CAPS,
+        manifest,
+        records: null,
+      });
+    } catch (err) {
+      inRun = (err as Error).message;
+    }
+    expect(inRun.split('\n').slice(-2)).toEqual(tail);
+  });
+
+  it('refuses whatever exists there — a directory or a live link too', () => {
+    mkdirSync(join(tmp.path(), 'pharn.config.json'));
+    expect(existingConfigRefusal(tmp.path())).not.toBeNull();
+    const other = join(tmp.path(), 'p2');
+    write(join(other, 'real.json'), '{}');
+    symlinkSync(join(other, 'real.json'), join(other, 'pharn.config.json'));
+    expect(existingConfigRefusal(other)).not.toBeNull();
+  });
+
+  it('a dangling link is not "existing" — as for conflictingWriteTargets', () => {
+    const p = join(tmp.path(), 'p3');
+    mkdirSync(p);
+    symlinkSync(join(p, 'nowhere.json'), join(p, 'pharn.config.json'));
+    expect(existingConfigRefusal(p)).toBeNull();
   });
 });

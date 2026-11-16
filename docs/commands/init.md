@@ -186,7 +186,7 @@ losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --j
   ],
   "backups": [".claude/commands/pharn-plan.md", "pharn.config.json"], // copied to pharn/.backup/<timestamp>/ first
   "counts": { "create": 451, "overwrite": 2, "backup": 2 },
-  "yesWouldProceed": false, // nothing overwritten and no directory deleted
+  "yesWouldProceed": false, // true only when nothing would be overwritten
   "settings": { "preserved": true },
   "hooks": {
     "status": "missing",
@@ -269,9 +269,11 @@ pharn --yes        # the same (and pharn -y): with no command word, pharn runs i
 installs **only if none of the files it would write exists yet** — `pharn.config.json` included. If any
 does, it **exits 1** having written nothing, lists them with the overwrite prompt's marks, and names the
 ways forward: `pharn init` in a terminal to review and confirm the overwrite, `pharn init --dry-run` to
-see the whole plan, or `pharn update`. It also refuses, the same way, when the install would
-[delete the directory of a capability it drops](#dropped-capabilities-are-deleted): `--yes` never
-deletes.
+see the whole plan, or `pharn update`. An existing `pharn.config.json` is always one of those files, so
+over one `--yes` refuses **before downloading anything** — right after the prerequisites, with no banner —
+naming only `pharn.config.json` (listing the other files needs the download) and the same three ways
+forward. `--yes` never deletes either: the only directories `init` deletes are those of capabilities the
+config it replaces lists, so there is always that config, and `--yes` has already refused.
 
 `--yes` never answers the overwrite question. That confirmation is the one that protects your files, and
 auto-confirming it in a pipeline is the hazard it exists to prevent — so `--yes` only runs where there
@@ -306,7 +308,7 @@ sequenceDiagram
   CLI->>Prereqs: git (.git present)
   Prereqs-->>CLI: ok or exit
   CLI->>Detect: package.json + file-tree signals
-  Detect-->>User: "Detected archetypes" note
+  Detect-->>CLI: archetypes (shown in the summary)
   CLI->>Fetch: download pharn-dev/pharn-oss tarball (codeload)
   CLI->>Resolve: capability index vs detected archetypes
   CLI->>Summary: capabilities selected + skipped (with reason)
@@ -345,8 +347,12 @@ yours, `init` refuses before any prompt or write, cleans up the clone, and exits
 ### 1. Prerequisites
 
 - **Node 24.2.0 or newer** — checked first of all, because PHARN's installed floor checkers refuse to run on an older Node. On an older Node, or one whose version cannot be read, `init` prints the required and the current version, exits 1 and writes nothing.
-- **`.git` present** — checked next, before detection (universal, framework-agnostic). Hard-fails if absent.
+- **`.git` present** — checked next, before detection (universal, framework-agnostic). Hard-fails if absent. When the
+  current directory is inside a git repository but not at its root (a monorepo's `apps/web`), the error names the
+  repository root and says to run `pharn init` from there, instead of suggesting `git init`, which would create a
+  nested repository (see [troubleshooting](../troubleshooting.md#git-not-found)).
 - **An interactive terminal** — for a plain `init` only (not `--yes` or `--dry-run`); see [`init` is interactive by default](#init-is-interactive-by-default).
+- **No `pharn.config.json`, under `--yes`** (not `--dry-run`) — see [`--yes`](#install-without-prompts---yes).
 
 ### 2. Banner and intro
 
@@ -355,7 +361,7 @@ prints its one error (on stderr) and nothing else. `init --dry-run --json` print
 
 ### 3. Detect archetypes
 
-Reads `package.json` dependency names and walks the project tree (bounded and symlink-safe, skipping dependencies, VCS metadata, and build/deploy caches — `node_modules`, `.git`, `dist`, `build`, `out`, `coverage`, `storybook-static`, `.next`, `.nuxt`, `.svelte-kit`, `.astro`, `.turbo`, `.vercel`, `.cache`, `.parcel-cache`, and non-JS trees — `__pycache__`, `.yarn`) for structural signals, then reduces both to an `Archetype[]`. Three more names are skipped only where they are another ecosystem's tree, because they are ordinary folder names in a JS project too: `target/` beside a `Cargo.toml`, `pom.xml` or `build.sbt`; `vendor/` beside a `go.mod`, `composer.json` or `Gemfile`; `venv/` or `.venv/` holding a `pyvenv.cfg`. Anywhere else they are scanned like any folder, so a route at `app/target/route.ts` is still detected. Skipping those trees costs the walk nothing, so a large framework cache cannot exhaust its bound and hide your real source; the tradeoff is that a signal file you hand-authored inside one of those directories is not seen. The detected set is shown in a "Detected archetypes" note (or, with `--archetype`, the set you gave, labelled `Archetypes (from --archetype)`).
+Reads `package.json` dependency names and walks the project tree (bounded and symlink-safe, skipping dependencies, VCS metadata, and build/deploy caches — `node_modules`, `.git`, `dist`, `build`, `out`, `coverage`, `storybook-static`, `.next`, `.nuxt`, `.svelte-kit`, `.astro`, `.turbo`, `.vercel`, `.cache`, `.parcel-cache`, and non-JS trees — `__pycache__`, `.yarn`) for structural signals, then reduces both to an `Archetype[]`. Three more names are skipped only where they are another ecosystem's tree, because they are ordinary folder names in a JS project too: `target/` beside a `Cargo.toml`, `pom.xml` or `build.sbt`; `vendor/` beside a `go.mod`, `composer.json` or `Gemfile`; `venv/` or `.venv/` holding a `pyvenv.cfg`. Anywhere else they are scanned like any folder, so a route at `app/target/route.ts` is still detected. Skipping those trees costs the walk nothing, so a large framework cache cannot exhaust its bound and hide your real source; the tradeoff is that a signal file you hand-authored inside one of those directories is not seen. The detected set is shown once, at the top of the [summary](#6-summary) (or, with `--archetype`, the set you gave, labelled `Archetypes (--archetype)`).
 
 Each structural signal counts only where that surface really lives:
 
@@ -403,7 +409,7 @@ and writes nothing.
 
 ### 5. Resolve capabilities
 
-Parses the capability index from the fetched clone and selects the capabilities that apply to your archetypes (universal + archetype-matched), in the index's declared order. Skipped capabilities are kept with a reason (e.g. `applies to [backend]; detected [ssr]`).
+Parses the capability index from the fetched clone and selects the capabilities that apply to your archetypes (universal + archetype-matched), in the index's declared order. Skipped capabilities are kept with a reason (e.g. `applies to [backend]; archetypes [ssr]`). The wording is neutral because the archetypes may be detected or given with `--archetype`; `init --dry-run --json` carries the same text in `capabilities.skipped[].reason`, and `pharn update` resolves the recorded archetypes through the same function.
 
 ### 6. Summary
 
@@ -511,8 +517,8 @@ disk, not what the config lists, so `init` also **deletes that directory** — t
 - **Addressed where it was installed**, at the layout the replaced config recorded, by its validated
   name, never through a symbolic link: a directory whose path crosses one refuses the whole install
   (exit 1, nothing written).
-- **`--yes` refuses** a re-install that would delete a directory (it never deletes without the
-  interactive confirm). A re-install refuses under `--yes` anyway, since `pharn.config.json` exists.
+- **`--yes` never deletes**: a re-install has a `pharn.config.json`, so `--yes` refuses it before
+  downloading anything.
 - **Before the copy**, under the project lock, after the destination check and the backup — and planned
   again there, so the prompt's list is a preview and that plan is the one acted on.
 

@@ -58,7 +58,9 @@ export function resolveCapabilities(
       skipped.push({
         name: entry.name,
         role: entry.role,
-        reason: `applies to [${entry.applies.join(', ')}]; detected [${archetypes.join(', ')}]`,
+        // Neutral: the archetypes may come from detection, from `--archetype`,
+        // or (for `update`) from the config — the reason names none of them.
+        reason: `applies to [${entry.applies.join(', ')}]; archetypes [${archetypes.join(', ')}]`,
       });
     }
   }

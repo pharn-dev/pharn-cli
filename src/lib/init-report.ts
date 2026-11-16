@@ -119,8 +119,9 @@ export interface InitReport {
   backups: string[];
   counts: { create: number; overwrite: number; backup: number };
   // Whether `pharn init --yes` would install into this project now: nothing
-  // would be overwritten AND no capability directory would be deleted (it
-  // refuses both).
+  // would be overwritten. (A capability directory is deleted only on a
+  // re-install, whose pharn.config.json is itself an overwrite — so it needs
+  // no clause of its own.)
   yesWouldProceed: boolean;
   settings: { preserved: boolean };
   hooks: {
@@ -243,8 +244,7 @@ export function buildInitReport(p: InitPlanReport): InitReport {
       overwrite: p.counts.overwrite,
       backup: p.counts.backup,
     },
-    yesWouldProceed:
-      p.counts.overwrite === 0 && !p.removals.some((r) => r.present),
+    yesWouldProceed: p.counts.overwrite === 0,
     settings: { preserved: p.settingsPreserved },
     hooks:
       p.hookWiring === null

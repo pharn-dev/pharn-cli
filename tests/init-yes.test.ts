@@ -32,7 +32,8 @@ vi.mock('@clack/prompts', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
 }));
-vi.mock('../src/lib/banner.js', () => ({ showBanner: vi.fn() }));
+const showBanner = vi.fn();
+vi.mock('../src/lib/banner.js', () => ({ showBanner }));
 
 const fetchRepo = vi.fn();
 const cleanup = vi.fn();
@@ -185,8 +186,10 @@ describe('pharn init --yes', () => {
   });
 
   // F-04: a re-install that would DELETE a dropped capability's directory
-  // needs the interactive confirm — `--yes` never deletes.
-  it('refuses a re-install that would delete a dropped capability’s directory — exit 1, nothing written', async () => {
+  // needs the interactive confirm — `--yes` never deletes. Since CORE-168 it
+  // never reaches the removal plan at all: the replaced pharn.config.json the
+  // removal comes from refuses `--yes` before the fetch.
+  it('refuses a re-install that would delete a dropped capability’s directory — before the fetch, nothing written', async () => {
     const { repo, proj } = fixture(tmp.path());
     await init(repo, proj, { yes: true, archetypes: ['backend'] });
     expect(existsSync(join(proj, 'pharn-review/n-plus-one'))).toBe(true);
@@ -198,10 +201,11 @@ describe('pharn init --yes', () => {
     expect(err).toBeInstanceOf(ProcessExit);
     expect((err as ProcessExit).code).toBe(1);
     expect(snapshotTree(proj)).toEqual(before);
+    expect(fetchRepo).not.toHaveBeenCalled();
     expect(prompts.confirm).not.toHaveBeenCalled();
     const msg = errors();
-    expect(msg).toContain('pharn init --yes never deletes');
-    expect(msg).toContain('pharn-review/n-plus-one/ (lens:n-plus-one)');
+    expect(msg).toContain('pharn.config.json already exists');
+    expect(msg).not.toContain('never deletes');
   });
 
   it('refuses when any target exists — exit 1, nothing written, the targets named', async () => {
@@ -234,6 +238,64 @@ describe('pharn init --yes', () => {
     expect(snapshotTree(proj)).toEqual(before);
     expect(errors()).toContain('pharn.config.json');
     expect(errors()).toContain('pharn update');
+  });
+
+  // CORE-168: an existing pharn.config.json is ALWAYS a write target, so the
+  // `--yes` refusal is certain and needs no network: it comes before the fetch
+  // (and before the banner, so a refused init prints only its stderr error).
+  it('refuses over an existing pharn.config.json with ZERO network requests', async () => {
+    const { repo, proj } = fixture(tmp.path());
+    write(join(proj, 'pharn.config.json'), '{"hand":"written"}');
+    const before = snapshotTree(proj);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    const err = await init(repo, proj, { yes: true }).catch((e) => e);
+    expect(err).toBeInstanceOf(ProcessExit);
+    expect((err as ProcessExit).code).toBe(1);
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+    expect(snapshotTree(proj)).toEqual(before);
+    // Nothing on stdout: no banner, no intro, no summary.
+    expect(showBanner).not.toHaveBeenCalled();
+    expect(prompts.intro).not.toHaveBeenCalled();
+    expect(prompts.note).not.toHaveBeenCalled();
+    expect(beforeLockedWork).not.toHaveBeenCalled();
+
+    const msg = errors();
+    expect(msg).toContain(
+      'pharn init --yes installs only into a project where none of its files exists yet, and pharn.config.json already exists.',
+    );
+    expect(msg).toContain('--yes never overwrites');
+    expect(msg).toContain('`pharn init` in a terminal');
+    expect(msg).toContain('`pharn init --dry-run`');
+    expect(msg).toContain('`pharn update`');
+    // Only the config is named: the marked target list needs the clone.
+    expect(msg).not.toContain('•');
+  });
+
+  it('refuses a DIRECTORY at pharn.config.json the same way, before the fetch', async () => {
+    const { repo, proj } = fixture(tmp.path());
+    mkdirSync(join(proj, 'pharn.config.json'));
+    const err = await init(repo, proj, { yes: true }).catch((e) => e);
+    expect((err as ProcessExit).code).toBe(1);
+    expect(fetchRepo).not.toHaveBeenCalled();
+    expect(errors()).toContain('pharn.config.json already exists');
+  });
+
+  it('does not refuse `--dry-run --yes` over an existing config: it previews', async () => {
+    const { repo, proj } = fixture(tmp.path());
+    await init(repo, proj, { yes: true });
+    vi.clearAllMocks();
+    const before = snapshotTree(proj);
+
+    await init(repo, proj, { yes: true, dryRun: true });
+    expect(fetchRepo).toHaveBeenCalledTimes(1);
+    expect(snapshotTree(proj)).toEqual(before);
+    const plan = vi
+      .mocked(prompts.note)
+      .mock.calls.find((c) => c[1] === 'PLAN');
+    expect(String(plan?.[0])).toContain('`pharn init --yes` would refuse');
   });
 
   it('refuses under the lock when a target appears after the first check', async () => {

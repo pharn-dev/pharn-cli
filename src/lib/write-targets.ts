@@ -1,9 +1,11 @@
+import { existsSync } from 'node:fs';
 import { BACKUP_DIR, replacedConfigBackup } from './backup.js';
 import {
   conflictingWriteTargets,
   PHARN_CONFIG_FILE,
 } from './install-manifest.js';
 import { detectLayout } from './layout.js';
+import { safeJoin } from './validate.js';
 import { manifestSources, scanDest, type DriftLabel } from './dest-drift.js';
 import type { FileRecords } from './install-records.js';
 import type { CapabilityRemoval } from './capability-removal.js';
@@ -13,7 +15,9 @@ import type { InstalledCapability } from '../types.js';
 // Which of `init`'s write targets already exist, which of those the install
 // would back up, and in what order to list them. ONE computation, three
 // readers: the overwrite prompt (steps/overwrite-check.ts), the `--dry-run`
-// preview and the `--yes` refusal (commands/init.ts). So the marks a preview
+// preview and the `--yes` refusal (commands/init.ts) — plus that refusal's
+// early, clone-free form for the one target that needs no clone
+// (`existingConfigRefusal`). So the marks a preview
 // shows are, by construction, the marks the prompt would show.
 //
 // Read-only. The targets are `conflictingWriteTargets`' (the manifest plus
@@ -59,8 +63,9 @@ export interface WriteTargetsPlan {
   configBackedUp: boolean;
   /**
    * The capability directories this re-install deletes (dropped from the
-   * config, lib/capability-removal.ts) — passed through, so the prompt, the
-   * dry run and `--yes` judge the same set. Empty for a first install.
+   * config, lib/capability-removal.ts) — passed through, so the prompt and
+   * the dry run list the same set. Empty for a first install (and `--yes`
+   * never sees one: see assertNoExistingTargets).
    */
   removals: readonly CapabilityRemoval[];
 }
@@ -178,35 +183,53 @@ export class OverwriteRefusedError extends Error {
   }
 }
 
+// How every `init --yes` refusal ends: `--yes` never overwrites, and the three
+// ways forward. ONE wording for the early refusal and the in-run one.
+const YES_WAYS_FORWARD = [
+  '--yes never overwrites. Run `pharn init` in a terminal to review and confirm the overwrite,',
+  '`pharn init --dry-run` to see the whole plan, or `pharn update` to refresh an existing install.',
+];
+
+/**
+ * The early `--yes` refusal, BEFORE the fetch (CORE-168): an existing
+ * `pharn.config.json` is ALWAYS one of init's write targets
+ * (`conflictingWriteTargets` adds it whenever it exists — this is its very
+ * test), so `assertNoExistingTargets` would certainly refuse; deciding it here
+ * costs no network round trip. The message names only that file, because the
+ * marked list of the other targets needs the clone. Returns the message, or
+ * null when the file does not exist (a dangling link does not, as there).
+ */
+export function existingConfigRefusal(projectRoot: string): string | null {
+  if (!existsSync(safeJoin(projectRoot, PHARN_CONFIG_FILE))) return null;
+  return [
+    `pharn init --yes installs only into a project where none of its files exists yet, and ${PHARN_CONFIG_FILE} already exists.`,
+    ...YES_WAYS_FORWARD,
+  ].join('\n');
+}
+
 /**
  * The `--yes` gate: throw OverwriteRefusedError unless NONE of the install's
  * write targets exists. `--yes` never answers the overwrite question — it only
  * proceeds where there is no question to answer. A membership test over the
  * same set the prompt lists (P5); `commands/init.ts` runs it before the lock
  * and again under it, immediately before the install.
+ *
+ * It takes no removals, and needs none: a capability directory a re-install
+ * would delete comes only from the replaced `pharn.config.json`'s entries, and
+ * that file is itself a write target — refused here as a conflict, and before
+ * the fetch by `existingConfigRefusal`. So `--yes` never deletes.
  */
-export function assertNoExistingTargets(params: WriteTargetsParams): void {
+export function assertNoExistingTargets(
+  params: Omit<WriteTargetsParams, 'removals'>,
+): void {
   const plan = planWriteTargets(params);
-  // `--yes` never deletes either: a re-install that would delete the directory
-  // of a capability it drops needs the interactive confirm, which lists them.
-  const deletes = removalLines(plan.removals);
-  if (deletes.length > 0) {
-    throw new OverwriteRefusedError(
-      [
-        `pharn init --yes never deletes, and this install would delete ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} it drops from pharn.config.json:`,
-        ...deletes,
-        'Run `pharn init` in a terminal to review and confirm, `pharn init --dry-run` to see the whole plan, or `pharn update` to refresh an existing install.',
-      ].join('\n'),
-    );
-  }
   if (plan.conflicts.length === 0) return;
   const n = plan.conflicts.length;
   throw new OverwriteRefusedError(
     [
       `pharn init --yes installs only into a project where none of its files exists yet, and ${n} of them already exist:`,
       ...targetLines(plan, MAX_LISTED),
-      '--yes never overwrites. Run `pharn init` in a terminal to review and confirm the overwrite,',
-      '`pharn init --dry-run` to see the whole plan, or `pharn update` to refresh an existing install.',
+      ...YES_WAYS_FORWARD,
     ].join('\n'),
   );
 }

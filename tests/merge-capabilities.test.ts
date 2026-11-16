@@ -25,7 +25,7 @@ function sel(
 }
 
 function skip(name: string, role: 'griller' | 'lens' = 'lens') {
-  return { name, role, reason: 'applies to [backend]; detected [lib]' };
+  return { name, role, reason: 'applies to [backend]; archetypes [lib]' };
 }
 
 function selection(over: Partial<Selection> = {}): Selection {

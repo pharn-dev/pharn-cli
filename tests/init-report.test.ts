@@ -38,7 +38,7 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
         {
           name: 'path-traversal',
           role: 'lens',
-          reason: 'applies to [backend]; detected [ssr]',
+          reason: 'applies to [backend]; archetypes [ssr]',
         },
       ],
     },
@@ -288,16 +288,19 @@ describe('buildInitReport', () => {
     expect(text).toContain('\\u001b');
   });
 
-  it('yesWouldProceed: nothing overwritten and no directory deleted', () => {
+  it('yesWouldProceed: nothing would be overwritten', () => {
     expect(buildInitReport(plan()).yesWouldProceed).toBe(false);
     expect(
       buildInitReport(plan({ counts: { create: 3, overwrite: 0, backup: 0 } }))
         .yesWouldProceed,
     ).toBe(true);
+    // A removal comes only from a replaced pharn.config.json, which is itself an
+    // overwrite target — so a plan with a removal always has overwrite >= 1
+    // (CORE-168: the separate removal clause was redundant and is gone).
     expect(
       buildInitReport(
         plan({
-          counts: { create: 3, overwrite: 0, backup: 0 },
+          counts: { create: 3, overwrite: 1, backup: 0 },
           removals: [
             {
               cap: { name: 'old', role: 'lens', source: 'auto' },
