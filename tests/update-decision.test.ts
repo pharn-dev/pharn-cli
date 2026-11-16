@@ -404,6 +404,34 @@ describe('planUpdate — the executable-unit hold', () => {
     expect(p.writes).toContain('pharn/floor/worktree-fingerprint.mjs');
   });
 
+  // Every same-version `update` plans, so this is how a deleted floor file or
+  // hook comes back while the user's edit to another one is kept.
+  it('at the same version a deleted unit file is restored beside an edited one, which stays skipped', () => {
+    const p = planUpdate({
+      latestHashes: new Map([
+        ['pharn/floor/edited.mjs', LATEST],
+        ['.claude/hooks/deleted.cjs', LATEST],
+      ]),
+      diskStates: new Map<string, DiskState>([
+        ['pharn/floor/edited.mjs', file(USER)],
+        ['.claude/hooks/deleted.cjs', { kind: 'absent' }],
+      ]),
+      records: {
+        'pharn/floor/edited.mjs': LATEST,
+        '.claude/hooks/deleted.cjs': LATEST,
+      },
+      force: false,
+      unit,
+      holdUnit: false,
+    });
+    expect(p.held).toBeNull();
+    expect(p.writes).toEqual(['.claude/hooks/deleted.cjs']);
+    expect(p.skipped).toEqual([
+      { label: 'modified', rels: ['pharn/floor/edited.mjs'] },
+    ]);
+    expect(p.nextRecords['.claude/hooks/deleted.cjs']).toBe(LATEST);
+  });
+
   it('no skipped unit file → output identical to a planner with no unit at all', () => {
     const args = {
       latestHashes: new Map([

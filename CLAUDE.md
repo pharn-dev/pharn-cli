@@ -117,10 +117,10 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - Selection: `detect-archetype` + `archetype` (detection), `resolve-capabilities`, `merge-capabilities`,
   `capability-address`, `capability-groups`/`capability-picker`.
 - Install: `install-capabilities` (the copy), `install-manifest` (the one expected-path set), `install-surfaces`,
-  `layout`, `absent-surfaces`, `agent-surface`, `write-targets`, `init-plan`, `init-report`.
+  `layout`, `absent-surfaces`, `write-targets`, `init-plan`, `init-report`.
 - Update engine: `update-plan` (read-only planner) → `update-decision` (the 6-row table) → `apply-update` →
   `update-next` (next state); `update-render` (notes), `update-report` (`--json`), `executable-unit`,
-  `missing-installed`, `orphans`, `root-migration`, `capability-removal`/`capability-dir`.
+  `orphans`, `root-migration`, `capability-removal`/`capability-dir`.
 - Records and backups: `install-records`, `hash`, `dest-drift`, `backup`, `removal-backup`, `uninstall-plan`.
 - Config: `pharn-config` (read/write/validate), `model-config` (pinned checker copy), `model-config-format`, `models-update`.
 - Safety: `validate`, `symlink-guard`, `terminal-safe`, `bounded-read`, `atomic-write`, `project-lock`, `deadline`, `fatal-signal`.

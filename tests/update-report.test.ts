@@ -338,14 +338,14 @@ describe('buildUpdateReport — planned', () => {
   // ONLY when there is one, so a report with none stays byte-identical to the
   // one 0.10.0 shipped (pinned below).
   // 0.18.0: the executable-unit hold, additive and present ONLY on a hold.
-  // CORE-162: present (as true) ONLY when a real run would change nothing;
-  // `status` stays `planned`, and the internal `stateChanges` never leaks.
+  // The planner's `changesNothing` and `stateChanges` are internal: a plan that
+  // changes nothing is reported as `up-to-date` with `plan: null` instead.
   it('omits changesNothing when the run changes something', () => {
     expect('changesNothing' in r.plan!).toBe(false);
     expect('stateChanges' in r.plan!).toBe(false);
   });
 
-  it('carries plan.changesNothing: true last, status still planned, when nothing changes', () => {
+  it('never serializes changesNothing or stateChanges, even for a plan that changes nothing', () => {
     const quiet = buildUpdateReport(
       input({
         plan: planReport({
@@ -354,10 +354,11 @@ describe('buildUpdateReport — planned', () => {
         }),
       }),
     );
-    expect(quiet.status).toBe('planned');
-    expect(quiet.plan!.changesNothing).toBe(true);
-    expect(Object.keys(quiet.plan!).at(-1)).toBe('changesNothing');
+    expect('changesNothing' in quiet.plan!).toBe(false);
     expect('stateChanges' in quiet.plan!).toBe(false);
+    expect(serializeJsonReport(quiet)).not.toContain('changesNothing');
+    // The same key set as a plan that changes something.
+    expect(Object.keys(quiet.plan!)).toEqual(Object.keys(r.plan!));
   });
 
   it('omits executableUnit when nothing was held', () => {

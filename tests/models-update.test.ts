@@ -5,7 +5,6 @@ import {
   convertLegacyModels,
   decideModelsUpdate,
   isLegacyDefault,
-  modelsMigrationPending,
   needsModelsConversion,
 } from '../src/lib/models-update.js';
 import type { UpstreamModels } from '../src/lib/upstream-models.js';
@@ -207,28 +206,6 @@ describe('convertLegacyModels', () => {
     expect(Object.getPrototypeOf(stages)).toBe(Object.prototype);
     expect(Object.hasOwn(stages, '__proto__')).toBe(true);
     expect(Object.keys(stages)).toEqual(['default', '__proto__']);
-  });
-});
-
-describe('modelsMigrationPending — what re-opens update’s early return', () => {
-  it('is pending while the block needs converting', () => {
-    expect(modelsMigrationPending(DEFAULT_057, null)).toBe(true);
-    expect(
-      modelsMigrationPending(DEFAULT_057, modelsRecordHash(UPSTREAM)),
-    ).toBe(true);
-    expect(modelsMigrationPending(UPSTREAM, null)).toBe(false);
-    expect(modelsMigrationPending(undefined, null)).toBe(false);
-  });
-
-  // Review finding (REVIEW.md, P5): a block pharn recorded writing can only be
-  // pharn-oss's own, which update never converts — so it must not hold the
-  // gate open, or a convertible upstream block would re-open it forever.
-  it('is not pending for the block pharn recorded writing', () => {
-    const upstreamShaped = { default: { model: 'sonnet', effort: 'high' } };
-    expect(needsModelsConversion(upstreamShaped)).toBe(true);
-    expect(
-      modelsMigrationPending(upstreamShaped, modelsRecordHash(upstreamShaped)),
-    ).toBe(false);
   });
 });
 

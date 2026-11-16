@@ -189,7 +189,8 @@ alone and reaches no write function. `--dry-run --json` projects the report thro
 (`schemaVersion: 1`).
 
 **The real run plans once, before it asks.** Under the lock, it downloads once, plans, prints the membership changes,
-and asks. A plan that changes nothing (`changesNothing`) asks nothing and writes nothing. After the confirm,
+and asks. A plan that changes nothing (`changesNothing`) is "Up to date": it asks nothing and writes nothing, and
+`--dry-run --json` reports it as `status: "up-to-date"` with `plan: null`. After the confirm,
 `applyConfirmed` refuses before the first write when `pharn.config.json` or any file the plan writes changed while the
 prompt was open (a file now byte-identical to upstream is not a change), then applies the confirmed plan.
 
@@ -205,9 +206,10 @@ prompt was open (a file now byte-identical to upstream is not a change), then ap
   disk. Nothing else is deleted.
 - **Orphans** (`lib/orphans.ts`): a record key outside the new manifest that is still on disk is listed and keeps its
   record. It is never deleted.
-- **Same-version early return**: at the recorded version `update` returns early unless something local reopens it: a
-  missing installed path, a missing agent, a pending root migration, a pending ignore-file line, a `models` block in the
-  old format, or frozen capabilities. Each signal is bounded: the run it opens closes it.
+- **Every run plans**: there is no same-version shortcut. `update` downloads and plans at the recorded version too, so
+  a missing file, a pending root migration or ignore-file line, an old `models` block, a channel switch or a frozen
+  capability is handled by the one planner. "Up to date" is a plan that changes nothing (`changesNothing`); only the
+  ahead-of-source guard returns before the download.
 
 ## Root footprint
 

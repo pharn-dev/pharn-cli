@@ -1112,6 +1112,29 @@ describe('re-running init over an install', () => {
     expect(config().skillsVersion).toBe('1.0.0');
   });
 
+  // A root doc init would retire is deleted only while it still equals its
+  // record, re-hashed at the delete; an edit made during the prompt keeps it.
+  it('a root doc edited while the overwrite prompt is open is never deleted', async () => {
+    serveTip(SHA_V1, '6.9.0');
+    await installFresh();
+    expect(records().files['LIMITS.md']).toBeDefined();
+    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    interactive({ select: ['install'] });
+    vi.mocked(clack.confirm).mockImplementationOnce(async () => {
+      write('LIMITS.md', 'my limits, edited at the prompt\n');
+      return true;
+    });
+    clearOutput();
+    expect(await run(() => runInit())).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+    // Kept byte for byte, with its record; the untouched doc is retired.
+    expect(read('LIMITS.md')).toBe('my limits, edited at the prompt\n');
+    expect(records().files['LIMITS.md']).toBeDefined();
+    expect(exists('THREAT-MODEL.md')).toBe(false);
+    expect(read('pharn/LIMITS.md')).toBe('limits\n');
+    expect(notes('ROOT MIGRATION').join('\n')).toContain('LIMITS.md');
+  });
+
   it('a file edited while the overwrite prompt is open is backed up, then overwritten', async () => {
     await installFresh();
     interactive({ select: ['install'] });

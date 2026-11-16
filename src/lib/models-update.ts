@@ -127,22 +127,6 @@ export function needsModelsConversion(block: unknown): boolean {
   return convertLegacyModels(block).changes.length > 0;
 }
 
-/**
- * Should `update` pass its same-version early return to migrate this block?
- * While it still needs converting — unless it is exactly the block pharn
- * recorded writing (only ever pharn-oss's). That exception bounds the gate: a
- * run converts the block or writes and records pharn-oss's.
- */
-export function modelsMigrationPending(
-  block: unknown,
-  recorded: string | null,
-): boolean {
-  return (
-    needsModelsConversion(block) &&
-    (recorded === null || modelsRecordHash(block) !== recorded)
-  );
-}
-
 export type ModelsOutcome =
   // Your config had no block; pharn-oss's was written.
   | 'restored'

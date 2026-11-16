@@ -487,10 +487,9 @@ describe('pharn status, end to end', () => {
     expect(drift).toContain(
       'Run `pharn update` to restore them (files you edited are kept).',
     );
-    expect(drift).toContain('"Already up to date"');
-    expect(drift.indexOf('`pharn update` to restore')).toBeLessThan(
-      drift.indexOf('pharn update --force'),
-    );
+    // A plain update restores them at any version: no `--force` fallback.
+    expect(drift).not.toContain('"Already up to date"');
+    expect(drift).not.toContain('pharn update --force');
     expect(drift).toContain('not yet in pharn.config.json');
     expect(drift).toContain('additive-only');
     expect(drift).toMatch(/UNREADABLE — not a regular readable file/);
@@ -559,10 +558,9 @@ describe('pharn status, end to end', () => {
     expect(layout).toContain(
       'Run `pharn update` to move the install; drift is checked after the move.',
     );
-    expect(layout).toContain('"Already up to date"');
-    expect(layout).toContain('`pharn update --force` moves it');
-    expect(layout).toContain('overwrites files you edited');
-    expect(layout).toContain('pharn/.backup/');
+    // A plain update moves it at any version: no `--force` fallback.
+    expect(layout).not.toContain('"Already up to date"');
+    expect(layout).not.toContain('--force');
     expect(layout).toContain('`pharn status --strict` fails');
     // Layout-independent: the hook wiring is still checked.
     expect(note('HOOKS')).toContain('node .claude/hooks/guard.cjs');
@@ -647,7 +645,7 @@ describe('pharn status, end to end', () => {
       const { report } = await statusJson(opts);
       expect(report.prettierignore).toMatchObject({ action: 'append' });
 
-      // `update` adds them (same version: the missing lines re-open it).
+      // A plain `update` adds them, at the same version too.
       expect(await run(() => runUpdate({ yes: true }))).toBeNull();
       expect(await status(opts)).toBeNull();
       expect(noteTitles()).not.toContain('PRETTIER');

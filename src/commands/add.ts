@@ -76,9 +76,10 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
 
 // THE VERSION GATE. The clone can be ahead of (or behind) what this project
 // installed, and stamping its SKILLS_VERSION over files still at the old bytes
-// would make `pharn update`'s same-version early return lie ("Already up to
-// date" over a stale install). So `add` refuses unless the two agree: exact
-// `!==`, direction-agnostic. The config value is only type-checked at ingest;
+// would record an upgrade those files never received (`status` would call a
+// stale install current, and `update` would treat it as same-version). So
+// `add` refuses unless the two agree: exact `!==`, direction-agnostic. The
+// config value is only type-checked at ingest;
 // an unparseable hand-edit compares unequal and refuses (fail closed).
 //
 // Called from INSIDE each path's try, because readSkillsVersion throws on a
@@ -120,7 +121,8 @@ function versionGate(
 // The (skillsVersion, commit) pair `add` writes to the config and the records
 // stamp: normally the clone's. At a PENDING version it stays the config's own —
 // the newer version would claim an upgrade the kept edits (and a unit they held
-// back) never received, and `update` would early-return "up to date".
+// back) never received, and `update`, seeing the same version, would stop
+// holding the executable unit and write it around the kept edits.
 function addStamp(
   config: PharnConfig,
   version: string,

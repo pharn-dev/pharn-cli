@@ -754,7 +754,8 @@ it. `--dry-run` takes no lock.
 
 What may change while a prompt is open is checked before the first write instead: a hand-edited
 `pharn.config.json` refuses the run, a file edited since the plan is backed up before it is
-overwritten, and every write and delete walks its own path for a symbolic link. A walked-away `init`
+overwritten, a root `THREAT-MODEL.md` or `LIMITS.md` edited since the plan is kept (with its record)
+instead of retired, and every write and delete walks its own path for a symbolic link. A walked-away `init`
 blocks other `pharn` writers in that project until you answer or press Ctrl-C (which releases the
 lock). See [Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
 

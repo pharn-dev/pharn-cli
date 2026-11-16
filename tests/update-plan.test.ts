@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, expectTypeOf, it, beforeEach } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
@@ -345,6 +345,41 @@ describe('buildUpdatePlan', () => {
     });
   });
 
+  // `update` has no same-version shortcut: it plans every run, so the planner
+  // alone decides "up to date" — and restores what a same-version run finds
+  // missing.
+  it('at the same version: an install matching upstream changes nothing, and a deleted file is restored', async () => {
+    const sha = 'a'.repeat(40);
+    const current = config({
+      skillsVersion: '1.1.0',
+      commit: sha,
+      capabilities: [{ ...CAP, source: 'auto' }],
+    });
+    await fixture(current);
+    write(join(proj, CAP_FILE), capDoc('a11y v2'));
+    write(join(proj, DOC), 'constitution v2');
+    writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
+    await writeRecords(proj, {
+      skillsVersion: '1.1.0',
+      commit: sha,
+      files: {
+        [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+        [DOC]: contentHash(join(proj, DOC)),
+      },
+    });
+
+    const settled = plan(current).report;
+    expect(settled.writes).toEqual([]);
+    expect(settled.stateChanges).toEqual({ config: false, records: false });
+    expect(settled.changesNothing).toBe(true);
+
+    rmSync(join(proj, DOC));
+    const restoring = plan(current).report;
+    expect(restoring.writes).toEqual([DOC]);
+    expect(restoring.counts.restored).toBe(1);
+    expect(restoring.changesNothing).toBe(false);
+  });
+
   it('records no pending version when the skip is not a user edit', async () => {
     await fixture();
     // A directory where a regular file is expected → `unreadable`.
@@ -421,6 +456,25 @@ describe('buildUpdatePlan', () => {
     expect(plan(cfg).report.frozenCapabilities).toEqual(['griller:a11y']);
     write(join(proj, CAP_FILE), 'a11y v1');
     expect(plan(cfg).report.frozenCapabilities).toEqual([]);
+  });
+
+  // src/types.ts: `frozenCapabilities` is optional (omitted when none) and
+  // every `update` re-checks it — there is no same-version shortcut to skip.
+  it('re-checks frozenCapabilities at the same version too, and clears one that parses again', async () => {
+    expectTypeOf<PharnConfig['frozenCapabilities']>().toEqualTypeOf<
+      string[] | undefined
+    >();
+    const cfg = config({
+      skillsVersion: '1.1.0',
+      frozenCapabilities: ['griller:a11y'],
+      capabilities: [{ ...CAP, source: 'auto' }],
+    });
+    await fixture(cfg);
+    const { report } = plan(cfg);
+    expect(report.currentVersion).toBe(report.installedVersion);
+    expect(report.frozenCapabilities).toEqual([]);
+    expect(report.stateChanges.config).toBe(true);
+    expect(report.changesNothing).toBe(false);
   });
 
   it('plans the abandoned layout in both directions, only when something would be written', async () => {

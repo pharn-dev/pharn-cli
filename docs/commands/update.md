@@ -48,25 +48,25 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    (exit 1). An install **ahead** of that source — newer than the newest release, or newer than `main`
    when `main` has moved back to an older version — is left as it is (exit 0) unless you pass `--force`
    (see [An install ahead of its source](#an-install-ahead-of-its-source)).
-5. If they match, reports "Already up to date" and exits — **unless** you passed `--force`, which
-   re-applies upstream at the current version, your `models` block is still in the format `pharn`
-   wrote before 0.7.0, which this run converts (see [The `models` block](#the-models-block)), or a file
-   or capability directory `pharn` installed is missing, which this run restores (see
-   [Missing files at the same skills version](#missing-files-at-the-same-skills-version)).
-6. Otherwise shows the version bump with a pointer to `CHANGELOG.md`, downloads the repo (SHA-pinned)
-   and plans the update: it checks `MIN_CLI`, **re-resolves your recorded `archetypes`** against the
-   latest capability index and **unions** that result with the capabilities you added by hand. A failed
-   download, a `MIN_CLI` refusal, or a dropped capability whose directory cannot be deleted safely stops
-   the run here (exit 1), before you are asked anything.
-7. If the plan **changes nothing** — no file to write, no directory or root doc to delete, no line to add
+5. Downloads the repo (SHA-pinned) and plans the update — **every run does, at the same skills version
+   too**: there is no "same version, nothing to do" shortcut, so one plain `pharn update` restores a
+   missing file, adds a missing `.gitignore` or `.prettierignore` line, converts an old `models` block,
+   records a `--ref` switch and re-checks a capability it kept unread. The plan checks `MIN_CLI`,
+   **re-resolves your recorded `archetypes`** against the latest capability index and **unions** that
+   result with the capabilities you added by hand. A failed download, a `MIN_CLI` refusal, or a dropped
+   capability whose directory cannot be deleted safely stops the run here (exit 1), before you are
+   asked anything.
+6. If the plan **changes nothing** — no file to write, no directory or root doc to delete, no line to add
    to `.gitignore` / `.prettierignore`, and `pharn.records.json` and `pharn.config.json` would stay as
-   they are — it prints its notes (a kept edit is still listed under `SKIPPED`), asks nothing, writes
-   nothing, and ends with `Nothing to change.` (see [When there is nothing to change](#when-there-is-nothing-to-change)).
-8. Otherwise lists, in a `CAPABILITIES` note, every capability the update would **add** or **drop**, with the
-   directory each drop would delete, and under `--force` every file it would overwrite (see
-   [Before you confirm](#before-you-confirm)), and asks for
+   they are — the install is up to date: it prints its notes (a kept edit is still listed under
+   `SKIPPED`), asks nothing, writes nothing, exits 0, and ends with `Up to date.` (or `Nothing to change.`
+   when it keeps an edit of yours; see [When there is nothing to change](#when-there-is-nothing-to-change)).
+7. Otherwise shows the version bump (or `(re-applying)` at the same version) with a pointer to
+   `CHANGELOG.md`, lists, in a `CAPABILITIES` note, every capability the update would **add** or
+   **drop**, with the directory each drop would delete, and under `--force` every file it would
+   overwrite (see [Before you confirm](#before-you-confirm)), and asks for
    confirmation — unless you passed `--yes`, which skips that one prompt and nothing else.
-9. On confirm, applies the plan you were shown — it plans once. A file you edit while `update` waits for
+8. On confirm, applies the plan you were shown — it plans once. A file you edit while `update` waits for
    your answer stops the run before anything is written (exit 1, with or without `--force`): the
    error names the file, your edit is kept, and re-running `pharn update` plans it as yours and skips
    it (see [Edits made while update waits for your answer](#edits-made-while-update-waits-for-your-answer)).
@@ -100,7 +100,10 @@ write, `update` compares every file it is about to write with what it saw when i
   ```
 
 - a file you put back with exactly upstream's bytes is not an edit, and the run goes on;
-- a hand-edit of `pharn.config.json` stops the run the same way.
+- a hand-edit of `pharn.config.json` stops the run the same way;
+- so does an edit to a root `THREAT-MODEL.md` or `LIMITS.md` the run would retire (see
+  [The root-footprint migration](#the-root-footprint-migration)): a root doc is deleted only while it still equals its record,
+  re-checked at the delete, and the re-run keeps your edited copy.
 
 The run stops instead of skipping the file because the rest of the plan — the version it records, the
 [executable unit](#the-executable-unit-is-upgraded-all-or-none), the root migration — was decided
@@ -121,8 +124,9 @@ asks to confirm (`--yes` is accepted and does nothing). Use it to look before yo
 terminal, or from a script or an agent that wants to read the plan first.
 
 What it still does, exactly like a real run: the Node check, the config load, resolving the source
-(`--ref`), the "ahead of the release", "ahead of main" and "Already up to date" early returns (reported, exit 0), the
-clone, and the `MIN_CLI` gate (a refusal exits 1). What it skips: the confirm, the project lock and
+(`--ref`), the "ahead of the release" and "ahead of main" early returns (reported, exit 0, nothing
+downloaded), the clone — which a dry run at the current version downloads too — and the `MIN_CLI` gate
+(a refusal exits 1). What it skips: the confirm, the project lock and
 the check that the config did not change under you.
 
 It prints:
@@ -163,15 +167,18 @@ exit code is `0`, whatever the plan contains: there is no `--strict` for a previ
 
 The outcome is the `status` field, not prose:
 
-| `status`           | meaning                                                                                                                                                                                               | `plan` |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                                                      | object |
-| `up-to-date`       | "Already up to date": the installed version is the latest, and nothing (`--force`, a kept unreadable capability, an old `models` block, a channel switch, a missing installed file) re-opens the run. | `null` |
-| `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                                                | `null` |
-| `ahead-of-main`    | Your install is newer than pharn-oss `main` — `main` moved back to an older version; a real run changes nothing without `--force`.                                                                    | `null` |
+| `status`           | meaning                                                                                                                                                                                                                                  | `plan` |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `planned`          | A real run would proceed. The plan is in `plan`.                                                                                                                                                                                         | object |
+| `up-to-date`       | The plan [changes nothing](#when-there-is-nothing-to-change): a real run would ask nothing and write nothing (it may still keep an edit of yours, which its text output names). Every run downloads and plans first, `--force` included. | `null` |
+| `ahead-of-release` | Your install is newer than the newest verified release (`--ref latest`); a real run changes nothing without `--force`.                                                                                                                   | `null` |
+| `ahead-of-main`    | Your install is newer than pharn-oss `main` — `main` moved back to an older version; a real run changes nothing without `--force`.                                                                                                       | `null` |
 
 `ahead-of-main` was added without a `schemaVersion` bump (it stays `1`): an additive value, like a new
-key. Treat a `status` you do not recognise as "do not apply".
+key. Since 0.20.0 `up-to-date` is decided by the plan, not by comparing versions: a dry run at the current
+version that would restore a file or add an ignore line is `planned`, and one at an older recorded version
+whose plan changes nothing (only your kept edits differ) is `up-to-date`. Its bytes are unchanged. Treat a
+`status` you do not recognise as "do not apply".
 
 ```json
 {
@@ -270,7 +277,6 @@ key. Treat a `status` you do not recognise as "do not apply".
 | `plan.gitignore`                            | Present only when a real run would change [`.gitignore`](#gitignore): `{action, entries}` with `action` `create` or `append` and `entries` the lines it adds, or `{action: "refused", reason, entries}` (`reason` `symlink`, `not-a-file` or `unreadable`) when it would have to leave the file alone. Absent otherwise, so such a report is byte-identical to earlier releases. Added in 0.16.0 within `1`.                                                                                                                                                                                                                                                                     |
 | `plan.prettierignore`                       | Present only when a real run would change [`.prettierignore`](#prettierignore) in a project that uses Prettier: `{action, entries}` (`create`/`append`, the lines it adds) or `{action: "refused", reason, entries}`. Absent otherwise. Added in 0.17.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `plan.orphans`                              | Present only when there is at least one: every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). With none, the key is **absent** (not `[]`), so such a report is byte-identical to the one 0.10.0 printed; read it as `plan.orphans ?? []`. Never filtered by `--compact`.                                                                                                                                                                                                                                                                                                                         |
-| `plan.changesNothing`                       | Present **only** (as `true`) when a real run would [change nothing](#when-there-is-nothing-to-change): it would ask nothing and write nothing, not even `pharn.config.json`. `status` stays `planned`; the early returns keep `plan: null`. Added in 0.20.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 #### `--compact`: leave out the unchanged files
 
@@ -404,9 +410,8 @@ upstream this run`. A capability you have is not dropped because one fetch could
 - **Everything else updates normally**, including the skills version — so the next
   [`pharn add`](add.md) is not blocked.
 
-pharn records the kept capability in `frozenCapabilities` in `pharn.config.json`. While that
-field is set, `update` does not stop at "Already up to date": every run fetches again and re-checks
-it, so the message repeats while the situation lasts. Once the capability can be read (upstream
+pharn records the kept capability in `frozenCapabilities` in `pharn.config.json`. Every run
+downloads and re-checks it, so the message repeats while the situation lasts. Once the capability can be read (upstream
 finishes the change, or you upgrade pharn with `npm install -g @pharn-dev/pharn@latest`), `update`
 brings its files up to date as usual and clears the field — but only once none of that capability's
 files had to be skipped. A file of it you edited is skipped as usual, and the capability stays listed,
@@ -538,7 +543,7 @@ What follows from a hold:
   the signal, not the exit code.
 - `--force` never holds. It backs up the skipped files and writes the whole set (an `unreadable` path is
   still skipped, as always).
-- At the **same** skills version (a run reopened to restore a missing file, for example) nothing is held:
+- At the **same** skills version (a run that restores a missing file, for example) nothing is held:
   restoring a file then puts back bytes of the version you already have.
 
 What `pharn` can promise here is only that it wrote no file of the set. It cannot prove that your edited
@@ -582,10 +587,8 @@ is never a skip: it does not withhold the version bump and does not appear in `S
 **It stays listed until you delete it.** `update` keeps the orphan's entry in `pharn.records.json` (its
 old hash, unchanged) for as long as the file exists, so every later `update` — and every
 [`pharn status`](status.md#orphaned-files) — still names it. Once the file is gone, the next `update`
-drops its entry. At the same skills version that takes one run: the recorded path is now gone, so
-`update` reads it as [missing](#missing-files-at-the-same-skills-version) and runs instead of stopping
-at "Already up to date" — it restores nothing (upstream no longer ships the file), drops the entry, and
-the run after that is up to date again. If upstream ships the path again later, the kept entry makes it a clean `updated` instead of an
+drops its entry, at the same skills version too: it restores nothing (upstream no longer ships the
+file), drops the entry, and the run after that is up to date again. If upstream ships the path again later, the kept entry makes it a clean `updated` instead of an
 `unrecorded` skip. A re-run `pharn init` keeps those entries too.
 
 What is **not** listed:
@@ -600,9 +603,10 @@ What is **not** listed:
   the PHARN license and the features `README.md`, in either layout) — even if a hand-edited
   `pharn.records.json` names it.
 
-A run that returns early ("Already up to date") plans nothing and prints no `ORPHANED` note;
+Every run plans, so an up-to-date run prints the `ORPHANED` note too;
 [`pharn status`](status.md#orphaned-files) reports orphans whenever it runs its drift check.
-`--dry-run` prints the same note, and `--dry-run --json` lists them in `plan.orphans`.
+`--dry-run` prints the same note, and `--dry-run --json` lists them in `plan.orphans` when its `status` is
+`planned`; an `up-to-date` report has `plan: null`, so use `pharn status --json` (`orphans`) to list them then.
 
 ## `--force` and `pharn/.backup/`
 
@@ -649,7 +653,7 @@ whatever merged last.
   only. An `update` on a `main` install keeps it on `main` and prints one line saying so:
   `Verified releases are now the default for new installs. This install keeps following pharn-oss main;
 run`pharn update --ref latest`to switch (recorded on first use).` It prints on every such run —
-  the up-to-date return and `--dry-run` included — but not when you pass `--ref`, and not under
+  an up-to-date run and `--dry-run` included — but not when you pass `--ref`, and not under
   `--json` (the report's `channel` says `main`).
 
 - **The channel is recorded.** `pharn update --ref latest` writes `"ref": "latest"` to
@@ -682,10 +686,10 @@ exits 0:
 A `pendingSkillsVersion` counts too: when the last run withheld the version bump only because of your kept
 edits, every file outside those edits (and outside an executable unit they held back) is already at that
 version, so an upstream older than it is refused the same way
-even if your recorded `skillsVersion` is older still. The check runs before the "Already up to date"
-early return and before everything that re-opens it (a kept unreadable capability, an old `models` block,
-a `--ref` switch) — so `update --ref main` on a release install that is ahead of `main` changes nothing,
-the switch included. `--dry-run` reports the same outcome, and `--dry-run --json` reports it as `status`
+even if your recorded `skillsVersion` is older still. The check runs before the download and the plan
+— so nothing a plan would do (re-check a kept unreadable capability, convert an old `models` block,
+record a `--ref` switch) happens, and `update --ref main` on a release install that is ahead of `main`
+changes nothing, the switch included. `--dry-run` reports the same outcome, and `--dry-run --json` reports it as `status`
 `ahead-of-release` or `ahead-of-main` with `plan: null`. `--yes` does not skip it; only `--force` does.
 `pharn status` reports such an install as **ahead**, not outdated, and `--strict` does not fail on it.
 A version that cannot be ordered (not a plain `X.Y.Z`) is never treated as ahead.
@@ -722,8 +726,7 @@ exactly one of those defaults is replaced with pharn-oss's. An edited one is **c
 What pharn-oss's rules still reject after that — a model with no mapping, a stage that does not exist,
 a `default` that could not move because `stages.default` is already set — is listed by name for you to
 fix by hand. Nothing is dropped, and nothing is guessed. This conversion runs even when your skills
-version is current: it is the one case where `update` goes past "Already up to date". Once your block
-is converted it no longer does.
+version is current, since every `update` plans; once your block is converted the next run is up to date.
 
 A kept block never holds back the skills version, unlike a skipped file: your `models` block is
 configuration, and a block you tuned is a steady state, not an unfinished upgrade. Keep in mind what
@@ -851,19 +854,18 @@ channel, a new commit — still changes the file.
 
 The terminal check is unchanged: off a terminal without `--yes`, `update` still refuses before any network
 call, because it cannot know the plan until it has downloaded. The [dry run](#previewing-an-update) says
-`Nothing would be written.` for the same plans, and `--dry-run --json` adds `plan.changesNothing: true`.
+`Nothing would be written.` and ends `Dry run — Up to date.` (or `Nothing to change.`) for the same plans,
+and `--dry-run --json` reports them as `status` `up-to-date` with `plan: null`. Since 0.20.0 this is the
+only "up to date": every run, at the current skills version too, downloads pharn-oss (about 2.5 MB) and
+plans before it can say so.
 
 ## Concurrency
 
-`update` takes the project lock (`pharn/.lock`) **after** the confirmation prompt — so no prompt is ever
-held under it — and holds it across the final plan and the writes. The download comes before the prompt
-(see [Before you confirm](#before-you-confirm)), so it is never under the lock either. A second `pharn`
-writer refuses with a named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never blocked, so
-`pharn status --strict` stays runnable in CI while an update is in flight.
-
-One precision worth carrying: a refused run is not a **no-network** run. The `SKILLS_VERSION` check
-and the repo download both happen before the lock is taken, so they have already gone over the wire by
-the time the refusal is reported. Closing that would mean holding the lock across the confirm. See
+`update` takes the project lock (`pharn/.lock`) **before** it reads `pharn.config.json` or touches the
+network, and holds it across the download, the plan, the confirm and the writes. While it waits for your
+answer, a second `pharn` writer refuses with a named message and exit 1 rather than queueing; `pharn list`
+and `pharn status` never take the lock, so `pharn status --strict` stays runnable in CI while an update is
+in flight. A refused run reads nothing and fetches nothing. `--dry-run` takes no lock. See
 [Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
 
 ## The recorded version stays true
@@ -894,33 +896,21 @@ Either path writes a full record store, and every later update is precise.
 
 ## Missing files at the same skills version
 
-When your `skillsVersion` already equals upstream's, `update` does not download anything to compare.
-It first checks, locally, whether your install is still complete:
+When your `skillsVersion` already equals upstream's, `update` still downloads and plans, so a missing
+file is restored like on any other run: a capability directory or a recorded file that is gone, the
+[review lens agent](#the-review-lens-agent-claudeagents) an older `pharn` never installed, or a surface a
+newer `pharn` release installs that your install never had. The per-file table always `restore`s a
+missing file, so your edits elsewhere are still kept and no `--force` is needed. `--dry-run` shows it
+under `WOULD WRITE — restored`, and `--dry-run --json` reports `status` `planned`. After that run the
+install is complete again and the next `update` answers `Up to date.`
 
-- every capability in `pharn.config.json`'s `capabilities` still has its directory, at your recorded
-  layout;
-- every file listed in [`pharn.records.json`](../reference/pharn-records.md) still exists (when the store
-  is usable — absent or unreadable, only the directories are checked).
+A path that goes through a symbolic link is never followed and is not restored — `update` refuses to
+write through a link — and neither is a path blocked by a file where a directory should be: the run
+skips it (`Nothing to change.` when that is all it finds), and [`pharn status`](status.md) reports it.
 
-If something is missing, the run goes ahead as a normal update instead of stopping at "Already up to
-date". The header names the first missing path (`CONSTITUTION.md is missing — this run re-applies the
-install, restoring it if upstream still ships it.`), and the per-file table restores it: a missing file is always `restore`d, so
-your edits elsewhere are still kept, and no `--force` is needed. `--dry-run` and `--dry-run --json`
-take the same branch (the JSON `status` is `planned`). After that run the install is complete again and
-the next `update` answers "Already up to date".
-
-Only a path that is **provably** gone counts. A path that goes through a symbolic link is never followed
-and is not counted — `update` refuses to write through a link, so it could not restore it anyway — and
-neither is a path blocked by a file where a directory should be. [`pharn status`](status.md) reports
-those.
-
-Two things this check cannot see, because nothing in your project records them:
-
-- a capability you removed with [`pharn remove`](remove.md) — it drops both the config entry and its
-  records, so see [Removing an auto-selected capability](remove.md#removing-an-auto-selected-capability);
-- a surface a newer `pharn` release installs that your install never had — see
-  [A surface added by a newer CLI](#a-surface-added-by-a-newer-cli-at-the-same-skills-version).
-  One such surface is checked anyway: [the review lens agent](#the-review-lens-agent-claudeagents).
+A capability you removed with [`pharn remove`](remove.md) is restored too when your archetypes still
+select it: every run re-resolves them (see
+[Removing an auto-selected capability](remove.md#removing-an-auto-selected-capability)).
 
 ## A records store from an interrupted run
 
@@ -930,8 +920,8 @@ config second, so a run interrupted between the two (a crash, a full disk, Ctrl-
 stamped for a state the config never reached.
 
 `update` uses such a store as it is: a file whose current hash equals its recorded hash holds bytes
-`pharn` wrote, whatever version the store was written for. So nothing needs repairing at the same
-skills version (the run answers "Already up to date" as usual), and on the next upstream release every
+`pharn` wrote, whatever version the store was written for. At the same skills version the run rewrites
+the store with the config's stamp and changes nothing else, and on the next upstream release every
 file you did not edit upgrades, every file you edited is skipped as `modified`, and no `--force` is
 needed. Earlier releases made the stamp a gate: such a store was ignored, that release read every
 differing file as `unverifiable`, and the files then lost their records and read as `unrecorded` on
@@ -941,48 +931,26 @@ The two edge cases of trusting the hash alone are in
 
 A store that is **absent** or **unreadable** (invalid JSON, an unknown `schemaVersion`) is still not
 used: every present file that differs from upstream is `unverifiable` and the run names the reason.
-Neither re-opens the run at the same skills version, so an unreadable store you could still fix is not
-overwritten by a run that had nothing else to do.
+Every file that matches upstream is recorded again, so a plain `update` at the same skills version writes
+a new store over the unreadable one (copy it aside first if you want to repair it by hand). The record of
+a `.claude/settings.json` that `init` created cannot be rebuilt that way: `update` never writes that file.
 
 ## A surface added by a newer CLI, at the same skills version
 
-`update` compares versions before it compares files: if your `skillsVersion` already equals upstream's
-and nothing it installed is missing (see the previous section), it reports "Already up to date" and
-exits **without comparing a single file against upstream** (step 5 above). That is the right call for
-the common case, but it has one sharp edge.
-
 When a **new `pharn` release starts installing a surface that earlier releases did not** — as the
 release adding `pharn/pharn-core/` does — an install pinned at the _current_ skills version is missing
-those files and `update` will not restore them. [`pharn status`](status.md) reports them as `missing`, and
-`pharn status --strict` exits `1`, but a plain `pharn update` still answers "Already up to date".
-
-Two ways through:
-
-- `pharn update --force` — bypasses the version check and writes the missing files. It also overwrites
-  files you have edited, so read the [`--force`](#--force-and-pharnbackup) section first: every
-  casualty is copied to `pharn/.backup/<timestamp>/` before it is touched.
-- Wait for the next skills-version bump, which makes the ordinary `pharn update` restore them (missing
-  files are always `restore`d — there is nothing local to protect).
-
-Nothing is silently wrong in the meantime: the files are absent, `status` says so, and the commands that
-cite them are the ones affected.
+those files. [`pharn status`](status.md) reports them as `missing`, and `pharn status --strict` exits
+`1`, until a plain `pharn update` restores them: every run compares every file against upstream, at the
+same skills version too (missing files are always `restore`d — there is nothing local to protect).
 
 ### The review lens agent (`.claude/agents/`)
 
 pharn-oss ships `.claude/agents/pharn-review-lens.md` from skills version 6.64.0 on: the subagent
 `/pharn-review` runs each lens in (without it, each lens runs as a general-purpose agent with more
-tools). Earlier `pharn` releases did not install it, so this one surface does **not** wait for the next
-version bump. When your `skillsVersion` is 6.64.0 or newer and `.claude/agents/` holds no `pharn-*.md`
-agent (a `pharn-dev-*` file does not count), `update` goes past "Already up to date" — the header says
-`.claude/agents/ has no PHARN agent definition — this run re-applies the install, adding it if upstream
-ships one.` — and the per-file table restores the agent, with no `--force`. The run records it, so the
-next `update` answers "Already up to date" again, and a later deletion is caught by
-[the missing-files check](#missing-files-at-the-same-skills-version) like any recorded file.
-
-The check is local (no download) and counts only what the run can write: an edited agent, anything else
-at `.claude/agents/pharn-*.md` (a directory, say), and a `.claude/agents` that is a symbolic link or a
-file never re-open the run. One residual: if a pharn-oss at 6.64.0 or newer stopped shipping any agent,
-every `update` would download and re-plan, changing nothing.
+tools). Earlier `pharn` releases did not install it. A plain `update` adds it, at any skills version that
+ships it, with no `--force`, and records it; the next `update` answers `Up to date.`, and a later deletion
+is [restored](#missing-files-at-the-same-skills-version) like any recorded file. An edited agent is kept
+as `modified`, and a `.claude/agents` that is a symbolic link is never written through.
 
 ## Layout migrations
 
@@ -1032,12 +1000,11 @@ showed. The migration applies only to an install already recorded at the `pharn`
 install moving to `pharn/` leaves its old root files in place, like the rest of the old tree.
 
 Below SKILLS 7 the hints and both notices are inert. An install already at 7.x whose root footprint an
-older `pharn` left behind — a root doc still exactly as pharn wrote it with no `pharn/` copy yet —
-re-opens the same-version early return, so the next `pharn update` finishes the job without `--force`.
-An edited doc, or a `pharn/` copy you placed yourself, never re-opens it: those are yours to resolve.
-`memory-bank/` or the template at the root never re-opens it either, so on an install already at your
-pharn-oss version the hint appears only with a run that plans (a new version, or `--force`); it never
-appears with "Already up to date".
+older `pharn` left behind — a root doc still exactly as pharn wrote it with no `pharn/` copy yet — is
+finished by the next plain `pharn update`, without `--force`, since every run plans. An edited doc, or a
+`pharn/` copy you placed yourself, is left alone: those are yours to resolve. `memory-bank/` or the
+template at the root changes nothing on its own, so a run that finds only those is up to date — it asks
+nothing and writes nothing, and its note still prints the hint.
 
 ## A surface pharn-oss does not ship
 
@@ -1046,9 +1013,9 @@ a clone that ships nothing for one (the commands, the hooks, a trusted doc, phar
 `features/README.md`, or the contracts, `pharn-core` or floor dir) is still applied. A run that
 plans — the real one and `--dry-run` alike — names each such surface in a `NOT SHIPPED` note, by
 path and kind, with the same wording as `init`. It is reported, never a skip: nothing on disk was
-left behind by it, so it does **not** withhold the `skillsVersion` bump. A run that stops at
-"Already up to date" plans nothing and prints nothing about it; [`pharn status`](status.md) names it
-on every run and fails `--strict` while it lasts. Hooks are installed as `.cjs` or `.mjs` files (never
+left behind by it, so it does **not** withhold the `skillsVersion` bump. Every run plans, so an
+up-to-date run names it too; [`pharn status`](status.md) names it on every run and fails `--strict`
+while it lasts. Hooks are installed as `.cjs` or `.mjs` files (never
 `*.test.cjs` / `*.test.mjs`); an `.mjs` hook's name is held to the same filename allowlist as a `.cjs`
 one, so a name outside it refuses the run.
 
@@ -1061,11 +1028,11 @@ own negations respected, never written through a symlink. It runs after the conf
 lock, and prints `Added … to .gitignore` (or `Created .gitignore with …`); a refusal or a failed write
 is a warning naming the lines, never a failed update.
 
-**At the same skills version**, a `.gitignore` missing either line re-opens the
-"Already up to date" return (the header note says so), so an install made before 0.16.0 gets the lines
-on its next `update`; the following run returns early again. A `.gitignore` pharn cannot write (a
-symlink, a directory, unreadable) does not re-open it. One residual: a regular file whose write keeps
-failing (no permission) re-opens every run, each with its warning.
+**At the same skills version** too, a `.gitignore` missing either line makes the plan add it, so an
+install made before 0.16.0 gets the lines on its next `update`, and the following run is up to date. A
+`.gitignore` pharn cannot write (a symlink, a directory, unreadable) is a warning, and the run is otherwise
+up to date. One residual: a regular file whose write keeps failing (no permission) asks and fails to write
+on every run, each with its warning.
 
 `--dry-run` prints `.gitignore: would add …`, and `--dry-run --json` carries `plan.gitignore`.
 
@@ -1078,13 +1045,10 @@ same append-only rules. It runs after `.gitignore`, under the lock, and prints `
 .prettierignore …` (or `Created .prettierignore with …`); a refusal or a failed write is a warning
 listing the lines, never a failed update.
 
-**At the same skills version**, a `.prettierignore` that does not cover the files in
-[`pharn.records.json`](../reference/pharn-records.md) re-opens the "Already up to date" return (the
-header note says so), so an install made before 0.17.0 — or a project that adopted Prettier later —
-gets its lines on the next `update`, and the following run returns early again. Without a usable
-`pharn.records.json` nothing local says what pharn wrote, so it does not re-open; the lines come with
-the next version bump. A file pharn cannot write does not re-open it; a write that keeps failing does,
-each run.
+**At the same skills version** too, a `.prettierignore` that does not cover the files the run records
+makes the plan add the lines, so an install made before 0.17.0 — or a project that adopted Prettier later
+— gets them on the next `update`, and the following run is up to date. A file pharn cannot write is a
+warning; a write that keeps failing asks and fails on every run.
 
 If you already ran `prettier --write` over pharn's files, they now read as changed: add the lines (or
 let `update` add them), then `pharn update --force` puts pharn-oss's bytes back, backing your copies up

@@ -15,13 +15,12 @@ import { isInstallRootPath } from '../src/lib/orphans.js';
 import { planUninstall } from '../src/lib/uninstall-plan.js';
 import {
   deleteRootDocs,
-  pendingRootMigration,
   planRootMigration,
+  rootDocsChangedSincePlan,
   rootMigrationNoteLines,
   versionMajor,
   type RootMigration,
 } from '../src/lib/root-migration.js';
-import type { PharnConfig } from '../src/types.js';
 
 // The old root footprint of a pharn-layout install (lib/root-migration.ts):
 // the root docs pharn wrote, the user's data it only hints at (never moves —
@@ -187,7 +186,7 @@ describe('deleteRootDocs', () => {
     put(proj, 'pharn/THREAT-MODEL.md', 'threat'); // landed
     put(proj, 'pharn/LIMITS.md', 'not what upstream ships'); // did not
     const docs = plan(proj, repo, '7.0.0')!.docs;
-    expect(deleteRootDocs(proj, repo, docs)).toEqual({
+    expect(deleteRootDocs(proj, repo, docs, RECORDED)).toEqual({
       deleted: ['THREAT-MODEL.md'],
       kept: ['LIMITS.md'],
     });
@@ -203,25 +202,64 @@ describe('deleteRootDocs', () => {
       join(tmp.path(), 'elsewhere/THREAT-MODEL.md'),
       join(proj, 'pharn/THREAT-MODEL.md'),
     );
-    const result = deleteRootDocs(proj, repo, [
-      { rel: 'THREAT-MODEL.md', action: 'delete' },
-      { rel: 'LIMITS.md', action: 'keep-edited' },
-      { rel: 'NOT-A-DOC.md', action: 'delete' },
-    ]);
+    const result = deleteRootDocs(
+      proj,
+      repo,
+      [
+        { rel: 'THREAT-MODEL.md', action: 'delete' },
+        { rel: 'LIMITS.md', action: 'keep-edited' },
+        { rel: 'NOT-A-DOC.md', action: 'delete' },
+      ],
+      RECORDED,
+    );
     expect(result).toEqual({
       deleted: [],
       kept: ['THREAT-MODEL.md', 'NOT-A-DOC.md'],
     });
   });
 
-  it('a failed unlink keeps the doc and does not throw', () => {
+  it('a planned delete whose doc is already gone keeps it and does not throw', () => {
     const proj = project();
     const repo = clone('7.0.0', true);
     put(proj, 'pharn/LIMITS.md', 'limits');
-    // Planned as a delete, but gone before the unlink (ENOENT).
+    // Planned as a delete, but gone before the delete: no longer record-equal.
     expect(
-      deleteRootDocs(proj, repo, [{ rel: 'LIMITS.md', action: 'delete' }]),
+      deleteRootDocs(
+        proj,
+        repo,
+        [{ rel: 'LIMITS.md', action: 'delete' }],
+        RECORDED,
+      ),
     ).toEqual({ deleted: [], kept: ['LIMITS.md'] });
+  });
+
+  // The plan is made before a prompt; the delete needs the record's proof at
+  // the moment it happens (CLAUDE.md "Records are the proof").
+  it('keeps a planned delete whose doc was edited after the plan, byte for byte, and names it as changed', () => {
+    const proj = project();
+    const repo = clone('7.0.0', true);
+    put(proj, 'THREAT-MODEL.md', 'threat');
+    put(proj, 'LIMITS.md', 'limits');
+    const docs = plan(proj, repo, '7.0.0')!.docs;
+    expect(docs.filter((d) => d.action === 'delete')).toHaveLength(2);
+    put(proj, 'LIMITS.md', 'edited while the prompt was open');
+    put(proj, 'pharn/THREAT-MODEL.md', 'threat');
+    put(proj, 'pharn/LIMITS.md', 'limits');
+    expect(rootDocsChangedSincePlan(proj, docs, RECORDED)).toEqual([
+      'LIMITS.md',
+    ]);
+    expect(deleteRootDocs(proj, repo, docs, RECORDED)).toEqual({
+      deleted: ['THREAT-MODEL.md'],
+      kept: ['LIMITS.md'],
+    });
+    expect(readFileSync(join(proj, 'LIMITS.md'), 'utf8')).toBe(
+      'edited while the prompt was open',
+    );
+    // Without a usable store nothing is provably pharn's: nothing is deleted.
+    expect(rootDocsChangedSincePlan(proj, docs, null)).toEqual([
+      'THREAT-MODEL.md',
+      'LIMITS.md',
+    ]);
   });
 });
 
@@ -369,69 +407,76 @@ describe('scratch notice and .gitignore hints', () => {
   });
 });
 
-describe('pendingRootMigration — the bounded re-open signal', () => {
-  const cfg = (over: Partial<PharnConfig> = {}): PharnConfig =>
-    ({
-      pharnVersion: '0.14.0',
-      skillsVersion: '7.0.0',
-      repo: 'pharn-dev/pharn-oss',
-      commit: null,
-      modules: [],
-      layout: 'pharn',
-      capabilities: [],
-      ...over,
-    }) as PharnConfig;
-
-  it('fires for a record-equal root doc whose pharn/ copy is not recorded', () => {
+// `update` plans on every run, so the root footprint an older CLI left on a 7.x
+// install is finished by the planner at the version the project already has —
+// these are the cases a same-version run meets.
+describe('planRootMigration — what a same-version run finishes', () => {
+  it('retires a record-equal root doc whose pharn/ copy is not there yet', () => {
     const proj = project();
     put(proj, 'LIMITS.md', 'limits');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBe('LIMITS.md');
+    const m = plan(proj, clone('7.0.0', true), '7.0.0');
+    expect(m?.docs).toEqual([
+      { rel: 'THREAT-MODEL.md', action: 'absent' },
+      { rel: 'LIMITS.md', action: 'delete' },
+    ]);
+    expect(m?.userData).toEqual([]);
   });
 
-  it('does not fire when a pharn/ copy is already there, even unrecorded (the run would skip it)', () => {
+  it('deletes the root doc only once the pharn/ copy landed as upstream ships it (a hand-placed copy keeps it)', () => {
     const proj = project();
+    const repo = clone('7.0.0', true);
     put(proj, 'LIMITS.md', 'limits');
     put(proj, 'pharn/LIMITS.md', 'a hand-placed copy');
-    put(proj, 'THREAT-MODEL.md', 'mine');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
+    const docs = plan(proj, repo, '7.0.0')!.docs;
+    expect(docs).toContainEqual({ rel: 'LIMITS.md', action: 'delete' });
+    expect(deleteRootDocs(proj, repo, docs, RECORDED)).toEqual({
+      deleted: [],
+      kept: ['LIMITS.md'],
+    });
+    expect(readFileSync(join(proj, 'LIMITS.md'), 'utf8')).toBe('limits');
   });
 
-  it('never fires for user data at the root: pharn does not move it (CORE-158)', () => {
+  it('never moves user data at the root (CORE-158); the doc beside it still retires', () => {
     const proj = project();
     put(proj, 'memory-bank/a.md', 'a');
     put(proj, 'pharn.spec-template.md', 't');
-    expect(pendingRootMigration(proj, cfg(), null)).toBeNull();
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
-    // The doc half still fires beside it.
     put(proj, 'LIMITS.md', 'limits');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBe('LIMITS.md');
+    const m = plan(proj, clone('7.0.0', true), '7.0.0');
+    expect(m?.docs).toContainEqual({ rel: 'LIMITS.md', action: 'delete' });
+    expect(m?.userData.map((h) => h.from)).toEqual([
+      'memory-bank/',
+      'pharn.spec-template.md',
+    ]);
+    expect(readFileSync(join(proj, 'memory-bank/a.md'), 'utf8')).toBe('a');
   });
 
-  it('does not fire for an edited doc (its record survives — no endless re-open)', () => {
+  it('keeps an edited root doc: its record survives', () => {
     const proj = project();
     put(proj, 'LIMITS.md', 'mine');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
+    expect(plan(proj, clone('7.0.0', true), '7.0.0')?.docs).toContainEqual({
+      rel: 'LIMITS.md',
+      action: 'keep-edited',
+    });
   });
 
-  it('does not fire once the pharn/ copy is recorded, below 7, for flat, or without records', () => {
+  it('retires nothing below 7, for a flat install, or without a usable store', () => {
     const proj = project();
     put(proj, 'LIMITS.md', 'limits');
-    const both = {
-      ...RECORDED,
-      'pharn/LIMITS.md': hashOf('limits'),
-      'pharn/THREAT-MODEL.md': 'x',
-    };
-    expect(pendingRootMigration(proj, cfg(), both)).toBeNull();
+    expect(plan(proj, clone('6.9.0', false), '6.9.0')).toBeNull();
     expect(
-      pendingRootMigration(proj, cfg({ skillsVersion: '6.9.0' }), RECORDED),
+      planRootMigration({
+        projectRoot: proj,
+        repoDir: clone('7.0.0', true),
+        layout: 'pharn',
+        installedLayout: 'flat',
+        skillsVersion: '7.0.0',
+        records: RECORDED,
+      }),
     ).toBeNull();
-    expect(
-      pendingRootMigration(proj, cfg({ skillsVersion: 'garbage' }), RECORDED),
-    ).toBeNull();
-    expect(
-      pendingRootMigration(proj, cfg({ layout: 'flat' }), RECORDED),
-    ).toBeNull();
-    expect(pendingRootMigration(proj, cfg(), null)).toBeNull();
+    expect(plan(proj, clone('7.0.0', true), '7.0.0', null)?.docs).toEqual([
+      { rel: 'THREAT-MODEL.md', action: 'absent' },
+      { rel: 'LIMITS.md', action: 'unverifiable' },
+    ]);
   });
 });
 
