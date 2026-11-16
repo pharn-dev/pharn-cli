@@ -2006,14 +2006,17 @@ describe('`pharn init` re-run over a capability it drops', () => {
       );
     });
 
-    it('prints the same line under `--yes`, before refusing the existing config', async () => {
+    // `init --yes` refuses ANY existing pharn.config.json before the fetch
+    // (CORE-168, existingConfigRefusal), so over an unreadable one it never
+    // reaches the summary: the refusal comes first, and nothing is lost.
+    it('under `--yes` refuses an unreadable config before the fetch, so no summary prints', async () => {
       const { repo, proj } = fixture();
       await init(repo, proj, SHA_C);
       handEdit(proj, (raw) => {
         raw.archetypes = 'ssr';
       });
       forgetFirstRun();
-      fetchRepo.mockResolvedValue({ dir: repo, sha: SHA_D, cleanup: vi.fn() });
+      fetchRepo.mockClear();
       const cwd = vi.spyOn(process, 'cwd').mockReturnValue(proj);
       try {
         await expect(runInit({ yes: true })).rejects.toMatchObject(
@@ -2023,9 +2026,12 @@ describe('`pharn init` re-run over a capability it drops', () => {
         cwd.mockRestore();
       }
 
-      expect(summary()).toContain(
-        'the previous pharn.config.json could not be read',
-      );
+      expect(fetchRepo).not.toHaveBeenCalled();
+      expect(
+        vi
+          .mocked(prompts.note)
+          .mock.calls.some((c) => String(c[0]).includes('could not be read')),
+      ).toBe(false);
       expect(prompts.select).not.toHaveBeenCalled();
       expect(prompts.confirm).not.toHaveBeenCalled();
       expect(rawConfig(proj).archetypes).toBe('ssr');

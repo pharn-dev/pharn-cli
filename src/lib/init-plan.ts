@@ -232,7 +232,9 @@ function describeUnreadConfig(cwd: string): string {
  * The summary line a re-run init prints when the config it replaces exists but
  * could not be read (`PreviousConfig.unreadable`): nothing is carried over, so
  * the manual capabilities it recorded are dropped. Empty otherwise. Printed by
- * the real run, `--yes` and the text dry run, before any prompt.
+ * the real run and the text dry run, before any prompt. (`init --yes` refuses
+ * any existing config before the fetch, `existingConfigRefusal`, so it never
+ * reaches the summary with one.)
  */
 export function previousConfigLines(
   previous: Pick<PreviousConfig, 'unreadable'>,

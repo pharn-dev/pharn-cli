@@ -491,12 +491,12 @@ config the other commands would accept, which is any config with a string `skill
 config that parses as a JSON object. When `pharn.config.json` exists but cannot be read as a config, for
 example because it is not valid JSON, holds a value pharn rejects (an invalid `capabilities` entry,
 `archetypes`, `skillsVersion` or `commit`), is not a JSON object or has no `skillsVersion`, nothing is
-carried over. The summary says so before any prompt, in the real run, under `--yes` and in
-`--dry-run`: _"the previous pharn.config.json could not be read (<reason>); nothing is carried over, so
+carried over. The summary says so before any prompt, in the real run and in `--dry-run`: _"the previous pharn.config.json could not be read (<reason>); nothing is carried over, so
 manual capabilities will be dropped"_. The reason is the first sentence of the error the other commands
 print, cut at 200 characters. To keep your manual capabilities, cancel, fix the file by hand (the other
 commands name the problem), and re-run. Otherwise the overwrite prompt that follows lists
-`pharn.config.json` and defaults to No, and `init --yes` refuses any existing config. If `pharn.config.json` changes while `init` waits at
+`pharn.config.json` and defaults to No. `init --yes` refuses any existing config before it downloads
+anything, so it never gets as far as the summary. If `pharn.config.json` changes while `init` waits at
 its prompts (another `pharn` command wrote it), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 **When `init` refuses to install.** After you choose **install**, and before it asks to overwrite
