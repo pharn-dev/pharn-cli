@@ -178,14 +178,17 @@ export function installCapabilities(
   );
   assertCapabilitySources(repoDir, selection.selected, prepared.paths);
 
-  writeInstallFiles(projectRoot, prepared.manifest, seen);
-
-  // --- settings.json: NEVER overwrite the user's existing one ----------------
+  // --- settings.json, last: NEVER overwrite the user's existing one ----------
   // Exclusive create, so an existing file (or a link, live or dangling) is
   // never opened for writing: no exists-then-copy race.
-  const settingsWritten =
-    upstreamSettingsCopyable(repoDir) &&
-    copySettingsIfAbsent(repoDir, projectRoot);
+  const settingsWritten = writeInstallFiles(
+    projectRoot,
+    prepared.manifest,
+    seen,
+    () =>
+      upstreamSettingsCopyable(repoDir) &&
+      copySettingsIfAbsent(repoDir, projectRoot),
+  );
   const settingsPreserved =
     !settingsWritten && existsSync(safeJoin(projectRoot, CLAUDE_SETTINGS_FILE));
 
@@ -203,15 +206,17 @@ export function installCapabilities(
 /**
  * Write every `expected` file through the one writer. A file edited since the
  * caller's scan (`seen`) is backed up — one backup, announced — and then
- * written. A failure after any write throws an ApplyError whose message names
- * the files that landed: the caller writes no records or config after it.
+ * written; then `last` runs and its answer is returned. A failure after any
+ * write throws an ApplyError whose message names the files that landed: the
+ * caller writes no records or config after it.
  */
 function writeInstallFiles(
   projectRoot: string,
   expected: ReadonlyMap<string, string>,
   seen: ReadonlyMap<string, string | null> | undefined,
-): void {
-  let written: string[] = [];
+  last: () => boolean = () => false,
+): boolean {
+  const written: string[] = [];
   try {
     const first = applyWrites({
       projectRoot,
@@ -219,15 +224,18 @@ function writeInstallFiles(
       writes: [...expected.keys()],
       seen,
     });
-    written = first.written;
-    if (first.changed.length === 0) return;
-    printBackupNotice({
-      dir: createBackup(projectRoot, first.changed),
-      saved: first.changed.length,
-      action: 'overwriting',
-      gitignored: backupDirIgnored(projectRoot),
-    });
-    applyWrites({ projectRoot, expected, writes: first.changed });
+    written.push(...first.written);
+    if (first.changed.length > 0) {
+      printBackupNotice({
+        dir: createBackup(projectRoot, first.changed),
+        saved: first.changed.length,
+        action: 'overwriting',
+        gitignored: backupDirIgnored(projectRoot),
+      });
+      const again = { projectRoot, expected, writes: first.changed };
+      written.push(...applyWrites(again).written);
+    }
+    return last();
   } catch (err) {
     const landed =
       err instanceof ApplyError ? [...written, ...err.written] : written;

@@ -401,6 +401,35 @@ describe('installCapabilities', () => {
     },
   );
 
+  // settings.json is written last; its failure names every file before it.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'a settings.json write failure names the files already written',
+    () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      scaffoldRepo(repo);
+      mkdirSync(join(proj, '.claude/commands'), { recursive: true });
+      mkdirSync(join(proj, '.claude/hooks'), { recursive: true });
+      chmodSync(join(proj, '.claude'), 0o555);
+      try {
+        let caught: unknown;
+        try {
+          installCapabilities(repo, proj, selection());
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(ApplyError);
+        const { written, message } = caught as ApplyError;
+        expect(message).toContain('were written before the failure');
+        expect(written).toContain('.claude/commands/pharn-plan.md');
+        expect(written).toContain('.dev/floor/validate.mjs');
+        expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false);
+      } finally {
+        chmodSync(join(proj, '.claude'), 0o755);
+      }
+    },
+  );
+
   // The second pass of the changed-file path keeps the first pass's paths.
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
     'a failure while writing the changed files still carries every written path',
