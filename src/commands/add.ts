@@ -294,7 +294,6 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     throw addError(err);
   }
 
-  if (outcome.kind === 'error') throw CliError.refusal(outcome.message);
   if (outcome.kind === 'all-installed') {
     outro('All available capabilities are already installed.');
     return;
