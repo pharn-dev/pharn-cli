@@ -329,6 +329,24 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toEqual(withSeam);
   });
 
+  // Formerly a THROW naming the unknown key (BUG 2/BUG 3: the validator's
+  // stripped return replaced `raw`). pharn-oss's checker ignores extra keys,
+  // so the raw block now survives, the unknown key included (CORE-165).
+  it('KEEPS an unknown key in the seam block — raw survives verbatim', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '0.1.0',
+        modules: [],
+        seam: { resolutionOrder: ['ask'], EXTRA: 'x' },
+      }),
+    );
+    expect(readPharnConfig(tmp.path())?.seam).toEqual({
+      resolutionOrder: ['ask'],
+      EXTRA: 'x',
+    });
+  });
+
   // Formerly a THROW (SeamConfigError, "must contain ask"). The rule is
   // pharn-oss's to enforce, so the CLI loads the block unchanged (CORE-165).
   it('LOADS, not throws, a seam block with no terminal ask — pharn-oss owns the rule', () => {
