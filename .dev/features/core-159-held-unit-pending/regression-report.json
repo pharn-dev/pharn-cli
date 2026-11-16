@@ -1,0 +1,37 @@
+{
+  "base": "991b229bc5fcbfc398d24cc0fb67dbd56f59e585",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/add.md",
+    "docs/commands/update.md",
+    "docs/reference/pharn-config.md",
+    "src/commands/add.ts",
+    "src/commands/update.ts",
+    "src/lib/update-decision.ts",
+    "src/lib/update-plan.ts",
+    "src/lib/update-render.ts",
+    "src/lib/update-report.ts",
+    "src/types.ts",
+    "tests/add.test.ts",
+    "tests/commands-integration.test.ts",
+    "tests/update-decision.test.ts",
+    "tests/update-dry-run-json.test.ts",
+    "tests/update-plan.test.ts",
+    "tests/update-render.test.ts",
+    "tests/update-report.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
