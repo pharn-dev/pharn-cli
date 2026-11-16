@@ -36,6 +36,18 @@ describe('the models block claims', () => {
   });
 });
 
+describe('seam.resolutionOrder', () => {
+  // The rule itself is pharn-oss's now (CORE-165), so the reference no longer
+  // states it — but it must still never claim the old, wrong rule.
+  it('is never documented as having to end with `ask`', () => {
+    const text = read('docs/reference/pharn-config.md');
+    expect(text).not.toMatch(/must end with `ask`/i);
+    expect(text).not.toContain('last entry is not `ask`');
+    expect(text).toContain('"ask"');
+    expect(text).toContain('pharn-contracts/seam-config.md');
+  });
+});
+
 // CORE-165: `seam` is pharn-oss's. The reference must not describe a CLI-side
 // rule set (the CLI has none), nor a block `init` writes or resets.
 describe('the seam block', () => {

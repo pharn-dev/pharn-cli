@@ -4315,6 +4315,18 @@ describe('runUpdate (drift-safe)', () => {
       resolutionOrder: ['model', 'ask', 'ask', 'guess'],
     };
 
+    // The block older releases wrote, keys in an order of the user's: carried
+    // as data now (the reader used to rebuild it), so nothing differs.
+    it('a seam block in the user’s own key order is not rewritten', async () => {
+      const before = await afterWithheldRun((cfg) => {
+        cfg.seam = {
+          haltOnUnknown: true,
+          resolutionOrder: ['pinned-docs', 'ask'],
+        };
+      });
+      await expectNothingChanged(before);
+    });
+
     it('a seam block pharn-oss owns is loaded and not rewritten', async () => {
       const before = await afterWithheldRun((cfg) => {
         cfg.seam = ODD_SEAM;

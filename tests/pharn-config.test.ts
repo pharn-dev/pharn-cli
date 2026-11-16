@@ -308,14 +308,41 @@ describe('pharn-config', () => {
     expect(JSON.stringify(loaded?.seam)).toBe(JSON.stringify(seam));
   });
 
-  it('never counts a seam block as a config validation error', () => {
-    for (const [, seam] of ODD_SEAM_BLOCKS) {
-      writeFileSync(
-        join(tmp.path(), 'pharn.config.json'),
-        JSON.stringify({ skillsVersion: '0.1.0', modules: [], seam }),
-      );
-      expect(() => readPharnConfig(tmp.path())).not.toThrow();
-    }
+  // The block older releases wrote on every install still round-trips — as
+  // data now, not as a validated, rebuilt object.
+  it('round-trips a config with a valid seam block', async () => {
+    const withSeam: PharnConfig = {
+      ...sample,
+      seam: {
+        resolutionOrder: [
+          'official-skill',
+          'pinned-docs',
+          'model',
+          'fetch',
+          'ask',
+        ],
+        modelConfidenceThreshold: 'high',
+        haltOnUnknown: true,
+      },
+    };
+    await writePharnConfig(tmp.path(), withSeam);
+    expect(readPharnConfig(tmp.path())).toEqual(withSeam);
+  });
+
+  // Formerly a THROW (SeamConfigError, "must contain ask"). The rule is
+  // pharn-oss's to enforce, so the CLI loads the block unchanged (CORE-165).
+  it('LOADS, not throws, a seam block with no terminal ask — pharn-oss owns the rule', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '0.1.0',
+        modules: [],
+        seam: { resolutionOrder: ['official-skill', 'model', 'fetch'] },
+      }),
+    );
+    expect(readPharnConfig(tmp.path())?.seam).toEqual({
+      resolutionOrder: ['official-skill', 'model', 'fetch'],
+    });
   });
 
   it('round-trips the schemaVersion 2 additive fields (incl. skip answers)', async () => {
@@ -1097,6 +1124,28 @@ describe('loadConfigOrExit', () => {
     expect(log.error).not.toHaveBeenCalled();
   });
 
+  // Formerly exit(1) naming the unknown step "guess" (SeamConfigError). The
+  // step list is pharn-oss's, so the CLI no longer judges it (CORE-165).
+  it('does NOT exit on a seam block with an unknown step, and logs no error', () => {
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '0.1.0',
+        modules: [],
+        seam: { resolutionOrder: ['model', 'guess'] },
+      }),
+    );
+    expect(loadConfigOrExit(tmp.path())?.seam).toEqual({
+      resolutionOrder: ['model', 'guess'],
+    });
+    const msg = vi
+      .mocked(log.error)
+      .mock.calls.map((c) => String(c[0]))
+      .join('\n');
+    expect(msg).not.toMatch(/guess/);
+    expect(msg).toBe('');
+  });
+
   it('loads a config whose models block pharn-oss would reject — not this CLI’s to refuse', () => {
     const raw = {
       skillsVersion: '0.1.0',
@@ -1212,6 +1261,7 @@ describe('isConfigValidationError', () => {
     expect(isConfigValidationError(new ConfigParseError('x'))).toBe(true);
     expect(isConfigValidationError(new ConfigStampError('x'))).toBe(true);
     expect(isConfigValidationError(new Error('x'))).toBe(false);
+    expect(isConfigValidationError(new TypeError('x'))).toBe(false);
     expect(isConfigValidationError('nope')).toBe(false);
   });
 });
