@@ -27,6 +27,18 @@ Three paths were added to PLAN.md during the run, each declared there before it 
 - `tests/support/exit-code.ts`, after a build-time failure;
 - `src/steps/add-picker.ts`, a review fix.
 
+## After GATE 2: rebased onto C5.6 and C5.5
+
+The branch was rebased onto origin/main twice: after #385 (C5.6) and after #386 (C5.5). Both times the conflicts were resolved by keeping main's code and applying the CliError change on top of it.
+
+- `status.ts` now uses `buildStatusReport`. Its failures throw `CliError.failure`, and a `--strict` verdict throws `CliError.reported()`.
+- `runCli` loads the reporter lazily, so `--version` and `--help` stay clack-free.
+- C5.5 moved the argv refusal into `main(args)`. By the coordinator's instruction, it now prints its two lines and throws `CliError.reported()` instead of calling `process.exit`.
+- `process.exit` is therefore lint-confined to `src/lib/fatal-signal.ts` alone, which is narrower than the "index.ts and fatal-signal.ts" that PLAN.md, REVIEW.md and the ticket name. A `lint-rules` row now shows the rule fires in `src/index.ts`.
+- This resolves REVIEW's P3 finding about the argv refusals.
+
+`npm run check` and `npm run build` were re-run after the rebase. Their results are in the PR.
+
 ## Reports
 
 - Review: [REVIEW.md](./REVIEW.md). It has no floor-gate findings; its advisory findings are listed there, and one of them is fixed.
