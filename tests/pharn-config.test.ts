@@ -988,7 +988,7 @@ describe('pharn-config', () => {
 // were indistinguishable at both call sites, so a config with a stray comma was
 // answered with "No pharn.config.json found. Run `pharn init` first." — a line
 // whose two halves are BOTH false: the file is right there, and re-running init
-// overwrites it (resetting hand-edited models/seam and re-stamping every
+// overwrites it (resetting a hand-edited models block and re-stamping every
 // capability `source: 'auto'`, losing the manual-add provenance only this file
 // remembers). These tests pin the message the user now gets instead, and — just
 // as importantly — pin what must NEVER be in it.
@@ -1337,7 +1337,7 @@ describe('loadArchetypeConfigOrExit', () => {
 // The config is written temp-then-rename (lib/atomic-write.ts). A torn write here
 // is the worst failure the CLI can leave behind: it puts truncated JSON on disk,
 // and until audit P-7 was fixed every command answered that by reporting the file
-// as ABSENT and prescribing a re-init — which resets hand-edited `models`/`seam`
+// as ABSENT and prescribing a re-init — which resets a hand-edited `models`
 // and re-stamps every capability `source: 'auto'`, losing the manual-add
 // provenance only this file remembers. Truncated JSON now raises
 // `ConfigParseError` instead (see its describe above), so the two defences are
