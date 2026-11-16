@@ -200,9 +200,7 @@ describe('a failed download strands no lock and reports the real reason', () => 
 // refuses the run with nothing written.
 describe('a config edited while a writer waits for input refuses it', () => {
   const changed = (command: string): RegExp =>
-    new RegExp(
-      `pharn\\.config\\.json changed while \`pharn ${command}\` was waiting for your answer`,
-    );
+    new RegExp(`pharn\\.config\\.json changed while \`pharn ${command}\``);
 
   it('remove (the picker, after its confirm): nothing deleted, the concurrent write survives', async () => {
     await installFresh();

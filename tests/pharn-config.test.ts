@@ -1420,7 +1420,7 @@ describe('configFingerprint / assertConfigFingerprintUnchanged', () => {
     expect(() =>
       assertConfigFingerprintUnchanged(tmp.path(), present, 'remove'),
     ).toThrow(
-      /^pharn\.config\.json changed while `pharn remove` was waiting for your answer — it was edited by hand or by another program\. Nothing was written\. Re-run `pharn remove`/,
+      /^pharn\.config\.json changed while `pharn remove` was running — it was edited by hand or by another program while the command waited for your answer\. Nothing was written\. Re-run `pharn remove`/,
     );
     rmSync(file());
     let thrown: unknown;

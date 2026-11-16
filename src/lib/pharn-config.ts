@@ -435,7 +435,7 @@ export function assertConfigFingerprintUnchanged(
 ): void {
   if (configFingerprint(cwd) === fingerprint) return;
   throw CliError.refusal(
-    `${CONFIG_FILENAME} changed while \`pharn ${command}\` was waiting for your answer — it was edited by hand or by another program. Nothing was written. Re-run \`pharn ${command}\` to act on the current state.`,
+    `${CONFIG_FILENAME} changed while \`pharn ${command}\` was running — it was edited by hand or by another program while the command waited for your answer. Nothing was written. Re-run \`pharn ${command}\` to act on the current state.`,
   );
 }
 

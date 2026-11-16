@@ -1082,7 +1082,7 @@ describe('init refuses a project it cannot install into', () => {
       clearOutput();
       expect(await run(() => runInit())).toBe(1);
       expect(errors()).toContain(
-        'pharn.config.json changed while `pharn init` was waiting for your answer',
+        'pharn.config.json changed while `pharn init` was running',
       );
       // The concurrent write survives untouched.
       expect(read('pharn.config.json')).toBe(concurrent);

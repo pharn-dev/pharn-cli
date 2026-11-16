@@ -701,7 +701,7 @@ describe('pharn uninstall over a hand-seeded install', () => {
       expect(await run(() => runUninstall())).toBe(1);
       for (const rel of FLAT_FILES) expect(existsSync(at(rel))).toBe(true);
       expect(errorText()).toContain(
-        'changed while `pharn uninstall` was waiting for your answer',
+        'changed while `pharn uninstall` was running',
       );
     });
 

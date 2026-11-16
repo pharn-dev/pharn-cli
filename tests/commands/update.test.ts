@@ -2365,34 +2365,31 @@ describe('capability membership', () => {
     expect(printed()).not.toContain(DEBUG_HINT);
   });
 
-  it.skipIf(asRoot)(
-    'a file in a dropped directory that becomes unreadable while the confirm is open refuses the run, nothing deleted',
-    async () => {
-      // pharn's own recorded file: proving it unchanged means reading it.
-      const recorded = `${A11Y_DIR}/a11y.md`;
-      await droppedA11y(false);
-      const bytes = read(recorded);
-      setTTY(true, true);
-      vi.mocked(clack.confirm).mockImplementationOnce(async () => {
-        chmodSync(at(recorded), 0o000);
-        return true;
-      });
-      try {
-        expect(await run(() => runUpdate())).toBe(1);
-      } finally {
-        chmodSync(at(recorded), 0o644);
-      }
-      expect(read(recorded)).toBe(bytes);
-      expect(exists('pharn/.backup')).toBe(false);
-      expect(config().skillsVersion).toBe('1.0.0');
-      const said = printed();
-      expect(said).toContain(
-        `Could not check the files in ${A11Y_DIR}/ before \`pharn update\` deletes them`,
-      );
-      expect(said).toContain('Nothing was changed.');
-      expect(said).not.toContain(DEBUG_HINT);
-    },
-  );
+  it('a dropped directory that can no longer be checked at the delete refuses the run, nothing written', async () => {
+    await droppedA11y(false);
+    const cfg = read('pharn.config.json');
+    const rec = read('pharn.records.json');
+    const grillers = 'pharn/pharn-pipeline/grillers';
+    setTTY(true, true);
+    vi.mocked(clack.confirm).mockImplementationOnce(async () => {
+      // A regular file now sits where the dropped directory's parent was, so
+      // its files cannot be listed (ENOTDIR) — never "pharn's, safe to delete".
+      rmSync(at(grillers), { recursive: true });
+      write(grillers, 'not a directory any more\n');
+      return true;
+    });
+    expect(await run(() => runUpdate())).toBe(1);
+    expect(read(grillers)).toBe('not a directory any more\n');
+    expect(exists('pharn/.backup')).toBe(false);
+    expect(read('pharn.config.json')).toBe(cfg);
+    expect(read('pharn.records.json')).toBe(rec);
+    const said = printed();
+    expect(said).toContain(
+      `Could not check the files in ${A11Y_DIR}/ before \`pharn update\` deletes them`,
+    );
+    expect(said).toContain('Nothing was changed.');
+    expect(said).not.toContain(DEBUG_HINT);
+  });
 
   it('a file added to a dropped directory while the confirm is open is backed up before the delete', async () => {
     await droppedA11y(false);

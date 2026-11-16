@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
@@ -136,27 +136,23 @@ describe('removalBackupsNow', () => {
     ).toEqual([]);
   });
 
-  it.skipIf(process.getuid?.() === 0)(
-    'refuses, naming the command, when a file can no longer be read',
-    () => {
-      write(join(proj, 'pharn-review/stale/stale.md'), 'x');
-      const removals = plan(null);
-      chmodSync(join(proj, 'pharn-review/stale'), 0o000);
-      try {
-        const now = () =>
-          removalBackupsNow({
-            cwd: proj,
-            removals,
-            records: null,
-            command: 'update',
-          });
-        expect(now).toThrow(CapabilityRemovalError);
-        expect(now).toThrow(
-          /before `pharn update` deletes them: .*Nothing was changed\.$/,
-        );
-      } finally {
-        chmodSync(join(proj, 'pharn-review/stale'), 0o755);
-      }
-    },
-  );
+  it('refuses, naming the command, when the directory can no longer be listed', () => {
+    write(join(proj, 'pharn-review/stale/stale.md'), 'x');
+    const removals = plan(null);
+    // A regular file where the directory's parent was: listing it fails
+    // (ENOTDIR), which is never "pharn's, safe to delete".
+    rmSync(join(proj, 'pharn-review'), { recursive: true });
+    writeFileSync(join(proj, 'pharn-review'), 'a file now');
+    const now = () =>
+      removalBackupsNow({
+        cwd: proj,
+        removals,
+        records: null,
+        command: 'update',
+      });
+    expect(now).toThrow(CapabilityRemovalError);
+    expect(now).toThrow(
+      /^Could not check the files in pharn-review\/stale\/ before `pharn update` deletes them: .*Nothing was changed\.$/,
+    );
+  });
 });
