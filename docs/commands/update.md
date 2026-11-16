@@ -14,12 +14,13 @@ pharn update --ref latest   # follow verified releases instead of main (recorded
 pharn update --ref main     # back to the tip of main (recorded)
 ```
 
-`--force`, `--yes`/`-y`, `--ref`, `--dry-run`, `--json` and `--compact` are `update`'s **only** options;
-they compose, and none implies another — except that `--json` is accepted **only together with
-`--dry-run`**, and `--compact` **only together with `--json`** (`pharn update --json` alone, or
-`pharn update --compact` alone, exits **1** with an `Incomplete option for` error on stderr, plus
-``Run `pharn --help` for usage.``). Any other flag — `--strict`, `--no-drift` — is refused with
-``Unsupported option for `update` `` on stderr and exit **1**, as is an extra positional. See
+`--force`, `--yes`/`-y`, `--ref`, `--dry-run`, `--json` and `--compact` are `update`'s **only** options,
+and they compose. Two imply others: `--json` implies `--dry-run`, so `pharn update --json` is
+`pharn update --dry-run --json`, and `--compact` implies `--json` (and so `--dry-run`), so
+`pharn update --compact` is `pharn update --dry-run --json --compact`. Any other option — `--strict`,
+`--no-drift` — is refused with ``Unsupported option for `update` `` on stderr and exit **1**, as is an
+extra positional. So is a value on an on/off option (`--json=false`: `Option takes no value`), a negated
+option (`--no-dry-run`: `Unknown option`) and a second `--ref` (`Repeated option`). See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
 `update` compares every PHARN-owned file against the per-file hashes recorded when it was installed

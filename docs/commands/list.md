@@ -19,8 +19,8 @@ previously parsed, was dropped, and exited 0 no matter what it found. An extra p
 the same way. See
 [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
-Only the option **name** is checked, so `pharn list --json=false` is still accepted — and still prints
-the human-readable output, not JSON. Pass `--json` bare.
+`--json` takes no value: `pharn list --json=false` is refused with `Option takes no value`, exit **1**.
+Pass `--json` bare for JSON, or leave it out for the human-readable output.
 
 ## Behavior
 

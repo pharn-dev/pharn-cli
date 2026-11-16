@@ -181,6 +181,15 @@ describe('the built bundle (dist/index.js)', { timeout: 30_000 }, () => {
     expect(r.stdout).toBe('');
   });
 
+  // The bundled parser declares `--no-drift` as its own option and allows no
+  // other negation, so a negated boolean is an unknown option.
+  it('refuses a negated option it does not declare (exit 1)', () => {
+    const r = pharn(['--no-dry-run']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Unknown option: "--no-dry-run"');
+    expect(r.stdout).toBe('');
+  });
+
   it('`status --help` prints only that command page (exit 0)', () => {
     const r = pharn(['status', '--help']);
     expect(r.status).toBe(0);

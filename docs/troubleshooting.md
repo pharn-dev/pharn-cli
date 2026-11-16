@@ -12,19 +12,17 @@
 | An invalid `--ref` value                                                                                | 1         |
 | Unknown command                                                                                         | 1         |
 | Unknown option, an option the command does not take, or an unexpected extra argument                    | 1         |
+| A value on an on/off option (`--json=false`), or `--ref` / `--archetype` given twice                    | 1         |
 | `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
 | `status --strict` found anything outdated, modified, missing or unreadable                              | 1         |
 | `init` or `update` run without an interactive terminal (and `add`/`remove` with no name)                | 1         |
 | `init --yes` in a project where a file it would write already exists (nothing written)                  | 1         |
 | `init --dry-run` printed its plan (nothing was written)                                                 | 0         |
-| `init --json` without `--dry-run`                                                                       | 1         |
 | Another `pharn` process holds the project lock (`pharn/.lock`)                                          | 1         |
 | The fetched version declares a `MIN_CLI` newer than the installed CLI                                   | 1         |
 | `add` refused on a skills-version or layout mismatch                                                    | 1         |
 | `update` completed but skipped files it could not verify                                                | 0         |
 | `update --dry-run` printed its plan (whatever it contains; nothing was written)                         | 0         |
-| `update --json` without `--dry-run`                                                                     | 1         |
-| `update --compact` without `--json`                                                                     | 1         |
 | `update --force` aborted because a backup could not be written                                          | 1         |
 | `uninstall` refused, or stopped part-way (see [`uninstall`](commands/uninstall.md))                     | 1         |
 | `uninstall` with no `pharn.config.json` at all (nothing to uninstall)                                   | 0         |
@@ -58,9 +56,9 @@ nothing), with one addition: with `--strict`, a finding still prints the report 
 [`pharn status`](commands/status.md#json-output). So does `pharn update --dry-run --json`, which prints
 the plan (or the `up-to-date` / `ahead-of-release` / `ahead-of-main` outcome as its `status` field) and exits 0 — see
 [`pharn update`](commands/update.md#json-output) — and `pharn init --dry-run --json`, which prints the
-install plan and exits 0 — see [`pharn init`](commands/init.md#json-output). For both, `--json` alone, without `--dry-run`, is refused
-with an `Incomplete option for` error, exit 1; so is `--compact` (which leaves the unchanged files out of
-the plan's file list) without `--json`.
+install plan and exits 0 — see [`pharn init`](commands/init.md#json-output). For both, `--json` implies
+`--dry-run`, so `pharn update --json` and `pharn init --json` (or a bare `pharn --json`) print the plan too;
+`update --compact` (which leaves the unchanged files out of the plan's file list) implies `--json`.
 
 Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
 
@@ -870,16 +868,16 @@ Run `pharn --help` for usage.
 
 Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
 
-| command         | options it accepts                                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `init`          | `--ref`, `--dry-run`, `--json` (only with `--dry-run`), `--yes` / `-y`, `--archetype <list>`                        |
-| `add`           | none                                                                                                                |
-| `remove` / `rm` | none                                                                                                                |
-| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run`, `--json` (only with `--dry-run`), `--compact` (only with `--json`) |
-| `list`          | `--json`                                                                                                            |
-| `status`        | `--strict`, `--no-drift`, `--json`                                                                                  |
-| `uninstall`     | `--yes` / `-y`                                                                                                      |
-| _any_           | `--help` / `-h`, `--version` / `-v`                                                                                 |
+| command         | options it accepts                                                                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------- |
+| `init`          | `--ref`, `--dry-run`, `--json` (implies `--dry-run`), `--yes` / `-y`, `--archetype <list>`                      |
+| `add`           | none                                                                                                            |
+| `remove` / `rm` | none                                                                                                            |
+| `update`        | `--force`, `--yes` / `-y`, `--ref`, `--dry-run`, `--json` (implies `--dry-run`), `--compact` (implies `--json`) |
+| `list`          | `--json`                                                                                                        |
+| `status`        | `--strict`, `--no-drift`, `--json`                                                                              |
+| `uninstall`     | `--yes` / `-y`                                                                                                  |
+| _any_           | `--help` / `-h`, `--version` / `-v`                                                                             |
 
 The message goes to stderr with the `pharn --help` pointer and exits **1**, exactly like `Unknown option` — the
 label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for
@@ -888,19 +886,19 @@ a typo that is not there.
 Before this, such an option was parsed and silently dropped. That was worst in CI: `pharn update
 --json | jq` received human-readable output and a **success** exit code, and
 `pharn list --strict` exited 0 no matter what it found (`status --json` is now a real option — see
-[`pharn status`](commands/status.md#json-output) — and so is `update --json`, but only beside `--dry-run`). With no command word at all, `pharn --json`,
+[`pharn status`](commands/status.md#json-output) — and so is `update --json`, which implies `--dry-run`). With no command word at all,
 `pharn --force` and `pharn --strict` each ran a **full `init`** while ignoring the option.
 
-A few options are valid only **together with** another. `pharn update --json` alone is refused with
-an `Incomplete option for` error naming `--json (needs --dry-run)`, on stderr with the usage text and exit **1**
-(stdout stays empty): `--json` is the form of `--dry-run`'s plan, and a real update prompts and writes. Pass
-both: `pharn update --dry-run --json`. See [`pharn update`](commands/update.md#json-output). The same holds
-for `init`: `pharn init --json` — and a bare `pharn --json`, since `init` is the default command — is refused
-as ``Incomplete option for `init` ``; pass `pharn init --dry-run --json`. See
+Two options imply another, so neither needs a partner. `--json` on `update` or `init` implies `--dry-run`:
+`pharn update --json` is `pharn update --dry-run --json`, and `pharn init --json` — or a bare `pharn --json`,
+since `init` is the default command — is `pharn init --dry-run --json`. `pharn update --compact` implies
+`--json`, and so `--dry-run`. See [`pharn update`](commands/update.md#json-output) and
 [`pharn init`](commands/init.md#json-output).
 
-Note that only the option _name_ is checked. `pharn list --json=false` is still accepted (`--json` is
-a `list` option) and still prints human-readable output — pass the bare `--json` for JSON.
+Option **values** are checked too. An on/off option takes no value, so `pharn list --json=false` is refused
+with `Option takes no value: "--json=false"` rather than read as anything — pass the bare `--json`, or leave
+it out. `--ref` and `--archetype` may each be given once (`Repeated option: "--ref"`), and only `--no-drift`
+is a negated option: `--no-dry-run`, `--no-yes` and `--no-ref` are `Unknown option`.
 
 ## Removing PHARN by hand
 

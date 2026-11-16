@@ -7,22 +7,27 @@ different document. Each module's header comment explains its own "why"; this pa
 
 ## Dispatch and options
 
-`src/index.ts` parses argv with minimist and dispatches to `commands/{init,add,remove,update,list,status,uninstall}.ts`.
-`init` is the default command, and `rm` is an alias of `remove`.
+`src/index.ts` dispatches to `commands/{init,add,remove,update,list,status,uninstall}.ts`. The argv contract lives in
+`src/lib/cli-args.ts`: `parseCliArgs(args)` is a pure function that returns a refusal, text to print (`--help`,
+`--version`) or the command with exactly the options object its `run<Command>` takes. `init` is the default command,
+and `rm` is an alias of `remove`.
 
-- **`ALLOWED_FLAGS`** is the per-command flag table. It is a `Map`, because `cmd` is untrusted argv and an object lookup
-  would resolve `Object.prototype` keys. An absent row means "no check", so `pharn bogus --json` still says
-  "Unknown command". The global minimist `boolean:` list is computed from this table, so a flag no command takes
-  cannot be declared at all.
-- Offenders come from a second minimist parse under that command's declarations alone, keeping only its `unknown`
-  verdicts. They are never read from `Object.keys(argv)`, which cannot tell a passed flag from a defaulted one.
-- **`REQUIRED_WITH`** says which flags cannot be passed alone. For `update`, `--json` needs `--dry-run` and `--compact`
-  needs `--json`. For `init`, `--json` needs `--dry-run`, so a bare `pharn --json` is refused.
-- Both refusals print one stderr line plus a pointer at `pharn --help`, and exit 1. They sit above the `--help`/`--version`
-  short-circuits, so `--help` licenses no bad sibling flag. The positional-arity check (`MAX_POSITIONALS`) sits below them.
-- `--ref` (`latest` | `main`) and `--archetype` (an exact comma-separated list of archetypes) are the only flags that take
-  values. A bare, negated, repeated or unknown value is refused.
-- `pharn <cmd> --help` prints only that command's options, rendered from the same help data as the full `USAGE`.
+- **One table.** `OPTIONS` (each option's name, short alias, whether it takes a value, and per-command help text) and
+  `COMMANDS` (name, aliases, positional) are the help data and the parser's configuration at once. The `util.parseArgs`
+  options, the commands that take each option (`OPTIONS[].uses`) and each command's positional limit are all derived
+  from them, so an option cannot be accepted without a help entry, or documented without being accepted.
+- `util.parseArgs` runs once with `strict: false` and `tokens: true`, and the tokens are checked in order: an
+  **unknown** option; an option this command does **not take** (only for a known command, so `pharn bogus --json` still
+  says "Unknown command"); a **value on an on/off option** (`--json=false`); a **repeated** `--ref` or `--archetype`
+  (parseArgs would keep the last silently); then the `--ref` (`latest` | `main`) and `--archetype` (an exact
+  comma-separated list) values. `--no-drift` is declared as its own option; no other negation exists.
+- Every refusal is one stderr line naming the offender as written (`JSON.stringify`-escaped) plus a pointer at
+  `pharn --help`, exit 1. All of them sit above the `--help`/`--version` short-circuits, so `--help` licenses no bad
+  sibling option. The unknown-command and positional-arity checks sit below them. Command words and option names are
+  looked up in `Map`s, because they are untrusted argv and an object lookup would resolve `Object.prototype` keys.
+- `--json` on `init` and `update` implies `--dry-run`, and `update --compact` implies `--json`, so no option needs a
+  partner.
+- `pharn <cmd> --help` prints only that command's options, rendered from the same tables as the full `USAGE`.
 
 **TTY gate.** `init`, `update`, `uninstall` and the bare `add`/`remove` pickers read `process.std*.isTTY` into the
 shared `interactiveAllowed` predicate and exit 1 off a TTY, so a dead stream never answers a prompt. In `init` and
