@@ -335,6 +335,41 @@ describe('installCapabilities', () => {
     ).toBe('edited after the scan');
   });
 
+  // The changed-file backup failing (here: `pharn` is a symlink, which
+  // createBackup refuses) still names the files the first pass wrote.
+  it('a failed changed-file backup names the files already written', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside');
+    scaffoldRepo(repo);
+    mkdirSync(outside, { recursive: true });
+    write(join(proj, 'CONSTITUTION.md'), 'edited after the scan');
+    symlinkSync(outside, join(proj, 'pharn'));
+
+    let caught: unknown;
+    try {
+      installCapabilities(
+        repo,
+        proj,
+        selection(),
+        undefined,
+        new Map([['CONSTITUTION.md', null]]),
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ApplyError);
+    const { message, written } = caught as ApplyError;
+    expect(message).toMatch(/^pharn is a symlink; refusing to write backups/);
+    expect(message).toContain('were written before the failure');
+    expect(written).toContain('ARCHITECTURE.md');
+    expect(readFileSync(join(proj, 'CONSTITUTION.md'), 'utf8')).toBe(
+      'edited after the scan',
+    );
+    expect(readdirSync(outside)).toEqual([]);
+  });
+
   // A write that fails part-way throws an ApplyError carrying what landed, so
   // init/add can name those files; the caller writes no records or config.
   it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
