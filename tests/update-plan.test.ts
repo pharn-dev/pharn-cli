@@ -541,6 +541,37 @@ describe('buildUpdatePlan', () => {
       expect(report.pendingSkillsVersion).toBeNull();
     });
 
+    // CORE-159 × CORE-162: a held run whose ONLY state change is recording
+    // the pending version still changes the config, so it must write; once
+    // that version is recorded, the same plan changes nothing.
+    it('a held run that only records the pending version is a change; once recorded it is not', async () => {
+      const cfg = await unitFixture();
+      const DOC7 = 'pharn/CONSTITUTION.md';
+      const CONTRACT = 'pharn/pharn-contracts/c.md';
+      write(join(proj, DOC7), 'constitution v7');
+      write(join(proj, CONTRACT), 'contract');
+      writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
+      await writeRecords(proj, {
+        skillsVersion: cfg.skillsVersion,
+        commit: cfg.commit,
+        files: {
+          [OLD_FLOOR]: 'f'.repeat(64),
+          [DOC7]: contentHash(join(proj, DOC7)),
+          [CONTRACT]: contentHash(join(proj, CONTRACT)),
+        },
+      });
+      const first = plan(cfg).report;
+      expect(first.executableUnit?.held).toEqual([NEW_FLOOR]);
+      expect(first.writes).toEqual([]);
+      expect(first.pendingSkillsVersion).toBe('7.0.0');
+      expect(first.stateChanges).toEqual({ config: true, records: false });
+      expect(first.changesNothing).toBe(false);
+
+      const settled = plan({ ...cfg, pendingSkillsVersion: '7.0.0' }).report;
+      expect(settled.stateChanges).toEqual({ config: false, records: false });
+      expect(settled.changesNothing).toBe(true);
+    });
+
     it('names a recorded unit file that is missing and held as missing', async () => {
       const HOOK = '.claude/hooks/guard.cjs';
       const cfg = await unitFixture();

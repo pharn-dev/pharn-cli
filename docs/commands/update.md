@@ -809,6 +809,10 @@ warning — and ends with:
 - `Nothing to change.` when something is skipped or the recorded version is behind upstream;
 - `Up to date.` when nothing is skipped and the recorded version is the one upstream ships.
 
+A [held executable unit](#the-executable-unit-is-upgraded-all-or-none) counts the same way: the first held
+run that records `pendingSkillsVersion` changes `pharn.config.json`, so it asks and writes even when no file
+is written; the runs after it change nothing until something does: you revert the edit, run with `--force`, or upstream moves on.
+
 The comparison is made against `pharn.config.json` as `pharn` reads it, so a value the reader already
 resolves never forces a write on its own: no `layout` key is the flat layout, no `commit` key is `null`, a
 `ref` other than `"latest"` is `main`. A real difference — the download is the other layout, you switch
