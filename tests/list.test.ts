@@ -68,14 +68,30 @@ describe('runList', () => {
   });
 
   it('surfaces the loud validator error (NOT "run init") when the config is invalid (BUG 1)', async () => {
-    writeConfig({ ...archetypeConfig(), seam: { resolutionOrder: ['model'] } });
+    writeConfig(
+      archetypeConfig({
+        capabilities: [{ name: 'a11y', role: 'griller', source: 'guess' }],
+      } as unknown as Partial<PharnConfig>),
+    );
     await expect(runList()).rejects.toMatchObject(new ProcessExit(1));
     const msg = vi
       .mocked(prompts.log.error)
       .mock.calls.map((c) => String(c[0]))
       .join('\n');
-    expect(msg).toMatch(/ask/);
+    expect(msg).toMatch(/guess/);
     expect(msg).not.toMatch(/pharn init/);
+  });
+
+  // CORE-165: `seam` is pharn-oss's — a block its checker accepts (an extra
+  // key, a repeated step), or one this CLI cannot judge, never stops `list`.
+  it('lists a config whose seam block this CLI used to refuse', async () => {
+    writeConfig(
+      archetypeConfig({
+        seam: { resolutionOrder: ['model', 'ask', 'ask', 'guess'], note: 'x' },
+      }),
+    );
+    await expect(runList()).resolves.toBeUndefined();
+    expect(prompts.log.error).not.toHaveBeenCalled();
   });
 
   it('rejects a legacy (non-archetype) config with the legacy message + exit(1)', async () => {
@@ -200,10 +216,11 @@ describe('runList --json', () => {
   });
 
   it('emits the loud validator error to stderr (stdout clean) when config is invalid (BUG 1)', async () => {
-    writeConfig({
-      ...archetypeConfig(),
-      seam: { resolutionOrder: ['guess', 'ask'] },
-    });
+    writeConfig(
+      archetypeConfig({
+        capabilities: [{ name: 'a11y', role: 'griller', source: 'guess' }],
+      } as unknown as Partial<PharnConfig>),
+    );
     await expect(runList({ json: true })).rejects.toMatchObject(
       new ProcessExit(1),
     );

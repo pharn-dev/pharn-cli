@@ -17,7 +17,7 @@ import type { InstalledCapability } from '../types.js';
 // destroy the latter (lib/update-decision.ts).
 //
 // Why a sidecar and not a `pharn.config.json` field: a full install is hundreds
-// of files, and the config is hand-edited (`models` / `seam`). Keeping the hash
+// of files, and the config is hand-edited (`models`, `seam`, the user's keys). Keeping the hash
 // map out of it keeps the config readable and its diffs meaningful.
 //
 // TRUST (P2): this file is LOCAL but user-editable — untrusted input. It is
@@ -34,7 +34,8 @@ import type { InstalledCapability } from '../types.js';
 // key beside that set, by equality: `.claude/settings.json`, recorded only when
 // a fresh `init` wrote it (CORE-166, carriedSettingsRecord below), under the
 // same floor. A corrupt store is reported BY NAME, never silently collapsed
-// into "absent" (the same lesson lib/pharn-config.ts encodes for `seam`).
+// into "absent" (the same lesson lib/pharn-config.ts encodes for a malformed
+// config: `ConfigParseError`).
 //
 // THE STAMP: the store carries the `skillsVersion` + `commit` that
 // `pharn.config.json` holds after the operation that wrote it. It is written

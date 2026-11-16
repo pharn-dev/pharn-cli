@@ -404,9 +404,8 @@ describe('main (argv dispatch)', () => {
   // Before this, an unknown COMMAND exited 1 but an unknown FLAG was parsed into
   // `argv` and silently ignored: `pharn status --sctrict` ran in the default
   // exit-0 mode, so a typo in a CI pipeline permanently disarmed the drift gate
-  // while every run stayed green. Same shape as `assertNoUnknownKeys`
-  // (src/lib/seam-config.ts) at the other untrusted boundary - collect the
-  // offenders, then hard-fail naming them (P5 fail-closed).
+  // while every run stayed green. Collect the offenders, then hard-fail naming
+  // them (P5 fail-closed).
   // -------------------------------------------------------------------------
 
   const noCommandRan = (): void => {
@@ -534,8 +533,8 @@ describe('main (argv dispatch)', () => {
     noCommandRan();
   });
 
-  // Untrusted argv is echoed as DATA (P2), the way seam-config.ts names an
-  // unknown config key: a control character must not reach the terminal raw.
+  // Untrusted argv is echoed as DATA (P2): a control character must not reach
+  // the terminal raw.
   it('escapes the offending argument rather than echoing raw bytes', async () => {
     const bell = String.fromCharCode(7);
     setArgv('status', `--a${bell}b`);

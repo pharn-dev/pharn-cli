@@ -149,8 +149,8 @@ function jsonValue(value: unknown): unknown {
 // - `commit`: absent and `null` both mean "no commit recorded" (the reader
 //   already loads an absent one as `null`, CORE-160; kept so the comparison
 //   never depends on that).
-// `seam` needs no step: the loaded config already holds the validated,
-// stripped block, and the next config spreads it unchanged.
+// `seam` needs no step: the loaded config carries it verbatim (pharn-oss's
+// block, CORE-165), and the next config spreads it unchanged.
 // A real value change (the clone's layout differs from the resolved recorded
 // one, a channel switch, a new commit) still differs after resolution.
 function loadResolved(config: PharnConfig): unknown {

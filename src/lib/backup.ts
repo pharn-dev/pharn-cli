@@ -115,10 +115,10 @@ export function createBackup(
  * `[pharn.config.json]` when a re-run `init` is about to REWRITE an existing
  * one, else `[]` — the config's entry in init's backup set.
  *
- * init rebuilds the file from its own fields (steps/install-archetype.ts): the
- * `seam` block is reset to pharn's default and `models` to pharn-oss's block,
- * whatever the user had tuned there. Keys pharn does not own are carried over;
- * these are not. Without a copy the one command the docs name for recovery
+ * init rebuilds the file from its own fields (steps/install-archetype.ts):
+ * `models` is reset to pharn-oss's block, whatever the user had tuned there.
+ * Keys pharn does not own (`seam` among them) are carried over; pharn's are
+ * not. Without a copy the one command the docs name for recovery
  * silently discarded that tuning — so the existing file is ALWAYS backed up,
  * even when it is the only file in the set. A fresh install has nothing here.
  *

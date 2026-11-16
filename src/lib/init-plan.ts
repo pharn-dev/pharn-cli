@@ -476,7 +476,7 @@ export interface InitTarget {
   action: 'create' | 'overwrite';
   // Why it would be backed up first, or null when it would not be:
   // update's drift label, or `rewritten` for an existing pharn.config.json,
-  // which init rebuilds (`seam` and `models` reset) and always backs up.
+  // which init rebuilds (`models` reset) and always backs up.
   label: DriftLabel | 'rewritten' | null;
 }
 

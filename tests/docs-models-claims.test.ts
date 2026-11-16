@@ -37,12 +37,28 @@ describe('the models block claims', () => {
 });
 
 describe('seam.resolutionOrder', () => {
-  it('is documented as containing `ask`, not ending with it', () => {
+  // The rule itself is pharn-oss's now (CORE-165), so the reference no longer
+  // states it — but it must still never claim the old, wrong rule.
+  it('is never documented as having to end with `ask`', () => {
     const text = read('docs/reference/pharn-config.md');
     expect(text).not.toMatch(/must end with `ask`/i);
     expect(text).not.toContain('last entry is not `ask`');
-    expect(text).toContain('Must contain `ask`');
-    expect(text).toContain('does not contain `ask`');
+    expect(text).toContain('"ask"');
+    expect(text).toContain('pharn-contracts/seam-config.md');
+  });
+});
+
+// CORE-165: `seam` is pharn-oss's. The reference must not describe a CLI-side
+// rule set (the CLI has none), nor a block `init` writes or resets.
+describe('the seam block', () => {
+  it('is documented as pharn-oss’s: never validated, never written, carried verbatim', () => {
+    const text = read('docs/reference/pharn-config.md');
+    expect(text).toMatch(/\*\*neither validates nor\s+writes it\*\*/);
+    expect(text).toContain('`pharn init` writes no `seam` block');
+    expect(text).toContain('`pharn-contracts/seam-config.md`');
+    expect(text).not.toContain('rejected by name: an unknown sibling key');
+    expect(text).not.toMatch(/`seam` (is reset|goes back) to/);
+    expect(text).not.toContain('seam-config.ts');
   });
 });
 

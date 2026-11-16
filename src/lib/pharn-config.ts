@@ -14,7 +14,6 @@ import {
   VERSION_RE,
 } from './validate.js';
 import { ProjectChangedError } from './project-lock.js';
-import { validateSeamConfig, SeamConfigError } from './seam-config.js';
 import type { PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
@@ -25,8 +24,8 @@ const CAPABILITY_SOURCES = ['auto', 'manual'];
 
 /**
  * A `capabilities[].source` that is present but not in the allowlist — the FIRST
- * capabilities-entry check this config has ever had. Named + loud, following the
- * `SeamConfigError` pattern, so a hand-edit is reported as
+ * capabilities-entry check this config has ever had. Named + loud, so a
+ * hand-edit is reported as
  * the hand-edit it is and never collapsed into the "run `pharn init`" lie.
  *
  * It validates `source` ONLY; an entry's `name` and `role` are the separate
@@ -224,7 +223,7 @@ function validateStamp(raw: Record<string, unknown>): void {
  * every command answered a corrupt config with "No pharn.config.json found. Run
  * `pharn init` first." Both halves of that line were false: the file is right
  * there, and the prescribed remedy DESTROYS it. `init` rewrites this config
- * wholesale — resetting hand-edited `models`/`seam` blocks to defaults and
+ * wholesale — resetting a hand-edited `models` block to pharn-oss's and
  * re-stamping every capability `source: 'auto'`, discarding the manual-`add`
  * provenance only this file remembers (`lib/merge-capabilities.ts` reads that
  * field to keep a manual add sticky across `update`). `lib/atomic-write.ts`
@@ -310,9 +309,14 @@ export function configPath(cwd: string): string {
  * block into it and `update` manages it (lib/models-update.ts), so a re-run
  * init replaces it rather than carrying a stale one across.
  *
- * `satisfies Record<keyof PharnConfig, true>` makes the list exhaustive BY
- * CONSTRUCTION: declaring a field on `PharnConfig` without listing it here (or
- * listing one it does not declare) fails the typecheck. That is what keeps
+ * The ONE declared key that is NOT here is `seam` (CORE-165): pharn-oss owns
+ * it, the CLI neither validates nor writes it, so it is the user's like any
+ * unowned key and a re-run init carries it across VERBATIM. It stays declared
+ * on `PharnConfig` (as `unknown`) only so readers see it exists.
+ *
+ * `satisfies Record<Exclude<keyof PharnConfig, 'seam'>, true>` makes the list
+ * exhaustive BY CONSTRUCTION: declaring a field on `PharnConfig` without
+ * listing it here (or listing one it does not declare) fails the typecheck. That is what keeps
  * `userOwnedConfigEntries` honest — a new pharn-owned field can never be read
  * as the user's and carried stale across a re-run init.
  *
@@ -335,13 +339,12 @@ const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
     installedAt: true,
     updatedAt: true,
     models: true,
-    seam: true,
     stackAnswers: true,
     installedSkills: true,
     archetypes: true,
     capabilities: true,
     layout: true,
-  } satisfies Record<keyof PharnConfig, true>),
+  } satisfies Record<Exclude<keyof PharnConfig, 'seam'>, true>),
 );
 
 /**
@@ -390,10 +393,14 @@ export function userOwnedConfigEntries(
  * something this CLI will not act on, and each throws its own NAMED error that
  * PROPAGATES rather than collapsing into the "run init" lie: `ConfigParseError`
  * (not JSON at all), and — validated OUTSIDE the null-returning try —
- * `SeamConfigError`/`CapabilityEntryError`/`CapabilitySourceError`/
- * `ArchetypesError`/`ConfigStampError` (BUG 1).
+ * `CapabilityEntryError`/`CapabilitySourceError`/`ArchetypesError`/
+ * `ConfigStampError` (BUG 1).
  *
- * `models` is NOT validated here. Its schema is pharn-oss's
+ * `models` and `seam` are NOT validated here. `seam` is pharn-oss's
+ * (`pharn-contracts/seam-config.md`, materialized and checked by pharn-oss's
+ * own floor), and no CLI command reads it, so it rides the spread VERBATIM —
+ * a block pharn-oss accepts (extra keys, a repeated step) never stops a
+ * command (CORE-165). The `models` schema is pharn-oss's too
  * (lib/model-config.ts), and this CLI must load the format it wrote before
  * 0.7.0 (so `update` can migrate it), pharn-oss's format, and whatever
  * pharn-oss's next format is — so the block passes through VERBATIM and no
@@ -405,10 +412,8 @@ export function userOwnedConfigEntries(
  * construction — the branch is `JSON.parse` throwing, not a second `existsSync`
  * guess at a call site.
  *
- * On success the validated, typed `seam` (the validator's stripped return)
- * replaces the raw sub-block (BUG 3), while unknown TOP-LEVEL keys still
- * pass through so a legacy config carrying a since-removed field still loads
- * (P7, additive) — and so a key the user owns (`userOwnedConfigEntries`) survives
+ * On success unknown TOP-LEVEL keys pass through so a legacy config carrying
+ * a since-removed field still loads (P7, additive) — and so a key the user owns (`userOwnedConfigEntries`) survives
  * every command that writes this object back.
  */
 export function readPharnConfig(cwd: string): PharnConfig | null {
@@ -428,7 +433,7 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     throw new ConfigParseError(
       `${displayPath(path)} is not valid JSON${parseLocation(read.error)}. The file exists — fix its syntax by hand. ` +
         'Do NOT run `pharn init` to clear it: init OVERWRITES this config, discarding your recorded ' +
-        'capabilities, any manual `pharn add` provenance, and hand-edited models/seam blocks. If it ' +
+        'capabilities, any manual `pharn add` provenance, and a hand-edited models block. If it ' +
         `is beyond repair, move it aside first (\`mv ${CONFIG_FILENAME} ${CONFIG_FILENAME}.bak\`), ` +
         'then run `pharn init`.',
     );
@@ -449,13 +454,9 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   ) {
     return null;
   }
-  // Present-but-invalid → the validator THROWS (named) and the error propagates.
-  // An absent seam is legacy/valid (P7, additive). Use the validator's typed,
-  // stripped return for the sub-block (BUG 3). `models` is not validated: it
-  // rides the spread below untouched (see the doc comment).
-  const seam =
-    raw.seam !== undefined ? validateSeamConfig(raw.seam) : undefined;
-  // Same discipline for `capabilities[].source`: a present-but-invalid value
+  // `models` and `seam` are not validated: they ride the spread below untouched
+  // (see the doc comment).
+  // `capabilities[].source`: a present-but-invalid value
   // throws NAMED here rather than flowing into the merge. Entries are otherwise
   // passed through the spread unreconstructed, so `source` round-trips with no
   // load-mechanics change at all.
@@ -467,10 +468,7 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     validateArchetypes(raw.archetypes);
     validateStamp(raw);
   }
-  const config: PharnConfig = {
-    ...(raw as unknown as PharnConfig),
-    ...(seam !== undefined ? { seam } : {}),
-  };
+  const config: PharnConfig = { ...(raw as unknown as PharnConfig) };
   // An archetype config with no `commit` reads as `null` (CORE-160): a write
   // stamped with `undefined` drops the key from both files. (The records stamp
   // is no longer compared with the config — CORE-161 — so this is about the
@@ -646,12 +644,12 @@ export function assertConfigFingerprintUnchanged(
 
 /**
  * Is `err` a present-but-invalid-config error — a file that IS there and that
- * the user has to fix (unparseable JSON, a hand-edited `seam` block, or a
+ * the user has to fix (unparseable JSON, or a
  * `capabilities[]` entry with an invalid `name`/`role`/`source` (or a
  * `capabilities` that is not an array), an `archetypes` that is not an array of
  * known archetypes, or an invalid `skillsVersion`/`commit` stamp) — as opposed
- * to a programming bug? (A `models` block is never one: it is pharn-oss's, and
- * `readPharnConfig` carries it unvalidated.)
+ * to a programming bug? (A `models` or `seam` block is never one: both are
+ * pharn-oss's, and `readPharnConfig` carries them unvalidated.)
  *
  * The single definition of "config error" — used by `loadConfigOrExit` and by
  * `list`'s own `--json`-aware error path, so neither re-encodes the class
@@ -663,14 +661,12 @@ export function isConfigValidationError(
   err: unknown,
 ): err is
   | ConfigParseError
-  | SeamConfigError
   | CapabilityEntryError
   | CapabilitySourceError
   | ArchetypesError
   | ConfigStampError {
   return (
     err instanceof ConfigParseError ||
-    err instanceof SeamConfigError ||
     err instanceof CapabilityEntryError ||
     err instanceof CapabilitySourceError ||
     err instanceof ArchetypesError ||
@@ -684,8 +680,8 @@ export function isConfigValidationError(
  * answer is now `ConfigParseError`, naming the file and the syntax position and
  * warning AGAINST the re-init that would overwrite it; it used to be "No
  * pharn.config.json found. Run `pharn init` first.", which reported the file as
- * ABSENT and prescribed exactly the re-init that resets hand-edited
- * `models`/`seam` blocks and re-stamps every capability `source: 'auto'`, losing
+ * ABSENT and prescribed exactly the re-init that resets a hand-edited
+ * `models` block and re-stamps every capability `source: 'auto'`, losing
  * the manual-add provenance only this file remembers. Atomicity is what keeps
  * that state unreachable in the first place; the named error is what makes it
  * survivable if it is ever reached another way. Bytes are unchanged.
