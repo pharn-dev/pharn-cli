@@ -199,6 +199,12 @@ export interface UpdatePlan {
 export interface UnitHold {
   blocking: { rel: string; label: SkipLabel }[];
   held: string[];
+  // The held files that are not on disk and so stay missing until the hold
+  // ends (a deleted hook stays off): a held `restored` write the previous
+  // install recorded — or, with no usable store, every held `restored` write,
+  // since a deleted file and a new upstream one cannot be told apart then.
+  // Present only when non-empty.
+  missing?: string[];
 }
 
 // The order skip groups are reported in — most actionable first (P5:
@@ -335,12 +341,16 @@ function holdUnitWrites(acc: {
     .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
   if (blocking.length === 0) return null;
   const heldRels: string[] = [];
+  const missing: string[] = [];
   for (const file of files) {
     if (file.action !== 'write' || !unit(file.rel)) continue;
     // Not forced (force never reaches here), so a write is `restored` or
     // `updated`: take it back out of the counts it went into.
-    if (file.label === 'restored') counts.restored -= 1;
-    else counts.updated -= 1;
+    if (file.label === 'restored') {
+      counts.restored -= 1;
+      if (records === null || records[file.rel] !== undefined)
+        missing.push(file.rel);
+    } else counts.updated -= 1;
     counts.skipped += 1;
     file.action = 'skip';
     file.label = 'held';
@@ -355,7 +365,11 @@ function holdUnitWrites(acc: {
   const heldSet = new Set(heldRels);
   for (let i = writes.length - 1; i >= 0; i -= 1)
     if (heldSet.has(writes[i]!)) writes.splice(i, 1);
-  return { blocking, held: heldRels.slice().sort() };
+  return {
+    blocking,
+    held: heldRels.slice().sort(),
+    ...(missing.length > 0 ? { missing: missing.sort() } : {}),
+  };
 }
 
 function pushGroup(

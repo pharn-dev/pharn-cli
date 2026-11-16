@@ -2,6 +2,7 @@ import {
   chmodSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -470,7 +471,11 @@ describe('buildUpdatePlan', () => {
       return cfg;
     }
 
-    it('holds the new floor file, withholds the version, records nothing pending', async () => {
+    // CORE-159 inverts the 0.18.0 decision this test pinned ("records nothing
+    // pending"): a hold caused only by the user's own edit leaves every file
+    // outside the unit at 7.0.0, and `add` writes capability directories only
+    // (outside the unit), so the pending version is recorded for it.
+    it('holds the new floor file, withholds the version, records the pending version', async () => {
       const cfg = await unitFixture();
       const { report, apply } = plan(cfg);
       expect(report.executableUnit).toEqual({
@@ -482,10 +487,113 @@ describe('buildUpdatePlan', () => {
       expect(report.writes).toContain('pharn/CONSTITUTION.md');
       expect(report.versionWithheld).toBe(true);
       expect(report.recordedVersion).toBe('6.0.0');
-      // The unit is NOT at 7.0.0, so `add` must not install at it.
-      expect(report.pendingSkillsVersion).toBeNull();
+      // The only blocker is the user's edit, so `add` may install at 7.0.0.
+      expect(report.pendingSkillsVersion).toBe('7.0.0');
       expect(apply.nextSkillsVersion).toBe('6.0.0');
       expect(NEW_FLOOR in apply.plan.nextRecords).toBe(false);
+    });
+
+    it('records the pending version for an unrecorded blocker too', async () => {
+      const cfg = await unitFixture();
+      await writeRecords(proj, {
+        skillsVersion: cfg.skillsVersion,
+        commit: cfg.commit,
+        files: {
+          'pharn/CONSTITUTION.md': contentHash(
+            join(proj, 'pharn/CONSTITUTION.md'),
+          ),
+        },
+      });
+      const { report } = plan(cfg);
+      expect(report.executableUnit?.blocking).toEqual([
+        { rel: OLD_FLOOR, label: 'unrecorded' },
+      ]);
+      expect(report.pendingSkillsVersion).toBe('7.0.0');
+    });
+
+    it('records the pending version beside a kept edit outside the unit', async () => {
+      const cfg = await unitFixture();
+      write(join(proj, 'pharn/CONSTITUTION.md'), 'my constitution');
+      const { report } = plan(cfg);
+      expect(report.skipped.map((g) => g.label)).toEqual(['modified', 'held']);
+      expect(report.pendingSkillsVersion).toBe('7.0.0');
+    });
+
+    it('records nothing pending when a blocker is unreadable', async () => {
+      const cfg = await unitFixture();
+      rmSync(join(proj, OLD_FLOOR));
+      mkdirSync(join(proj, OLD_FLOOR));
+      const { report } = plan(cfg);
+      expect(report.executableUnit?.blocking).toEqual([
+        { rel: OLD_FLOOR, label: 'unreadable' },
+      ]);
+      expect(report.versionWithheld).toBe(true);
+      expect(report.pendingSkillsVersion).toBeNull();
+    });
+
+    it('records nothing pending when a blocker is unverifiable (no usable store)', async () => {
+      const cfg = await unitFixture();
+      rmSync(join(proj, 'pharn.records.json'));
+      const { report } = plan(cfg);
+      expect(report.executableUnit?.blocking).toEqual([
+        { rel: OLD_FLOOR, label: 'unverifiable' },
+      ]);
+      expect(report.pendingSkillsVersion).toBeNull();
+    });
+
+    // CORE-159 × CORE-162: a held run whose ONLY state change is recording
+    // the pending version still changes the config, so it must write; once
+    // that version is recorded, the same plan changes nothing.
+    it('a held run that only records the pending version is a change; once recorded it is not', async () => {
+      const cfg = await unitFixture();
+      const DOC7 = 'pharn/CONSTITUTION.md';
+      const CONTRACT = 'pharn/pharn-contracts/c.md';
+      write(join(proj, DOC7), 'constitution v7');
+      write(join(proj, CONTRACT), 'contract');
+      writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
+      await writeRecords(proj, {
+        skillsVersion: cfg.skillsVersion,
+        commit: cfg.commit,
+        files: {
+          [OLD_FLOOR]: 'f'.repeat(64),
+          [DOC7]: contentHash(join(proj, DOC7)),
+          [CONTRACT]: contentHash(join(proj, CONTRACT)),
+        },
+      });
+      const first = plan(cfg).report;
+      expect(first.executableUnit?.held).toEqual([NEW_FLOOR]);
+      expect(first.writes).toEqual([]);
+      expect(first.pendingSkillsVersion).toBe('7.0.0');
+      expect(first.stateChanges).toEqual({ config: true, records: false });
+      expect(first.changesNothing).toBe(false);
+
+      const settled = plan({ ...cfg, pendingSkillsVersion: '7.0.0' }).report;
+      expect(settled.stateChanges).toEqual({ config: false, records: false });
+      expect(settled.changesNothing).toBe(true);
+    });
+
+    it('names a recorded unit file that is missing and held as missing', async () => {
+      const HOOK = '.claude/hooks/guard.cjs';
+      const cfg = await unitFixture();
+      write(join(repo, HOOK), 'hook v7');
+      await writeRecords(proj, {
+        skillsVersion: cfg.skillsVersion,
+        commit: cfg.commit,
+        files: {
+          [OLD_FLOOR]: 'f'.repeat(64),
+          [HOOK]: 'e'.repeat(64),
+          'pharn/CONSTITUTION.md': contentHash(
+            join(proj, 'pharn/CONSTITUTION.md'),
+          ),
+        },
+      });
+      const { report } = plan(cfg);
+      expect(report.executableUnit).toEqual({
+        blocking: [{ rel: OLD_FLOOR, label: 'modified' }],
+        held: [HOOK, NEW_FLOOR],
+        // The new upstream floor file was never installed: not "missing".
+        missing: [HOOK],
+      });
     });
 
     it('holds the root migration with the unit (the old floor reads the old paths)', async () => {

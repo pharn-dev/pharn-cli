@@ -77,7 +77,9 @@ rollback or a hand-edited value — refuses the same way):
 ```text
 ⚠ Skills version mismatch: pharn.config.json records v1.0.0, but the fetched
   github.com/pharn-dev/pharn-oss is at v2.3.0. `pharn add` installs only at the version your
-  project is already on — run `pharn update` first, then re-run `pharn add`.
+  project is already on. Run `pharn update` to move it to v2.3.0; if update cannot finish
+  (`pharn update --dry-run` shows which files block it), revert those files or run
+  `pharn update --force` (it backs them up to pharn/.backup/ first), then re-run `pharn add`.
 ```
 
 The refusal happens **before anything in your project is written** and before the interactive picker
@@ -89,10 +91,18 @@ Run [`pharn update`](update.md) to bring your install to the current version, th
 
 **Kept local edits.** If `pharn update` skipped files **only because you edited them**
 (`modified` / `unrecorded`), it leaves `skillsVersion` at the old value but records the version it
-applied as `pendingSkillsVersion` in `pharn.config.json` — every other file is already at that version.
-`add` accepts a clone at that version too, and still does not advance `skillsVersion` or `commit`. If
-upstream has moved on again, the refusal names the ways out: run `pharn update`, and if it keeps
-skipping your edits, revert them or run `pharn update --force` (which backs them up first).
+applied as `pendingSkillsVersion` in `pharn.config.json`. That includes an update that
+[held the executable unit](update.md#the-executable-unit-is-upgraded-all-or-none) because of your
+edit: the floor, hooks and `pharn-*` commands stay at the old version, and every other file you did not
+edit is at the new one. `add` accepts a clone at that version too, because it writes capability
+directories only, and it still does not advance `skillsVersion` or `commit`. If upstream has moved on
+again, the refusal reads `pharn.config.json records v1.0.0 (partly at v1.1.0)` and names the same ways
+out as below.
+
+When an update could not finish for another reason (a file it cannot verify because there is no usable
+record store, or one it cannot read), nothing is recorded as pending and `add` refuses. Run
+`pharn update --dry-run` to see which files block the update, then revert them or run
+`pharn update --force` (it backs them up first), and re-run `pharn add`.
 
 **An install ahead of its source.** When your install is **newer** than what `add` cloned — the
 newest release is older (an install made from `main`, then switched to `--ref latest`), or pharn-oss

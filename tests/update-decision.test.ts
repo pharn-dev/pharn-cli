@@ -424,4 +424,61 @@ describe('planUpdate — the executable-unit hold', () => {
     expect(withUnit).toEqual(without);
     expect(withUnit.held).toBeNull();
   });
+
+  // CORE-159: a held unit file the install wrote before and the project no
+  // longer has (a deleted hook) stays missing until the hold ends — named.
+  describe('missing', () => {
+    const missingPlan = (records: Record<string, string> | null) =>
+      planUpdate({
+        latestHashes: new Map([
+          ['pharn/floor/edited.mjs', LATEST],
+          ['pharn/floor/new.mjs', LATEST],
+          ['.claude/hooks/deleted.cjs', LATEST],
+          ['.claude/hooks/clean.cjs', LATEST],
+        ]),
+        diskStates: new Map<string, DiskState>([
+          ['pharn/floor/edited.mjs', file(USER)],
+          ['pharn/floor/new.mjs', { kind: 'absent' }],
+          ['.claude/hooks/deleted.cjs', { kind: 'absent' }],
+          ['.claude/hooks/clean.cjs', file(RECORDED)],
+        ]),
+        records,
+        force: false,
+        unit,
+        holdUnit: true,
+      });
+
+    it('lists a held, recorded, absent unit file — not a new upstream one', () => {
+      const p = missingPlan({
+        'pharn/floor/edited.mjs': RECORDED,
+        '.claude/hooks/deleted.cjs': RECORDED,
+        '.claude/hooks/clean.cjs': RECORDED,
+      });
+      expect(p.held).toEqual({
+        blocking: [{ rel: 'pharn/floor/edited.mjs', label: 'modified' }],
+        held: [
+          '.claude/hooks/clean.cjs',
+          '.claude/hooks/deleted.cjs',
+          'pharn/floor/new.mjs',
+        ],
+        missing: ['.claude/hooks/deleted.cjs'],
+      });
+      // Nothing was written, so the deleted file keeps its record.
+      expect(p.nextRecords['.claude/hooks/deleted.cjs']).toBe(RECORDED);
+    });
+
+    it('without a usable store lists every held absent unit file (deleted or new cannot be told apart)', () => {
+      const p = missingPlan(null);
+      expect(p.held?.missing).toEqual([
+        '.claude/hooks/deleted.cjs',
+        'pharn/floor/new.mjs',
+      ]);
+    });
+
+    it('is absent when no held unit file is missing', () => {
+      const p = plan();
+      expect(p.held).not.toBeNull();
+      expect('missing' in p.held!).toBe(false);
+    });
+  });
 });

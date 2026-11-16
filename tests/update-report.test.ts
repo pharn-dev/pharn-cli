@@ -388,6 +388,38 @@ describe('buildUpdateReport — planned', () => {
     });
   });
 
+  // CORE-159: the held unit files not on disk, additive inside executableUnit
+  // and present ONLY when there is one.
+  it('projects executableUnit.missing only when non-empty', () => {
+    const blocking = [
+      { rel: 'pharn/floor/reconcile-baseline.mjs', label: 'modified' as const },
+    ];
+    const withMissing = buildUpdateReport(
+      input({
+        plan: planReport({
+          executableUnit: {
+            blocking,
+            held: ['.claude/hooks/guard.cjs'],
+            missing: ['.claude/hooks/guard.cjs'],
+          },
+        }),
+      }),
+    );
+    expect(withMissing.plan!.executableUnit).toEqual({
+      blocking,
+      held: ['.claude/hooks/guard.cjs'],
+      missing: ['.claude/hooks/guard.cjs'],
+    });
+    const empty = buildUpdateReport(
+      input({
+        plan: planReport({
+          executableUnit: { blocking, held: ['x.cjs'], missing: [] },
+        }),
+      }),
+    );
+    expect('missing' in empty.plan!.executableUnit!).toBe(false);
+  });
+
   it('omits absentUpstream when the clone ships every declared surface', () => {
     expect('absentUpstream' in r.plan!).toBe(false);
   });

@@ -82,7 +82,8 @@ export interface PharnConfig {
   skillsVersion: string;
   // Additive (P7). The upstream version a `pharn update` APPLIED while
   // withholding the `skillsVersion` bump solely because of the user's own kept
-  // edits (`modified` / `unrecorded` skips): every other file is at this
+  // edits (`modified` / `unrecorded` skips, and the executable-unit `held`
+  // skips they caused): every file outside those edits and the unit is at this
   // version. `add` accepts a clone at it; the next complete update clears it.
   pendingSkillsVersion?: string;
   // Additive (P7). `role:name` of every installed capability the last

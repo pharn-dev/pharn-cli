@@ -211,7 +211,8 @@ const FORCEABLE_SKIPS = new Set<SkipLabel>([
   'held',
 ]);
 
-// How many blocking files the EXECUTABLE UNIT note lists before a count.
+// How many blocking (or missing) files the EXECUTABLE UNIT note lists before a
+// count.
 const MAX_UNIT_BLOCKERS = 20;
 
 /**
@@ -224,6 +225,16 @@ export function executableUnitLines(
   preview: boolean,
 ): string[] | null {
   if (hold === null) return null;
+  return [
+    ...unitBlockerLines(hold, preview),
+    ...unitMissingLines(hold.missing ?? [], preview),
+    '',
+    '  To upgrade the unit: revert the skipped files, or run',
+    `  \`pharn update --force\` (it backs them up to ${BACKUP_DIR}/ first).`,
+  ];
+}
+
+function unitBlockerLines(hold: UnitHold, preview: boolean): string[] {
   const shown = hold.blocking.slice(0, MAX_UNIT_BLOCKERS);
   const more = hold.blocking.length - shown.length;
   return [
@@ -241,9 +252,22 @@ export function executableUnitLines(
       ' either, and the',
     '  unit stays at the version you had: upgrading part of it would mix two',
     '  versions that may not load together.',
+  ];
+}
+
+// The held files that are not on disk (UnitHold.missing): a deleted hook is
+// not put back while the unit is held, so it stays off until the hold ends.
+function unitMissingLines(missing: string[], preview: boolean): string[] {
+  if (missing.length === 0) return [];
+  const shown = missing.slice(0, MAX_UNIT_BLOCKERS);
+  const more = missing.length - shown.length;
+  return [
     '',
-    '  To upgrade the unit: revert the files above, or run',
-    `  \`pharn update --force\` (it backs them up to ${BACKUP_DIR}/ first).`,
+    '  Of those, these are not on disk, so they ' +
+      (preview ? 'would stay' : 'stay') +
+      ' missing until the hold ends:',
+    ...shown.map((rel) => `  ${terminalSafe(rel, { max: 300 })}`),
+    ...(more > 0 ? [`  … and ${more} more`] : []),
   ];
 }
 
