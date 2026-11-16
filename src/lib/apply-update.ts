@@ -7,24 +7,16 @@ import { ManifestValidationError, safeJoin, toPosix } from './validate.js';
 import type { DiskState } from './update-decision.js';
 
 // ---------------------------------------------------------------------------
-// The per-file write executor for `pharn update`. `init`/`add` copy whole dirs
-// (lib/install-capabilities.ts); an update must act file-by-file, because the
-// whole point is that SOME files are left alone.
+// The per-file write executor for `pharn update`, which must act file-by-file
+// because some files are left alone.
 //
-// Trust (P2): `safeJoin` is LEXICAL — it contains the path string but does not
-// resolve symlinks, and a plain copy FOLLOWS a symlinked destination. So every
-// write lstat-checks its destination and each parent component created below the
-// project root, and refuses to write through a symlink. (This closes the same
-// hole the existing recursive `cpSync` install path still has for capability
-// dirs — noted honestly: this increment inherits that gap and fixes it here.)
+// `safeJoin` is LEXICAL and a plain copy FOLLOWS a symlinked destination, so
+// every write refuses a symlink at its destination or any component below the
+// project root.
 //
-// Failure contract (replacing the whole-dir copy's "no partial installs"): on the
-// first failure this throws an ApplyError CARRYING the paths already written, so
-// the caller can still record them. Files pharn wrote must never be left
-// unrecorded — the next run would read them as the user's edits and refuse to
-// touch them forever.
-//
-// One axis (P3): applying an update plan to the filesystem.
+// On the first failure this throws an ApplyError CARRYING the paths already
+// written, so the caller can still record them: an unrecorded pharn write
+// would be read as the user's edit by every later run.
 // ---------------------------------------------------------------------------
 
 export class ApplyError extends Error {
@@ -40,34 +32,21 @@ export class ApplyError extends Error {
 
 /**
  * Classify what the project holds at `rel` — the disk side of the decision
- * table. Never throws: an unhashable path becomes the `unreadable` terminal so
- * the run reports it instead of crashing (P5).
+ * table. Never throws: an unhashable path becomes the `unreadable` terminal.
  */
 export function readDiskState(projectRoot: string, rel: string): DiskState {
   const dest = safeJoin(projectRoot, rel);
-  // ONE try over both physical reads, because they land in the same terminal.
-  //
-  // The walk is the shared PHYSICAL gate applyWrites writes against
-  // (lib/symlink-guard.ts), and running it HERE is what makes the read side and
-  // the write side agree: `lstat` refuses to dereference only the FINAL
-  // component — it happily resolves every ancestor — so checking the leaf alone
-  // hashed straight through a symlinked PARENT and answered `file` (or
-  // `absent`) for a path pointing outside the install. It checks the leaf too,
-  // which is why no separate leaf-symlink branch remains below.
-  //
-  // Either call can throw: `throwIfNoEntry: false` suppresses ENOENT ONLY, so a
-  // path whose PARENT is a regular file raises ENOTDIR, which would crash the
-  // whole run instead of producing the named skip this function promises.
-  // Catching keeps the terminal deterministic (P5): unreadable, reported, never
-  // silently overwritten.
+  // ONE try over both physical reads. The walk is the gate applyWrites writes
+  // against (lib/symlink-guard.ts), so the read and write sides agree: `lstat`
+  // resolves every ancestor, so a leaf check alone would hash through a
+  // symlinked PARENT. Either call can throw (ENOTDIR under a regular file),
+  // which lands in the same named terminal instead of crashing the run.
   let stat;
   try {
     const link = findSymlinkComponent(projectRoot, rel);
     if (link !== null) {
-      // Naming the component is the whole point when the offender is a PARENT.
-      // When it IS the leaf, both readers already print `rel` beside the reason
-      // (src/commands/status.ts), so repeating it would render
-      // "CONSTITUTION.md — CONSTITUTION.md is a symlink".
+      // Name the component only when it is a PARENT: the readers already print
+      // `rel` beside the reason.
       return {
         kind: 'unreadable',
         reason:
@@ -93,8 +72,7 @@ export function readDiskState(projectRoot: string, rel: string): DiskState {
 
 /**
  * Copy each planned write from the clone into the project, creating parent
- * directories (`copyFileSync` does not, unlike the recursive `cpSync` this
- * replaces — a restore whose whole directory was deleted depends on it).
+ * directories (a restore whose whole directory was deleted needs them).
  * Returns the paths written, in order.
  */
 export function applyWrites(params: {
@@ -115,15 +93,10 @@ export function applyWrites(params: {
     }
     try {
       const to = safeJoin(projectRoot, rel);
-      // Refuse a destination that is a symlink, or that sits under one, anywhere
-      // below projectRoot — the shared physical gate (lib/symlink-guard.ts),
-      // which backup.ts uses on the read side. Inside the try, so the refusal is
-      // wrapped into an ApplyError carrying what was already written.
-      //
-      // readDiskState now runs the same walk, so a planned write should never
-      // reach a symlinked path at all. This stays: the two walks happen at
-      // different instants (TOCTOU), and this one is the SECURITY backstop —
-      // the classifier's copy is defense in depth, not a replacement.
+      // Refuse a destination that is, or sits under, a symlink below
+      // projectRoot. readDiskState runs the same walk, but at another instant
+      // (TOCTOU): this one is the security backstop. Inside the try, so the
+      // refusal carries what was already written.
       const link = findSymlinkComponent(projectRoot, rel);
       if (link !== null) {
         throw new ManifestValidationError(
@@ -131,11 +104,9 @@ export function applyWrites(params: {
         );
       }
       mkdirSync(dirname(to), { recursive: true });
-      // By replacement, never in place (F-19): `copyFileSync` wrote INTO the
-      // destination's inode, so a destination hard-linked to a file outside
-      // the project overwrote that file — and a hard link is invisible to the
-      // symlink walk above. A temp sibling renamed over the name leaves every
-      // other link with its old bytes (lib/atomic-write.ts).
+      // By replacement, never in place: writing into the destination's inode
+      // would overwrite a hard-linked file outside the project, and a hard link
+      // is invisible to the symlink walk (lib/atomic-write.ts).
       copyFileAtomicSync(from, to);
       written.push(rel);
     } catch (err) {

@@ -12,125 +12,74 @@ import type { InstalledCapability } from '../types.js';
 // ---------------------------------------------------------------------------
 // The install record store — `pharn.records.json`, a CLI-owned sidecar next to
 // `pharn.config.json` recording contentHash(dest) for every PHARN-owned file an
-// install wrote. It is the BASELINE `pharn update` compares against so it can
-// tell "pharn wrote these bytes" from "the user edited this file" and refuse to
-// destroy the latter (lib/update-decision.ts).
+// install wrote. It is the BASELINE `pharn update` compares against to tell
+// "pharn wrote these bytes" from "the user edited this file". A sidecar, not a
+// config field, so the hand-edited config stays readable.
 //
-// Why a sidecar and not a `pharn.config.json` field: a full install is hundreds
-// of files, and the config is hand-edited (`models`, `seam`, the user's keys). Keeping the hash
-// map out of it keeps the config readable and its diffs meaningful.
+// TRUST: user-editable, so parsed defensively; any failure degrades to "records
+// unavailable", which is FAIL-CLOSED (update skips rather than overwrites), and
+// a corrupt store is reported BY NAME. A record KEY never drives a write:
+// consumers iterate the install manifest and look keys up here. Only two turn a
+// key into a path — orphan detection (read) and `uninstall` (delete, only when
+// the bytes still match) — and only for an install-root key (or exactly
+// `.claude/settings.json` for uninstall) behind safeJoin + symlink walk +
+// regular-file checks.
 //
-// TRUST (P2): this file is LOCAL but user-editable — untrusted input. It is
-// parsed defensively and any failure degrades to "records unavailable", which is
-// FAIL-CLOSED (update then SKIPS rather than overwrites). Critically, a record
-// KEY never drives a WRITE: consumers iterate the install manifest and look
-// each manifest-derived key up here. Two consumers turn a key into a path, both
-// only for a key that passed the ingest rule below, is a member of the
-// install-root set (isInstallRootPath, lib/orphans.ts — a path some install
-// could have written), and passes a safeJoin + symlink-component +
-// regular-file floor: orphan detection (lib/orphans.ts) READS it (lstat +
-// hash), and `pharn uninstall` (lib/uninstall-plan.ts) DELETES it — and only
-// when its bytes still match the recorded hash. `uninstall` admits exactly one
-// key beside that set, by equality: `.claude/settings.json`, recorded only when
-// a fresh `init` wrote it (CORE-166, carriedSettingsRecord below), under the
-// same floor. A corrupt store is reported BY NAME, never silently collapsed
-// into "absent" (the same lesson lib/pharn-config.ts encodes for a malformed
-// config: `ConfigParseError`).
+// THE STAMP (`skillsVersion` + `commit`) is diagnostics only and NEVER gates
+// the baseline: a path whose hash equals its record holds bytes pharn wrote,
+// whatever the stamp. Every consumer still requires hash equality before it
+// overwrites or deletes. Stated edge cases: a store from an older CLI that
+// rewrote the tree while ignoring it labels upstream bytes `modified` (still
+// skipped), and a file the user reverted to bytes such a store recorded is
+// upgraded.
 //
-// THE STAMP: the store carries the `skillsVersion` + `commit` that
-// `pharn.config.json` holds after the operation that wrote it. It is written
-// for diagnostics and NEVER gates the baseline (CORE-161): a path whose current
-// hash equals its recorded hash holds bytes pharn wrote, whichever version the
-// store was stamped with — the only property the update table needs. Gating on
-// it turned a torn run (`add`/`update` write this file BEFORE the config)
-// followed by an upstream release into a wall of `unverifiable` skips, then
-// `unrecorded` ones forever, that only `--force` could clear. Every consumer
-// still requires hash equality before it overwrites, deletes or skips a backup.
-// Two stated edge cases: a store left by an older CLI that rewrote the tree
-// while ignoring this file labels upstream bytes `modified` instead of
-// `unverifiable` (still skipped), and a file the user deliberately reverted to
-// bytes such a store recorded is upgraded.
-//
-// ONE KEY IS NOT A FILE: `MODELS_RECORD_KEY` records the `models` block pharn
-// wrote INSIDE pharn.config.json, so `pharn update` can tell pharn's block from
-// the user's the same way it tells files apart (lib/models-update.ts). It is a
-// JSON-Pointer fragment no install manifest can produce, and like every key it
-// is compared, never path-joined.
-//
-// One axis (P3): the install record store.
+// One key is not a file: MODELS_RECORD_KEY records the `models` block pharn
+// wrote INSIDE pharn.config.json; it is compared, never path-joined.
 // ---------------------------------------------------------------------------
 
 export const RECORDS_FILE = 'pharn.records.json';
 
 /**
  * The record key for the `models` block pharn wrote into pharn.config.json.
- * `add` and `remove` carry it untouched (they extend or prefix-filter `files`);
- * `init` and `update` write it whenever they write the block.
+ * `add`/`remove` carry it untouched; `init`/`update` write it with the block.
  */
 export const MODELS_RECORD_KEY = 'pharn.config.json#/models';
 
 /**
- * The recorded hash of a `models` block: sha256 of `JSON.stringify(block)` —
- * the block as pharn serializes it, key order included, so re-indenting the
- * file is not an edit and reordering keys is. Never called with `undefined`
- * (an absent block has no record).
+ * The recorded hash of a `models` block: sha256 of `JSON.stringify(block)`, so
+ * re-indenting the file is not an edit and reordering keys is.
  */
 export function modelsRecordHash(block: unknown): string {
   return createHash('sha256').update(JSON.stringify(block)).digest('hex');
 }
 
-// Exact-match schema discriminator (P5). A store written by a future CLI with a
-// different version is NOT guessed at — it reads as unavailable, and update
-// skips. Bumping this is the additive escape hatch P7 requires; the per-value
-// hash sweep ranges over `files` only, so a future sibling key cannot read as
-// corrupt.
+// Exact-match schema discriminator: a store from a future CLI reads as
+// unavailable, never guessed at.
 export const RECORDS_SCHEMA_VERSION = 1;
 
-// A recorded content hash: lowercase sha256 hex. Enum/regex floor (P0).
+// A recorded content hash: lowercase sha256 hex.
 export const SHA256_RE = /^[0-9a-f]{64}$/;
 
-// A record key is a project-root-relative posix path, and the reader accepts it
-// on a SEGMENT rule: a key is rejected when it normalizes to nothing, when it is
-// absolute, or when any of its path segments is exactly `..` or `.`.
-//
-// That is deliberately looser than banning `..` as a SUBSTRING. `migration..v2.md`
-// is an ordinary filename, and so is one carrying a backslash on posix — and the
-// writer records whatever the install manifest enumerated out of the untrusted
-// clone, whose capability contents, contracts and floor files are copied verbatim
-// with their basenames never name-validated. A reader stricter than its own
-// writer declares pharn's OWN store corrupt for such a name and degrades the
-// whole update to `unverifiable`: fail-closed, but for nothing. Writer and reader
-// now agree BY CONSTRUCTION, since every key originates from
-// collectExpectedInstallPaths (toPosix-normalized, root-relative).
-//
-// The rule remains defense in depth (P2), never containment: a key is COMPARED,
-// and path-joined only by the guarded orphan read (see the header), so
-// containment is safeJoin's job and accepting an odd-but-inert name gives up
-// nothing. The corollary is that what it rejects is narrow ON PURPOSE — a posix
-// key holding `..\..\etc\passwd` as one opaque segment reads as an ordinary
-// name here, and is inert for the same reason every other key is (at most a
-// contained read of a file by that literal name).
+// A record key is a root-relative posix path, rejected only when it normalizes
+// to nothing, is absolute, or has a segment exactly `..` or `.`. Deliberately
+// no looser-than-the-writer substring ban: the writer records whatever names
+// the untrusted clone ships (`migration..v2.md` is legal), and a stricter reader
+// would declare pharn's own store corrupt. Defense in depth, not containment —
+// keys are compared, and path-joined only behind safeJoin.
 function isInvalidRecordKey(key: string): boolean {
-  // Normalize a COPY to split it; the key itself is stored verbatim, because the
-  // manifest supplies the lookups and they are literal string comparisons.
-  // toPosix converts the PLATFORM separator (lib/validate.ts), so a win32-written
-  // `a\b\c` splits into components while a posix key with a literal backslash
-  // stays one opaque segment — the same reading findSymlinkComponent relies on.
+  // Normalize a COPY to split it; the key is stored verbatim. toPosix converts
+  // the PLATFORM separator only, so a posix backslash stays one segment.
   const normalized = toPosix(key);
   if (normalized === '' || normalized.startsWith('/')) return true;
-  // "Absolute" has a second spelling. A win32 `C:\x` normalizes to `C:/x`, which
-  // no leading-`/` test catches — so without this the reader would accept a key
-  // the docs call invalid. The separator after the colon is required, and that is
-  // the whole point: `C:notes.md` is an ordinary posix filename, and rejecting it
-  // would recreate the over-rejection this rule exists to remove.
+  // A win32 `C:\x` normalizes to `C:/x`. The separator is required, so
+  // `C:notes.md` stays an ordinary filename.
   if (DRIVE_ABSOLUTE_RE.test(normalized)) return true;
   return normalized
     .split('/')
     .some((segment) => segment === '..' || segment === '.');
 }
 
-// A drive letter followed by a separator — `C:/x`, and a win32 `C:\x` once
-// toPosix has run. Enum/regex floor (P0), matching SHA256_RE's style.
+// A drive letter followed by a separator.
 const DRIVE_ABSOLUTE_RE = /^[A-Za-z]:\//;
 
 /** rel path (posix) → contentHash (lib/hash.ts) of the bytes pharn wrote there. */
@@ -138,18 +87,16 @@ export type FileRecords = Record<string, string>;
 
 export interface RecordStore {
   schemaVersion: number;
-  // The config values this store was written with (see THE STAMP above) —
-  // diagnostics only, never a gate.
+  // THE STAMP — diagnostics only, never a gate.
   skillsVersion: string;
   commit: string | null;
   files: FileRecords;
 }
 
 /**
- * The outcome of reading the store. `absent` (never installed with records) and
- * `invalid` (present but unreadable/malformed/unknown-version) are DIFFERENT
- * facts with the same fail-closed consequence — they are kept apart so the
- * report can name a fixable JSON error instead of blaming a legacy install.
+ * The outcome of reading the store. `absent` and `invalid` have the same
+ * fail-closed consequence but are kept apart so the report can name a fixable
+ * error.
  */
 export type ReadRecordsResult =
   | { kind: 'ok'; store: RecordStore }
@@ -161,13 +108,11 @@ export function recordsPath(cwd: string): string {
 }
 
 /**
- * Read + validate `pharn.records.json`. Every failure mode is named, and none of
- * them throws: the caller degrades to records-unavailable (SKIP), which is the
- * safe terminal (P5).
+ * Read + validate `pharn.records.json`. Every failure mode is named, and none
+ * throws.
  */
 export function readRecords(cwd: string): ReadRecordsResult {
-  // Through the bounded, non-blocking reader (lib/bounded-read.ts): a FIFO, a
-  // device or a directory at this path is a named `invalid`, never a hang.
+  // Bounded and non-blocking: a FIFO, device or directory is `invalid`, never a hang.
   const read = readJsonBounded(recordsPath(cwd));
   if (read.kind === 'absent') return { kind: 'absent' };
   if (read.kind === 'unusable') {
@@ -186,20 +131,16 @@ export function readRecords(cwd: string): ReadRecordsResult {
       message: `${RECORDS_FILE} has unknown schemaVersion ${JSON.stringify(raw.schemaVersion)} (expected ${RECORDS_SCHEMA_VERSION})`,
     };
   }
-  // The stamp fields are only ever COMPARED to pharn.config.json's — they never
-  // become a path, a ref, or a fetch. So they are TYPE-checked, not format-
-  // checked: applying VERSION_RE/COMMIT_RE here would make a store pharn itself
-  // wrote read as corrupt whenever a config carries an older-shaped value, which
-  // would degrade the whole install to `unverifiable` for no security gain. The
-  // formats are enforced where the values ENTER (readSkillsVersion, fetchRepo).
+  // The stamp never becomes a path, ref or fetch, so it is TYPE-checked only: a
+  // format check would make a store pharn wrote read as corrupt for no gain.
   if (typeof raw.skillsVersion !== 'string') {
     return {
       kind: 'invalid',
       message: `${RECORDS_FILE} has an invalid skillsVersion stamp`,
     };
   }
-  // An ABSENT commit reads as `null` (CORE-160): an earlier CLI stamped the store
-  // from a config with no `commit`, and JSON.stringify dropped the key.
+  // An ABSENT commit reads as `null`: a store stamped from a config with no
+  // `commit` has no key (JSON.stringify drops `undefined`).
   const commit = raw.commit === undefined ? null : raw.commit;
   if (commit !== null && typeof commit !== 'string') {
     return {
@@ -243,10 +184,8 @@ export function readRecords(cwd: string): ReadRecordsResult {
 }
 
 /**
- * Are these records usable as an update baseline? Whenever the store PARSED —
- * whatever its stamp (see THE STAMP). An absent store is records-unavailable
- * with no note; an `invalid` one is records-unavailable with its named reason
- * for the report.
+ * Are these records usable as an update baseline? Whenever the store PARSED,
+ * whatever its stamp. An `invalid` store carries its named reason as `note`.
  */
 export function recordsBaseline(read: ReadRecordsResult): {
   records: FileRecords | null;
@@ -270,13 +209,10 @@ export async function writeRecords(
     schemaVersion: RECORDS_SCHEMA_VERSION,
     skillsVersion: params.skillsVersion,
     commit: params.commit,
-    // Sorted so the committed file has a stable, reviewable diff (P5).
+    // Sorted so the committed file has a stable, reviewable diff.
     files: sortRecords(params.files),
   };
-  // ATOMIC (lib/atomic-write.ts): a torn write would leave truncated JSON, which
-  // the reader names `invalid` — fail-closed, but it degrades every update
-  // decision to `unverifiable` and silently stops `add`/`remove` maintaining the
-  // store. Bytes are unchanged.
+  // ATOMIC: a torn write would leave an `invalid` store.
   await writeJsonAtomic(recordsPath(cwd), store);
 }
 
@@ -287,18 +223,12 @@ function sortRecords(files: FileRecords): FileRecords {
 }
 
 /**
- * The record of the `.claude/settings.json` a fresh `init` wrote (CORE-166),
- * carried forward by `update` and a re-run `init` — or nothing.
- *
- * No install manifest holds that file (it is never rewritten, so never
- * planned), and both writers key their store by the manifest, so without this
- * the record would be dropped by the next run. It is carried only while the
- * store has it AND something is at the path (lstat, any type): pharn never
- * writes the file again, so a deleted one is never restored, and keeping its
- * record would only describe bytes that are gone. A walk that throws (ENOTDIR)
- * is "nothing there". The hash is NOT re-checked: an edited file keeps the
- * record of what pharn wrote, which is exactly what tells `uninstall` to keep
- * it. Read-only; never throws.
+ * The record of the `.claude/settings.json` a fresh `init` wrote, carried
+ * forward by `update` and a re-run `init` — or nothing. No manifest holds that
+ * file, so without this the record would be dropped. Carried only while
+ * something is at the path (a deleted file is never restored). The hash is not
+ * re-checked: an edited file keeps pharn's record, which tells `uninstall` to
+ * keep it. Never throws.
  */
 export function carriedSettingsRecord(
   projectRoot: string,
@@ -329,14 +259,9 @@ export function buildRecords(
   const files: FileRecords = {};
   for (const rel of rels) {
     const dest = safeJoin(projectRoot, rel);
-    // An UNSTATABLE dest is treated exactly like an absent one. `throwIfNoEntry`
-    // suppresses ENOENT only, so a rel whose parent is a REGULAR FILE raises
-    // ENOTDIR here — and the caller feeds this the SOURCE-derived install
-    // manifest, which cannot know the copy skipped that path for the same
-    // reason. Recording what did not land is impossible; crashing the install
-    // after every file is already written is worse. Skipping keeps this
-    // function's one invariant intact: a record describes bytes that are
-    // actually there.
+    // An UNSTATABLE dest (ENOTDIR under a regular file) is treated as absent:
+    // a record describes bytes that are actually there, and crashing after
+    // the copy would be worse.
     let stat;
     try {
       stat = lstatSync(dest, { throwIfNoEntry: false });
@@ -359,18 +284,11 @@ export function mergeRecords(
 
 /**
  * The subset of a record store that belongs to the given capabilities — a pure
- * KEY-PREFIX filter over the store, never a filesystem walk.
- *
- * `pharn update` needs this for FROZEN capabilities: their files are excluded
- * from the install manifest (nothing unparseable may be written), and
- * `planUpdate` keys `nextRecords` by that manifest, so their entries would be
- * pruned as "no longer installed". But their BYTES on disk are untouched, so the
- * recorded hashes are still TRUE — and dropping them would make the next run,
- * once upstream parses again, classify every one of those files `unrecorded` and
- * skip it, turning a transient upstream break into a `--force`.
- *
- * The trailing slash is load-bearing, exactly as in `pruneCapabilityRecords`:
- * `pharn-review/a11y` must not match `pharn-review/a11y-extended`.
+ * KEY-PREFIX filter over the store, never a filesystem walk. `update` carries
+ * FROZEN capabilities' records this way: their bytes are untouched, so the
+ * records stay true, and dropping them would make every file `unrecorded` once
+ * upstream parses again. The trailing slash keeps `a11y` from matching
+ * `a11y-extended`.
  */
 export function recordsUnderCapabilities(
   records: FileRecords,

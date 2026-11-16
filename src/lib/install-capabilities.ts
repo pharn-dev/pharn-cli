@@ -44,100 +44,61 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 // project, mirroring pharn-oss's relative paths so the copied product commands'
 // own project-root-relative references resolve after install.
 //
-// Trust (P2): the fetched repo is untrusted. Every name read from the tree is
-// validated against a fixed allowlist (validate.ts) BEFORE any path-join, and
-// every read/write is safeJoin-guarded so nothing escapes its base dir. File
-// CONTENTS are copied verbatim and never executed/parsed by the CLI (the user's
-// Claude Code runs them later — the same posture as the module install).
+// Trust: every name read from the untrusted clone is allowlist-validated before
+// any path-join, and every read/write is safeJoin-guarded. File CONTENTS are
+// copied verbatim, never executed or parsed.
 //
-// Dev-only exclusion is STRUCTURAL, not a scan: only these source subtrees are
-// ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands
-// and agents,
-// `.cjs`/`.mjs` hooks, settings.json, the trusted docs, the root features/README.md,
-// pharn-contracts/, pharn-core/, and `.dev/floor/` minus test FILES and its
-// `test-fixtures/` + `fixtures/` subtrees. `pharn-dev-*` commands, `.dev/features/`,
-// `.dev/memory-bank/`, and `*.test.*` are NEVER in the copy set.
-//
-// A declared surface the clone does not ship is still skipped here, but no
-// longer in silence: lib/install-manifest.ts → absentInstallSurfaces names it,
-// and init/update/status report it.
-//
-// One axis (P3): the capability copy routine.
+// Dev-only exclusion is STRUCTURAL: only the listed source subtrees are ever
+// copied, so `pharn-dev-*` commands, `.dev/features/`, `.dev/memory-bank/` and
+// `*.test.*` never are. A declared surface the clone does not ship is skipped
+// here and named by install-manifest.ts → absentInstallSurfaces.
 // ---------------------------------------------------------------------------
 
 export interface InstallCapabilitiesResult {
   // The capabilities actually copied (name + role), for pharn.config.json.
   capabilities: InstalledCapability[];
-  // True when the project already had .claude/settings.json — the install did
-  // NOT overwrite it (the user's Claude Code config is preserved). The caller
-  // surfaces this so the user knows the hooks may need wiring by hand.
+  // True when the project already had .claude/settings.json (never overwritten).
   settingsPreserved: boolean;
   // True when the install WROTE .claude/settings.json from upstream. Not the
-  // negation of settingsPreserved: a clone that ships no settings.json, or a
-  // symlinked one, gets none written (upstreamSettingsCopyable). The caller
-  // lists what the written file wires — the hook commands Claude Code runs.
+  // negation of settingsPreserved: a clone that ships none gets none written.
   settingsWritten: boolean;
-  // The layout mirrored from the fetched clone (flat OR pharn/). Recorded in
-  // pharn.config.json so status/remove address the project the same way.
+  // The layout mirrored from the fetched clone, recorded in pharn.config.json.
   layout: Layout;
-  // The trusted docs actually COPIED, as project-relative dest paths, in
-  // paths.docs order. Each doc copy is existence-guarded (a clone that predates
-  // a doc simply does not get it, P7), so this is a subset — and it is collected
-  // INSIDE the copy branch, so a doc that failed its guard cannot appear here by
-  // construction. The caller reports it instead of claiming "docs written"
-  // unconditionally, which is what let two docs go missing from every install
-  // with no warning (see PHARN_TRUSTED_DOCS in constants.ts).
+  // The trusted docs actually COPIED (project-relative, paths.docs order) —
+  // collected inside the copy branch, so the caller reports what landed, never
+  // the expected list.
   docs: string[];
 }
 
 const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
 
-// Is this absolute source path one of the floor's test-apparatus dirs
-// (`test-fixtures/`, `fixtures/`), or inside one?
-//
-// ANCHORED at the floor root, deliberately. cpSync hands the filter an ABSOLUTE
-// path and calls it for the source ROOT too, so a bare segment test on the
-// absolute path would also match an ANCESTOR directory that happens to be named
-// `test-fixtures` or `fixtures` — returning false for the root and copying NOTHING, silently
-// shipping no floor at all. Anchoring also makes this the same test, on the same
-// path shape, as the manifest mirror's: both call `isFloorTestFixturePath` on a
-// floor-relative posix string. `relative(floorFrom, floorFrom)` is '', so the
-// root is always kept.
+// Is this absolute source path one of the floor's test-apparatus dirs, or
+// inside one? ANCHORED at the floor root: cpSync also calls the filter for the
+// source root, so an absolute-path segment test would match an ancestor named
+// `fixtures` and copy nothing. Same test as the manifest's.
 const inFloorFixtures = (floorFrom: string, src: string): boolean =>
   isFloorTestFixturePath(toPosix(relative(floorFrom, src)));
 
-// Clone side (P2): the source tree holds only regular files and directories —
-// the clone invariant fetchRepo states (lib/repo.ts) — so nothing here checks
-// the SOURCE for links. The DESTINATION is guarded (prepareInstall,
-// destAcceptsWrite).
+// The clone holds only regular files and directories (lib/repo.ts), so only
+// the DESTINATION is guarded for links (prepareInstall, destAcceptsWrite).
 //
-// F-19: every recursive cpSync passes a filter, and this one exists for that
-// alone. Measured on Node 24.13.1, a recursive copy WITH a filter unlinks each
-// destination before writing it, while one WITHOUT a filter writes into the
-// existing inode — through a hard-linked destination, out of the project.
-// Pinned by tests/install-capabilities.test.ts ("HARD-LINKED destination").
+// Every recursive cpSync passes a filter, and this one exists for that alone: a
+// recursive copy with a filter unlinks each destination first, one without
+// writes into a hard-linked destination's inode. Pinned by
+// tests/install-capabilities.test.ts ("HARD-LINKED destination").
 const unlinkFirst = (): boolean => true;
 
 /**
- * Copy the resolved capabilities + the fixed product surfaces from `repoDir`
- * into `projectRoot`. Pre-flights every selected capability source before any
- * write (no partial installs). Returns the copied capability list + whether the
- * user's existing settings.json was preserved.
- */
-/**
  * Copy just the given capability dirs (whole dir, incl. evals/) into the mirrored
  * project-root paths — WITHOUT the fixed product surfaces. Pre-flights every
- * source (validated name + safeJoin + existence) before any write, so a bad name
- * or missing source fails with nothing written. The focused primitive `add` and
- * the archetype install share; `remove` mirrors its path derivation.
+ * source before any write, so a bad name or missing source writes nothing.
  */
 export function installCapabilityDirs(
   repoDir: string,
   projectRoot: string,
   capabilities: InstalledCapability[],
-  // The layout to mirror; defaults to the fetched clone's own layout (flat OR
-  // pharn/). `add` uses the default; `installCapabilities` passes the layout it
-  // detected once, so contracts/floor/docs stay consistent with the subtrees.
+  // Defaults to the clone's own layout; `installCapabilities` passes the one it
+  // detected so every surface uses the same layout.
   paths: LayoutPaths = layoutPaths(detectLayout(repoDir)),
 ): InstalledCapability[] {
   const planned = capabilities.map((cap) => {
@@ -173,17 +134,12 @@ export interface PreparedInstall {
 
 /**
  * The install's destination pre-flight: refuse, before anything is written,
- * every project the copy could not finish in — a path through a symlink (see
- * assertDestinationsInProject) or a type in the way (see assertDestinationTypes).
- * Read-only; throws ManifestValidationError, or returns what it checked.
+ * every project the copy could not finish in — a path through a symlink or a
+ * type in the way. Read-only; throws ManifestValidationError.
  *
- * Exported so `init` can run it BEFORE its backup (steps/install-archetype.ts):
- * a refused install then writes nothing at all — no `pharn/.backup/` either.
- * `installCapabilities` still runs it itself, so no caller can copy without it.
- *
- * `manifest` is the install manifest for these capabilities at the clone's
- * layout, when the caller already computed it (init does, once per run);
- * absent → computed here.
+ * Exported so `init` can run it before its backup (a refused install writes
+ * nothing, `pharn/.backup/` included); `installCapabilities` runs it again, so
+ * no caller can copy without it. `manifest` absent → computed here.
  */
 export function prepareInstall(
   repoDir: string,
@@ -191,9 +147,7 @@ export function prepareInstall(
   capabilities: InstalledCapability[],
   manifest?: ReadonlyMap<string, string>,
 ): PreparedInstall {
-  // Mirror whichever layout the fetched clone has (flat OR the relocated pharn/).
-  // The resolved relative paths are the clone SOURCE and the project DEST at once —
-  // the CLI never rewrites copied file contents (lib/layout.ts).
+  // The resolved relative paths are the clone SOURCE and the project DEST at once.
   const paths = layoutPaths(detectLayout(repoDir));
   const featuresRel = resolveFeaturesReadme(repoDir, paths.layout);
   const expected =
@@ -204,12 +158,7 @@ export function prepareInstall(
       layout: paths.layout,
     });
 
-  // Nothing below may follow a symlinked project directory out of the project
-  // (see assertDestinationsInProject)...
   assertDestinationsInProject(projectRoot, expected);
-  // ...and nothing may start writing into a tree whose TYPES it cannot write:
-  // a collision found by `cpSync` part-way leaves a half-installed project with
-  // no config and no records (see assertDestinationTypes).
   assertDestinationTypes(projectRoot, expected, featuresRel);
 
   return { paths, featuresRel, manifest: expected };
@@ -219,8 +168,7 @@ export function installCapabilities(
   repoDir: string,
   projectRoot: string,
   selection: Selection,
-  // The install manifest, when the caller already computed it (see
-  // prepareInstall). The pre-flight runs here either way, before the first write.
+  // The pre-flight runs here either way, before the first write.
   manifest?: ReadonlyMap<string, string>,
 ): InstallCapabilitiesResult {
   const { paths, featuresRel } = prepareInstall(
@@ -230,7 +178,6 @@ export function installCapabilities(
     manifest,
   );
 
-  // Copy the selected capability dirs (pre-flighted; no partial installs).
   const capabilities = installCapabilityDirs(
     repoDir,
     projectRoot,
@@ -239,8 +186,7 @@ export function installCapabilities(
   );
 
   // --- product commands: pharn-*.md, excluding pharn-dev-*.md ----------------
-  // The name filters are the manifest's own (lib/install-manifest.ts), so the
-  // copy and the mirror take exactly the same names.
+  // The name filters are the manifest's own, so copy and mirror agree.
   copyFilteredDir(
     repoDir,
     projectRoot,
@@ -255,9 +201,9 @@ export function installCapabilities(
   // Optional (pharn-oss < 6.64.0 ships none): an absent dir is a silent no-op.
   copyFilteredDir(repoDir, projectRoot, CLAUDE_AGENTS_DIR, isProductAgentFile);
 
-  // --- settings.json: NEVER overwrite the user's existing one (grill F1) -----
-  // `existsSync` FOLLOWS a symlink, so a live link here counts as existing and
-  // is never written; a dangling one was refused by the pre-flight.
+  // --- settings.json: NEVER overwrite the user's existing one ----------------
+  // `existsSync` follows a symlink, so a live link is never written; a dangling
+  // one was refused by the pre-flight.
   const settingsFrom = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
   const settingsTo = safeJoin(projectRoot, CLAUDE_SETTINGS_FILE);
   const settingsPreserved = existsSync(settingsTo);
@@ -268,14 +214,7 @@ export function installCapabilities(
     cpSync(settingsFrom, settingsTo, { force: true });
   }
 
-  // --- trusted docs (the same FOUR documents in both layouts; WHERE the clone
-  // keeps each one is resolveTrustedDocs's answer — flat keeps all four at the
-  // root, the pharn layout keeps them under pharn/, and a pre-7.0 pharn clone
-  // still ships THREAT-MODEL/LIMITS at the root, which the install mirrors; see
-  // PHARN_TRUSTED_DOCS in constants.ts) --------------------------------------
-  //
-  // `written` collects only the docs this branch actually copied — the outro
-  // reports that, never the expected list.
+  // --- trusted docs (where the clone keeps each: resolveTrustedDocs) ---------
   const written: string[] = [];
   for (const doc of resolveTrustedDocs(repoDir, paths.layout)) {
     const from = safeJoin(repoDir, doc);
@@ -286,12 +225,9 @@ export function installCapabilities(
   }
 
   // --- upstream's Apache-2.0 LICENSE, at a MAPPED destination ---------------
-  // Apache-2.0 §4(a): a redistributor must give recipients a copy of the
-  // license, and a user who commits and publishes a pharn-initialized repo is
-  // redistributing ~450 Apache-2.0 files. Same guard shape as the docs loop —
-  // but NOT the same path on both ends: the dest is pharn's own
-  // (`pharn/LICENSE` / `PHARN-LICENSE`), because copying to a root `LICENSE`
-  // would overwrite the user's with `{ force: true }` and no prompt.
+  // Apache-2.0 §4(a): redistributors must pass on the license. The dest is
+  // pharn's own (`pharn/LICENSE` / `PHARN-LICENSE`) so a root `LICENSE` — the
+  // user's — is never overwritten.
   const licenseFrom = safeJoin(repoDir, paths.license.from);
   if (existsSync(licenseFrom)) {
     cpSync(licenseFrom, safeJoin(projectRoot, paths.license.to), {
@@ -300,23 +236,12 @@ export function installCapabilities(
   }
 
   // --- features/README.md (layout-dependent; see resolveFeaturesReadme) ------
-  // The product-loop boundary contract the installed product commands cite by
-  // name. Deliberately NOT called a trusted doc: it is not write-protected by
-  // the installed hook.
+  // The product-loop boundary contract the product commands cite. Not a
+  // trusted doc: the installed hook does not write-protect it.
   //
-  // The DESTINATION is walked (it has an intermediate directory): measured, a
-  // project whose own `features/` is a symlink to an external directory takes
-  // the copy straight THROUGH it, creating or overwriting a README.md outside
-  // the project root — and the pre-install overwrite check never warns, because
-  // `existsSync` on the absent leaf inside that link is false. safeJoin is
-  // lexical here too. This is the posture `apply-update.ts` already takes on
-  // every write it makes; the install path must match it for the one surface
-  // whose destination has an intermediate directory (P2).
-  //
-  // ORDER MATTERS: the SOURCE check comes first and short-circuits. The file is
-  // optional (an older pinned clone has none), and its absence must stay a
-  // silent no-op — so a clone without it must never reach the destination walk,
-  // which can raise on a project the copy would not have touched anyway.
+  // Its DESTINATION has an intermediate directory, so it is walked: a symlinked
+  // `features/` would take the copy outside the project. The SOURCE check comes
+  // first, so an optional file the clone lacks never reaches the walk.
   const featuresFrom = safeJoin(repoDir, featuresRel);
   if (existsSync(featuresFrom) && destAcceptsWrite(projectRoot, featuresRel)) {
     cpSync(featuresFrom, safeJoin(projectRoot, featuresRel), {
@@ -335,13 +260,9 @@ export function installCapabilities(
   }
 
   // --- pharn-core (whole dir; mirrored at the layout's path) -----------------
-  // The agnostic mechanism layer the copied product commands cite by path (today
-  // the seam-resolver skill + its evals). Copied like pharn-contracts — whole,
-  // verbatim, no test-file filter (unlinkFirst keeps only F-19's path): its
-  // evals are content, not test files. Contents are
-  // NEVER parsed; its `role: skill` frontmatter is deliberately outside
-  // ROLE_VALUES and never reaches the capability index. A flat clone has no such
-  // dir upstream, so this is a no-op there (P7).
+  // The mechanism layer the product commands cite by path. Whole and verbatim,
+  // no test-file filter (its evals are content); never parsed, so its
+  // `role: skill` never reaches the capability index. No-op for a flat clone.
   const coreFrom = safeJoin(repoDir, paths.core);
   if (existsSync(coreFrom)) {
     cpSync(coreFrom, safeJoin(projectRoot, paths.core), {
@@ -372,9 +293,7 @@ export function installCapabilities(
 
 /**
  * Would the install copy the clone's `.claude/settings.json` into a project
- * that has none? Only when the clone ships one. ONE
- * predicate for the copy above and for `init --dry-run`'s plan
- * (lib/init-plan.ts), so the preview and the run cannot disagree.
+ * that has none? ONE predicate for the copy and `init --dry-run`'s plan.
  */
 export function upstreamSettingsCopyable(repoDir: string): boolean {
   const from = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
@@ -382,34 +301,18 @@ export function upstreamSettingsCopyable(repoDir: string): boolean {
 }
 
 /**
- * Refuse the whole install when any path it would write crosses a symlinked
- * component below `projectRoot`. Every copy here is `safeJoin`-contained, but
- * that check is LEXICAL: measured, a project whose `.claude/commands` or `pharn/`
- * is a symlink to an external directory takes `cpSync` straight THROUGH it,
- * creating and overwriting files outside the project with no prompt (the
- * overwrite check's `existsSync` sees no conflict inside an empty target). This
- * is the posture `update` (apply-update.ts) and `add` (dest-drift.ts) already
- * take, applied once to the full write set: every file the install manifest
- * says this install writes, plus the user-owned `.claude/settings.json`.
+ * Refuse the whole install when any path it would write (the manifest plus
+ * `.claude/settings.json`) crosses a symlinked component below `projectRoot`.
+ * `safeJoin` is lexical, and `cpSync` follows a symlinked directory out of the
+ * project.
  *
- * A symlinked LEAF is refused too, for a different reason, and the message says
- * which: `cpSync` does not follow a link at the file it writes — measured on
- * Node 20.13, 22 and 24, it REPLACES the link with a regular file, so nothing
- * lands outside the project, but the user's link is gone without a word.
+ * A symlinked LEAF is refused too: `cpSync` REPLACES the link with a regular
+ * file, so the user's link is lost. Pinned by tests/install-capabilities.test.ts.
+ * `.claude/settings.json` is exempt while its link is LIVE (an existing settings
+ * file is never written); a dangling one is refused.
  *
- * `.claude/settings.json` is the one leaf exempt while its link is LIVE:
- * `installCapabilities` never writes an existing settings file (`existsSync`
- * follows the link), so there is nothing to refuse. A DANGLING link there does
- * not exist to `existsSync`, so the install would write upstream's settings in
- * its place — replacing the link — and is refused like any other leaf. A
- * symlinked `.claude/` is an intermediate component, refused as ever.
- *
- * ENOTDIR from the walk (a component below a REGULAR file) is not a symlink and
- * is left to assertDestinationTypes, which names it: the walk's throw reads as
- * `null` (`findSymlinkComponentOr`).
- *
- * Residual (advisory): a link created between this walk and the copy (TOCTOU)
- * is not covered — the same residual `update` names.
+ * ENOTDIR from the walk is left to assertDestinationTypes. Residual: a link
+ * created between this walk and the copy is not covered.
  */
 function assertDestinationsInProject(
   projectRoot: string,
@@ -470,24 +373,15 @@ function shownList(items: ReadonlySet<string>): string {
 
 /**
  * Refuse the whole install when any path it would write collides by TYPE with
- * what is already in the project: an existing component on the way that is not
- * a directory, or an existing leaf that is not a regular file. Without this,
- * `cpSync` meets the collision part-way (ENOTDIR / ERR_FS_CP_NON_DIR_TO_DIR)
- * and the project is left with hundreds of new files but no `pharn.config.json`
- * and no records. Runs AFTER assertDestinationsInProject, so a symlink is still
- * reported as a symlink.
+ * the project (a non-directory component on the way, or a non-file leaf):
+ * `cpSync` would otherwise fail part-way, leaving files but no config and no
+ * records. Runs after assertDestinationsInProject, so a symlink is reported as
+ * a symlink.
  *
- * The two files `init` writes BESIDE the copy are walked too: a DIRECTORY at
- * `pharn.config.json` or `pharn.records.json` passed every check before, so the
- * whole tree was copied and then the atomic write's `rename` failed (EISDIR),
- * leaving no records and no config. Only a directory blocks that rename — it
- * replaces a file, a FIFO or a symlink (even one to a directory) in place — so
- * a directory is the one type refused there.
- *
- * Out of the walk: `.claude/settings.json` (never overwritten — `existsSync`
- * skips it) and the optional features README (`destAcceptsWrite` skips it on a
- * collision, by contract). Each path's walk stops at its FIRST non-directory
- * component: nothing below it can be lstat-ed.
+ * A DIRECTORY at `pharn.config.json` / `pharn.records.json` is refused too —
+ * the only type that makes their atomic `rename` fail. Out of the walk:
+ * `.claude/settings.json` (never overwritten) and the optional features README
+ * (`destAcceptsWrite` skips it).
  */
 function assertDestinationTypes(
   projectRoot: string,
@@ -514,18 +408,9 @@ function assertDestinationTypes(
 }
 
 /**
- * May the install write `rel` under `projectRoot`? False when any component
- * below the root is a symlink — following one writes OUTSIDE the project, which
- * `safeJoin` cannot see (it is lexical) and the pre-install overwrite prompt
- * cannot warn about (the leaf inside the link does not exist, so it is not a
- * conflict). This is the posture `apply-update.ts` already takes on every write.
- *
- * ENOTDIR — a component below a REGULAR FILE — is a SKIP, not a failure.
- * `findSymlinkComponent` deliberately lets that raise (it suppresses ENOENT
- * only), and each caller owns the shape: here `cpSync` would throw on the same
- * tree anyway, so failing the whole install over one OPTIONAL surface would turn
- * a project that merely has a file named `features` into an init that cannot
- * complete. Skipping leaves that project exactly as it was.
+ * May the install write the OPTIONAL `rel` under `projectRoot`? False on a
+ * symlinked component or a type collision. Any throw of the walk (ENOTDIR) is
+ * a skip, not a failure: one optional surface must not fail the whole install.
  */
 function destAcceptsWrite(projectRoot: string, rel: string): boolean {
   try {
@@ -540,10 +425,8 @@ function destAcceptsWrite(projectRoot: string, rel: string): boolean {
 
 /**
  * Copy the files of one source dir whose basenames pass `keep` into the mirrored
- * project-root dir. Each kept name is validated (COPY_FILENAME_RE, which admits no `..`)
- * before it is path-joined — a name that is a copy candidate but fails the
- * allowlist hard-fails (P2), it is never silently skipped. Missing source dir is
- * a no-op (nothing to copy).
+ * project-root dir. A kept name failing COPY_FILENAME_RE hard-fails, never
+ * silently skipped. A missing source dir is a no-op.
  */
 function copyFilteredDir(
   repoDir: string,

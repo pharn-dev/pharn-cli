@@ -7,32 +7,15 @@ import type {
 } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Capability selection (pure, no I/O): detected archetypes + the pharn-oss
-// capability index → which capabilities apply. A `universal` capability is
-// always selected; an archetype-gated one is selected iff its `applies` set
-// intersects the detected archetypes, else skipped with a reason. Deterministic
-// membership only (P5); the index's declared order is preserved so the result
-// is stable.
-//
-// This consumes an already-TYPED index. Parsing + validating the untrusted
-// index bytes is the fetch boundary's job, a later increment (THREAT-MODEL.md
-// §2, surface B); this module assumes a validated index.
+// Capability selection (pure): archetypes + the already-validated capability
+// index → which capabilities apply.
 // ---------------------------------------------------------------------------
 
 /**
- * Select the capabilities that apply to a project, given its detected
- * archetypes and the capability index. Returns `selected` and `skipped` (each
- * with why), both in the index's declared order (stable / deterministic).
- *
- * Selection rule (membership, P5):
- * - `applies: 'universal'` → always selected.
- * - `applies: Archetype[]` → selected iff it shares an archetype with
- *   `archetypes`; otherwise skipped (including the empty `applies: []`, which
- *   intersects nothing and is always skipped).
- *
- * Each index entry is resolved independently: a duplicate `name` yields two
- * results, order preserved (de-duplication belongs to the fetch-boundary
- * validation, not here).
+ * Select the capabilities that apply: `universal` always; an `Archetype[]`
+ * `applies` iff it intersects `archetypes` (so `[]` never), else skipped with a
+ * reason. Both lists keep the index's order; each entry is resolved
+ * independently (no de-duplication here).
  */
 export function resolveCapabilities(
   archetypes: Archetype[],
@@ -58,8 +41,8 @@ export function resolveCapabilities(
       skipped.push({
         name: entry.name,
         role: entry.role,
-        // Neutral: the archetypes may come from detection, from `--archetype`,
-        // or (for `update`) from the config — the reason names none of them.
+        // Neutral: the archetypes may come from detection, `--archetype` or
+        // the config.
         reason: `applies to [${entry.applies.join(', ')}]; archetypes [${archetypes.join(', ')}]`,
       });
     }

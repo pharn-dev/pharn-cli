@@ -10,55 +10,34 @@ import { safeJoin } from './validate.js';
 // ---------------------------------------------------------------------------
 // What `pharn uninstall` may delete. Read-only: it classifies, it never writes.
 //
-// The only proof that pharn wrote a file is `pharn.records.json` — a contentHash of
-// the bytes every install wrote, validated by the caller (`recordsBaseline`;
-// its stamp is never a gate — a recorded hash proves authorship on its own). Uninstall has no clone, so the install manifest is
-// out of reach; the RECORD STORE is therefore the candidate list, and a file
-// pharn has no record of is never a candidate at all.
+// The only proof that pharn wrote a file is `pharn.records.json` (validated by
+// the caller; its stamp is never a gate). Uninstall has no clone, so the RECORD
+// STORE is the candidate list: a file with no record is never a candidate.
 //
-// Every record key lands in exactly one bucket, decided in this order (P5 —
-// membership tests and one byte comparison, never a guess):
+// Every record key lands in exactly one bucket, decided in this order:
 //
-//   outside       the key is not a path an install could have written, in
-//                 either layout (isInstallRootPath, lib/orphans.ts — the same
-//                 install-root set orphan detection reads through). Left alone,
-//                 whatever its hash says: the store is local and committed, so a
-//                 hand-edited key must not be enough to delete a user's file.
-//                 Both layouts on purpose: an install that moved from `flat` to
-//                 `pharn` still records its old-layout files while they exist
-//                 (lib/orphans.ts carries an orphan's record), and those are
-//                 pharn's bytes too. ONE key outside that set is admitted, by
-//                 exact equality: `.claude/settings.json`, which a fresh
-//                 `init` records when it wrote the file (CORE-166). It is not
-//                 an install-root path on purpose — that would make it an
-//                 orphan and a `.prettierignore` line — so it is named here,
-//                 and then classified like every other key below.
-//   unsafe        a DIRECTORY on the way to it is a symbolic link, so deleting
-//                 through it would reach outside the project. The caller refuses
-//                 the whole run.
-//   absent        nothing is there (already gone).
-//   unverifiable  something is there, but it is not a regular file (a
-//                 directory, a FIFO, a symlinked leaf) or it cannot be read.
+//   outside       not a path an install could have written in either layout
+//                 (isInstallRootPath). Left alone whatever its hash says, so a
+//                 hand-edited key cannot delete a user's file. Both layouts on
+//                 purpose: a moved install still records its old-layout files.
+//                 ONE other key is admitted by exact equality:
+//                 `.claude/settings.json`, recorded when a fresh `init` wrote it
+//                 (not an install-root path, which would make it an orphan and
+//                 a `.prettierignore` line).
+//   unsafe        a DIRECTORY on the way is a symbolic link, so the delete would
+//                 reach outside the project. The caller refuses the whole run.
+//   absent        nothing is there.
+//   unverifiable  not a regular file (a directory, a FIFO, a symlinked leaf),
+//                 or unreadable. Left in place.
+//   edited        a regular file whose contentHash differs from its record.
 //                 Left in place.
-//   edited        a regular file whose contentHash differs from its record. Left in
-//                 place — uninstall never destroys the user's work.
-//   delete        a regular file whose contentHash equals its record: pharn wrote
-//                 exactly these bytes and nobody changed them.
+//   delete        a regular file whose contentHash equals its record.
 //
-// The `models` record key is not a file (lib/install-records.ts) and is skipped.
-//
-// Trust (P2): record keys are local, user-editable text. This is the one place a
-// key is DELETED by, and only after isInstallRootPath accepted it (or it is
-// exactly `.claude/settings.json`), through safeJoin, after a symlink walk of
-// its parent directories, and only when its bytes match the record. (Orphan
-// detection reads keys under the same guard.) File contents are hashed, never
-// parsed or executed.
-//
-// NOT a lock (stated, P0): the classification reads the tree at time T and the
-// delete runs at T+1; the caller re-plans under the project lock, which keeps
-// other pharn writers out but not an unrelated local process.
-//
-// One axis (P3): which recorded files an uninstall may delete.
+// The `models` record key is not a file and is skipped. Record keys are local,
+// user-editable text: this is the one place a key is DELETED by, and only after
+// the bound above, through safeJoin, after a symlink walk of its parents, on a
+// matching hash. NOT a lock: the caller re-plans under the project lock, which
+// keeps other pharn writers out but not an unrelated local process.
 // ---------------------------------------------------------------------------
 
 export interface UninstallPlan {
@@ -104,18 +83,16 @@ type Verdict =
   | { rel: string; component: string };
 
 function classify(projectRoot: string, rel: string, recorded: string): Verdict {
-  // The PARENT chain only: a symlinked leaf is not a way out of the project for
-  // an unlink (it would remove the link), but it is not pharn's file either, so
-  // it is left as `unverifiable` below rather than refused here.
+  // The PARENT chain only: a symlinked leaf is no way out for an unlink (it
+  // removes the link), but it is not pharn's file either → `unverifiable`.
   let linked: string | null;
   try {
     const parent = posix.dirname(rel);
     // A root-level file has no parent below the project root to walk.
     linked = parent === '.' ? null : findSymlinkComponent(projectRoot, parent);
   } catch {
-    // ENOTDIR: a component on the way is a regular file, so nothing can be at
-    // this path. (The walk's only other throw, safeJoin's escape refusal, is
-    // unreachable: the store's ingest rule already rejected `..` segments.)
+    // ENOTDIR: a component on the way is a regular file, so nothing is here.
+    // (safeJoin's escape refusal is unreachable: ingest rejects `..`.)
     return 'absent';
   }
   if (linked !== null) return { rel, component: linked };

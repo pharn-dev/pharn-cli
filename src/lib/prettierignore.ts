@@ -19,39 +19,24 @@ import { layoutPaths } from './layout.js';
 import { isPlainObject, safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
-// pharn's lines in the project's root `.prettierignore`. One axis (P3): keep a
-// project's Prettier check off the files pharn installs and rewrites.
+// pharn's lines in the project's root `.prettierignore`: keep a project's
+// Prettier check off the files pharn installs and rewrites. Those are copied
+// verbatim in pharn-oss's formatting, and reformatting them would make them
+// `modified` (so `update` skips them); `pharn.config.json` is rewritten as
+// `JSON.stringify` output. Only when the project uses Prettier.
 //
-// Why: pharn copies pharn-oss's files verbatim, formatted for pharn-oss's own
-// Prettier config, so a project gating on `prettier . --check` under ITS
-// config goes red on them (250 files under `pharn/pharn-review/`, measured
-// 2026-11-10). Reformatting them makes them `modified`, so `pharn update` then
-// skips them. And `pharn.config.json`, which every `init`/`update` rewrites as
-// `JSON.stringify` output, fails `prettier --check` too.
+// The entries are DERIVED from the paths pharn writes — each reduced to the
+// whole-directory install surface it lies in, or kept as itself. APPEND-ONLY
+// (mechanics in lib/ignore-file.ts); an entry already covered or deliberately
+// negated is not added, so a second run writes nothing.
 //
-// Only when the project uses Prettier (`usesPrettier`); otherwise nothing is
-// read further and nothing is written.
+// Advisory: pharn never runs Prettier; a gate with its own `--ignore-path`, a
+// subdirectory cwd or an unrecognised covering pattern (`*.md`) is not seen.
 //
-// The entries are DERIVED from the paths pharn writes (`prettierignoreEntries`
-// — the install manifest's keys, or the record store's, which are the same
-// paths), never a second list: each path is reduced to the whole-directory
-// install surface it lies in (lib/install-surfaces.ts), or kept as itself.
-//
-// APPEND-ONLY, like `.gitignore` (lib/gitignore.ts; mechanics shared in
-// lib/ignore-file.ts). An entry already covered — named exactly, by a floating
-// basename, by an ancestor directory, or deliberately negated (the user's
-// call) — is not added, so a second run writes nothing.
-//
-// What this does NOT promise (advisory, P0): pharn never runs Prettier. A gate
-// that passes its own `--ignore-path`, runs from a subdirectory, or uses a
-// pattern pharn does not recognise as covering (`*.md`) is not seen. The
-// gate staying green is the expected effect, not a guarantee.
-//
-// Trust (P2): `.prettierignore` and `package.json` are project content. Both
-// are read bounded and only compared against fixed or validated strings; a
-// Prettier config file is lstat-ed, never read. A path becomes an ignore line
-// only if it is an install-root path AND every segment passes `SAFE_SEGMENT_RE`,
-// so a hand-edited record key cannot inject a pattern or a line break.
+// Trust: both project files are read bounded and only compared; a Prettier
+// config is lstat-ed, never read. A path becomes a line only if it is an
+// install-root path whose every segment passes `SAFE_SEGMENT_RE`, so a record
+// key cannot inject a pattern or line break.
 // ---------------------------------------------------------------------------
 
 export const PRETTIERIGNORE_FILE = '.prettierignore';
@@ -89,10 +74,9 @@ export const PRETTIER_CONFIG_FILES = [
 // metacharacter, no space, no leading `!` or `#`, never `.` or `..`.
 const SAFE_SEGMENT_RE = /^(?!\.\.?$)[A-Za-z0-9._-]+$/;
 
-// The pharn layout's features dir: its README is a manifest file, and the
-// stages write their (partly hash-pinned) artifacts beside it, so the whole dir
-// is covered. The flat layout's root `features/` may be the user's own code, so
-// there only the README is (it falls through to a file entry).
+// The pharn layout's features dir is covered whole (the stages write partly
+// hash-pinned artifacts beside its README); the flat root `features/` may be
+// the user's code, so only its README is.
 const PHARN_FEATURES_README = layoutPaths('pharn').featuresReadme;
 const PHARN_FEATURES_DIR = PHARN_FEATURES_README.slice(
   0,
@@ -134,8 +118,7 @@ export function usesPrettier(projectRoot: string): boolean {
   if (PRETTIER_CONFIG_FILES.some((name) => lstatExists(projectRoot, name)))
     return true;
   const pkg = readJsonBounded(safeJoin(projectRoot, 'package.json'));
-  // Any JSON value parses — `null`, a number, an array — so only an object is
-  // read further.
+  // Only a JSON object is read further.
   if (pkg.kind !== 'ok' || !isPlainObject(pkg.value)) return false;
   const value = pkg.value;
   return (
@@ -155,10 +138,9 @@ function entryFor(path: string): string | null {
 }
 
 /**
- * The lines `.prettierignore` must hold for the project-relative `paths` pharn
- * writes, plus pharn's two root state files. Paths that are not install-root
- * paths (or fail the segment check) contribute nothing. Anchored, de-duplicated,
- * sorted. Empty when `paths` contributes nothing.
+ * The lines `.prettierignore` must hold for the `paths` pharn writes, plus
+ * pharn's two root state files — anchored, de-duplicated, sorted; empty when
+ * no path contributes.
  */
 export function prettierignoreEntries(paths: Iterable<string>): string[] {
   const out = new Set<string>();
@@ -172,12 +154,11 @@ export function prettierignoreEntries(paths: Iterable<string>): string[] {
   return [...out].sort();
 }
 
-// Does `p` decide the entry for `path`? The exact path (a file only by a
-// pattern that is not directory-only), a floating basename, or — for anything
-// below it — an ancestor directory, anchored or floating. Negated or not: a
-// negation is the user's call and never overridden. A NEGATION of something
-// INSIDE a directory entry decides it too: appending the broader line after
-// `!pharn/pharn-review/a11y/` would silently undo the user's exception.
+// Does `p` decide the entry for `path`? The exact path (a file never by a
+// directory-only pattern), a floating basename, or an ancestor directory —
+// negated or not (a negation is the user's call). A NEGATION inside a
+// directory entry decides it too: appending the broader line after it would
+// undo the user's exception.
 function decides(p: IgnorePattern, path: string, isDir: boolean): boolean {
   if (p.core === '') return false;
   const segments = path.split('/');

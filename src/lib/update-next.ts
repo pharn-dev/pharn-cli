@@ -12,15 +12,11 @@ import { channelOf, type RefChoice } from './release.js';
 import type { UpdateApplyInputs, UpdatePlanReport } from './update-plan.js';
 import type { PharnConfig } from '../types.js';
 
-// The project state a `pharn update` run would leave behind — the record store
-// and the config — as PURE values, and the ONE "changes nothing" predicate
-// (CORE-162) that the real run, the dry run and `--dry-run --json` all read.
-//
-// The writer (src/commands/update.ts → applyPlannedUpdate) builds what it
-// writes through `nextRecordStore` / `nextConfig`, and the planner
-// (lib/update-plan.ts) compares the same two values with what the run LOADED,
-// so "would this run change pharn.config.json?" is answered by the code that
-// would write it, not by a second description of it. No I/O here.
+// The project state a `pharn update` run would leave behind — record store and
+// config — as PURE values, and the ONE "changes nothing" predicate every update
+// path reads. The writer writes through `nextRecordStore` / `nextConfig` and the
+// planner compares the same values with what the run LOADED, so the question is
+// answered by the code that would write. No I/O here.
 
 /** What `writeRecords` is handed: the stamp and every file record. */
 export interface NextRecordStore {
@@ -57,18 +53,15 @@ export function nextRecordStore(
     commit: apply.nextCommit,
     files: {
       ...apply.frozenRecords,
-      // Orphans keep their record while their file exists, so later runs (and
-      // `status`) still name them. Disjoint from the manifest by construction.
-      // A root doc the run retired is gone, so its record goes with it.
+      // Orphans keep their record while their file exists; a retired root
+      // doc's record goes with it.
       ...orphanRecords,
-      // The settings.json init wrote (CORE-166): outside the manifest too, and
-      // carried only while the file is there — so a deleted file's record is
-      // dropped by the first run that plans, once.
+      // The settings.json init wrote: outside the manifest, carried only while
+      // the file is there.
       ...apply.settingsRecords,
       ...apply.plan.nextRecords,
       ...extra.written,
-      // `planUpdate` keys its records by the manifest, which holds no models
-      // block, so the block's record is added here.
+      // The manifest holds no models block, so its record is added here.
       ...(apply.models.nextRecord !== null
         ? { [MODELS_RECORD_KEY]: apply.models.nextRecord }
         : {}),
@@ -78,8 +71,7 @@ export function nextRecordStore(
 
 /**
  * The config a run writes. `stamp` carries the two fields that describe the
- * WRITE rather than the install — the CLI that wrote it and when — which is
- * why the predicate below leaves them out.
+ * WRITE rather than the install, which the predicate below leaves out.
  */
 export function nextConfig(
   config: PharnConfig,
@@ -107,8 +99,8 @@ export function nextConfig(
     pharnVersion: stamp.pharnVersion,
     skillsVersion: apply.nextSkillsVersion,
     commit: apply.nextCommit,
-    // The channel this run used — even when the version bump is withheld: it is
-    // the user's choice of source, not a claim about the bytes.
+    // Recorded even when the bump is withheld: a choice of source, not a claim
+    // about the bytes.
     ...(channel === 'latest' ? { ref: 'latest' as const } : {}),
     ...(report.pendingSkillsVersion !== null
       ? { pendingSkillsVersion: report.pendingSkillsVersion }
@@ -118,11 +110,9 @@ export function nextConfig(
       : {}),
     capabilities: apply.configCapabilities,
     layout: report.layout,
-    // `installedAt` rides the spread: it is the first install's date, not this
-    // run's. The time of this rewrite goes in `updatedAt`.
+    // `installedAt` (the first install's date) rides the spread.
     updatedAt: stamp.updatedAt,
-    // In place: the key keeps its position in the file, and `undefined` (there
-    // was none and there is none to write) writes no key.
+    // In place, keeping the key's position; `undefined` writes no key.
     models: apply.models.next,
   };
 }
@@ -139,20 +129,12 @@ function jsonValue(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value)) as unknown;
 }
 
-// A config as the READER sees it (lib/pharn-config.ts → readPharnConfig and the
-// helpers every command resolves it through), minus the two fields that
-// describe a write rather than the install. Applied to the loaded config AND
-// the next one alike — one function, never a written-side special case — so a
-// difference that only load-time resolution produces never counts as a change:
-// - `layout`: an absent or unknown value IS `configLayout`'s answer (flat);
-// - `ref`: only the literal "latest" means anything (`channelOf`);
-// - `commit`: absent and `null` both mean "no commit recorded" (the reader
-//   already loads an absent one as `null`, CORE-160; kept so the comparison
-//   never depends on that).
-// `seam` needs no step: the loaded config carries it verbatim (pharn-oss's
-// block, CORE-165), and the next config spreads it unchanged.
-// A real value change (the clone's layout differs from the resolved recorded
-// one, a channel switch, a new commit) still differs after resolution.
+// A config as the READER resolves it, minus the two write-describing fields.
+// Applied to the loaded AND the next config alike, so a difference only
+// load-time resolution produces never counts as a change: `layout` →
+// `configLayout`, `ref` → "latest" or nothing (`channelOf`), `commit` → `null`
+// when absent. A real change (new layout, channel switch, new commit) still
+// differs.
 function loadResolved(config: PharnConfig): unknown {
   const {
     updatedAt: _updatedAt,
@@ -172,13 +154,9 @@ function loadResolved(config: PharnConfig): unknown {
 
 /**
  * Would the run change `pharn.config.json` or `pharn.records.json`? Compared as
- * PARSED values (key order never counts) against what the run LOADED — the
- * config `loadArchetypeConfigOrExit` returned and the store `readRecords` read.
- * An absent or invalid store is always a change: the run writes one.
- *
- * Only meaningful for a plan that writes no file and retires no root doc —
- * the next store is then a pure value of the plan (nothing to hash at the
- * dest), which is exactly when `changesNothing` consults it.
+ * PARSED values against what the run LOADED; an absent or invalid store is
+ * always a change. Meaningful only for a plan that writes no file (the next
+ * store is then a pure value), which is when `changesNothing` consults it.
  */
 export function planStateChanges(input: {
   config: PharnConfig;
@@ -206,11 +184,9 @@ export function planStateChanges(input: {
 }
 
 /**
- * Everything but the two state files: the run writes no file, deletes no
- * capability directory and no root doc, and adds nothing to `.gitignore` or
- * `.prettierignore`. A user-data hint (lib/root-migration.ts) changes nothing:
- * pharn never moves user data (CORE-158). The dry run also reads it alone, to
- * say when the state files are ALL a run would change.
+ * Everything but the two state files: no file written, no capability directory
+ * or root doc deleted, nothing added to `.gitignore` / `.prettierignore` (a
+ * user-data hint changes nothing). The dry run also reads it alone.
  */
 export function changesNoFiles(
   report: Pick<
@@ -228,9 +204,8 @@ export function changesNoFiles(
 }
 
 /**
- * THE "changes nothing" predicate (CORE-162): `changesNoFiles`, and the record
- * store and every config field but `updatedAt`/`pharnVersion` stay as they
- * are. A conjunction of membership tests over the plan (P5).
+ * THE "changes nothing" predicate: `changesNoFiles`, and the record store and
+ * every config field but `updatedAt`/`pharnVersion` stay as they are.
  */
 export function changesNothing(
   report: Parameters<typeof changesNoFiles>[0],

@@ -6,14 +6,14 @@ Thanks for your interest in improving PHARN. This repository **is `pharn`** — 
 
 Before changing anything, read these in order:
 
-1. [`CLAUDE.md`](./CLAUDE.md) — how the CLI works and its hard constraints (the architecture source of truth: the archetype install flow, capability resolution, and the security-sensitive libs).
+1. [`CLAUDE.md`](./CLAUDE.md) — how the CLI works and its hard constraints (CI guardrails, conventions, invariants, module map); [`docs/architecture.md`](./docs/architecture.md) walks through the command flows.
 2. [`README.md`](./README.md) — what the CLI is and how it's run.
 3. [`docs/contributing.md`](./docs/contributing.md) — the full development guide (setup, quality gates, test map, doc maintenance).
 
 ## Quick links
 
 - **How to contribute** → [`docs/contributing.md`](./docs/contributing.md) (setup, quality gates, branch naming, commit style, test map, doc maintenance)
-- **Where your change goes** → [`CLAUDE.md`](./CLAUDE.md) architecture section and the [test map](./docs/contributing.md#test-map)
+- **Where your change goes** → the [module map](./CLAUDE.md#module-map), [`docs/architecture.md`](./docs/architecture.md) and the [test map](./docs/contributing.md#test-map)
 - **The rules of the repo** → [`CLAUDE.md`](./CLAUDE.md) (source of truth — read it before adding, editing, or removing anything)
 - **User-facing docs** → [`docs/`](./docs/README.md)
 - **Releasing (maintainers)** → [`docs/RELEASING.md`](./docs/RELEASING.md) (bump the version + CHANGELOG in your PR → merging it publishes to npm via Trusted Publishing)

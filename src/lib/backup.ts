@@ -6,28 +6,19 @@ import { findSymlinkComponent } from './symlink-guard.js';
 import { ManifestValidationError, safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
-// The `--force` backup — the only thing standing between an explicit overwrite
-// and a destroyed local edit. Copies each about-to-be-overwritten file into
+// The backup in front of an overwrite or delete: copies each file into
 // `pharn/.backup/<YYYYMMDD-HHMMSS>/`, preserving its project-relative path.
 //
-// The contract the caller depends on: this runs to completion BEFORE any
-// original is touched, and it THROWS rather than returning partial work — so a
-// failed backup aborts the update with every original still intact. (That
-// ordering is deterministic control flow demonstrated by a test, NOT a floor
-// primitive — labeled honestly, P0. What IS floor here is containment: every
-// read and write is safeJoin-contained and lstat-guarded.)
-//
-// A colliding timestamp directory is NEVER written into: two `--force` runs in
-// the same second must not let the second destroy the only surviving copy of the
-// user's edits, so the run uniquifies instead.
-//
-// One axis (P3): backing up files before a forced overwrite.
+// Contract: it runs to completion BEFORE any original is touched and THROWS
+// rather than returning partial work, so a failed backup aborts with every
+// original intact (control flow shown by tests; containment — safeJoin plus
+// lstat guards — is the hard part). A colliding timestamp directory is never
+// written into: the run uniquifies, so a second run in the same second cannot
+// destroy the only surviving copy.
 // ---------------------------------------------------------------------------
 
-// Under pharn/ for EVERY layout, beside the lock (lib/project-lock.ts), so the
-// project root holds nothing of pharn's but `.claude/`, `pharn/` and the two
-// JSON files. Nothing an install writes or records lives under it, so no reader
-// of the install (status, orphans, drift, uninstall) ever counts a backed-up
+// Under pharn/ for EVERY layout, beside the lock. Nothing an install writes or
+// records lives under it, so no reader of the install ever counts a backed-up
 // copy as installed — pinned by tests.
 export const BACKUP_DIR = 'pharn/.backup';
 
@@ -45,26 +36,19 @@ export function backupTimestamp(date: Date): string {
 }
 
 /**
- * Copy every `rels` entry from `projectRoot` into a fresh backup directory.
- * Returns the project-relative backup directory (e.g.
- * `pharn/.backup/20260807-091500`) so the caller can print it — that path is the
- * user's ONLY pointer back to their pre-overwrite bytes.
- *
- * Throws (having written no original, because the caller has not started) when
- * the backup root or any source is a symlink, when every collision suffix is
- * taken, or when any copy fails.
+ * Copy every `rels` entry from `projectRoot` into a fresh backup directory and
+ * return it project-relative (e.g. `pharn/.backup/20260807-091500`) — the
+ * user's ONLY pointer back to their bytes. Throws when the backup root or any
+ * source crosses a symlink, every collision suffix is taken, or a copy fails.
  */
 export function createBackup(
   projectRoot: string,
   rels: string[],
   date: Date = new Date(),
 ): string {
-  // Trust (P2): safeJoin is LEXICAL — it does not resolve symlinks. A
-  // pre-existing symlink at `pharn` OR at `pharn/.backup` would let the copies
-  // below land outside the project, so every component of the backup root is
-  // lstat-ed and a symlinked one refused — the same way the
-  // installer rejects a symlinked copy root. A component that is not a
-  // directory is refused by name too, rather than surfacing as a bare ENOTDIR.
+  // safeJoin is LEXICAL: a symlink at `pharn` or `pharn/.backup` would let the
+  // copies land outside the project, so each component of the backup root is
+  // lstat-ed and a symlinked or non-directory one refused by name.
   for (const rel of [BACKUP_DIR.split('/')[0]!, BACKUP_DIR]) {
     const stat = lstatSync(safeJoin(projectRoot, rel), {
       throwIfNoEntry: false,
@@ -88,9 +72,7 @@ export function createBackup(
 
   for (const rel of rels) {
     const from = safeJoin(projectRoot, rel);
-    // Per COMPONENT, not just the leaf — `lstat` refuses to dereference only the
-    // final component, so a symlinked parent would still be read through. Shares
-    // findSymlinkComponent (lib/symlink-guard.ts) with applyWrites' write side.
+    // Per COMPONENT, not just the leaf: `lstat` dereferences every parent.
     const link = findSymlinkComponent(projectRoot, rel);
     if (link !== null) {
       throw new ManifestValidationError(
@@ -113,23 +95,14 @@ export function createBackup(
 
 /**
  * `[pharn.config.json]` when a re-run `init` is about to REWRITE an existing
- * one, else `[]` — the config's entry in init's backup set.
+ * one, else `[]`. init resets `models` to pharn-oss's block (pharn-owned keys
+ * are rebuilt, user keys carried), so the existing file is ALWAYS backed up.
  *
- * init rebuilds the file from its own fields (steps/install-archetype.ts):
- * `models` is reset to pharn-oss's block, whatever the user had tuned there.
- * Keys pharn does not own (`seam` among them) are carried over; pharn's are
- * not. Without a copy the one command the docs name for recovery
- * silently discarded that tuning — so the existing file is ALWAYS backed up,
- * even when it is the only file in the set. A fresh install has nothing here.
- *
- * Only a REGULAR file, at the project root: a symlink is skipped — the atomic
- * write replaces the link and never writes its target, so nothing is lost, and
- * `createBackup` would refuse it anyway; a directory is refused by the install's
- * own pre-flight. An lstat that fails (EACCES on the project root, say) → `[]`:
- * a probe, not a gate — a file that IS there but cannot be read still makes
- * `createBackup` throw, before anything is written. Shared by the
- * install (which acts) and init's overwrite prompt (which marks), so the two
- * cannot disagree about the file.
+ * Only a REGULAR file: a symlink is skipped (the atomic write replaces the
+ * link, never its target), a directory is refused by the install's pre-flight.
+ * A failing lstat → `[]`: a probe, not a gate (an unreadable file still makes
+ * `createBackup` throw before anything is written). Shared by the install and
+ * init's overwrite prompt, so the two cannot disagree.
  */
 export function replacedConfigBackup(projectRoot: string): string[] {
   try {
@@ -142,17 +115,13 @@ export function replacedConfigBackup(projectRoot: string): string[] {
   }
 }
 
-// Where pharn 0.13.0 and older wrote backups: a directory at the project root.
-// pharn no longer writes there and never deletes it — the user's bytes may be
-// the only copy — so a run that finds one only says so (legacyBackupNotice).
-// The old name stays in src/ for this one purpose.
+// Where pharn 0.13.0 and older wrote backups. pharn never deletes it (the
+// user's bytes may be the only copy); a run that finds one only says so.
 export const LEGACY_BACKUP_DIR = '.pharn-backup';
 
 /**
- * One line pointing at an old root `.pharn-backup/` directory, or null when
- * there is none. lstat, so a symbolic link (or a file) by that name is never
- * followed or described: only a real directory is pharn's old backup root.
- * Read-only and never throws.
+ * One line pointing at an old root `.pharn-backup/` directory, or null. lstat,
+ * so only a real directory counts. Never throws.
  */
 export function legacyBackupNotice(projectRoot: string): string | null {
   try {
@@ -170,9 +139,8 @@ export function legacyBackupNotice(projectRoot: string): string | null {
 export type BackupAction =
   'overwriting' | 'removing' | 'overwriting and removing';
 
-// What a backup was made ahead of: overwrites (`--force` casualties) and/or
-// directory deletes. With neither, no backup exists (a backup always has a
-// reason, so `overwriting` is the honest default).
+// Overwrites and/or directory deletes. A backup always has a reason, so
+// `overwriting` is the default.
 export function backupAction(
   overwrites: boolean,
   removals: boolean,
@@ -197,15 +165,10 @@ export interface BackupNotice {
 }
 
 /**
- * The backup notice's lines — ONE wording for `init`, `add`, `remove`,
- * `uninstall` and `update` (F-40: it used to be written five ways, and only
- * `update`'s carried the `.gitignore` advice).
- *
- * The pointer comes first; the advice follows it, once, when the backup is
- * made — and only while `pharn/.backup/` is not gitignored (`init` and `update`
- * add it to `.gitignore`, so after them the advice would be noise). `aborted` is `update`'s failure path, which repeats the pointer on
- * stderr (what `2> err.log` keeps) — advice, not a pointer, so it is not
- * repeated there.
+ * The backup notice's lines — ONE wording for every command that backs up.
+ * The pointer first; then the `.gitignore` advice, only while `pharn/.backup/`
+ * is not gitignored. `aborted` (`update`'s failure path, on stderr) repeats the
+ * pointer without the advice.
  */
 export function backupNoticeLines(
   notice: BackupNotice,
@@ -224,14 +187,10 @@ export function backupNoticeLines(
 }
 
 /**
- * Print the backup notice. Callers print it the moment the backup exists
- * (everything after it can still throw, and the directory is the user's only
- * pointer back to their bytes) and with NO clack spinner running — a line
- * logged under a spinner is glued to its frame, and in a narrow terminal its
- * `stop` erases it — so a caller with a spinner stops it first.
- *
- * The stream follows lib/report-error.ts's contract: an aborted run's notice is
- * part of its fatal output, so it goes to stderr; otherwise stdout.
+ * Print the backup notice the moment the backup exists (everything after can
+ * still throw) and with NO clack spinner running — a line logged under a
+ * spinner is glued to its frame and can be erased by its `stop`. An aborted
+ * run's notice is fatal output, so stderr; otherwise stdout.
  */
 export function printBackupNotice(
   notice: BackupNotice,

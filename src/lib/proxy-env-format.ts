@@ -1,30 +1,17 @@
 import { type ProxyNotice } from './proxy-env.js';
 
-/**
- * Presentation for the proxy notice. Separated from ./proxy-env.ts because the
- * two change for different reasons (P3): this file changes when wording does,
- * that one when the transport's proxy behavior does.
- */
+/** Presentation for the proxy notice; ./proxy-env.ts owns the detection. */
 
 /**
- * Cap on the rendered proxy value. `new URL()` already neutralizes the spoofing
- * shapes that matter — a control character in the path is percent-encoded, one
- * in the host throws — so this bounds terminal FLOODING rather than injection:
- * the environment is attacker-influencable and a multi-kilobyte value should not
- * scroll a user's install away.
+ * Cap on the rendered proxy value. `new URL()` already neutralizes spoofing
+ * shapes, so this bounds terminal FLOODING from an attacker-influencable env.
  */
 const MAX_RENDERED = 120;
 
 /**
- * Render a proxy value safe to print. `https_proxy` conventionally carries
- * inline credentials (`http://user:pass@host:3128`), and that hazard is also why
- * the value is NEVER recorded in `pharn.config.json` — that file is written to
- * the project root and git-committed, so recording it would commit the user's
- * proxy credentials into their repository.
- *
- * Userinfo collapses to `***`. An unparseable value degrades to the fixed
- * literal `(set)` rather than echoing raw bytes, so hostile content cannot be
- * echoed verbatim to spoof pharn's own output.
+ * Render a proxy value safe to print. Userinfo (`http://user:pass@host`)
+ * collapses to `***`, and an unparseable value becomes the literal `(set)`,
+ * never raw bytes. Never recorded in the committed `pharn.config.json`.
  */
 export function redactProxyUrl(value: string): string {
   let url;
@@ -42,11 +29,11 @@ export function redactProxyUrl(value: string): string {
 }
 
 /**
- * The notice for a configured proxy, in one of its TRUE forms (PHARN-12, then
- * re-measured): Node's fetch ignores proxy variables by default, honours them
- * once the opt-in is on (on the Nodes that have one), and never reads a
- * spelling other than the four exact ones. Each form says which of those
- * applies to THIS run, and the one change that would alter it.
+ * The notice for a configured proxy, in one of its true forms: Node's fetch
+ * ignores proxy variables by default, honours them once the opt-in is on (on
+ * Nodes that have one), and reads only the four exact spellings. Each form
+ * names the one change that would alter it. Pinned by
+ * tests/proxy-env-format.test.ts.
  */
 export function proxyNoticeMessage(notice: ProxyNotice): string {
   const shown = `${notice.name} is set (${redactProxyUrl(notice.value)})`;

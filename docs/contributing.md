@@ -85,7 +85,7 @@ pharn-cli/
   scripts/               build.mjs, install-local.mjs
 ```
 
-See [`CLAUDE.md`](../CLAUDE.md) for the architecture in depth (the archetype install flow, capability resolution, and the security-sensitive libs).
+See [Architecture](architecture.md) for the architecture in depth (the archetype install flow, capability resolution, and the update engine), and [`CLAUDE.md`](../CLAUDE.md) for the invariants.
 
 ## Security-sensitive files
 

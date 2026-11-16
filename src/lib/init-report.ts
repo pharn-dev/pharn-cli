@@ -17,35 +17,24 @@ import type { InstallSource, RefChoice } from './release.js';
 import type { Archetype, Layout, SelectedCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// The `pharn init --dry-run --json` report: ONE pure object, projected from the
-// planner's `InitPlanReport` and serialized once by `serializeJsonReport`
-// (lib/json-report.ts). No I/O, no clack, no exit — so the text preview and the
-// JSON cannot disagree about a value.
+// The `pharn init --dry-run --json` report: ONE pure object projected from the
+// planner's `InitPlanReport`, serialized once by `serializeJsonReport`, so the
+// text preview and the JSON cannot disagree.
 //
-// An EXPLICIT field-by-field projection, never a spread: a field added to
-// `InitPlanReport` later does not become public contract by accident. `models`
-// carries the outcome and the reasons, never the block itself (arbitrary
-// upstream JSON). The user's own config keys appear by NAME only.
+// An EXPLICIT field-by-field projection, never a spread, so a new planner field
+// never becomes public contract by accident. `models` carries the outcome, not
+// the block; user config keys appear by NAME only. `schemaVersion` is this
+// report's own: additive keys within 1, a breaking change bumps it.
 //
-// `schemaVersion` is matched exactly by a consumer (P5): additive keys may
-// arrive within 1, a breaking change bumps it. Its own constant — this report
-// versions independently of `status --json` and `update --dry-run --json`. That
-// stability is a documented contract (advisory); the floor cannot enforce it.
-//
-// Trust (P2): every free-text field is UNTRUSTED DATA — serialized as a JSON
-// string, never interpreted, capped here and escaped by `serializeJsonReport`.
-// Enum-like fields (`status`, `action`, `label`, `outcome`, `channel`,
-// `source.kind`, `hooks.status`) come from this CLI's own membership tests.
+// Free-text fields are untrusted data: capped here, escaped by the serializer.
 // ---------------------------------------------------------------------------
 
 export const INIT_SCHEMA_VERSION = 1;
 
-// The caps `update --dry-run --json` and `status --json` apply to the same
-// kinds of field.
+// The same caps the other JSON reports apply.
 const MAX_REASON = 300;
 const MAX_UNKNOWN_FIELD = 200;
-// An evidence path is a name from the user's own tree; the summary caps it at
-// 120 for the terminal, the report at the same 200 as other free text.
+// An evidence path is a name from the user's own tree, capped like free text.
 const MAX_EVIDENCE = 200;
 
 export interface InitReport {
@@ -64,20 +53,16 @@ export interface InitReport {
   // With `archetypeSource: "flag"`, the set detection found and did not use;
   // `null` otherwise.
   detectedArchetypes: Archetype[] | null;
-  // DETECTION's evidence, one entry per detected archetype: the dependency
-  // name (`source: "dependency"`, or `"devDependency"` when only
-  // devDependencies list it), the first triggering project-relative path
-  // (`"path"`, directories end in `/`), or `null` for `lib` (`"none"`). With
-  // `archetypeSource: "flag"` it describes `detectedArchetypes`.
+  // DETECTION's evidence per detected archetype: a dependency name
+  // (`dependency` / `devDependency`), the first triggering path (`path`;
+  // directories end in `/`), or `null` for `lib` (`none`).
   archetypeEvidence: {
     archetype: Archetype;
     source: ArchetypeEvidence['source'];
     value: string | null;
   }[];
   // Present (`true`) ONLY when detection's bounded walk stopped before its
-  // result was settled, so part of the tree was never examined (F-25). Absent
-  // otherwise, so such a report is byte-identical to earlier releases. Like
-  // `archetypeEvidence`, it describes detection, also under `"flag"`.
+  // result was settled (also under `"flag"`); absent otherwise.
   detectionTruncated?: true;
   capabilities: {
     selected: {
@@ -91,11 +76,8 @@ export interface InitReport {
       reason: string;
     }[];
     carried: { manual: string[]; kept: string[]; dropped: string[] };
-    // Present ONLY when this re-install drops at least one capability whose
-    // directory it would delete (read it as `?? []`): `{role, name, reason,
-    // dir, present, backups}`, as `update --dry-run --json`'s
-    // `plan.capabilities.removals`. Absent otherwise, so such a report is
-    // byte-identical to earlier releases.
+    // Present ONLY when this re-install would delete a dropped capability's
+    // directory (read as `?? []`); the shape of update's `removals`.
     removals?: {
       role: SelectedCapability['role'];
       name: string;
@@ -118,10 +100,8 @@ export interface InitReport {
   }[];
   backups: string[];
   counts: { create: number; overwrite: number; backup: number };
-  // Whether `pharn init --yes` would install into this project now: nothing
-  // would be overwritten. (A capability directory is deleted only on a
-  // re-install, whose pharn.config.json is itself an overwrite — so it needs
-  // no clause of its own.)
+  // Whether `pharn init --yes` would install now: nothing would be
+  // overwritten (a removal implies an overwritten config).
   yesWouldProceed: boolean;
   settings: { preserved: boolean };
   hooks: {
@@ -135,10 +115,8 @@ export interface InitReport {
     replace?: HookReplacement[];
   } | null;
   // Present ONLY when the install would WRITE `.claude/settings.json` from
-  // upstream (the project has none, the clone ships a copyable one): what that
-  // file wires — the HOOKS note a real run prints (CORE-172). `hooks` above
-  // stays null then; it compares a PRESERVED file. Hook strings are not capped
-  // (as `hooks.missing`); keys and the reason are. Added in 0.19.0.
+  // upstream: what that file wires (`hooks` above compares a PRESERVED file and
+  // stays null). Hook strings are not capped; keys and the reason are.
   settingsHooks?:
     | {
         status: 'ok';
@@ -152,13 +130,10 @@ export interface InitReport {
   absentUpstream?: { surface: InstallSurface; path: string }[];
   models: { outcome: InitPlanReport['models']['outcome']; reasons: string[] };
   config: { carriedKeys: string[] };
-  // Present ONLY when the install would add to (or create) the project's
-  // `.gitignore`, or would have to leave it alone (lib/gitignore.ts) — so a
-  // report with nothing to add keeps its earlier bytes. Added in 0.16.0.
+  // Present ONLY when the install would add to (or create) `.gitignore`, or
+  // would have to leave it alone.
   gitignore?: GitignoreReport;
-  // Present ONLY when the install would add to (or create) the project's
-  // `.prettierignore`, or would have to leave it alone (lib/prettierignore.ts).
-  // Added in 0.17.0.
+  // Likewise for `.prettierignore`.
   prettierignore?: PrettierignoreReport;
 }
 

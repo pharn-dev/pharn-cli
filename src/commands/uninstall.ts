@@ -34,30 +34,21 @@ import { safeJoin } from '../lib/validate.js';
 import type { PharnConfig } from '../types.js';
 
 // `pharn uninstall` — remove PHARN from a project, deleting only what pharn can
-// PROVE it wrote and nobody changed (lib/uninstall-plan.ts): a file recorded in a
-// usable `pharn.records.json`, at a path an install writes, still at its
-// recorded sha256. The `.claude/settings.json` a fresh `init` wrote is recorded
-// too (CORE-166), so it goes the same way while unchanged. Everything else
-// stays where it is — an edited file, a file pharn has no record of (a
-// settings.json that existed before `init` included), and every
-// `pharn/.backup/` directory — and the edited/unverifiable files are listed.
+// PROVE it wrote and nobody changed (lib/uninstall-plan.ts): a file recorded in
+// a usable `pharn.records.json`, at an install path, still at its recorded hash
+// (a `.claude/settings.json` a fresh `init` wrote is recorded too). Edited and
+// unrecorded files and every `pharn/.backup/` stay, and the kept ones are
+// listed. Offline: without a usable store it refuses rather than guesses
+// (manual procedure: docs/troubleshooting.md).
 //
-// Offline, like `remove`: no clone, no network, no repo module imported. The
-// only proof is the local record store, so a project without a usable one is
-// refused rather than guessed at (P5) — the manual procedure is documented in
-// docs/troubleshooting.md.
+// Order, inside the lock: re-check the config → re-plan (the pre-prompt plan
+// is advisory) → back up pharn.config.json → delete the provable files →
+// remove emptied directories → delete pharn.records.json → delete
+// pharn.config.json LAST. The config is the "installed" marker, so a failure
+// before it leaves a state a re-run finishes (an ordering, not a transaction).
 //
-// Order, inside the project lock: re-check the config → re-plan (the plan shown
-// before the prompt is advisory; this one is authoritative) → back up
-// pharn.config.json → delete the provable files → remove directories left empty
-// → delete pharn.records.json → delete pharn.config.json LAST. The config is the
-// "installed" marker, so any failure before it leaves a state a re-run finishes:
-// the files already deleted simply read as `absent`. That is an ordering
-// argument (advisory, P0), not a transaction.
-//
-// The confirm runs BEFORE the lock (a prompt is unbounded work); `--yes` skips
-// it, and off a TTY without `--yes` the command refuses rather than prompting
-// into a dead stream.
+// The confirm runs BEFORE the lock; `--yes` skips it, and off a TTY without
+// `--yes` the command refuses rather than prompting into a dead stream.
 
 /** Most paths any one list in the notes shows before "…and N more". */
 const MAX_LISTED = 10;
@@ -88,9 +79,8 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
   intro('pharn uninstall');
   const cwd = process.cwd();
 
-  // Nothing there at all is the one benign case: a second run after a
-  // successful uninstall lands here. A config that EXISTS but is unreadable or
-  // legacy still goes through the shared loader's exit 1.
+  // Nothing there is the one benign case (a second run lands here). A config
+  // that EXISTS but is unreadable or legacy still exits 1 via the loader.
   if (lstatSync(configPath(cwd), { throwIfNoEntry: false }) === undefined) {
     outro(
       `PHARN is not installed here (no ${CONFIG_FILENAME}). Nothing was removed.`,
@@ -136,8 +126,8 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
       applyUninstall(cwd, config),
     );
   } catch (err) {
-    // Both are refusals with a complete message, not crashes. The lock was
-    // released by the unwinding that got us here.
+    // Refusals with a complete message, not crashes; the unwinding released the
+    // lock.
     if (err instanceof ProjectLockedError || err instanceof UninstallError) {
       logError(err.message);
       process.exit(1);
@@ -150,10 +140,9 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
 }
 
 // The validated record store, or the refusal naming why there is none. Absent
-// and corrupt both mean the same thing here: nothing is provable, so nothing
-// may be deleted. A store stamped for another install state is still usable —
-// a recorded hash proves authorship whatever the stamp, and only a file whose
-// hash equals its record is ever deleted (lib/uninstall-plan.ts).
+// and corrupt both mean nothing is provable. A store stamped for another
+// install state is still usable: only a file whose hash equals its record is
+// ever deleted.
 function usableRecords(cwd: string): FileRecords | string {
   const read = readRecords(cwd);
   const baseline = recordsBaseline(read);
@@ -176,16 +165,15 @@ async function applyUninstall(
   config: PharnConfig,
 ): Promise<UninstallResult> {
   assertConfigUnchanged(cwd, config, 'uninstall');
-  // Re-read and re-plan under the lock: the prompt may have been open while the
-  // tree changed, and THIS plan is the one that decides.
+  // Re-plan under the lock: the tree may have changed while the prompt was open.
   const records = usableRecords(cwd);
   if (typeof records === 'string') throw new UninstallError(records);
   const plan = planUninstall(cwd, records);
   if (plan.unsafe.length > 0) throw new UninstallError(unsafeMessage(plan));
 
-  // Before anything is deleted: a config that cannot be saved stops the run
-  // with every file in place. Announced at creation — it is the user's only
-  // pointer back to their `models` / `seam` / own keys.
+  // Before anything is deleted: a config that cannot be saved stops the run.
+  // Announced at creation — the user's only pointer to their `models` / `seam`
+  // / own keys.
   let backupDir: string;
   try {
     backupDir = createBackup(cwd, [CONFIG_FILENAME]);
@@ -232,14 +220,10 @@ function unlinkIfPresent(abs: string, label: string): void {
   }
 }
 
-// Remove the directories the deletes left EMPTY, deepest first, climbing from
-// each deleted file toward — never to — the project root. `rmdirSync` is
-// non-recursive: the kernel refuses a directory that still holds anything, so a
-// user's feature folder, an edited or unrecorded file, or a kept
-// `.claude/settings.json` keeps its directory by construction (the floor here
-// is the syscall, not this code's judgment). A directory that could not be
-// removed blocks every ancestor (they cannot be empty), and only the deepest
-// such directories are reported.
+// Remove the directories the deletes left EMPTY, deepest first, climbing toward
+// — never to — the project root. `rmdirSync` is non-recursive, so the kernel
+// keeps any directory that still holds something. A directory that could not
+// be removed blocks its ancestors; only the deepest are reported.
 function removeEmptyDirs(
   cwd: string,
   deleted: readonly string[],
@@ -279,15 +263,13 @@ function listed(rels: readonly string[]): string[] {
   return more > 0 ? [...shown, `  …and ${more} more`] : shown;
 }
 
-// Whether the store records `.claude/settings.json` — i.e. a fresh `init` wrote
-// it (CORE-166). Its fate is then in the plan's own buckets (delete / keep /
-// already gone), so the closing line must not also call it untouched.
+// Whether the store records `.claude/settings.json` (a fresh `init` wrote it):
+// its fate is then in the plan's buckets, so it is not also called untouched.
 function settingsRecorded(records: FileRecords): boolean {
   return Object.hasOwn(records, CLAUDE_SETTINGS_FILE);
 }
 
-// What uninstall never touches. Byte-identical to the line before CORE-166 for
-// an install that has no settings record.
+// What uninstall never touches.
 function untouchedLine(settingsIsRecorded: boolean): string {
   const settings = settingsIsRecorded ? '' : `${CLAUDE_SETTINGS_FILE}, `;
   return `${settings}.claude/settings.local.json, every ${BACKUP_DIR}/ directory and the lines pharn added to .gitignore and .prettierignore are left untouched.`;
@@ -325,13 +307,10 @@ function planLines(plan: UninstallPlan, settingsIsRecorded: boolean): string[] {
   return lines;
 }
 
-// After the lock is released: remove `pharn/` if the run left it EMPTY. While
-// the lock was held its file sat in `pharn/`, so the in-lock empty-directory
-// pass (removeEmptyDirs) could never remove it. One non-recursive rmdir — the
-// kernel refuses a directory that holds anything — with ENOENT (already gone)
-// and ENOTEMPTY counted as success. Returns what is left in it, or null when it
-// is gone. The leftovers are unrecorded (pharn/.backup/, pharn-oss's
-// pharn/.run/, the user's own files): uninstall never deletes them.
+// After the lock is released: remove `pharn/` if the run left it EMPTY (the
+// lock file sat in it until now). One non-recursive rmdir; ENOENT and
+// ENOTEMPTY count as success. Returns what is left (unrecorded files uninstall
+// never deletes), or null when it is gone.
 function finishPharnDir(cwd: string): string[] | null {
   const dir = safeJoin(cwd, LOCK_DIR);
   try {
@@ -388,10 +367,8 @@ function reportResult(
 }
 
 // The hook wiring left pointing at a recorded `.claude/hooks/*` script that is
-// gone now (deleted by this run, or already absent). pharn never writes the
-// settings files, so this is a list for the user to act on.
-// Only keys that name an installed hook script are considered (the same
-// isInstallRootPath bound the deletes use), and they are only lstat-ed.
+// gone now. pharn never writes the settings files, so this is a list for the
+// user. Only keys within the isInstallRootPath bound are considered, lstat only.
 function danglingHookLines(cwd: string, records: FileRecords): string[] {
   const gone = Object.keys(records).filter(
     (rel) =>
@@ -422,8 +399,7 @@ function danglingHookLines(cwd: string, records: FileRecords): string[] {
   return lines;
 }
 
-// Nothing at `rel` any more. A component that is not a directory (ENOTDIR)
-// means nothing can be there either.
+// Nothing at `rel` any more (ENOTDIR counts: nothing can be there either).
 function isGone(cwd: string, rel: string): boolean {
   try {
     return (

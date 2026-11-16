@@ -12,35 +12,21 @@ import type { Layout, PharnConfig } from '../types.js';
 // ---------------------------------------------------------------------------
 // The old ROOT footprint of a pharn-layout install, and how a run retires it.
 //
-// From pharn-oss SKILLS_VERSION 7.0.0 the pharn layout keeps everything under
-// pharn/: an installed project's root holds only `.claude/`, `pharn/` and
-// pharn's two JSON files. Older installs left four kinds of thing at the root,
-// and each is handled by the narrowest rule that is still safe:
+// From pharn-oss SKILLS 7.0.0 the pharn layout keeps everything under pharn/.
+// Older installs left four kinds of thing at the root, each handled by the
+// narrowest safe rule:
 //
-//   docs      Root THREAT-MODEL.md / LIMITS.md, which pharn itself wrote. Once
-//             the clone ships them under pharn/ AND the new copy landed, a root
-//             copy whose bytes equal its record is DELETED — uninstall's own
-//             classifier decides (lib/uninstall-plan.ts, reused, not forked).
-//             Anything else (edited, unrecorded, a symlink, unreadable, absent)
-//             is left alone. Exactly the two-entry PHARN_ROOT_FALLBACK_DOCS
-//             list: no record key ever becomes a delete path here.
-//   user data `memory-bank/` and `pharn.spec-template.md` at the root. PHARN
-//             7 reads them under pharn/, but nothing proves a root copy is
-//             PHARN's: `memory-bank/` is also Cline's Memory Bank directory,
-//             and a path's type is no proof of who wrote it. So they are NEVER
-//             moved, copied or deleted (CORE-158) — the note only HINTS at the
-//             command (`git mv`, or "merge by hand" when the pharn/ copy
-//             exists), when the clone is SKILLS 7 or newer.
-//   scratch   `.pharn/`, pharn-oss's runtime scratch. Never moved or deleted;
-//             only noticed (its `ci.yml` belongs to pharn-ci and stays).
-//   gitignore The user's `.gitignore`, read and never written: an entry for an
-//             old path gets its replacement printed.
+//   docs      Root THREAT-MODEL.md / LIMITS.md (exactly PHARN_ROOT_FALLBACK_DOCS):
+//             deleted only when the pharn/ copy landed AND the root copy still
+//             equals its record (uninstall's classifier); anything else stays.
+//   user data `memory-bank/`, `pharn.spec-template.md`: NEVER moved, copied or
+//             deleted — a path's type is no proof it is PHARN's (`memory-bank/`
+//             is also Cline's). The note only hints at the command.
+//   scratch   `.pharn/`: only noticed (its `ci.yml` is pharn-ci's).
+//   gitignore read, never written; old entries get their replacement printed.
 //
-// Below SKILLS 7 the hints and both notices are inert, which is what let this
-// CLI ship before pharn-oss moved. Planning reads; nothing here writes except
-// `deleteRootDocs`, which the caller runs under the project lock.
-//
-// One axis (P3): retiring the old root footprint of a pharn install.
+// Below SKILLS 7 the hints and notices are inert. Only `deleteRootDocs` writes,
+// under the caller's project lock.
 // ---------------------------------------------------------------------------
 
 /** What a run does with one old root doc. */
@@ -52,10 +38,8 @@ export interface RootDocStep {
 }
 
 /**
- * One old root user-data path that is still there, and the hint the note
- * prints for it. `destination` says whether the pharn/ path already exists:
- * `free` → a `git mv` hint; `exists` → "merge by hand" (a `git mv` would nest
- * the folder inside the existing one). Never acted on.
+ * One old root user-data path still there, and its hint: `free` → `git mv`;
+ * `exists` → "merge by hand" (a `git mv` would nest). Never acted on.
  */
 export interface RootUserDataHint {
   // Project-relative; a directory ends in `/`.
@@ -76,17 +60,14 @@ export interface RootMigration {
 // user-data hints, both notices and pendingRootMigration apply from it.
 export const ROOT_MIGRATION_FROM_MAJOR = 7;
 
-// The old user-data paths, in report order. Fixed literals (P5).
+// The old user-data paths, in report order.
 const USER_DATA_PATHS: readonly { from: string; to: string; dir: boolean }[] = [
   { from: 'memory-bank', to: 'pharn/memory-bank', dir: true },
   { from: 'pharn.spec-template.md', to: 'pharn/spec-template.md', dir: false },
 ];
 
-// Old `.gitignore` entries and the line that replaces each. Matched as whole
-// lines after normalizing (see gitignoreHints); never rewritten (pharn only
-// appends its own entries — lib/gitignore.ts). The old names
-// stay in src/ only here (to recognise them) and in project-lock.ts (the
-// one-release legacy lock): this is the migration step that retires them.
+// Old `.gitignore` entries and the line that replaces each, matched as whole
+// normalized lines (see gitignoreHints); never rewritten.
 const GITIGNORE_REPLACEMENTS: readonly { old: string; hint: string }[] = [
   { old: '.pharn', hint: 'pharn/.run/' },
   { old: '.pharn-backup', hint: 'pharn/.backup/' },
@@ -107,19 +88,15 @@ export function versionMajor(version: string): number | null {
 /**
  * The migration this run would make, or `null` when nothing applies: the
  * clone or the recorded install is not the pharn layout, or the clone is below
- * SKILLS 7 and ships neither doc under pharn/.
- *
- * `records` is the USABLE baseline (`recordsBaseline`) or null. `skillsVersion` is
- * the clone's, already validated by readSkillsVersion.
+ * SKILLS 7 and ships neither doc under pharn/. `records` is the usable baseline
+ * or null; `skillsVersion` is the clone's.
  */
 export function planRootMigration(input: {
   projectRoot: string;
   repoDir: string;
   layout: Layout;
-  // The layout the install was RECORDED at before this run. A flat install
-  // moving to the pharn layout is not retiring a pharn install's footprint:
-  // its root docs are the flat tree the move leaves behind, which `update`
-  // never deletes. The next run (now a pharn install) decides them.
+  // The layout RECORDED before this run. A flat install moving to the pharn
+  // layout leaves its root docs as the flat tree, which is never deleted.
   installedLayout: Layout;
   skillsVersion: string;
   records: FileRecords | null;
@@ -138,9 +115,8 @@ export function planRootMigration(input: {
   };
 }
 
-// One step per root doc whose pharn/ counterpart this clone ships. A clone that
-// still keeps a doc at the root resolves it there (resolveTrustedDocs), so that
-// doc is an ordinary install file, not a migration candidate.
+// One step per root doc whose pharn/ counterpart this clone ships (a doc the
+// clone still keeps at the root is an ordinary install file).
 function planRootDocs(
   projectRoot: string,
   repoDir: string,
@@ -180,16 +156,14 @@ function classifyRootDoc(
   if (plan.delete.length > 0) return 'delete';
   if (plan.edited.length > 0) return 'keep-edited';
   if (plan.absent.length > 0) return 'absent';
-  // `unverifiable`, and — unreachable for a root-level file, which has no
-  // parent to walk — `unsafe`/`outside`: kept either way.
+  // `unverifiable` (or the unreachable `unsafe`/`outside`): kept.
   return 'unverifiable';
 }
 
-// One hint per old user-data path still at the root — any entry (lstat), for
-// pharn proves nothing about what it is; a path it cannot even lstat is left
-// out. `destination` is `exists` when the pharn/ path has an entry OR cannot be
-// checked (ENOTDIR, EACCES): the fail-safe answer, so the note never prints a
-// `git mv` that would nest the folder or fail. Reads only; nothing is moved.
+// One hint per old user-data path still at the root (any entry type; an
+// un-lstat-able one is left out). `destination` is `exists` when the pharn/
+// path has an entry OR cannot be checked — the fail-safe, so the note never
+// prints a `git mv` that would nest or fail.
 function userDataHints(projectRoot: string): RootUserDataHint[] {
   const present = (rel: string): boolean | null => {
     try {
@@ -232,8 +206,8 @@ function scratchNotice(projectRoot: string): boolean {
 
 // The replacement for each old path the project's `.gitignore` names. A line
 // counts after trimming, dropping one leading `/`, and one trailing `/`, `/*`,
-// `/**` or `*`; comments and negations never count. Membership on fixed
-// literals (P5) — the file's text is never echoed.
+// `/**` or `*`; comments and negations never count. The file's text is never
+// echoed.
 function gitignoreHints(projectRoot: string): string[] {
   const read = readBoundedFile(safeJoin(projectRoot, '.gitignore'));
   if (read.kind !== 'ok') return [];
@@ -254,11 +228,10 @@ function gitignoreHints(projectRoot: string): string[] {
 }
 
 /**
- * Delete each `delete` doc whose pharn/ copy LANDED: a regular file, reached
- * through no symlinked component, whose contentHash equals the clone's. Run
- * under the lock, after the run's writes. A failed unlink keeps the file (and
- * so its record) and is reported, never thrown — every write before this one
- * has already landed and must still be recorded.
+ * Delete each `delete` doc whose pharn/ copy LANDED (a regular file, no
+ * symlinked component, contentHash equal to the clone's). A failed unlink keeps
+ * the file and is reported, never thrown — the run's earlier writes must still
+ * be recorded.
  */
 export function deleteRootDocs(
   projectRoot: string,
@@ -307,26 +280,16 @@ function landed(projectRoot: string, repoDir: string, rel: string): boolean {
 }
 
 /**
- * The old root path a same-version `update` must re-open for, or null — the
- * local, read-only signal that keeps an install already at SKILLS 7 (updated
- * by an older CLI, which never ran this migration) from keeping its old root
- * footprint forever behind the early return. One fact counts, only for a
- * pharn-layout install at SKILLS major ≥ 7: a root doc the usable baseline
- * records, still record-equal on disk, whose pharn/ counterpart is neither
- * recorded NOR present on disk — the older CLI never copied it.
+ * The old root path a same-version `update` must re-open for, or null — so an
+ * install already at SKILLS ≥ 7 that an older CLI updated does not keep its
+ * root footprint forever behind the early return. Pharn layout only: a root
+ * doc the baseline records, still record-equal, whose pharn/ counterpart is
+ * neither recorded nor on disk. User data never counts (the run would only
+ * hint).
  *
- * User data at the root (`memory-bank/`, the SPEC template) never counts: the
- * run would only print a hint for it (CORE-158), so re-opening for it would be
- * a download that changes nothing.
- *
- * BOUNDED, and that is the contract: the opened run records the pharn/ doc and
- * deletes the root one — after which the fact no longer holds. Anything the
- * opened run could NOT finish never counts: an edited root doc, a pharn/ copy
- * that is already there (recorded or not — the run skips an unrecorded one
- * rather than land it), or a link. RESIDUAL, named: a SKILLS ≥ 7 pharn-oss that
- * still shipped a doc only at the root would make the fact fire on every run
- * (each re-fetches, never "Already up to date") — 7.0.0 is the version that
- * moves them, so this rests on that premise.
+ * BOUNDED: the opened run lands the pharn/ doc and deletes the root one, and
+ * nothing it could not finish counts. Residual: a SKILLS ≥ 7 pharn-oss still
+ * shipping a doc only at the root would re-open every run.
  */
 export function pendingRootMigration(
   projectRoot: string,
@@ -406,8 +369,8 @@ export function rootMigrationNoteLines(
       );
     }
   }
-  // The user data is never moved (CORE-158): the same hint in the preview and
-  // after the run. Paths are fixed literals, never read from disk text.
+  // User data is never moved: the same hint in preview and result. Paths are
+  // fixed literals, never disk text.
   for (const { from, to, destination } of m.userData) {
     const bare = (rel: string): string => rel.replace(/\/$/, '');
     if (destination === 'free')

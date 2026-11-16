@@ -39,23 +39,17 @@ import {
 import type { InstalledCapability, PharnConfig } from '../types.js';
 
 // The inverse of `pharn add`: removes installed capabilities from an archetype
-// project (no clone, no network — everything is derivable from
-// config.capabilities + the filesystem). Two paths, and the confirm contract is
-// PER PATH: the NAMED remove (`pharn remove a11y`) never prompts, while bare
-// `pharn remove` in a terminal opens a grouped multi-select over the installed
-// capabilities, confirms ONCE (listing the picks, default No), then deletes each
-// via the SAME per-name delete path (deleteCapabilityDir); non-TTY keeps a usage
-// error. `remove` therefore has NO `--yes`: the named path has no prompt to
-// skip, and the picker's single confirm IS the destructive gate, so nothing may
-// skip it either — the dispatcher passes the argument alone (src/index.ts). The
-// legacy module/skill removal (which read the manifest) was removed; a
-// pre-archetype config is rejected up front.
+// project (no clone, no network). The confirm contract is PER PATH: the NAMED
+// remove (`pharn remove a11y`) never prompts, while bare `pharn remove` in a
+// terminal opens a multi-select and confirms ONCE (default No) before deleting
+// each pick through the same deleteCapabilityDir; non-TTY keeps a usage error.
+// So there is NO `--yes`: the named path has no prompt to skip, and the
+// picker's confirm IS the destructive gate.
 //
-// Neither path deletes a file it cannot prove is pharn's own without saving it
-// first: every regular file in a target directory that is not at its recorded
-// hash in a usable `pharn.records.json` is copied to `pharn/.backup/<ts>/`
-// BEFORE the first delete (backupBeforeDelete), and a failed backup refuses the
-// removal with nothing deleted.
+// Neither path deletes a file it cannot prove is pharn's without saving it
+// first: every regular file not at its recorded hash in a usable
+// `pharn.records.json` is copied to `pharn/.backup/<ts>/` BEFORE the first
+// delete, and a failed backup refuses the removal with nothing deleted.
 export async function runRemove(arg: string | undefined): Promise<void> {
   intro('pharn remove');
 
@@ -64,25 +58,20 @@ export async function runRemove(arg: string | undefined): Promise<void> {
   try {
     await removeCapability(cwd, config, arg);
   } catch (err) {
-    // A held lock is the one refusal this command can hit from below, and it is
-    // a policy refusal rather than a crash: the message names the one action
-    // that resolves it, so it gets the same no-stack-trace treatment as the
-    // ambiguity and not-installed refusals below. `remove` takes no clone, so
-    // there is nothing to clean up before the exit.
+    // A held lock is a policy refusal, not a crash: no stack trace. `remove`
+    // takes no clone, so there is nothing to clean up before the exit.
     if (err instanceof ProjectLockedError) {
       logError(err.message);
       process.exit(1);
     }
-    // A backup that could not be made is the same kind of refusal: it fired
-    // BEFORE the first delete, so the message can say "Nothing was removed"
-    // truthfully, and the lock was released by the unwinding that got us here.
+    // A failed backup fired BEFORE the first delete, so "Nothing was removed"
+    // is true, and the unwinding released the lock.
     if (err instanceof RemoveBackupError) {
       logError(err.message);
       process.exit(1);
     }
-    // A target under a symlinked component — refused before the lock, or again
-    // under it (F-20). Thrown rather than exiting in place so that, under the
-    // lock, the unwinding releases `pharn/.lock` before this exit.
+    // A target under a symlinked component. Thrown rather than exiting in place
+    // so that, under the lock, the unwinding releases `pharn/.lock` first.
     if (err instanceof SymlinkedTargetError) {
       logError(err.message);
       process.exit(1);
@@ -109,9 +98,8 @@ class SymlinkedTargetError extends Error {
   }
 }
 
-// Each capability is an isolated dir, so removal is a precise recursive delete
-// (siblings never touched). Touches only `capabilities` (never archetypes /
-// modules). No arg → the interactive picker; an arg → the named single remove.
+// Each capability is an isolated dir, so removal is a precise recursive delete.
+// Touches only `capabilities`. No arg → the picker; an arg → the named remove.
 async function removeCapability(
   cwd: string,
   config: PharnConfig,
@@ -126,30 +114,19 @@ async function removeCapability(
   await removeNamed(cwd, config, installed, arg);
 }
 
-// The per-name delete path (deleteCapabilityDir), its strict-child addressing
-// (capabilityDir) and the symlink walk (linkedComponent) live in
-// lib/capability-dir.ts, shared with `pharn update` — which deletes the
-// directory of a capability it drops from the config — so the two commands can
-// never disagree about which directory a capability is, or how it may go. The
-// backup scan below addresses targets through the same capabilityDir, so it can
-// never read (or back up) more than the delete would remove: a hand-edited `..`
-// name is refused there, before either runs.
+// The delete (deleteCapabilityDir), its strict-child addressing (capabilityDir)
+// and the symlink walk (linkedComponent) live in lib/capability-dir.ts, shared
+// with `update`, so the two cannot disagree about which directory a capability
+// is. The backup scan addresses targets through the same capabilityDir, so it
+// never reads more than the delete would remove.
 
-// Copy every file the coming delete would lose — anything in the target
-// directories that is not provably pharn-written-and-unchanged against a usable
-// record store (lib/removal-backup.ts) — to `pharn/.backup/<ts>/`, BEFORE the
-// first delete. Nothing to save → no backup directory at all.
-//
-// The order is deterministic control flow demonstrated by tests, not a floor
-// primitive (the same honest label lib/backup.ts carries): this runs to
-// completion before deleteCapabilityDir is first called, and any failure — a
-// directory that cannot be listed, a recorded file that cannot be hashed, a
-// symlinked `pharn/.backup`, a copy error — throws RemoveBackupError with every
-// file still in place. A failed backup can leave a partly filled backup
-// directory behind; it never touches an original.
-//
-// Announced AT CREATION, as `add` does: the printed directory is the user's only
-// pointer back to those bytes, and the deletes after it can still fail.
+// Copy every file the coming delete would lose — anything not provably
+// pharn-written-and-unchanged against a usable record store
+// (lib/removal-backup.ts) — to `pharn/.backup/<ts>/`, BEFORE the first delete.
+// Nothing to save → no backup directory. Any failure (an unlistable dir, an
+// unhashable file, a symlinked `pharn/.backup`, a copy error) throws
+// RemoveBackupError with every file still in place; a partly filled backup dir
+// may be left. Announced AT CREATION: the deletes after it can still fail.
 function backupBeforeDelete(
   cwd: string,
   paths: LayoutPaths,
@@ -181,30 +158,20 @@ function backupBeforeDelete(
   }
 }
 
-// The usable record baseline, or null (absent / corrupt — a store stamped for
-// another install state is still usable). Read ONCE per run, inside the lock,
-// and shared by the backup decision and the prune, so both judge the same store.
+// The usable record baseline, or null (absent / corrupt). Read ONCE per run,
+// inside the lock, and shared by the backup decision and the prune.
 function readRecordsBaseline(cwd: string): FileRecords | null {
   return recordsBaseline(readRecords(cwd)).records;
 }
 
-// Refuse (exit 1, nothing deleted) when any target's directory path crosses a
-// symlinked component below the project root. `rmSync` on `pharn/pharn-review/x`
-// resolves every ancestor, so with `pharn -> ../shared` it deletes
-// `../shared/pharn-review/x` — outside the project — and `safeJoin` cannot see
-// it (lexical). Checked for the WHOLE selection TWICE (F-20): once before the
-// lock (and, on the picker path, before the confirm) — the cheap early answer,
-// so a selection that would be refused is never asked about — and again INSIDE
-// the lock, right after assertConfigUnchanged and before the backup scan and
-// the first delete. The early walk alone left a window: a parent swapped to a
-// link after it (while the picker's confirm was open, or between the walk and
-// the lock) was deleted through. The in-lock walk is the authoritative one; it
-// still is not atomic with `rmSync` (no userland walk can be), but it moves the
-// check next to the delete, under the single-writer lock. It THROWS, so the
-// lock is released before runRemove's exit. The same physical walk
-// `update`/`add` use. ENOTDIR (a component below a regular file) is not a link:
-// that dir does not exist, and the delete's own existsSync already treats it as
-// gone.
+// Refuse when any target's path crosses a symlinked component: `rmSync`
+// resolves ancestors, so with `pharn -> ../shared` it would delete outside the
+// project, and `safeJoin` is lexical. Run TWICE: before the lock (and the
+// picker's confirm) as the cheap early answer, and again INSIDE the lock, right
+// before the backup scan — the authoritative one, since a parent may be swapped
+// to a link in between. Not atomic with `rmSync` (no userland walk can be). It
+// THROWS so the lock is released before runRemove's exit. ENOTDIR is not a
+// link: that dir does not exist.
 function refuseSymlinkedTargets(
   cwd: string,
   paths: LayoutPaths,
@@ -220,41 +187,20 @@ function refuseSymlinkedTargets(
   }
 }
 
-// One source for the capability dir (lib/capability-dir.ts → capabilityRelDir).
-// The delete addresses the filesystem and the prune addresses the record store;
-// they MUST name the same directory, and sharing it (and, through it, layout.ts's
-// capabilitySubtree — the one role → subtree mapping) makes that true by
-// construction rather than by two copies staying in sync.
-
-// Drop the removed capabilities' entries from `pharn.records.json`, so `remove`
-// honors the same sentence `update` does: the store describes only files pharn
-// still manages. Without this, `remove` is the one write path that leaves records
-// describing bytes that are gone, and they linger until the next `update` prunes
-// them via its manifest.
+// Drop the removed capabilities' entries from `pharn.records.json`, so the
+// store describes only files pharn still manages.
 //
-// A key-prefix filter over the STORE, never a filesystem walk: a walk of the
-// DEST directory finds nothing once that directory is gone — which is the case
-// both AFTER the delete and, on the "its files were already gone" path, before
-// it too. So there is no moment at which a walk could see what to prune, and the
-// store is the only place the answer still exists.
-//
-// Only an already-READABLE store is edited: `recordsBaseline` returns null for
-// absent and corrupt, and each of those means the same thing here — this is
-// not our store to rewrite (the `add` precedent,
-// commands/add.ts). Minting one would claim knowledge of files we never hashed.
-//
-// The baseline `note` is deliberately NOT surfaced, matching `add`: `remove` is a
-// local, zero-network operation whose outro already reports exactly what it did,
-// and `update` — which is where an unusable store actually changes an outcome —
-// is the command that names the reason. Silence here is a choice, not an
-// oversight.
+// A key-prefix filter over the STORE, never a filesystem walk: after the
+// delete (and on the "already gone" path, before it) the directory is gone, so
+// the store is the only place the answer exists. Only an already-readable store
+// is edited (as `add` does); minting one would claim files we never hashed. The
+// baseline `note` is not surfaced — `update` names an unusable store.
 async function pruneCapabilityRecords(
   cwd: string,
   config: PharnConfig,
   paths: LayoutPaths,
   targets: InstalledCapability[],
-  // readRecordsBaseline's result, read once for the run (the delete before
-  // this touches no record, so it is still the store on disk).
+  // readRecordsBaseline's result for the run (the delete touches no record).
   records: FileRecords | null,
 ): Promise<void> {
   if (records === null) return; // absent/corrupt → leave it alone
@@ -265,18 +211,15 @@ async function pruneCapabilityRecords(
   const kept: FileRecords = {};
   let dropped = 0;
   for (const [key, hash] of Object.entries(records)) {
-    // Keys are COMPARED as strings and never joined into a path — the invariant
-    // that makes a hand-edited store unable to drive a filesystem access.
+    // Keys are COMPARED as strings and never joined into a path, so a
+    // hand-edited store cannot drive a filesystem access.
     if (prefixes.some((prefix) => key.startsWith(prefix))) dropped++;
     else kept[key] = hash;
   }
   if (dropped === 0) return; // nothing matched → the store stays byte-identical
 
   // The stamp does not move: `remove` changes neither `skillsVersion` nor
-  // `commit`, so the store is re-written against the same pair the config holds
-  // (and still holds after the config write, which touches only
-  // `capabilities`). The stamp is diagnostics only — it never gates the
-  // baseline (lib/install-records.ts, THE STAMP).
+  // `commit`, so the store is re-written against the config's pair.
   await writeRecords(cwd, {
     skillsVersion: config.skillsVersion,
     commit: config.commit,
@@ -284,36 +227,27 @@ async function pruneCapabilityRecords(
   });
 }
 
-// Warn when a capability being removed will simply come back. Derived from the
-// STORED `source` alone — `remove` is zero-network and has no capability index,
-// so there is nothing else it could honestly read.
-//
-// It fires on the LITERAL 'auto' and nothing else. An ABSENT `source` (a config
-// written before the field existed) stays SILENT on purpose: absence means the
-// provenance is genuinely unknown until `pharn update` infers it against a fresh
-// index, and a legacy MANUAL add given an "absent means auto" default would be
-// told the exact opposite of the truth. A false warning here is worse than none
-// (P5 — the terminal for unknown is to say nothing, never to guess).
+// Warn when a capability being removed will come back. Derived from the STORED
+// `source` alone (no index offline), and only for the LITERAL 'auto': an ABSENT
+// `source` means unknown provenance, and a false warning to a legacy manual add
+// is worse than none.
 function warnIfAutoSelected(targets: InstalledCapability[]): void {
   const auto = targets.filter((c) => c.source === 'auto');
   if (auto.length === 0) return;
   const names = auto.map((c) => `${c.name} (${c.role})`).join(', ');
   const one = auto.length === 1;
   const pronoun = one ? 'it' : 'them';
-  // WHEN it comes back, not "the next update": at the version already installed
-  // `update` early-returns before re-resolving the archetypes, and nothing local
-  // is left to re-open it (this command drops the entry AND its records), so a
-  // same-version run can leave the removal in place. The reinstall comes with the
-  // next run that re-applies the install — at the latest a new pharn-oss
-  // version — or now with `--force`.
+  // WHEN it comes back, not "the next update": at the installed version
+  // `update` early-returns, and nothing local re-opens it (the entry and its
+  // records are gone). It comes back with the next run that re-applies the
+  // install, or now with `--force`.
   log.warn(
     `${names} ${one ? 'is' : 'are'} selected automatically for your archetypes, so ${one ? 'it comes' : 'they come'} back: the next \`pharn update\` that re-applies your install — at the latest the one that moves to a new pharn-oss version — reinstalls ${pronoun} and names ${pronoun} in its report. Until then \`pharn update\` may answer "Already up to date" and leave ${pronoun} removed; \`pharn update --force\` reinstalls ${pronoun} now.`,
   );
 }
 
 // `pharn remove <name>` / `<role>:<name>` — resolve to ONE installed capability
-// and delete it. Byte-identical to the pre-picker behavior (now routed through
-// the shared deleteCapabilityDir helper).
+// and delete it.
 async function removeNamed(
   cwd: string,
   config: PharnConfig,
@@ -331,10 +265,9 @@ async function removeNamed(
       (parsed.role === undefined || c.role === parsed.role),
   );
 
-  // Not installed → an ERROR (exit 1, nothing written), exactly as `pharn add
-  // bogus` is: a script that names the wrong capability must not read success.
-  // It used to be a warning and exit 0. Without a manifest we list the installed
-  // capabilities (the only removable things) as the valid values.
+  // Not installed → an ERROR (exit 1), as `pharn add bogus` is: a script that
+  // names the wrong capability must not read success. Lists the installed
+  // capabilities as the valid values.
   if (matches.length === 0) {
     const valid = installed.map((c) => `${c.role}:${c.name}`).sort();
     const hint = valid.length
@@ -355,41 +288,31 @@ async function removeNamed(
   const target = matches[0]!;
   const paths = layoutPaths(configLayout(config));
   refuseSymlinkedTargets(cwd, paths, [target]);
-  // The single-writer lock spans backup → delete → prune → config: the writes
-  // are individually atomic but the sequence is not, so another process must
-  // not land between them. `remove` has no prompt on this path and no network,
-  // so the held window is the write itself.
+  // The lock spans backup → delete → prune → config: each write is atomic but
+  // the sequence is not. No prompt and no network on this path.
   const note = await withProjectLock(cwd, 'remove', async () => {
     assertConfigUnchanged(cwd, config, 'remove');
-    // Again under the lock (F-20): the walk above is only the early answer.
+    // Again under the lock: the walk above is only the early answer.
     refuseSymlinkedTargets(cwd, paths, [target]);
     const records = readRecordsBaseline(cwd);
     backupBeforeDelete(cwd, paths, [target], records);
     const existed = deleteCapabilityDir(cwd, paths, target);
 
-    // Order: backup → delete → prune records → write config (mirroring `add`'s
-    // records-before-config). Each of those two writes is individually atomic
-    // (lib/atomic-write.ts), but the PAIR is not a transaction, so this remains a
-    // benign-failure argument, NOT an atomicity claim (advisory, P0): a prune that
-    // fails after the delete leaves exactly today's status quo — stale entries the
-    // next `update` prunes — and a config write that fails after the prune leaves
-    // the entry listed with its files absent, which the next `update` restores and
-    // re-records. Neither direction corrupts, and since the stamp never moves the
-    // two files cannot skew relative to each other.
-    //
-    // `existed` deliberately does NOT gate this: on the "already gone" path the
-    // records are exactly what is left to clean up.
+    // Order: backup → delete → prune → config (records before config, as in
+    // `add`). The PAIR is not a transaction, only benign on failure: a failed
+    // prune leaves stale entries the next `update` prunes; a failed config
+    // write leaves the entry listed with its files absent, which the next
+    // `update` restores. `existed` does not gate the prune: on the "already
+    // gone" path the records are what is left to clean up.
     await pruneCapabilityRecords(cwd, config, paths, [target], records);
 
-    // The surviving entries are the ORIGINAL objects, so every other
-    // capability's `source` is carried through untouched.
+    // Survivors are the ORIGINAL objects, so their `source` is carried through.
     await writePharnConfig(cwd, {
       ...config,
       capabilities: installed.filter(
         (c) => !(c.name === target.name && c.role === target.role),
       ),
-      // `installedAt` rides the spread unchanged: a remove is a partial edit,
-      // not an install — init and update set it (F-23).
+      // `installedAt` rides the spread: a remove is a partial edit.
     });
     return existed ? '' : pc.dim(' (its files were already gone)');
   });
@@ -403,11 +326,9 @@ async function removeNamed(
 // Bare `pharn remove` — the interactive multi-select picker (subtractive-only).
 // ---------------------------------------------------------------------------
 
-// Nothing installed → benign message (even non-TTY). Otherwise: non-TTY → a
-// reworded usage error + exit(1) (NEVER a prompt, P5); TTY → multi-select over
-// the installed capabilities, ONE confirm listing the picks (destructive), then
-// one backup for the selection, delete each + a single config write dropping
-// them all.
+// Nothing installed → benign message (even non-TTY). Non-TTY → a usage error +
+// exit(1), never a prompt; TTY → multi-select, ONE confirm listing the picks,
+// then one backup, the deletes and a single config write.
 async function runRemovePicker(
   cwd: string,
   config: PharnConfig,
@@ -443,8 +364,7 @@ async function runRemovePicker(
     return;
   }
 
-  // Map each picked `role:name` back to its installed entry (the options were
-  // built from `installed`, so each resolves).
+  // Map each picked `role:name` back to its installed entry.
   const targets: InstalledCapability[] = [];
   for (const value of values) {
     const parsed = parseCapabilityArg(value);
@@ -468,35 +388,28 @@ async function runRemovePicker(
   });
   if (isCancel(ok) || ok !== true) cancelAndExit();
 
-  // Taken AFTER the confirm — holding it across an unanswered destructive
-  // prompt would block an agent hook for as long as a human takes to answer —
-  // and spanning the whole selection, not one lock per capability.
+  // Taken AFTER the confirm (an unanswered destructive prompt must not hold the
+  // lock) and spanning the whole selection.
   await withProjectLock(cwd, 'remove', async () => {
     assertConfigUnchanged(cwd, config, 'remove');
-    // Again under the lock (F-20): the confirm was open between the early walk
-    // and here, and a parent swapped to a link in that window must not be
-    // deleted through.
+    // Again under the lock: the confirm was open since the early walk.
     refuseSymlinkedTargets(cwd, paths, targets);
-    // ONE backup for the whole selection, after the confirm and before the
-    // first delete — a failure here deletes none of the picks.
+    // ONE backup for the whole selection — a failure deletes none of the picks.
     const records = readRecordsBaseline(cwd);
     backupBeforeDelete(cwd, paths, targets, records);
     for (const target of targets) deleteCapabilityDir(cwd, paths, target);
 
-    // One prune for the whole selection — the same backup → delete → prune →
-    // config order as removeNamed, and one store write to match the one config
-    // write.
+    // One prune for the whole selection, one store write to match the one
+    // config write.
     await pruneCapabilityRecords(cwd, config, paths, targets, records);
 
-    // As in removeNamed: survivors are the original objects, so their `source`
-    // is preserved verbatim.
+    // Survivors are the original objects, as in removeNamed.
     const removed = new Set(targets.map((t) => `${t.role}:${t.name}`));
     await writePharnConfig(cwd, {
       ...config,
       capabilities: installed.filter(
         (c) => !removed.has(`${c.role}:${c.name}`),
       ),
-      // `installedAt` unchanged, as in removeNamed (F-23).
     });
   });
 

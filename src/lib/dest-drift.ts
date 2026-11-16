@@ -7,98 +7,30 @@ import { decideFileAction, type FileDecision } from './update-decision.js';
 import { safeJoin, toPosix } from './validate.js';
 
 // ---------------------------------------------------------------------------
-// The destination scan — what a capability copy is about to destroy. It answers
-// two questions in ONE walk, because they are two readings of the same fact:
+// The destination scan — what a capability copy (`add`, a re-run `init`) is
+// about to destroy. One walk, two answers:
 //
-//   drifted[] — the dest exists as a regular file that `update` would have
-//               SKIPPED: its bytes differ from the clone's and pharn cannot
-//               show they are its own (below). The caller backs exactly these
-//               up (lib/backup.ts) before its first write, so an overwrite
-//               stops being final. `labels` says why, per file.
-//   unsafe[]  — the dest path crosses a SYMLINKED component. These must not be
-//               copied at all: see below. `add` refuses the whole install.
+//   drifted[] — dest regular files `update` would have SKIPPED; the caller backs
+//               exactly these up before its first write. `labels` says why.
+//   unsafe[]  — dest paths crossing a SYMLINKED component; `add` refuses.
 //
-// Two callers. `pharn add` — which had no edit protection at all, while a
-// capability directory can outlive its config entry (left by a pharn older than
-// the fix that made `update` and a re-run `init` delete the directories they
-// drop, or created by hand), the user edits it, and a later `add` of
-// that capability is not a config no-op. And a
-// re-run `pharn init`, which overwrites everything it installs: its prompt marks
-// these files (steps/overwrite-check.ts) and its install step backs them up
-// (steps/install-archetype.ts).
+// "Drifted" is update's definition (decideFileAction with `force: true` → its
+// `backup` bit): `modified` / `unrecorded` with a usable baseline, every
+// differing file `unverifiable` without one. A file still at its recorded hash
+// is a clean upgrade, and identical content (CRLF≡LF) is no drift at all.
+// Each rel is compared with its REAL source (`sources`: the mapped LICENSE).
 //
-// "Drifted" is update's definition, not a second one (P4): a differing file is
-// drifted exactly when update's decision table (lib/update-decision.ts →
-// decideFileAction) would SKIP it — so a forced write backs it up. With a
-// usable records baseline that is `modified` (changed since pharn wrote it) or
-// `unrecorded` (pharn has no record of it); a file still at its recorded hash is
-// pharn's own bytes, merely outdated — a clean upgrade, never backed up. With
-// no usable baseline (`add`, a first install, an absent / corrupt / foreign
-// store) every differing file is `unverifiable` and backed up: conservative,
-// never a guess.
+// `unsafe` is a REFUSAL, not a skip: with a symlinked INTERMEDIATE directory,
+// `cpSync` writes straight through it, outside the project included (pinned by
+// tests/dest-drift.test.ts and tests/commands/add.test.ts). A skip would let the copy
+// write through while the backup omitted the file, and a backup is impossible
+// (`createBackup` refuses symlinked components).
 //
-// Each rel is compared with its REAL source. The install manifest maps one dest
-// to a different clone path — upstream's `LICENSE` lands at `PHARN-LICENSE` /
-// `pharn/LICENSE` (lib/layout.ts) — so `sources` carries that pairing; a rel
-// absent from it is read at the same path in the clone, which is every path
-// `add` scans.
+// Both `safeJoin`s run before either walk, so an escaping path from the
+// untrusted clone throws loudly instead of being buried by a catch.
 //
-// WHY `unsafe` IS A REFUSAL AND NOT A SKIP — measured, not assumed. Node's
-// `cpSync(from, to, { recursive: true, force: true, filter: noSymlinks })` guards
-// only the SOURCE; the destination side behaves three different ways, and one of
-// them destroys data (measured on node v24.13.1):
-//
-//   * dest LEAF is a symlink        → the link is REPLACED by a regular file; the
-//                                     target keeps its bytes. The user's link is
-//                                     still lost, silently and unrecoverably.
-//   * the capability ROOT is a link → cpSync throws ERR_FS_CP_DIR_TO_NON_DIR
-//                                     having written nothing. Loud; safe.
-//   * an INTERMEDIATE dir is a link → cpSync WRITES THROUGH IT. Bytes anywhere
-//                                     the link points — including outside the
-//                                     project entirely — are replaced.
-//
-// That last row is the one that matters, and a skip makes it WORSE than doing
-// nothing: excluding the path from `drifted` means the copy still writes through
-// the link while the backup that was supposed to protect it silently omits it.
-// Backing it up instead is not available either — `createBackup` refuses a
-// symlinked component by design, and `copyFileSync` would save the TARGET's bytes
-// rather than the link.
-//
-// So the terminal is REFUSE: `add` writes nothing and names the offending
-// component. That is the same answer `update` reaches by a different route — #131
-// classifies such a path `unreadable` and skips the write — and the same shape as
-// `add`'s existing version and layout gates: refuse, name the fix, change nothing.
-//
-// Identical content (contentHash: CRLF≡LF in text) is NOT drift — update's row
-// `identical → no-op`. A drop-then-re-add of unedited files must stay silent, or
-// every such add would litter `pharn/.backup/` with copies of bytes nobody lost.
-//
-// Determinism (P5): every branch is a type check, a byte comparison or a row of
-// update's table — a symlink test, `isFile()`, a sha256 equality. No judgment.
-//
-// Trust (P2): `repoDir` is an untrusted tree — a codeload tarball fetched and
-// extracted into a temp dir (lib/repo.ts, lib/tar-extract.ts) — and `rels` and
-// `sources` are names read from it. Both `safeJoin`s run BEFORE either walk, so
-// a path that escapes either base is refused LOUDLY and no catch below can bury
-// it. File contents are hashed, never parsed or executed. `records` is local,
-// validated data (lib/install-records.ts), and it can only take a file OUT
-// of the backup set: one whose bytes are still exactly what pharn recorded
-// writing — the files update upgrades without asking.
-//
-// NAMED RESIDUAL — this scan is a CHECK, not a LOCK (P0/P7, and stated rather
-// than implied). It reads the destination at time T; `installCapabilityDirs`
-// copies at T+1. A component that becomes a symlink in between is not seen by
-// either, because `cpSync`'s `filter` guards only the SOURCE — so the pre-existing
-// hazard is refused while the racing one is not. What this closes is the case
-// that actually occurs (a symlink the user already had); what it does NOT close is
-// a concurrent local attacker, which is a threat THREAT-MODEL.md does not model
-// (its Surface B is hostile REMOTE content). Closing it needs a destination-side
-// guard inside the copy itself — `cpSync`'s filter receives `(src, dest)` and
-// refusing a symlinked dest there would stop the descent at copy time — but that
-// filter is `installCapabilityDirs`', shared with `init`, so it is a separate
-// increment with its own plan rather than a widening of this one.
-//
-// One axis (P3): what an install is about to destroy at the destination.
+// Residual: a CHECK, not a lock — a component turned into a symlink between
+// this scan and the copy is not seen.
 // ---------------------------------------------------------------------------
 
 /** A destination path the copy would reach THROUGH a symlink. */
@@ -109,11 +41,7 @@ export interface UnsafeDest {
   link: string;
 }
 
-/**
- * Why a drifted file is backed up — update's SKIP label for it
- * (lib/update-decision.ts): `modified` changed since pharn wrote it,
- * `unrecorded` has no record, `unverifiable` had no usable records to ask.
- */
+/** Why a drifted file is backed up — update's SKIP label for it. */
 export type DriftLabel = 'modified' | 'unrecorded' | 'unverifiable';
 
 export interface DestScan {
@@ -146,8 +74,7 @@ export function scanDest(params: {
 
   for (const rel of rels) {
     const srcRel = sources?.get(rel) ?? rel;
-    // Containment first, on BOTH sides: an escaping path throws here rather than
-    // being swallowed by the unreadable-catch below (P2 is never a silent skip).
+    // Containment first, on BOTH sides: an escaping path throws here.
     const dest = safeJoin(projectRoot, rel);
     const src = safeJoin(repoDir, srcRel);
 
@@ -159,18 +86,12 @@ export function scanDest(params: {
     }
     if (!lstatSync(dest, { throwIfNoEntry: false })?.isFile()) continue;
 
-    // The clone side needs no link walk (the clone invariant, lib/repo.ts), but
-    // its types still vary: a directory where a file is expected, or a FILE
-    // where a directory is (lstat then throws ENOTDIR), is a skip.
+    // The clone needs no link walk (lib/repo.ts), but a non-file there is a skip.
     if (!isRegularFile(src)) continue;
 
-    // contentHash's failure on a path that IS a regular file (EACCES) deliberately
-    // PROPAGATES: it aborts the caller before any write, with the clone cleaned
-    // up. Treating an unreadable file as "no drift" would clobber it.
-    //
-    // `force: true` because both callers overwrite regardless: the question is
-    // only which overwrites need a backup, and that is exactly the table's
-    // `backup` bit. Identical content is row 2 (no-op), never drift.
+    // contentHash's EACCES deliberately PROPAGATES, aborting before any write:
+    // "no drift" would clobber an unreadable file. `force: true` because both
+    // callers overwrite regardless; the question is only the `backup` bit.
     const label = driftLabel(
       decideFileAction({
         diskHash: contentHash(dest),
@@ -197,11 +118,8 @@ export function scanDest(params: {
 }
 
 /**
- * The install manifest (lib/install-manifest.ts → collectExpectedInstallPaths,
- * `dest → ABSOLUTE clone source`) as `scanDest`'s `sources`: dest → clone-
- * RELATIVE source. Every entry is converted, so the one mapped pair (LICENSE)
- * needs no special case here; `scanDest` re-contains each value under the
- * clone before reading it.
+ * The install manifest (`dest → ABSOLUTE clone source`) as `scanDest`'s
+ * `sources` (dest → clone-RELATIVE source); `scanDest` re-contains each value.
  */
 export function manifestSources(
   repoDir: string,
@@ -216,9 +134,7 @@ export function manifestSources(
 
 /**
  * The skip label a forced write backs up for, or null when it needs none.
- * `backup` is the whole decision: any decision that asks for one is backed up.
- * The label only explains it, and a label outside the two the records can prove
- * reads as `unverifiable` — "pharn cannot tell" — never as "no backup".
+ * `backup` decides; any other label reads as `unverifiable`, never "no backup".
  */
 function driftLabel(decision: FileDecision): DriftLabel | null {
   if (!decision.backup) return null;
@@ -229,24 +145,12 @@ function driftLabel(decision: FileDecision): DriftLabel | null {
 }
 
 /**
- * The symlink walk's third outcome for `scanDest` — passed as
- * `findSymlinkComponentOr`'s fallback: the walk could not answer (it threw).
- *
- * `findSymlinkComponent` is NOT total: `throwIfNoEntry: false` suppresses ENOENT
- * only, so a component below a REGULAR FILE raises ENOTDIR out of the walk
- * (lib/symlink-guard.ts states where each of its callers stands). That case is
- * deliberately NOT `unsafe`: `cpSync` throws ERR_FS_CP_DIR_TO_NON_DIR on such a
- * tree having written nothing, so it fails loudly on its own and its message is
- * the useful one. There is also nothing at `rel` to lose.
- *
- * Keeping it out of the caller's set is what keeps `createBackup` safe, too: it
- * does NOT wrap its own `findSymlinkComponent` call, and it consumes exactly the
- * `drifted` list — so a non-directory component must never reach it. That is the
- * shape `readDiskState` gives `update`: classify on the read side, so the backup
- * set only ever holds paths already proven regular files.
- *
- * The escape refusal cannot arrive here — `scanDest` `safeJoin`s both sides
- * before calling — so this fallback cannot swallow a containment violation.
+ * The symlink walk's third outcome for `scanDest`: the walk threw (ENOTDIR — a
+ * component below a regular file). Deliberately a skip, not `unsafe`: `cpSync`
+ * fails loudly on that tree by itself, there is nothing at `rel` to lose, and
+ * it keeps a non-directory component out of the `drifted` set `createBackup`
+ * consumes unwrapped. Containment was checked before the walk, so this cannot
+ * swallow an escape.
  */
 const UNREADABLE = Symbol('unreadable');
 

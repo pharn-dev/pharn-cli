@@ -32,19 +32,16 @@ import { channelOf, type RefChoice } from './release.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
 import type { Layout, PharnConfig } from '../types.js';
 
-// The renderers of `pharn update` (src/commands/update.ts): the PLAN, SKIPPED,
-// CAPABILITIES, MODELS, HOOKS, ORPHANED and NOT SHIPPED notes, the layout
-// warnings, the backup pointer and the closing summary, for the real run and
-// the dry run alike. Kept apart from the command, which holds only the flow;
-// nothing here plans, decides or writes a project file — each function
-// prints what the plan or the outcome it is handed already says.
+// The renderers of `pharn update`: every note, the backup pointer and the
+// closing summary, for the real run and the dry run alike. Nothing here plans,
+// decides or writes a project file — each function prints what the plan or
+// outcome it is handed already says.
 
 /**
  * The one line `update` prints when the install follows `main` only because
- * its config says so (or records nothing — an install made before `--ref`
- * existed): new installs now default to verified releases, and this one is NOT
- * moved. `null` when `--ref` was passed this run (the user just chose) or the
- * install already follows releases. Pure.
+ * its config says so (or records nothing): new installs default to verified
+ * releases, and this one is NOT moved. `null` when `--ref` was passed this run
+ * or the install already follows releases.
  */
 export function defaultChannelNotice(
   config: { ref?: unknown },
@@ -54,32 +51,28 @@ export function defaultChannelNotice(
   return 'Verified releases are now the default for new installs. This install keeps following pharn-oss main; run `pharn update --ref latest` to switch (recorded on first use).';
 }
 
-// Where the `--force` copies went, and how many there are — the two facts the
-// report needs. One shape, so the count is never re-derived at a second site and
-// cannot drift from the directory it describes.
+// Where the `--force` copies went and how many — one shape, so the count cannot
+// drift from the directory it describes.
 export interface Backup {
   dir: string;
   count: number;
-  // What the copies were made ahead of — the notice says it, and the abort
-  // line says what may already be gone.
+  // What the copies were made ahead of.
   action: BackupAction;
-  // `pharn/.backup/` is gitignored, or this run adds it (lib/gitignore.ts):
-  // the notice then drops its advice to add it.
+  // `pharn/.backup/` is gitignored, or this run adds it: the notice then drops
+  // its advice.
   gitignored?: boolean;
 }
 
-// The outcome of the fetch+apply phase, assembled inside the try so cleanup can
-// run in the finally and every process.exit happens AFTER it (Node skips finally
-// on exit) — the discipline this command has always kept.
+// The outcome of the fetch+apply phase, assembled inside the try so cleanup
+// runs in the finally before every process.exit.
 export interface UpdateOutcome {
   // The version upstream ships (what the clone holds).
   installedVersion: string;
-  // The version actually written to pharn.config.json — the same as
-  // installedVersion for a complete run, the previous one when skips withheld it.
+  // The version written to pharn.config.json — the previous one when skips
+  // withheld the bump.
   recordedVersion: string;
   capCount: number;
-  // Every difference between the previous and next `capabilities` membership.
-  // Empty ⇒ nothing changed ⇒ nothing is printed about capabilities at all.
+  // Every membership change. Empty ⇒ nothing is printed about capabilities.
   capabilityChanges: CapabilityChange[];
   // The directories deleted for the capabilities this run dropped.
   removals: CapabilityRemoval[];
@@ -89,40 +82,34 @@ export interface UpdateOutcome {
   versionWithheld: boolean;
   abandonedLayout: Layout | null;
   featuresReadmeRelocation: boolean;
-  // Upstream hooks the project's settings.json does not wire. Reported only —
-  // update never writes settings.json. Absent on paths that never saw a clone.
+  // Upstream hooks the project does not wire (report only). Absent on paths
+  // that never saw a clone.
   hookWiring?: HookWiringDiff;
-  // The declared product surfaces the clone ships no file for (NOT SHIPPED).
-  // Absent on paths that never saw a clone.
+  // Declared surfaces the clone ships no file for. Absent without a clone.
   absentUpstream?: AbsentSurface[];
-  // What happened to the `models` block (lib/models-update.ts), and the floor
-  // dir its checker is installed under, for the MODELS note.
+  // The `models` block's outcome, and the floor dir its checker is under.
   models: ModelsUpdate;
   modelsFloor: string;
   // Recorded files upstream no longer ships, still on disk (lib/orphans.ts).
   orphans: Orphan[];
-  // What this run did to the project's `.gitignore` (lib/gitignore.ts).
-  // Absent on paths that never applied.
+  // What this run did to `.gitignore`; absent on paths that never applied.
   gitignore?: GitignoreOutcome;
-  // What this run did to the project's `.prettierignore`
-  // (lib/prettierignore.ts). Absent on paths that never applied.
+  // The same for `.prettierignore`.
   prettierignore?: PrettierignoreOutcome;
-  // The old root footprint this run retired (lib/root-migration.ts), and what
-  // the writer actually did. Both null when nothing applied.
+  // The old root footprint this run retired, and what the writer did. Both
+  // null when nothing applied.
   rootMigration: RootMigration | null;
   rootMigrationResult: RootMigrationResult | null;
-  // True when the plan changed nothing (lib/update-next.ts, CORE-162): no
-  // confirm was asked and nothing was written, so the report ends with the
-  // no-change verdict instead of the counts summary.
+  // True when the plan changed nothing: no confirm, no write, and the report
+  // ends with the no-change verdict instead of the counts.
   unchanged?: boolean;
 }
 
 /**
- * The closing words of a run — real or dry — whose plan changes nothing
- * (CORE-162). "Up to date." only when nothing is skipped either and the
- * recorded version is the installed one; a kept edit, a held unit or a
- * withheld version is "Nothing to change." after the notes that name it.
- * ONE wording for both outros, so they cannot drift apart.
+ * The closing words of a run whose plan changes nothing. "Up to date." only
+ * when nothing is skipped either and the recorded version is the installed
+ * one; otherwise "Nothing to change." after the notes that name why. ONE
+ * wording for both outros.
  */
 export function noChangeVerdict(
   r: Pick<UpdatePlanReport, 'counts' | 'recordedVersion' | 'installedVersion'>,
@@ -134,10 +121,9 @@ export function noChangeVerdict(
 
 /**
  * The files a `--force` run overwrites, grouped by why each is not pharn's to
- * overwrite without it — plus `pharn.config.json` when the user's models block
- * is replaced (the whole file is backed up first). ONE list for the dry run's
- * PLAN note (`WOULD`) and the real run's note before its confirm (`WILL`).
- * Empty groups are left out.
+ * overwrite without it — plus `pharn.config.json` when the models block is
+ * replaced. ONE list for the dry run's PLAN (`WOULD`) and the real run's note
+ * before its confirm (`WILL`). Empty groups are left out.
  */
 export function forcedOverwriteSections(
   r: Pick<UpdatePlanReport, 'files' | 'models'>,
@@ -159,9 +145,8 @@ export function forcedOverwriteSections(
 }
 
 /**
- * The real run's `--force` note, printed BEFORE its confirm (and printed under
- * `--yes` too, like every other note): every file the confirm's "overwrite
- * your changes" refers to. Nothing to overwrite → no note.
+ * The real run's `--force` note, printed BEFORE its confirm (and under `--yes`
+ * too): every file "overwrite your changes" refers to.
  */
 export function reportForcedOverwrites(
   r: Pick<UpdatePlanReport, 'files' | 'models' | 'backups'>,
@@ -182,8 +167,7 @@ export function reportForcedOverwrites(
   note(lines.join('\n'), 'OVERWRITE');
 }
 
-// The ROOT MIGRATION note (lib/root-migration.ts owns the wording, shared with
-// `init`). Nothing is printed when there is nothing to say.
+// The ROOT MIGRATION note; nothing when there is nothing to say.
 export function reportRootMigration(
   m: RootMigration | null,
   result: RootMigrationResult | null,
@@ -193,16 +177,9 @@ export function reportRootMigration(
 }
 
 // The skip buckets `--force` actually overrides, mirroring `skipOrForce` in
-// lib/update-decision.ts. Membership, not a negation of one label (P5): a bucket
-// outside this set is one `--force` cannot clear, so an unrecognised label fails
-// in the safe direction — no advice at all — rather than prescribing a command
-// that cannot work.
-//
-// It names the same three labels `skipHeading` switches on, so the heading and
-// the advice agree about every label today. That agreement is convention, not a
-// check (there is no shared enum and no test pinning the two lists): a new skip
-// label has to be added HERE as well as there, or the heading will say UNREADABLE
-// while the advice offers `--force`.
+// lib/update-decision.ts. Membership, not a negation: an unrecognised label
+// gets no advice rather than a command that cannot work. It must list the same
+// labels `skipHeading` switches on — by convention, not a check.
 const FORCEABLE_SKIPS = new Set<SkipLabel>([
   'modified',
   'unrecorded',
@@ -211,14 +188,12 @@ const FORCEABLE_SKIPS = new Set<SkipLabel>([
   'held',
 ]);
 
-// How many blocking (or missing) files the EXECUTABLE UNIT note lists before a
-// count.
+// How many blocking (or missing) files the EXECUTABLE UNIT note lists.
 const MAX_UNIT_BLOCKERS = 20;
 
 /**
- * The EXECUTABLE UNIT note's lines (lib/executable-unit.ts): why the unit's
- * writes were withheld, the files that blocked it, and the two ways out. Null
- * when nothing was held. `preview` switches to the dry run's future tense.
+ * The EXECUTABLE UNIT note: why the unit's writes were withheld, the files
+ * that blocked it, and the two ways out. Null when nothing was held.
  */
 export function executableUnitLines(
   hold: UnitHold | null,
@@ -255,8 +230,7 @@ function unitBlockerLines(hold: UnitHold, preview: boolean): string[] {
   ];
 }
 
-// The held files that are not on disk (UnitHold.missing): a deleted hook is
-// not put back while the unit is held, so it stays off until the hold ends.
+// Held files not on disk: a deleted hook stays off until the hold ends.
 function unitMissingLines(missing: string[], preview: boolean): string[] {
   if (missing.length === 0) return [];
   const shown = missing.slice(0, MAX_UNIT_BLOCKERS);
@@ -280,16 +254,14 @@ export function reportExecutableUnit(
   if (lines) note(lines.join('\n'), 'EXECUTABLE UNIT');
 }
 
-// The report. Skips are exit 0 — a skip is a decision the user asked for, not a
-// failure — but they are never silent: each bucket is listed with the one action
-// that resolves it.
+// The report. Skips are exit 0 — a decision the user asked for — but never
+// silent: each bucket is listed with the one action that resolves it.
 export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   const { plan, recordsNote, versionWithheld } = outcome;
   const { counts } = plan;
 
-  // The note quotes strings from the hand-editable pharn.records.json (a key,
-  // a schemaVersion): escape the VALUE here, never the line (CORE-170). The JSON
-  // report carries it raw, because its serializer escapes it.
+  // The note quotes strings from the hand-editable pharn.records.json: escape
+  // the VALUE here, never the line. The JSON report carries it raw.
   if (recordsNote) log.warn(`⚠ ${escapeUnsafe(recordsNote)}`);
 
   reportCapabilityChanges(outcome.capabilityChanges, outcome.removals, false);
@@ -315,9 +287,7 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   );
 
   if (versionWithheld) {
-    // `--force` is offered only while a bucket it can actually clear is still
-    // skipped. When every remaining skip is unreadable it finishes nothing, and
-    // naming it here is the same dead prescription as above.
+    // `--force` is offered only while a bucket it can clear is still skipped.
     log.warn(
       withheldVersionLine({
         skipped: counts.skipped,
@@ -347,24 +317,18 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   );
 }
 
-// The NOT SHIPPED note, shared by the real report and the preview: every
-// declared product surface the clone ships no file for (lib/absent-surfaces.ts
-// words it, as `init` does). Report only — it withholds nothing, since no file
-// on disk was left behind by it. Nothing absent → no note.
+// The NOT SHIPPED note (wording: lib/absent-surfaces.ts). Report only — it
+// withholds nothing. Nothing absent → no note.
 function reportAbsentSurfaces(absent: readonly AbsentSurface[]): void {
   const lines = absentSurfaceLines(absent);
   if (lines) note(lines.join('\n'), 'NOT SHIPPED');
 }
 
 /**
- * The warning under a run (or preview) that skipped files. When the clone is a
- * NEWER skills version, the skips withhold the version bump and resolving them
- * finishes the upgrade. When it is the SAME version — a run re-opened by a
- * missing file, a frozen capability, `--force`, … — there is no upgrade to
- * finish (CORE-163), so the line says the install is already at that version
- * and names only what still applies to the skipped files. `--force` is named
- * only when a bucket it can clear was skipped (`forceable`, from
- * `reportSkipped`).
+ * The warning under a run that skipped files. At a NEWER skills version the
+ * skips withhold the bump and resolving them finishes the upgrade; at the SAME
+ * version there is nothing to finish, so the line names only what still
+ * applies. `--force` is named only when a bucket it can clear was skipped.
  */
 export function withheldVersionLine(o: {
   skipped: number;
@@ -385,20 +349,16 @@ export function withheldVersionLine(o: {
     : `${skipped} file(s) were skipped, so your install is still recorded as skills v${recordedVersion} (upstream is v${installedVersion}) — resolve them${forceable ? ', or re-run with --force,' : ''} to finish the upgrade.`;
 }
 
-// The SKIPPED note, shared by the real report and the preview (`preview` only
-// changes the tense of the one line of advice). Returns whether any skipped
-// bucket is one `--force` can clear — the caller's withheld-version line needs it.
+// The SKIPPED note (`preview` changes only the tense). Returns whether any
+// skipped bucket is one `--force` can clear.
 function reportSkipped(
   skipped: UpdatePlan['skipped'],
   preview: boolean,
 ): boolean {
-  // An unhashable destination is skipped BEFORE the decision table and `force`
-  // is not an input to that branch (lib/update-decision.ts) — deliberately, since
-  // there is no hash to compare and guessing one is what P5 forbids. So the
-  // report must not prescribe `--force` for it: a run whose skips are all
-  // unreadable would otherwise be told to re-run a command that produces a
-  // byte-identical outcome, forever, while the withheld version bump keeps
-  // `pharn status --strict` red with nothing that clears it.
+  // An unhashable destination is skipped BEFORE the decision table, and
+  // `force` is not an input to that branch, so `--force` must not be
+  // prescribed for it: a run whose skips are all unreadable would be told to
+  // re-run forever.
   const forceable = skipped.some((g) => FORCEABLE_SKIPS.has(g.label));
   const hasUnreadable = skipped.some((g) => !FORCEABLE_SKIPS.has(g.label));
 
@@ -419,11 +379,8 @@ function reportSkipped(
       );
     }
     if (hasUnreadable) {
-      // SKIP_ORDER puts `unreadable` last, so this sits under the group it names.
-      // The closing two lines are `pharn status`'s drift report verbatim
-      // (src/commands/status.ts): same situation, same sentence, so the two
-      // commands read as one product. The bucket is named rather than "these"
-      // because the forceable advice above can sit between it and its group.
+      // The closing lines are `pharn status`'s drift report verbatim: same
+      // situation, same sentence.
       lines.push(
         pc.dim('  --force cannot clear the UNREADABLE paths above.'),
         pc.dim('  Inspect each path by hand — a directory, a symlink, or an'),
@@ -435,20 +392,14 @@ function reportSkipped(
   return forceable;
 }
 
-// The ORPHANED note, shared by the real report and the preview: the same
-// words in both, since an orphan is a fact about the project, not about what
-// this run writes. Nothing is printed when there is none.
+// The ORPHANED note — the same in report and preview; nothing when none.
 function reportOrphans(orphans: readonly Orphan[]): void {
   const lines = orphanNoteLines(orphans);
   if (lines) note(lines.join('\n'), 'ORPHANED');
 }
 
-// Both directions are named. `abandonedLayout` has always been computed
-// direction-agnostically, but only 'flat' used to be rendered — so a pharn→flat
-// migration abandoned the whole pharn/ tree in silence, which is strictly more
-// than the other direction leaves behind. The second test is `=== 'pharn'`
-// rather than a bare `else` so that a third Layout member would print nothing
-// instead of this message (P5: membership, not a fallback that guesses).
+// Both directions are named; `=== 'pharn'` rather than `else`, so a third
+// Layout member prints nothing instead of this message.
 function reportLayoutWarnings(
   abandonedLayout: Layout | null,
   featuresReadmeRelocation: boolean,
@@ -477,16 +428,15 @@ function reportLayoutWarnings(
   }
 }
 
-// The preview report. It reuses the real run's renderers for the membership,
-// models, hooks and skip notes, in the same order, and adds the PLAN note —
-// the per-file verdicts the real run acts on without listing.
+// The preview report: the real run's renderers in the same order, plus the
+// PLAN note — the per-file verdicts the real run acts on without listing.
 export function reportDryRun(
   r: UpdatePlanReport,
   force: boolean,
   channel: RefChoice,
   config: PharnConfig,
 ): void {
-  // Escaped at print, as in reportOutcome (CORE-170).
+  // Escaped at print, as in reportOutcome.
   if (r.recordsNote) log.warn(`⚠ ${escapeUnsafe(r.recordsNote)}`);
 
   const writes = r.files.filter((f) => f.action === 'write');
@@ -525,20 +475,19 @@ export function reportDryRun(
     for (const rel of backupRels) lines.push(`  ${rel}`);
     lines.push('');
   }
-  // What a real run would append to `.gitignore` (lib/gitignore.ts owns the
-  // wording); a refusal is a warning, printed after the note.
+  // What a real run would append to `.gitignore`; a refusal is a warning,
+  // printed after the note.
   const gitignore = gitignoreLines(r.gitignore, { preview: true });
   if (gitignore !== null && !gitignore.warn)
     lines.push(`  ${gitignore.text}`, '');
-  // The same for `.prettierignore` (lib/prettierignore.ts).
+  // The same for `.prettierignore`.
   const prettierignore = prettierignoreLines(r.prettierignore, {
     preview: true,
   });
   if (prettierignore !== null && !prettierignore.warn)
     lines.push(`  ${prettierignore.text}`, '');
-  // THE "changes nothing" predicate (lib/update-next.ts) — the same boolean
-  // the real run and `--json` read. When the only changes left are the state
-  // files, say which: the old "Nothing would be written." hid them.
+  // THE "changes nothing" predicate (lib/update-next.ts). When only the state
+  // files would change, say which.
   const stateFiles = [
     ...(r.stateChanges.config ? [CONFIG_FILENAME] : []),
     ...(r.stateChanges.records ? [RECORDS_FILE] : []),
@@ -604,28 +553,20 @@ export function reportDryRun(
   );
 }
 
-// The backup pointer — ONE wording, reached from BOTH the success report and the
-// failure branch. `pharn/.backup/<ts>/` is the user's only route back to their
-// pre-overwrite bytes, so the two paths must never drift into saying different
-// things about it — which is why the failure branch calls this rather than
-// growing a second copy of the sentence.
-//
-// The stream is the difference, and it follows lib/report-error.ts's contract:
-// an aborted run's notice is part of that run's fatal output, so it goes to
-// stderr with the rest of it — an operator redirecting stderr to a log must find
-// the pointer there. The success notice stays on stdout, where it has always been.
+// The backup pointer — ONE wording for the success report and the failure
+// branch, so the two never say different things about the user's only route
+// back. An aborted run's notice is part of its fatal output and goes to
+// stderr (lib/report-error.ts); the success notice stays on stdout.
 export function reportBackup(backup: Backup, opts: { aborted: boolean }): void {
   const output = opts.aborted ? process.stderr : process.stdout;
   if (opts.aborted) {
-    // Said plainly, because the tree is now in a state the user did not ask for:
-    // the run stopped between the first overwrite and the last.
+    // The run stopped between the first overwrite and the last.
     log.warn(
       `The update stopped part-way — some originals may already have been ${ABORTED_PHRASE[backup.action]}.`,
       { output },
     );
   }
-  // The pointer (and, on success, the .gitignore advice) — lib/backup.ts's one
-  // wording, shared with every other command that makes a backup.
+  // The pointer (and, on success, the .gitignore advice): lib/backup.ts.
   printBackupNotice(
     {
       dir: backup.dir,
@@ -637,8 +578,7 @@ export function reportBackup(backup: Backup, opts: { aborted: boolean }): void {
   );
 }
 
-// `backupAction` lives in lib/backup.ts (shared with `init`); re-exported for
-// the command, which has always imported it from here.
+// Re-exported from lib/backup.ts for the command.
 export { backupAction };
 
 const ABORTED_PHRASE: Record<BackupAction, string> = {
@@ -647,9 +587,8 @@ const ABORTED_PHRASE: Record<BackupAction, string> = {
   'overwriting and removing': 'overwritten or removed',
 };
 
-// The order change groups are reported in — additions first, then departures,
-// then the one-time legacy tagging (P5: deterministic output, never dependent on
-// the merge's internal iteration order).
+// The order change groups are reported in: additions, departures, then the
+// one-time legacy tagging — deterministic, never the merge's iteration order.
 const CHANGE_ORDER: { reason: CapabilityChange['reason']; heading: string }[] =
   [
     {
@@ -675,13 +614,9 @@ const CHANGE_ORDER: { reason: CapabilityChange['reason']; heading: string }[] =
     },
   ];
 
-// Name EVERY membership change. This is the whole point of the merge: before it,
-// a manual add could vanish and a removal could resurrect without a word. Zero
-// changes prints NOTHING — a steady-state update stays as quiet as it was.
-//
-// A REMOVED line also says what happened to the directory (`removals`, keyed by
-// `role:name`): deleted, deleted after a backup, or already gone. `preview`
-// switches the tense for the dry run.
+// Name EVERY membership change; zero changes prints nothing. A REMOVED line
+// also says what happened to the directory (deleted, after a backup, or
+// already gone). `preview` switches the tense.
 export function reportCapabilityChanges(
   changes: CapabilityChange[],
   removals: readonly CapabilityRemoval[],
@@ -739,12 +674,9 @@ function removalPhrase(removal: CapabilityRemoval, preview: boolean): string {
     : `${deleted} (${n} file(s) backed up first)`;
 }
 
-// The MODELS note: what happened to the `models` block, for every outcome but
-// `ok` (already pharn-oss's) and a quiet `upstream-absent` (nothing upstream,
-// nothing of yours to convert or flag). Every string quoted from a block —
-// stage names, values, upstream's reasons — goes through `terminalSafe`. The
-// note's own lines stay within 70 columns, so an 80-column box never wraps
-// one mid-sentence.
+// The MODELS note, for every outcome but `ok` and a quiet `upstream-absent`.
+// Every string quoted from a block goes through `terminalSafe`. Lines stay
+// within 70 columns so an 80-column box never wraps one.
 function reportModels(
   models: ModelsUpdate,
   floor: string,

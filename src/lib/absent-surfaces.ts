@@ -2,19 +2,10 @@ import type { AbsentSurface } from './install-manifest.js';
 import { terminalSafe } from './terminal-safe.js';
 
 // ---------------------------------------------------------------------------
-// The words for a declared product surface the fetched pharn-oss does not ship
-// (lib/install-manifest.ts → absentInstallSurfaces). One wording, shared by
-// `init` (a warning after the copy, and in its `--dry-run` preview) and `update`
-// (a NOT SHIPPED note), so the
-// two commands describe the same condition the same way. `status` renders its
-// own DRIFT section, as it does for every other partition.
-//
-// Not fatal anywhere: refusing every install the moment upstream reorganizes
-// would turn a relocation into an outage, and upstream's `MIN_CLI` is the
-// lever for refusing a CLI that is too old (LIMITS.md §3e). The report is what
-// ends the silence.
-//
-// One axis (P3): the absent-surface report's wording.
+// The wording for a declared product surface the fetched pharn-oss does not
+// ship (absentInstallSurfaces), shared by `init` and `update`. Never fatal: an
+// upstream reorganization must not become an outage, and `MIN_CLI` is the lever
+// for refusing a too-old CLI.
 // ---------------------------------------------------------------------------
 
 const MAX_PATH = 200;

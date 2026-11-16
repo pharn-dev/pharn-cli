@@ -5,15 +5,10 @@ import { safeChildJoin, safeJoin } from './validate.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Addressing and deleting ONE capability directory — the one axis (P3) shared by
-// the two commands that delete one: `pharn remove` (the user asks) and
-// `pharn update` (it drops the capability from the config, so its directory must
-// go too: PHARN's commands find capabilities by scanning these directories, not
-// by reading `pharn.config.json`). One copy, so the two can never disagree about
-// which directory a capability lives in or how it may be deleted.
-//
-// The role → subtree mapping itself is layout.ts's (`capabilitySubtree`); every
-// reader and writer goes through it.
+// Addressing and deleting ONE capability directory, shared by every command
+// that deletes one (`remove`, and `update`/`init` for a dropped capability —
+// PHARN's commands find capabilities by scanning these directories, so a
+// dropped one must go). One copy, so they never disagree.
 // ---------------------------------------------------------------------------
 
 /** `<subtree>/<name>`, project-relative and posix — the record-key prefix too. */
@@ -26,9 +21,8 @@ export function capabilityRelDir(
 
 /**
  * The absolute directory a capability addresses — a STRICT child of its role
- * subtree (`safeChildJoin`: never the subtree itself, never deeper), or a
- * `Refusing path` throw. Names are validated at config ingest already; this is
- * the second, independent floor under a recursive delete.
+ * subtree, or a `Refusing path` throw: a second floor (after ingest
+ * validation) under a recursive delete.
  */
 export function capabilityDir(
   cwd: string,
@@ -42,15 +36,10 @@ export function capabilityDir(
 }
 
 /**
- * The first symlinked component on the way to the capability directory (the
- * directory itself included), or null. `rmSync` resolves every ancestor, so with
- * `pharn -> ../shared` a delete of `pharn/pharn-review/x` would delete
- * `../shared/pharn-review/x` — outside the project — and `safeJoin` cannot see
- * that (it is lexical). Callers own the refusal shape.
- *
- * A component below a REGULAR file (ENOTDIR) is not a link: no directory can
- * exist there, and the delete's own `existsSync` reads it as gone — so that is
- * `null`, not an error.
+ * The first symlinked component on the way to the capability directory (itself
+ * included), or null: `rmSync` resolves ancestors, so a linked `pharn/` would
+ * delete outside the project. ENOTDIR reads as `null` (no directory can be
+ * there). Callers own the refusal shape.
  */
 export function linkedComponent(
   cwd: string,

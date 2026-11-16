@@ -1,7 +1,5 @@
-// Capability address parsing — the shared `<name>` / `<role>:<name>` form used by
-// `pharn add` and `pharn remove` for an archetype install. One axis (P3): parsing
-// a capability address; shared here so the two commands never diverge and neither
-// imports the other. Deterministic (P5): an unknown role before the colon is a
+// Capability address parsing — the `<name>` / `<role>:<name>` form shared by
+// `pharn add` and `pharn remove`. An unknown role before the colon is a
 // reported error, never a guess.
 
 export interface CapabilityAddress {

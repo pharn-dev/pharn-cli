@@ -14,10 +14,8 @@ import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // The install-root surfaces of BOTH layouts, derived from `layoutPaths` — the
-// paths some install (flat or pharn layout) could have written. One axis (P3):
-// shared by orphan detection and `uninstall` (`isInstallRootPath`, lib/
-// orphans.ts / lib/uninstall-plan.ts) and by the `.prettierignore` entries
-// (lib/prettierignore.ts), so none of them keeps its own list.
+// paths some install could have written. Shared by orphan detection,
+// `uninstall` and the `.prettierignore` entries, so none keeps its own list.
 // ---------------------------------------------------------------------------
 
 const BOTH_LAYOUTS: readonly LayoutPaths[] = [
@@ -70,19 +68,15 @@ export function capabilityOf(rel: string): string | null {
 
 /**
  * Could ANY install (flat or pharn layout) have written `rel`? Mirrors the
- * surfaces lib/install-manifest.ts enumerates — capability dirs, contracts,
- * pharn-core, the floor, the trusted docs, the LICENSE dest, the features
- * README, product `pharn-*.md` commands and agents and `.cjs`/`.mjs` hooks — derived from
- * `layoutPaths` so it follows the layout contract. A membership test (P5).
+ * surfaces lib/install-manifest.ts enumerates, derived from `layoutPaths`.
  */
 export function isInstallRootPath(rel: string): boolean {
   if (rel === MODELS_RECORD_KEY) return false;
   if (SURFACE_FILES.has(rel)) return true;
   if (SURFACE_DIRS.some((dir) => rel.startsWith(`${dir}/`))) return true;
   if (capabilityOf(rel) !== null) return true;
-  // The install's own name filters (lib/install-manifest.ts), so this bound
-  // takes exactly the command, agent and hook names an install copies — `.mjs`
-  // hooks included — and cannot drift from them.
+  // The install's own name filters, so this bound takes exactly the command,
+  // agent and hook names an install copies.
   const command = directChild(rel, CLAUDE_COMMANDS_DIR);
   if (command !== null) return isProductCommandFile(command);
   const agent = directChild(rel, CLAUDE_AGENTS_DIR);

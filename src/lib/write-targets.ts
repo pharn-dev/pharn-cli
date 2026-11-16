@@ -13,25 +13,16 @@ import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Which of `init`'s write targets already exist, which of those the install
-// would back up, and in what order to list them. ONE computation, three
-// readers: the overwrite prompt (steps/overwrite-check.ts), the `--dry-run`
-// preview and the `--yes` refusal (commands/init.ts) — plus that refusal's
-// early, clone-free form for the one target that needs no clone
-// (`existingConfigRefusal`). So the marks a preview
-// shows are, by construction, the marks the prompt would show.
-//
-// Read-only. The targets are `conflictingWriteTargets`' (the manifest plus
-// `pharn.config.json`, existing only); the labels are `scanDest`'s, through
-// `update`'s own table (lib/dest-drift.ts). Determinism (P5): a stable sort of
-// an already-sorted list by a fixed label rank.
+// would back up, and in what order to list them. ONE read-only computation for
+// the overwrite prompt, the `--dry-run` preview and the `--yes` refusal, so the
+// preview's marks are the prompt's by construction. Labels are `scanDest`'s
+// (update's own table).
 // ---------------------------------------------------------------------------
 
-// Cap the listed paths so a full re-install (which conflicts on hundreds of
-// files) stays readable; the count of the remainder is still surfaced.
+// Cap the listed paths so a full re-install stays readable.
 export const MAX_LISTED = 10;
 
-// How each backed-up file is marked in a list, and in what order the groups
-// come — update's skip order, most actionable first (lib/update-decision.ts).
+// How each backed-up file is marked, and the group order (most actionable first).
 export const DRIFT_MARKERS: Readonly<Record<DriftLabel, string>> = {
   modified: '(edited)',
   unrecorded: '(no pharn record)',
@@ -43,8 +34,7 @@ export const DRIFT_LABEL_ORDER: readonly DriftLabel[] = [
   'unverifiable',
 ];
 // The existing pharn.config.json: not drift, but rewritten (`models` reset)
-// — and always backed up first (lib/backup.ts →
-// replacedConfigBackup).
+// and always backed up first.
 export const CONFIG_MARKER = '(will be rewritten — backed up first)';
 
 export interface WriteTargetsPlan {
@@ -55,17 +45,11 @@ export interface WriteTargetsPlan {
   conflicts: string[];
   /** Why each labelled target would be backed up; unlabelled → not backed up. */
   labels: ReadonlyMap<string, DriftLabel>;
-  /**
-   * An existing regular-file pharn.config.json is among the targets: init
-   * rewrites it, so it is ALWAYS backed up first — the same predicate the
-   * install acts on (replacedConfigBackup).
-   */
+  /** An existing regular-file pharn.config.json: ALWAYS backed up first. */
   configBackedUp: boolean;
   /**
-   * The capability directories this re-install deletes (dropped from the
-   * config, lib/capability-removal.ts) — passed through, so the prompt and
-   * the dry run list the same set. Empty for a first install (and `--yes`
-   * never sees one: see assertNoExistingTargets).
+   * The capability directories this re-install deletes, passed through so the
+   * prompt and the dry run list the same set. Empty for a first install.
    */
   removals: readonly CapabilityRemoval[];
 }
@@ -76,11 +60,10 @@ export interface WriteTargetsParams {
   capabilities: InstalledCapability[];
   // The install manifest for exactly these capabilities, dest → source.
   manifest: ReadonlyMap<string, string>;
-  // The records baseline of the install being replaced, or null when there is
-  // none to trust (then every differing file is `unverifiable`).
+  // The replaced install's records baseline, or null (then every differing
+  // file is `unverifiable`).
   records: FileRecords | null;
-  // The removal plan of the dropped capabilities (lib/init-plan.ts →
-  // planInitRemovals); absent → none.
+  // The removal plan of the dropped capabilities; absent → none.
   removals?: readonly CapabilityRemoval[];
 }
 
@@ -97,11 +80,8 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
   if (conflicts.length === 0)
     return { conflicts, labels: new Map(), configBackedUp: false, removals };
 
-  // Which of those the install would back up — the files `update` would have
-  // SKIPPED: changed since pharn wrote them, not recorded, or not verifiable.
-  // `pharn.config.json` is outside the manifest (init regenerates it), so it is
-  // never scanned — an existing one is marked on its own (configBackedUp).
-  // Each file is compared with its real source (the mapped LICENSE included).
+  // Which of those would be backed up — the files `update` would have SKIPPED.
+  // `pharn.config.json` is outside the manifest, so it is marked on its own.
   const { labels } = scanDest({
     repoDir,
     projectRoot,
@@ -109,8 +89,7 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
     sources: manifestSources(repoDir, manifest),
     records,
   });
-  // The existing config is rewritten and always backed up first — ranked right
-  // after the labelled files, so a capped list cannot hide it.
+  // Ranked right after the labelled files, so a capped list cannot hide it.
   const configBackedUp =
     conflicts.includes(PHARN_CONFIG_FILE) &&
     replacedConfigBackup(projectRoot).length > 0;
@@ -130,10 +109,8 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
 }
 
 /**
- * The display lines for the directories a re-install would DELETE — only the
- * ones that exist (an already-gone directory deletes nothing) — each with the
- * number of its files that would be backed up first. Paths are validated
- * capability names under their role subtree; displayed as data.
+ * The display lines for the existing directories a re-install would DELETE,
+ * each with how many of its files would be backed up first.
  */
 export function removalLines(removals: readonly CapabilityRemoval[]): string[] {
   return removals
@@ -148,10 +125,7 @@ export function removalLines(removals: readonly CapabilityRemoval[]): string[] {
 
 /**
  * The display lines for a plan's existing targets, each marked when it would be
- * backed up (its drift label, or the config's own mark), capped at `max` (with
- * an "…and N more" line) when a cap is given. Paths are project-relative and
- * already path-contained (lib/install-manifest.ts); they are displayed as data,
- * never executed.
+ * backed up, capped at `max` (with an "…and N more" line) when given.
  */
 export function targetLines(
   plan: Pick<WriteTargetsPlan, 'conflicts' | 'labels' | 'configBackedUp'>,
@@ -172,9 +146,8 @@ export function targetLines(
 }
 
 /**
- * `init --yes` met a project where at least one write target already exists.
- * A named refusal, not a crash: reported like a held lock, exit 1, nothing
- * written, no PHARN_DEBUG hint.
+ * `init --yes` met an existing write target: a named refusal (exit 1, nothing
+ * written), reported like a held lock.
  */
 export class OverwriteRefusedError extends Error {
   constructor(message: string) {
@@ -183,21 +156,17 @@ export class OverwriteRefusedError extends Error {
   }
 }
 
-// How every `init --yes` refusal ends: `--yes` never overwrites, and the three
-// ways forward. ONE wording for the early refusal and the in-run one.
+// How every `init --yes` refusal ends — one wording for both refusals.
 const YES_WAYS_FORWARD = [
   '--yes never overwrites. Run `pharn init` in a terminal to review and confirm the overwrite,',
   '`pharn init --dry-run` to see the whole plan, or `pharn update` to refresh an existing install.',
 ];
 
 /**
- * The early `--yes` refusal, BEFORE the fetch (CORE-168): an existing
- * `pharn.config.json` is ALWAYS one of init's write targets
- * (`conflictingWriteTargets` adds it whenever it exists — this is its very
- * test), so `assertNoExistingTargets` would certainly refuse; deciding it here
- * costs no network round trip. The message names only that file, because the
- * marked list of the other targets needs the clone. Returns the message, or
- * null when the file does not exist (a dangling link does not, as there).
+ * The early `--yes` refusal, BEFORE the fetch: an existing `pharn.config.json`
+ * is always a write target (the same `existsSync` test), so
+ * `assertNoExistingTargets` would refuse anyway. Names only that file — the
+ * other targets need the clone. Null when the file does not exist.
  */
 export function existingConfigRefusal(projectRoot: string): string | null {
   if (!existsSync(safeJoin(projectRoot, PHARN_CONFIG_FILE))) return null;
@@ -209,15 +178,9 @@ export function existingConfigRefusal(projectRoot: string): string | null {
 
 /**
  * The `--yes` gate: throw OverwriteRefusedError unless NONE of the install's
- * write targets exists. `--yes` never answers the overwrite question — it only
- * proceeds where there is no question to answer. A membership test over the
- * same set the prompt lists (P5); `commands/init.ts` runs it before the lock
- * and again under it, immediately before the install.
- *
- * It takes no removals, and needs none: a capability directory a re-install
- * would delete comes only from the replaced `pharn.config.json`'s entries, and
- * that file is itself a write target — refused here as a conflict, and before
- * the fetch by `existingConfigRefusal`. So `--yes` never deletes.
+ * write targets exists — `--yes` never answers the overwrite question. Takes
+ * no removals: they come only from a replaced `pharn.config.json`, which is
+ * itself a conflict, so `--yes` never deletes.
  */
 export function assertNoExistingTargets(
   params: Omit<WriteTargetsParams, 'removals'>,

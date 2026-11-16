@@ -7,47 +7,29 @@ import { isPlainObject, safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
 // Hook-wiring drift: which hooks upstream's `.claude/settings.json` wires that
-// the project does not.
+// the project does not. `settings.json` is user-owned and never overwritten,
+// so when upstream re-wires its hooks the project keeps the old wiring; this
+// module is the report — a pure set difference, never a write.
 //
-// `settings.json` is user-owned — `init` writes it only when absent and nothing
-// ever overwrites it (install-capabilities.ts). That stays. What was wrong was
-// the SILENCE: upstream re-wired its hooks (6.1.0 anchored both guards on
-// CLAUDE_PROJECT_DIR because the relative form was silently off after a `cd`;
-// 6.12.0 added a `Stop` hook), `update` installed the new hook SCRIPTS, and the
-// project kept the old wiring with `status --strict` green. This module is the
-// report: a pure set difference, never a write.
+// WHAT "WIRED" MEANS is what Claude Code runs: the union of the project's
+// `.claude/settings.json` and the per-user `.claude/settings.local.json`. A
+// hook found ONLY in the local file is reported `local-only`, not missing.
+// User-level `~/.claude/settings.json` is deliberately NOT read.
 //
-// WHAT "WIRED" MEANS is what Claude Code runs: it merges the hooks of the
-// project's `.claude/settings.json` and the per-user, gitignored
-// `.claude/settings.local.json`, so both are read and their union is compared.
-// A hook found ONLY in the local file is wired for this user alone, which the
-// report says (`local-only`) without calling it missing. User-level
-// `~/.claude/settings.json` is deliberately NOT read: this is a report about
-// the project.
-//
-// Trust (P2): upstream's file is untrusted remote content and the project's are
-// local user content. All are read as DATA — size-capped, opened non-blocking
-// (a FIFO is refused, not waited on), regular files only, JSON-parsed, never
-// executed. Upstream's may not be a symlink at any component. A project file
-// may be a symlinked FILE (a dotfiles-managed settings.json — Claude Code reads
-// through it too); a symlinked `.claude/` directory is still refused. Two
-// readers print PROJECT entries — the user's own hooks, shown back so they can
-// edit them: `hooksReferencing` (for `pharn uninstall`, to unwire them) and the
-// drift note's REPLACE section (the line that already wires a missing upstream
-// hook's script). Every entry, project or upstream, renders through
-// `displayHook`, escaped and capped.
+// Trust: every file is read as DATA — size-capped, opened non-blocking (a FIFO
+// is refused, not waited on), regular files only, never executed. A project
+// file may be a symlinked FILE (Claude Code reads through it too); a symlinked
+// `.claude/` directory is refused. Every entry printed, project or upstream,
+// renders through `displayHook`, escaped and capped.
 //
 // REPLACE vs ADD: a missing upstream hook whose `.claude/hooks/<name>` the
-// project already names, under the same event and matcher, is a differently
-// spelled wiring of the same script (typically the relative form, which does
-// not run after a `cd`). Adding upstream's line beside it would run the script
-// twice, so the note says to replace it. Same substring test as
-// `hooksReferencing`; advisory, and it changes no status.
+// project already wires under the same event and matcher is a differently
+// spelled wiring of the same script; adding upstream's line beside it would run
+// the script twice, so the note says to replace it. Advisory; no status change.
 //
-// Determinism (P5): an entry is `Event · matcher · command · args` compared as
-// an exact string. Equality is TEXTUAL — a user's equivalent rewrite of a hook
-// reads as missing; the message says so, and the human decides (advisory).
-// Extra hooks the user added never count.
+// Equality is TEXTUAL over `Event · matcher · command · args`: an equivalent
+// rewrite reads as missing, and the message says so. Extra user hooks never
+// count.
 // ---------------------------------------------------------------------------
 
 /** The per-user settings file Claude Code merges over `settings.json`. */
@@ -85,9 +67,8 @@ export interface HookWiringDiff {
   reason?: string;
   /**
    * The members of `missing` whose script the project already wires under the
-   * same event and matcher, spelled differently — each with the project's own
+   * same event and matcher, spelled differently — with the project's own
    * line(s), `settings.json` first. Only for `missing`, only when non-empty.
-   * Adding upstream's line beside them would run the script twice.
    */
   replace?: HookReplacement[];
 }
@@ -105,16 +86,13 @@ type ReadResult =
   | { kind: 'absent' }
   | { kind: 'unreadable'; reason: string };
 
-// O_NONBLOCK keeps open(2) on a FIFO from blocking forever — the PHARN-14/15
-// rule for every reader of a path it does not control. POSIX-only constants are
-// simply absent on win32, where the flag is not set.
+// O_NONBLOCK keeps open(2) on a FIFO from blocking forever. Absent on win32.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
 
 /**
  * Read one settings file under `base`: a symlinked FILE is followed (as Claude
- * Code does), a symlinked directory on the way is not. The project's files and
- * the clone's go through this one reader; the clone holds no links at all (the
- * clone invariant, lib/repo.ts), so the walk only ever matters for the project.
+ * Code does), a symlinked directory on the way is not. The clone holds no
+ * links (lib/repo.ts), so the walk only matters for the project.
  */
 function readSettings(base: string, rel: string): ReadResult {
   let linked: string | null;
@@ -172,8 +150,7 @@ function readSettings(base: string, rel: string): ReadResult {
 
 /**
  * Normalize a settings object's `hooks` block into entries, or `null` when there
- * is no usable `hooks` object. Malformed members are skipped, not thrown on: a
- * shape this reader does not understand is simply not an entry.
+ * is no usable `hooks` object. Malformed members are skipped, not thrown on.
  */
 export function hookEntries(settings: unknown): HookEntry[] | null {
   if (!isPlainObject(settings) || !isPlainObject(settings.hooks)) return null;
@@ -323,17 +300,11 @@ export type HookReference =
   | { file: string; kind: 'unreadable'; reason: string };
 
 /**
- * The hooks wired in the project's `.claude/settings.json` and
- * `.claude/settings.local.json` whose `command` or any `args` element CONTAINS
- * one of `scriptRels` (project-relative paths, e.g. `.claude/hooks/x.cjs`) — the
- * wiring `pharn uninstall` leaves pointing at a script it removed. A substring
- * test, so the plain, the `$CLAUDE_PROJECT_DIR`-anchored and the exec (`args`)
- * forms all match. TEXTUAL (advisory): a hook that reaches the script through a
- * wrapper or a differently spelled path is not found.
- *
- * Read-only, and the files are read exactly as `diffHookWiring` reads them.
- * Files with no matching entry, and absent files, are omitted; an unreadable
- * file is reported, since it could wire anything.
+ * The project's hooks (both settings files) whose `command` or any `args`
+ * element CONTAINS one of `scriptRels` — the wiring `pharn uninstall` leaves
+ * pointing at a script it removed. TEXTUAL: a wrapper or a differently spelled
+ * path is not found. Read as `diffHookWiring` reads; files with no match are
+ * omitted, and an unreadable file is reported, since it could wire anything.
  */
 export function hooksReferencing(
   projectRoot: string,
@@ -357,9 +328,8 @@ export function hooksReferencing(
 }
 
 /**
- * Does this diff fail `status --strict`? A hook wired only locally IS wired
- * (it runs for this user), so `local-only` passes; in CI the local file does
- * not exist, so CI's answer is the same as before.
+ * Does this diff fail `status --strict`? A hook wired only locally IS wired for
+ * this user, so `local-only` passes.
  */
 export function hookWiringFails(diff: HookWiringDiff): boolean {
   return (
@@ -373,10 +343,9 @@ export function hookWiringFails(diff: HookWiringDiff): boolean {
 const MAX_LINE = 300;
 
 /**
- * One display line: `Event [matcher]: <the hook as JSON>`. The JSON is the hook
- * itself — `args` only when present — so an exec-form hook and a shell-form one
- * print differently, and a printed line pasted into a settings file satisfies
- * the check. Escaped (see above) and capped at MAX_LINE characters.
+ * One display line: `Event [matcher]: <the hook as JSON>`, `args` only when
+ * present, so exec and shell forms print differently and a pasted line
+ * satisfies the check. Escaped and capped at MAX_LINE characters.
  */
 export function displayHook(e: HookEntry): string {
   const hook =
@@ -465,10 +434,8 @@ function replaceAndAddLines(
 
 /**
  * The HOOKS note `init` prints over a PRESERVED `.claude/settings.json` — the
- * same body `status` and `update` print, plus the consequence `status` would
- * report — or `null` when there is nothing to say. ONE composition for the real
- * run (steps/install-archetype.ts) and `init --dry-run` (commands/init.ts), so
- * the preview's note is the install's by construction.
+ * `status`/`update` body plus the consequence `status` would report — or
+ * `null`. ONE composition for the real run and `init --dry-run`.
  */
 export function preservedSettingsHookLines(
   diff: HookWiringDiff,
@@ -481,19 +448,14 @@ export function preservedSettingsHookLines(
 }
 
 // ---------------------------------------------------------------------------
-// A FRESH install (CORE-172). When the project has no `.claude/settings.json`,
-// init copies upstream's verbatim — the hook commands Claude Code will run in
-// this project, the largest trust surface of an install (provenance only, no
-// signatures; THREAT-MODEL.md §4a). The copy itself is unchanged; what is new
-// is that init LISTS what the file wires, real run and `--dry-run` alike.
+// A FRESH install: with no project `.claude/settings.json`, init copies
+// upstream's verbatim — the hook commands Claude Code will run, the largest
+// trust surface of an install (THREAT-MODEL.md §4a) — and LISTS what it wires.
 //
-// Read through the settings reader above (non-blocking, regular files only,
-// 256 KiB). The copy has no size cap and no JSON
-// check, so a file this reader refuses was still installed: the summary says
-// `unreadable`, and the note says it could not list the hooks — never nothing.
-// Advisory: the entries are the ones `hookEntries` recognises; a member it
-// drops is COUNTED (`skipped`) so the note can point at the file, and what
-// Claude Code finally runs is its own parser's answer.
+// Read through the settings reader above. The copy has no size cap or JSON
+// check, so a file this reader refuses was still installed: the note then says
+// it could not list the hooks, never nothing. Members `hookEntries` drops are
+// COUNTED (`skipped`) so the note can point at the file.
 // ---------------------------------------------------------------------------
 
 /** What a fresh `.claude/settings.json` from upstream wires. */
@@ -569,10 +531,8 @@ function displayKey(key: string): string {
 
 /**
  * The HOOKS note `init` prints after WRITING `.claude/settings.json` from
- * upstream. ONE composition for the real run (steps/install-archetype.ts) and
- * `init --dry-run` (commands/init.ts) — the `preservedSettingsHookLines`
- * pattern — and always lines: the file was written, so the note is never
- * empty. Every hook goes through `displayHook`; keys and the reason through
+ * upstream — one composition for the real run and `init --dry-run`, never
+ * empty. Hooks go through `displayHook`; keys and the reason through
  * `escapeUnsafe`, capped.
  */
 export function freshSettingsHookLines(

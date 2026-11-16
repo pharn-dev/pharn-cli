@@ -53,10 +53,7 @@ import type {
 // `pharn add <name>` / `add <role>:<name>` installs one capability into an
 // archetype project. Bare `pharn add` in a terminal opens a grouped multi-select
 // over the not-yet-installed capabilities — sugar over the SAME per-name install
-// path (resolveArchetypeAdd), never a second installer. Non-TTY keeps a usage
-// error. The legacy module/manifest flow was removed (live pharn-oss ships no
-// manifest.json); a pre-archetype config is rejected up front by
-// loadArchetypeConfigOrExit with the single LEGACY_CONFIG_MESSAGE.
+// path (resolveArchetypeAdd). Non-TTY keeps a usage error.
 export async function runAdd(capabilityArg: string | undefined): Promise<void> {
   intro('pharn add');
 
@@ -65,50 +62,27 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
   await runArchetypeAdd(config, cwd, capabilityArg);
 }
 
-// THE VERSION GATE. `add` fetches the newest release (or `main`, for a project
-// that follows it), so the clone can be AHEAD of what this
-// project installed. Stamping that clone's SKILLS_VERSION into pharn.config.json
-// while every previously-installed file still holds the OLD version's bytes is
-// what made `pharn update`'s `config.skillsVersion === latest` early-return lie —
-// it printed "Already up to date" over a stale (or nearly empty) install, and the
-// skew only self-healed on the next upstream release. So `add` refuses unless the
-// two agree, and names the one command that resolves it.
+// THE VERSION GATE. The clone can be ahead of (or behind) what this project
+// installed, and stamping its SKILLS_VERSION over files still at the old bytes
+// would make `pharn update`'s same-version early return lie ("Already up to
+// date" over a stale install). So `add` refuses unless the two agree: exact
+// `!==`, direction-agnostic. The config value is only type-checked at ingest;
+// an unparseable hand-edit compares unequal and refuses (fail closed).
 //
-// Direction-agnostic by construction: it fires on `!==`, never `<`. A clone OLDER
-// than the config (a rollback, a hand edit) is the same mismatch and gets the same
-// symmetric wording — never a guessed direction.
+// Called from INSIDE each path's try, because readSkillsVersion throws on a
+// missing/invalid SKILLS_VERSION and only there does the throw reach the
+// finally that cleans the clone up.
 //
-// Determinism (P5): exact string equality, no heuristic and no third outcome. The
-// clone value is VERSION_RE-validated by readSkillsVersion; the config value is
-// only TYPE-checked at ingest (lib/pharn-config.ts, deliberately — the same
-// reasoning lib/install-records.ts records for its stamp). That asymmetry is safe
-// here precisely because an unparseable hand-edited value compares UNEQUAL and so
-// refuses: the fail-closed direction.
+// A `pendingSkillsVersion` also passes: `update` records it only when the bump
+// was withheld solely by the user's kept edits (directly, or through the
+// executable-unit hold they caused), so everything outside those edits and the
+// unit is at that version — and `add` writes capability dirs only, outside the
+// unit. Without a pending version `add` cannot tell "update not run yet" from
+// "update cannot finish", so the refusal names `pharn update`, `--dry-run` and
+// the two ways out.
 //
-// Returns the refusal message, or null to proceed. Called ONCE per command from
-// INSIDE each path's existing try — not after fetchRepo — because readSkillsVersion
-// throws on a missing/invalid SKILLS_VERSION, and only inside the try does that
-// throw still reach the finally that cleans the clone up (P0: cleanup before exit).
-//
-// A `pendingSkillsVersion` (types.ts) also passes: `update` records it only when
-// the bump was withheld SOLELY by the user's kept edits — directly, or through
-// the executable-unit hold they caused (CORE-159) — so every file outside those
-// edits and the unit is at that version. `add` writes capability directories
-// only, which are outside the unit, so it is safe at it. Without it, one kept
-// edit dead-ended `add` for good — `update` could never finish while the edit
-// stayed, and this message sent the user back to `update` in a loop.
-//
-// When nothing is pending, `add` cannot tell "update was not run yet" from
-// "update cannot finish" (a blocker that is not a user edit — `unverifiable`
-// with no usable record store, `unreadable` — records nothing), and it has no
-// plan to name the blockers. So the refusal names `pharn update`, how to see
-// what blocks it (`--dry-run`) and the two ways out.
-//
-// One case gets its own wording: an install AHEAD of the source it follows
-// (lib/version-status.ts) — of the newest verified release (made from `main`, as
-// every install before 0.9.0 was), or of main itself (main moved back). Sending
-// that user to `pharn update` would loop — `update` refuses to downgrade without
-// `--force` — so the message names the real ways forward instead.
+// An install AHEAD of its source (lib/version-status.ts) gets its own wording:
+// `pharn update` would refuse to downgrade without `--force` and loop the user.
 function versionGate(
   repoDir: string,
   config: PharnConfig,
@@ -131,12 +105,10 @@ function versionGate(
   return `Skills version mismatch: pharn.config.json records v${config.skillsVersion}${partly}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on. Run \`pharn update\` to move it to v${fetched}; if update cannot finish (\`pharn update --dry-run\` shows which files block it), revert those files or run \`pharn update --force\` (it backs them up to pharn/.backup/ first), then re-run \`pharn add\`.`;
 }
 
-// The (skillsVersion, commit) pair `add` writes to the config and stamps the
-// records with. Normally the clone's — equal to the recorded version by the gate.
-// At a PENDING version the pair must stay the config's own: the records store is
-// stamped with it, and writing the newer version would claim a complete upgrade
-// the kept edits — and an executable unit they held back — never received
-// (`update` would early-return "up to date").
+// The (skillsVersion, commit) pair `add` writes to the config and the records
+// stamp: normally the clone's. At a PENDING version it stays the config's own —
+// the newer version would claim an upgrade the kept edits (and a unit they held
+// back) never received, and `update` would early-return "up to date".
 function addStamp(
   config: PharnConfig,
   version: string,
@@ -147,32 +119,16 @@ function addStamp(
     : { skillsVersion: config.skillsVersion, commit: config.commit };
 }
 
-// THE LAYOUT GATE — the sibling of versionGate, and the same shape for the same
-// reason. `add` copies at the CLONE's layout (installCapabilityDirs' default) and
-// records at the clone's layout (mergeCapabilityRecords below), but EVERY reader
-// of the install addresses the project through configLayout: remove (both paths),
-// status/diff.ts, update's migration warning. When those two disagree, `add`
-// writes where nothing will ever look: the capability lands under pharn/, and the
-// next `pharn remove` reports "its files were already gone" while deleting only
-// the config entry — orphaning the directory permanently.
+// THE LAYOUT GATE. `add` copies and records at the CLONE's layout, but every
+// reader (remove, status/diff.ts, update) addresses the project through
+// configLayout. On a mismatch the capability lands where nothing looks, and the
+// next `remove` drops the config entry and orphans the directory.
 //
-// So the gate refuses rather than migrating. Recording the clone's layout here
-// (what `update` does) would be strictly worse: `update` may record it only
-// because it rewrites the ENTIRE tree at that layout, while `add` rewrites ONE
-// capability — flipping config.layout would re-address every other capability,
-// doc, contract, and floor file that is still at the old paths, turning one
-// orphan into an install-wide one. Only `update` can migrate a tree, so the
-// refusal names it.
-//
-// Compares configLayout(config), never the raw config.layout field: configLayout
-// IS the definition of "where this project is addressed", and agreeing with the
-// readers is the whole invariant. Both sides are the two-value Layout enum, so a
-// hand-edited garbage value resolves to `flat`, mismatches a `pharn` clone, and
-// refuses — fail-closed — and neither interpolated value is an unvalidated config
-// string reaching the terminal.
-//
-// Returns the refusal message, or null to proceed. Called from INSIDE each path's
-// existing try, immediately after versionGate (P0: cleanup before exit).
+// So it refuses rather than migrating: recording the clone's layout (what
+// `update` does, because it rewrites the whole tree) would re-address every
+// other file still at the old paths. Compares configLayout(config), never the
+// raw field, so a garbage hand-edited value resolves to `flat` and fails closed.
+// Called inside each path's try, right after versionGate.
 function layoutGate(repoDir: string, config: PharnConfig): string | null {
   const clone = detectLayout(repoDir);
   const recorded = configLayout(config);
@@ -182,8 +138,7 @@ function layoutGate(repoDir: string, config: PharnConfig): string | null {
 
 // Install one capability into an archetype project (a manual override of
 // archetype auto-selection). Appends to `capabilities`, never touches
-// `archetypes`. The clone lives across no interactive prompt (named path), but
-// cleanup still runs in a finally with every process.exit after it.
+// `archetypes`. Cleanup runs in a finally with every process.exit after it.
 async function runArchetypeAdd(
   config: PharnConfig,
   cwd: string,
@@ -205,31 +160,17 @@ async function runArchetypeAdd(
   // after the clone cleanup (Node skips finally on process.exit).
   let result: AddResult;
   try {
-    // THE SINGLE-WRITER LOCK — taken BEFORE the fetch, so a run that is going to
-    // be refused pays no download at all. This path has NO prompt, so nothing
-    // human can sit under the lock; see runAddPicker for the path that does, and
-    // src/commands/update.ts for the full reasoning on bounded-vs-unbounded work
-    // under a lock.
+    // The lock is taken BEFORE the fetch, so a refused run downloads nothing;
+    // this path has no prompt. The fetch is inside `fn` so a fetch failure
+    // unwinds through withProjectLock's `finally` and releases the lock.
     //
-    // The fetch lives INSIDE `fn` so a fetch failure unwinds through
-    // withProjectLock's `finally` and RELEASES it. Its old `process.exit(1)`
-    // skipped every finally, which would have stranded the lock in the project
-    // root on every offline / rate-limited / DNS failure.
-    //
-    // The narrowing this costs, named honestly: `parseCapabilityArg` above still
-    // rejects a malformed address before the lock, but an UNKNOWN or AMBIGUOUS
-    // name is resolved against the capability index — which lives in the clone —
-    // so under a held lock `pharn add bogus` now reports the lock rather than
-    // listing the valid addresses. Unavoidable: there is no offline index to
-    // resolve against. Every error decidable WITHOUT the clone (a legacy config,
-    // a malformed address) still wins.
+    // Cost: an UNKNOWN or AMBIGUOUS name is resolved against the index in the
+    // clone, so under a held lock `pharn add bogus` reports the lock instead of
+    // listing valid addresses. Errors decidable without the clone still win.
     result = await withProjectLock(cwd, 'add', async () => {
       assertConfigUnchanged(cwd, config, 'add');
-      // What a configured proxy means here (nothing: fetch never uses one) —
-      // emitted before the spinner so it survives the frame and precedes a
-      // proxy-caused failure (see src/commands/init.ts for the full rationale).
-      // Inside the lock: a refused run never fetches, so a warning about how the
-      // fetch would behave is noise it should not print.
+      // The proxy notice (fetch never uses a proxy) goes before the spinner so
+      // it survives the frame; inside the lock, so a refused run does not print it.
       const proxyNotice = detectProxyNotice(process.env);
       if (proxyNotice) {
         log.warn(proxyNoticeMessage(proxyNotice));
@@ -239,30 +180,24 @@ async function runArchetypeAdd(
       s.start(`Fetching capabilities from ${REPO_URL}`);
       let repo;
       try {
-        // The channel this install follows (`ref` in the config) — `add` has
-        // no `--ref` of its own: it must fetch what the project is on.
+        // The channel the config records — `add` has no `--ref` of its own.
         repo = await fetchRepo(await resolveSource(channelOf(config)));
         s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
       } catch (err) {
         s.stop('Failed to fetch capabilities');
-        // Re-thrown, not exited: the catch below turns it into the same
-        // `{kind:'error'}` + boxed cause the old `reportFatal(...); exit(1)`
-        // produced, and unwinding is what lets the lock release.
+        // Re-thrown, not exited, so the lock releases; the catch below turns it
+        // into a boxed `{kind:'error'}`.
         throw err;
       }
       try {
-        // `??` and not two ifs: short-circuit evaluation is what makes "version
-        // wins when BOTH mismatch" structural rather than a property of
-        // statement order a later edit could silently invert. The realistic
-        // both-mismatch case is an old flat project meeting a new clone, where
-        // `pharn update` fixes version AND layout in one pass — so the version
-        // message is the one worth printing.
+        // `??` chain: short-circuit evaluation makes the order of the gates
+        // structural. Version wins over layout when both mismatch, since
+        // `pharn update` fixes both in one pass.
         const gate = minCliGate(repo.dir, PHARN_VERSION);
         if (gate.warning) log.warn(gate.warning);
-        // MIN_CLI leads the chain: a CLI too old for this content cannot be
-        // fixed by `pharn update` (which the version gate would name), because
-        // `update` would be refused for the same reason. Upgrading is the only
-        // real action, so its message must be the one the user sees.
+        // MIN_CLI leads: a CLI too old for this content cannot be fixed by
+        // `pharn update` (refused for the same reason), so upgrading is the
+        // message the user must see.
         const refusal =
           gate.refusal ??
           versionGate(repo.dir, config, repo.source) ??
@@ -282,16 +217,9 @@ async function runArchetypeAdd(
       }
     });
   } catch (err) {
-    // The exception is carried BOXED, not flattened to a message: the box's
-    // presence is the single axis that separates a caught exception (which earns
-    // the PHARN_DEBUG affordance) from the gate refusals that reach this same
-    // `{kind:'error'}` outcome above. Boxed rather than bare because `throw
-    // undefined` is legal, and a bare field could not tell it from "absent".
-    //
-    // A held lock is on the REFUSAL side of that axis, so it goes unboxed: the
-    // message already names the one action that resolves it, and offering a
-    // stack trace for it would be offering to debug someone else's running
-    // process.
+    // The exception is carried BOXED: the box separates a caught exception
+    // (which earns the PHARN_DEBUG affordance) from a gate refusal, and survives
+    // `throw undefined`. A held lock is a refusal, so it goes unboxed.
     result =
       err instanceof ProjectLockedError
         ? { kind: 'error', message: err.message }
@@ -315,10 +243,9 @@ async function runArchetypeAdd(
 // Bare `pharn add` — the interactive multi-select picker (additive-only).
 // ---------------------------------------------------------------------------
 
-// Non-TTY (CI, a pipe) → NEVER prompt: a reworded usage error + exit(1), before
-// any fetch (P5 — the terminal fallback is a hard-fail, not a guess). In a TTY,
-// fetch once, then resolve the picker (which lives across the multi-select), with
-// cleanup in a finally and every exit after it.
+// Non-TTY (CI, a pipe) → NEVER prompt: a usage error + exit(1), before any
+// fetch. In a TTY, fetch once, then resolve the picker, with cleanup in a
+// finally and every exit after it.
 async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
   if (
     !interactiveAllowed({
@@ -332,28 +259,18 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     process.exit(1);
   }
 
-  // Assigned exactly once per path (try or catch) before it is read, so the
-  // exit/outro happens after the clone cleanup (mirrors the named path).
+  // Assigned exactly once per path before it is read, so the exit/outro happens
+  // after the clone cleanup.
   let outcome: PickerAddOutcome;
   try {
-    // ONE lock for the whole selection loop, not one per pick: resolveArchetypeAdd
-    // persists config + records on every iteration, so a per-pick lock would leave
-    // a gap between picks for another process to interleave into.
-    //
-    // Taken BEFORE the fetch, so a run that is going to be refused pays no
-    // download — the same move as the named path and as `update`.
-    //
-    // This path DOES hold the lock across a human prompt (groupMultiselect, inside
-    // resolveAddPicker), and that was already true before the acquisition moved:
-    // the lock has always wrapped the whole selection loop. Moving it earlier adds
-    // a BOUNDED download (repo.ts caps: 8s resolve, 60s clone) to a hold that was
-    // already unbounded — a change of degree, not of kind. `init` is the case where
-    // it WOULD be a change of kind, which is why init's lock stays where it is.
+    // ONE lock for the whole selection loop: resolveArchetypeAdd persists config
+    // and records on every pick, so a per-pick lock would let another process
+    // interleave between picks. Taken before the fetch, like the named path.
+    // This path holds the lock across a human prompt (groupMultiselect); the
+    // download only adds a bounded wait to that hold.
     outcome = await withProjectLock(cwd, 'add', async () => {
       assertConfigUnchanged(cwd, config, 'add');
-      // What a configured proxy means here (nothing: fetch never uses one) —
-      // emitted before the spinner so it survives the frame and precedes a
-      // proxy-caused failure (see src/commands/init.ts for the full rationale).
+      // The proxy notice goes before the spinner so it survives the frame.
       const proxyNotice = detectProxyNotice(process.env);
       if (proxyNotice) {
         log.warn(proxyNoticeMessage(proxyNotice));
@@ -363,8 +280,7 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       s.start(`Fetching capabilities from ${REPO_URL}`);
       let repo;
       try {
-        // The channel this install follows (`ref` in the config) — `add` has
-        // no `--ref` of its own: it must fetch what the project is on.
+        // The channel the config records — `add` has no `--ref` of its own.
         repo = await fetchRepo(await resolveSource(channelOf(config)));
         s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
       } catch (err) {
@@ -373,10 +289,8 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
         throw err;
       }
       try {
-        // Same ordered pair as the named path (see there), and for the same
-        // reason it sits before resolveAddPicker: both gates must fire before
-        // groupMultiselect renders, or the user picks capabilities only to be
-        // refused afterwards.
+        // Same gate chain as the named path; it runs before resolveAddPicker so
+        // the user is never refused after picking.
         const gate = minCliGate(repo.dir, PHARN_VERSION);
         if (gate.warning) log.warn(gate.warning);
         const refusal =
@@ -397,9 +311,7 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       }
     });
   } catch (err) {
-    // Same axis as the named path: the boxed exception travels with the outcome
-    // so a crash gets the PHARN_DEBUG hint, while a gate refusal and a held lock
-    // do not.
+    // Same boxing as the named path.
     outcome =
       err instanceof ProjectLockedError
         ? { kind: 'error', message: err.message }
@@ -424,10 +336,8 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     outro(`${pc.green('✔')} Added ${n} ${plural(n)}.`);
     return;
   }
-  // A pick that failed (each already reported as it happened) makes the run a
-  // failure: named again here, and exit 1 — never "Added 0 capabilities" and a
-  // success code (CORE-168). The names are the picks' own `role:name` values,
-  // built from the validated index.
+  // A failed pick (each already reported) makes the run a failure: named again
+  // and exit 1. The names are `role:name` values from the validated index.
   const failures = `${outcome.failed.length} failed: ${outcome.failed.join(', ')}.`;
   outro(
     n === 0
@@ -441,9 +351,9 @@ function plural(n: number): string {
   return n === 1 ? 'capability' : 'capabilities';
 }
 
-// Resolve the arg against the fetched index and, if it uniquely names a not-yet-
-// installed capability, copy it + append to config. Pure of process.exit — the
-// caller owns cleanup + exit (this returns a typed outcome instead).
+// Resolve the arg against the fetched index and, if it uniquely names a
+// not-yet-installed capability, copy it + append to config. Returns a typed
+// outcome; the caller owns cleanup + exit.
 async function resolveArchetypeAdd(
   repoDir: string,
   sha: string | null,
@@ -451,17 +361,13 @@ async function resolveArchetypeAdd(
   cwd: string,
   parsed: { name: string; role?: 'griller' | 'lens' },
   arg: string,
-  // The already-parsed index, when the caller holds one. The picker passes its
-  // own so an N-pick run parses ONCE and warns ONCE; the named path omits it and
-  // parses here. Either way the unknown list is surfaced exactly once per
-  // command — naming it at only some parses is how a skipped capability becomes
-  // invisible, and naming it at every pick is just noise for the same fact.
+  // The already-parsed index, when the caller holds one (the picker), so the
+  // unknown-capabilities warning prints exactly once per command.
   parsedIndex?: CapabilityIndex,
 ): Promise<AddResult> {
   let index = parsedIndex;
   if (index === undefined) {
     index = parseCapabilityIndex(repoDir);
-    // No silent skips (P5).
     const unknownWarning = unknownCapabilitiesWarning(index.unknown);
     if (unknownWarning) log.warn(unknownWarning);
   }
@@ -488,44 +394,24 @@ async function resolveArchetypeAdd(
   if (existing.some((c) => c.name === cap.name && c.role === cap.role)) {
     return { kind: 'noop', name: cap.name };
   }
-  // The files the copy is about to write, enumerated in the CLONE — the one list
-  // that drives BOTH the drift set below and the records merge further down, so
-  // the two can never disagree about what this add actually wrote.
+  // The files the copy will write, enumerated in the CLONE — one list drives
+  // both the drift set and the records merge, so they cannot disagree.
   const paths = layoutPaths(detectLayout(repoDir));
   const cloneRels = capabilityCloneFiles(repoDir, paths, cap);
 
-  // DESTINATION-DRIFT PROTECTION. `add` was the only write path with none of the
-  // product's three edit-protections: no prompt (init's confirmWriteTargets), no
-  // per-file skip (update's records table), no backup (update --force). And a
-  // capability directory can hold edited bytes without a config entry: one left
-  // behind by a pharn older than the fix that made `update` and a re-run `init`
-  // delete the directories they drop, or one the user created by hand. A later `add` of that capability is not a
-  // config no-op — so cpSync's `force: true` replaced the edits with pristine
-  // upstream bytes, unrecoverably.
-  //
-  // So every file whose destination bytes DIFFER from the clone's is copied to
-  // `pharn/.backup/<ts>/` first (lib/backup.ts — the same directory
-  // `update --force` uses). `add` still overwrites; it no longer does so
-  // irrecoverably. Byte-identical is not drift, so a drop-then-re-add of unedited
-  // files stays silent (lib/dest-drift.ts).
-  //
-  // BEFORE the copy, and before installCapabilityDirs' pre-flight can throw: a
-  // failed backup must abort with every original intact, which is exactly
-  // createBackup's contract. The scan skips an unreadable source rather than
-  // throwing, so a missing/symlinked capability dir still gets the pre-flight's
-  // curated message rather than a raw ENOENT from here.
+  // DESTINATION-DRIFT PROTECTION. A capability directory can outlive its config
+  // entry (left by an older pharn, or made by hand) and hold edited bytes, so
+  // `add` is not then a no-op. Every file whose destination bytes differ from
+  // the clone's is backed up to `pharn/.backup/<ts>/` before the copy;
+  // byte-identical is not drift (lib/dest-drift.ts). The scan skips an
+  // unreadable source, so installCapabilityDirs' pre-flight message still wins.
   const scan = scanDest({ repoDir, projectRoot: cwd, rels: cloneRels });
 
-  // REFUSE rather than write through a symlink. Measured on node v24.13.1: with a
-  // symlinked INTERMEDIATE directory under the capability dir, cpSync writes
-  // straight THROUGH it, replacing bytes wherever the link points — outside the
-  // project included. Skipping those paths would be worse than doing nothing: the
-  // copy still writes through the link while the backup meant to protect it
-  // silently omits the file. Backing them up is not an option either —
-  // createBackup refuses a symlinked component by design, and copyFileSync would
-  // save the TARGET's bytes rather than the link. So `add` writes NOTHING and
-  // names the offending component, the same shape as its version and layout gates
-  // (lib/dest-drift.ts carries the full measurement).
+  // REFUSE a symlinked component under the capability dir: cpSync writes
+  // THROUGH a symlinked intermediate directory (pinned by
+  // tests/commands/add.test.ts, "refuses rather than copy through a symlinked
+  // directory, naming it"), and such a path
+  // cannot be backed up either.
   if (scan.unsafe.length > 0) {
     const first = scan.unsafe[0]!;
     const more =
@@ -540,11 +426,8 @@ async function resolveArchetypeAdd(
 
   if (scan.drifted.length > 0) {
     const backupDir = createBackup(cwd, scan.drifted);
-    // Announced AT CREATION, not only on success: this path is the user's ONLY
-    // pointer back to their pre-overwrite bytes (lib/backup.ts), and everything
-    // after this line can still throw — the pre-flight, the records write, the
-    // config write. Printing here is what keeps the pointer reachable on the very
-    // path that most needs it.
+    // Announced AT CREATION: everything after this can still throw, and this is
+    // the user's only pointer back to the pre-overwrite bytes.
     printBackupNotice({
       dir: backupDir,
       saved: scan.drifted.length,
@@ -555,31 +438,21 @@ async function resolveArchetypeAdd(
 
   installCapabilityDirs(repoDir, cwd, [{ name: cap.name, role: cap.role }]);
   const version = readSkillsVersion(repoDir);
-  // The SHA the tree was pinned to (recorded == fetched, or null when the branch
-  // was floated — LIMITS.md §3b); threaded from fetchRepo, no separate fetch —
-  // unless the clone is at a pending version (see addStamp).
+  // The pinned SHA (null when the branch was floated — LIMITS.md §3b), unless
+  // the clone is at a pending version (see addStamp).
   const stamp = addStamp(config, version, sha);
-  // `source: 'manual'` — the user asked for this capability BY NAME, so it is
-  // theirs, not archetype resolution's. `pharn update` reads that tag and
-  // PRESERVES the entry instead of replacing it with the re-resolved auto set
-  // (lib/merge-capabilities.ts, rows 3/6). Without the tag, the next update would
-  // silently delete this add and orphan its files.
+  // `source: 'manual'` — the user asked for it by name, so `pharn update` keeps
+  // it instead of replacing it with the re-resolved auto set
+  // (lib/merge-capabilities.ts).
   const capabilities: InstalledCapability[] = [
     ...existing,
     { name: cap.name, role: cap.role, source: 'manual' },
   ];
-  // Record the files this add just wrote, merged into the existing store, so the
-  // capability is not later mistaken for a file pharn never wrote (`unrecorded`)
-  // by `pharn update`. Only an already-READABLE store is extended: minting a
-  // partial one over an absent/corrupt store would silently relabel the whole
-  // install, so absent stays absent (fail closed, lib/install-records.ts).
-  //
-  // The paths come from the CLONE — what the copy wrote — never from a walk of
-  // the destination. A leftover capability directory can hold files the user put
-  // there, and a dest walk recorded those as pharn-written: if upstream later
-  // shipped a file at that path, record==dest would make `update` read the user's
-  // file as cleanly upgradeable instead of `modified`. The hashes are still taken
-  // at the DEST (buildRecords), so a record can never disagree with what landed.
+  // Record the files this add wrote, so `update` does not later read them as
+  // `unrecorded`. Only an already-readable store is extended (absent stays
+  // absent). Keys come from the CLONE, never a dest walk, so a user's own file
+  // in a leftover capability dir is not recorded as pharn's; hashes are taken
+  // at the DEST, so a record matches what landed.
   await mergeCapabilityRecords(
     cwd,
     config,
@@ -590,22 +463,18 @@ async function resolveArchetypeAdd(
   await writePharnConfig(cwd, {
     ...config,
     ...stamp,
-    // `installedAt` is carried by the spread: an add is a partial edit, not an
-    // install — init and update are the commands that set it (F-23).
+    // `installedAt` is carried by the spread: an add is a partial edit.
     capabilities,
   });
   return { kind: 'added', name: cap.name, version, stamp };
 }
 
-// Extend `pharn.records.json` with one just-installed capability's files. The
-// store is re-stamped with the same (skillsVersion, commit) written to the config
-// beside it, so the two stay consistent (the stamp is diagnostics; it never
-// gates the baseline — lib/install-records.ts).
+// Extend `pharn.records.json` with one capability's files, re-stamped with the
+// (skillsVersion, commit) written to the config beside it.
 async function mergeCapabilityRecords(
   cwd: string,
   config: PharnConfig,
-  // The CLONE-derived paths the copy just wrote (capabilityCloneFiles), not a
-  // walk of the destination — see the call site.
+  // The CLONE-derived paths the copy wrote — see the call site.
   cloneRels: string[],
   skillsVersion: string,
   commit: string | null,

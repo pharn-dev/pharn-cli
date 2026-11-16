@@ -7,12 +7,11 @@ import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import { buildAddSelection } from '../lib/capability-picker.js';
 import type { CapabilityIndex, PharnConfig } from '../types.js';
 
-// The prompt behind bare `pharn add` (src/commands/add.ts `runAddPicker`): the
-// grouped multi-select over the not-yet-installed capabilities, and the loop that
-// installs each pick. The command keeps everything around it — the TTY gate, the
-// lock, the fetch and the version/layout gates, which run BEFORE this is called,
-// so a refused add never renders the multi-select — and passes its per-name
-// install path in as `addOne`, so this file never imports the command.
+// The prompt behind bare `pharn add`: the grouped multi-select over the
+// not-yet-installed capabilities, and the loop that installs each pick. The
+// TTY gate, lock, fetch and version/layout gates run in the command BEFORE
+// this, so a refused add never renders the multi-select; the per-name install
+// path comes in as `addOne`, so this file never imports the command.
 
 export type AddResult =
   | {
@@ -25,8 +24,7 @@ export type AddResult =
   // See PickerAddOutcome: `cause` present ⇔ this came from an exception.
   | { kind: 'error'; message: string; cause?: FatalCause };
 
-// The command's per-name install path (`resolveArchetypeAdd`), the one
-// installer every pick goes through.
+// The command's per-name install path (`resolveArchetypeAdd`).
 export type AddOne = (
   repoDir: string,
   sha: string | null,
@@ -38,22 +36,19 @@ export type AddOne = (
 ) => Promise<AddResult>;
 
 export type PickerAddOutcome =
-  // `failed`: the picks that came back as `error`, by their own `role:name`
-  // value — the command names them and exits 1 when any is listed.
+  // The picks that came back as `error`, by `role:name`; the command names
+  // them and exits 1.
   | { kind: 'installed'; added: string[]; failed: string[] }
   | { kind: 'all-installed' }
   | { kind: 'none' }
   | { kind: 'cancelled' }
-  // `cause` is present ONLY when this outcome came from a caught exception. Its
-  // absence is what keeps the PHARN_DEBUG hint off a curated gate refusal, which
-  // reaches the very same variant.
+  // `cause` is present ONLY when this outcome came from a caught exception,
+  // which keeps the PHARN_DEBUG hint off a curated gate refusal.
   | { kind: 'error'; message: string; cause?: FatalCause };
 
-// Build the menu (available = index − installed), multi-select, then install each
-// pick via the EXISTING per-name path (resolveArchetypeAdd, passed in as `addOne`), threading the
-// growing config forward so the FINAL pharn.config.json holds every pick — not
-// just the last (resolveArchetypeAdd persists per call off the config passed in).
-// Pure of process.exit — the caller owns cleanup + exit.
+// Build the menu (available = index − installed), multi-select, then install
+// each pick via `addOne`, threading the growing config forward so the FINAL
+// pharn.config.json holds every pick, not just the last. Never exits.
 export async function resolveAddPicker(
   repoDir: string,
   sha: string | null,
@@ -62,12 +57,8 @@ export async function resolveAddPicker(
   addOne: AddOne,
 ): Promise<PickerAddOutcome> {
   const index = parseCapabilityIndex(repoDir);
-  // No silent skips (P5): named immediately after the parse, so it precedes both
-  // the `all-installed` outro and the picker itself — the user never reads
-  // "all available capabilities are already installed" without also being told
-  // that something upstream was skipped. ONCE per command: the index is threaded
-  // into every pick below rather than re-parsed, so an N-pick run does not repeat
-  // the same warning N times.
+  // Named right after the parse, before both the `all-installed` outro and the
+  // picker, and ONCE: the index is threaded into every pick, not re-parsed.
   const unknownWarning = unknownCapabilitiesWarning(index.unknown);
   if (unknownWarning) log.warn(unknownWarning);
   const installed = config.capabilities ?? [];
@@ -90,9 +81,8 @@ export async function resolveAddPicker(
   const values = picked as string[];
   if (values.length === 0) return { kind: 'none' };
 
-  // Thread the config forward across the per-pick installs (grill F1): each
-  // resolveArchetypeAdd writes pharn.config.json off the `cfg` passed in, so cfg
-  // must accumulate every prior pick or the writes clobber down to the last one.
+  // Each pick writes pharn.config.json off the `cfg` passed in, so cfg must
+  // accumulate every prior pick or the writes clobber down to the last one.
   const added: string[] = [];
   const failed: string[] = [];
   let cfg = config;
@@ -102,20 +92,16 @@ export async function resolveAddPicker(
     if (result.kind === 'added') {
       log.info(`${pc.green('✔')} Added ${result.name}`);
       added.push(result.name);
-      // parsed.role is always defined — our option `value`s are `role:name`.
-      // Carry EVERY field resolveArchetypeAdd persisted, not just capabilities:
-      // `cfg` must mirror the config just written, or the next pick reads a
-      // config that disagrees with disk. (Concretely: the next pick's config
-      // write would put back the pre-pick skillsVersion/commit, so the config
-      // and the records stamp would disagree.)
+      // parsed.role is always defined — the option `value`s are `role:name`.
+      // Carry EVERY field the pick persisted, or the next pick's write would
+      // put back the pre-pick skillsVersion/commit, disagreeing with the
+      // records stamp.
       cfg = {
         ...cfg,
         ...result.stamp,
-        // Mirrors the entry resolveArchetypeAdd just persisted — INCLUDING its
-        // `source: 'manual'`. This is the second entry-construction site, and it
-        // must not diverge: the next pick spreads THIS array into its own config
-        // write, so an untagged mirror would persist every earlier pick without
-        // its provenance and `pharn update` would delete them.
+        // Mirrors the persisted entry INCLUDING `source: 'manual'`: the next
+        // pick spreads this array into its config write, and an untagged entry
+        // would later be deleted by `pharn update`.
         capabilities: [
           ...(cfg.capabilities ?? []),
           { name: parsed.name, role: parsed.role!, source: 'manual' },
@@ -125,14 +111,11 @@ export async function resolveAddPicker(
       // Defensive: the picker only offers not-installed capabilities.
       log.info(`${result.name} is already installed.`);
     } else {
-      // REACHABLE, not defensive: the values come from the validated index, but
-      // `resolveArchetypeAdd` also refuses a pick whose capability directory in
-      // the project crosses a symlink (it would write through the link). The
-      // pick is named now and counted, so the command can name it again in its
-      // outro and exit 1 (CORE-168). `logError`, not `reportFatal`: this does
-      // not exit — the loop continues to the next pick — and the error is a
-      // CURATED message, so there is no stack to offer. (A pick that THROWS
-      // still aborts the loop through the command's catch, also exit 1.)
+      // REACHABLE: `resolveArchetypeAdd` refuses a pick whose project dir
+      // crosses a symlink. Named now and counted, so the command names it in
+      // its outro and exits 1. `logError`, not `reportFatal`: the loop goes on,
+      // and a curated message has no stack. A pick that THROWS still aborts the
+      // loop through the command's catch.
       logError(`⚠ ${result.message}`);
       failed.push(value);
     }

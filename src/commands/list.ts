@@ -10,10 +10,8 @@ interface ArchetypeInventory {
   mode: 'archetype';
   skillsVersion: string;
   archetypes: Archetype[];
-  // `source` is ADDITIVE in the --json shape: present only when the config
-  // records it, omitted for a legacy entry that predates the field (never
-  // defaulted — absence means "provenance unknown until the next `pharn update`",
-  // and inventing a value here would publish a guess).
+  // `source`: present only when the config records it — never defaulted, since
+  // absence means "provenance unknown".
   capabilities: {
     name: string;
     role: 'griller' | 'lens';
@@ -21,18 +19,16 @@ interface ArchetypeInventory {
   }[];
 }
 
-// Read-only: shows the installed archetypes + capabilities from the config.
-// Never writes, never clones, never fetches (the module/manifest catalog was
-// removed — live pharn-oss ships no manifest.json). `--json` emits the inventory
-// object on stdout; diagnostics go to stderr.
+// Read-only: shows the installed archetypes + capabilities from the config —
+// never writes, clones or fetches. `--json` emits the inventory on stdout;
+// diagnostics go to stderr.
 export async function runList(opts: { json?: boolean } = {}): Promise<void> {
   const json = opts.json ?? false;
   const cwd = process.cwd();
   if (!json) intro('pharn list');
 
-  // The shared load-or-reject surface (no config, a present-but-invalid one, a
-  // pre-archetype one → a named message + exit 1). Under `--json` the message is
-  // a plain stderr line, so stdout carries the inventory object or nothing.
+  // Under `--json` a load error is a plain stderr line, so stdout carries the
+  // inventory or nothing.
   const config = loadArchetypeConfigOrExit(cwd, { json });
 
   const inventory = buildArchetypeInventory(config);
@@ -59,8 +55,7 @@ function buildArchetypeInventory(config: PharnConfig): ArchetypeInventory {
 }
 
 function renderArchetypeHuman(inv: ArchetypeInventory): void {
-  // Body built by the pure, shared renderer (lib/capability-groups.ts): the
-  // key-value rows, then capabilities grouped by role, counted, ONE per line.
+  // The shared renderer: rows, then capabilities grouped by role, one per line.
   const lines = renderCapabilityLines(inv);
   note(lines.join('\n'), 'INSTALLED (archetype)');
   // One short sentence so it survives a narrow terminal without mid-word breaks.

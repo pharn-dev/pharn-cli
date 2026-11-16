@@ -24,20 +24,11 @@ import type { Layout, PharnConfig, UnknownCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // The `pharn status --json` report: ONE pure object built from values the
-// command already computed, and ONE serializer. No I/O, no clack, no exit — so
-// the text notes and the JSON cannot disagree about a value, and the stdout
-// contract (exactly one object, nothing else) has a single place to live.
-//
-// `schemaVersion` is matched exactly by a consumer (P5): additive keys may
-// arrive within 1; a breaking change bumps it. That stability is a documented
-// contract (advisory), not something the floor enforces.
-//
-// Trust (P2): every free-text field here — paths, reasons, hook commands,
-// capability names, the models block's own words, the release tag — is
-// UNTRUSTED DATA. It is serialized as a JSON string, never interpreted, and
-// `serializeStatusReport` escapes everything a terminal would interpret. Enum-
-// like fields (`status`, `verdict`, `kind`, `channel`) come from this file's own
-// membership tests, never from input.
+// command already computed, and ONE serializer — so the text notes and the
+// JSON cannot disagree, and "exactly one object on stdout" lives in one place.
+// Additive keys may arrive within a `schemaVersion`; a breaking change bumps
+// it. Every free-text field is UNTRUSTED data, serialized as a JSON string and
+// escaped; enum-like fields come from this file's own membership tests.
 // ---------------------------------------------------------------------------
 
 export const STATUS_SCHEMA_VERSION = 1;
@@ -64,14 +55,12 @@ export interface StatusReport {
   };
   archetypes: string[];
   capabilities: { count: number };
-  // The layout the install is recorded at, and the one the fetched clone ships
-  // (null under `--no-drift`: nothing was fetched). A difference means the
-  // install is not where this source puts it: `drift` is then null (nothing is
-  // compared across layouts) and it fails `--strict` (CORE-167).
+  // The recorded layout and the clone's (null under `--no-drift`). A
+  // difference nulls `drift` (nothing is compared across layouts) and fails
+  // `--strict`.
   layout: { recorded: Layout; upstream: Layout | null };
-  // null when not computed: the drift check was skipped (`--no-drift`, then
-  // `layout.upstream` is null too), or the clone is at another layout than the
-  // install (`layout.upstream` set and different from `layout.recorded`).
+  // null when not computed: `--no-drift` (`layout.upstream` null too), or a
+  // layout mismatch.
   drift: {
     modified: string[];
     missing: string[];
@@ -86,8 +75,8 @@ export interface StatusReport {
     localOnly: HookEntry[];
     file: string | null;
     reason: string | null;
-    // Present ONLY when non-empty: missing hooks the project already wires
-    // in another spelling (same script, event and matcher) — replace, not add.
+    // Present ONLY when non-empty: missing hooks the project wires in another
+    // spelling — replace, not add.
     replace?: HookReplacement[];
   } | null;
   // null when the config carries no `models` block.
@@ -99,16 +88,12 @@ export interface StatusReport {
   } | null;
   unknownCapabilities:
     { role: string; name: string; subtree: string; reason: string }[] | null;
-  // Recorded files upstream no longer ships that are still on disk
-  // (lib/orphans.ts). null when not determined: `--no-drift`, no usable
-  // pharn.records.json, or a clone at another layout than the install. Never a
+  // Recorded files upstream no longer ships, still on disk. null under
+  // `--no-drift`, without a usable store, or on a layout mismatch. Never a
   // `--strict` input.
   orphans: { path: string; state: OrphanState; reason?: string }[] | null;
-  // What `pharn update` would add to the project's `.prettierignore`
-  // (lib/prettierignore.ts), or a refusal. null when there is nothing to say:
-  // the project does not use Prettier, the file covers pharn's paths, or there
-  // is no usable pharn.records.json to derive them from. Never a `--strict`
-  // input. Added in 0.17.0.
+  // What `pharn update` would add to `.prettierignore`, or a refusal. null
+  // when there is nothing to say or no usable store. Never a `--strict` input.
   prettierignore: PrettierignoreReport | null;
   strict: { enabled: boolean; failed: boolean };
 }
@@ -119,8 +104,8 @@ export interface StatusReportInput {
   config: PharnConfig;
   channel: RefChoice;
   latest: string;
-  // What the channel offers; under `--no-drift` on `latest`, built from one
-  // request and so without the tag's commit (lib/release.ts).
+  // What the channel offers; under `--no-drift` on `latest`, without the tag's
+  // commit.
   source: SourceSummary;
   drift:
     | ({
@@ -145,9 +130,8 @@ export interface StatusReportInput {
 }
 
 /**
- * Is the install recorded at another layout than the fetched clone ships? THE
- * one comparison the text path, the JSON path and the report use. `upstream`
- * null (`--no-drift`: nothing fetched) is never a mismatch — nothing is known.
+ * Is the install recorded at another layout than the clone ships? THE one
+ * comparison. `upstream` null (`--no-drift`) is never a mismatch.
  */
 export function layoutMismatch(
   recorded: Layout,
@@ -157,19 +141,17 @@ export function layoutMismatch(
 }
 
 /**
- * Would `--strict` exit 1? THE one predicate, used by the text path and the
- * JSON path alike so the two cannot diverge. Under `--no-drift` only the
- * version can fail (nothing else was computed).
+ * Would `--strict` exit 1? THE one predicate for the text and JSON paths.
+ * Under `--no-drift` only the version can fail.
  */
 export function strictFails(input: {
   outdated: boolean;
   diff?: InstallDiff;
   hooks?: HookWiringDiff;
-  // A declared surface upstream ships no file for: the install cannot be
-  // complete.
+  // A declared surface upstream ships no file for: the install is incomplete.
   absentUpstream?: readonly AbsentSurface[];
-  // The install is recorded at another layout than upstream ships: it is not
-  // what upstream ships, and its files were not compared (CORE-167).
+  // A layout mismatch: the install is not what upstream ships, and was not
+  // compared.
   layoutMismatch?: boolean;
 }): boolean {
   const { outdated, diff, hooks, absentUpstream } = input;
@@ -230,8 +212,7 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
   const recorded = configLayout(config);
   const upstream = drift === null ? null : drift.upstreamLayout;
   const mismatch = layoutMismatch(recorded, upstream);
-  // A diff taken across layouts compares the wrong paths, so it is never
-  // reported, whatever a caller passed.
+  // A diff across layouts compares the wrong paths: never reported.
   const files =
     drift === null || drift.diff === null || mismatch ? null : drift;
   const { ahead, outdated } = versionStatus({
@@ -329,10 +310,7 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
   };
 }
 
-/**
- * The report as the text written to stdout: `serializeJsonReport` (lib/
- * json-report.ts), the one serializer every `--json` report goes through.
- */
+/** The report as the text written to stdout, via `serializeJsonReport`. */
 export function serializeStatusReport(report: StatusReport): string {
   return serializeJsonReport(report);
 }

@@ -5,194 +5,127 @@ import type { ARCHETYPE_VALUES } from './lib/validate.js';
 // schema; PHARN skills read it at runtime.
 // ---------------------------------------------------------------------------
 
-// How a capability entered `capabilities` — its selection PROVENANCE. 'auto' =
-// chosen by archetype resolution, so `pharn update` owns it and drops it when the
-// archetypes stop selecting it. 'manual' = the user named it (`pharn add`), so it
-// is preserved across updates even when the archetypes do not select it. Runtime
+// How a capability entered `capabilities`. 'auto' = chosen by archetype
+// resolution, so `pharn update` drops it when the archetypes stop selecting it.
+// 'manual' = the user named it (`pharn add`), so it survives updates. Runtime
 // allowlist: CAPABILITY_SOURCES in src/lib/pharn-config.ts.
 export type CapabilitySource = 'auto' | 'manual';
 
-// Archetype install (pharn init): one selected capability copied into
-// the project. `name` is the capability's directory basename (the copy target
-// under pharn-pipeline/grillers/ or pharn-review/); `role` selects that subtree.
+// One selected capability copied into the project. `name` is its directory
+// basename; `role` selects the subtree.
 export interface InstalledCapability {
   name: string;
   role: 'griller' | 'lens';
-  // Selection provenance. Additive (P7): absent on every config written before
-  // this field existed, and absent is LEGAL everywhere. Deliberately NOT given a
-  // global "absent means auto" default — provenance is genuinely unknown until
-  // `pharn update` infers it against a fresh index (src/lib/merge-capabilities.ts,
-  // the ONLY place that may resolve absence). Offline consumers — `remove` above
-  // all — branch on the literal 'auto' and stay silent on absent, because a
-  // legacy MANUAL add wrongly defaulted to 'auto' would be told the opposite of
-  // the truth.
+  // Selection provenance. Absent on configs written before the field, and
+  // legal everywhere; no global "absent means auto" default — only
+  // src/lib/merge-capabilities.ts may resolve absence. Offline consumers
+  // (`remove`) branch on the literal 'auto' and stay silent on absent.
   source?: CapabilitySource;
 }
 
 // ---------------------------------------------------------------------------
-// The `models` block in pharn.config.json is pharn-oss's, not this CLI's: its
-// schema and its defaults are owned upstream (pharn/floor/check-model-config.mjs,
-// and the block in pharn-oss's root pharn.config.json). This CLI copies that
-// block at `init`, carries it across `update` (src/lib/models-update.ts), shows
-// it in `status`, and checks it with a pinned copy of pharn-oss's rules
-// (src/lib/model-config.ts). So it has no type here: `PharnConfig.models` is
-// `unknown` — whatever pharn-oss's format holds, and whatever a user wrote.
+// The `models` and `seam` blocks are pharn-oss's, not this CLI's, so both are
+// `unknown` here. `models` (schema: pharn/floor/check-model-config.mjs) is
+// copied at `init`, managed by `update` (src/lib/models-update.ts) and checked
+// with a pinned copy of the rules (src/lib/model-config.ts). `seam` (schema:
+// pharn-contracts/seam-config.md) is neither validated nor written: every
+// command, a re-run init included, carries it VERBATIM.
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// The `seam` block (seam-resolution policy) is pharn-oss's too (CORE-165): its
-// schema is pharn-contracts/seam-config.md, and pharn-oss's own floor
-// materializes the default and checks the block. This CLI reads nothing in it,
-// so it neither validates nor writes it: `PharnConfig.seam` is `unknown`, and
-// every command — a re-run init included — carries it VERBATIM.
-// ---------------------------------------------------------------------------
-
-// Every key declared here is pharn-OWNED — except `seam` (see above): `pharn
-// init` rewrites it from scratch (CLI_OWNED_KEYS in src/lib/pharn-config.ts must
-// list it — the typecheck enforces that). Keys the user adds that are NOT declared — upstream pharn-oss's
-// `testResults` and `ship` — are user-owned and survive every command, init
-// included (userOwnedConfigEntries). So declaring an upstream key here is not a
-// harmless typing convenience: it would make init start dropping it.
+// Every key declared here is pharn-OWNED except `seam`: `pharn init` rewrites
+// it, and CLI_OWNED_KEYS (src/lib/pharn-config.ts) must list it — the typecheck
+// enforces that. Undeclared keys (upstream's `testResults`, `ship`) are the
+// user's and survive every command, init included — so declaring an upstream
+// key here would make init start dropping it.
 export interface PharnConfig {
   pharnVersion: string;
   skillsVersion: string;
-  // Additive (P7). The upstream version a `pharn update` APPLIED while
-  // withholding the `skillsVersion` bump solely because of the user's own kept
-  // edits (`modified` / `unrecorded` skips, and the executable-unit `held`
-  // skips they caused): every file outside those edits and the unit is at this
-  // version. `add` accepts a clone at it; the next complete update clears it.
+  // The upstream version a `pharn update` APPLIED while withholding the
+  // `skillsVersion` bump solely because of the user's kept edits (`modified` /
+  // `unrecorded` skips, and the `held` skips they caused). `add` accepts a clone
+  // at it; the next complete update clears it.
   pendingSkillsVersion?: string;
-  // Additive (P7). `role:name` of every installed capability the last
-  // `pharn update` (or a re-run `pharn init`) KEPT because it could not parse it
-  // upstream ("frozen") — plus one `update` can parse again while any of its
-  // files was still skipped, since the version bump already happened on the run
-  // that froze it — sorted; omitted when none. While non-empty, `update` skips
-  // its same-version early return, so each run re-fetches and re-checks them.
+  // `role:name` of every installed capability `update` (or a re-run `init`)
+  // KEPT because it could not parse it upstream — plus one parseable again
+  // while any of its files was still skipped. Sorted; omitted when none. While
+  // non-empty, `update` skips its same-version early return.
   frozenCapabilities?: string[];
   repo: string;
   commit: string | null;
-  // Additive (P7). The channel this install follows (lib/release.ts):
-  // `"latest"` when it follows the newest verified pharn-oss release (what a new
-  // `pharn init` takes by default since 0.15.0, or `--ref latest`), and ABSENT
-  // for the tip of `main` — `--ref main`, or any install made before `--ref`
-  // existed. Only `"latest"` is ever written; any other value is dropped at
-  // load, so a garbage hand-edit follows `main`.
+  // The channel this install follows (lib/release.ts): `"latest"` = the newest
+  // verified pharn-oss release; ABSENT = the tip of `main` (`--ref main`, or an
+  // install made before `--ref` existed). Any other value is dropped at load.
   ref?: 'latest';
-  // Legacy (module/wizard) installs recorded the chosen constitution variant
-  // (`gdpr-strict` | `standard` | `minimal`). The archetype install (pharn init)
-  // copies pharn-oss's canonical CONSTITUTION.md verbatim (no variant), so it
-  // omits this; nothing reads it. Typed `unknown`: an old config that carries it
-  // still loads (P7) — it rides the load's spread untouched.
+  // LEGACY (module era): the chosen constitution variant. Nothing reads it;
+  // typed `unknown` so an old config still loads.
   constitution?: unknown;
-  // LEGACY (module/wizard era), like `constitution` above: the wizard asked
-  // whether the project was a multi-tenant SaaS and stripped Principle 2 from
-  // CONSTITUTION.md when the answer was no. That flow is GONE — the archetype
-  // install copies pharn-oss's canonical CONSTITUTION.md verbatim — so nothing
-  // in src/ writes or reads this. It stays declared so an old config that
-  // carries it still type-checks on read (P7, additive); it is not a signal any
-  // command acts on. Do not reintroduce a reader without reinstating the
-  // writer — a half-present flag is worse than an absent one.
+  // LEGACY (module era): nothing in src/ writes or reads it; declared so an old
+  // config still type-checks. Do not reintroduce a reader without the writer.
   isMultiTenant?: boolean;
   // Always `[]` on an archetype install, and still WRITTEN by `init`: every
-  // released CLI (0.3.0–0.19.x) reads a config whose `modules` is not an array
-  // as NO config ("Run `pharn init` first"), so dropping the key would make an
-  // older, pinned CLI treat this install as absent. This CLI also reads a config
-  // that has a `capabilities` key and no `modules` (CORE-164), so the type
-  // admits its absence on read; `add`/`update`/`remove` write such a config
-  // back as they found it. The legacy module entries it held are no longer read
-  // (P7: they still load, untyped).
+  // released CLI (0.3.0–0.19.x) reads a config without a `modules` array as NO
+  // config. This CLI also reads one with `capabilities` and no `modules`, so
+  // the type admits its absence; `add`/`update`/`remove` write it back as found.
   modules?: unknown[];
-  // When the install was first made: written by `init` (a re-run included, since
-  // it rebuilds the install) and carried unchanged by `update`, `add` and
-  // `remove`.
+  // When the install was first made: written by `init` (a re-run included) and
+  // carried unchanged by `update`, `add` and `remove`.
   installedAt: string;
-  // Additive (P7). When the last `pharn update` rewrote the config (ISO string).
-  // Absent until an update writes it; `init` never writes it (a re-run drops it,
-  // as a pharn-owned key, so it never outlives the install it described).
+  // When the last `pharn update` rewrote the config (ISO string). `init` never
+  // writes it, so a re-run drops it.
   updatedAt?: string;
-  // The `models` block — pharn-oss's schema (see above), carried VERBATIM: never
-  // validated at load, so an old-format block `update` must migrate, pharn-oss's
-  // format, and a newer one all load. `init` writes pharn-oss's block (none when
-  // upstream has none); absent on installs that predate it (P7 — additive). The
-  // key stays pharn's to WRITE (CLI_OWNED_KEYS), so a re-run init replaces it.
+  // pharn-oss's block (see above), carried VERBATIM and never validated at
+  // load. pharn's to WRITE (CLI_OWNED_KEYS), so a re-run init replaces it.
   models?: unknown;
-  // The `seam` block — pharn-oss's schema (see above). NOT pharn-owned: never
-  // validated, never written by `init`, carried VERBATIM by every command (a
-  // re-run init included, via userOwnedConfigEntries). Declared only so readers
-  // know it exists; the one key deliberately absent from CLI_OWNED_KEYS.
+  // pharn-oss's block (see above). NOT pharn-owned: never validated or written,
+  // carried VERBATIM; the one declared key absent from CLI_OWNED_KEYS.
   seam?: unknown;
-  // LEGACY schemaVersion 2 (wizard) fields: nothing reads them; they still
-  // load (P7), so an old config carrying them type-checks on read.
+  // LEGACY (wizard) fields: nothing reads them; they still load.
   stackAnswers?: Record<string, string>;
   installedSkills?: unknown;
-  // Archetype (capability) installs (pharn init). Additive; absent on
-  // legacy module installs. `modules` is [] for an archetype install; these record
-  // the detected archetypes and the capabilities copied for them.
+  // Archetype installs: the archetypes and the capabilities copied for them.
+  // Absent on legacy module installs.
   archetypes?: Archetype[];
   capabilities?: InstalledCapability[];
-  // The install layout mirrored from the fetched clone (lib/layout.ts). Additive;
-  // absent on legacy installs → read as 'flat' (the safe default, P7). 'pharn' =
-  // the relocated single-install layout (everything under pharn/); 'flat' = the
-  // legacy root layout.
+  // The install layout mirrored from the fetched clone (lib/layout.ts): 'pharn'
+  // = everything under pharn/, 'flat' = the legacy root layout. Absent → 'flat'.
   layout?: Layout;
 }
 
-// The two install layouts pharn-oss ships (lib/layout.ts). Kept here (not in
-// layout.ts) so PharnConfig can reference it without a types↔layout import cycle.
+// The two install layouts (lib/layout.ts). Kept here so PharnConfig can use it
+// without a types↔layout import cycle.
 export type Layout = 'pharn' | 'flat';
 
 // ---------------------------------------------------------------------------
-// Capability resolver — archetype detection + capability selection. pharn
-// reads pharn-oss's capability index and selects which grillers/lenses apply to
-// a project (ARCHITECTURE.md §5). Pure + deterministic; the untrusted index is
-// parsed + validated at the fetch boundary (a later increment).
+// Capability resolver — archetype detection + capability selection over
+// pharn-oss's capability index.
 // ---------------------------------------------------------------------------
 
-// Project archetype, detected deterministically (a membership test, P5) from two
-// sources merged: package.json dependency NAMES and structural file-tree signals
-// (e.g. `.tsx` → client UI, `next.config.*` → ssr, an `api/` dir or a `route.ts`
-// handler → backend) — see src/lib/detect-archetype.ts. A project with no signal
-// from either source is `lib` — it runs on core alone (§4). A project may match
-// several at once (e.g. Next + Express → ssr + backend).
-//
-// NOTE (human-owned reconciliation): ARCHITECTURE.md §5 still phrases detection as
-// "membership over package.json", predating the file-tree extension. §5 is trusted
-// + hook-protected (agent cannot edit it); updating its wording is a human call.
-// The mechanism stays deterministic either way (P5).
+// Project archetype, detected deterministically from package.json dependency
+// names and file-tree signals (src/lib/detect-archetype.ts). No signal → `lib`.
+// A project may match several at once.
 export type Archetype = (typeof ARCHETYPE_VALUES)[number];
 
-// One capability in the pharn-oss-published index. pharn-oss owns the
-// authoritative schema; this is pharn's consumer-side shape. `role` is
-// narrowed to the installable kinds shipped today (grillers + lenses); the full
-// ARCHITECTURE.md §3.1 role enum is not needed here until an installable
-// skill/auditor ships. `applies` is 'universal' (always selected) or the
-// archetypes that trigger the capability.
+// One capability in the pharn-oss index, pharn's consumer-side shape. `role` is
+// narrowed to the installable kinds (grillers + lenses). `applies` is
+// 'universal' (always selected) or the archetypes that trigger it.
 export interface CapabilityEntry {
   name: string;
   role: 'griller' | 'lens';
   applies: 'universal' | Archetype[];
 }
 
-// A capability the fetch boundary enumerated but could NOT parse into a
-// CapabilityEntry — a directory under a known subtree whose name, markdown,
-// frontmatter, `role` or `applies` failed validation. It is the FORWARD-
-// COMPATIBILITY escape hatch: a released CLI always parses `main` HEAD and can
-// never pin older content, so one routine grammar evolution upstream used to
-// abort init/add/update in every deployed CLI at once. Unknown content is now
-// skipped and REPORTED instead — fail closed on INSTALLING it, never on merely
-// seeing it.
+// A capability the fetch boundary enumerated but could NOT parse (name,
+// markdown, frontmatter, `role` or `applies` failed validation). Skipped and
+// REPORTED: fail closed on installing it, never on merely seeing it.
 //
 // Every field is UNTRUSTED upstream text and reaches only the terminal, through
-// the single sanitizing renderer in lib/unknown-capabilities.ts. Nothing here is
-// ever selected, copied, enumerated by the install manifest, or newly recorded in
-// pharn.config.json (P2).
+// lib/unknown-capabilities.ts; nothing here is ever selected, copied, or
+// newly recorded.
 export interface UnknownCapability {
-  // The directory name as found. May itself be why it was skipped (a name that
-  // failed CAPABILITY_NAME_RE is reported and joined no further).
+  // The directory name as found (may itself be why it was skipped).
   name: string;
-  // The SUBTREE's role, which is authoritative in this codebase — never the
-  // frontmatter `role`, which may be exactly what failed. This is what makes a
-  // `role:name` key derivable for an entry whose declared role is unusable.
+  // The SUBTREE's role — never the frontmatter `role`, which may be what
+  // failed — so a `role:name` key is always derivable.
   role: 'griller' | 'lens';
   // The subtree directory it was found under, at the clone's layout.
   subtree: string;
@@ -202,16 +135,13 @@ export interface UnknownCapability {
 
 export interface CapabilityIndex {
   capabilities: CapabilityEntry[];
-  // Additive (P7): every capability the parse refused, in the same deterministic
-  // enumeration order as `capabilities`. Empty for a fully-parseable clone, which
-  // is what keeps a healthy install exactly as quiet as it was.
+  // Every capability the parse refused, in the same order as `capabilities`.
   unknown: UnknownCapability[];
 }
 
 // A capability chosen for install. `matched` is why: 'universal', the detected
-// archetypes that intersected its `applies` set, or 'manual' — a re-run `init`
-// carrying over a capability the user added by hand (`pharn add`) that the
-// archetypes did not select.
+// archetypes that intersected its `applies`, or 'manual' — a re-run `init`
+// carrying over a `pharn add` the archetypes did not select.
 export interface SelectedCapability {
   name: string;
   role: 'griller' | 'lens';

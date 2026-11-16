@@ -4,17 +4,10 @@ import { compareVersionCore } from './semver.js';
 // Is the install current? Pure: no I/O, no clack, so the text note and the
 // `--json` report derive their ahead/outdated answers from ONE function.
 //
-// AHEAD is not outdated: the install holds a version NEWER than the source it
-// follows, and `pharn update` refuses that downgrade without `--force` — so
-// `--strict` must not fail on it either, or CI would demand a run that does
-// nothing. Both channels can be ahead:
-// - the release channel, when an install made from `main` was switched to
-//   `--ref latest` before the release at its version was cut;
-// - the `main` channel, when pharn-oss main moved BACK (a revert of its
-//   SKILLS_VERSION) — the tip is then older than what the tip once installed.
-// So the answer does not depend on the channel, and the function takes none.
-// A version either side cannot order (`compareVersionCore` → null) is never
-// ahead: any difference is then outdated, as before.
+// AHEAD is not outdated: `update` refuses that downgrade without `--force`, so
+// `--strict` must not fail on it either. Either channel can be ahead (a
+// switched install, or a `main` that moved back), so the function takes no
+// channel. An unorderable version is never ahead.
 // ---------------------------------------------------------------------------
 
 export interface VersionStatus {

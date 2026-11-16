@@ -3,24 +3,18 @@ import { compareVersionCore } from './semver.js';
 import { readMinCli } from './skills-version.js';
 
 // ---------------------------------------------------------------------------
-// THE MIN_CLI GATE — the forward-compatibility handshake's POLICY half (the
-// reader lives in lib/skills-version.ts, the ordering in lib/semver.ts).
+// THE MIN_CLI GATE — the policy half of the forward-compatibility handshake
+// (reader: lib/skills-version.ts). Upstream content can outpace deployed CLIs;
+// an OPTIONAL one-line MIN_CLI file lets upstream refuse a stale CLI cleanly,
+// with an actionable message, instead of failing somewhere downstream.
 //
-// Why it exists: a released CLI always fetches `main` HEAD and can never pin
-// older content (lib/repo.ts), so upstream has no way to say "this content needs
-// a newer CLI" other than by breaking every deployed CLI at once. MIN_CLI is that
-// missing lever — an OPTIONAL one-line file that lets upstream refuse a stale CLI
-// CLEANLY, with an actionable message, instead of failing somewhere downstream.
+// FAIL-OPEN in one direction: ONLY a well-formed value whose numeric core is
+// strictly GREATER than the installed CLI's refuses. Absent, unreadable,
+// malformed or incomparable → no constraint (plus a named warning for a
+// present file), so one upstream typo cannot become a fleet-wide exit(1).
 //
-// FAIL-OPEN BY DESIGN, in exactly one direction: ONLY a well-formed value whose
-// numeric core is strictly GREATER than the installed CLI's ever refuses. Absent,
-// unreadable, malformed, or incomparable → NO constraint (plus a named warning
-// where a present file could not be used). Anything stricter would turn one
-// upstream typo into a fleet-wide exit(1) — the very outage this gate removes.
-//
-// Placement discipline: call it from INSIDE each command's existing try, so the
-// clone's `finally` cleanup still runs before any process.exit (the same rule
-// add.ts's versionGate follows).
+// Call it from INSIDE each command's try, so the clone's `finally` cleanup
+// still runs before any process.exit.
 // ---------------------------------------------------------------------------
 
 export interface MinCliGateResult {
@@ -32,8 +26,7 @@ export interface MinCliGateResult {
 
 /**
  * Decide whether the installed CLI satisfies the fetched clone's declared
- * minimum. Deterministic (P5): a three-integer compare with an explicit "cannot
- * compare" outcome — no classification, no third meaning, no throw.
+ * minimum: a three-integer compare with an explicit "cannot compare" outcome.
  */
 export function minCliGate(
   repoDir: string,
@@ -46,10 +39,9 @@ export function minCliGate(
 
   const cmp = compareVersionCore(read.version, cliVersion);
   if (cmp === null) {
-    // The clone's value passed VERSION_RE, so this can only be the INSTALLED
-    // version being unparseable (package.json is not validated anywhere). Warn
-    // rather than refuse: refusing on our own malformed metadata would brick the
-    // CLI over a fact the user cannot act on.
+    // The clone's value passed VERSION_RE, so this is the INSTALLED version
+    // being unparseable. Warn rather than refuse: refusing on our own malformed
+    // metadata would brick the CLI over a fact the user cannot act on.
     return {
       refusal: null,
       warning: `Could not compare the installed pharn version (${cliVersion}) against the minimum ${REPO_URL} declares (${read.version}); continuing without a minimum-version constraint.`,

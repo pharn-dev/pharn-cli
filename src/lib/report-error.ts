@@ -1,36 +1,23 @@
 import { log } from '@clack/prompts';
 import { terminalSafe } from './terminal-safe.js';
 
-// The ONE place the CLI turns a failure into user-visible output. Two axes, one
-// file (P3): WHICH STREAM the line goes to, and WHETHER the failure came from an
-// exception. `lib/confirm.ts`'s `cancelAndExit` is the precedent — a tiny shared
-// surface, kept just as small.
-//
-// Nothing here exits. Every call site keeps its own `process.exit`, because the
-// exit must happen AFTER that command's `finally { repo.cleanup() }` (Node skips
-// `finally` on `process.exit`) — an invariant a reporter that exited for you
-// would quietly break.
+// The ONE place the CLI turns a failure into user-visible output: which stream
+// the line goes to, and whether the failure came from an exception. Nothing
+// here exits: each call site's exit must come AFTER its
+// `finally { repo.cleanup() }` (Node skips `finally` on `process.exit`).
 
 /**
- * The next step offered after an exception-derived failure. Exported so a test
- * can assert its presence without re-encoding the wording, and deliberately the
- * ONLY copy in `src/**` — nine hand-rolled `if (process.env.PHARN_DEBUG)` blocks
- * used to sit beside eight fatal exits, and the hint itself beside exactly two
- * of them.
+ * The next step offered after an exception-derived failure — the only copy in
+ * `src/**`; exported so a test can assert it without re-encoding the wording.
  */
 export const PHARN_DEBUG_HINT =
   'Re-run with PHARN_DEBUG=1 for full error output.';
 
 /**
- * The message of a caught `unknown`, without the `instanceof` dance at 20 sites.
- *
- * `String(err)` is itself fallible: a null-prototype object (`Object.create(null)`)
- * or one with a hostile `toString` makes it throw `TypeError: Cannot convert
- * object to primitive value`. This function is the LAST thing standing between a
- * failure and the user, so it must never become the thing that crashes — a throw
- * here would swallow the fatal message entirely and replace it with a stack from
- * inside the error reporter. Name the class of value instead and let the exit
- * code carry the rest (P5: the terminal fallback is a named message, not a crash).
+ * The message of a caught `unknown`. `String(err)` can itself throw (a
+ * null-prototype object, a hostile `toString`), and this is the last thing
+ * between a failure and the user, so it names the class of value instead of
+ * crashing inside the reporter.
  */
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
@@ -42,18 +29,10 @@ export function errorMessage(err: unknown): string {
 }
 
 /**
- * Print one error-level line to **stderr**.
- *
- * `@clack/prompts` defaults `log.*` to `process.stdout`, so before this every
- * fatal message landed on stdout: `pharn update --yes > out.log 2> err.log`
- * exited 1 with 0 bytes on stderr, leaving the operator grepping an empty file.
- * Exit codes were always correct — this is the stream contract, not correctness.
- *
- * Callers own their wording; this owns the stream — and what the terminal is
- * allowed to INTERPRET. A fatal message can carry text from the fetched archive
- * (an extractor refusal naming an entry), so control and Unicode format
- * characters are stripped here, at the one sink every fatal path shares; `\n`
- * and `\t` are kept for multi-line messages. No caller passes styled text.
+ * Print one error-level line to **stderr** (clack's `log.*` defaults to
+ * stdout). Callers own the wording; this owns the stream and what the terminal
+ * may INTERPRET: a fatal message can carry text from the fetched archive, so
+ * control and Unicode format characters are stripped here, `\n` and `\t` kept.
  */
 export function logError(message: string): void {
   log.error(terminalSafe(message, { keepNewlines: true }), {
@@ -62,32 +41,21 @@ export function logError(message: string): void {
 }
 
 /**
- * A caught exception, BOXED. The box is the point: `throw undefined` is legal
- * JavaScript, so a bare `err?: unknown` parameter cannot tell "no exception —
- * this is a curated refusal" from "an exception whose value happens to be
- * `undefined`", and would silently drop the affordance for the second. Callers
- * that defer their exit past a `finally` already carry this exact shape
- * (`commands/init.ts`, `commands/update.ts`), so the box now travels intact all
- * the way to the reporter instead of being flattened one line short of it.
+ * A caught exception, BOXED: `throw undefined` is legal, so a bare
+ * `err?: unknown` could not tell a curated refusal from an exception whose
+ * value is `undefined`. Callers that defer their exit past a `finally` carry
+ * this shape through to the reporter.
  */
 export interface FatalCause {
   err: unknown;
 }
 
 /**
- * Report a fatal failure: `⚠ <message>` on stderr, plus — and ONLY when a
- * `cause` is passed — the `PHARN_DEBUG` affordance.
- *
- * **Passing the cause is the single axis** that marks "this came from an
- * exception". That is what keeps the hint off a curated refusal — a bad
- * argument, a version/layout gate refusal, the non-TTY message — where there is
- * no stack to dump and offering one would be a lie. Because the axis is the
- * box's PRESENCE and not its contents, it is total: every thrown value,
- * `undefined` included, still gets the affordance.
- *
- * Under `PHARN_DEBUG` the original is dumped through `console.error` (already
- * stderr) and the hint is suppressed, since it would be noise beside the stack
- * it was offering to print.
+ * Report a fatal failure: `⚠ <message>` on stderr, plus — ONLY when a `cause`
+ * is passed — the `PHARN_DEBUG` affordance. The box's PRESENCE marks "this came
+ * from an exception", which keeps the hint off a curated refusal (no stack to
+ * dump) and gives it to every thrown value, `undefined` included. Under
+ * `PHARN_DEBUG` the original is dumped and the hint suppressed.
  */
 export function reportFatal(message: string, cause?: FatalCause): void {
   logError(`⚠ ${message}`);
@@ -96,25 +64,21 @@ export function reportFatal(message: string, cause?: FatalCause): void {
     console.error(cause.err);
     return;
   }
-  // The hint is part of the fatal message, so it travels with it to stderr
-  // rather than being the one line of it left on stdout. It stays `log.info`
-  // (not `log.error`): it is an affordance, not a second failure.
+  // The hint travels with the fatal message to stderr; `log.info`, since it is
+  // an affordance, not a second failure.
   log.info(PHARN_DEBUG_HINT, { output: process.stderr });
 }
 
 /**
- * `logError` without clack's chrome, for `--json` modes: one plain line on
- * stderr, so a `2>&1` capture holds no glyphs or ANSI framing and a JSON reader
- * on stdout sees nothing. The same terminal-safety as `logError`: control and
- * format characters are stripped, `\n` and `\t` kept.
+ * `logError` without clack's chrome, for `--json` modes: one plain stderr line
+ * with the same terminal-safety.
  */
 export function logErrorPlain(message: string): void {
   console.error(terminalSafe(message, { keepNewlines: true }));
 }
 
 /**
- * `reportFatal` for `--json` modes: the same message, the same cause rules (the
- * `PHARN_DEBUG` dump, or the hint — only when a cause is passed), all as plain
+ * `reportFatal` for `--json` modes: the same message and cause rules, as plain
  * stderr lines. Nothing here touches stdout.
  */
 export function reportFatalPlain(message: string, cause?: FatalCause): void {

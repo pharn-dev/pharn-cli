@@ -1,35 +1,23 @@
 /**
- * What a proxy set in the environment means for THIS run — the logic half
- * (detection). Message strings live in ./proxy-env-format.ts, which changes for
- * wording reasons while this file changes only when the transport does (P3,
- * mirroring model-config.ts / model-config-format.ts).
+ * What a proxy set in the environment means for THIS run — detection only;
+ * message strings live in ./proxy-env-format.ts.
  *
- * pharn fetches everything — the SHA resolve, the repo tarball,
- * `SKILLS_VERSION` — through Node's global `fetch`. By DEFAULT that fetch reads
- * no proxy environment variable at all, so a user with a proxy configured
- * connects directly, and in a network that blocks direct egress the visible
- * symptom is a timeout with nothing pointing at the cause (LIMITS.md §3a).
- * Recent Nodes can opt in (`NODE_USE_ENV_PROXY=1` / `--use-env-proxy`), which
- * is why the notice has to say, before the fetch, which case applies.
+ * pharn fetches everything through Node's global `fetch`, which by DEFAULT
+ * reads no proxy variable: a configured proxy is bypassed, and where direct
+ * egress is blocked the symptom is a bare timeout (LIMITS.md §3a). Recent Nodes
+ * can opt in, so the notice says, before the fetch, which case applies.
  *
- * Every rule below was MEASURED (PHARN-12's first version was inferred, and was
- * wrong on four counts): a local proxy logging CONNECTs, a client `fetch`ing an
- * https URL under `env -i`, on the official 20.20.2, 21.7.3, 22.20.0, 22.21.0,
- * 22.22.2, 23.11.1, 24.0.0, 24.4.1 and 24.5.0 binaries.
- *
- * - WHICH VARIABLE: undici's own lookup, `https_proxy ?? HTTPS_PROXY`, then
- *   `http_proxy ?? HTTP_PROXY` for an https URL whose pair gave nothing. `??`,
- *   not "first non-empty": a PRESENT empty `https_proxy` shadows `HTTPS_PROXY`.
- *   Exact spellings only on POSIX — `Https_Proxy` is never read.
+ * The rules were measured on official Node binaries from 20 to 24.5 (pinned
+ * by tests/proxy-env.test.ts):
+ * - WHICH VARIABLE: undici's lookup, `https_proxy ?? HTTPS_PROXY`, then
+ *   `http_proxy ?? HTTP_PROXY` when that pair gave nothing. `??`, not "first
+ *   non-empty": a PRESENT empty `https_proxy` shadows `HTTPS_PROXY`. Exact
+ *   spellings only on POSIX — `Https_Proxy` is never read.
  * - WHETHER IT IS USED: where Node knows `--use-env-proxy` (22.21+, 24.5+), the
- *   last `--use-env-proxy` / `--no-use-env-proxy` token decides (either `-` or
- *   `_`, NODE_OPTIONS first, then the command line; `=false` still turns it ON),
- *   and with no token only `NODE_USE_ENV_PROXY=1` does. On 24.0–24.4 the flag
- *   does not exist yet, but ANY non-empty `NODE_USE_ENV_PROXY` turns it on.
- *   Everywhere else (20, 21, 22.0–22.20, 23) nothing does.
- *
- * HISTORY: the clone once went through degit, which read `https_proxy` itself;
- * with degit retired, Node's own rules are the only ones that matter.
+ *   last `--use-env-proxy` / `--no-use-env-proxy` token decides (`-` or `_`,
+ *   NODE_OPTIONS first, then the command line; `=false` still turns it ON), and
+ *   with no token only `NODE_USE_ENV_PROXY=1` does. On 24.0–24.4 ANY non-empty
+ *   `NODE_USE_ENV_PROXY` turns it on. Everywhere else nothing does.
  */
 
 /** The spellings Node reads, in undici's lookup order (https pair first). */
@@ -74,8 +62,8 @@ export interface ProxyRuntime {
 /** The running process, read once per call. */
 export function currentProxyRuntime(): ProxyRuntime {
   return {
-    // A membership test the runtime answers itself: Node lists every option it
-    // accepts (P5). The version below is consulted ONLY where this says no.
+    // Node lists every option it accepts; the version below is consulted ONLY
+    // where this says no.
     supportsEnvProxy:
       process.allowedNodeEnvironmentFlags.has('--use-env-proxy'),
     execArgv: process.execArgv,
@@ -90,11 +78,10 @@ export function currentProxyRuntime(): ProxyRuntime {
 const FLAG_RE = /^--(no[-_])?use[-_]env[-_]proxy(?:=.*)?$/;
 
 /**
- * The opt-in's state from the flags alone: `true` / `false` from the LAST flag
- * token, `null` when there is none. NODE_OPTIONS is read first and the command
- * line after it, which is Node's own order. NODE_OPTIONS is split on
- * whitespace; Node also honours double-quoted arguments there, which this does
- * not model — a flag token never contains a space, so no real flag is misread.
+ * The opt-in's state from the flags alone: the LAST flag token, or `null`.
+ * NODE_OPTIONS first, then the command line (Node's order). NODE_OPTIONS is
+ * split on whitespace; Node's double-quoting there is not modelled, but a flag
+ * token never contains a space.
  */
 function lastFlag(
   env: Record<string, string | undefined>,
@@ -109,10 +96,8 @@ function lastFlag(
 }
 
 /**
- * 24.0–24.4: `NODE_USE_ENV_PROXY` already worked there, before the flag
- * existed (24.5). The one version test in this file — only reached when the
- * runtime does not list the flag, so a future Node that does is classified by
- * the membership test, never by this window.
+ * 24.0–24.4: `NODE_USE_ENV_PROXY` worked before the flag existed (24.5). Only
+ * reached when the runtime does not list the flag.
  */
 function isEarly24(nodeVersion: string): boolean {
   const [major, minor] = nodeVersion.split('.').map(Number);
@@ -156,8 +141,7 @@ function firstPresent(
 
 /**
  * The variable Node's fetch would use for an https URL, or `null`. By exact
- * key — on win32 `process.env` itself is case-insensitive, so a mixed-case key
- * is found there, exactly as Node finds it.
+ * key (on win32 `process.env` itself is case-insensitive, as Node finds it).
  */
 function readVariable(
   env: Record<string, string | undefined>,
@@ -170,8 +154,7 @@ function readVariable(
 
 /**
  * A set key that only CASE-FOLDS to a spelling Node reads (`Https_Proxy`).
- * Sorted, so several such keys give one deterministic answer (P5), never the
- * env object's insertion order.
+ * Sorted, so several such keys give one deterministic answer.
  */
 function ignoredSpelling(
   env: Record<string, string | undefined>,
@@ -188,11 +171,8 @@ function ignoredSpelling(
 }
 
 /**
- * Report a configured proxy, or `null` when none is set.
- *
- * Pure: `env` and `runtime` are parameters, never read from `process.*` here, so
- * every measured row is exercisable from a test on any host. The terminal case
- * is `null` — SILENCE — the complete and correct answer when nothing is set.
+ * Report a configured proxy, or `null` (silence) when none is set. Pure:
+ * `env` and `runtime` are parameters, so every measured row is testable.
  */
 export function detectProxyNotice(
   env: Record<string, string | undefined>,

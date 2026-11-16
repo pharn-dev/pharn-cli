@@ -83,9 +83,8 @@ import type {
 
 /**
  * Every file installing `selection` from `repoDir` writes, dest → source, at
- * the clone's own layout (lib/install-manifest.ts). init computes it ONCE per
- * run, before its overwrite prompt, and passes the same map to the prompt and
- * to runInstallArchetype.
+ * the clone's own layout. init computes it ONCE per run and hands the same map
+ * to the prompt and to runInstallArchetype.
  */
 export function installManifest(
   repoDir: string,
@@ -99,17 +98,13 @@ export function installManifest(
 }
 
 /**
- * The install's destination pre-flight (lib/install-capabilities.ts →
- * prepareInstall) over the manifest init built, run BEFORE init's overwrite
- * prompt: a project the install cannot finish in is refused without first
- * being asked "Continue and overwrite?". Read-only; throws
- * ManifestValidationError.
+ * The destination pre-flight (prepareInstall) over init's manifest, run BEFORE
+ * the overwrite prompt, so a project the install cannot finish in is refused
+ * without first being asked "Continue and overwrite?". Read-only.
  *
- * The EARLY answer, not the authoritative one — the tree can change while the
- * prompt is open. runInstallArchetype runs the same checks again under the
- * lock, before its backup, and installCapabilities once more before the copy,
- * so that no caller can copy without them. Keep all three: each is a read-only
- * walk (an lstat per path component) over the manifest.
+ * The EARLY answer only — the tree can change while the prompt is open.
+ * runInstallArchetype repeats it under the lock before its backup, and
+ * installCapabilities once more before the copy. Keep all three.
  */
 export function preflightInstall(
   repoDir: string,
@@ -120,9 +115,7 @@ export function preflightInstall(
   prepareInstall(repoDir, cwd, selection.selected, manifest);
 }
 
-// The carry type and the records baseline live in lib/init-plan.ts (init's
-// planning, shared with `init --dry-run`); re-exported here, where init has
-// always imported them from.
+// Re-exported here, where init has always imported them from.
 export { reinstallBaseline, type InstallCarry };
 
 const NO_CARRY: InstallCarry = {
@@ -131,11 +124,9 @@ const NO_CARRY: InstallCarry = {
   previousStamp: null,
 };
 
-// The archetype-install apply stage (`pharn init`). Copies the
-// resolved capabilities + product surfaces from the already-fetched `repoDir`,
-// then writes pharn.config.json. Network-free (the commit SHA is passed in by
-// the orchestrator) so it is exercised end-to-end by the fixture test. Mirrors
-// steps/install.ts. One axis (P3): the archetype apply/config stage.
+// The archetype-install apply stage (`pharn init`): copy the resolved
+// capabilities + product surfaces from the already-fetched `repoDir`, then
+// write pharn.config.json. Network-free (the commit SHA is passed in).
 export async function runInstallArchetype(
   repoDir: string,
   cwd: string,
@@ -143,33 +134,24 @@ export async function runInstallArchetype(
   selection: Selection,
   commit: string | null,
   carry: InstallCarry = NO_CARRY,
-  // The install manifest for this selection, when the caller already computed
-  // it — init computes it ONCE per run and passes the same map to its prompt
-  // and here. Absent → computed by the pre-flight below.
+  // The install manifest, when the caller already computed it; absent →
+  // computed by the pre-flight below.
   manifest?: ReadonlyMap<string, string>,
 ): Promise<void> {
   const startedAt = Date.now();
 
-  // 1. The destination pre-flight, FIRST: a project the copy cannot finish in
-  // (a symlink on the way, a type in the way) is refused before anything is
-  // written — the backup below included, so a refused re-install leaves no
-  // `pharn/.backup/` behind and prints no "Backed up" line for a copy that
-  // never happens. installCapabilities repeats it immediately before copying.
+  // 1. The destination pre-flight, FIRST: a refused install writes nothing,
+  // the backup included. installCapabilities repeats it before copying.
   const prepared = prepareInstall(repoDir, cwd, selection.selected, manifest);
 
-  // 2. Back up every existing file this install is about to overwrite that
-  // `update` would have SKIPPED — a re-run `init` used to discard local edits
-  // with no copy anywhere, then over-corrected into backing up every file that
-  // differed from upstream, calling pharn's own outdated bytes "your edits".
-  // The records baseline decides (lib/dest-drift.ts, through update's own
-  // table): a file still at the hash pharn recorded writing is a clean upgrade;
-  // one that changed since, or that pharn has no record of, is backed up; with
-  // no usable store every differing file is. Each file is compared with its
-  // REAL source, so the mapped LICENSE is covered.
-  //
-  // Taken HERE, under init's lock and immediately before the copy, not at the
-  // prompt: an edit made while the prompt was open must be covered too, so this
-  // scan is the authoritative one — the prompt's labels are advisory.
+  // 2. Back up every existing file this install overwrites that `update` would
+  // have SKIPPED, by the records baseline through update's own table
+  // (lib/dest-drift.ts): a file still at its recorded hash is a clean upgrade;
+  // an edited or unrecorded one is backed up; with no usable store every
+  // differing file is. Each file is compared with its REAL source, so the
+  // mapped LICENSE is covered. Scanned HERE, under the lock right before the
+  // copy, so an edit made while the prompt was open is covered — the prompt's
+  // labels are advisory.
   const baseline = reinstallBaseline(cwd, carry);
   const scan = scanDest({
     repoDir,
@@ -178,29 +160,23 @@ export async function runInstallArchetype(
     sources: manifestSources(repoDir, prepared.manifest),
     records: baseline,
   });
-  // The directories of the capabilities this install DROPS from the config,
-  // planned again here, under the lock, against the same baseline — this is the
-  // authoritative plan (the prompt's list is advisory). A symlinked component or
-  // an unreadable file refuses (CapabilityRemovalError) before anything is
-  // written. PHARN runs every capability directory on disk, so a dropped one
-  // must go (lib/capability-removal.ts).
+  // The dropped capability directories, planned again under the lock — the
+  // authoritative plan. A symlinked component or an unreadable file refuses
+  // before anything is written.
   const removals = planInitRemovals(cwd, carry);
   const deletes = removals.filter((r) => r.present);
-  // The old root footprint a re-run retires (lib/root-migration.ts), planned
-  // here, under the lock, against the same baseline. Null on a first install.
+  // The old root footprint a re-run retires; null on a first install.
   const migration = initRootMigration(repoDir, cwd, carry);
-  // The config this install replaces is rewritten below (`models` reset), so an existing one is always saved too — in the SAME backup, even
-  // alone (lib/backup.ts → replacedConfigBackup). None on a fresh install. The
-  // files of a dropped capability's directory pharn cannot prove it wrote go in
-  // the same one backup.
+  // The replaced config is rewritten below (`models` reset), so an existing one
+  // is always saved too, in the SAME backup as the drifted files and a dropped
+  // directory's unproven files.
   const overwriteBackups = [...scan.drifted, ...replacedConfigBackup(cwd)];
   const toBackUp = [
     ...new Set([...overwriteBackups, ...removalBackups(removals)]),
   ];
   // `unsafe` is empty after a passing pre-flight; non-empty means a link
-  // appeared since, and installCapabilities' own pre-flight refuses the run —
-  // so no backup is made, and nothing is deleted, for a copy that will not
-  // happen.
+  // appeared since and installCapabilities will refuse — so nothing is backed
+  // up or deleted for a copy that will not happen.
   if (scan.unsafe.length === 0) {
     if (toBackUp.length > 0) {
       const backupDir = createBackup(cwd, toBackUp);
@@ -213,14 +189,12 @@ export async function runInstallArchetype(
         dir: backupDir,
         saved: toBackUp.length,
         action,
-        // This install adds `pharn/.backup/` to `.gitignore` when it is missing
-        // (below), so the advice to add it would be stale before the run ends.
+        // This install may add `pharn/.backup/` to `.gitignore` below.
         gitignored: backupDirIgnored(cwd, planGitignore(cwd)),
       });
     }
-    // Deleted BEFORE the copy, after the backup: a delete that fails stops the
-    // run with nothing copied and the replaced config still in place, so the
-    // next init drops them again.
+    // Deleted BEFORE the copy, after the backup: a failed delete stops the run
+    // with the replaced config in place, so the next init drops them again.
     if (deletes.length > 0) {
       const paths = layoutPaths(carry.previousLayout ?? 'flat');
       for (const removal of deletes)
@@ -253,35 +227,25 @@ export async function runInstallArchetype(
     docsWritten = result.docs;
     skillsVersion = readSkillsVersion(repoDir);
   } catch (err) {
-    // Stop the spinner and propagate — the orchestrator cleans up the fetched
-    // temp clone in its finally, then formats + exits (cleanup before exit).
+    // Propagate: the orchestrator cleans up the clone, then reports and exits.
     s.stop('Failed to install capabilities');
     throw err;
   }
   s.stop('Capabilities installed');
 
   // The old root docs, deleted only now that their pharn/ copies have landed
-  // and only while still record-equal (lib/root-migration.ts). A failure keeps
-  // the file — and so its record, carried below as an orphan's.
+  // and only while record-equal. A failure keeps the file and its record.
   const docResult =
     migration === null
       ? { deleted: [], kept: [] }
       : deleteRootDocs(cwd, repoDir, migration.docs);
   const retired = new Set(docResult.deleted);
 
-  // `.claude/settings.json` is user-owned: an existing one is preserved, never
-  // overwritten or merged. What the user needs to know is which PHARN hooks it
-  // does not wire — and only now can that be answered: the clone is deleted
-  // right after this step. So init prints the same paste-ready HOOKS note
-  // `status` and `update` print (lib/hook-wiring.ts), plus the consequence
-  // `status` would report. diffHookWiring never throws — an unreadable project
-  // file is a status of its own, reported in the note.
-  //
-  // A FRESH install wrote upstream's file verbatim: the hook commands Claude
-  // Code will run here. init lists them (and names the other settings it
-  // sets) from the same clone, before it is deleted — the note `init
-  // --dry-run` previews, from the same composition (lib/hook-wiring.ts).
-  // Nothing when upstream ships no file, or a symlinked one: none was written.
+  // `.claude/settings.json` is user-owned: an existing one is preserved, and
+  // only now can its missing PHARN hooks be named — the clone is deleted right
+  // after this step — so init prints the HOOKS note `status`/`update` print.
+  // A FRESH install wrote upstream's file verbatim, so init lists the hook
+  // commands Claude Code will run (the note `init --dry-run` previews).
   if (settingsPreserved) {
     log.info(
       `Existing ${CLAUDE_SETTINGS_FILE} preserved — pharn never overwrites it.`,
@@ -295,12 +259,11 @@ export async function runInstallArchetype(
     );
   }
 
-  // The `models` block is pharn-oss's: copied VERBATIM from its root
-  // pharn.config.json, checked on the way in (lib/upstream-models.ts). None
-  // upstream → none written, never an invented one. One this CLI will not
-  // apply → none written, and each reason named: pharn-oss may have widened its
-  // rules past this CLI's copy of them (LIMITS.md §3e), which an upgrade fixes
-  // — `pharn update` then writes it (the block's `restored` row).
+  // The `models` block is pharn-oss's, copied VERBATIM and checked on the way
+  // in (lib/upstream-models.ts). None upstream → none written. One this CLI
+  // rejects → none written, each reason named: pharn-oss may have widened its
+  // rules past this CLI's copy (LIMITS.md §3e), and `pharn update` writes it
+  // after an upgrade.
   const upstreamModels = readUpstreamModels(repoDir);
   if (upstreamModels.kind === 'invalid') {
     log.warn(
@@ -317,24 +280,18 @@ export async function runInstallArchetype(
   const models =
     upstreamModels.kind === 'ok' ? upstreamModels.block : undefined;
 
-  // Every declared product surface the fetched repo shipped NO file for —
-  // commands, hooks, each trusted doc, the LICENSE, the features README,
-  // contracts, core, floor (lib/install-manifest.ts → absentInstallSurfaces,
-  // the same enumeration the copy's manifest comes from). Each copy is
-  // existence-guarded on purpose (an older or reorganized clone must still
-  // install, P7), but its silence was the defect: two docs were absent from
-  // every install while the outro said "docs written", and a relocated
-  // surface — or an `.mjs` hook — was dropped with no word at all. Warned, never
-  // fatal: upstream's MIN_CLI is the lever for refusing a too-old CLI.
+  // Every declared product surface the clone shipped NO file for
+  // (absentInstallSurfaces). Each copy is existence-guarded so an older clone
+  // still installs, but never silently: warned, never fatal — upstream's
+  // MIN_CLI is the lever for refusing a too-old CLI.
   const absent = absentInstallSurfaces({ repoDir, layout });
   const absentLines = absentSurfaceLines(absent);
   if (absentLines) log.warn(absentLines.join('\n'));
   const legacyBackups = legacyBackupNotice(cwd);
   if (legacyBackups) log.info(legacyBackups);
-  // The `.claude/` surfaces that actually landed, for the outro: never claim
-  // a surface the warning above just named as not shipped. Agents are an
-  // OPTIONAL surface (never in `absent`: pharn-oss < 6.64.0 ships none), so
-  // they are named only when the manifest the copy applied holds one (CORE-272).
+  // The `.claude/` surfaces that actually landed, for the outro. Agents are an
+  // OPTIONAL surface (pharn-oss < 6.64.0 ships none), named only when the
+  // applied manifest holds one.
   const agentsWritten = [...prepared.manifest.keys()].some((rel) =>
     rel.startsWith(`${CLAUDE_AGENTS_DIR}/`),
   );
@@ -354,25 +311,18 @@ export async function runInstallArchetype(
     repo: REPO_URL.replace(/^github\.com\//, ''),
     commit,
     ...(carry.ref === 'latest' ? { ref: 'latest' as const } : {}),
-    // No constitution variant: the archetype install copies pharn-oss's canonical
-    // CONSTITUTION.md verbatim. No modules — capabilities are the install unit —
-    // but the empty `modules` key is still written: every released CLI
-    // (0.3.0–0.19.x) reads a config without a `modules` array as NO config, so an
-    // older, pinned CLI would report this install as absent (and a re-run init
-    // from one would carry nothing over). See `PharnConfig.modules`.
+    // The empty `modules` key is still written: every released CLI
+    // (0.3.0–0.19.x) reads a config without a `modules` array as NO config. See
+    // `PharnConfig.modules`.
     modules: [],
     installedAt: new Date().toISOString(),
-    // pharn-oss's `models` block, or no key at all (`undefined` is not written).
+    // `undefined` is not written.
     models,
     archetypes,
-    // An entry from archetype resolution is `auto` — `pharn update` owns it and
-    // may drop it when the archetypes stop selecting it. `manual` is what
-    // `pharn add` writes, and what a re-run init carries over from the config it
-    // replaces (`carry.manualKeys` — sticky even when the archetypes ALSO select
-    // it, as in update's merge), so a hand-added capability survives. Tagged at
-    // the WRITE site so lib/install-capabilities.ts (the copy routine) stays
-    // unaware of provenance, which is not its axis (P3). Kept (frozen) entries
-    // follow VERBATIM — a parse failure upstream is not evidence of provenance.
+    // `auto` from archetype resolution (update may drop it); `manual` for what
+    // a re-run carries over (sticky even when the archetypes also select it).
+    // Tagged at the WRITE site so the copy routine stays unaware of provenance.
+    // Kept (frozen) entries follow VERBATIM.
     capabilities: [
       ...capabilities.map((c) => ({
         ...c,
@@ -382,26 +332,19 @@ export async function runInstallArchetype(
       })),
       ...carry.kept.map((c) => ({ ...c })),
     ],
-    // The layout mirrored from the fetched clone (flat OR pharn/) — status/remove
-    // read this back to address the project the same way (lib/layout.ts).
+    // The clone's layout; status/remove address the project by it.
     layout,
-    // While non-empty, `pharn update` re-fetches even at the same skills version,
-    // so a kept capability is re-checked once this CLI can read it (types.ts).
+    // While non-empty, `pharn update` re-fetches even at the same version.
     ...(frozenCapabilities.length > 0 ? { frozenCapabilities } : {}),
   };
-  // Record sha256 of every file this install just wrote (hashed at the DEST, so
-  // the record cannot disagree with what landed) BEFORE the config, and stamped
-  // with the config values written beside it. This is the baseline `pharn update`
-  // compares against so it can tell pharn's bytes from the user's edits
-  // (lib/install-records.ts). Without it every later update is degraded.
-  //
-  // Keyed by the SAME manifest the copy just applied — it depends only on the
-  // clone, the selection and the layout, none of which change during a run.
+  // Record the hash of every file this install wrote (taken at the DEST, so a
+  // record cannot disagree with what landed) BEFORE the config: the baseline
+  // `pharn update` tells pharn's bytes from the user's edits by. Keyed by the
+  // same manifest the copy applied.
   const files = {
     ...keptRecords(baseline, carry, layout),
-    // Files the replaced install recorded that upstream no longer ships and
-    // that are still on disk keep their record, so `update` and `status`
-    // keep naming them (lib/orphans.ts). Disjoint from the manifest.
+    // Recorded files upstream no longer ships that are still on disk keep their
+    // record, so `update`/`status` keep naming them (lib/orphans.ts).
     ...Object.fromEntries(
       Object.entries(
         findOrphans({
@@ -413,12 +356,10 @@ export async function runInstallArchetype(
         }).records,
       ).filter(([rel]) => !retired.has(rel)),
     ),
-    // `.claude/settings.json` (CORE-166): the file this run wrote fresh is
-    // pharn's bytes, recorded so `uninstall` can remove it while unchanged. A
-    // file this run PRESERVED is never recorded anew — a first install's
-    // baseline is null, and a re-run only carries the record a previous fresh
-    // install made, while the file is still there. Not in the manifest, so
-    // disjoint from the records below.
+    // `.claude/settings.json`: a file this run wrote fresh is recorded so
+    // `uninstall` can remove it while unchanged. A PRESERVED one is never
+    // recorded anew; a re-run only carries a previous fresh install's record
+    // while the file is still there.
     ...(settingsWritten
       ? buildRecords(cwd, [CLAUDE_SETTINGS_FILE])
       : carriedSettingsRecord(cwd, baseline)),
@@ -429,39 +370,28 @@ export async function runInstallArchetype(
       : {}),
   };
   await writeRecords(cwd, { skillsVersion, commit, files });
-  // The config this install replaces may hold keys pharn does not own —
-  // upstream's `testResults` / `ship` / `seam`, which users add by hand — and the object
-  // above is built from pharn's own fields alone. Carry them over (why every
-  // such key: userOwnedConfigEntries). Read HERE, inside init's project lock and
-  // immediately before the write, for the reason the backup scan above is taken
-  // late: a key edited while a prompt was open must not be lost. (Under init, an
-  // edit made while a prompt was open never gets this far: init refuses, writing
-  // nothing, when the file changed after it read it — commands/init.ts,
-  // assertConfigFingerprintUnchanged.) Appended AFTER pharn's own keys: the two
-  // sets are disjoint by construction, and this keeps the user's keys where they
-  // most likely added them, so the committed file's diff is only what init
-  // actually changed.
+  // Carry over the replaced config's keys pharn does not own (upstream's
+  // `testResults` / `ship` / `seam`, …: userOwnedConfigEntries). Read HERE,
+  // under the lock right before the write, so a key edited while a prompt was
+  // open is not lost. Appended AFTER pharn's own keys (disjoint sets), so the
+  // committed file's diff is only what init changed.
   await writePharnConfig(cwd, { ...config, ...readCarriedEntries(cwd) });
 
-  // Keep PHARN's run state and backups out of git (lib/gitignore.ts): append
-  // whichever of `pharn/.run/` and `pharn/.backup/` the project's `.gitignore`
-  // does not already cover, after every pharn-owned write and under the same
-  // lock. Append-only; a symlinked or unusable `.gitignore`, or a failed write,
-  // is a warning naming the lines — the install above has already landed.
+  // Keep PHARN's run state and backups out of git, after every pharn-owned
+  // write and under the same lock. Append-only; a refusal or failed write is a
+  // warning naming the lines.
   const gitignore = await applyGitignore(cwd);
   const gitignoreReport = gitignoreLines(gitignore);
   if (gitignoreReport?.warn) log.warn(gitignoreReport.text);
 
-  // Keep the project's Prettier check off the files pharn installs and
-  // rewrites (lib/prettierignore.ts): when the project uses Prettier, append
-  // the `.prettierignore` lines the paths just recorded need, the same way.
+  // When the project uses Prettier, append the `.prettierignore` lines the
+  // recorded paths need, the same way.
   const prettierignore = await applyPrettierignore(cwd, Object.keys(files));
   const prettierignoreReport = prettierignoreLines(prettierignore);
   if (prettierignoreReport?.warn) log.warn(prettierignoreReport.text);
 
-  // The note that says what the migration did (the wording `update` prints
-  // too), after every pharn-owned write. The user data at the root is never
-  // moved — the note only hints at it (lib/root-migration.ts, CORE-158).
+  // What the migration did, after every pharn-owned write. Root user data is
+  // never moved; the note only hints at it.
   if (migration !== null) {
     const lines = rootMigrationNoteLines(migration, docResult);
     if (lines) note(lines.join('\n'), 'ROOT MIGRATION');
@@ -472,10 +402,7 @@ export async function runInstallArchetype(
   const grillers = capabilities.filter((c) => c.role === 'griller').length;
   const lenses = capabilities.filter((c) => c.role === 'lens').length;
   // The block just written, resolved per stage, under the label that says what
-  // it is: read by /pharn-ship and /pharn-loop to pick the model they request
-  // for the stages they route (never effort), and the source of truth each
-  // /pharn-* command's frontmatter is held to. The outro shows a declaration,
-  // not what any stage ran on. No block (or one that declares no stages) → no
+  // it is (a declaration, not what any stage ran on). No valid block → no
   // section.
   const modelsCheck = checkModelsBlock(models);
   const modelsSection =
@@ -490,10 +417,8 @@ export async function runInstallArchetype(
           ),
         ]
       : [];
-  // Report the docs that LANDED, by name — never a count and never the expected
-  // list. A count would hide exactly the silence this line exists to end, and
-  // the names are what let a user see at a glance that (say) LIMITS.md is not
-  // among them. Zero docs cannot render as "docs written" at all.
+  // Report the docs that LANDED, by name — never a count, never the expected
+  // list — so a missing doc is visible at a glance.
   const docsLine = docsWritten.length
     ? `${check} ${docsWritten.length} trusted doc${docsWritten.length === 1 ? '' : 's'} written → ${pc.dim(docsWritten.join(', '))}`
     : `${pc.yellow('!')} no trusted docs written ${pc.dim('(the fetched repo shipped none at their expected paths)')}`;
@@ -528,14 +453,9 @@ export async function runInstallArchetype(
 
 /**
  * The records of every kept (frozen) capability, carried from the store this
- * install replaces — the pair `update` uses for its frozen entries
- * (`recordsBaseline` + `recordsUnderCapabilities`). A store that is absent or
- * unreadable carries NOTHING (one stamped for another state still carries): never
- * minted, never blessed. Nothing under a kept capability was touched, so the
- * hashes it does carry are still true; dropping them would make the next
- * `update` read those files as `unrecorded` and skip them. Keyed at the clone's
- * layout, as in `update`. `baseline` is reinstallBaseline's, read before the
- * copy — the store exactly as this install found it.
+ * install replaces, as `update` does. No usable store carries NOTHING. Nothing
+ * under a kept capability was touched, so the carried hashes are still true;
+ * dropping them would make `update` skip those files as `unrecorded`.
  */
 function keptRecords(
   baseline: FileRecords | null,

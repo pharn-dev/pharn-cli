@@ -23,19 +23,12 @@ import {
 import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Layout resolver — the ONE place that knows the two install layouts pharn-oss
-// ships: the legacy `flat` layout (surfaces at the repo root) and the new `pharn`
-// single-install layout (everything under pharn/, pharn-oss PR #86). The CLI
-// MIRRORS whichever the fetched clone has — it never rewrites copied file
-// contents — so a layout's source-relative-to-clone path IS its
-// dest-relative-to-project path, with ONE deliberate exception: `license`, whose
-// dest differs from its source (see the field). Only the `.claude/*`
-// command/hook/settings surfaces are layout-invariant (identical in both) and
-// live in constants.ts.
-//
-// P5 (determinism): every layout decision here is a membership test whose else
-// branch is the safe legacy default `flat` — never a guess, never an LLM.
-// P7: `flat` IS the current behavior, so old pinned SHAs keep mirroring flat.
+// Layout resolver — the ONE place that knows the two install layouts: legacy
+// `flat` (surfaces at the repo root) and `pharn` (everything under pharn/). The
+// CLI MIRRORS whichever the clone has, so a source path IS its dest path —
+// except `license` (see the field). The `.claude/*` surfaces are identical in
+// both and live in constants.ts. Every decision's else branch is the safe
+// legacy default `flat`.
 // ---------------------------------------------------------------------------
 
 export interface LayoutPaths {
@@ -46,48 +39,29 @@ export interface LayoutPaths {
   lenses: string;
   // Inter-layer schema contracts dir (whole dir).
   contracts: string;
-  // pharn-core dir (whole dir): the agnostic mechanism layer the copied product
-  // commands cite — today the seam-resolver skill + its evals. A fixed surface,
-  // not a capability. Resolved in BOTH layouts for uniformity; the flat clone has
-  // no such dir upstream, so its consumers simply find nothing there (P7).
+  // pharn-core dir (whole dir): a fixed surface, not a capability. The flat
+  // clone has none upstream, so its consumers find nothing there.
   core: string;
   // Deterministic floor checkers dir (test files excluded on copy).
   floor: string;
-  // Upstream's Apache-2.0 LICENSE, the ONE deliberate source≠dest mapping in the
-  // CLI. Apache-2.0 §4(a) requires giving recipients a copy of the license when
-  // redistributing, and a user who commits and publishes a pharn-initialized
-  // repo is redistributing ~450 Apache-2.0 files.
-  //
-  // Why it cannot be an ordinary identity-mapped doc: those are copied
-  // `{ force: true }` at the SAME relative path, so a root `LICENSE` entry would
-  // overwrite the USER's own root LICENSE on every flat install — silent,
-  // unprompted data loss in a file people care about. The destination is
-  // therefore unmistakably pharn's: `pharn/LICENSE` beside the other pharn docs,
-  // or `PHARN-LICENSE` at the root in the legacy flat layout.
+  // Upstream's Apache-2.0 LICENSE (§4(a): redistributors pass it on), the ONE
+  // source≠dest mapping: an identity-mapped root `LICENSE` would overwrite the
+  // user's own. The dest is pharn's: `pharn/LICENSE` or flat `PHARN-LICENSE`.
   license: { from: string; to: string };
-  // Trusted spec docs copied verbatim (write-protected post-install by the
-  // installed protect-trusted-paths hook). The SAME four documents in both
-  // layouts — only their prefix differs. Where a pharn-layout CLONE keeps each
-  // one is resolveTrustedDocs's answer (a pre-7.0 clone keeps two at the root);
-  // this field is the layout's own path, the one orphan detection and the
-  // absent-surface report name. Every consumer existence-guards each entry, so a
-  // clone missing one contributes nothing rather than failing (P7).
+  // Trusted spec docs copied verbatim (write-protected by the installed hook),
+  // at the layout's own path — where a CLONE keeps each is resolveTrustedDocs's
+  // answer. Every consumer existence-guards each entry.
   docs: string[];
   featuresReadme: string;
 }
 
-// Detect the layout of a fetched clone (or any dir) by a SPECIFIC marker the flat
-// layout provably lacks: `pharn/pharn-contracts`. A bare `pharn/` dir is NOT the
-// marker — it could exist for unrelated reasons — so detection keys on a leaf that
-// only the relocated layout has (P5: a precise membership test). No `pharn/`
-// contracts dir → `flat`, the safe legacy default.
+// Detect a clone's layout by a marker the flat layout lacks:
+// `pharn/pharn-contracts` (a bare `pharn/` could exist for unrelated reasons).
 export function detectLayout(rootDir: string): Layout {
   return existsSync(safeJoin(rootDir, PHARN_CONTRACTS_DIR)) ? 'pharn' : 'flat';
 }
 
-// The resolved path set for a layout — the same relative paths are used as the
-// clone source AND the project destination (the mirror), EXCEPT `license`, which
-// carries its source and dest separately. Pure; no I/O.
+// The resolved path set for a layout (source = dest, except `license`). Pure.
 export function layoutPaths(layout: Layout): LayoutPaths {
   if (layout === 'pharn') {
     return {
@@ -117,8 +91,7 @@ export function layoutPaths(layout: Layout): LayoutPaths {
 
 /**
  * The subtree holding a capability of `role` at this layout — the ONE role →
- * directory mapping (grillers or lenses). Every reader and writer that
- * addresses a capability dir goes through it, so no two can disagree.
+ * directory mapping every reader and writer goes through.
  */
 export function capabilitySubtree(
   paths: LayoutPaths,
@@ -127,17 +100,14 @@ export function capabilitySubtree(
   return role === 'griller' ? paths.grillers : paths.lenses;
 }
 
-// The layout an installed project was recorded with. Enum-safe membership (P5):
-// exactly `'pharn'` → pharn; anything else (including a legacy config that omits
-// the field, or a hand-edited garbage value) → `flat`, the safe legacy default.
+// The layout an installed project was recorded with: exactly `'pharn'` →
+// pharn; anything else (absent, garbage) → `flat`.
 export function configLayout(config: PharnConfig): Layout {
   return config.layout === 'pharn' ? 'pharn' : 'flat';
 }
 
-// Resolve which relative path the clone carries the product-loop boundary contract
-// at — layout-dependent since pharn-oss SKILLS_VERSION 5.0.0. For the pharn
-// layout, a pre-relocation clone may still ship only the root path; the ordered
-// probe keeps that window working without reading any clone content (P5).
+// Where the clone carries the product-loop boundary contract. For the pharn
+// layout an ordered existence probe also accepts an older clone's root path.
 export function resolveFeaturesReadme(repoDir: string, layout: Layout): string {
   if (layout === 'pharn') {
     const preferred = safeJoin(repoDir, PHARN_FEATURES_README);
@@ -148,11 +118,9 @@ export function resolveFeaturesReadme(repoDir: string, layout: Layout): string {
   return layoutPaths(layout).featuresReadme;
 }
 
-// Resolve where the clone carries each trusted doc — the ordered probe
-// `resolveFeaturesReadme` uses, per doc. For the pharn layout, a doc with a root
-// fallback (PHARN_ROOT_FALLBACK_DOCS) resolves to its pharn/ path when the clone
-// has it there, else to the root path a pre-7.0 clone ships. Existence only: no
-// clone content is read (P5). The flat layout has no fallback.
+// Where the clone carries each trusted doc: for the pharn layout, its pharn/
+// path when present, else the root path a pre-7.0 clone ships
+// (PHARN_ROOT_FALLBACK_DOCS). Existence only; flat has no fallback.
 export function resolveTrustedDocs(repoDir: string, layout: Layout): string[] {
   const docs = layoutPaths(layout).docs;
   if (layout !== 'pharn') return docs;

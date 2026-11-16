@@ -71,21 +71,16 @@ import type {
 } from '../types.js';
 
 // The planning half of `pharn update`, shared by the real run and `--dry-run`.
-// It READS the clone and the project and writes nothing: no log, no backup, no
-// copy, no records, no config. Everything the real run needs to write is in
-// `apply`; everything a preview needs to SHOW is in `report`.
-//
-// `report` is JSON-safe by construction (plain objects, arrays and strings — no
-// Map/Set/function/Date), so a later `--json` output can serialize it as is.
-// `apply` is not, and is never printed.
+// It READS the clone and the project and writes nothing (not even a log).
+// `report` is what a preview shows — JSON-safe by construction (no
+// Map/Set/function/Date); `apply` is what only the writer needs, never printed.
 
 // The skips that are the user's own kept edits — the only ones that may leave a
 // `pendingSkillsVersion` behind.
 export const USER_EDIT_SKIPS = new Set<SkipLabel>(['modified', 'unrecorded']);
 
-// The two merge outcomes that take an entry OUT of the config (rows 5, 7, 9 of
-// lib/merge-capabilities.ts). Membership on the reason enum (P5): a reason not
-// in this set never deletes anything.
+// The merge outcomes that take an entry OUT of the config; any other reason
+// never deletes anything.
 const DROP_REASONS = new Set<CapabilityChangeReason>([
   'dropped-unselected',
   'dropped-gone',
@@ -138,30 +133,22 @@ export interface UpdatePlanReport {
   // The structured twin of `unknownWarning`: what the fetch boundary refused.
   unknownCapabilities: UnknownCapability[];
   // Recorded files upstream no longer ships that are still on disk
-  // (lib/orphans.ts). Reported only; never written, never deleted. A root doc
-  // the migration deletes (below) is not listed: it is not left behind.
+  // (lib/orphans.ts). Never written or deleted; a root doc the migration
+  // deletes is not listed.
   orphans: Orphan[];
-  // The old root footprint this run retires (lib/root-migration.ts), or null
-  // when nothing applies (a flat clone, or one below SKILLS 7 that still keeps
-  // both docs at the root).
+  // The old root footprint this run retires (lib/root-migration.ts), or null.
   rootMigration: RootMigration | null;
-  // What this run adds to the project's `.gitignore` (lib/gitignore.ts):
-  // `none` when it already covers pharn's entries. Re-planned under the lock
-  // by the writer, like every other read-only answer here.
+  // What this run adds to `.gitignore` (lib/gitignore.ts); re-planned under
+  // the lock by the writer.
   gitignore: GitignorePlan;
-  // What this run adds to the project's `.prettierignore`
-  // (lib/prettierignore.ts): `none` when the project does not use Prettier or
-  // the file already covers the paths this run records. Re-planned under the
-  // lock by the writer over `apply.prettierignorePaths`.
+  // What this run adds to `.prettierignore` (lib/prettierignore.ts); re-planned
+  // under the lock over `apply.prettierignorePaths`.
   prettierignore: PrettierignorePlan;
   // Whether the run would change pharn.config.json (beyond `updatedAt` /
-  // `pharnVersion`) and pharn.records.json, against what it loaded
-  // (lib/update-next.ts). Internal: never projected into the JSON report.
+  // `pharnVersion`) or pharn.records.json. Internal: never in the JSON report.
   stateChanges: StateChanges;
-  // THE "changes nothing" predicate (lib/update-next.ts, CORE-162): no file,
-  // directory, root doc, move, ignore-file line, record or config field would
-  // change. The real run then asks nothing and writes nothing; the dry run and
-  // `--json` (`plan.changesNothing`) read this same boolean.
+  // THE "changes nothing" predicate (lib/update-next.ts): the real run then
+  // asks nothing and writes nothing; the dry run and `--json` read it too.
   changesNothing: boolean;
 }
 
@@ -178,9 +165,8 @@ export interface UpdateApplyInputs {
   frozenRecords: FileRecords;
   // The orphans' previous records, carried so they stay listed on later runs.
   orphanRecords: FileRecords;
-  // The record of the `.claude/settings.json` a fresh init wrote, carried while
-  // the file is there (CORE-166; lib/install-records.ts →
-  // carriedSettingsRecord). `update` never writes that file.
+  // The record of the `.claude/settings.json` a fresh init wrote, carried
+  // while the file is there. `update` never writes that file.
   settingsRecords: FileRecords;
   nextSkillsVersion: string;
   nextCommit: string | null;
@@ -203,39 +189,32 @@ export function buildUpdatePlan(input: {
   cwd: string;
   force: boolean;
   channel: RefChoice;
-  // Called with the unknown-capabilities warning the moment the index is parsed,
-  // so a caller that logs it keeps the order it always had (before any later
-  // throw). `report.unknownWarning` carries the same string.
+  // Called with the unknown-capabilities warning the moment the index is
+  // parsed, so it prints before any later throw.
   onUnknownWarning?: (warning: string) => void;
 }): PlannedUpdate {
   const { repoDir, sha, config, cwd, force, channel, onUnknownWarning } = input;
 
   const index = parseCapabilityIndex(repoDir);
-  // No silent skips (P5): a capability the fetch boundary refused is NAMED.
+  // A capability the fetch boundary refused is NAMED.
   const unknownWarning = unknownCapabilitiesWarning(index.unknown);
   if (unknownWarning) onUnknownWarning?.(unknownWarning);
-  // `role:name` for every unparseable capability, built from the SUBTREE's role
-  // (authoritative — a frozen capability's declared role may be what failed). It
-  // answers what index membership cannot: "removed upstream, or unreadable now?"
+  // `role:name` of every unparseable capability, from the SUBTREE's role (the
+  // declared role may be what failed).
   const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
   const selection = resolveCapabilities(config.archetypes ?? [], index);
-  // The UNION, not a wholesale replace: the freshly-resolved auto set PLUS every
-  // manual entry (lib/merge-capabilities.ts owns the table).
-  //
-  // Membership is planned even when the version is withheld (below), and that is
-  // deliberate: membership answers "which capabilities does this project have",
-  // which the archetypes decide, while the version answers "are its BYTES
-  // complete". A newly-selected capability's files are absent, so they always
-  // take the `restored` row and are written regardless.
+  // The UNION of the re-resolved auto set and every manual entry
+  // (lib/merge-capabilities.ts). Membership is planned even when the version
+  // is withheld: the archetypes decide membership, and a newly-selected
+  // capability's files are absent, so they always take the `restored` row.
   const merged = mergeCapabilities(
     selection,
     config.capabilities ?? [],
     frozen,
   );
-  // TWO arrays, deliberately. The CONFIG keeps a frozen entry (it is still this
-  // project's capability); the MANIFEST must not: it is `update`'s only write
-  // source, and enumerating an unparseable clone directory would classify its
-  // files `restored` and copy an arbitrary upstream directory into the project.
+  // TWO arrays: the CONFIG keeps a frozen entry, the MANIFEST must not — it is
+  // `update`'s only write source, and enumerating an unparseable clone dir
+  // would copy an arbitrary upstream directory into the project.
   const configCapabilities: InstalledCapability[] = merged.capabilities;
   const manifestCapabilities = configCapabilities.filter(
     (cap) => !frozen.has(`${cap.role}:${cap.name}`),
@@ -260,14 +239,13 @@ export function buildUpdatePlan(input: {
   for (const rel of expected.keys())
     diskStates.set(rel, readDiskState(cwd, rel));
 
-  // Read ONCE: the baseline below, and the store the "changes nothing"
-  // comparison holds the next one against (lib/update-next.ts).
+  // Read ONCE: the baseline, and the store the "changes nothing" comparison
+  // holds the next one against.
   const loadedRecords = readRecords(cwd);
   const { records, note: recordsNote } = recordsBaseline(loadedRecords);
 
-  // The unit is held only when this run moves the version: at the same version
-  // a write puts back same-version bytes, so nothing can be mixed. The unit is
-  // judged at the CLONE's layout — the paths the manifest is keyed by.
+  // The unit is held only when this run moves the version (at the same version
+  // a write puts back same-version bytes). Judged at the CLONE's layout.
   const unitPaths = layoutPaths(layout);
   const plan = planUpdate({
     latestHashes,
@@ -278,9 +256,8 @@ export function buildUpdatePlan(input: {
     holdUnit: installedVersion !== config.skillsVersion,
   });
 
-  // What the drops delete, judged against the same record baseline. In the
-  // real run this runs under the project lock immediately before the writes, so
-  // it is the authoritative answer, not a preview of one.
+  // What the drops delete, against the same baseline. In the real run this
+  // runs under the lock right before the writes, so it is authoritative.
   const removalPaths = layoutPaths(previousLayout);
   const removals = planCapabilityRemovals({
     cwd,
@@ -308,25 +285,19 @@ export function buildUpdatePlan(input: {
     ? [...plan.backups, CONFIG_FILENAME]
     : plan.backups;
 
-  // A run that could not apply everything must not claim the new version: the
-  // recorded version describes the last COMPLETE state. A KEPT models block is
-  // not such a skip: it is configuration, not bytes of a version.
+  // A run that could not apply everything must not claim the new version. A
+  // KEPT models block does not count: it is configuration, not bytes.
   const versionWithheld = plan.counts.skipped > 0;
   const nextSkillsVersion = versionWithheld
     ? config.skillsVersion
     : installedVersion;
   const nextCommit = versionWithheld ? config.commit : sha;
-  // Withheld ONLY by the user's own kept edits — directly, or through an
-  // executable-unit hold they caused — → every file outside those edits and the
-  // unit IS at `installedVersion`, so record that as pending and let `add`
-  // install at it. `add` writes capability directories only: outside the unit,
-  // and written at the new version even under a hold (CORE-159).
-  // `held` is NOT a user edit and is not in USER_EDIT_SKIPS: it is accepted here
-  // only because a hold always has a blocker, and every blocker's own label is
-  // a group of `plan.skipped` too — so an `unverifiable` / `unreadable` blocker
-  // fails this test and nothing is recorded.
-  // Exact label membership, not "forceable" (P5). A pending version equal to the
-  // withheld one tells `add` nothing it does not already accept.
+  // Withheld ONLY by the user's kept edits (directly, or through a unit hold
+  // they caused) → everything outside those edits and the unit IS at
+  // `installedVersion`, so record it as pending for `add`, which writes
+  // capability dirs only. `held` is accepted only because every blocker's own
+  // label is also a `plan.skipped` group, so an `unverifiable` / `unreadable`
+  // blocker fails this test.
   const pendingSkillsVersion =
     versionWithheld &&
     installedVersion !== nextSkillsVersion &&
@@ -336,9 +307,8 @@ export function buildUpdatePlan(input: {
       ? installedVersion
       : null;
 
-  // A frozen capability is absent from the manifest, and `planUpdate` keys
-  // `nextRecords` by the manifest — so without this its entries would be pruned.
-  // Nothing under it was touched, so its recorded hashes are still true.
+  // A frozen capability is absent from the manifest, which keys `nextRecords`,
+  // so its untouched records are carried here instead of pruned.
   const paths = layoutPaths(layout);
   const frozenRecords =
     records === null
@@ -351,10 +321,9 @@ export function buildUpdatePlan(input: {
           ),
         );
 
-  // Orphans: recorded files outside the manifest that are still on disk. Their
-  // keys are disjoint from the manifest, so they never reach the decision table
-  // and never withhold the version; their records are carried (lib/orphans.ts).
-  // A capability this run DROPS is excluded — its dir is not "still installed".
+  // Orphans: recorded files outside the manifest still on disk. Disjoint from
+  // the manifest, so they never reach the decision table; their records are
+  // carried. A capability this run DROPS is excluded.
   const orphanScan = findOrphans({
     projectRoot: cwd,
     records,
@@ -365,13 +334,10 @@ export function buildUpdatePlan(input: {
     ),
   });
 
-  // The old root footprint (lib/root-migration.ts), judged against the same
-  // usable baseline. A root doc it deletes leaves the orphan list and the
-  // carried records: it is retired by this run, not left behind. A doc it KEEPS
-  // (edited, unverifiable) stays an orphan — listed, its record carried.
-  // Held while the executable unit is held: the migration deletes paths the
-  // OLD floor still reads, so it waits for the run that upgrades the
-  // unit (pendingRootMigration re-opens it then).
+  // The old root footprint, against the same baseline. A root doc it deletes
+  // leaves the orphan list (retired, not left behind); one it KEEPS stays an
+  // orphan. Held while the unit is held: it deletes paths the OLD floor still
+  // reads (pendingRootMigration re-opens the run later).
   const rootMigration =
     plan.held !== null
       ? null
@@ -389,20 +355,18 @@ export function buildUpdatePlan(input: {
       .map((d) => d.rel),
   );
   const orphans = orphanScan.orphans.filter((o) => !retired.has(o.path));
-  // The paths `.prettierignore` must cover: everything this run may record —
-  // the manifest, the frozen capabilities' and the orphans' carried records. A
-  // superset of the store the run writes (a root doc the migration retires is
-  // kept here: its delete may fail), so the same-version re-open, which reads
-  // the store, never finds a line this run did not add (commands/update.ts).
+  // The paths `.prettierignore` must cover: everything this run may record. A
+  // superset of the store it writes (a retired root doc's delete may fail), so
+  // the same-version re-open, which reads the store, stays bounded.
   const prettierignorePaths = [
     ...expected.keys(),
     ...Object.keys(frozenRecords),
     ...Object.keys(orphanScan.records),
   ];
 
-  // Only KEPT entries count: an unparseable capability this project never had
-  // must not pin every future run to a re-fetch. And one the LAST run listed
-  // that parses again stays listed while any of ITS files was skipped this run.
+  // Only KEPT entries count, so an unparseable capability this project never
+  // had cannot pin every run to a re-fetch. One that parses again stays listed
+  // while any of its files was skipped this run.
   const previouslyFrozen = new Set(config.frozenCapabilities ?? []);
   const skippedRels = plan.skipped.flatMap((group) => group.rels);
   const hasSkippedFile = (cap: InstalledCapability): boolean => {
@@ -434,8 +398,8 @@ export function buildUpdatePlan(input: {
     frozenCapabilities: frozenKeys,
     capCount: configCapabilities.length,
     layout,
-    // `applyWrites` returns exactly `plan.writes` on success, so the number of
-    // files written is known before anything is written.
+    // `applyWrites` returns exactly `plan.writes` on success, so the count is
+    // known before anything is written.
     abandonedLayout:
       previousLayout !== layout && plan.writes.length > 0
         ? previousLayout
@@ -454,8 +418,7 @@ export function buildUpdatePlan(input: {
     executableUnit: plan.held,
     models,
     modelsFloor: paths.floor,
-    // Read-only, never throws, and `update` never writes the settings files it
-    // reads, so the answer is the same before and after the writes.
+    // Read-only; `update` never writes the settings files it reads.
     hookWiring: diffHookWiring(repoDir, cwd),
     absentUpstream: absentInstallSurfaces({ repoDir, layout }),
     recordsNote,

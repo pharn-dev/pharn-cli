@@ -16,18 +16,15 @@ import { PHARN_VERSION } from './version.js';
 
 const INTRO = `Pharn - Installs and updates PHARN (a workflow for shipping features right with Claude Code) in your git project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.`;
 
-// The help text is DATA, rendered two ways: `pharn --help` prints every command
-// and every option (each option line naming the commands it belongs to), and
-// `pharn <cmd> --help` prints that command's usage line and ONLY the options in
-// its ALLOWED_FLAGS row. One source for both, so a command's page can never
-// describe an option differently from the full text.
+// The help text is DATA, rendered two ways (`pharn --help`: everything;
+// `pharn <cmd> --help`: that command's ALLOWED_FLAGS row), so the two cannot
+// describe an option differently.
 interface CommandHelp {
   name: string;
   args?: string;
   aliases?: readonly string[];
   summary: string;
-  // The sentence under a command's own `--help` page, when the one-line
-  // summary does not read as one.
+  // The sentence on the command's own page, when the summary does not read as one.
   page?: string;
 }
 
@@ -61,13 +58,12 @@ const COMMANDS: readonly CommandHelp[] = [
 ];
 
 interface OptionHelp {
-  // The canonical minimist key, exactly as ALLOWED_FLAGS names it (`drift`,
-  // not `no-drift`), so a command's page is selected by its row.
+  // The canonical minimist key, as ALLOWED_FLAGS names it (`drift`, not `no-drift`).
   key: string;
   short?: string;
   long: string;
-  // One entry per group of commands the option means the same thing for. An
-  // empty `commands` marks a global option (`--help`, `--version`).
+  // One entry per group of commands the option means the same thing for; an
+  // empty `commands` marks a global option.
   uses: readonly { commands: readonly string[]; text: readonly string[] }[];
 }
 
@@ -210,9 +206,7 @@ const OPTIONS: readonly OptionHelp[] = [
   },
 ];
 
-// What pharn reads from the environment, described by what each changes for
-// pharn. The proxy rules in full (which spellings, which Node versions) live in
-// lib/proxy-env.ts and docs/troubleshooting.md.
+// What pharn reads from the environment (proxy rules in full: lib/proxy-env.ts).
 const ENVIRONMENT = `Environment:
   PHARN_DEBUG=1              Print the full error (stack trace) when a download or
                              install fails, instead of a one-line hint
@@ -225,9 +219,8 @@ const ENVIRONMENT = `Environment:
 const DESCRIPTION_COLUMN = 21;
 const COMMAND_COLUMN = 29;
 
-// One option's lines. `forCommand` undefined: the full text — every use, each
-// prefixed by the commands it belongs to. Otherwise only that command's use,
-// unprefixed: the page already says which command it is.
+// One option's lines: every use, prefixed by its commands, or (with
+// `forCommand`) only that command's use, unprefixed.
 function optionLines(opt: OptionHelp, forCommand?: string): string[] {
   const uses =
     forCommand === undefined
@@ -280,20 +273,13 @@ const USAGE = [
 ].join('\n');
 
 // What every refusal prints after its one error line, instead of the whole
-// usage text: ~2 KB of help on stderr scrolled the actual error off a terminal.
+// usage text, which scrolled the error off a terminal.
 const USAGE_POINTER = 'Run `pharn --help` for usage.';
 
-// How many positionals each command accepts, INCLUDING the command word itself.
-// A command absent from this table gets no arity check at all, which is what
-// keeps `pharn bogus x` on the more useful "Unknown command" path rather than
-// pre-empting it with a wrong-shaped arity error.
-//
-// A `Map`, not an object literal: `cmd` is untrusted argv, and an object lookup
-// resolves `Object.prototype` keys — `MAX_POSITIONALS['toString']` would hand
-// back a FUNCTION rather than `undefined`. The comparison against it happens to
-// be false (`n > fn` is `n > NaN`), so the outcome is right today by accident;
-// a Map makes "not in the table" mean exactly that (P5: membership, not a
-// coincidence).
+// How many positionals each command accepts, INCLUDING the command word. An
+// absent command gets no arity check, so `pharn bogus x` reaches "Unknown
+// command". A `Map` because `cmd` is untrusted argv and an object lookup would
+// resolve `Object.prototype` keys.
 const MAX_POSITIONALS = new Map<string, number>([
   ['init', 1],
   ['update', 1],
@@ -305,26 +291,10 @@ const MAX_POSITIONALS = new Map<string, number>([
   ['rm', 2],
 ]);
 
-// Which flags each command accepts, by the flag's CANONICAL minimist key
-// (`drift`, not `no-drift`). Derived from what each command actually READS —
-// `runAdd(arg)` and `runRemove(arg)` take no options at all, so their rows are
-// empty; `--archetype` is init's override of detection.
-//
-// Before this table, minimist declared every flag globally and the dispatch
-// simply did not look at the ones it did not want: `pharn list --strict` was
-// parsed, dropped, and exited 0 regardless of what it found — a CI gate that
-// still looked green. (`status --json` was the same trap until `status` took
-// the flag for real.)
-//
-// A `Map` for the same reason MAX_POSITIONALS is one: `cmd` is untrusted argv,
-// and an object lookup resolves `Object.prototype` keys — `ALLOWED_FLAGS['toString']`
-// would hand back a FUNCTION, and calling `.includes` on it would not even be
-// the wrong answer, it would be a crash. A Map makes "not in the table" mean
-// exactly that (P5: membership, not a coincidence).
-//
-// Absent from the table => NO flag check at all, exactly like the arity table,
-// which is what keeps `pharn bogus --json` on the more useful "Unknown command"
-// path rather than lecturing about a flag on a command that does not exist.
+// Which flags each command accepts, by CANONICAL minimist key, derived from
+// what each command READS (`add`/`remove` take none). A flag a command does not
+// take is refused, never parsed and dropped — a dropped `--strict` would leave
+// a CI gate green. A `Map`, absent row = no check, like MAX_POSITIONALS.
 const ALLOWED_FLAGS = new Map<string, readonly string[]>([
   ['init', ['archetype', 'ref', 'yes', 'dry-run', 'json']],
   ['add', []],
@@ -336,16 +306,10 @@ const ALLOWED_FLAGS = new Map<string, readonly string[]>([
   ['uninstall', ['yes']],
 ]);
 
-// Flags that are only valid TOGETHER with another flag, per command: `{ flag,
-// requires }` means `flag` is refused unless `requires` is also passed. ALLOWED_FLAGS
-// answers "may this command take the flag at all"; this answers "may it take it
-// alone". `update --json` is the dry run's machine-readable form, so it needs
-// `--dry-run` — a real update prompts, writes and prints clack chrome, none of
-// which a JSON consumer can use.
-//
-// A `Map` and absent-row-means-no-check, exactly like its siblings. Presence is
-// read the way the dispatch reads the flag (`Boolean(argv[flag])`), so
-// `--dry-run=false --json` is refused: the flag is passed but its value is off.
+// Flags valid only TOGETHER with another, per command: `flag` is refused unless
+// `requires` is also passed. `--json` is the dry run's machine-readable form; a
+// real run prompts and prints clack chrome. Absent row = no check. Presence is
+// read as the dispatch reads it, so `--dry-run=false --json` is refused.
 const REQUIRED_WITH = new Map<
   string,
   readonly { flag: string; requires: string }[]
@@ -357,20 +321,14 @@ const REQUIRED_WITH = new Map<
       { flag: 'compact', requires: 'json' },
     ],
   ],
-  // `init --json` is likewise the dry run's form: a real init prompts, writes
-  // and prints clack chrome.
   ['init', [{ flag: 'json', requires: 'dry-run' }]],
 ]);
 
-// Accepted by every command in the table above. They short-circuit below rather
-// than dispatching, but they are listed rather than special-cased so that
-// `pharn status --help` parses on the per-command pass instead of being reported
-// as unsupported.
+// Accepted by every command (listed, not special-cased, so `pharn status
+// --help` parses on the per-command pass).
 const GLOBAL_FLAGS = ['help', 'version'];
-// `pharn <cmd> --help`: the command's usage line and the options its
-// ALLOWED_FLAGS row grants (plus --help / --version, which every row has).
-// `undefined` for a command with no page, so `pharn bogus --help` gets the full
-// text, which lists the real ones.
+// `pharn <cmd> --help`: the command's usage line and the options its row
+// grants; `undefined` for a command with no page (the full text then prints).
 function commandUsage(cmd: string): string | undefined {
   const doc = COMMANDS.find(
     (c) => c.name === cmd || (c.aliases ?? []).includes(cmd),
@@ -397,38 +355,27 @@ function commandUsage(cmd: string): string | undefined {
   ].join('\n');
 }
 
-// The ONE short-alias table, used by both parses: the global one takes it whole,
-// the per-command one takes the entries whose canonical target that command
-// allows. So `-y` is accepted exactly where `--yes` is, by construction rather
-// than by two lists agreeing.
+// The ONE short-alias table, used by both parses, so `-y` is accepted exactly
+// where `--yes` is.
 const ALIASES: Readonly<Record<string, string>> = {
   h: 'help',
   v: 'version',
   y: 'yes',
 };
 
-// The flags in the table above that take a VALUE (`--ref main`,
-// `--archetype backend`) rather than being booleans. Every other flag is a
-// boolean. A flag's kind is a property of the flag, not of the command, so this
-// is a set of names, not a second table.
+// The flags that take a VALUE (`--ref main`); every other flag is a boolean.
 const STRING_FLAGS: ReadonlySet<string> = new Set(['ref', 'archetype']);
 
-// DERIVED, never hand-maintained. A flag declared here but present in no
-// command's row is exactly the shape of the bug above, so the global
-// declaration list is computed from the per-command table instead of sitting
-// beside it waiting to drift.
+// DERIVED from ALLOWED_FLAGS, so a flag declared for no command is
+// unrepresentable.
 const DECLARED_FLAGS: string[] = [
   ...new Set([...GLOBAL_FLAGS, ...Array.from(ALLOWED_FLAGS.values()).flat()]),
 ];
 const DECLARED_BOOLEANS = DECLARED_FLAGS.filter((f) => !STRING_FLAGS.has(f));
 const DECLARED_STRINGS = DECLARED_FLAGS.filter((f) => STRING_FLAGS.has(f));
 
-// Fires for every arg whose key is not declared — POSITIONALS INCLUDED
-// (minimist guards both `setArg` and the `argv._.push`), so a handler that
-// returned false unconditionally would drop the command word itself. Let
-// anything undashed through and collect only the flags. A declared boolean
-// never arrives here, so `--no-drift` and the `-h`/`-v`/`-y` aliases are
-// untouched.
+// minimist calls `unknown` for undeclared POSITIONALS too, so let anything
+// undashed through and collect only the flags.
 function collectFlags(offenders: string[]): (arg: string) => boolean {
   return (arg) => {
     if (!arg.startsWith('-')) return true;
@@ -445,21 +392,11 @@ function aliasesFor(declared: readonly string[]): Record<string, string> {
   );
 }
 
-// Which of the flags on the command line this command does not take.
-//
-// It re-parses the SAME argv under just this command's declarations and keeps
-// only minimist's own `unknown` verdicts. Deliberately not derived from the
-// already-parsed `argv`: minimist assigns `false` to EVERY declared boolean
-// whether or not it was passed, so `Object.keys(argv)` cannot tell "passed"
-// from "defaulted", and the value-differs workaround (`argv.json !== false`)
-// reads `--json=false` as absent — a guess where a membership test is available
-// (P5).
-//
-// Re-parsing keeps the tokenizer minimist's, so `--no-x`, `=value`, short
-// bundles and the `--` terminator are classified exactly as the real parse
-// classifies them, rather than by a second scanner that would have to agree
-// with the first forever. Only the offender list is kept; this pass's `_` is
-// discarded, since an undeclared flag can swallow the token after it.
+// Which of the flags on the command line this command does not take: a second
+// minimist parse under just its declarations, keeping only the `unknown`
+// verdicts. Not derived from the parsed `argv`, where a defaulted boolean
+// (`false`) is indistinguishable from a passed one. This pass's `_` is
+// discarded (an undeclared flag can swallow the next token).
 function unsupportedFlags(allowed: readonly string[]): string[] {
   const offenders: string[] = [];
   const declared = [...GLOBAL_FLAGS, ...allowed];
@@ -483,19 +420,11 @@ function unmetRequirements(
     .map(({ flag, requires }) => `--${flag} (needs --${requires})`);
 }
 
-// Refuse argv we do not understand: print ONE line naming the offenders, then a
-// pointer at `pharn --help` (never the whole usage text, which buried the error
-// under ~2 KB of help), to STDERR and exit 1. `console.error`, not the shared
-// reporter, exactly like the unknown-command path below — `pharn list --json
-// --bogus` must stay parseable for a JSON consumer, and clack chrome in a `2>&1`
-// capture is not that.
-//
-// Offenders are `JSON.stringify`-escaped: argv is untrusted text (P2), so a
-// control-char argument is echoed as data, never raw.
-//
-// De-duplicated because minimist reports a short BUNDLE once per unknown letter
-// in it, naming the whole token each time: `pharn status -xz` used to print
-// `"-xz", "-xz"`. The offenders are a set of names, not a count of hits.
+// Refuse argv we do not understand: ONE stderr line naming the offenders plus
+// the usage pointer, exit 1. Plain `console.error` (no clack chrome), so a JSON
+// consumer's capture stays clean. Offenders are `JSON.stringify`-escaped (argv
+// is untrusted) and de-duplicated (minimist names a short bundle once per
+// unknown letter).
 function refuse(label: string, offenders: string[]): never {
   console.error(
     `${label}: ${[...new Set(offenders)].map((o) => JSON.stringify(o)).join(', ')}`,
@@ -508,49 +437,26 @@ export async function main(): Promise<void> {
   // Collected by the `unknown` callback below, then gated before ANY dispatch.
   const unknownOptions: string[] = [];
   const argv = minimist(process.argv.slice(2), {
-    // Derived from ALLOWED_FLAGS, so a flag can never be declared here without
-    // belonging to some command's row.
     boolean: DECLARED_BOOLEANS,
-    // `_` stays a STRING array. Without this minimist coerces a numeric-looking
-    // positional (`pharn add 123`) to the NUMBER 123, which reaches
-    // `parseCapabilityArg` and dies on `.includes(':')` with a raw TypeError
-    // stack instead of the curated "valid capabilities" listing. `@types/minimist`
-    // declares `_: string[]`, so the type checker never saw the lie.
-    //
-    // The value-taking flags are declared here too, so `--ref main` binds
-    // `main` to `ref` rather than reading it as a positional.
+    // `_` stays a STRING array: minimist would coerce `pharn add 123` to a
+    // NUMBER, which `@types/minimist` (`_: string[]`) hides from the checker.
+    // The value flags are declared so `--ref main` binds `main` to `ref`.
     string: ['_', ...DECLARED_STRINGS],
-    // `status` drifts by default; `--no-drift` flips it off. minimist defaults
-    // bare booleans to false, so set the on-by-default here explicitly.
+    // `status` drifts by default; `--no-drift` flips it off.
     default: { drift: true },
     alias: ALIASES,
     unknown: collectFlags(unknownOptions),
   });
 
-  // BEFORE the --version / --help short-circuits, deliberately. A typo'd
-  // `--hepl` is caught wherever this sits (`help` is a declared boolean, so it
-  // parses as `{ help: false, hepl: true }` and misses the short-circuit anyway,
-  // then falls through to `argv._[0] ?? 'init'` and starts a real install). What
-  // the ordering actually decides is `pharn --help --bogus` / `--version
-  // --bogus`: after the short-circuits they print usage or the version and
-  // swallow the typo; here they refuse. A genuine --help does not license an
-  // unknown sibling.
+  // BEFORE the --version / --help short-circuits: a genuine --help does not
+  // license an unknown sibling (`pharn --help --bogus` refuses).
   if (unknownOptions.length > 0) refuse('Unknown option', unknownOptions);
 
   const cmd = argv._[0] ?? 'init';
 
-  // ALSO before the short-circuits, and for the same reason the gate above is:
-  // a genuine `--help` does not license a sibling this command cannot use.
-  // `pharn status --help --force` refuses rather than printing usage and
-  // swallowing the `--force`, which is the same call the plain gate makes about
-  // `--bogus`. `pharn status --help` itself is unaffected — `help` and
-  // `version` are in every row.
-  //
-  // A command absent from the table is not checked at all, so `pharn bogus
-  // --json` still reaches the "Unknown command" default below. That absence is
-  // also what makes the interpolated `cmd` in the label safe: it is only
-  // reachable once the Map lookup has hit, so it is one of the table's literal
-  // keys rather than arbitrary argv (P2).
+  // Also before the short-circuits, for the same reason (`pharn status --help
+  // --force` refuses). Reached only when the Map lookup hit, so the
+  // interpolated `cmd` is one of the table's literal keys, never raw argv.
   const allowedFlags = ALLOWED_FLAGS.get(cmd);
   if (allowedFlags !== undefined) {
     const unsupported = unsupportedFlags(allowedFlags);
@@ -559,16 +465,12 @@ export async function main(): Promise<void> {
     }
   }
 
-  // The same position and the same reason, one level finer: a flag the command
-  // takes, passed without the flag it depends on. Reached only for commands in
-  // REQUIRED_WITH, so `cmd` here is one of its literal keys.
+  // One level finer: a flag passed without the flag it depends on. Non-empty
+  // only for REQUIRED_WITH's keys, so `cmd` is again a literal.
   const unmet = unmetRequirements(cmd, argv);
   if (unmet.length > 0) refuse(`Incomplete option for \`${cmd}\``, unmet);
 
-  // `--ref`'s VALUE, checked where the flag's NAME was: before the short-
-  // circuits, so `pharn init --help --ref tip` refuses too. Reached only when
-  // the command took the flag (or no `--ref` was passed at all), so it needs no
-  // command check of its own.
+  // `--ref`'s VALUE, also before the short-circuits.
   const ref = refOption(argv.ref);
   if (ref === null) {
     refuse(
@@ -577,8 +479,7 @@ export async function main(): Promise<void> {
     );
   }
 
-  // `--archetype`'s VALUE, beside `--ref`'s and for the same reason: before the
-  // short-circuits, so `pharn init --help --archetype bogus` refuses too.
+  // `--archetype`'s VALUE, likewise.
   const archetypes = archetypeOption(argv.archetype);
   if (archetypes === null) {
     refuse(
@@ -597,16 +498,14 @@ export async function main(): Promise<void> {
   }
 
   if (argv.help) {
-    // `pharn <cmd> --help` is that command's page; a bare `pharn --help` (no
-    // command word, even though the dispatch defaults to `init`) and a command
-    // with no page keep the full text.
+    // A bare `pharn --help` (no command word) and a command with no page get
+    // the full text.
     const page = argv._[0] === undefined ? undefined : commandUsage(cmd);
     console.log(page ?? USAGE);
     return;
   }
 
-  // Extra positionals used to be silently ignored: `pharn add a11y extra`
-  // dropped the third token because the dispatch reads only `argv._[1]`.
+  // The dispatch reads only `argv._[1]`, so extra positionals are refused.
   const maxPositionals = MAX_POSITIONALS.get(cmd);
   if (maxPositionals !== undefined && argv._.length > maxPositionals) {
     refuse('Unexpected argument', argv._.slice(maxPositionals));
@@ -627,13 +526,8 @@ export async function main(): Promise<void> {
       return;
     case 'remove':
     case 'rm':
-      // The argument alone, exactly like `add` above: `remove` has no `--yes`.
-      // Its named path never confirms (nothing to skip) and its picker's ONE
-      // confirm is the destructive gate (nothing MAY skip it), so there is no
-      // consumer for an option object here. `remove`'s ALLOWED_FLAGS row is
-      // therefore empty, and `pharn remove --yes` is now refused up front
-      // rather than parsed and dropped — the per-command allowlist this comment
-      // used to defer to.
+      // No `--yes`: the named path never confirms, and the picker's one
+      // confirm is the destructive gate nothing may skip.
       await runRemove(argv._[1]);
       return;
     case 'update':
@@ -666,22 +560,16 @@ export async function main(): Promise<void> {
   }
 }
 
-// `--ref`: absent → `undefined` (each command picks its own default); one of
-// REF_CHOICES → that choice; anything else → `null`, which the dispatch refuses.
-// "Anything else" covers what minimist can hand back for a string flag: `''`
-// for a bare `--ref`, `false` for `--no-ref`, and an ARRAY when it was passed
-// twice — exact membership, never a guess at which one was meant (P5).
+// `--ref`: absent → `undefined` (each command picks its default); one of
+// REF_CHOICES → that choice; anything else (`''`, `false` from `--no-ref`, an
+// array from a repeated flag) → `null`, which the dispatch refuses.
 function refOption(value: unknown): RefChoice | undefined | null {
   if (value === undefined) return undefined;
   return REF_CHOICES.find((choice) => choice === value) ?? null;
 }
 
 // `--archetype`: absent → `undefined` (init detects); a string in the exact
-// grammar (`parseArchetypeList`) → those archetypes in canonical order; anything
-// else → `null`, which the dispatch refuses. Like `--ref`, "anything else"
-// covers minimist's `''` (a bare flag, or one followed by another option),
-// `false` (`--no-archetype`) and an ARRAY (the flag passed twice) — exact
-// membership, never a guess (P5).
+// grammar → those archetypes in canonical order; anything else → `null`.
 function archetypeOption(value: unknown): Archetype[] | undefined | null {
   if (value === undefined) return undefined;
   return typeof value === 'string' ? parseArchetypeList(value) : null;

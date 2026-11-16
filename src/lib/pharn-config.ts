@@ -18,18 +18,12 @@ import type { PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
 
-// The `source` allowlist (src/types.ts, CapabilitySource). The runtime half of
-// the type — enum membership, checked at ingest (P0/P5).
+// The `source` allowlist (src/types.ts, CapabilitySource), checked at ingest.
 const CAPABILITY_SOURCES = ['auto', 'manual'];
 
 /**
- * A `capabilities[].source` that is present but not in the allowlist — the FIRST
- * capabilities-entry check this config has ever had. Named + loud, so a
- * hand-edit is reported as
- * the hand-edit it is and never collapsed into the "run `pharn init`" lie.
- *
- * It validates `source` ONLY; an entry's `name` and `role` are the separate
- * `CapabilityEntryError` below.
+ * A present `capabilities[].source` outside the allowlist — named, so a
+ * hand-edit is reported as one and never collapsed into "run `pharn init`".
  */
 export class CapabilitySourceError extends Error {
   constructor(message: string) {
@@ -39,14 +33,9 @@ export class CapabilitySourceError extends Error {
 }
 
 /**
- * A `capabilities[]` entry whose `name` or `role` is not something this CLI
- * could ever have written. The config is committed and hand-editable, so these
- * are untrusted local input (P2) — and `name` is path-joined: `pharn remove`
- * deletes `<subtree>/<name>` recursively, so `{"name": "../.."}` used to delete
- * the project root. Every name this CLI writes comes from the index, already
- * `CAPABILITY_NAME_RE`-validated, and every role from `assertRole`, so no config
- * it wrote is newly rejected (P7); pre-archetype configs carry no
- * `capabilities` and never reach this check.
+ * A `capabilities[]` entry whose `name` or `role` this CLI could never have
+ * written. The config is committed and hand-editable, and `name` is path-joined
+ * by `remove`'s recursive delete, so it is validated at ingest.
  */
 export class CapabilityEntryError extends Error {
   constructor(message: string) {
@@ -56,13 +45,10 @@ export class CapabilityEntryError extends Error {
 }
 
 /**
- * Reject any `capabilities[]` entry that is not an object with a
- * `CAPABILITY_NAME_RE` `name` (no control characters) and a `role` in
- * `ROLE_VALUES` (enum membership, P5) — and a PRESENT `capabilities` that is not
- * an array at all. Absent is the pre-archetype (module) config, which
- * `isArchetypeConfig` tells apart; but no CLI ever wrote a non-array value there,
- * so `"capabilities": "x"` is a hand-edit, and reading it as a legacy install
- * prescribed `pharn init`, which OVERWRITES the config (F-30).
+ * Reject a non-object entry, a `name` outside `CAPABILITY_NAME_RE`, a `role`
+ * outside `ROLE_VALUES`, and a PRESENT `capabilities` that is not an array.
+ * Absent is the pre-archetype config; a non-array is a hand-edit, and reading
+ * it as legacy would prescribe `pharn init`, which overwrites the config.
  */
 function validateCapabilityEntries(raw: unknown): void {
   if (raw === undefined) return;
@@ -95,10 +81,9 @@ function validateCapabilityEntries(raw: unknown): void {
 }
 
 /**
- * Reject a present-but-invalid `capabilities[].source`. ABSENT is legal (P7 —
- * additive: every config written before the field existed omits it). A
- * non-array `capabilities` or a non-object entry is `validateCapabilityEntries`'
- * refusal, which runs first. Only a present `source` outside the enum throws.
+ * Reject a present-but-invalid `capabilities[].source`; ABSENT is legal (configs
+ * written before the field existed omit it). Runs after
+ * `validateCapabilityEntries`.
  */
 function validateCapabilitySources(raw: unknown): void {
   if (!Array.isArray(raw)) return;
@@ -118,16 +103,9 @@ function validateCapabilitySources(raw: unknown): void {
 }
 
 /**
- * An archetype config's `archetypes` that is not an array of known archetypes
- * (`ARCHETYPE_VALUES`). The field drives capability selection
- * (`resolveCapabilities`) and is printed by `list`/`status`/`update`, so before
- * this check a hand-edited `"archetypes": "ssr"` crashed those commands with a
- * raw `TypeError` and a stack, `["bogus"]` silently narrowed what `update`
- * selects, and an ESC byte in an entry reached the terminal. Every value this
- * CLI writes comes from detection (`ARCHETYPE_VALUES` members only), so no
- * config it wrote is newly rejected (P7). ABSENT stays legal — every consumer
- * reads `config.archetypes ?? []` — and so do `[]` and duplicates (selection is
- * set membership, as duplicate `capabilities[]` entries are accepted too).
+ * An archetype config's `archetypes` that is not an array of `ARCHETYPE_VALUES`.
+ * It drives selection and is printed by `list`/`status`/`update`. Absent, `[]`
+ * and duplicates stay legal (selection is set membership).
  */
 export class ArchetypesError extends Error {
   constructor(message: string) {
@@ -136,10 +114,8 @@ export class ArchetypesError extends Error {
   }
 }
 
-// The offending value, as visible text that is safe to print: JSON-quoted, every
-// control / format / line-separator character as a `\u` escape (lossless, so the
-// offender stays recognisable), and capped so a huge hand-edit is not echoed
-// whole.
+// The offending value, safe to print: JSON-quoted, unsafe characters as `\u`
+// escapes (lossless), capped so a huge hand-edit is not echoed whole.
 function describeOffender(value: unknown): string {
   return terminalSafe(escapeUnsafe(JSON.stringify(value) ?? String(value)), {
     max: 80,
@@ -147,11 +123,8 @@ function describeOffender(value: unknown): string {
 }
 
 /**
- * Reject an archetype config's present-but-invalid `archetypes`: it must be an
- * array whose every entry is a string in `ARCHETYPE_VALUES` (enum membership,
- * P5). Only called for an archetype config (an array `capabilities`) — a
- * pre-archetype config is rejected up front by `loadArchetypeConfigOrExit`, and
- * its unused fields keep loading (P7).
+ * Reject an archetype config's present-but-invalid `archetypes`. Only called for
+ * an archetype config; a pre-archetype config's unused fields keep loading.
  */
 function validateArchetypes(raw: unknown): void {
   if (raw === undefined) return;
@@ -172,16 +145,11 @@ function validateArchetypes(raw: unknown): void {
 }
 
 /**
- * An archetype config's `skillsVersion` or `commit` — the install STAMP — that
- * is not something this CLI could ever have written (F-18). `skillsVersion` is
- * the upstream `SKILLS_VERSION` the install is at (always `VERSION_RE`-validated
- * at the fetch boundary, `lib/skills-version.ts`) and `commit` the pharn-oss SHA
- * it came from (`COMMIT_RE`, `lib/repo.ts`, or `null` in degraded mode, LIMITS
- * §3b). Both are printed by `list`/`status`/`update` and compared by `update`'s
- * early return and `add`'s version gate, so before this check a hand-edited ESC
- * byte reached the terminal and a garbage version was compared as if real.
- * ABSENT `commit` stays legal (P7) and is read as `null` (CORE-160), and a
- * pre-archetype config is not checked — its unused fields keep loading.
+ * An archetype config's install stamp — `skillsVersion` (`VERSION_RE`) or
+ * `commit` (`COMMIT_RE` or `null`) — that this CLI could never have written.
+ * Both are printed and compared (`update`'s early return, `add`'s version gate).
+ * An absent `commit` is legal and read as `null`; a pre-archetype config is not
+ * checked.
  */
 export class ConfigStampError extends Error {
   constructor(message: string) {
@@ -215,23 +183,10 @@ function validateStamp(raw: Record<string, unknown>): void {
 }
 
 /**
- * A `pharn.config.json` that EXISTS but does not parse as JSON — the newest
- * member of this module's named-error family, and the one hand-edit that was
- * left OUT of it.
- *
- * A stray comma used to collapse into the same `null` that means "no file", so
- * every command answered a corrupt config with "No pharn.config.json found. Run
- * `pharn init` first." Both halves of that line were false: the file is right
- * there, and the prescribed remedy DESTROYS it. `init` rewrites this config
- * wholesale — resetting a hand-edited `models` block to pharn-oss's and
- * re-stamping every capability `source: 'auto'`, discarding the manual-`add`
- * provenance only this file remembers (`lib/merge-capabilities.ts` reads that
- * field to keep a manual add sticky across `update`). `lib/atomic-write.ts`
- * already describes this exact failure as the reason the config WRITE is atomic;
- * this is the read half of it.
- *
- * Scope is narrow on purpose (P7): only "present but unparseable" moved out of
- * the `null` bucket. Absent, unreadable, and wrong-shape are unchanged.
+ * A `pharn.config.json` that EXISTS but does not parse as JSON. Kept apart from
+ * the `null` ("no config") answer because that answer prescribes `pharn init`,
+ * which rewrites the file wholesale — resetting a hand-edited `models` block and
+ * the manual-`add` provenance only this file remembers.
  */
 export class ConfigParseError extends Error {
   constructor(message: string) {
@@ -243,23 +198,11 @@ export class ConfigParseError extends Error {
 /**
  * The ` (line N, column M)` clause for a `JSON.parse` failure — or `''`.
  *
- * V8's `SyntaxError.message` is UNTRUSTED OUTPUT here, not a diagnostic that may
- * be passed through (P2). Measured on node v24.13.1, one of its shapes ECHOES
- * RAW FILE BYTES: a config whose first byte is ESC yields `Unexpected token
- * '\x1b', "\x1b[31mRED" is not valid JSON`. Interpolating that message would
- * turn a hand-editable local file into terminal-escape injection through an
- * error line — the same channel `steps/overwrite-check.ts` already closes by
- * filtering the config's own `skillsVersion` through `VERSION_RE` before
- * printing it.
- *
- * So the message is never interpolated: it is MATCHED, and only the two integers
- * V8 itself computed survive. The `$` anchor is load-bearing, not decoration —
- * the content-echoing shape always ends `" is not valid JSON`, so a config
- * crafted to contain the literal text `(line 999 column 999)` cannot match, and
- * the regex can only ever read the positional suffix V8 appends. If a future V8
- * moves or decorates that suffix the match simply fails and the clause is
- * omitted: the failure mode is "no location", never a location taken from file
- * content (P5 — degrade honestly, never guess).
+ * V8's message is untrusted output: one of its shapes echoes raw file bytes (an
+ * ESC byte included), so it is never interpolated. Only the two integers of the
+ * positional suffix survive; the `$` anchor keeps file content that merely
+ * contains `(line 999 column 999)` from matching. A changed V8 format yields no
+ * location, never one taken from file content.
  */
 function parseLocation(err: unknown): string {
   const at = /\(line (\d{1,9}) column (\d{1,9})\)$/.exec(errorMessage(err));
@@ -267,31 +210,10 @@ function parseLocation(err: unknown): string {
 }
 
 /**
- * The config path, made safe to PRINT. The filesystem path is untouched — this
- * is a display transform applied at the one place the string enters a message.
- *
- * `configPath(cwd)` is not derived from the config file, but it is not this
- * CLI's own text either: it embeds the process working directory, and a
- * directory name can carry ESC or a newline on POSIX (a hostile archive or repo
- * can create one). That reaches `logError` and, under `list --json`, the
- * `console.error` beside a machine-readable stdout — so raw bytes there mean
- * altered terminal presentation or forged-looking stderr lines.
- *
- * This is the SAME channel `parseLocation` refuses to open for V8's message,
- * with a different source; closing one and not the other would leave the
- * principle half-applied. (Named by a reviewer on the PR that introduced this
- * message — the omission was mine, not the audit's.)
- *
- * ESCAPED, not stripped, and that is the whole design choice. Stripping would
- * print a path that DOES NOT EXIST — actively worse in a message whose entire job
- * is "here is the file to go fix", since the user would look in the wrong place.
- * `escapeUnsafe` (lib/terminal-safe.ts — the one unsafe set, so a bidi override
- * or a line separator in a directory name is escaped too) writes each such
- * character as `\uXXXX`, which keeps the path recognisable, recoverable, and
- * inert. Deliberately NOT length-capped either: a cwd is bounded by the OS
- * (PATH_MAX), unlike the multi-megabyte upstream strings
- * `unknown-capabilities.ts` caps, and truncating would again name a path that
- * is not the file.
+ * The config path, made safe to PRINT (the filesystem path is untouched). It
+ * embeds the cwd, and a directory name can carry ESC or a newline. ESCAPED via
+ * `escapeUnsafe`, not stripped or capped: the message's job is to name the file
+ * to fix, and a stripped or truncated path would name one that does not exist.
  */
 function displayPath(path: string): string {
   return escapeUnsafe(path);
@@ -302,27 +224,14 @@ export function configPath(cwd: string): string {
 }
 
 /**
- * Every top-level key this CLI OWNS: exactly the keys `PharnConfig` declares —
- * the ones it writes, plus the module-era fields it no longer writes but that
- * are still its own (`constitution`, `stackAnswers`, …). One of them, `models`,
- * is pharn's to WRITE but pharn-oss's to define: `init` copies pharn-oss's
- * block into it and `update` manages it (lib/models-update.ts), so a re-run
- * init replaces it rather than carrying a stale one across.
+ * Every top-level key this CLI OWNS: exactly the keys `PharnConfig` declares.
+ * `models` is pharn's to WRITE but pharn-oss's to define, so a re-run init
+ * replaces it rather than carrying a stale one. The one declared key NOT here is
+ * `seam`: pharn-oss owns it, so it is carried like any user key.
  *
- * The ONE declared key that is NOT here is `seam` (CORE-165): pharn-oss owns
- * it, the CLI neither validates nor writes it, so it is the user's like any
- * unowned key and a re-run init carries it across VERBATIM. It stays declared
- * on `PharnConfig` (as `unknown`) only so readers see it exists.
- *
- * `satisfies Record<Exclude<keyof PharnConfig, 'seam'>, true>` makes the list
- * exhaustive BY CONSTRUCTION: declaring a field on `PharnConfig` without
- * listing it here (or listing one it does not declare) fails the typecheck. That is what keeps
- * `userOwnedConfigEntries` honest — a new pharn-owned field can never be read
- * as the user's and carried stale across a re-run init.
- *
- * A `Set` of the keys, never an `in` test against the literal: `in` walks the
- * prototype chain, so a user key named `constructor` or `toString` would read
- * as pharn's.
+ * The `satisfies` clause makes the list exhaustive by construction, so a new
+ * pharn-owned field can never be read as the user's. A `Set`, never an `in`
+ * test: `in` walks the prototype chain (`constructor`, `toString`).
  */
 const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
   Object.keys({
@@ -348,33 +257,16 @@ const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
- * The top-level entries of a parsed `pharn.config.json` that this CLI does NOT
- * own (`CLI_OWNED_KEYS`): keys the user put there, most of them for upstream
- * pharn-oss to read — `testResults` (the per-test results runners `/pharn-test`
- * and `/pharn-verify` need), `ship.requireAttestation`, `gates.exclude` and
- * `budget.instructionGrowthBytes`. Returned verbatim and
- * never validated: pharn does not own their schema, so it has no business
- * judging them. Pure. `pharn init` is the caller — it rebuilds the config from
- * its own fields and carries these over (steps/install-archetype.ts).
+ * The top-level entries this CLI does NOT own (`CLI_OWNED_KEYS`) — mostly keys
+ * upstream pharn-oss reads (`testResults`, `ship`, `gates`, `budget`). Returned
+ * verbatim, never validated. `pharn init` carries them across a re-install.
  *
- * EVERY such key, not an allowlist of the two known today — deliberately:
- * - It is the contract the other writers already keep. `readPharnConfig` passes
- *   unknown top-level keys through (P7, additive) and `add`/`update`/`remove`
- *   write that object back, so every other command already answers "does my key
- *   survive?" with yes. An allowlist would make `init` the one command whose
- *   answer depends on whether this CLI release has heard of the key.
- * - Upstream outpaces CLI releases. A released CLI installs pharn-oss `main`
- *   HEAD, which added `testResults` in 6.15 and `ship` after it; an allowlist
- *   would re-arm this exact drop for the next key, in every deployed CLI, until
- *   a new release shipped.
- * - The owned side is the closed, known set, so it is the side to enumerate:
- *   `CLI_OWNED_KEYS` is exhaustive by construction, while a list of foreign keys
- *   could only ever be complete by luck.
- * The cost, accepted: a key nobody reads (a typo, another tool's leftover)
- * survives a re-init too — exactly as it already survives `add`/`update`/`remove`.
+ * EVERY such key, not an allowlist: `add`/`update`/`remove` already write
+ * unknown keys back, upstream adds keys faster than CLI releases, and the owned
+ * side is the closed set to enumerate. Cost: a typo key survives a re-init too.
  *
- * `Object.fromEntries` defines OWN data properties, so a `__proto__` key (an own
- * key after `JSON.parse`) round-trips as a key and never becomes a prototype.
+ * `Object.fromEntries` defines own data properties, so a `__proto__` key stays a
+ * key and never becomes a prototype.
  */
 export function userOwnedConfigEntries(
   raw: Record<string, unknown>,
@@ -387,48 +279,25 @@ export function userOwnedConfigEntries(
 /**
  * Read + validate pharn.config.json.
  *
- * Returns `null` ONLY for "there is no config to read": an absent file, an
- * UNREADABLE one, or a wrong top-level shape (→ the caller's "run `pharn init`").
- * Every OTHER failure is a present, readable file the user hand-edited into
- * something this CLI will not act on, and each throws its own NAMED error that
- * PROPAGATES rather than collapsing into the "run init" lie: `ConfigParseError`
- * (not JSON at all), and — validated OUTSIDE the null-returning try —
- * `CapabilityEntryError`/`CapabilitySourceError`/`ArchetypesError`/
- * `ConfigStampError` (BUG 1).
+ * Returns `null` ONLY when there is no config to read: absent, unreadable, or a
+ * wrong top-level shape (→ the caller's "run `pharn init`"). A present, readable
+ * file hand-edited into something invalid throws a NAMED error instead
+ * (`ConfigParseError`, `CapabilityEntryError`, `CapabilitySourceError`,
+ * `ArchetypesError`, `ConfigStampError`), so it is never reported as missing.
  *
- * `models` and `seam` are NOT validated here. `seam` is pharn-oss's
- * (`pharn-contracts/seam-config.md`, materialized and checked by pharn-oss's
- * own floor), and no CLI command reads it, so it rides the spread VERBATIM —
- * a block pharn-oss accepts (extra keys, a repeated step) never stops a
- * command (CORE-165). The `models` schema is pharn-oss's too
- * (lib/model-config.ts), and this CLI must load the format it wrote before
- * 0.7.0 (so `update` can migrate it), pharn-oss's format, and whatever
- * pharn-oss's next format is — so the block passes through VERBATIM and no
- * command refuses to run over it. `status` reports it; `update` manages it.
- *
- * The parse split is the point. "File absent" and "file corrupt" used to be the
- * same `null`, so a stray comma was reported as a MISSING file and answered with
- * a command that overwrites it (see `ConfigParseError`). They are now distinct by
- * construction — the branch is `JSON.parse` throwing, not a second `existsSync`
- * guess at a call site.
- *
- * On success unknown TOP-LEVEL keys pass through so a legacy config carrying
- * a since-removed field still loads (P7, additive) — and so a key the user owns (`userOwnedConfigEntries`) survives
- * every command that writes this object back.
+ * `models` and `seam` are pharn-oss's and are NOT validated: they ride the
+ * spread verbatim, so a block pharn-oss accepts (or the pre-0.7.0 `models`
+ * format `update` migrates) never stops a command. Unknown top-level keys pass
+ * through too, so legacy fields load and user keys survive every write-back.
  */
 export function readPharnConfig(cwd: string): PharnConfig | null {
   const path = configPath(cwd);
-  // The read and the parse are DELIBERATELY separate steps. An unreadable file
-  // (EACCES, a directory planted at this path, a FIFO or a device — read through
-  // lib/bounded-read.ts, so none of them can hang or read without bound) keeps
-  // the OLD behaviour — `null`, the caller's "run init" — because that is a
-  // different, pre-existing failure, and folding it in here would newly
-  // mislabel a permissions problem as a syntax error. Narrow on purpose (P7).
+  // An unreadable file (EACCES, a directory, a FIFO — bounded-read, so nothing
+  // hangs) stays `null`: a permissions problem is not a syntax error.
   const read = readJsonBounded(path);
   if (read.kind === 'absent' || read.kind === 'unusable') return null;
-  // Present + readable + not JSON → the named throw. Only the parse is caught
-  // (inside readJsonBounded), never the validators below — that is the whole
-  // point (BUG 1).
+  // Present + readable + not JSON → the named throw. Only the parse is caught,
+  // never the validators below.
   if (read.kind === 'invalid-json') {
     throw new ConfigParseError(
       `${displayPath(path)} is not valid JSON${parseLocation(read.error)}. The file exists — fix its syntax by hand. ` +
@@ -440,58 +309,44 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   }
   const raw = read.value;
   if (!isPlainObject(raw)) return null;
-  // Light shape guard so a hand-edited config fails fast here (→ "run init"):
-  // a string `skillsVersion`, and EITHER a `modules` array (what a pre-archetype
-  // config is recognised by, so it still reaches LEGACY_CONFIG_MESSAGE) OR a
-  // `capabilities` key (an archetype config — any value, so a non-array one
-  // reaches validateCapabilityEntries' named error, F-30). `capabilities` alone
-  // used to read as NO config, and a re-run init then dropped its manual
-  // entries (CORE-164). `init` still WRITES `modules: []`: every released CLI
-  // up to 0.19.x requires it (see `PharnConfig.modules`).
+  // Light shape guard (→ "run init"): a string `skillsVersion`, and EITHER a
+  // `modules` array (a pre-archetype config, so it still reaches
+  // LEGACY_CONFIG_MESSAGE) OR a `capabilities` key of any value (an archetype
+  // config; a non-array one reaches validateCapabilityEntries' named error).
+  // `init` still WRITES `modules: []` (see `PharnConfig.modules`).
   if (
     typeof raw.skillsVersion !== 'string' ||
     (!Array.isArray(raw.modules) && raw.capabilities === undefined)
   ) {
     return null;
   }
-  // `models` and `seam` are not validated: they ride the spread below untouched
-  // (see the doc comment).
-  // `capabilities[].source`: a present-but-invalid value
-  // throws NAMED here rather than flowing into the merge. Entries are otherwise
-  // passed through the spread unreconstructed, so `source` round-trips with no
-  // load-mechanics change at all.
+  // `models` and `seam` ride the spread untouched. Entries are not
+  // reconstructed, so `source` round-trips.
   validateCapabilityEntries(raw.capabilities);
   validateCapabilitySources(raw.capabilities);
-  // `archetypes` and the `skillsVersion`/`commit` stamp are checked for an
-  // archetype config only (P7: a legacy config's unused fields still load).
+  // `archetypes` and the stamp are checked for an archetype config only.
   if (Array.isArray(raw.capabilities)) {
     validateArchetypes(raw.archetypes);
     validateStamp(raw);
   }
   const config: PharnConfig = { ...(raw as unknown as PharnConfig) };
-  // An archetype config with no `commit` reads as `null` (CORE-160): a write
-  // stamped with `undefined` drops the key from both files. (The records stamp
-  // is no longer compared with the config — CORE-161 — so this is about the
-  // written shape, not a match.) A legacy config is left as it is (P7).
+  // An archetype config with no `commit` reads as `null`, so a write never
+  // stamps `undefined` (which drops the key). A legacy config is left as is.
   if (Array.isArray(raw.capabilities) && raw.commit === undefined) {
     config.commit = null;
   }
-  // Additive `layout` (lib/layout.ts): coerce to the {pharn, flat} enum. A legacy
-  // config omits it and a hand-edited garbage value is dropped — both resolve to
-  // 'flat' downstream (configLayout), the safe default (P5/P7). Only 'pharn' /
-  // 'flat' survive verbatim, so the field round-trips.
+  // `layout`: only 'pharn' / 'flat' survive; anything else is dropped and
+  // resolves to 'flat' downstream (configLayout).
   if (config.layout !== 'pharn' && config.layout !== 'flat') {
     delete config.layout;
   }
-  // Additive `ref` (types.ts): only the literal `"latest"` survives. Anything
-  // else — a typo, `"main"`, a non-string — is dropped, so the install follows
-  // the tip of `main`, as an install with no `ref` does.
+  // `ref`: only the literal `"latest"` survives; anything else is dropped, so
+  // the install follows `main`, as one with no `ref` does.
   if (config.ref !== undefined && config.ref !== 'latest') {
     delete config.ref;
   }
-  // Additive `pendingSkillsVersion` (types.ts): only a VERSION_RE-shaped string
-  // survives; anything else is dropped, so a garbage hand-edit fails closed —
-  // `add`'s version gate then compares against `skillsVersion` alone.
+  // `pendingSkillsVersion`: only a VERSION_RE string survives, so a garbage
+  // value fails closed (`add`'s gate compares against `skillsVersion` alone).
   if (
     config.pendingSkillsVersion !== undefined &&
     (typeof config.pendingSkillsVersion !== 'string' ||
@@ -499,11 +354,9 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   ) {
     delete config.pendingSkillsVersion;
   }
-  // Additive `frozenCapabilities` (types.ts): kept only when EVERY element is a
-  // `role:name` key (role enum + the anchored CAPABILITY_NAME_RE, which admits no control
-  // character); any malformed element drops
-  // the whole field, so a garbage hand-edit fails safe — `update`'s same-version
-  // early return then applies as it would without the field.
+  // `frozenCapabilities`: kept only when EVERY element is a valid `role:name`;
+  // otherwise the whole field is dropped and `update`'s same-version early
+  // return applies as it would without it.
   if (
     config.frozenCapabilities !== undefined &&
     !isFrozenKeyList(config.frozenCapabilities)
@@ -530,17 +383,9 @@ function isFrozenKeyList(value: unknown): value is string[] {
 }
 
 /**
- * Load pharn.config.json for a command, or exit(1) with a clear message — the
- * shared load surface for `add`/`status`/`update`/`remove` (mirrors
- * `cancelAndExit` in `lib/confirm.ts`). It distinguishes the two failures the
- * bare `readPharnConfig` collapses:
- * - `null` (absent / unreadable / wrong-shape) → "Run `pharn init`" + exit(1).
- * - a NAMED config error → that loud, offender-naming message + exit(1), NEVER
- *   the "run init" lie (BUG 1). This now includes `ConfigParseError`, so the one
- *   case where "run init" was actively DESTRUCTIVE — a corrupt file that the
- *   prescribed re-init would overwrite — no longer reaches that branch at all.
- * Any OTHER error is a programming bug, not a config problem — it is RETHROWN,
- * never swallowed (so this helper can never re-become the disease it fixes).
+ * Load pharn.config.json for a command, or exit(1): `null` → "Run `pharn
+ * init`"; a named config error → its own message, never "run init". Any other
+ * error is a bug and is rethrown.
  */
 export function loadConfigOrExit(
   cwd: string,
@@ -557,35 +402,26 @@ export function loadConfigOrExit(
     if (isConfigValidationError(err)) fail(err.message);
     throw err;
   }
-  // Reached only when readPharnConfig returned null (absent / unreadable /
-  // wrong-shape). A file that EXISTS but does not parse throws above instead —
-  // this line may never again describe a file that is sitting right there.
+  // Only for a `null` read; a file that exists but does not parse threw above.
   return fail('No pharn.config.json found. Run `pharn init` first.');
 }
 
-// Where a load failure goes. Under `--json` it is a plain line on stderr (no
-// clack chrome), so a `2>&1` consumer and a JSON reader on stdout both stay
-// clean; control characters are still stripped.
+// Under `--json` a load failure is a plain stderr line (no clack chrome), so a
+// JSON reader on stdout stays clean.
 function reportLoadError(message: string, json: boolean): void {
   if (json) logErrorPlain(message);
   else logError(message);
 }
 
 /**
- * Refuse, under the project lock, when `pharn.config.json` no longer matches
- * the `snapshot` this command loaded — and planned against — before it took the
- * lock. Between that load and the lock sit a confirm prompt (`update`, the
- * `remove` picker) or a fetch, and another pharn run can land in that window:
- * measured, a `remove` picker confirmed after a concurrent `add` rewrote its
- * stale snapshot, silently dropping the added capability while its files and
- * records stayed. The lock alone cannot see this — it only serializes writers
- * that are already inside it.
+ * Refuse, under the project lock, when `pharn.config.json` no longer matches the
+ * `snapshot` this command planned against before taking the lock. A confirm
+ * prompt or a fetch sits in that window, and a concurrent run's write would
+ * otherwise be overwritten from a stale snapshot; the lock alone cannot see it.
  *
- * Exact comparison of two parses through the same `readPharnConfig`, so it is
- * deterministic (P5); it must run before `snapshot` is mutated. A config that
- * is now absent, unparseable or invalid also counts as changed. Throws
- * `ProjectChangedError` (a `ProjectLockedError`), which every lock caller
- * already reports as a named refusal + exit 1, with nothing written.
+ * Compares two parses through `readPharnConfig`; must run before `snapshot` is
+ * mutated. Absent / unparseable / invalid counts as changed. Throws
+ * `ProjectChangedError`, reported as a named refusal with nothing written.
  */
 export function assertConfigUnchanged(
   cwd: string,
@@ -610,16 +446,11 @@ function configChangedError(command: string): ProjectChangedError {
 }
 
 /**
- * What `pharn.config.json` is on disk right now, as one comparable string:
- * `absent`, `unreadable:<errno code>`, or `sha256:<hex>` of the raw bytes.
- * Never throws.
- *
- * `assertConfigUnchanged` compares two PARSES and counts an unreadable file as
- * changed, which is right for `add`/`update`/`remove` (they refuse an unreadable
- * config up front). `init` is the one command that reads the config it replaces
- * TOLERANTLY — absent, corrupt and unreadable all mean "carry nothing over" — so
- * "what init read" must be expressible for every one of those states, and a
- * content hash of the bytes is (P0: content-hash, `ARCHITECTURE.md §2`).
+ * What `pharn.config.json` is on disk right now: `absent`,
+ * `unreadable:<errno code>`, or `sha256:<hex>` of the raw bytes. Never throws.
+ * For `init`, which reads the config it replaces tolerantly, so every state it
+ * may have read (absent, corrupt, unreadable) must be comparable. Raw bytes on
+ * purpose: any byte change means a concurrent write.
  */
 export function configFingerprint(cwd: string): string {
   const read = readBoundedFile(configPath(cwd));
@@ -629,10 +460,8 @@ export function configFingerprint(cwd: string): string {
 }
 
 /**
- * `init`'s under-the-lock re-check: refuse, with the same `ProjectChangedError`
- * the other writers raise, when `pharn.config.json` is no longer what init saw
- * before its prompts (`configFingerprint`, taken BEFORE the tolerant parse, so a
- * change between the two reads fails closed rather than being blessed).
+ * `init`'s under-the-lock re-check against `configFingerprint`, taken BEFORE
+ * the tolerant parse, so a change between the two reads fails closed.
  */
 export function assertConfigFingerprintUnchanged(
   cwd: string,
@@ -643,19 +472,9 @@ export function assertConfigFingerprintUnchanged(
 }
 
 /**
- * Is `err` a present-but-invalid-config error — a file that IS there and that
- * the user has to fix (unparseable JSON, or a
- * `capabilities[]` entry with an invalid `name`/`role`/`source` (or a
- * `capabilities` that is not an array), an `archetypes` that is not an array of
- * known archetypes, or an invalid `skillsVersion`/`commit` stamp) — as opposed
- * to a programming bug? (A `models` or `seam` block is never one: both are
- * pharn-oss's, and `readPharnConfig` carries them unvalidated.)
- *
- * The single definition of "config error" — used by `loadConfigOrExit` and by
- * `list`'s own `--json`-aware error path, so neither re-encodes the class
- * membership (P3). Adding a member here is what routes a new failure to the loud,
- * offender-naming message at BOTH call sites with no edit at either: the branch
- * is `instanceof` union membership, never identity against one class.
+ * Is `err` a present-but-invalid-config error (one the user must fix by hand)
+ * rather than a programming bug? `models` and `seam` never produce one. The one
+ * definition, shared by `loadConfigOrExit` and `list`'s `--json` path.
  */
 export function isConfigValidationError(
   err: unknown,
@@ -675,16 +494,8 @@ export function isConfigValidationError(
 }
 
 /**
- * Write `pharn.config.json`. ATOMIC (lib/atomic-write.ts): a torn write would
- * leave truncated JSON on disk — which every command must then answer for. That
- * answer is now `ConfigParseError`, naming the file and the syntax position and
- * warning AGAINST the re-init that would overwrite it; it used to be "No
- * pharn.config.json found. Run `pharn init` first.", which reported the file as
- * ABSENT and prescribed exactly the re-init that resets a hand-edited
- * `models` block and re-stamps every capability `source: 'auto'`, losing
- * the manual-add provenance only this file remembers. Atomicity is what keeps
- * that state unreachable in the first place; the named error is what makes it
- * survivable if it is ever reached another way. Bytes are unchanged.
+ * Write `pharn.config.json` ATOMICALLY (lib/atomic-write.ts): a torn write
+ * would leave truncated JSON on disk.
  */
 export async function writePharnConfig(
   cwd: string,
@@ -694,35 +505,23 @@ export async function writePharnConfig(
 }
 
 /**
- * Is this an archetype (capability) install vs. a legacy module install?
- * Deterministic membership (P5): the archetype install (`pharn init`)
- * always writes a `capabilities` array; a legacy module config never does — so
- * the presence of `capabilities` is the marker. (A present NON-array never gets
- * here: `readPharnConfig` refuses it as a `CapabilityEntryError`, F-30.) An empty `modules: []` alone is
- * NOT the marker (a module install can legitimately resolve to few modules).
- * Sibling commands branch on this to avoid the module/manifest path (which fails
- * against live pharn-oss, having no manifest.json) for archetype installs.
+ * Is this an archetype (capability) install? `init` always writes a
+ * `capabilities` array and a legacy module config never does, so its presence
+ * is the marker (a present non-array is refused at load). `modules: []` alone
+ * is not.
  */
 export function isArchetypeConfig(config: PharnConfig): boolean {
   return Array.isArray(config.capabilities);
 }
 
-// The single message shown when a command runs against a pre-archetype (module)
-// config, which is no longer operable: the module/manifest install path was
-// removed (live pharn-oss ships no manifest.json), so no command can resolve
-// it. Every command that loads the config reports it through
-// loadArchetypeConfigOrExit (plain stderr under --json). Deterministic (P5): the
-// branch is the isArchetypeConfig membership test and its terminal is this named
-// hard-fail, never a guess or a silent proceed (P6).
+// Shown when a command runs against a pre-archetype (module) config, which no
+// command can operate on any more (live pharn-oss ships no manifest.json).
 export const LEGACY_CONFIG_MESSAGE =
   'This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` to reinstall with the archetype/capability model.';
 
 /**
- * Load pharn.config.json and require it be an archetype (capability) install, or
- * exit(1) with the single `LEGACY_CONFIG_MESSAGE`. The shared load surface for
- * `add`/`update`/`status`/`remove`/`list`/`uninstall` after the module/manifest
- * path was removed — it single-sources the legacy reject (P3). `opts.json` keeps
- * every error a plain stderr line, so a `--json` stdout stays clean.
+ * Load pharn.config.json and require an archetype install, or exit(1) with
+ * `LEGACY_CONFIG_MESSAGE`. `opts.json` keeps every error a plain stderr line.
  */
 export function loadArchetypeConfigOrExit(
   cwd: string,
