@@ -66,8 +66,8 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - Options are per command: `ALLOWED_FLAGS` (`src/index.ts`) refuses a flag the command does not read, and
   `REQUIRED_WITH` refuses a flag passed without its partner (`update --json` needs `--dry-run`). Both refuse with one
   stderr line and exit 1, above the `--help` and `--version` short-circuits.
-- The prompting commands (`init`, `update`, `uninstall`) exit 1 off a TTY, through the one `interactiveAllowed`
-  predicate (`lib/capability-picker.ts`). `--yes` skips only what it names: `init --yes` never confirms an overwrite.
+- Every prompt (`init`, `update`, `uninstall`, the bare `add`/`remove` pickers) exits 1 off a TTY, through the one
+  `interactiveAllowed` predicate (`lib/capability-picker.ts`). `--yes` skips only what it names: `init --yes` never confirms an overwrite.
 - P3: `index.ts` dispatches, each `commands/` file owns one verb, each `steps/` file one stage, and shared logic lives
   in `lib/`. Never import command→command or step→step.
 - Comments: a module header plus "why" comments and named residuals. No incident ids or "used to…" stories; that
@@ -91,8 +91,8 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **Records are the proof.** Overwriting or deleting a file requires that its `contentHash` (`lib/hash.ts`, CRLF folded
   for text) equals its record in `pharn.records.json`. The store's stamp is diagnostics and never gates the baseline.
   A file with no record is never deleted.
-- **Back up before overwrite or delete.** One `createBackup` into `pharn/.backup/<ts>/` before the first destructive
-  write, announced at creation through `printBackupNotice`. `update` deletes only the directories of capabilities it
+- **Back up before overwrite or delete.** What pharn cannot prove it wrote is copied by one `createBackup` into
+  `pharn/.backup/<ts>/` before the first destructive write, announced at creation through `printBackupNotice`. `update` deletes only the directories of capabilities it
   drops. User data (`memory-bank/`) is never moved, and an existing `.claude/settings.json` is never overwritten.
 - **Fail closed on release resolution.** `lib/release.ts` refuses (naming `--ref main`) when the latest release cannot
   be resolved or is malformed. It never floats to the tip of `main`.

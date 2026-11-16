@@ -24,9 +24,10 @@ different document. Each module's header comment explains its own "why"; this pa
   values. A bare, negated, repeated or unknown value is refused.
 - `pharn <cmd> --help` prints only that command's options, rendered from the same help data as the full `USAGE`.
 
-**TTY gate.** `init`, `update` and `uninstall` read `process.std*.isTTY` into the shared `interactiveAllowed`
-predicate and exit 1 off a TTY, so a dead stream never answers a prompt. Each gate sits after the command's local
-promptless step (config load or git prerequisite) and before any network call.
+**TTY gate.** `init`, `update`, `uninstall` and the bare `add`/`remove` pickers read `process.std*.isTTY` into the
+shared `interactiveAllowed` predicate and exit 1 off a TTY, so a dead stream never answers a prompt. In `init` and
+`update` the gate sits after the local promptless step (the git prerequisite, the config load) and before any network
+call.
 
 - `update --yes` skips the confirm and nothing else.
 - `init --yes` skips only the summary confirm. It installs only when none of its write targets exists
