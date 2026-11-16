@@ -2,7 +2,7 @@ import { diffHookWiring, hookWiringLines } from '../lib/hook-wiring.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from '../lib/color.js';
 import { REPO } from '../lib/constants.js';
-import { fetchRepo } from '../lib/repo.js';
+import { fetchRepo, type FetchedRepo } from '../lib/repo.js';
 import {
   channelOf,
   resolveLatestReleaseVersion,
@@ -12,24 +12,22 @@ import {
   type RefChoice,
   type SourceSummary,
 } from '../lib/release.js';
-import { versionStatus } from '../lib/version-status.js';
 import {
   buildStatusReport,
   layoutMismatch,
   serializeStatusReport,
-  strictFails,
+  type StatusReport,
+  type StatusReportInput,
 } from '../lib/status-report.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
-import type { InstallDiff } from '../lib/diff.js';
 import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
 import {
   absentInstallSurfaces,
   collectExpectedInstallPaths,
-  type AbsentSurface,
 } from '../lib/install-manifest.js';
 import { readRecords, recordsBaseline } from '../lib/install-records.js';
 import { findOrphans, orphanNoteLines, type Orphan } from '../lib/orphans.js';
@@ -68,8 +66,11 @@ import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
  *
  * Default clones once for both sections; `--no-drift` checks the version only.
  * `--strict` exits 1 on anything outdated, modified or missing, a layout
- * mismatch or an unwired upstream hook. `--json` emits ONE object on stdout and
- * nothing else; diagnostics and failures go to stderr. Exit codes match.
+ * mismatch or an unwired upstream hook. The work is done once into ONE
+ * `StatusReport` (lib/status-report.ts): `--json` prints it, the text notes are
+ * rendered from it, and both read `--strict`'s verdict off it. `--json` emits
+ * ONE object on stdout and nothing else; diagnostics and failures go to
+ * stderr. Exit codes match.
  */
 export async function runStatus(
   opts: { strict?: boolean; drift?: boolean; json?: boolean } = {},
@@ -82,255 +83,169 @@ export async function runStatus(
 
   const cwd = process.cwd();
   const config = loadArchetypeConfigOrExit(cwd, { json });
-  if (json) {
-    await runArchetypeStatusJson(config, { strict, drift }, cwd);
-    return;
-  }
-  await runArchetypeStatus(config, { strict, drift }, cwd);
-}
-
-// The `--json` twin of runArchetypeStatus: the same fetches in the same order,
-// but nothing reaches stdout until the report is complete. A strict failure
-// still prints the report and sets `process.exitCode` (no `process.exit`), so a
-// large piped object is flushed.
-async function runArchetypeStatusJson(
-  config: PharnConfig,
-  opts: { strict: boolean; drift: boolean },
-  cwd: string,
-): Promise<void> {
-  const { strict, drift } = opts;
   const node = nodeFloorStatus(process.versions.node);
-
-  // A diagnostic, so stderr — and above both fetches, as in text mode.
-  const proxyNotice = detectProxyNotice(process.env);
-  if (proxyNotice) logErrorPlain(proxyNoticeMessage(proxyNotice));
-
-  const channel = channelOf(config);
-  const emit = (report: ReturnType<typeof buildStatusReport>): void => {
-    console.log(serializeStatusReport(report));
-    if (report.strict.failed) process.exitCode = 1;
-  };
-
-  if (!drift) {
-    let latest: string;
-    let source: SourceSummary;
-    try {
-      ({ latest, source } = await latestWithoutClone(channel));
-    } catch (err) {
-      reportFatalPlain(errorMessage(err), { err });
-      process.exit(1);
-    }
-    emit(
-      buildStatusReport({
-        node,
-        config,
-        channel,
-        latest,
-        source,
-        drift: null,
-        prettierignore: statusPrettierignore(cwd),
-        strict,
-      }),
-    );
-    return;
-  }
-
-  let repo;
-  try {
-    repo = await fetchRepo(await resolveSource(channel));
-  } catch (err) {
-    reportFatalPlain(errorMessage(err), { err });
-    process.exit(1);
-  }
-
-  let report: ReturnType<typeof buildStatusReport> | undefined;
-  try {
-    const index = parseCapabilityIndex(repo.dir);
-    const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
-    const recordedLayout = configLayout(config);
-    const upstreamLayout = detectLayout(repo.dir);
-    // Across layouts nothing is compared: the expected set would sit at paths
-    // the clone does not use. Otherwise the file diff at the recorded layout,
-    // and the surface scan at the CLONE's layout.
-    const files = layoutMismatch(recordedLayout, upstreamLayout)
-      ? { diff: null, absentUpstream: null }
-      : {
-          diff: diffInstalledCapabilities({
-            repoDir: repo.dir,
-            projectRoot: cwd,
-            capabilities: (config.capabilities ?? []).filter(
-              (cap) => !frozen.has(`${cap.role}:${cap.name}`),
-            ),
-            layout: recordedLayout,
-          }),
-          absentUpstream: absentInstallSurfaces({
-            repoDir: repo.dir,
-            layout: upstreamLayout,
-          }),
-        };
-    report = buildStatusReport({
-      node,
-      config,
-      channel,
-      latest: readSkillsVersion(repo.dir),
-      source: repo.source,
-      drift: {
-        ...files,
-        hooks: diffHookWiring(repo.dir, cwd),
-        unknown: index.unknown,
-        orphans: statusOrphans(repo.dir, cwd, config, frozen),
-        upstreamLayout,
-      },
-      prettierignore: statusPrettierignore(cwd),
-      strict,
-    });
-  } catch (err) {
-    reportFatalPlain(errorMessage(err), { err });
-  } finally {
-    repo.cleanup();
-  }
-
-  // Cleanup has run; a failure to build the report exits with stdout empty.
-  if (report === undefined) process.exit(1);
-  emit(report);
-}
-
-// Archetype install audit. Cleanup runs before any process.exit, so the exit
-// code is recorded and applied only after the finally.
-async function runArchetypeStatus(
-  config: PharnConfig,
-  opts: { strict: boolean; drift: boolean },
-  cwd: string,
-): Promise<void> {
-  const { strict, drift } = opts;
 
   // NODE note: local, so it prints first and survives a failed fetch. A
   // mismatch is REPORTED, never fatal and never a `--strict` input: refusing to
   // run on this Node is the floor checks' verdict to give.
-  note(
-    nodeFloorLines(nodeFloorStatus(process.versions.node)).join('\n'),
-    'NODE',
-  );
+  if (!json) note(nodeFloorLines(node).join('\n'), 'NODE');
 
-  // The proxy notice, emitted ONCE above the branch so it precedes every fetch
-  // — `--no-drift` still fetches SKILLS_VERSION (LIMITS.md §3a) — and above both
-  // spinners, since a log.warn into a live clack spinner frame is overwritten.
+  // The proxy notice, emitted ONCE and above every fetch — `--no-drift` still
+  // fetches SKILLS_VERSION (LIMITS.md §3a) — and above the spinner, since a
+  // log.warn into a live clack spinner frame is overwritten. A diagnostic, so
+  // stderr under `--json`.
   const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
-    log.warn(proxyNoticeMessage(proxyNotice));
+    const message = proxyNoticeMessage(proxyNotice);
+    if (json) logErrorPlain(message);
+    else log.warn(message);
   }
+
+  const fatal = (err: unknown): void => {
+    if (json) reportFatalPlain(errorMessage(err), { err });
+    else reportFatal(errorMessage(err), { err });
+  };
 
   // The channel the install follows, never a flag. An unresolvable release
   // fails the command (exit 1) on both paths.
   const channel = channelOf(config);
+  const s = json ? null : spinner();
+  let input: StatusReportInput | undefined;
 
   if (!drift) {
-    const s = spinner();
-    s.start('Checking for updates');
-    let latest: string;
-    let source: SourceSummary;
+    s?.start('Checking for updates');
+    let found: { latest: string; source: SourceSummary };
     try {
-      ({ latest, source } = await latestWithoutClone(channel));
-      s.stop(`Latest skills v${latest}`);
+      found = await latestWithoutClone(channel);
+      s?.stop(`Latest skills v${found.latest}`);
     } catch (err) {
-      s.stop('Failed to check for updates');
-      reportFatal(errorMessage(err), { err });
+      s?.stop('Failed to check for updates');
+      fatal(err);
       process.exit(1);
     }
-    const outdated = printArchetypeVersion(config, latest, source, channel);
-    printModels(config);
-    printPrettierignore(cwd);
-    if (strict && strictFails({ outdated })) process.exit(1);
-    outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
+    input = {
+      node,
+      config,
+      channel,
+      ...found,
+      drift: null,
+      prettierignore: statusPrettierignore(cwd),
+      strict,
+    };
+  } else {
+    s?.start(`Comparing against ${REPO}`);
+    let repo: FetchedRepo;
+    try {
+      repo = await fetchRepo(await resolveSource(channel));
+      s?.stop(`Compared against ${sourceLabel(repo.source)}`);
+    } catch (err) {
+      s?.stop(`Failed to reach ${REPO}`);
+      fatal(err);
+      process.exit(1);
+    }
+    try {
+      input = cloneInput(repo, { node, config, channel, strict }, cwd);
+    } catch (err) {
+      fatal(err);
+    } finally {
+      repo.cleanup();
+    }
+    // Cleanup has run; a failure to gather exits with stdout empty.
+    if (input === undefined) process.exit(1);
+  }
+
+  const report = buildStatusReport(input);
+  if (json) {
+    // No `process.exit`: a large piped object must be flushed.
+    console.log(serializeStatusReport(report));
+    if (report.strict.failed) process.exitCode = 1;
     return;
   }
+  renderStatus(report, input);
+  if (report.strict.failed) process.exit(1);
+  outro(
+    pc.dim(
+      drift
+        ? 'Read-only — nothing changed.'
+        : 'Read-only — nothing changed (drift check skipped).',
+    ),
+  );
+}
 
-  const s = spinner();
-  s.start(`Comparing against ${REPO}`);
-  let repo;
-  try {
-    repo = await fetchRepo(await resolveSource(channel));
-    s.stop(`Compared against ${sourceLabel(repo.source)}`);
-  } catch (err) {
-    s.stop(`Failed to reach ${REPO}`);
-    reportFatal(errorMessage(err), { err });
-    process.exit(1);
+// Everything the default (clone) path compares, gathered once.
+function cloneInput(
+  repo: FetchedRepo,
+  base: Pick<StatusReportInput, 'node' | 'config' | 'channel' | 'strict'>,
+  cwd: string,
+): StatusReportInput {
+  const { config } = base;
+  // Exclude FROZEN capabilities: `update` keeps their entry but never writes
+  // their files, so comparing them would report drift no command can resolve
+  // and fail `--strict` forever over a transient upstream break.
+  const index = parseCapabilityIndex(repo.dir);
+  const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
+  const recordedLayout = configLayout(config);
+  const upstreamLayout = detectLayout(repo.dir);
+  // Across layouts nothing is compared: the expected set would sit at paths
+  // the clone does not use, and whole capability dirs would drop out
+  // unreported. Otherwise the file diff at the recorded layout, and the
+  // surface scan (declared surfaces upstream ships NO file for) at the CLONE's
+  // layout.
+  const files = layoutMismatch(recordedLayout, upstreamLayout)
+    ? { diff: null, absentUpstream: null }
+    : {
+        diff: diffInstalledCapabilities({
+          repoDir: repo.dir,
+          projectRoot: cwd,
+          capabilities: (config.capabilities ?? []).filter(
+            (cap) => !frozen.has(`${cap.role}:${cap.name}`),
+          ),
+          layout: recordedLayout,
+        }),
+        absentUpstream: absentInstallSurfaces({
+          repoDir: repo.dir,
+          layout: upstreamLayout,
+        }),
+      };
+  return {
+    ...base,
+    latest: readSkillsVersion(repo.dir),
+    source: repo.source,
+    drift: {
+      ...files,
+      // settings.json is never compared as a file; what IS checked is whether
+      // every upstream hook is wired here.
+      hooks: diffHookWiring(repo.dir, cwd),
+      unknown: index.unknown,
+      orphans: statusOrphans(repo.dir, cwd, config, frozen),
+      upstreamLayout,
+    },
+    prettierignore: statusPrettierignore(cwd),
+  };
+}
+
+// The text notes, in order, from the report (and, for the notes whose report
+// form is capped for JSON, the input it was built from).
+function renderStatus(report: StatusReport, input: StatusReportInput): void {
+  printArchetypeVersion(report, input.source);
+  printModels(input.config);
+  printPrettierignore(input.prettierignore);
+  const drift = input.drift;
+  if (drift === null) return;
+  const unknownWarning = unknownCapabilitiesWarning(drift.unknown);
+  if (unknownWarning) log.warn(unknownWarning);
+  // `drift` is null in the report exactly on a layout mismatch here: the
+  // LAYOUT note says what moves the install; it fails --strict.
+  if (report.drift === null) {
+    printLayoutNote(report.layout.recorded, drift.upstreamLayout);
+  } else {
+    printDriftSection(report.drift, sourceLabel(input.source));
   }
-
-  let exitCode = 0;
-  try {
-    const outdated = printArchetypeVersion(
-      config,
-      readSkillsVersion(repo.dir),
-      repo.source,
-      channel,
-    );
-    printModels(config);
-    printPrettierignore(cwd);
-    // Exclude FROZEN capabilities: `update` keeps their entry but never writes
-    // their files, so comparing them would report drift no command can resolve
-    // and fail `--strict` forever over a transient upstream break.
-    const index = parseCapabilityIndex(repo.dir);
-    const unknownWarning = unknownCapabilitiesWarning(index.unknown);
-    if (unknownWarning) log.warn(unknownWarning);
-    const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
-    const recordedLayout = configLayout(config);
-    const upstreamLayout = detectLayout(repo.dir);
-    // A recorded layout the clone does not ship: nothing is compared, since
-    // whole capability dirs would drop out unreported. The LAYOUT note says
-    // what moves the install; it fails --strict.
-    const mismatch = layoutMismatch(recordedLayout, upstreamLayout);
-    let result: InstallDiff | undefined;
-    let absentUpstream: readonly AbsentSurface[] | undefined;
-    if (mismatch) {
-      printLayoutNote(recordedLayout, upstreamLayout);
-    } else {
-      result = diffInstalledCapabilities({
-        repoDir: repo.dir,
-        projectRoot: cwd,
-        capabilities: (config.capabilities ?? []).filter(
-          (cap) => !frozen.has(`${cap.role}:${cap.name}`),
-        ),
-        layout: recordedLayout,
-      });
-      // Declared surfaces upstream ships NO file for, at the CLONE's layout.
-      absentUpstream = absentInstallSurfaces({
-        repoDir: repo.dir,
-        layout: upstreamLayout,
-      });
-      printDriftSection(result, absentUpstream, sourceLabel(repo.source));
-    }
-    // ORPHANED: report only — no pharn command can clear one.
-    const orphanLines = orphanNoteLines(
-      statusOrphans(repo.dir, cwd, config, frozen) ?? [],
-    );
-    if (orphanLines) note(orphanLines.join('\n'), 'ORPHANED');
-    // HOOKS: settings.json is never compared as a file; what IS checked is
-    // whether every upstream hook is wired here.
-    const hooks = diffHookWiring(repo.dir, cwd);
-    const hookLines = hookWiringLines(hooks);
-    if (hookLines) note(hookLines.join('\n'), 'HOOKS');
-    if (
-      strict &&
-      strictFails({
-        outdated,
-        diff: result,
-        hooks,
-        absentUpstream,
-        layoutMismatch: mismatch,
-      })
-    ) {
-      exitCode = 1;
-    }
-  } catch (err) {
-    reportFatal(errorMessage(err), { err });
-    exitCode = 1;
-  } finally {
-    repo.cleanup();
-  }
-
-  if (exitCode) process.exit(exitCode);
-  outro(pc.dim('Read-only — nothing changed.'));
+  // ORPHANED: report only — no pharn command can clear one.
+  const orphanLines = orphanNoteLines(report.orphans ?? []);
+  if (orphanLines) note(orphanLines.join('\n'), 'ORPHANED');
+  const hookLines = hookWiringLines(drift.hooks);
+  if (hookLines) note(hookLines.join('\n'), 'HOOKS');
 }
 
 // `--no-drift`'s version check without a clone: ONE bounded GET of
@@ -358,21 +273,16 @@ function channelRow(channel: RefChoice): string {
 }
 
 // VERSION note: skillsVersion currency + an archetype / capability summary.
-// Returns outdated. AHEAD is not outdated (lib/version-status.ts): `update`
-// refuses that downgrade without `--force`, so `--strict` must not fail on it,
-// or CI would demand a run that does nothing.
+// AHEAD is not outdated (lib/version-status.ts): `update` refuses that
+// downgrade without `--force`, so `--strict` must not fail on it, or CI would
+// demand a run that does nothing.
 function printArchetypeVersion(
-  config: PharnConfig,
-  latest: string,
+  report: StatusReport,
   source: SourceSummary,
-  channel: RefChoice,
-): boolean {
-  const { ahead, outdated } = versionStatus({
-    installed: config.skillsVersion,
-    latest,
-  });
+): void {
+  const { ahead, outdated, latest, channel } = report.version;
   // The config's VERSION_RE-validated string, sanitized again.
-  const installed = terminalSafe(config.skillsVersion);
+  const installed = terminalSafe(report.version.installed);
   const aheadNote =
     source.kind === 'release'
       ? `(ahead of the latest verified release v${latest} — installed from main)`
@@ -396,12 +306,11 @@ function printArchetypeVersion(
       channelRow(channel),
       row('Source', sourceDescription(source)),
       '',
-      row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
-      row('Capabilities', String((config.capabilities ?? []).length)),
+      row('Archetypes', report.archetypes.join(', ') || '(none)'),
+      row('Capabilities', String(report.capabilities.count)),
     ].join('\n'),
     'VERSION',
   );
-  return outdated;
 }
 
 // MODELS note: the `models` block resolved per product stage, labeled as a
@@ -456,8 +365,7 @@ function statusPrettierignore(cwd: string): PrettierignorePlan | null {
 }
 
 // PRETTIER note — advisory, never a `--strict` input.
-function printPrettierignore(cwd: string): void {
-  const plan = statusPrettierignore(cwd);
+function printPrettierignore(plan: PrettierignorePlan | null): void {
   const lines =
     plan === null ? null : prettierignoreLines(plan, { status: true });
   if (lines !== null) note(lines.text, 'PRETTIER');
@@ -520,13 +428,13 @@ function printLayoutNote(recorded: Layout, upstream: Layout): void {
   );
 }
 
-// DRIFT note. Takes the InstallDiff type, so a partition added to the diff
-// cannot be silently left unrendered.
+// DRIFT note, from the report's `drift` — the same object `--json` prints, so
+// a partition added there cannot be silently left unrendered here.
 function printDriftSection(
-  result: InstallDiff,
-  absentUpstream: readonly AbsentSurface[],
+  result: NonNullable<StatusReport['drift']>,
   ref: string,
 ): void {
+  const { absentUpstream } = result;
   if (
     result.modified.length === 0 &&
     result.missing.length === 0 &&
@@ -587,11 +495,12 @@ function printDriftSection(
     );
   }
   if (absentUpstream.length) {
-    // A declared surface the clone ships no file for; no pharn command fixes it.
+    // A declared surface the clone ships no file for; no pharn command fixes
+    // it. The path is already capped in the report.
     if (lines.length) lines.push('');
     lines.push(`  NOT SHIPPED UPSTREAM — ${ref} has no file here`);
     for (const { surface, path } of absentUpstream) {
-      lines.push(`  ${terminalSafe(path, { max: 200 })} (${surface})`);
+      lines.push(`  ${terminalSafe(path)} (${surface})`);
     }
     lines.push(
       pc.dim('  Installed commands, hooks and checkers that use these will'),
