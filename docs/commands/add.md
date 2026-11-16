@@ -69,8 +69,7 @@ Upgrade pharn, or wait for upstream to finish the change.
 verified release for a config that records `"ref": "latest"` (`add` has no `--ref` of its own) — so the clone
 can be **newer** than what you installed. Copying one capability from that clone and recording the clone's version would claim your
 whole install had moved to it, when every other file still holds the old version's bytes — and
-[`pharn update`](update.md) would then see a matching version and report "Already up to date" over a
-stale install.
+[`pharn status`](status.md) would then call a stale install current.
 
 So `add` refuses when the two disagree, in **either** direction (a clone older than your config — a
 rollback or a hand-edited value — refuses the same way):
@@ -151,11 +150,11 @@ The refusal happens **before anything in your project is written** and before th
 renders, and it exits non-zero. It is symmetric: a `pharn`-layout project meeting a flat clone refuses
 the same way.
 
-> **If `pharn update` reports "Already up to date".** A layout mismatch can occur while your
-> `skillsVersion` already matches upstream (an install migrated by an older CLI, or a hand-edited
-> `layout`). Plain `pharn update` returns early at a matching version and will not rewrite the layout —
-> use **`pharn update --force`**, which re-applies the whole tree at the clone's layout and copies every
-> file it overwrites into `pharn/.backup/<timestamp>/` first.
+> **At a matching skills version too.** A layout mismatch can occur while your `skillsVersion` already
+> matches upstream (an install migrated by an older CLI, or a hand-edited `layout`). A plain
+> `pharn update` plans at the clone's layout on every run, so it moves the install there; files you
+> edited are kept and listed, and `pharn update --force` overwrites them too, after copying each into
+> `pharn/.backup/<timestamp>/`.
 
 Each capability `add` installs is recorded with `"source": "manual"`, which is what makes the override
 stick: [`pharn update`](update.md) preserves manual entries instead of replacing your capability list

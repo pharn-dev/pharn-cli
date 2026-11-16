@@ -52,8 +52,10 @@ export const UPDATE_SCHEMA_VERSION = 1;
 const MAX_REASON = 300;
 const MAX_UNKNOWN_FIELD = 200;
 
-// `ahead-of-release` / `ahead-of-main`: the install is newer than its source,
-// and a real run would change nothing without `--force`.
+// `up-to-date`: the plan changes nothing (lib/update-next.ts `changesNothing`),
+// so a real run would ask nothing and write nothing. `ahead-of-release` /
+// `ahead-of-main`: the install is newer than its source, and a real run would
+// change nothing without `--force`.
 export type UpdateStatus =
   'planned' | 'up-to-date' | 'ahead-of-release' | 'ahead-of-main';
 
@@ -64,7 +66,7 @@ export interface UpdateReport {
   // `true` ONLY under `--compact`: `plan.files` may then be filtered (see
   // `plan.filesOmitted`).
   compact?: true;
-  // `planned` ⇒ `plan` is set; the early returns ⇒ `plan` is null.
+  // `planned` ⇒ `plan` is set; every other status ⇒ `plan` is null.
   status: UpdateStatus;
   force: boolean;
   channel: RefChoice;
@@ -172,9 +174,6 @@ export interface UpdateReport {
     gitignore?: GitignoreReport;
     // What a real run would add to `.prettierignore` (or why it would not).
     prettierignore?: PrettierignoreReport;
-    // `true` ONLY when a real run would change nothing (lib/update-next.ts) and
-    // so would ask and write nothing. `status` stays `planned`.
-    changesNothing?: true;
   } | null;
 }
 
@@ -189,7 +188,7 @@ export interface UpdateReportInput {
   installed: string;
   latest: string;
   archetypes: readonly string[];
-  // The planner's report; null on an early return.
+  // The planner's report; null unless `status` is `planned`.
   plan: UpdatePlanReport | null;
   // `--compact`: omit the `noop` entries of `plan.files` and say so.
   compact?: boolean;
@@ -336,7 +335,6 @@ function planReport(
       : {}),
     ...gitignoreKey(p.gitignore),
     ...prettierignoreKey(p.prettierignore),
-    ...(p.changesNothing ? { changesNothing: true as const } : {}),
   };
 }
 

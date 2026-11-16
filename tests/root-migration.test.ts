@@ -15,13 +15,11 @@ import { isInstallRootPath } from '../src/lib/orphans.js';
 import { planUninstall } from '../src/lib/uninstall-plan.js';
 import {
   deleteRootDocs,
-  pendingRootMigration,
   planRootMigration,
   rootMigrationNoteLines,
   versionMajor,
   type RootMigration,
 } from '../src/lib/root-migration.js';
-import type { PharnConfig } from '../src/types.js';
 
 // The old root footprint of a pharn-layout install (lib/root-migration.ts):
 // the root docs pharn wrote, the user's data it only hints at (never moves —
@@ -366,72 +364,6 @@ describe('scratch notice and .gitignore hints', () => {
     expect(
       plan(project(), clone('7.0.0', true), '7.0.0')?.gitignoreHints,
     ).toEqual([]);
-  });
-});
-
-describe('pendingRootMigration — the bounded re-open signal', () => {
-  const cfg = (over: Partial<PharnConfig> = {}): PharnConfig =>
-    ({
-      pharnVersion: '0.14.0',
-      skillsVersion: '7.0.0',
-      repo: 'pharn-dev/pharn-oss',
-      commit: null,
-      modules: [],
-      layout: 'pharn',
-      capabilities: [],
-      ...over,
-    }) as PharnConfig;
-
-  it('fires for a record-equal root doc whose pharn/ copy is not recorded', () => {
-    const proj = project();
-    put(proj, 'LIMITS.md', 'limits');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBe('LIMITS.md');
-  });
-
-  it('does not fire when a pharn/ copy is already there, even unrecorded (the run would skip it)', () => {
-    const proj = project();
-    put(proj, 'LIMITS.md', 'limits');
-    put(proj, 'pharn/LIMITS.md', 'a hand-placed copy');
-    put(proj, 'THREAT-MODEL.md', 'mine');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
-  });
-
-  it('never fires for user data at the root: pharn does not move it (CORE-158)', () => {
-    const proj = project();
-    put(proj, 'memory-bank/a.md', 'a');
-    put(proj, 'pharn.spec-template.md', 't');
-    expect(pendingRootMigration(proj, cfg(), null)).toBeNull();
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
-    // The doc half still fires beside it.
-    put(proj, 'LIMITS.md', 'limits');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBe('LIMITS.md');
-  });
-
-  it('does not fire for an edited doc (its record survives — no endless re-open)', () => {
-    const proj = project();
-    put(proj, 'LIMITS.md', 'mine');
-    expect(pendingRootMigration(proj, cfg(), RECORDED)).toBeNull();
-  });
-
-  it('does not fire once the pharn/ copy is recorded, below 7, for flat, or without records', () => {
-    const proj = project();
-    put(proj, 'LIMITS.md', 'limits');
-    const both = {
-      ...RECORDED,
-      'pharn/LIMITS.md': hashOf('limits'),
-      'pharn/THREAT-MODEL.md': 'x',
-    };
-    expect(pendingRootMigration(proj, cfg(), both)).toBeNull();
-    expect(
-      pendingRootMigration(proj, cfg({ skillsVersion: '6.9.0' }), RECORDED),
-    ).toBeNull();
-    expect(
-      pendingRootMigration(proj, cfg({ skillsVersion: 'garbage' }), RECORDED),
-    ).toBeNull();
-    expect(
-      pendingRootMigration(proj, cfg({ layout: 'flat' }), RECORDED),
-    ).toBeNull();
-    expect(pendingRootMigration(proj, cfg(), null)).toBeNull();
   });
 });
 

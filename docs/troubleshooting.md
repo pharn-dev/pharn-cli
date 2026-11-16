@@ -54,7 +54,7 @@ goes to stderr, and the exit code is 1. So stdout is either one object or nothin
 half-written object or an error string. `pharn status --json` keeps the same contract (one report or
 nothing), with one addition: with `--strict`, a finding still prints the report and exits 1 — see
 [`pharn status`](commands/status.md#json-output). So does `pharn update --dry-run --json`, which prints
-the plan (or the `up-to-date` / `ahead-of-release` / `ahead-of-main` outcome as its `status` field) and exits 0 — see
+the plan (or the `up-to-date` outcome — a plan that changes nothing — or `ahead-of-release` / `ahead-of-main`, as its `status` field, with `plan: null`) and exits 0 — see
 [`pharn update`](commands/update.md#json-output) — and `pharn init --dry-run --json`, which prints the
 install plan and exits 0 — see [`pharn init`](commands/init.md#json-output). For both, `--json` implies
 `--dry-run`, so `pharn update --json` and `pharn init --json` (or a bare `pharn --json`) print the plan too;
@@ -188,8 +188,8 @@ off those files to `.prettierignore` whenever your project uses Prettier
 ([how it works](commands/init.md#prettierignore)); `pharn status` shows a `PRETTIER` note when lines are
 missing.
 
-- **Installed with an older pharn?** Run `pharn update`: at the same skills version it re-opens to add
-  the lines.
+- **Installed with an older pharn?** Run `pharn update`: every run plans, so it adds the lines at the
+  same skills version too.
 - **No `PRETTIER` note, but the check still fails?** Your Prettier setup may not be visible at the
   project root (a monorepo package's config, a check run with `--ignore-path` pointing elsewhere or
   from a subdirectory). Copy the lines from `pharn update --dry-run` (or an existing `.prettierignore`)

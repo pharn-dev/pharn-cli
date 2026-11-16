@@ -99,8 +99,6 @@ export const CLAUDE_HOOKS_DIR = '.claude/hooks';
 // `pharn-review-lens`. Same name rule as the commands. OPTIONAL — an older
 // clone ships none, so it is never reported as not shipped.
 export const CLAUDE_AGENTS_DIR = '.claude/agents';
-// The first SKILLS_VERSION that ships an agent (lib/agent-surface.ts).
-export const AGENTS_FROM_SKILLS_VERSION = '6.64.0';
 export const CLAUDE_SETTINGS_FILE = '.claude/settings.json';
 // Product commands (and agents) are `pharn-*.md`; `pharn-dev-*.md` are excluded.
 export const PRODUCT_COMMAND_PREFIX = 'pharn-';

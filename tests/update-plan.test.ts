@@ -345,6 +345,41 @@ describe('buildUpdatePlan', () => {
     });
   });
 
+  // `update` has no same-version shortcut: it plans every run, so the planner
+  // alone decides "up to date" — and restores what a same-version run finds
+  // missing.
+  it('at the same version: an install matching upstream changes nothing, and a deleted file is restored', async () => {
+    const sha = 'a'.repeat(40);
+    const current = config({
+      skillsVersion: '1.1.0',
+      commit: sha,
+      capabilities: [{ ...CAP, source: 'auto' }],
+    });
+    await fixture(current);
+    write(join(proj, CAP_FILE), capDoc('a11y v2'));
+    write(join(proj, DOC), 'constitution v2');
+    writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
+    await writeRecords(proj, {
+      skillsVersion: '1.1.0',
+      commit: sha,
+      files: {
+        [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+        [DOC]: contentHash(join(proj, DOC)),
+      },
+    });
+
+    const settled = plan(current).report;
+    expect(settled.writes).toEqual([]);
+    expect(settled.stateChanges).toEqual({ config: false, records: false });
+    expect(settled.changesNothing).toBe(true);
+
+    rmSync(join(proj, DOC));
+    const restoring = plan(current).report;
+    expect(restoring.writes).toEqual([DOC]);
+    expect(restoring.counts.restored).toBe(1);
+    expect(restoring.changesNothing).toBe(false);
+  });
+
   it('records no pending version when the skip is not a user edit', async () => {
     await fixture();
     // A directory where a regular file is expected → `unreadable`.

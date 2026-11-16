@@ -344,7 +344,7 @@ function modelsNoteLines(block: unknown, floor: string): string[] {
 }
 
 // What `pharn update` would add to `.prettierignore`, derived from the usable
-// record store (the same input as update's re-open); null without one. Local,
+// record store; null without one. Local,
 // so answered with or without `--no-drift`.
 function statusPrettierignore(cwd: string): PrettierignorePlan | null {
   const { records } = recordsBaseline(readRecords(cwd));
@@ -392,9 +392,8 @@ function statusOrphans(
 }
 
 // LAYOUT note, printed in place of DRIFT when the install is recorded at a
-// layout the clone does not ship; it fails --strict. At the same skills version
-// `update`'s early return answers "Already up to date", so the note names
-// `--force` too, with what it costs.
+// layout the clone does not ship; it fails --strict. A plain `update` moves it,
+// at any skills version.
 function printLayoutNote(recorded: Layout, upstream: Layout): void {
   note(
     [
@@ -404,12 +403,6 @@ function printLayoutNote(recorded: Layout, upstream: Layout): void {
       'UPSTREAM check ran.',
       pc.dim(
         'Run `pharn update` to move the install; drift is checked after the move.',
-      ),
-      pc.dim(
-        'If it answers "Already up to date", `pharn update --force` moves it,',
-      ),
-      pc.dim(
-        'but also overwrites files you edited (backed up to pharn/.backup/ first).',
       ),
       pc.dim('`pharn status --strict` fails until the install is moved.'),
     ].join('\n'),
@@ -450,17 +443,11 @@ function printDriftSection(
     if (lines.length) lines.push('');
     lines.push('  MISSING (expected but absent)');
     for (const p of result.missing) lines.push(`  ${p}`);
-    // A plain `update` restores these and keeps edits (findMissingInstalled
-    // re-opens its early return). `--force` overwrites every edit, so it is
-    // only the fallback for what that re-open cannot see.
+    // A plain `update` restores these and keeps edits: every run plans.
     lines.push(
       pc.dim(
         '  Run `pharn update` to restore them (files you edited are kept).',
       ),
-      pc.dim(
-        '  If it answers "Already up to date", `pharn update --force` restores',
-      ),
-      pc.dim('  them but also overwrites files you edited (backed up first).'),
       pc.dim(
         '  To add a capability not yet in pharn.config.json, use `pharn add`',
       ),

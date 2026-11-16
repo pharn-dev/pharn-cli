@@ -146,7 +146,7 @@ function validateArchetypes(raw: unknown): void {
 /**
  * An archetype config's install stamp — `skillsVersion` (`VERSION_RE`) or
  * `commit` (`COMMIT_RE` or `null`) — that this CLI could never have written.
- * Both are printed and compared (`update`'s early return, `add`'s version gate).
+ * Both are printed and compared (`update`'s ahead-of check, `add`'s version gate).
  * An absent `commit` is legal and read as `null`; a pre-archetype config is not
  * checked.
  */
@@ -354,8 +354,7 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     delete config.pendingSkillsVersion;
   }
   // `frozenCapabilities`: kept only when EVERY element is a valid `role:name`;
-  // otherwise the whole field is dropped and `update`'s same-version early
-  // return applies as it would without it.
+  // otherwise the whole field is dropped, as if no capability had been kept.
   if (
     config.frozenCapabilities !== undefined &&
     !isFrozenKeyList(config.frozenCapabilities)

@@ -248,8 +248,10 @@ export function buildUpdatePlan(input: {
   const loadedRecords = readRecords(cwd);
   const { records, note: recordsNote } = recordsBaseline(loadedRecords);
 
-  // The unit is held only when this run moves the version (at the same version
-  // a write puts back same-version bytes). Judged at the CLONE's layout.
+  // The unit is held only when this run moves the version. At the same version
+  // every file but the user's kept edits is already at it (a version is
+  // recorded only by a complete run), so a write puts back same-version bytes
+  // and the floor never mixes two versions. Judged at the CLONE's layout.
   const unitPaths = layoutPaths(layout);
   const plan = planUpdate({
     latestHashes,
@@ -342,7 +344,7 @@ export function buildUpdatePlan(input: {
   // The old root footprint, against the same baseline. A root doc it deletes
   // leaves the orphan list (retired, not left behind); one it KEEPS stays an
   // orphan. Held while the unit is held: it deletes paths the OLD floor still
-  // reads (pendingRootMigration re-opens the run later).
+  // reads (a later run, which plans again, retires them).
   const rootMigration =
     plan.held !== null
       ? null
@@ -362,7 +364,7 @@ export function buildUpdatePlan(input: {
   const orphans = orphanScan.orphans.filter((o) => !retired.has(o.path));
   // The paths `.prettierignore` must cover: everything this run may record. A
   // superset of the store it writes (a retired root doc's delete may fail), so
-  // the same-version re-open, which reads the store, stays bounded.
+  // a path the next store may still hold is never left uncovered.
   const prettierignorePaths = [
     ...expected.keys(),
     ...Object.keys(frozenRecords),

@@ -25,6 +25,7 @@ import {
   notes,
   noteTitles,
   PLAN_COMMAND,
+  printed,
   proj,
   projectFiles,
   read,
@@ -307,11 +308,18 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
 });
 
 describe('pharn update --dry-run (text): early returns and refusals', () => {
-  it('at the current version says Already up to date without downloading', async () => {
+  it('at the current version says Up to date after one download', async () => {
     await installFresh();
+    const before = snapshot();
     expect(await dry()).toBeNull();
-    expect(lastOutro()).toContain('Already up to date');
-    expect(downloaded()).toBe(false);
+    expect(lastOutro()).toContain('Dry run — Up to date.');
+    expect(lastOutro()).toContain(
+      'A real run would ask nothing and write nothing.',
+    );
+    expect(downloaded()).toBe(true);
+    // An empty plan prints no header note (no "Preview only" banner).
+    expect(printed()).not.toContain('Skills version');
+    expect(snapshot()).toEqual(before);
   });
 
   it.each<{ name: string; opts?: Opts; setup: () => void }>([
@@ -1001,7 +1009,7 @@ describe('pharn update --dry-run --json', () => {
       },
     },
     {
-      key: 'gitignore (append, re-opening the current version)',
+      key: 'gitignore (append, at the current version)',
       setup: () => write('.gitignore', 'pharn/.run/\n'),
       value: (p) => p.gitignore,
       expected: { action: 'append', entries: ['pharn/.backup/'] },
@@ -1027,13 +1035,6 @@ describe('pharn update --dry-run --json', () => {
         write('.prettierignore', 'dist/\n');
       },
       value: (p) => p.prettierignore.entries.includes('/pharn.config.json'),
-      expected: true,
-    },
-    {
-      key: 'changesNothing',
-      opts: { force: true },
-      setup: () => {},
-      value: (p) => p.changesNothing,
       expected: true,
     },
   ])('carries plan.$key only when there is something to say', async (row) => {
@@ -1069,18 +1070,6 @@ describe('pharn update --dry-run --json', () => {
       version: Record<string, unknown>;
       source: Record<string, unknown>;
     }>([
-      {
-        status: 'up-to-date',
-        installed: '1.0.0',
-        version: {
-          installed: '1.0.0',
-          latest: '1.0.0',
-          recorded: null,
-          withheld: null,
-          pending: null,
-        },
-        source: { kind: 'release', tag: 'v1.0.0' },
-      },
       {
         status: 'ahead-of-release',
         installed: '2.0.0',
@@ -1122,6 +1111,46 @@ describe('pharn update --dry-run --json', () => {
       },
     );
 
+    // `up-to-date` is an empty plan (lib/update-next.ts `changesNothing`): the
+    // run downloads and plans, then reports the early-return shape.
+    it.each<{ name: string; opts: NonNullable<Opts> }>([
+      { name: 'a plain run', opts: {} },
+      { name: '--force with nothing to overwrite', opts: { force: true } },
+    ])(
+      'up-to-date (also marked under --compact): one download, plan null — $name',
+      async (row) => {
+        await installFresh();
+        const before = snapshot();
+        fresh();
+        expect(
+          await run(() => runUpdate({ ...row.opts, dryRun: true, json: true })),
+        ).toBeNull();
+        expectClackSilent();
+        expect(jsonOut<Json>()).toMatchObject({
+          schemaVersion: 1,
+          status: 'up-to-date',
+          force: row.opts.force ?? false,
+          plan: null,
+          version: {
+            installed: '1.0.0',
+            latest: '1.0.0',
+            recorded: null,
+            withheld: null,
+            pending: null,
+          },
+          source: { kind: 'release', tag: 'v1.0.0' },
+        });
+        expect(stdout().join('\n')).not.toContain('changesNothing');
+        expect(downloaded()).toBe(true);
+        expect(await dryJson({ ...row.opts, compact: true })).toMatchObject({
+          status: 'up-to-date',
+          compact: true,
+          plan: null,
+        });
+        expect(snapshot()).toEqual(before);
+      },
+    );
+
     it.each<{
       name: string;
       ref?: 'main';
@@ -1130,9 +1159,16 @@ describe('pharn update --dry-run --json', () => {
       check?: (json: Json) => void;
     }>([
       {
+        // With an edit to overwrite: an empty `--force` plan is `up-to-date`.
         name: '--force at the current version',
         opts: { force: true },
-        setup: () => {},
+        setup: () => write(CONSTITUTION, 'MY EDIT'),
+        check: (json) =>
+          expect(
+            json.plan.files.find(
+              (f: { rel: string }) => f.rel === CONSTITUTION,
+            ),
+          ).toMatchObject({ action: 'write', forced: true }),
       },
       {
         name: 'a frozen capability recorded in the config',

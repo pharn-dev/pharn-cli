@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CLAUDE_AGENTS_DIR,
+  CLAUDE_COMMANDS_DIR,
+  CLAUDE_HOOKS_DIR,
   DEV_COMMAND_PREFIX,
   FIRST_FEATURE_COMMAND,
   MIN_CLI_FILE,
@@ -47,5 +50,27 @@ describe('MIN_CLI_FILE', () => {
 
   it('is distinct from SKILLS_VERSION (two files, two questions)', () => {
     expect(MIN_CLI_FILE).not.toBe(SKILLS_VERSION_FILE);
+  });
+});
+
+// The agent surface is found by its directory alone: no version gate decides
+// whether `update` looks for it (every run plans), so the directory must be the
+// one Claude Code reads, beside the commands and hooks.
+describe('CLAUDE_AGENTS_DIR', () => {
+  it('sits under .claude/ beside the commands and hooks directories', () => {
+    expect(CLAUDE_AGENTS_DIR).toBe('.claude/agents');
+    for (const dir of [
+      CLAUDE_AGENTS_DIR,
+      CLAUDE_COMMANDS_DIR,
+      CLAUDE_HOOKS_DIR,
+    ])
+      expect(dir.split('/')).toHaveLength(2);
+    expect(
+      new Set(
+        [CLAUDE_AGENTS_DIR, CLAUDE_COMMANDS_DIR, CLAUDE_HOOKS_DIR].map(
+          (dir) => dir.split('/')[0],
+        ),
+      ),
+    ).toEqual(new Set(['.claude']));
   });
 });

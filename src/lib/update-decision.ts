@@ -216,7 +216,7 @@ export function planUpdate(params: {
   unit?: (rel: string) => boolean;
   // True when the run moves the installed version. At the same version a write
   // puts back same-version bytes, so nothing is held — which also keeps a
-  // same-version re-open able to restore a deleted file.
+  // same-version run able to restore a deleted unit file.
   holdUnit?: boolean;
 }): UpdatePlan {
   const { latestHashes, diskStates, records, force, unit, holdUnit } = params;

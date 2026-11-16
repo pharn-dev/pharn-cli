@@ -3,11 +3,11 @@ import { readBoundedFile } from './bounded-read.js';
 import { PHARN_ROOT_FALLBACK_DOCS } from './constants.js';
 import { contentHash } from './hash.js';
 import type { FileRecords } from './install-records.js';
-import { configLayout, resolveTrustedDocs } from './layout.js';
+import { resolveTrustedDocs } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { planUninstall } from './uninstall-plan.js';
 import { safeJoin } from './validate.js';
-import type { Layout, PharnConfig } from '../types.js';
+import type { Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // The old ROOT footprint of a pharn-layout install, and how a run retires it.
@@ -57,7 +57,7 @@ export interface RootMigration {
 }
 
 // The SKILLS_VERSION major from which pharn-oss reads the pharn/ paths: the
-// user-data hints, both notices and pendingRootMigration apply from it.
+// user-data hints and both notices apply from it.
 export const ROOT_MIGRATION_FROM_MAJOR = 7;
 
 // The old user-data paths, in report order.
@@ -273,56 +273,6 @@ function landed(projectRoot: string, repoDir: string, rel: string): boolean {
     return (
       contentHash(safeJoin(projectRoot, rel)) ===
       contentHash(safeJoin(repoDir, rel))
-    );
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The old root path a same-version `update` must re-open for, or null — so an
- * install already at SKILLS ≥ 7 that an older CLI updated does not keep its
- * root footprint forever behind the early return. Pharn layout only: a root
- * doc the baseline records, still record-equal, whose pharn/ counterpart is
- * neither recorded nor on disk. User data never counts (the run would only
- * hint).
- *
- * BOUNDED: the opened run lands the pharn/ doc and deletes the root one, and
- * nothing it could not finish counts. Residual: a SKILLS ≥ 7 pharn-oss still
- * shipping a doc only at the root would re-open every run.
- */
-export function pendingRootMigration(
-  projectRoot: string,
-  config: PharnConfig,
-  records: FileRecords | null,
-): string | null {
-  if (configLayout(config) !== 'pharn') return null;
-  const major = versionMajor(config.skillsVersion);
-  if (major === null || major < ROOT_MIGRATION_FROM_MAJOR) return null;
-  if (records !== null) {
-    for (const [pharnRel, rootRel] of Object.entries(
-      PHARN_ROOT_FALLBACK_DOCS,
-    )) {
-      if (!Object.hasOwn(records, rootRel) || Object.hasOwn(records, pharnRel))
-        continue;
-      if (!provablyAbsent(projectRoot, pharnRel)) continue;
-      if (
-        planUninstall(projectRoot, { [rootRel]: records[rootRel]! }).delete
-          .length > 0
-      )
-        return rootRel;
-    }
-  }
-  return null;
-}
-
-// Nothing at `rel`, and nothing on the way to it is a link.
-function provablyAbsent(projectRoot: string, rel: string): boolean {
-  try {
-    return (
-      findSymlinkComponent(projectRoot, rel) === null &&
-      lstatSync(safeJoin(projectRoot, rel), { throwIfNoEntry: false }) ===
-        undefined
     );
   } catch {
     return false;

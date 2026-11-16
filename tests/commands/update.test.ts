@@ -171,7 +171,7 @@ describe('pharn update, end to end', () => {
     expect(JSON.parse(installed)).not.toHaveProperty('updatedAt');
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(read('.gitignore')).toBe(full);
-    // The early return: nothing re-applied, so the config was not rewritten.
+    // Up to date: the plan changes nothing, so the config was not rewritten.
     expect(read('pharn.config.json')).toBe(installed);
 
     writeFileSync(at('.gitignore'), full.replace('pharn/.backup/\r\n', ''));
@@ -183,8 +183,8 @@ describe('pharn update, end to end', () => {
     expect(read('.gitignore')).toBe(
       full.replace('pharn/.backup/\r\n', '') + 'pharn/.backup/\r\n',
     );
-    // The re-opened run rewrote the config: it records this CLI and the time of
-    // the update, and keeps the first install's date.
+    // The run that added the line rewrote the config: it records this CLI and
+    // the time of the update, and keeps the first install's date.
     const updated = JSON.parse(read('pharn.config.json'));
     expect(updated.installedAt).toBe(installedAt);
     expect(updated.pharnVersion).toBe(PHARN_VERSION);
@@ -677,9 +677,9 @@ describe('pharn update, end to end', () => {
     expect(drift).toContain(
       'Run `pharn update` to restore them (files you edited are kept).',
     );
-    expect(drift.indexOf('`pharn update` to restore')).toBeLessThan(
-      drift.indexOf('pharn update --force'),
-    );
+    // A plain update restores them at any version: no `--force` fallback.
+    expect(drift).not.toContain('Already up to date');
+    expect(drift).not.toContain('pharn update --force');
 
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(read(PLAN_COMMAND)).toBe('plan\n');
@@ -728,27 +728,21 @@ describe('pharn update, end to end', () => {
     };
     expect(status.orphans).toEqual([]);
   });
-  it('deleting it never re-opens update; the next run that plans drops the record once, and the run after asks and writes nothing', async () => {
+  it('deleting it: the next update drops its record once without restoring it, and the run after asks and writes nothing', async () => {
     await installFresh();
     rmSync(at(SETTINGS));
 
-    // Same version: the early return holds — no download, nothing written.
-    const before = read('pharn.records.json');
+    // Same version: the run plans, does not restore the file (update never
+    // writes it), and drops its record.
     fetchStub.mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    expect(downloaded()).toBe(false);
-    expect(read('pharn.records.json')).toBe(before);
-
-    // A newer upstream: the run plans, does not restore the file (update never
-    // writes it), and drops its record.
-    serveTip(SHA_V2, '2.0.0');
-    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(downloaded()).toBe(true);
     expect(existsSync(at(SETTINGS))).toBe(false);
     expect(records().files).not.toHaveProperty(SETTINGS);
 
-    // The next run that plans (--force skips the same-version early return)
-    // over that state changes nothing: in a terminal, without --yes, it never
-    // reaches the confirm (the mocked prompt throws), and writes nothing.
+    // The next run (--force too) over that state changes nothing: in a
+    // terminal, without --yes, it never reaches the confirm (the mocked prompt
+    // throws), and writes nothing.
     const settledRecords = read('pharn.records.json');
     const settledConfig = read('pharn.config.json');
     setTTY(true, true);
@@ -777,45 +771,42 @@ describe('pharn update, end to end', () => {
     expect(clean.strict.failed).toBe(false);
   });
 
-  it('an install at 6.64.0+ an older CLI made without it: plain update --yes adds it, then early-returns', async () => {
+  it('an install at 6.64.0+ an older CLI made without it: plain update --yes adds it, then the next run is up to date', async () => {
     serveTip(SHA_V1, '6.64.0');
     await installFresh();
     dropAgentAsAnOlderCliWould();
     expect((await strictStatus()).drift?.missing).toEqual([AGENT]);
     process.exitCode = undefined;
 
-    vi.mocked(clack.note).mockClear();
+    vi.mocked(clack.outro).mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    const header = vi
-      .mocked(clack.note)
-      .mock.calls.map(([body]) => String(body))
-      .join('\n');
-    expect(header).toContain('.claude/agents/ has no PHARN agent definition');
+    expect(String(vi.mocked(clack.outro).mock.calls.at(-1)?.[0])).toContain(
+      'restored 1',
+    );
     expect(read(AGENT)).toBe('review lens agent 6.64.0\n');
     expect(records().files[AGENT]).toBe(sha256(AGENT));
     expect((await strictStatus()).strict.failed).toBe(false);
 
-    // Bounded: the next run finds the agent and early-returns, no download.
+    // The next run finds the agent: one download, nothing to change.
     const before = tarballFetches();
+    const tree = snapshot();
     vi.mocked(clack.outro).mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    expect(tarballFetches()).toBe(before);
+    expect(tarballFetches()).toBe(before + 1);
     expect(String(vi.mocked(clack.outro).mock.calls.at(-1)?.[0])).toContain(
-      'Already up to date',
+      'Up to date.',
     );
+    expect(snapshot()).toEqual(tree);
   });
 
-  it('below 6.64.0 a missing, unrecorded agent does not re-open update', async () => {
+  it('below 6.64.0 a missing, unrecorded agent is restored by a plain update too', async () => {
     await installFresh();
     dropAgentAsAnOlderCliWould();
     const before = tarballFetches();
-    vi.mocked(clack.outro).mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    expect(tarballFetches()).toBe(before);
-    expect(String(vi.mocked(clack.outro).mock.calls.at(-1)?.[0])).toContain(
-      'Already up to date',
-    );
-    expect(existsSync(at(AGENT))).toBe(false);
+    expect(tarballFetches()).toBe(before + 1);
+    expect(read(AGENT)).toBe('review lens agent 1.0.0\n');
+    expect(records().files[AGENT]).toBe(sha256(AGENT));
   });
   describe('a hostile pharn.records.json reaches the terminal escaped', () => {
     const CSI = '\u009b';
@@ -892,8 +883,8 @@ describe('pharn update, end to end', () => {
           r.files[`pharn/x${CSI}2J${RLO}y${ESC}[31m.md`] = 'not-a-sha256';
         });
       const shown = 'invalid hash for "pharn/x\\u009b2J\\u202ey\\u001b[31m.md"';
-      // An invalid store does not re-open the same-version early return, so
-      // upstream moves: the run gets far enough to print the note.
+      // Upstream moves too, so the real run has files to write (an invalid
+      // store at the same version would change only the store).
       serveTip(SHA_V2, '2.0.0');
       plant();
 
@@ -1037,16 +1028,14 @@ describe('pharn update, end to end', () => {
     expect(status.strict.failed).toBe(false);
     expect(process.exitCode).toBeUndefined();
 
-    // And the next update has nothing left to do (the same-version return).
+    // And the next update has nothing left to do: it downloads once, plans,
+    // and changes nothing.
     const before = read('pharn.records.json');
     fetchStub.mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(read('pharn.records.json')).toBe(before);
-    expect(
-      fetchStub.mock.calls.some(([u]) =>
-        String(u).startsWith('https://codeload'),
-      ),
-    ).toBe(false);
+    expect(downloaded()).toBe(true);
+    expect(lastOutro()).toContain('Up to date.');
   });
 
   it('keeps an edited root doc as an orphan; with memory-bank/ at both places it says merge by hand and exits 0', async () => {
@@ -1115,7 +1104,7 @@ describe('pharn update, end to end', () => {
     expect(records().files['THREAT-MODEL.md']).toBeDefined();
   });
 
-  it('re-opens the same-version return for root docs an older CLI left on a 7.x install', async () => {
+  it('one plain update retires root docs an older CLI left on a 7.x install; the next run is up to date', async () => {
     // What 0.13.0 leaves after updating to 7.0.0: config and records at 7.0.0,
     // the root docs still recorded (carried as orphans), no pharn/ docs.
     serveTip(SHA_V1, '6.9.0');
@@ -1135,24 +1124,28 @@ describe('pharn update, end to end', () => {
     expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
     expect(existsSync(at('LIMITS.md'))).toBe(false);
     expect(records().files['pharn/LIMITS.md']).toBeDefined();
+
+    const settled = snapshot();
+    fetchStub.mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(downloaded()).toBe(true);
+    expect(lastOutro()).toContain('Up to date.');
+    expect(snapshot()).toEqual(settled);
   });
 
-  it('does NOT re-open the same-version return for user data at the root of a 7.x install', async () => {
+  it('leaves user data at the root of a 7.x install alone: one download, nothing written', async () => {
     serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
     await installFresh();
     mkdirSync(at('memory-bank'));
     writeFileSync(at('memory-bank/canon.md'), 'canon\n');
-    const before = read('pharn.records.json');
+    const before = snapshot();
     fetchStub.mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(process.exitCode).toBeUndefined();
-    // "Already up to date": no download, nothing rewritten, nothing moved.
-    expect(
-      fetchStub.mock.calls.some(([u]) =>
-        String(u).startsWith('https://codeload'),
-      ),
-    ).toBe(false);
-    expect(read('pharn.records.json')).toBe(before);
+    // Up to date: downloaded and planned, nothing rewritten, nothing moved.
+    expect(downloaded()).toBe(true);
+    expect(lastOutro()).toContain('Up to date.');
+    expect(snapshot()).toEqual(before);
     expect(read('memory-bank/canon.md')).toBe('canon\n');
     expect(existsSync(at('pharn/memory-bank'))).toBe(false);
   });
@@ -1162,27 +1155,18 @@ describe('pharn update, end to end', () => {
     await installFresh();
     mkdirSync(at('memory-bank'));
     writeFileSync(at('memory-bank/canon.md'), 'canon\n');
-    // `--force` skips the same-version early return, so the run plans; with
-    // every file at upstream, the hint is all the root migration has.
+    // With every file at upstream, the hint is all the root migration has: the
+    // plan changes nothing, so the JSON preview is `up-to-date` (plan null).
     clearOutput();
-    expect(
-      await run(() => runUpdate({ dryRun: true, json: true, force: true })),
-    ).toBeNull();
-    expect(
-      (JSON.parse(stdout()[0] ?? '') as MigrationJson).plan?.rootMigration,
-    ).toEqual({
-      docs: [
-        { rel: 'THREAT-MODEL.md', action: 'absent' },
-        { rel: 'LIMITS.md', action: 'absent' },
-      ],
-      moves: [],
-      scratchNotice: false,
-      gitignoreHints: [],
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
+    expect(JSON.parse(stdout()[0] ?? '') as MigrationJson).toMatchObject({
+      status: 'up-to-date',
+      plan: null,
     });
     const configBefore = read('pharn.config.json');
     const recordsBefore = read('pharn.records.json');
     vi.mocked(clack.note).mockClear();
-    expect(await run(() => runUpdate({ yes: true, force: true }))).toBeNull();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(process.exitCode).toBeUndefined();
     // changesNothing: neither state file is rewritten (no `updatedAt`).
     expect(read('pharn.config.json')).toBe(configBefore);
@@ -1217,8 +1201,8 @@ describe('pharn update, end to end', () => {
 
 // ---------------------------------------------------------------------------
 // The REAL run's behaviour (docs/commands/update.md), on the harness: the gates
-// before any network call, the confirm, the early returns and what re-opens
-// them, the per-file decisions, membership, frozen capabilities, orphans, the
+// before any network call, the confirm, an empty plan ("Up to date") and the
+// ahead-of-source return, the per-file decisions, membership, frozen capabilities, orphans, the
 // models block, --force and its backup, failures part-way, and layout moves.
 // `--dry-run` is tests/commands/update-dry-run.test.ts; lock refusals are
 // tests/commands/lock.test.ts.
@@ -1253,7 +1237,11 @@ async function bumped(
 const updateYes = (opts: Parameters<typeof runUpdate>[0] = {}) =>
   run(() => runUpdate({ yes: true, ...opts }));
 
-const upToDate = (v = '1.0.0'): string => `Already up to date (skills v${v}).`;
+/** The outro of a run whose plan changes nothing, skipping nothing. */
+const upToDate = (v = '1.0.0'): RegExp =>
+  new RegExp(
+    `^Up to date\\. \\(unchanged \\d+ · skipped 0 · \\d+ capabilit(?:y|ies), skills v${v.replaceAll('.', '\\.')}\\)$`,
+  );
 
 const DEBUG_HINT = 'PHARN_DEBUG';
 const PROXY = 'will not use it';
@@ -1622,7 +1610,7 @@ describe('the confirm', () => {
 describe('the proxy notice', () => {
   it.each<[string, () => void, number | null]>([
     ['the full update', () => serveTip(SHA_V2, '2.0.0'), null],
-    ['the up-to-date early return, which still fetches', () => undefined, null],
+    ['an up-to-date run', () => undefined, null],
     [
       'a fetch that then fails',
       () => {
@@ -1650,15 +1638,28 @@ describe('the proxy notice', () => {
   );
 });
 
-describe('the same-version early return', () => {
-  it('says "Already up to date" without downloading or rewriting anything', async () => {
+describe('at the same version, an empty plan is "Up to date"', () => {
+  it('says "Up to date." after one download, with no prompt and no write', async () => {
     await installed();
     const before = snapshot();
     fetchStub.mockClear();
     setTTY(false, false);
     expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toBe(upToDate());
-    expect(downloaded()).toBe(false);
+    expect(lastOutro()).toMatch(upToDate());
+    expect(tarballFetches()).toBe(1);
+    expect(snapshot()).toEqual(before);
+
+    // In a terminal without --yes: the confirm is never reached (the stubbed
+    // prompt would throw), and no header note is printed before the outro.
+    setTTY(true, true);
+    clearOutput();
+    fetchStub.mockClear();
+    expect(await run(() => runUpdate())).toBeNull();
+    expect(vi.mocked(clack.confirm)).not.toHaveBeenCalled();
+    expect(tarballFetches()).toBe(1);
+    expect(lastOutro()).toMatch(upToDate());
+    expect(printed()).not.toContain('Skills version');
+    expect(process.exitCode).toBeUndefined();
     expect(snapshot()).toEqual(before);
   });
 
@@ -1666,7 +1667,7 @@ describe('the same-version early return', () => {
     [
       'a recorded file that is gone',
       () => rmSync(at(CONSTITUTION)),
-      `${CONSTITUTION} is missing — this run re-applies the install, restoring it if upstream still ships it.`,
+      'restored 1',
       () => expect(read(CONSTITUTION)).toBe('constitution 1.0.0\n'),
     ],
     [
@@ -1677,13 +1678,13 @@ describe('the same-version early return', () => {
           recursive: true,
         });
       },
-      'pharn/pharn-pipeline/grillers/security is missing',
+      'restored 1',
       () => expect(read(SECURITY)).toContain('security 1.0.0'),
     ],
     [
       ".gitignore without pharn's lines",
       () => writeFileSync(at('.gitignore'), 'node_modules\n'),
-      ".gitignore does not yet keep PHARN's run state and backups out of git — this run re-applies the install and adds them.",
+      'v1.0.0 (re-applying)',
       () => {
         expect(read('.gitignore')).toBe(
           `node_modules\n${PHARN_GITIGNORE_BLOCK}`,
@@ -1696,7 +1697,7 @@ describe('the same-version early return', () => {
     [
       'a Prettier project whose .prettierignore does not cover pharn',
       () => writeFileSync(at('.prettierrc'), '{}\n'),
-      '.prettierignore does not yet cover the files pharn installs and rewrites — this run re-applies the install and adds them.',
+      'v1.0.0 (re-applying)',
       () => {
         expect(read('.prettierignore')).toMatch(
           /^# Files installed and rewritten by pharn \(added by pharn\)\n/,
@@ -1715,27 +1716,29 @@ describe('the same-version early return', () => {
         editConfig((c) => {
           c.models = OLD_DEFAULT;
         }),
-      'Your models block is in the format pharn wrote before 0.7.0 — this run converts it.',
+      'Replaced the models block an earlier pharn wrote',
       () => expect(config().models).toEqual(UPSTREAM_MODELS),
     ],
   ])(
-    're-opens for %s; the run repairs it, and the next run returns early again',
+    'one plain update fixes %s; the next run is up to date',
     async (_l, arrange, says, check) => {
       await installed();
       arrange();
       clearOutput();
       fetchStub.mockClear();
       expect(await updateYes()).toBeNull();
-      expect(downloaded()).toBe(true);
+      expect(tarballFetches()).toBe(1);
       expect(printed()).toContain(says);
       check();
       expect(exists('pharn/.backup')).toBe(false);
 
+      const settled = snapshot();
       clearOutput();
       fetchStub.mockClear();
       expect(await updateYes()).toBeNull();
-      expect(downloaded()).toBe(false);
-      expect(lastOutro()).toBe(upToDate());
+      expect(tarballFetches()).toBe(1);
+      expect(lastOutro()).toMatch(upToDate());
+      expect(snapshot()).toEqual(settled);
     },
   );
 
@@ -1765,28 +1768,43 @@ describe('the same-version early return', () => {
         symlinkSync(outside, at('.prettierignore'));
       },
     ],
+  ])('is up to date with %s, and writes nothing', async (_l, arrange) => {
+    await installed();
+    arrange();
+    const before = snapshot();
+    fetchStub.mockClear();
+    expect(await updateYes()).toBeNull();
+    expect(tarballFetches()).toBe(1);
+    expect(lastOutro()).toMatch(upToDate());
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('skips a recorded capability directory behind a symlink: nothing to change, nothing written', async () => {
+    await installed();
+    const outside = join(proj(), '..', 'outside');
+    mkdirSync(outside);
+    rmSync(at('pharn/pharn-pipeline/grillers/security'), { recursive: true });
+    symlinkSync(outside, at('pharn/pharn-pipeline/grillers/security'));
+    const before = snapshot();
+    fetchStub.mockClear();
+    expect(await updateYes()).toBeNull();
+    expect(tarballFetches()).toBe(1);
+    expect(lastOutro()).toMatch(
+      /^Nothing to change\. \(unchanged \d+ · skipped 1 ·/,
+    );
+    expect(readdirSync(outside)).toEqual([]);
+    expect(snapshot()).toEqual(before);
+  });
+
+  // `usable`: whether the store the run reads is still usable. Without one,
+  // nothing says init created .claude/settings.json, and update never writes
+  // that file, so its record is the one a rebuilt store cannot carry.
+  it.each<[string, () => void, boolean]>([
+    ['an absent records store', () => rmSync(at('pharn.records.json')), false],
     [
-      'a Prettier project with no records store (nothing says what pharn wrote)',
-      () => {
-        writeFileSync(at('.prettierrc'), '{}\n');
-        rmSync(at('pharn.records.json'));
-      },
-    ],
-    [
-      'a recorded capability directory behind a symlink',
-      () => {
-        const outside = join(proj(), '..', 'outside');
-        mkdirSync(outside);
-        rmSync(at('pharn/pharn-pipeline/grillers/security'), {
-          recursive: true,
-        });
-        symlinkSync(outside, at('pharn/pharn-pipeline/grillers/security'));
-      },
-    ],
-    ['an absent records store', () => rmSync(at('pharn.records.json'))],
-    [
-      'a corrupt records store (left byte for byte)',
+      'a corrupt records store',
       () => writeFileSync(at('pharn.records.json'), '{ not json'),
+      false,
     ],
     [
       'a records store stamped for another install state (a torn add)',
@@ -1794,27 +1812,37 @@ describe('the same-version early return', () => {
         editRecords((r) => {
           r.commit = SHA_V1_LATER;
         }),
+      true,
     ],
-  ])('does not re-open for %s', async (_l, arrange) => {
+    [
+      'a Prettier project with no records store',
+      () => {
+        writeFileSync(at('.prettierrc'), '{}\n');
+        rmSync(at('pharn.records.json'));
+      },
+      false,
+    ],
+  ])('rebuilds the records store for %s', async (_l, arrange, usable) => {
     await installed();
+    const { [SETTINGS]: settings, ...files } = records().files;
     arrange();
-    const before = snapshot();
     fetchStub.mockClear();
     expect(await updateYes()).toBeNull();
-    expect(downloaded()).toBe(false);
-    expect(lastOutro()).toBe(upToDate());
-    expect(snapshot()).toEqual(before);
+    expect(tarballFetches()).toBe(1);
+    expect(process.exitCode).toBeUndefined();
+    expect(records().commit).toBe(config().commit);
+    expect(records().files).toEqual(
+      usable ? { ...files, [SETTINGS]: settings } : files,
+    );
   });
 
-  it('a capability `remove`d at the current version stays removed until --force re-applies the install', async () => {
+  it('a capability `remove`d at the current version comes back with the next plain update', async () => {
     await installed();
     expect(await run(() => runRemove('security'))).toBeNull();
+    expect(exists(SECURITY)).toBe(false);
     fetchStub.mockClear();
     expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toBe(upToDate());
-    expect(exists(SECURITY)).toBe(false);
-
-    expect(await updateYes({ force: true })).toBeNull();
+    expect(tarballFetches()).toBe(1);
     expect(read(SECURITY)).toContain('security 1.0.0');
     expect(config().capabilities).toEqual([
       { name: 'security', role: 'griller', source: 'auto' },
@@ -1941,11 +1969,11 @@ describe('the channel', () => {
   const notices = (): number =>
     logged('info').filter((m) => m === CHANNEL_NOTICE).length;
 
-  it('an install on main is told once per run that it stays on main, early return included', async () => {
+  it('an install on main is told once per run that it stays on main, an up-to-date run included', async () => {
     await installed({ ref: 'main' });
     clearOutput();
     expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toBe(upToDate());
+    expect(lastOutro()).toMatch(upToDate());
     expect(notices()).toBe(1);
   });
 
@@ -1974,7 +2002,7 @@ describe('the channel', () => {
     // Recorded, so a plain run follows the release from now on.
     fetchStub.mockClear();
     expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toBe(upToDate());
+    expect(lastOutro()).toMatch(upToDate());
     expect(fetched()).toContain(RELEASE_URL);
     expect(fetched()).not.toContain(VERSION_URL);
 
@@ -2667,14 +2695,12 @@ describe('orphaned files (upstream stopped shipping them)', () => {
     rmSync(at(PLAN_COMMAND));
     clearOutput();
     expect(await updateYes()).toBeNull();
-    expect(printed()).toContain(`${PLAN_COMMAND} is missing`);
-    expect(printed()).toContain('if upstream still ships it');
     expect(exists(PLAN_COMMAND)).toBe(false);
     expect(records().files[PLAN_COMMAND]).toBeUndefined();
     expect(notes('ORPHANED')).toEqual([]);
     clearOutput();
     expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toBe(upToDate('3.0.0'));
+    expect(lastOutro()).toMatch(upToDate('3.0.0'));
   });
 
   it('names an edited orphan EDITED, and a path upstream ships again upgrades from the carried record', async () => {
@@ -2915,7 +2941,7 @@ describe('the models block', () => {
     expect(note).toContain('pharn/.backup/');
   });
 
-  it('closes the same-version gate once it wrote a block, even one in a convertible shape', async () => {
+  it('once it wrote a block, even one in a convertible shape, the next run is up to date', async () => {
     const shaped = {
       default: { model: 'sonnet', effort: 'high' },
       stages: UPSTREAM_MODELS.stages,
@@ -2927,10 +2953,12 @@ describe('the models block', () => {
     });
     expect(await updateYes()).toBeNull();
     expect(config().models).toEqual(shaped);
+    const settled = snapshot();
     fetchStub.mockClear();
     expect(await updateYes()).toBeNull();
-    expect(downloaded()).toBe(false);
-    expect(lastOutro()).toBe(upToDate());
+    expect(tarballFetches()).toBe(1);
+    expect(lastOutro()).toMatch(upToDate());
+    expect(snapshot()).toEqual(settled);
   });
 
   it('replaces an old default it had to convert once pharn-oss’s block is usable again', async () => {

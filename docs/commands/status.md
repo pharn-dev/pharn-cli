@@ -56,11 +56,7 @@ v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, 
      too (backed up to `pharn/.backup/` first).
    - **Missing (expected but absent)** — expected files that aren't on disk (from your recorded
      `capabilities` and the fixed product surfaces). Run `pharn update` to restore them (files you
-     edited are kept). If it answers "Already up to date", `pharn update --force` restores them but
-     also overwrites files you edited (backed up first) — a plain `pharn update` sees a missing file
-     only for a capability directory that is gone or a file recorded in a usable
-     [`pharn.records.json`](../reference/pharn-records.md), so with no usable record store, or for a
-     file upstream added at the same skills version, it still answers "Already up to date". To install
+     edited are kept) — at any skills version, since every `update` downloads and plans. To install
      a capability **not yet** in `pharn.config.json`, use `pharn add` (additive-only — already-listed
      capabilities are a no-op, even if their files are missing); `add` also requires your install to
      match the current skills version.
@@ -105,9 +101,7 @@ v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, 
    comparing them at the recorded layout's paths used to drop whole capability directories from the
    check without a word. The note says so (for example _Recorded at the flat layout; pharn-oss now
    ships the pharn layout._), and that drift is checked after the move. Run `pharn update` to move the
-   install. At the same skills version a plain `pharn update` answers "Already up to date" without
-   looking at the layout; then `pharn update --force` moves it, but also overwrites files you edited
-   (backed up to `pharn/.backup/` first). (An install ahead of its source is refused by `update`
+   install — a plain `pharn update` moves it at any skills version. (An install ahead of its source is refused by `update`
    itself, which names `--force`.) A layout mismatch **is** a `--strict` input: the install is not
    what upstream ships. The `HOOKS` note and the unknown-capabilities warning still print — they do
    not depend on the layout — and the [orphan list](#orphaned-files) is not computed. Nothing is
@@ -299,10 +293,8 @@ Nothing is written on any of these paths — `status` still never writes, delete
 
 One case is worth knowing before you wire `--strict` into CI: when a new `pharn` release begins
 installing a surface earlier releases did not, an existing install is genuinely missing those files and
-`--strict` goes red — but a plain `pharn update` reports "Already up to date" if your `skillsVersion`
-already matches upstream. See
-[a surface added by a newer CLI](update.md#a-surface-added-by-a-newer-cli-at-the-same-skills-version)
-for the two ways through.
+`--strict` goes red until a plain `pharn update` restores them, at the same skills version too. See
+[a surface added by a newer CLI](update.md#a-surface-added-by-a-newer-cli-at-the-same-skills-version).
 
 ## Related
 

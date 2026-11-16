@@ -49,23 +49,12 @@ import {
   applyGitignore,
   backupDirIgnored,
   gitignoreLines,
-  gitignorePending,
-  planGitignore,
 } from '../lib/gitignore.js';
 import {
   applyPrettierignore,
-  planPrettierignore,
   prettierignoreLines,
-  prettierignorePending,
 } from '../lib/prettierignore.js';
-import {
-  buildRecords,
-  MODELS_RECORD_KEY,
-  readRecords,
-  recordsBaseline,
-  writeRecords,
-} from '../lib/install-records.js';
-import { modelsMigrationPending } from '../lib/models-update.js';
+import { buildRecords, writeRecords } from '../lib/install-records.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { fetchRepo, type FetchedRepo } from '../lib/repo.js';
 import {
@@ -75,9 +64,7 @@ import {
   type InstallSource,
   type RefChoice,
 } from '../lib/release.js';
-import { findMissingInstalled } from '../lib/missing-installed.js';
-import { agentSurfaceMissing } from '../lib/agent-surface.js';
-import { deleteRootDocs, pendingRootMigration } from '../lib/root-migration.js';
+import { deleteRootDocs } from '../lib/root-migration.js';
 import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
@@ -186,8 +173,8 @@ async function updateProject(
 
   // The channel: `--ref` when passed (and then recorded), else the one this
   // install already follows. An install on `main` is never moved by the default;
-  // it is told once per run, here — above every early return and the dry run,
-  // below the refusals so a refused run prints only its one error.
+  // it is told once per run, here — above the ahead-of-source return and the
+  // dry run, below the refusals so a refused run prints only its one error.
   const channelNotice = defaultChannelNotice(config, opts.ref);
   if (channelNotice !== null && !json) log.info(channelNotice);
   await runArchetypeUpdate(
@@ -246,7 +233,8 @@ async function runArchetypeUpdate(
     throw CliError.failure(err, { json });
   }
 
-  // `--json` at an early return: the planned report's shape with `plan: null`.
+  // `--json` at the ahead-of-source return: the planned report's shape with
+  // `plan: null` (an empty dry-run plan, `up-to-date`, uses the same shape).
   const emitEarlyReturn = (status: UpdateStatus): void => {
     emitJson(
       buildUpdateReport({
@@ -269,8 +257,8 @@ async function runArchetypeUpdate(
   // be ahead (lib/version-status.ts, the comparison `status` uses too): a
   // `main` install switched to `--ref latest` before its release was cut, or
   // pharn-oss main moving back. A `pendingSkillsVersion` counts too: the files
-  // outside the user's kept edits are at it. Runs BEFORE the same-version early
-  // return and everything that re-opens it, so none can carry a downgrade in.
+  // outside the user's kept edits are at it. Runs BEFORE the download, so a
+  // downgrade is never planned and the refusal costs no tarball.
   const aheadOf = force
     ? null
     : ([config.pendingSkillsVersion, config.skillsVersion].find(
@@ -298,164 +286,10 @@ async function runArchetypeUpdate(
     return;
   }
 
-  // The version gate. `--force` bypasses it: making the tree match upstream is a
-  // legitimate request at the current version, and what `pharn status` advises
-  // for locally-changed files. A capability the last run KEPT unparsed
-  // (`frozenCapabilities`) re-opens it, or it would never be re-checked.
-  const current = config.skillsVersion === latest;
-  const recheckFrozen = (config.frozenCapabilities ?? []).length > 0;
-  // The records baseline, read ONCE for the local checks below.
-  const baselineRecords = recordsBaseline(readRecords(cwd)).records;
-  // A `models` block still in the pre-0.7.0 format re-opens the gate: converting
-  // it is this CLI's job, so it must reach a current install too. Bounded — the
-  // run converts or replaces the block, which closes it (modelsMigrationPending).
-  const convertModels = modelsMigrationPending(
-    config.models,
-    baselineRecords?.[MODELS_RECORD_KEY] ?? null,
-  );
-  // Switching channel re-opens the gate so the switch is RECORDED at the same
-  // version; identical files are no-ops.
-  const switchChannel = channel !== channelOf(config);
-  // An INCOMPLETE install re-opens the gate: a configured capability dir or a
-  // recorded file provably gone (lib/missing-installed.ts). Bounded: the opened
-  // run restores what it found and the next run early-returns.
-  const missing =
-    current && !force
-      ? findMissingInstalled(cwd, config, baselineRecords)
-      : null;
-  // A ≥ 6.64.0 install with no `.claude/agents/pharn-*.md` re-opens it too
-  // (lib/agent-surface.ts): older CLIs neither installed nor recorded that
-  // surface, so `missing` cannot see it. Bounded like `missing`. Residual: an
-  // upstream that stops shipping any agent re-opens every run.
-  const agentMissing =
-    current && !force && agentSurfaceMissing(cwd, config.skillsVersion);
-  // A record-equal root doc whose pharn/ copy was never written re-opens it too
-  // (lib/root-migration.ts). User data at the root does not: the run would only
-  // hint at it. Bounded: nothing the opened run could not finish counts.
-  const rootDoc =
-    current && !force
-      ? pendingRootMigration(cwd, config, baselineRecords)
-      : null;
-  // A `.gitignore` that does not cover PHARN's run state and backups re-opens it
-  // too (lib/gitignore.ts) — only one the run can write counts, so it is
-  // bounded. Residual: a write that keeps failing (EACCES) re-opens every run.
-  const gitignoreMissing =
-    current && !force && gitignorePending(planGitignore(cwd));
-  // A Prettier project whose `.prettierignore` misses recorded paths re-opens it
-  // too (lib/prettierignore.ts), read from the usable store (none, no check).
-  // Bounded: the opened run covers a superset of the store it writes. Same
-  // residual as `.gitignore`.
-  const prettierignoreMissing =
-    current &&
-    !force &&
-    baselineRecords !== null &&
-    prettierignorePending(
-      planPrettierignore(cwd, Object.keys(baselineRecords)),
-    );
-  if (
-    current &&
-    !force &&
-    !recheckFrozen &&
-    !convertModels &&
-    !switchChannel &&
-    missing === null &&
-    !agentMissing &&
-    rootDoc === null &&
-    !gitignoreMissing &&
-    !prettierignoreMissing
-  ) {
-    if (json) {
-      emitEarlyReturn('up-to-date');
-      return;
-    }
-    outro(
-      `Already up to date (skills v${terminalSafe(config.skillsVersion)}).`,
-    );
-    return;
-  }
-
-  // The preview's header note is chrome; `--json` carries its facts as fields.
-  if (!json)
-    note(
-      [
-        current
-          ? row(
-              'Skills version',
-              `v${terminalSafe(config.skillsVersion)} (re-applying)`,
-            )
-          : row(
-              'Skills version',
-              `v${terminalSafe(config.skillsVersion)} → v${latest}`,
-            ),
-        row('Source', sourceDescription(source)),
-        '',
-        row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
-        '',
-        force
-          ? pc.dim(
-              `  --force: files you changed will be OVERWRITTEN (each is copied to ${BACKUP_DIR}/ first).`,
-            )
-          : pc.dim(
-              '  Files you have changed are kept, not overwritten — they are listed at the end.',
-            ),
-        ...(convertModels
-          ? [
-              pc.dim(
-                '  Your models block is in the format pharn wrote before 0.7.0 — this run converts it.',
-              ),
-            ]
-          : []),
-        ...(missing !== null
-          ? [
-              pc.dim(
-                // A deleted ORPHAN (lib/orphans.ts) has its record dropped
-                // instead of being restored.
-                `  ${terminalSafe(missing)} is missing — this run re-applies the install, restoring it if upstream still ships it.`,
-              ),
-            ]
-          : []),
-        ...(agentMissing
-          ? [
-              pc.dim(
-                '  .claude/agents/ has no PHARN agent definition — this run re-applies the install, adding it if upstream ships one.',
-              ),
-            ]
-          : []),
-        ...(rootDoc !== null
-          ? [
-              pc.dim(
-                `  ${terminalSafe(rootDoc)} is still at the project root — this run re-applies the install, which keeps it under pharn/.`,
-              ),
-            ]
-          : []),
-        ...(gitignoreMissing
-          ? [
-              pc.dim(
-                "  .gitignore does not yet keep PHARN's run state and backups out of git — this run re-applies the install and adds them.",
-              ),
-            ]
-          : []),
-        ...(prettierignoreMissing
-          ? [
-              pc.dim(
-                '  .prettierignore does not yet cover the files pharn installs and rewrites — this run re-applies the install and adds them.',
-              ),
-            ]
-          : []),
-        pc.dim(
-          '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
-        ),
-        ...(dryRun
-          ? [pc.dim('  Preview only — nothing will be written.')]
-          : []),
-        pc.dim(
-          '  https://github.com/pharn-dev/pharn-oss/blob/main/CHANGELOG.md',
-        ),
-      ].join('\n'),
-    );
-
-  // The preview stops here, ahead of the confirm and every write; it shares
-  // the gates above and the planner below, nothing else.
+  // There is no same-version shortcut: every run downloads and plans, and "up
+  // to date" is a plan that changes nothing (lib/update-next.ts
+  // `changesNothing`). The preview branches here, ahead of the confirm and
+  // every write; it shares the gates above and the planner, nothing else.
   if (dryRun) {
     await runDryRun(config, cwd, force, channel, source, json, latest, compact);
     return;
@@ -486,12 +320,14 @@ async function runArchetypeUpdate(
       json: false,
     });
     if (planned.report.changesNothing) {
-      // THE PLAN CHANGES NOTHING (lib/update-next.ts): no confirm, no backup,
-      // no rewrite of pharn.config.json (no updatedAt churn). Every note still
-      // prints — a kept edit is worth naming on every run.
+      // THE PLAN CHANGES NOTHING (lib/update-next.ts) — "up to date": no
+      // header, no confirm, no backup, no rewrite of pharn.config.json (no
+      // updatedAt churn). Every note still prints — a kept edit is worth
+      // naming on every run.
       outcome = unchangedOutcome(planned);
     } else {
       const confirmed = planned.report;
+      printHeader(config, latest, source, force, false);
       // Membership changes in the future tense, as the dry run renders them.
       reportCapabilityChanges(
         confirmed.capabilityChanges,
@@ -549,6 +385,46 @@ async function runArchetypeUpdate(
   if (prettierignore?.warn) log.warn(prettierignore.text);
   else if (prettierignore !== null) log.info(prettierignore.text);
   reportOutcome(outcome, force);
+}
+
+// The run's header note, printed once a plan changes something (an up-to-date
+// run prints none). Chrome: `--json` carries its facts as fields.
+function printHeader(
+  config: PharnConfig,
+  latest: string,
+  source: InstallSource,
+  force: boolean,
+  preview: boolean,
+): void {
+  note(
+    [
+      config.skillsVersion === latest
+        ? row(
+            'Skills version',
+            `v${terminalSafe(config.skillsVersion)} (re-applying)`,
+          )
+        : row(
+            'Skills version',
+            `v${terminalSafe(config.skillsVersion)} → v${latest}`,
+          ),
+      row('Source', sourceDescription(source)),
+      '',
+      row('Archetypes', (config.archetypes ?? []).join(', ') || '(none)'),
+      '',
+      force
+        ? pc.dim(
+            `  --force: files you changed will be OVERWRITTEN (each is copied to ${BACKUP_DIR}/ first).`,
+          )
+        : pc.dim(
+            '  Files you have changed are kept, not overwritten — they are listed at the end.',
+          ),
+      pc.dim(
+        '  Re-resolves your archetypes against the latest capabilities and re-copies them.',
+      ),
+      ...(preview ? [pc.dim('  Preview only — nothing will be written.')] : []),
+      pc.dim('  https://github.com/pharn-dev/pharn-oss/blob/main/CHANGELOG.md'),
+    ].join('\n'),
+  );
 }
 
 // The confirm's question; a run that deletes directories says how many.
@@ -942,9 +818,11 @@ async function runDryRun(
 
   const { report } = planned;
   if (json) {
+    // An empty plan is `up-to-date`, with `plan: null` like the ahead-of returns.
+    const empty = report.changesNothing;
     emitJson(
       buildUpdateReport({
-        status: 'planned',
+        status: empty ? 'up-to-date' : 'planned',
         force,
         channel,
         currentChannel: channelOf(config),
@@ -952,12 +830,13 @@ async function runDryRun(
         installed: config.skillsVersion,
         latest,
         archetypes: config.archetypes ?? [],
-        plan: report,
+        plan: empty ? null : report,
         compact,
       }),
     );
     return;
   }
+  if (!report.changesNothing) printHeader(config, latest, source, force, true);
   const legacyBackups = legacyBackupNotice(cwd);
   if (legacyBackups) log.info(legacyBackups);
   reportDryRun(report, force, channel, config);

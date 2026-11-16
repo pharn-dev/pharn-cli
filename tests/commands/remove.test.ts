@@ -360,15 +360,14 @@ describe('pharn remove <name>', () => {
     write('pharn-review/legacy/legacy.md', 'L');
 
     expect(await run(() => runRemove('a11y'))).toBeNull();
-    // F-09: it names when the capability really comes back — not the next
-    // update, which may early-return at the same version.
+    // It names when the capability comes back: every update plans, so the
+    // next one reinstalls it, at any version.
     expect(warnings()).toContain('a11y');
-    expect(warnings()).not.toContain('the next `pharn update` will');
-    expect(warnings()).toContain('a new pharn-oss version');
     expect(warnings()).toContain(
-      'may answer "Already up to date" and leave it removed',
+      'so it comes back: the next `pharn update` reinstalls it and names it in its report.',
     );
-    expect(warnings()).toContain('`pharn update --force` reinstalls it now');
+    expect(warnings()).not.toContain('Already up to date');
+    expect(warnings()).not.toContain('--force');
     // Every surviving entry's `source` is untouched.
     expect(config().capabilities).toEqual([
       { name: 'n-plus-one', role: 'lens', source: 'manual' },
