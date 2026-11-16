@@ -319,7 +319,13 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
     // skipped. When every remaining skip is unreadable it finishes nothing, and
     // naming it here is the same dead prescription as above.
     log.warn(
-      `${counts.skipped} file(s) were skipped, so your install is still recorded as skills v${outcome.recordedVersion} (upstream is v${outcome.installedVersion}) — resolve them${forceable ? ', or re-run with --force,' : ''} to finish the upgrade.`,
+      withheldVersionLine({
+        skipped: counts.skipped,
+        recordedVersion: outcome.recordedVersion,
+        installedVersion: outcome.installedVersion,
+        forceable,
+        preview: false,
+      }),
     );
   }
 
@@ -348,6 +354,35 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
 function reportAbsentSurfaces(absent: readonly AbsentSurface[]): void {
   const lines = absentSurfaceLines(absent);
   if (lines) note(lines.join('\n'), 'NOT SHIPPED');
+}
+
+/**
+ * The warning under a run (or preview) that skipped files. When the clone is a
+ * NEWER skills version, the skips withhold the version bump and resolving them
+ * finishes the upgrade. When it is the SAME version — a run re-opened by a
+ * missing file, a frozen capability, `--force`, … — there is no upgrade to
+ * finish (CORE-163), so the line says the install is already at that version
+ * and names only what still applies to the skipped files. `--force` is named
+ * only when a bucket it can clear was skipped (`forceable`, from
+ * `reportSkipped`).
+ */
+export function withheldVersionLine(o: {
+  skipped: number;
+  recordedVersion: string;
+  installedVersion: string;
+  forceable: boolean;
+  preview: boolean;
+}): string {
+  const { skipped, recordedVersion, installedVersion, forceable, preview } = o;
+  if (recordedVersion === installedVersion) {
+    const action = forceable
+      ? `${preview ? 'run' : 're-run'} with --force to overwrite them (backed up to ${BACKUP_DIR}/ first), or keep them as they are`
+      : 'resolve them by hand';
+    return `${skipped} file(s) ${preview ? 'would be' : 'were'} skipped; your install is already at skills v${installedVersion}, so there is no upgrade to finish — ${action}.`;
+  }
+  return preview
+    ? `${skipped} file(s) would be skipped, so your install would stay recorded as skills v${recordedVersion} (upstream is v${installedVersion}) — resolve them${forceable ? ', or run with --force,' : ''} to finish the upgrade.`
+    : `${skipped} file(s) were skipped, so your install is still recorded as skills v${recordedVersion} (upstream is v${installedVersion}) — resolve them${forceable ? ', or re-run with --force,' : ''} to finish the upgrade.`;
 }
 
 // The SKIPPED note, shared by the real report and the preview (`preview` only
@@ -536,7 +571,13 @@ export function reportDryRun(
 
   if (r.versionWithheld) {
     log.warn(
-      `${r.counts.skipped} file(s) would be skipped, so your install would stay recorded as skills v${r.recordedVersion} (upstream is v${r.installedVersion}) — resolve them${forceable ? ', or run with --force,' : ''} to finish the upgrade.`,
+      withheldVersionLine({
+        skipped: r.counts.skipped,
+        recordedVersion: r.recordedVersion,
+        installedVersion: r.installedVersion,
+        forceable,
+        preview: true,
+      }),
     );
     if (r.pendingSkillsVersion !== null) {
       log.info(

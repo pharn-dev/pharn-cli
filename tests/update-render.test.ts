@@ -19,6 +19,7 @@ const {
   reportForcedOverwrites,
   reportOutcome,
   reportDryRun,
+  withheldVersionLine,
 } = await import('../src/lib/update-render.js');
 
 const ESC = String.fromCharCode(27);
@@ -352,5 +353,51 @@ describe('noChangeVerdict — the closing words of a run that changes nothing', 
         installedVersion: '2.0.0',
       }),
     ).toBe('Nothing to change.');
+  });
+});
+
+// CORE-163: the withheld-version warning may speak of finishing an upgrade only
+// when there IS one — the clone is a newer skills version than the install.
+describe('withheldVersionLine', () => {
+  const base = {
+    skipped: 2,
+    recordedVersion: '1.0.0',
+    installedVersion: '1.1.0',
+    forceable: true,
+    preview: false,
+  };
+
+  it('keeps the upgrade wording when the version is withheld', () => {
+    expect(withheldVersionLine(base)).toBe(
+      '2 file(s) were skipped, so your install is still recorded as skills v1.0.0 (upstream is v1.1.0) — resolve them, or re-run with --force, to finish the upgrade.',
+    );
+    expect(withheldVersionLine({ ...base, preview: true })).toBe(
+      '2 file(s) would be skipped, so your install would stay recorded as skills v1.0.0 (upstream is v1.1.0) — resolve them, or run with --force, to finish the upgrade.',
+    );
+    expect(withheldVersionLine({ ...base, forceable: false })).toBe(
+      '2 file(s) were skipped, so your install is still recorded as skills v1.0.0 (upstream is v1.1.0) — resolve them to finish the upgrade.',
+    );
+  });
+
+  it('says there is no upgrade to finish at the current version', () => {
+    const same = { ...base, recordedVersion: '1.1.0' };
+    expect(withheldVersionLine(same)).toBe(
+      '2 file(s) were skipped; your install is already at skills v1.1.0, so there is no upgrade to finish — re-run with --force to overwrite them (backed up to pharn/.backup/ first), or keep them as they are.',
+    );
+    expect(withheldVersionLine({ ...same, preview: true })).toBe(
+      '2 file(s) would be skipped; your install is already at skills v1.1.0, so there is no upgrade to finish — run with --force to overwrite them (backed up to pharn/.backup/ first), or keep them as they are.',
+    );
+  });
+
+  it('names no --force at the current version when nothing it can clear was skipped', () => {
+    const line = withheldVersionLine({
+      ...base,
+      recordedVersion: '1.1.0',
+      forceable: false,
+    });
+    expect(line).toBe(
+      '2 file(s) were skipped; your install is already at skills v1.1.0, so there is no upgrade to finish — resolve them by hand.',
+    );
+    expect(line).not.toContain('--force');
   });
 });

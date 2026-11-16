@@ -644,9 +644,11 @@ describe('runStatus (archetype)', () => {
     expect(drift).not.toContain('will overwrite these');
   });
 
-  it('qualifies the MISSING hint with when update actually restores', async () => {
-    // update early-returns at the current version, so the hint must name
-    // `--force`; add is only for capabilities not yet in config.
+  it('advises a plain `pharn update` for MISSING files, with --force only as the fallback', async () => {
+    // A plain update restores provably missing files (findMissingInstalled
+    // re-opens its early return) and keeps edits; `--force` also overwrites
+    // every edited file, so it is named only for the case a plain run cannot
+    // reach (CORE-163). add is only for capabilities not yet in config.
     fetchRepo.mockResolvedValue({ dir: '/repo', cleanup: vi.fn() });
     readSkillsVersion.mockReturnValue('1.0.0');
     diffInstalledCapabilities.mockReturnValue({
@@ -659,8 +661,16 @@ describe('runStatus (archetype)', () => {
     await runStatus({});
 
     const drift = noteBody('DRIFT');
-    expect(drift).toContain('pharn update --force');
-    expect(drift).toContain('exits early when already up to date');
+    expect(drift).toContain(
+      'Run `pharn update` to restore them (files you edited are kept).',
+    );
+    expect(drift).toContain('"Already up to date"');
+    expect(drift).toContain('overwrites files you edited (backed up first)');
+    // --force is the stated fallback, never the first advice.
+    expect(drift.indexOf('`pharn update` to restore')).toBeLessThan(
+      drift.indexOf('pharn update --force'),
+    );
+    expect(drift).not.toContain('at the current version');
     expect(drift).toContain('not yet in pharn.config.json');
     expect(drift).toContain('additive-only');
     expect(drift).not.toContain('re-added');

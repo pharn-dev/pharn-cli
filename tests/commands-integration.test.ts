@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import * as prettier from 'prettier';
 import {
   afterEach,
@@ -929,6 +930,56 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     // status is read-only: nothing it reported was put back.
     expect(read(PLAN_COMMAND)).toBe(`edited\n`);
     expect(existsSync(at('LIMITS.md'))).toBe(false);
+  });
+
+  // CORE-163: status used to prescribe `pharn update --force` for a missing
+  // file, which also overwrites every edit. A plain update restores it (the
+  // missing recorded file re-opens the same-version early return) and keeps
+  // the edit, which is what the MISSING note now says.
+  it('status advises a plain update for a missing file; update --yes restores it and keeps the edit', async () => {
+    await init();
+    const FLOOR = 'pharn/floor/validate.mjs';
+    rmSync(at(PLAN_COMMAND));
+    writeFileSync(at(FLOOR), 'export const mine = 1;\n');
+    const edited = readFileSync(at(FLOOR));
+
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runStatus({}))).toBeNull();
+    const drift = stripVTControlCharacters(
+      String(
+        vi.mocked(clack.note).mock.calls.find(([, t]) => t === 'DRIFT')?.[0],
+      ),
+    );
+    expect(drift).toContain('MISSING (expected but absent)');
+    expect(drift).toContain(PLAN_COMMAND);
+    expect(drift).toContain(
+      'Run `pharn update` to restore them (files you edited are kept).',
+    );
+    expect(drift.indexOf('`pharn update` to restore')).toBeLessThan(
+      drift.indexOf('pharn update --force'),
+    );
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read(PLAN_COMMAND)).toBe('plan\n');
+    expect(readFileSync(at(FLOOR)).equals(edited)).toBe(true);
+    // Nothing was overwritten, so nothing was backed up.
+    expect(existsSync(at('pharn/.backup'))).toBe(false);
+    // The run was at the current version: no upgrade to finish.
+    const warned = vi
+      .mocked(clack.log.warn)
+      .mock.calls.map(([m]) => stripVTControlCharacters(String(m)))
+      .join('\n');
+    expect(warned).toContain('already at skills v1.0.0');
+    expect(warned).not.toContain('finish the upgrade');
+
+    stdout = [];
+    expect(await run(() => runStatus({ json: true, strict: true }))).toBeNull();
+    const after = JSON.parse(stdout[0] ?? '') as StatusJson;
+    expect(after.drift?.missing).toEqual([]);
+    // The kept edit is still drift, so --strict still fails on it.
+    expect(after.drift?.modified).toEqual([FLOOR]);
+    expect(after.strict.failed).toBe(true);
+    expect(process.exitCode).toBe(1);
   });
 
   it('uninstall --yes deletes what the records prove, keeps edits and settings', async () => {
