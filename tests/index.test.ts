@@ -177,7 +177,9 @@ describe('main (argv dispatch)', () => {
 // command throws. It prints through `reportCliError`, sets process.exitCode and
 // resolves — never rejects, never calls process.exit.
 const { runCli } = await import('../src/index.js');
-const { CliError } = await import('../src/lib/cli-error.js');
+// Looked up per test: an earlier case resets the module registry, and the
+// error must be the class runCli's own (lazy) reporter will see.
+const cliError = async () => (await import('../src/lib/cli-error.js')).CliError;
 
 describe('runCli (the one exit point)', () => {
   stubProcessExit();
@@ -210,7 +212,7 @@ describe('runCli (the one exit point)', () => {
   });
 
   it('sets exit code 0 for a cancel, and resolves', async () => {
-    runInit.mockRejectedValueOnce(CliError.cancel());
+    runInit.mockRejectedValueOnce((await cliError()).cancel());
     setArgv('init');
     await expect(runCli()).resolves.toBeUndefined();
     expect(process.exitCode).toBe(0);
@@ -219,7 +221,7 @@ describe('runCli (the one exit point)', () => {
 
   it('sets exit code 1 for a refusal and prints its one line', async () => {
     runStatus.mockRejectedValueOnce(
-      CliError.refusal('Locked by another run.', { json: true }),
+      (await cliError()).refusal('Locked by another run.', { json: true }),
     );
     setArgv('status', '--json');
     await expect(runCli()).resolves.toBeUndefined();
