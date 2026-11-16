@@ -112,6 +112,7 @@ vi.mock('../src/lib/pharn-config.js', () => ({
 // add uses the real parseCapabilityArg (name / role:name parsing) and the real
 // buildAddSelection / interactiveAllowed (available = index − installed).
 const { runAdd } = await import('../src/commands/add.js');
+const { resolveAddPicker } = await import('../src/steps/add-picker.js');
 const prompts = await import('@clack/prompts');
 const { readRecords, writeRecords, RECORDS_FILE } =
   await import('../src/lib/install-records.js');
@@ -461,6 +462,42 @@ describe('runAdd (archetype)', () => {
       .mocked(prompts.outro)
       .mock.calls.map((c) => stripVTControlCharacters(String(c[0])));
     expect(outroText).toEqual(['✔ Added 2 capabilities.']);
+  });
+
+  // CORE-168: the picker's own outcome counts a failed pick by its `role:name`
+  // value, and keeps installing the rest.
+  it('resolveAddPicker returns the failed picks beside the added ones', async () => {
+    mockClone();
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+    const addOne = vi.fn(async (_r, _s, _c, _w, parsed: { name: string }) =>
+      parsed.name === 'a11y'
+        ? { kind: 'error' as const, message: 'refused' }
+        : {
+            kind: 'added' as const,
+            name: parsed.name,
+            version: '1.0.0',
+            stamp: { skillsVersion: '1.0.0', commit: null },
+          },
+    );
+
+    const outcome = await resolveAddPicker(
+      '/repo',
+      null,
+      archConfig(),
+      '/proj',
+      addOne,
+    );
+
+    expect(addOne).toHaveBeenCalledTimes(2);
+    expect(outcome).toEqual({
+      kind: 'installed',
+      added: ['n-plus-one'],
+      failed: ['griller:a11y'],
+    });
+    expect(prompts.log.error).toHaveBeenCalled();
   });
 
   // --- the proxy notice (wiring) ----------------------------------------------

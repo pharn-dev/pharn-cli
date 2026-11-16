@@ -299,6 +299,44 @@ describe('removals in the write-target plan', () => {
       }),
     ).not.toThrow();
   });
+
+  // The F-04 scenario, still refused — by the config it comes from. A removal
+  // is planned only from the entries of the pharn.config.json a re-install
+  // replaces, so that file exists: `--yes` refuses before the fetch, naming it
+  // (existingConfigRefusal), and the in-run check refuses it too, as a write
+  // target. The deleted directory is never reached, so it is not named.
+  it('--yes refuses a re-install that would delete a directory, naming it', () => {
+    const { repo, proj, manifest } = fixture(tmp.path());
+    write(join(proj, 'pharn.config.json'), '{"capabilities":[]}');
+    write(join(proj, 'pharn-review/old/NOTES.md'), 'mine');
+    expect(existingConfigRefusal(proj)).toMatch(
+      /pharn\.config\.json already exists/,
+    );
+    const params = {
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: CAPS,
+      manifest,
+      records: null,
+    };
+    expect(() => assertNoExistingTargets(params)).toThrow(
+      OverwriteRefusedError,
+    );
+    expect(() => assertNoExistingTargets(params)).toThrow(
+      /--yes never overwrites/,
+    );
+    let message = '';
+    try {
+      assertNoExistingTargets(params);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain(`pharn.config.json ${CONFIG_MARKER}`);
+    // planWriteTargets still carries the removal for the prompt and dry run.
+    expect(
+      planWriteTargets({ ...params, removals: [removal()] }).removals,
+    ).toEqual([removal()]);
+  });
 });
 
 // CORE-168: `init --yes` over an existing pharn.config.json refuses BEFORE the
