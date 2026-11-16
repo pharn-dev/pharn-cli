@@ -31,5 +31,17 @@ Ended at: GATE 2 (the human decision).
 - `/pharn-dev-regress`: `regression-report.json` `.verdict` = **`no-regressions`**.
 - `/pharn-dev-verify`: `verify-report.json` `.verdict` = **`PASS`** (`failing_gates: []`).
 
+## Human decision and rebase
+
+- GATE 2: deliver (PR #372); the 12 pharn-ci TI02 removals and the tests-exercise warning accepted.
+- Rebased onto origin/main `59d7ebb` (CORE-159/160/161/162). The user-data-move clause in CORE-162's
+  `changesNoFiles` (`lib/update-next.ts`) is deleted, so a user-data hint alone changes nothing (no confirm,
+  no write), while a root-doc delete still counts (`tests/update-next.test.ts`, and an integration case
+  where `update --force` with only a hint rewrites neither state file). `unchangedOutcome` reports
+  `{deleted: [], kept: []}`, so the hint still prints. The held-unit `rootMigration: null` contract is
+  unchanged. The update-render coverage test (fe4e2c7) was dropped because CORE-162's predicate replaced
+  the `migrates` line it covered. After the rebase: `CI=1 npm run check` passed (3661 passed, 1 skipped),
+  and `npm run build` exited 0.
+
 The chain ran, and the named floor verdicts are as shown. This is NOT a judgment that the increment is good
 or wise; that is the human's call at the post-review gate.
