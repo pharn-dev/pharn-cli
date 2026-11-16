@@ -464,9 +464,10 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     ...(raw as unknown as PharnConfig),
     ...(seam !== undefined ? { seam } : {}),
   };
-  // An archetype config with no `commit` reads as `null` (CORE-160): the records
-  // store is stamped `commit: null`, which `undefined` never equals, and a write
-  // stamped with `undefined` drops the key. A legacy config is left as it is (P7).
+  // An archetype config with no `commit` reads as `null` (CORE-160): a write
+  // stamped with `undefined` drops the key from both files. (The records stamp
+  // is no longer compared with the config — CORE-161 — so this is about the
+  // written shape, not a match.) A legacy config is left as it is (P7).
   if (Array.isArray(raw.capabilities) && raw.commit === undefined) {
     config.commit = null;
   }
