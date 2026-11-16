@@ -5,7 +5,7 @@ import pc from '../lib/color.js';
 import { BACKUP_DIR, createBackup, printBackupNotice } from '../lib/backup.js';
 import { backupDirIgnored } from '../lib/gitignore.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
-import { cancelAndExit } from '../lib/confirm.js';
+import { CliError } from '../lib/cli-error.js';
 import { displayHook, hooksReferencing } from '../lib/hook-wiring.js';
 import {
   readRecords,
@@ -25,7 +25,7 @@ import {
   ProjectLockedError,
   withProjectLock,
 } from '../lib/project-lock.js';
-import { errorMessage, logError } from '../lib/report-error.js';
+import { errorMessage } from '../lib/report-error.js';
 import { CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS_FILE } from '../lib/constants.js';
 import { escapeUnsafe } from '../lib/terminal-safe.js';
 import { isInstallRootPath } from '../lib/orphans.js';
@@ -90,15 +90,9 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
   const config = loadArchetypeConfigOrExit(cwd);
 
   const records = usableRecords(cwd);
-  if (typeof records === 'string') {
-    logError(records);
-    process.exit(1);
-  }
+  if (typeof records === 'string') throw CliError.error(records);
   const preview = planUninstall(cwd, records);
-  if (preview.unsafe.length > 0) {
-    logError(unsafeMessage(preview));
-    process.exit(1);
-  }
+  if (preview.unsafe.length > 0) throw CliError.error(unsafeMessage(preview));
   note(planLines(preview, settingsRecorded(records)).join('\n'), 'PLAN');
 
   if (!opts.yes) {
@@ -108,16 +102,15 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
         stdoutIsTTY: process.stdout.isTTY,
       })
     ) {
-      logError(
+      throw CliError.error(
         '`pharn uninstall` asks for confirmation, and this is not an interactive terminal. Re-run it in a terminal, or pass --yes to uninstall without asking. Nothing was removed.',
       );
-      process.exit(1);
     }
     const ok = await confirm({
       message: `Uninstall PHARN — delete ${preview.delete.length} file(s), ${RECORDS_FILE} and ${CONFIG_FILENAME}?`,
       initialValue: false,
     });
-    if (isCancel(ok) || ok !== true) cancelAndExit();
+    if (isCancel(ok) || ok !== true) throw CliError.cancel();
   }
 
   let result: UninstallResult;
@@ -129,8 +122,7 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
     // Refusals with a complete message, not crashes; the unwinding released the
     // lock.
     if (err instanceof ProjectLockedError || err instanceof UninstallError) {
-      logError(err.message);
-      process.exit(1);
+      throw CliError.error(err.message);
     }
     throw err;
   }

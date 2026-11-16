@@ -63,8 +63,8 @@ export interface Backup {
   gitignored?: boolean;
 }
 
-// The outcome of the fetch+apply phase, assembled inside the try so cleanup
-// runs in the finally before every process.exit.
+// The outcome of the fetch+apply phase, assembled inside the try whose finally
+// removes the clone.
 export interface UpdateOutcome {
   // The version upstream ships (what the clone holds).
   installedVersion: string;

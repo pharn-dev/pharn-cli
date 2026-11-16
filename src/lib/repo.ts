@@ -30,9 +30,10 @@ const MAX_ENTRIES = 20_000;
 
 // ---------------------------------------------------------------------------
 // Temp-clone lifecycle backstop — a net under each caller's `finally`, never a
-// replacement. Two exits never reach a `finally`: `process.exit()` (clack exits
-// 0 on a Ctrl-C keypress while a spinner holds stdin raw — exactly the clone
-// window) and a fatal signal (lib/fatal-signal.ts). Registered dirs are removed
+// replacement. pharn never exits mid-command (it throws a CliError), but two
+// exits still never reach a `finally`: clack's own `process.exit(0)` on a
+// Ctrl-C keypress while a spinner holds stdin raw — exactly the clone window —
+// and a fatal signal (lib/fatal-signal.ts). Registered dirs are removed
 // synchronously, because an `exit` listener may not await.
 // ---------------------------------------------------------------------------
 

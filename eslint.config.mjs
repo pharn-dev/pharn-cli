@@ -61,7 +61,7 @@ const MSG = {
   isTTY:
     "Read isTTY only as an argument to interactiveAllowed({...}) (src/lib/capability-picker.ts): one predicate decides 'interactive', so no caller can check only stdout and let a pipe through.",
   processExit:
-    'process.exit skips every `finally` (the temp clone, the project lock); throw, return, or set process.exitCode. Only the files allowlisted in eslint.config.mjs may still call it, until C5.1 (CORE-180) narrows the list.',
+    'process.exit skips every `finally` (the temp clone, the project lock): throw a CliError (src/lib/cli-error.ts) and let runCli in src/index.ts report it and set process.exitCode. Only src/index.ts and src/lib/fatal-signal.ts may call it.',
   updatePrompt:
     "update's confirm is its only prompt: `update --yes` skips exactly that confirm, so any other prompt would block a piped `--yes` run.",
   diffPrimitives:
@@ -88,23 +88,10 @@ const reportModules = readdirSync(new URL('./src/lib/', import.meta.url))
   .filter((f) => f.endsWith('.ts') && f.includes('report'))
   .map((f) => `src/lib/${f}`);
 
-// Every file that calls process.exit today (12; others only name it in a
-// comment, which the rule does not read). Explicit, no globs: C5.1
-// (CORE-180) routes exits through index.ts / fatal-signal.ts and shrinks this.
-const PROCESS_EXIT_ALLOWLIST = [
-  'src/commands/add.ts',
-  'src/commands/init.ts',
-  'src/commands/remove.ts',
-  'src/commands/status.ts',
-  'src/commands/uninstall.ts',
-  'src/commands/update.ts',
-  'src/index.ts',
-  'src/lib/confirm.ts',
-  'src/lib/fatal-signal.ts',
-  'src/lib/pharn-config.ts',
-  'src/steps/node-prereq.ts',
-  'src/steps/prereqs.ts',
-];
+// The only files that may call process.exit: the entry point (its argv
+// refusals run before any command) and the fatal-signal handler. Everything
+// else throws a CliError (src/lib/cli-error.ts), which `runCli` reports once.
+const PROCESS_EXIT_ALLOWLIST = ['src/index.ts', 'src/lib/fatal-signal.ts'];
 
 /**
  * One entry per invariant. `rule` is the eslint rule, `kind` the option slot

@@ -1,8 +1,7 @@
 import { intro, log, outro, spinner } from '@clack/prompts';
 import pc from '../lib/color.js';
 import { REPO_URL } from '../lib/constants.js';
-import { cancelAndExit } from '../lib/confirm.js';
-import { errorMessage, logError, reportFatal } from '../lib/report-error.js';
+import { CliError } from '../lib/cli-error.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
@@ -138,7 +137,8 @@ function layoutGate(repoDir: string, config: PharnConfig): string | null {
 
 // Install one capability into an archetype project (a manual override of
 // archetype auto-selection). Appends to `capabilities`, never touches
-// `archetypes`. Cleanup runs in a finally with every process.exit after it.
+// `archetypes`. A refusal or failure is THROWN as a CliError, so the clone's
+// `finally` and the lock's release run on the way out.
 async function runArchetypeAdd(
   config: PharnConfig,
   cwd: string,
@@ -151,13 +151,8 @@ async function runArchetypeAdd(
   }
 
   const parsed = parseCapabilityArg(arg);
-  if (parsed.error) {
-    logError(parsed.error);
-    process.exit(1);
-  }
+  if (parsed.error) throw CliError.error(parsed.error);
 
-  // Assigned exactly once per path (try or catch), so the exit/outro happens
-  // after the clone cleanup (Node skips finally on process.exit).
   let result: AddResult;
   try {
     // The lock is taken BEFORE the fetch, so a refused run downloads nothing;
@@ -185,8 +180,7 @@ async function runArchetypeAdd(
         s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
       } catch (err) {
         s.stop('Failed to fetch capabilities');
-        // Re-thrown, not exited, so the lock releases; the catch below turns it
-        // into a boxed `{kind:'error'}`.
+        // Unwinds through the lock's release; the catch below labels it.
         throw err;
       }
       try {
@@ -202,34 +196,25 @@ async function runArchetypeAdd(
           gate.refusal ??
           versionGate(repo.dir, config, repo.source) ??
           layoutGate(repo.dir, config);
-        return refusal
-          ? { kind: 'error' as const, message: refusal }
-          : await resolveArchetypeAdd(
-              repo.dir,
-              repo.sha,
-              config,
-              cwd,
-              parsed,
-              arg,
-            );
+        if (refusal) throw CliError.refusal(refusal);
+        return await resolveArchetypeAdd(
+          repo.dir,
+          repo.sha,
+          config,
+          cwd,
+          parsed,
+          arg,
+        );
       } finally {
         repo.cleanup();
       }
     });
   } catch (err) {
-    // The exception is carried BOXED: the box separates a caught exception
-    // (which earns the PHARN_DEBUG affordance) from a gate refusal, and survives
-    // `throw undefined`. A held lock is a refusal, so it goes unboxed.
-    result =
-      err instanceof ProjectLockedError
-        ? { kind: 'error', message: err.message }
-        : { kind: 'error', message: errorMessage(err), cause: { err } };
+    throw addError(err);
   }
 
-  if (result.kind === 'error') {
-    reportFatal(result.message, result.cause);
-    process.exit(1);
-  }
+  // A curated refusal from the resolver (unknown, ambiguous, a symlinked dir).
+  if (result.kind === 'error') throw CliError.refusal(result.message);
   if (result.kind === 'noop') {
     outro(`${result.name} is already installed.`);
     return;
@@ -245,7 +230,7 @@ async function runArchetypeAdd(
 
 // Non-TTY (CI, a pipe) → NEVER prompt: a usage error + exit(1), before any
 // fetch. In a TTY, fetch once, then resolve the picker, with cleanup in a
-// finally and every exit after it.
+// finally.
 async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
   if (
     !interactiveAllowed({
@@ -253,14 +238,11 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       stdoutIsTTY: process.stdout.isTTY,
     })
   ) {
-    logError(
+    throw CliError.error(
       'Specify a capability (e.g. `pharn add a11y` or `pharn add lens:n-plus-one`), or run `pharn add` in an interactive terminal to pick from a list.',
     );
-    process.exit(1);
   }
 
-  // Assigned exactly once per path before it is read, so the exit/outro happens
-  // after the clone cleanup.
   let outcome: PickerAddOutcome;
   try {
     // ONE lock for the whole selection loop: resolveArchetypeAdd persists config
@@ -285,7 +267,6 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
         s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
       } catch (err) {
         s.stop('Failed to fetch capabilities');
-        // Re-thrown rather than exited, so the lock releases — see the named path.
         throw err;
       }
       try {
@@ -297,36 +278,28 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
           gate.refusal ??
           versionGate(repo.dir, config, repo.source) ??
           layoutGate(repo.dir, config);
-        return refusal
-          ? { kind: 'error' as const, message: refusal }
-          : await resolveAddPicker(
-              repo.dir,
-              repo.sha,
-              config,
-              cwd,
-              resolveArchetypeAdd,
-            );
+        if (refusal) throw CliError.refusal(refusal);
+        return await resolveAddPicker(
+          repo.dir,
+          repo.sha,
+          config,
+          cwd,
+          resolveArchetypeAdd,
+        );
       } finally {
         repo.cleanup();
       }
     });
   } catch (err) {
-    // Same boxing as the named path.
-    outcome =
-      err instanceof ProjectLockedError
-        ? { kind: 'error', message: err.message }
-        : { kind: 'error', message: errorMessage(err), cause: { err } };
+    throw addError(err);
   }
 
-  if (outcome.kind === 'error') {
-    reportFatal(outcome.message, outcome.cause);
-    process.exit(1);
-  }
+  if (outcome.kind === 'error') throw CliError.refusal(outcome.message);
   if (outcome.kind === 'all-installed') {
     outro('All available capabilities are already installed.');
     return;
   }
-  if (outcome.kind === 'cancelled') cancelAndExit();
+  if (outcome.kind === 'cancelled') throw CliError.cancel();
   if (outcome.kind === 'none') {
     outro('Nothing selected. No capabilities were added.');
     return;
@@ -344,16 +317,24 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
       ? `No capabilities were added; ${failures}`
       : `Added ${n} ${plural(n)}; ${failures}`,
   );
-  process.exit(1);
+  throw CliError.reported();
 }
 
 function plural(n: number): string {
   return n === 1 ? 'capability' : 'capabilities';
 }
 
+// What an add run that threw ends with: a held lock is a policy refusal (no
+// PHARN_DEBUG hint); a CliError thrown inside (a gate refusal) passes through;
+// anything else is a failure, which earns the hint.
+function addError(err: unknown): CliError {
+  if (err instanceof ProjectLockedError) return CliError.refusal(err.message);
+  return CliError.failure(err);
+}
+
 // Resolve the arg against the fetched index and, if it uniquely names a
 // not-yet-installed capability, copy it + append to config. Returns a typed
-// outcome; the caller owns cleanup + exit.
+// outcome; the caller owns cleanup.
 async function resolveArchetypeAdd(
   repoDir: string,
   sha: string | null,

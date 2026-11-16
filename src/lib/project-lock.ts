@@ -476,9 +476,9 @@ export async function withProjectLock<T>(
     throw err;
   }
   // `finally` does not run on `process.exit`; an `exit` listener does. The
-  // exit(0) that reaches here is clack's Ctrl-C during a spinner (raw stdin),
-  // so release synchronously and turn the 0 into 130 with one honest line.
-  // Premise: no prompt inside a lock may exit 0 on a graceful cancel.
+  // exit(0) that reaches here is clack's Ctrl-C during a spinner (raw stdin) —
+  // pharn itself never exits mid-command — so release synchronously and turn
+  // the 0 into 130 with one honest line.
   const onExit = (code: number): void => {
     tidy();
     if (code === 0) {

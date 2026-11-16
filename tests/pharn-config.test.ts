@@ -19,7 +19,8 @@ import {
   vi,
 } from 'vitest';
 import { log } from '@clack/prompts';
-import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import { exitCodeOf, exitCodeOfAsync } from './support/exit-code.js';
+import { stubProcessExit, useTmpDir } from './helpers.js';
 import { ProjectChangedError } from '../src/lib/project-lock.js';
 import {
   assertConfigFingerprintUnchanged,
@@ -237,7 +238,7 @@ describe('pharn-config', () => {
       const config = readPharnConfig(tmp.path());
       expect(config).not.toBeNull();
       expect(isArchetypeConfig(config!)).toBe(false);
-      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
       expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
         LEGACY_CONFIG_MESSAGE,
       );
@@ -462,7 +463,7 @@ describe('pharn-config', () => {
         true,
       );
       writeRaw(withCaps([{ name: 'a11y', role: 'griller', source: 'nope' }]));
-      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadConfigOrExit(tmp.path()))).toBe(1);
       expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
         'capabilities[0].source',
       );
@@ -565,8 +566,8 @@ describe('pharn-config', () => {
     it('joins isConfigValidationError, so every loader reports it and exits 1', () => {
       expect(isConfigValidationError(new CapabilityEntryError('x'))).toBe(true);
       writeRaw(withCaps([{ name: '../..', role: 'lens' }]));
-      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
-      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadConfigOrExit(tmp.path()))).toBe(1);
+      expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
       expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
         'capabilities[0].name',
       );
@@ -694,8 +695,8 @@ describe('pharn-config', () => {
     it('joins isConfigValidationError, so every loader reports it and exits 1', () => {
       expect(isConfigValidationError(new ArchetypesError('x'))).toBe(true);
       writeRaw(withArchetypes('ssr'));
-      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
-      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadConfigOrExit(tmp.path()))).toBe(1);
+      expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
       expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
         'archetypes must be',
       );
@@ -820,14 +821,14 @@ describe('pharn-config', () => {
       const read = readPharnConfig(tmp.path());
       expect(read).not.toBeNull();
       expect(read).not.toHaveProperty('commit');
-      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
     });
 
     it('joins isConfigValidationError, so every loader reports it and exits 1', () => {
       expect(isConfigValidationError(new ConfigStampError('x'))).toBe(true);
       writeRaw(withStamp('1.0.0', 'abc123'));
-      expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
-      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadConfigOrExit(tmp.path()))).toBe(1);
+      expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
       expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
         'commit must be',
       );
@@ -867,7 +868,7 @@ describe('pharn-config', () => {
 
     it('is reported as the named error, NOT the legacy "re-run init" message', () => {
       writeRaw(withCapabilities('x'));
-      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
       const logged = vi.mocked(log.error).mock.calls.map(String).join();
       expect(logged).toContain('capabilities must be an array');
       expect(logged).not.toContain(LEGACY_CONFIG_MESSAGE);
@@ -875,7 +876,7 @@ describe('pharn-config', () => {
 
     it('a legacy config (no capabilities key) still reaches the legacy message', () => {
       writeRaw(sample);
-      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
       expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
         LEGACY_CONFIG_MESSAGE,
       );
@@ -888,7 +889,7 @@ describe('pharn-config', () => {
       const err = vi.spyOn(console, 'error').mockImplementation(() => {});
       try {
         const { runList } = await import('../src/commands/list.js');
-        await expect(runList({ json: true })).rejects.toThrow(ProcessExit);
+        expect(await exitCodeOfAsync(() => runList({ json: true }))).toBe(1);
         expect(out).not.toHaveBeenCalled();
         const stderr = err.mock.calls.map(String).join('\n');
         expect(stderr).toContain('capabilities must be an array');
@@ -1180,7 +1181,7 @@ describe('loadConfigOrExit', () => {
   // advice would overwrite the very file it is complaining about.
   it('exits(1) reporting the corrupt config, NOT "no config found" (P-7)', () => {
     writeFileSync(join(tmp.path(), 'pharn.config.json'), '{ "a": 1, }');
-    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    expect(exitCodeOf(() => loadConfigOrExit(tmp.path()))).toBe(1);
     const msg = vi
       .mocked(log.error)
       .mock.calls.map((c) => String(c[0]))
@@ -1200,18 +1201,18 @@ describe('loadConfigOrExit', () => {
       errSpy.mock.calls.map((c: unknown[]) => c.join(' ')).join('\n');
 
     it('absent config', () => {
-      expect(() => loadConfigOrExit(tmp.path(), { json: true })).toThrow(
-        ProcessExit,
-      );
+      expect(
+        exitCodeOf(() => loadConfigOrExit(tmp.path(), { json: true })),
+      ).toBe(1);
       expect(said()).toMatch(/pharn init/);
       expect(log.error).not.toHaveBeenCalled();
     });
 
     it('invalid config', () => {
       writeFileSync(join(tmp.path(), 'pharn.config.json'), '{ "a": 1, }');
-      expect(() => loadConfigOrExit(tmp.path(), { json: true })).toThrow(
-        ProcessExit,
-      );
+      expect(
+        exitCodeOf(() => loadConfigOrExit(tmp.path(), { json: true })),
+      ).toBe(1);
       expect(said()).toContain('is not valid JSON');
       expect(log.error).not.toHaveBeenCalled();
     });
@@ -1221,9 +1222,9 @@ describe('loadConfigOrExit', () => {
         join(tmp.path(), 'pharn.config.json'),
         JSON.stringify({ skillsVersion: '0.1.0', modules: [] }),
       );
-      expect(() =>
-        loadArchetypeConfigOrExit(tmp.path(), { json: true }),
-      ).toThrow(ProcessExit);
+      expect(
+        exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path(), { json: true })),
+      ).toBe(1);
       expect(said()).toContain('legacy module layout');
       expect(log.error).not.toHaveBeenCalled();
     });
@@ -1241,7 +1242,7 @@ describe('loadConfigOrExit', () => {
   });
 
   it('prints "run init" and exits(1) when the config is absent', () => {
-    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    expect(exitCodeOf(() => loadConfigOrExit(tmp.path()))).toBe(1);
     const msg = vi
       .mocked(log.error)
       .mock.calls.map((c) => String(c[0]))
@@ -1255,7 +1256,7 @@ describe('loadConfigOrExit', () => {
   // exact-args match is the point — every command suite mocks log.error with a
   // vi.fn(), which swallows a missing option silently.
   it('sends the fatal message to STDERR, not stdout', () => {
-    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    expect(exitCodeOf(() => loadConfigOrExit(tmp.path()))).toBe(1);
     expect(log.error).toHaveBeenCalledWith(
       'No pharn.config.json found. Run `pharn init` first.',
       { output: process.stderr },
@@ -1309,7 +1310,7 @@ describe('loadArchetypeConfigOrExit', () => {
       join(tmp.path(), 'pharn.config.json'),
       JSON.stringify(sample),
     );
-    expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
     const msg = vi
       .mocked(log.error)
       .mock.calls.map((c) => String(c[0]))
@@ -1325,7 +1326,7 @@ describe('loadArchetypeConfigOrExit', () => {
   });
 
   it('exits(1) via loadConfigOrExit when the config is absent (unchanged)', () => {
-    expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+    expect(exitCodeOf(() => loadArchetypeConfigOrExit(tmp.path()))).toBe(1);
     const msg = vi
       .mocked(log.error)
       .mock.calls.map((c) => String(c[0]))

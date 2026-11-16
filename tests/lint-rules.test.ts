@@ -87,6 +87,12 @@ const CASES: [string, string, string, Reason[]][] = [
     [],
   ],
   [
+    'process.exit in a command (commands throw a CliError)',
+    'src/commands/update.ts',
+    'process.exit(1);',
+    ['processExit'],
+  ],
+  [
     'a second prompt in update.ts',
     'src/commands/update.ts',
     "import { select } from '@clack/prompts';",

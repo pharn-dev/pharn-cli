@@ -58,8 +58,8 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   picocolors instance, decided by `styleText`'s stream check, the one `@clack/prompts` uses. Never import `picocolors`.
 - Code invariants are eslint rules in `eslint.config.mjs`, each message naming its reason, and
   `tests/lint-rules.test.ts` proves that each fires. They cover: no `child_process`; `picocolors` only via
-  `color.ts`; `sha256File` only in `hash.ts`; `isTTY` only inside `interactiveAllowed()`; the `process.exit`
-  allowlist; no `cpSync`/`cp`; and the per-module bans.
+  `color.ts`; `sha256File` only in `hash.ts`; `isTTY` only inside `interactiveAllowed()`; `process.exit` only in
+  `fatal-signal.ts` (all else throws a `CliError`; `runCli` reports it once); no `cpSync`/`cp`; and the per-module bans.
 - Options are per command: `parseCliArgs` (`lib/cli-args.ts`, pure) runs one `util.parseArgs` and checks its tokens
   against `OPTIONS[].uses`, the table `--help` renders. It refuses an unknown or another command's option, a value on
   an on/off option, a repeated `--ref`/`--archetype`: one stderr line, exit 1, above `--help`/`--version`.
@@ -124,13 +124,13 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - Records and backups: `install-records`, `hash`, `dest-drift`, `backup`, `removal-backup`, `uninstall-plan`.
 - Config: `pharn-config` (read/write/validate), `model-config` (pinned checker copy), `model-config-format`, `models-update`.
 - Safety: `validate`, `symlink-guard`, `terminal-safe`, `bounded-read`, `atomic-write`, `project-lock`, `deadline`, `fatal-signal`.
-- Reporting: `status-report`, `json-report` (the one serializer), `diff` (drift), `hook-wiring`, `report-error`, `format`, `color`.
+- Reporting: `status-report`, `json-report` (the one serializer), `diff` (drift), `hook-wiring`, `cli-error`, `report-error`, `format`, `color`.
 - Project files: `gitignore`, `prettierignore`, `ignore-file`; proxy: `proxy-env`, `proxy-env-format`.
 
 ## Testing
 
 - Vitest, node env. Lib tests are `tests/*.test.ts`; command suites are `tests/commands/` (`init`, `init-dry-run`, `add`,
-  `remove`, `update`, `update-dry-run`, `status`, `list`, `uninstall`, `lock`). Update the matching test before the code.
+  `remove`, `update`, `update-dry-run`, `status`, `list`, `uninstall`, `lock`, `clone-cleanup`). Update the test first.
 - A command suite runs the real `run<Command>()` on a temp project via `tests/support/harness.ts`. Only two boundaries
   are replaced: global `fetch`, which serves a real codeload tarball (`tests/support/tar-fixture.ts`), and
   `@clack/prompts` (`tests/support/clack-stub.ts`), where an unscripted prompt throws.

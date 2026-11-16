@@ -172,3 +172,69 @@ describe('main (argv dispatch)', () => {
     },
   );
 });
+
+// THE ONE EXIT POINT: `runCli` awaits `main()` and is the only catch for what a
+// command throws. It prints through `reportCliError`, sets process.exitCode and
+// resolves — never rejects, never calls process.exit.
+const { runCli } = await import('../src/index.js');
+const { CliError } = await import('../src/lib/cli-error.js');
+
+describe('runCli (the one exit point)', () => {
+  stubProcessExit();
+  const realArgv = process.argv;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.stubEnv('PHARN_DEBUG', '');
+    process.exitCode = undefined;
+  });
+  afterEach(() => {
+    process.argv = realArgv;
+    process.exitCode = undefined;
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+  const stderr = (): string =>
+    errSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
+
+  it('leaves the exit code unset when the command returns', async () => {
+    setArgv('list');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(runList).toHaveBeenCalledTimes(1);
+    expect(process.exitCode).toBeUndefined();
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('sets exit code 0 for a cancel, and resolves', async () => {
+    runInit.mockRejectedValueOnce(CliError.cancel());
+    setArgv('init');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(process.exitCode).toBe(0);
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('sets exit code 1 for a refusal and prints its one line', async () => {
+    runStatus.mockRejectedValueOnce(
+      CliError.refusal('Locked by another run.', { json: true }),
+    );
+    setArgv('status', '--json');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(process.exitCode).toBe(1);
+    expect(stderr()).toBe('⚠ Locked by another run.');
+    expect(process.exit).not.toHaveBeenCalled();
+  });
+
+  it('turns an unexpected Error into exit 1 with no stack trace', async () => {
+    runUpdate.mockRejectedValueOnce(new TypeError('x is undefined'));
+    setArgv('update');
+    await expect(runCli()).resolves.toBeUndefined();
+    expect(process.exitCode).toBe(1);
+    expect(stderr()).toContain('⚠ x is undefined');
+    expect(stderr()).toContain('PHARN_DEBUG=1');
+    expect(stderr()).not.toMatch(/^\s+at .+/m);
+  });
+});

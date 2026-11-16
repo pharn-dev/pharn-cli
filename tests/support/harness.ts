@@ -21,6 +21,8 @@ import {
 } from '../helpers.js';
 import { codeloadArchive } from './tar-fixture.js';
 import { runInit } from '../../src/commands/init.js';
+import { CliError } from '../../src/lib/cli-error.js';
+import { reportCliError } from '../../src/lib/report-error.js';
 
 // ---------------------------------------------------------------------------
 // The command-suite harness (CORE-190). Every suite under tests/commands/ runs
@@ -333,7 +335,13 @@ export function useHarness(): void {
   });
 }
 
-/** Run a command; a `process.exit` surfaces as its code (a return as `null`). */
+/**
+ * Run a command as `runCli` (src/index.ts) does: a thrown CliError is printed
+ * by the REAL top-level printer, `reportCliError`, and surfaces as its exit
+ * code; a normal return as `null`. Any other throw is a bug and fails the test.
+ * A stray `process.exit` (the stub throws ProcessExit) still surfaces as its
+ * code, so a regression shows up as an assertion, not a dead worker.
+ */
 export async function run(
   command: () => Promise<void>,
 ): Promise<number | null> {
@@ -342,8 +350,21 @@ export async function run(
     return null;
   } catch (err) {
     if (err instanceof ProcessExit) return err.code ?? 0;
+    if (err instanceof CliError) return reportCliError(err);
     throw err;
   }
+}
+
+/**
+ * Point the clone's temp dir (os.tmpdir reads TMPDIR at call time) at a
+ * private directory beside the project, so a case can see the temp clone
+ * removed on every exit path. Returns a reader of what is left in it.
+ */
+export function watchClones(): () => string[] {
+  const dir = join(projectDir, '..', 'clones');
+  mkdirSync(dir);
+  vi.stubEnv('TMPDIR', dir);
+  return () => readdirSync(dir);
 }
 
 export const at = (rel: string): string => join(projectDir, rel);

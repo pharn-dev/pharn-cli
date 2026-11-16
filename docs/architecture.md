@@ -60,7 +60,9 @@ call.
    - Detection returns one piece of evidence per archetype (a dependency or the first triggering path). It is
      display-only, passed through `terminalSafe`.
 3. **Source** (`lib/release.ts`, `lib/repo.ts`). `resolveSource` decides which commit, and `fetchRepo(source)` downloads
-   and extracts the codeload tarball into a temp dir that is removed in a `finally`. Every exit happens after that.
+   and extracts the codeload tarball into a temp dir that is removed in a `finally`. No command exits mid-run: a
+   refusal, a failure or a cancel is thrown as a `CliError` (`lib/cli-error.ts`), so that `finally` (and the project
+   lock's) runs first, and `runCli` in `src/index.ts` prints it once and sets `process.exitCode`.
 4. **Index and selection.** `parseCapabilityIndex` reads each capability's `role`/`applies` frontmatter by pharn-oss's
    own rules. `resolveCapabilities` selects `universal` capabilities and those whose `applies` intersects the archetypes.
 5. **Carry-over** (`lib/init-plan.ts`). The replaced config is read tolerantly. A config that exists but cannot be read

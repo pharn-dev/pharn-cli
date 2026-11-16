@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 // runs, so `--version`, `--help` and a refused option load neither a command
 // nor @clack/prompts (scripts/build.mjs splits the bundle to keep it so).
 import { parseCliArgs, USAGE_POINTER } from './lib/cli-args.js';
+import { CliError } from './lib/cli-error.js';
 
 export async function main(
   args: readonly string[] = process.argv.slice(2),
@@ -13,11 +14,12 @@ export async function main(
 
   // A refusal is one stderr line plus the pointer, exit 1, before any command
   // runs. Plain `console.error` (no clack chrome), so a JSON consumer's stdout
-  // stays empty.
+  // stays empty. Printed here, then thrown as already reported, so `runCli`
+  // sets the code without loading the clack-backed reporter.
   if (parsed.kind === 'refuse') {
     console.error(parsed.message);
     console.error(USAGE_POINTER);
-    process.exit(1);
+    throw CliError.reported();
   }
 
   if (parsed.kind === 'print') {
@@ -76,9 +78,30 @@ function isEntryPoint(): boolean {
   }
 }
 
+/**
+ * THE ONE EXIT POINT: commands, steps, lib code and the argv refusal above end
+ * a run by throwing a CliError (lib/cli-error.ts), never by exiting, so every
+ * `finally` on the way up has run (the temp clone removed, the project lock
+ * released). Printed once, the code set as `process.exitCode`, and a normal
+ * return, so piped stdout is flushed. Never rejects.
+ */
+export async function runCli(
+  args: readonly string[] = process.argv.slice(2),
+): Promise<void> {
+  try {
+    await main(args);
+  } catch (err) {
+    // An already-reported refusal needs no printer; anything else loads it
+    // only now, so `--version`, `--help` and a refused option stay clack-free.
+    if (err instanceof CliError && err.form === 'reported') {
+      process.exitCode = err.exitCode;
+      return;
+    }
+    const { reportCliError } = await import('./lib/report-error.js');
+    process.exitCode = reportCliError(err);
+  }
+}
+
 if (isEntryPoint()) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  void runCli();
 }

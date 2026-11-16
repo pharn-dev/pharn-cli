@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import { exitCodeOf } from './support/exit-code.js';
+import { stubProcessExit, useTmpDir } from './helpers.js';
 
 // `runGitPrereq` reports through the shared reporter (lib/report-error.ts),
 // which calls `log.error`. Mocking `log` is what lets the STREAM be asserted
@@ -20,7 +21,7 @@ describe('runGitPrereq', () => {
 
   it('fails if .git is missing', () => {
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
-    expect(() => runGitPrereq()).toThrow(ProcessExit);
+    expect(exitCodeOf(() => runGitPrereq())).toBe(1);
     cwd.mockRestore();
   });
 
@@ -32,7 +33,7 @@ describe('runGitPrereq', () => {
   // (docs/troubleshooting.md, Streams).
   it('reports the failure on STDERR, not stdout', () => {
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
-    expect(() => runGitPrereq()).toThrow(ProcessExit);
+    expect(exitCodeOf(() => runGitPrereq())).toBe(1);
     cwd.mockRestore();
 
     expect(log.error).toHaveBeenCalledWith(expect.any(String), {
@@ -44,7 +45,7 @@ describe('runGitPrereq', () => {
   // a second one — a literal cross rendered as two glyphs in a row.
   it('does not carry its own glyph, and still names the fix', () => {
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
-    expect(() => runGitPrereq()).toThrow(ProcessExit);
+    expect(exitCodeOf(() => runGitPrereq())).toBe(1);
     cwd.mockRestore();
 
     const message = vi.mocked(log.error).mock.calls.at(-1)![0];
@@ -67,7 +68,7 @@ describe('runGitPrereq', () => {
       .mockImplementation(() => undefined);
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(tmp.path());
     vi.mocked(log.error).mockClear();
-    expect(() => runGitPrereq({ json: true })).toThrow(ProcessExit);
+    expect(exitCodeOf(() => runGitPrereq({ json: true }))).toBe(1);
     cwd.mockRestore();
     expect(log.error).not.toHaveBeenCalled();
     expect(String(errSpy.mock.calls[0]![0])).toContain('git init');
@@ -84,7 +85,7 @@ describe('runGitPrereq', () => {
       mkdirSync(sub, { recursive: true });
       vi.mocked(log.error).mockClear();
       const cwd = vi.spyOn(process, 'cwd').mockReturnValue(sub);
-      expect(() => runGitPrereq()).toThrow(ProcessExit);
+      expect(exitCodeOf(() => runGitPrereq())).toBe(1);
       cwd.mockRestore();
 
       const message = vi.mocked(log.error).mock.calls.at(-1)![0];
@@ -108,7 +109,7 @@ describe('runGitPrereq', () => {
         .mockImplementation(() => undefined);
       const cwd = vi.spyOn(process, 'cwd').mockReturnValue(sub);
       vi.mocked(log.error).mockClear();
-      expect(() => runGitPrereq({ json: true })).toThrow(ProcessExit);
+      expect(exitCodeOf(() => runGitPrereq({ json: true }))).toBe(1);
       cwd.mockRestore();
       expect(log.error).not.toHaveBeenCalled();
       const text = String(errSpy.mock.calls[0]![0]);

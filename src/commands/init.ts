@@ -3,15 +3,8 @@ import { prettierignoreLines } from '../lib/prettierignore.js';
 import { rootMigrationNoteLines } from '../lib/root-migration.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
-import { cancelAndExit } from '../lib/confirm.js';
-import {
-  errorMessage,
-  logError,
-  logErrorPlain,
-  reportFatal,
-  reportFatalPlain,
-  type FatalCause,
-} from '../lib/report-error.js';
+import { CliError } from '../lib/cli-error.js';
+import { errorMessage, logErrorPlain } from '../lib/report-error.js';
 import { CLAUDE_SETTINGS_FILE, REPO_URL } from '../lib/constants.js';
 import { detectArchetypesFromProject } from '../lib/detect-archetype.js';
 import { recordedArchetypes } from '../lib/archetype.js';
@@ -101,8 +94,7 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
   runGitPrereq({ json });
 
   // Non-TTY (CI, a pipe) → hard-fail BEFORE `fetchRepo`: the first prompt would
-  // render into a dead stream and cancel through cancelAndExit's exit(0), a
-  // silent no-op that had already paid for a clone. The git prerequisite runs
+  // render into a dead stream and end as a cancel (exit 0), a silent no-op that had already paid for a clone. The git prerequisite runs
   // first so a directory with no `.git` gets the more useful error.
   //
   // `--dry-run` prompts nothing. `--yes` skips the summary confirm and NEVER
@@ -116,10 +108,9 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
       stdoutIsTTY: process.stdout.isTTY,
     })
   ) {
-    logError(
+    throw CliError.error(
       'pharn init is interactive — run it in an interactive terminal. To install without prompts, pass --yes: it installs only into a project where none of its files exists yet, and never overwrites. To see what init would do, pass --dry-run.',
     );
-    process.exit(1);
   }
 
   // `--yes` over an existing `pharn.config.json` is a CERTAIN refusal (that file
@@ -129,10 +120,7 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
   // PHARN_DEBUG hint.
   if (yes && !dryRun) {
     const refusal = existingConfigRefusal(process.cwd());
-    if (refusal !== null) {
-      reportFatal(refusal);
-      process.exit(1);
-    }
+    if (refusal !== null) throw CliError.refusal(refusal);
   }
 
   // The banner and intro only now, after every refusal above, so a refused init
@@ -173,15 +161,14 @@ interface RunMode {
 
 // Detect archetypes, fetch pharn-oss, resolve the capability index, confirm,
 // then copy the capabilities + product surfaces. The temp clone lives across
-// the prompts, so cleanup runs in a finally and every process.exit /
-// cancelAndExit happens AFTER it (Node skips finally on exit).
+// the prompts and is removed in a finally; a refusal, a failure and a cancel
+// are THROWN, so that finally runs on every path.
 async function runInitArchetype(mode: RunMode): Promise<void> {
   const { channel, refExplicit, override, yes, dryRun, json } = mode;
   // `--json` swaps the sinks, not the logic.
   const warn = json
     ? (message: string) => logErrorPlain(message)
     : (message: string) => log.warn(message);
-  const fatal = json ? reportFatalPlain : reportFatal;
   const cwd = process.cwd();
   // `--archetype` REPLACES detection: it is what is resolved, installed and
   // recorded. Detection still runs (local, bounded) so the summary can show it.
@@ -219,13 +206,13 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     repo = await fetchRepo(await resolveSource(channel));
   } catch (err) {
     s.stop('Failed to fetch PHARN');
-    fatal(
-      err instanceof ReleaseResolveError
-        ? err.message
-        : `Could not reach ${REPO_URL}: ${errorMessage(err)}`,
-      { err },
-    );
-    process.exit(1);
+    throw CliError.failure(err, {
+      json,
+      message:
+        err instanceof ReleaseResolveError
+          ? err.message
+          : `Could not reach ${REPO_URL}: ${errorMessage(err)}`,
+    });
   }
 
   s.stop(`PHARN fetched from ${sourceLabel(repo.source)}`);
@@ -239,19 +226,13 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     return;
   }
 
-  let outcome: 'installed' | 'cancelled' = 'cancelled';
-  // The ERROR OBJECT, not its message: the reporter tells an exception (which
-  // earns the PHARN_DEBUG hint) from a refusal. Boxed so a thrown nullish value
-  // is not read as success at the exit deferred past the finally.
-  let failure: FatalCause | null = null;
-  let refusal: string | null = null;
   try {
     // THE MIN_CLI GATE — refuse a too-old CLI cleanly, before the index parse
     // and any prompt or write; inside the try so the clone is cleaned up first.
     const gate = minCliGate(repo.dir, PHARN_VERSION);
     if (gate.warning) log.warn(gate.warning);
     if (gate.refusal) {
-      refusal = gate.refusal;
+      throw CliError.refusal(gate.refusal);
     } else {
       const index = parseCapabilityIndex(repo.dir);
       // Name every capability the fetch boundary refused, before the summary.
@@ -303,8 +284,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
           rerunLines,
         );
       }
-      // Both prompts return a VALUE and neither exits, so the single
-      // cancelAndExit below fires AFTER the finally that disposes of the clone.
+      // Both prompts return a VALUE; the one cancel is thrown below, inside
+      // the try whose finally disposes of the clone.
       //
       // The install manifest (dest → source) is computed ONCE and handed to the
       // pre-flight, the prompt and the install: it depends only on the clone,
@@ -393,34 +374,25 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
             manifest,
           );
         });
-        outcome = 'installed';
+      } else {
+        // The summary or the overwrite question was answered no (or cancelled).
+        throw CliError.cancel();
       }
     }
   } catch (err) {
     // A held lock, a `--yes` run that met an existing file, or an unsafe
-    // removal is a policy refusal: named, no PHARN_DEBUG hint.
+    // removal is a policy refusal: named, no PHARN_DEBUG hint. A CliError
+    // thrown above passes through; anything else is a failure.
     if (
       err instanceof ProjectLockedError ||
       err instanceof OverwriteRefusedError ||
       err instanceof CapabilityRemovalError
     )
-      refusal = err.message;
-    else failure = { err };
+      throw CliError.refusal(err.message);
+    throw CliError.failure(err);
   } finally {
     repo.cleanup();
   }
-
-  // A policy refusal wins over the cancel path below: nothing was installed,
-  // but the reason is the refusal, not a user choice.
-  if (refusal) {
-    reportFatal(refusal);
-    process.exit(1);
-  }
-  if (failure) {
-    reportFatal(errorMessage(failure.err), failure);
-    process.exit(1);
-  }
-  if (outcome === 'cancelled') cancelAndExit();
 }
 
 // What a re-run carries over, named before the summary — the real run and the
@@ -470,55 +442,38 @@ async function runInitDryRun(
   const warn = json
     ? (message: string) => logErrorPlain(message)
     : (message: string) => log.warn(message);
-  let plan: InitPlanReport | null = null;
-  let carry: InitCarry | null = null;
-  let failure: FatalCause | null = null;
-  let refusal: string | null = null;
+  let plan: InitPlanReport;
+  let carry: InitCarry;
   try {
     const gate = minCliGate(repo.dir, PHARN_VERSION);
     if (gate.warning) warn(gate.warning);
-    if (gate.refusal) {
-      refusal = gate.refusal;
-    } else {
-      const index = parseCapabilityIndex(repo.dir);
-      const unknownWarning = unknownCapabilitiesWarning(index.unknown);
-      if (unknownWarning) warn(unknownWarning);
-      const chosen = resolveInitSelection({ cwd, archetypes, index });
-      carry = chosen.carry;
-      plan = buildInitPlan({
-        repoDir: repo.dir,
-        cwd,
-        sha: repo.sha,
-        source: repo.source,
-        channel,
-        archetypes,
-        origin,
-        index,
-        chosen,
-        refExplicit,
-      });
-    }
+    if (gate.refusal) throw CliError.refusal(gate.refusal, { json });
+    const index = parseCapabilityIndex(repo.dir);
+    const unknownWarning = unknownCapabilitiesWarning(index.unknown);
+    if (unknownWarning) warn(unknownWarning);
+    const chosen = resolveInitSelection({ cwd, archetypes, index });
+    carry = chosen.carry;
+    plan = buildInitPlan({
+      repoDir: repo.dir,
+      cwd,
+      sha: repo.sha,
+      source: repo.source,
+      channel,
+      archetypes,
+      origin,
+      index,
+      chosen,
+      refExplicit,
+    });
   } catch (err) {
     // A directory the real run would refuse to delete: the same named refusal.
-    if (err instanceof CapabilityRemovalError) refusal = err.message;
-    else failure = { err };
+    if (err instanceof CapabilityRemovalError)
+      throw CliError.refusal(err.message, { json });
+    throw CliError.failure(err, { json });
   } finally {
     repo.cleanup();
   }
 
-  // Every exit AFTER the clone's cleanup above (Node skips finally on exit).
-  const fatal = json ? reportFatalPlain : reportFatal;
-  if (refusal) {
-    fatal(refusal);
-    process.exit(1);
-  }
-  if (failure || plan === null || carry === null) {
-    fatal(
-      failure ? errorMessage(failure.err) : 'Planning failed.',
-      failure ?? undefined,
-    );
-    process.exit(1);
-  }
   if (json) {
     console.log(serializeJsonReport(buildInitReport(plan)));
     return;
