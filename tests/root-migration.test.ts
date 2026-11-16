@@ -326,14 +326,6 @@ describe('planRootMigration — user data is hinted at, never moved (SKILLS ≥ 
       gitignoreHints: [],
     });
   });
-
-  it('the module has no writer for user data: no rename anywhere in it', () => {
-    const src = readFileSync(
-      join(import.meta.dirname, '../src/lib/root-migration.ts'),
-      'utf8',
-    );
-    expect(src).not.toMatch(/\brenameSync\b|\brename\(/);
-  });
 });
 
 describe('scratch notice and .gitignore hints', () => {

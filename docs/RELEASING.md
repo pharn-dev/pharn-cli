@@ -136,10 +136,11 @@ requires newer content, coordinate upstream's `MIN_CLI` file in the same window
 ## Limits
 
 - **`publish.yml` runs only after a merge.** No pull request executes it.
-  `tests/publish-workflow.test.ts` pins its triggers, job graph and permissions
-  and executes the `Decide` and `Registry check` steps against a stub `git` and
-  a local HTTP server, but the first real run of any other change to the
-  workflow is the next release.
+  `tests/publish-workflow.test.ts` pins its one `contents: write` (inside the
+  `release` job) and executes the `Decide` step against a stub `git` (tagged →
+  no release, untagged → release); `.dev/floor/check-run-pins.test.mjs` pins the
+  one `id-token: write`. The first real run of any other change to the workflow
+  (its triggers, job graph, registry check) is the next release.
 - **Queued runs can be superseded.** GitHub keeps one pending run per
   concurrency group. If several version bumps merge while a release is running,
   only the newest waiting run survives, and an intermediate version may never

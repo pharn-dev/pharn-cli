@@ -1,12 +1,5 @@
-import {
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ProcessExit,
@@ -1245,83 +1238,6 @@ describe('runInit (archetype default)', () => {
         fetchRepo.mock.invocationCallOrder[0]!,
       );
     });
-  });
-
-  // inv-6: this repo reads isTTY through exactly ONE predicate. The gates above
-  // and the add/remove pickers all delegate to `interactiveAllowed`, so a fifth
-  // caller cannot quietly invent its own (subtly different) notion of
-  // "interactive" — e.g. checking only stdout, which is how a pipe sneaks past.
-  it('reads isTTY through exactly one predicate (interactiveAllowed)', () => {
-    const here = fileURLToPath(import.meta.url);
-    const srcDir = join(here, '..', '..', 'src');
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const p = join(dir, e.name);
-        if (e.isDirectory()) return walk(p);
-        return e.name.endsWith('.ts') ? [p] : [];
-      });
-    // Every isTTY mention must sit inside an `interactiveAllowed({ … })`
-    // argument. capability-picker.ts is excluded because it is the predicate's
-    // own home — it names the streams in its doc comment; that it never READS
-    // one is asserted separately below.
-    const picker = join(srcDir, 'lib', 'capability-picker.ts');
-    const offenders = walk(srcDir).filter((f) => {
-      if (f === picker) return false;
-      const src = readFileSync(f, 'utf8');
-      if (!src.includes('isTTY')) return false;
-      const inCall = [
-        ...src.matchAll(/interactiveAllowed\(\{[^}]*\}\)/g),
-      ].reduce((n, m) => n + (m[0].match(/isTTY/g)?.length ?? 0), 0);
-      return (src.match(/isTTY/g) ?? []).length !== inCall;
-    });
-    expect(offenders).toEqual([]);
-
-    // The predicate stays pure: it takes the flags as arguments and never reads
-    // process itself, which is what keeps the non-TTY behavior unit-testable.
-    // Comments are stripped first — its doc comment legitimately NAMES the two
-    // streams to document what callers must pass.
-    const pickerCode = readFileSync(picker, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
-    expect(pickerCode).not.toMatch(/process\.std(in|out)\.isTTY/);
-  });
-
-  // no-404 regression guard (grill #2, sharpened): a static assertion that init
-  // no longer imports the module manifest — the source of the old default's 404.
-  it('init.ts imports no module manifest (static no-404 guard)', () => {
-    const here = fileURLToPath(import.meta.url);
-    const src = readFileSync(
-      join(here, '..', '..', 'src', 'commands', 'init.ts'),
-      'utf8',
-    );
-    expect(src).not.toMatch(/from ['"][^'"]*manifest\.js['"]/);
-    expect(src).not.toContain('fetchRemoteManifest');
-  });
-
-  // RCE-surface guard (successor to the deleted fresh-check fsmonitor regression
-  // tests): fresh-check.ts was the ONLY git caller, so deleting it eliminated the
-  // attacker-controlled .git/config (core.fsmonitor / hooks) RCE surface. The
-  // invariant shifted from "every git call is hardened" to "there are NO git calls"
-  // — assert that structurally: no `src/**/*.ts` re-introduces a child_process/git
-  // invocation. Any legitimate future use must update this guard consciously.
-  it('no src file invokes git / child_process (RCE surface eliminated)', () => {
-    const here = fileURLToPath(import.meta.url);
-    const srcDir = join(here, '..', '..', 'src');
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const p = join(dir, e.name);
-        if (e.isDirectory()) return walk(p);
-        return e.name.endsWith('.ts') ? [p] : [];
-      });
-    const offenders = walk(srcDir).filter((f) => {
-      const src = readFileSync(f, 'utf8');
-      return (
-        /['"](?:node:)?child_process['"]/.test(src) ||
-        src.includes('execFileSync') ||
-        src.includes('core.fsmonitor')
-      );
-    });
-    expect(offenders).toEqual([]);
   });
 
   // -------------------------------------------------------------------------

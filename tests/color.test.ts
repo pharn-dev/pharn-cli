@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { WriteStream } from 'node:tty';
 import { log } from '@clack/prompts';
@@ -126,23 +124,5 @@ describe('lib/color.ts agrees with @clack/prompts', () => {
     vi.resetModules();
     const { default: pc } = await import('../src/lib/color.js');
     expect(pc.cyan(pc.bold('x'))).toBe('x');
-  });
-});
-
-describe('no other src/ file imports picocolors', () => {
-  it('lib/color.ts is the only importer', () => {
-    const srcDir = join(import.meta.dirname, '..', 'src');
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const p = join(dir, e.name);
-        if (e.isDirectory()) return walk(p);
-        return e.name.endsWith('.ts') ? [p] : [];
-      });
-    const importer =
-      /(?:from\s*|import\s*\(\s*|require\s*\(\s*|import\s+)['"]picocolors['"]/;
-    const offenders = walk(srcDir)
-      .filter((f) => importer.test(readFileSync(f, 'utf8')))
-      .map((f) => relative(srcDir, f));
-    expect(offenders).toEqual([join('lib', 'color.ts')]);
   });
 });

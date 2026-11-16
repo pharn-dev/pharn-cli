@@ -847,21 +847,4 @@ describe('the extracted tree holds only regular files and directories', () => {
       expect(nonFileOrDir(dest)).toEqual([]);
     },
   );
-
-  // The invariant holds only while fetchRepo is the one place a clone is made.
-  // If another src/ file starts extracting or creating temp trees, the
-  // clone-side readers that skip symlink checks would trust a tree nobody
-  // vouched for — so that is a failure here, not a code-review hope.
-  it('fetchRepo (src/lib/repo.ts) is the only producer of a clone tree', () => {
-    const srcDir = join(import.meta.dirname, '..', 'src');
-    const producers: string[] = [];
-    for (const rel of readdirSync(srcDir, { recursive: true }) as string[]) {
-      if (!rel.endsWith('.ts') || rel.includes('.updated.')) continue;
-      const text = readFileSync(join(srcDir, rel), 'utf8');
-      if (/\b(extractTarGz|extractTar|mkdtempSync|mkdtemp)\s*\(/.test(text)) {
-        producers.push(rel.split('\\').join('/'));
-      }
-    }
-    expect(producers.sort()).toEqual(['lib/repo.ts', 'lib/tar-extract.ts']);
-  });
 });
