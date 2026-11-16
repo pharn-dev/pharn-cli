@@ -1,35 +1,18 @@
 import { isPlainObject } from './validate.js';
 
 // ---------------------------------------------------------------------------
-// pharn-oss's rules for the `models` block — a COPY, and only a copy.
+// pharn-oss's rules for the `models` block — a COPY, and only a copy: a literal
+// port of `pharn/floor/check-model-config.mjs`'s `validate` and `resolve`
+// rules (same stage, model and effort sets, same RED kinds and wording, same
+// order). A copy, not a call, because this CLI never executes a file it
+// installs (THREAT-MODEL.md §1).
 //
-// pharn-oss owns the `models` schema of pharn.config.json and its defaults.
-// Its checker, `pharn/floor/check-model-config.mjs`, ships into every install,
-// and pharn-oss's own root pharn.config.json carries the block `pharn init`
-// copies. This file is a literal port of that checker's `validate` and
-// `resolve` rules (`stagesOf`, `validateStages`, `resolveStage`): the same
-// stage set, the same model and effort sets, the same RED kinds with the same
-// wording, in the same order.
-//
-// Why a copy and not a call: this CLI never executes a file it installs
-// (THREAT-MODEL.md §1). `pharn status --strict` runs in CI on pull requests,
-// and at `init` the only checker is the one inside the downloaded clone.
-//
-// Why it cannot drift from that checker unnoticed:
-// tests/model-config-parity.test.ts runs the real checker — vendored
-// byte-for-byte at tests/fixtures/pharn-oss/ and pinned by sha256 — over a
-// corpus, compares every verdict and RED line with this file's, and reads the
-// four sets below out of the checker's own source. The vendored checker can
-// still lag live upstream until someone refreshes it (docs/contributing.md);
-// that lag is the residual below. pharn-oss stays the one owner of every rule
-// here: add nothing the checker does not have, and change nothing it has not
-// changed.
-//
-// When upstream widens a set before this copy follows, a block using the new
-// member is rejected here and NOT applied — named, never fatal (LIMITS.md §3e);
-// upstream's MIN_CLI is the lever that asks users to upgrade first.
-//
-// Pure: no I/O. One axis (P3): pharn-oss's rules for the models block.
+// tests/model-config-parity.test.ts runs the vendored checker (byte-for-byte,
+// sha256-pinned at tests/fixtures/pharn-oss/) over a corpus and compares every
+// verdict and RED line, so the copy cannot drift from it unnoticed. Add nothing
+// the checker does not have. Residual: the vendored file can lag live upstream
+// until refreshed (docs/contributing.md); a block using a member upstream added
+// since is rejected and NOT applied — named, never fatal (LIMITS.md §3e).
 // ---------------------------------------------------------------------------
 
 /**
@@ -87,9 +70,8 @@ export type ModelsRedKind =
 
 export interface ModelsRed {
   kind: ModelsRedKind;
-  // The checker's own detail text. It quotes keys and values from the block
-  // with JSON.stringify, which escapes C0 controls but not C1 controls or
-  // Unicode format characters: pass it through `terminalSafe` before printing.
+  // The checker's own detail text. JSON.stringify escapes C0 controls but not
+  // C1 or format characters: pass it through `terminalSafe` before printing.
   detail: string;
 }
 
@@ -116,10 +98,8 @@ function isValidEffort(effort: unknown): boolean {
 }
 
 /**
- * Check a `models` block (the value of the `models` key — `undefined` when
- * the key is absent) against pharn-oss's rules: the checker's `validate`.
- * Every RED is collected, not just the first, exactly as the checker prints
- * them.
+ * Check a `models` block (`undefined` when the key is absent) — the checker's
+ * `validate`. Every RED is collected, as the checker prints them.
  */
 export function checkModelsBlock(models: unknown): ModelsCheck {
   // stagesOf
@@ -189,9 +169,8 @@ function invalid(kind: ModelsRedKind, detail: string): ModelsCheck {
 
 /**
  * The model and effort a stage resolves to — the checker's `resolve`: the
- * stage's OWN entry, else `default`. An own-property test, so an inherited
- * name (`constructor`, `toString`, `__proto__`) resolves to `default` rather
- * than to something off the prototype.
+ * stage's OWN entry, else `default` (own-property, so `constructor` or
+ * `__proto__` resolve to `default`).
  */
 export function resolveStageModel(
   stages: ModelsStages,

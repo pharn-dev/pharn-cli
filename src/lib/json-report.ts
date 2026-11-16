@@ -13,14 +13,11 @@ export function cap(value: string, max: number): string {
 }
 
 /**
- * The report as the text written to stdout. Two-space indented JSON, then every
- * character a terminal would interpret (C0, DEL, C1, Unicode format characters,
- * U+2028/2029) as a `\uXXXX` escape. That is lossless and safe by construction:
- * `JSON.stringify` emits only ASCII structure and escapes `\n`, `\r` and `\t`
- * inside strings, so every remaining unsafe character sits inside a string —
- * key or value — where `\u` is a JSON escape, and the output parses back to the
- * exact original. The one raw control character it emits is the `\n` between
- * lines, which is structural; it is split on, not escaped.
+ * The report as the text written to stdout: two-space indented JSON, then
+ * every unsafe character as a `\uXXXX` escape. Lossless: `JSON.stringify`
+ * escapes `\n`/`\r`/`\t` inside strings, so every remaining unsafe character
+ * sits inside a string where `\u` is a JSON escape. The `\n` between lines is
+ * structural; it is split on, not escaped.
  */
 export function serializeJsonReport(report: object): string {
   return JSON.stringify(report, null, 2)

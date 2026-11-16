@@ -1,35 +1,21 @@
 // ---------------------------------------------------------------------------
 // Dying cleanly on a fatal signal — the one place pharn handles SIGINT and
-// SIGTERM.
+// SIGTERM. Node's default action ends the process WITHOUT running `exit`
+// listeners or `finally` blocks, yet the temp clone must be removed and the
+// project lock released (a stranded lock blocks a shared-directory host for
+// the six-hour staleness window).
 //
-// Node's default action for these signals ends the process WITHOUT emitting
-// `exit`, so no `exit` listener and no `finally` runs on one. Two things must
-// run anyway: removing the temp clone (lib/repo.ts) and releasing the project
-// lock (lib/project-lock.ts). The lock is the costly one: `pharn update --yes`
-// cancelled in CI, or killed by `timeout` / `docker stop`, left pharn/.lock in
-// the project, and a host sharing that directory waited out the lock's six-hour
-// staleness window before it could write again.
+// Each owner registers a synchronous cleanup for as long as it owns something.
+// On a signal every cleanup runs, newest first, then `removeAllListeners`
+// (another listener, e.g. clack's spinner, would swallow the signal) and the
+// signal is re-raised with its default disposition, so the exit status stays
+// truthful (130 / 143). Handlers install on the FIRST registration, not at
+// import.
 //
-// So each owner registers a synchronous cleanup here for as long as it owns
-// something. On a signal every registered cleanup runs, newest first, and then
-// the signal is re-raised with its default disposition, so the exit status
-// stays truthful: 130 SIGINT, 143 SIGTERM — never the 0 an interrupted install
-// once reported to the script that invoked it.
-//
-// NOT SIGHUP, on purpose. A listener overrides the SIG_IGN that `nohup` sets —
-// measured: Node ran a SIGHUP handler even under `trap '' HUP` — so handling it
-// would make a hangup INTERRUPT a `nohup pharn update` mid-write, where today it
-// keeps running. A hangup without nohup still ends the run by default and can
-// leave the lock; the next run on the same host reclaims it (dead pid).
-//
-// `removeAllListeners` comes before the re-raise: any other listener on the
-// signal (@clack/prompts' spinner handler prints and returns) would otherwise
-// swallow it, and the process would run on.
-//
-// The handlers install on the FIRST registration, not at import, so a run that
-// never owns a clone or a lock keeps Node's default disposition untouched.
-//
-// One axis (P3): what happens between a fatal signal and the process's end.
+// NOT SIGHUP: a listener overrides the SIG_IGN `nohup` sets (measured: Node ran
+// the handler even under `trap '' HUP`), which would interrupt a `nohup pharn
+// update` mid-write; tests/fatal-signal.test.ts pins that none is added. A
+// plain hangup can leave the lock; the next run on this host reclaims it.
 // ---------------------------------------------------------------------------
 
 const FATAL_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
@@ -84,10 +70,9 @@ function die(sig: FatalSignal): void {
   try {
     process.kill(process.pid, sig);
   } catch {
-    // Defensive: every platform Node supports can deliver these two to itself
-    // (win32 emulates both). But if the re-raise ever throws, end the process
-    // with the status the signal would have produced — running on with every
-    // listener removed is not an option.
+    // Defensive: if the re-raise ever throws, exit with the status the signal
+    // would have produced — running on with every listener removed is not an
+    // option.
     process.exit(128 + SIGNAL_NUMBER[sig]);
   }
 }

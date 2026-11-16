@@ -5,22 +5,16 @@ import { terminalSafe } from '../lib/terminal-safe.js';
 import type { ArchetypeEvidence, ArchetypeOrigin } from '../lib/archetype.js';
 import type { Archetype, Selection } from '../types.js';
 
-// The archetype-install summary + confirm stage (pharn init). Shows the
-// archetypes — with what triggered each one, or that they came from
-// `--archetype` — and the resolved capabilities (selected + skipped-with-
-// reason), then asks whether to install. One axis (P3): the archetype summary +
-// confirm stage.
-//
-// Returns 'cancel' (never process.exit) on both explicit cancel and a clack
-// cancel, so the caller can clean up the fetched temp clone in a finally BEFORE
-// exiting (Node skips finally on process.exit).
+// The archetype-install summary + confirm stage of `pharn init`: the
+// archetypes (with what triggered each, or `--archetype`) and the resolved
+// capabilities, then whether to install. Returns 'cancel' rather than exiting,
+// so the caller cleans up the temp clone in a finally first.
 
 export type ArchetypeSummaryAction = 'install' | 'cancel';
 
 export type { ArchetypeOrigin };
 
-// Evidence paths are names from the user's own tree: display data, so they go
-// through the one terminal sanitizer and are capped (P2).
+// Evidence paths are names from the user's own tree: sanitized and capped.
 const MAX_EVIDENCE_CHARS = 120;
 
 function describeEvidence(evidence: ArchetypeEvidence): string {
@@ -40,18 +34,16 @@ function describeEvidence(evidence: ArchetypeEvidence): string {
 const sameSet = (a: readonly Archetype[], b: readonly Archetype[]): boolean =>
   a.length === b.length && a.every((x) => b.includes(x));
 
-// The bounds are the walk's own (WALK_LIMITS), so the sentence cannot drift
-// from what the walk does. `en-US` grouping keeps the text deterministic.
+// The bounds are the walk's own (WALK_LIMITS), so the sentence cannot drift.
+// `en-US` grouping keeps the text deterministic.
 const TRUNCATED_LINE = `    detection stopped early: it examines at most ${WALK_LIMITS.maxEntries.toLocaleString('en-US')} entries, ${WALK_LIMITS.maxDepth} directories deep, so these archetypes may be incomplete — pass --archetype <list> if they are wrong`;
 
 /**
  * The summary's archetype block: the archetypes, where they came from, whether
- * detection stopped early (F-25 — only when detection's result is the one being
- * installed; under `--archetype` it was not used), and — when the config this
- * install replaces recorded a DIFFERENT set (`previous`, already reduced to
- * canonical members by `recordedArchetypes`) — that set and the flag that keeps
- * it, so an earlier `--archetype` never disappears silently on a re-run. Pure;
- * every input is plain data.
+ * detection stopped early (only when detection's result is installed), and —
+ * when the replaced config recorded a DIFFERENT canonical set — that set and
+ * the flag that keeps it, so an earlier `--archetype` never disappears
+ * silently. Pure.
  */
 export function archetypeOriginLines(
   archetypes: readonly Archetype[],
@@ -88,9 +80,8 @@ function describeMatched(
 }
 
 /**
- * The summary note's body: the archetypes and where they came from
- * (`archetypeOriginLines`), selected and skipped capabilities. Exported so `init --dry-run` and `init --yes` print exactly the
- * summary the interactive run asks about, without the question.
+ * The summary note's body. Exported so `init --dry-run` and `init --yes` print
+ * exactly what the interactive run asks about, without the question.
  */
 export function archetypeSummaryLines(
   archetypes: Archetype[],
@@ -101,9 +92,8 @@ export function archetypeSummaryLines(
     truncated: false,
   },
   previous: readonly Archetype[] | null = null,
-  // What the config a re-run replaces means for it (lib/init-plan.ts): a config
-  // that could not be read (`previousConfigLines`), a channel change
-  // (`previousChannelLines`) — empty on a first install or when nothing changed.
+  // What the replaced config means for this run (lib/init-plan.ts); empty on
+  // a first install or when nothing changed.
   rerunLines: readonly string[] = [],
 ): string[] {
   const lines: string[] = [

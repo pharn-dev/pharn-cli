@@ -24,42 +24,29 @@ import {
 import type { InstalledCapability, Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Install manifest — the SINGLE source of truth for the set of project-root-
-// relative paths an archetype install writes (lib/install-capabilities.ts →
-// installCapabilities). Pure + read-only: it enumerates the fetched clone and
-// NEVER writes. Consumed by lib/diff.ts (byte-compare at `status`),
-// steps/overwrite-check.ts (the pre-install overwrite warning), and — through
-// capabilityCloneFiles below — commands/add.ts (its destination-drift set and
-// its records keys), so the "what an install writes" knowledge lives in exactly
-// one place.
+// Install manifest — the SINGLE source of truth for the project-root-relative
+// paths an archetype install writes. Pure + read-only: it enumerates the
+// fetched clone and never writes. Consumed by lib/diff.ts (`status`), the
+// overwrite prompt, and — via capabilityCloneFiles — `add`.
 //
-// MIRROR, not the writer: this MIRRORS installCapabilities (the same diff↔install
-// mirror the repo already carried, now shared to one function). tests/
-// install-manifest.test.ts pins the mirror against a REAL installCapabilities run
-// so the two cannot silently drift. The mirror covers NAMES as well as paths: the
-// product-command and hook enumerations run the same COPY_FILENAME_RE allowlist
-// copyFilteredDir runs (lib/install-capabilities.ts), so one clone cannot be
-// refused by `init` and copied in by `update`. A clone carrying such a name makes
-// `status` HARD-FAIL rather than report drift — deliberately the posture `init`
-// already takes, since the offending name is the fetch boundary's problem, not
-// the project's.
+// It MIRRORS installCapabilities (lib/install-capabilities.ts);
+// tests/install-manifest.test.ts pins the mirror against a REAL install run.
+// The mirror covers NAMES too: commands, hooks and agents are held to the same
+// COPY_FILENAME_RE as the copy, so one clone cannot be refused by `init` and
+// copied by `update` (`status` hard-fails on such a name, as `init` does).
 //
-// Trust (P2): the fetched clone is untrusted. Names read from it are only
-// path-joined via safeJoin (containment) for existence checks and returned as
-// data; file CONTENTS are never read or executed here. `.claude/settings.json` is
-// user-owned (preserved at install) and is intentionally NOT part of the set.
-// One axis (P3): the install path manifest.
+// The clone is untrusted: names are only safeJoin-contained for existence
+// checks and returned as data; contents are never read or executed here.
+// `.claude/settings.json` is user-owned and NOT part of the set.
 // ---------------------------------------------------------------------------
 
-// The config file init writes at the project root (lib/pharn-config.ts →
-// configPath's basename). Init also writes this, and the old confirmOverwriteIfExists
-// guarded exactly it — so it joins the conflict set below.
+// The config file init writes at the project root; it joins the overwrite
+// conflict set below.
 export const PHARN_CONFIG_FILE = 'pharn.config.json';
 
-// The two filename filters the install applies to its flat surfaces, shared by
-// the copy (lib/install-capabilities.ts → copyFilteredDir) and this mirror, so
-// the writer and the manifest cannot disagree about which names they take.
-// `name` is a path relative to the surface dir: anything nested is never taken.
+// The filename filters the install applies to its flat surfaces, shared by the
+// copy and this mirror. `name` is relative to the surface dir: anything nested
+// is never taken.
 
 /** A product command: a top-level `pharn-*.md` that is not a `pharn-dev-*` one. */
 export function isProductCommandFile(name: string): boolean {
@@ -72,9 +59,8 @@ export function isProductCommandFile(name: string): boolean {
 }
 
 /**
- * A product agent definition under `.claude/agents/`: the command name rule
- * (top-level `pharn-*.md`, not `pharn-dev-*`), so a dev-loop agent upstream may
- * add later stays out of a product install like a dev-loop command does.
+ * A product agent definition under `.claude/agents/`: the command name rule, so
+ * a dev-loop agent stays out of a product install like a dev-loop command does.
  */
 export function isProductAgentFile(name: string): boolean {
   return isProductCommandFile(name);
@@ -82,9 +68,7 @@ export function isProductAgentFile(name: string): boolean {
 
 /**
  * A hook script: a top-level `.cjs` OR `.mjs` file that is not a test
- * (`*.test.cjs` / `*.test.mjs`). Both module flavours, because upstream may
- * ship either — an `.mjs` hook was silently left out before, while the wiring
- * in settings.json still pointed at it.
+ * (`*.test.cjs` / `*.test.mjs`) — upstream may ship either flavour.
  */
 export function isInstalledHookFile(name: string): boolean {
   return (
@@ -112,8 +96,8 @@ export type InstallSurface =
 /** A declared surface the fetched clone ships no file for. */
 export interface AbsentSurface {
   surface: InstallSurface;
-  // The clone-relative path pharn looked at — a CLI-owned constant resolved for
-  // the layout, never a name read from the clone.
+  // The clone-relative path pharn looked at — a CLI-owned constant, never a
+  // name read from the clone.
   path: string;
 }
 
@@ -124,8 +108,7 @@ interface SurfaceAccount extends AbsentSurface {
 
 // Relative paths (posix) of every file (not directory) under `dir`, recursively.
 function* walkFiles(dir: string, prefix = ''): Generator<string> {
-  // The clone holds only regular files and directories (the clone invariant,
-  // lib/repo.ts), so every non-directory entry is a file.
+  // The clone holds only regular files and directories (lib/repo.ts).
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
@@ -139,11 +122,7 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
 /**
  * The exact project-root-relative paths an archetype install writes, mapped to
  * their source path in `repoDir` — the selected capability dirs + the fixed
- * product surfaces (product `pharn-*` commands and agents, `.cjs`/`.mjs` hooks, trusted docs, the
- * root `features/README.md`, `pharn-contracts/`, `pharn-core/`, `.dev/floor/`
- * minus test files and its `test-fixtures/` + `fixtures/` subtrees), at `layout`. `.claude/settings.json`
- * is user-owned (preserved at install) and is NOT included. Mirrors
- * installCapabilities (lib/install-capabilities.ts); every read is safeJoin-guarded.
+ * product surfaces, at `layout`. `.claude/settings.json` is NOT included.
  */
 export function collectExpectedInstallPaths(params: {
   repoDir: string;
@@ -154,19 +133,12 @@ export function collectExpectedInstallPaths(params: {
 }
 
 /**
- * The declared fixed surfaces the clone ships NO file for at `layout` — each
- * one the install would otherwise skip in silence. Derived from the SAME
- * enumeration as the manifest (collectInstallManifest), so "absent" means
- * exactly "contributes zero files to what the install writes": a missing
- * source, a wrong-typed one, or a dir with no file passing its
- * filter (hooks renamed to `.js`, say). In declaration order.
- *
- * `pharn-core` is declared for the `pharn` layout only: the flat path is a
- * documented no-op (lib/constants.ts → CORE_DIR), and flagging it would make
- * every flat clone report a surface that never existed there.
- *
- * A closed, CLI-side list (LIMITS.md §3e): a surface upstream ADDS is neither
- * installed nor named here.
+ * The declared fixed surfaces the clone ships NO file for at `layout`, in
+ * declaration order. From the same enumeration as the manifest, so "absent"
+ * means exactly "contributes zero files": missing, wrong-typed, or nothing
+ * passing its filter (hooks renamed to `.js`, say). `pharn-core` is declared
+ * for the `pharn` layout only (the flat path is a documented no-op). A closed,
+ * CLI-side list (LIMITS.md §3e): a surface upstream ADDS is not named.
  */
 export function absentInstallSurfaces(params: {
   repoDir: string;
@@ -198,15 +170,11 @@ function collectInstallManifest(params: {
   ): void => {
     surfaces.push({ surface, path, files });
   };
-  // Enumerate one source dir's files (optionally filtered by relative name) into
-  // the expected map at the mirrored path. A root that is not a directory
-  // contributes nothing (the clone holds no links: lib/repo.ts).
-  //
-  // `validate` (optional) runs AFTER `keep` and BEFORE `add` — the exact ordering
-  // copyFilteredDir uses — so a name that is not a copy candidate (a `README.md`,
-  // a `pharn-dev-*` command, anything nested) can never throw, while a name that
-  // IS one is held to the same allowlist on both write paths. It throws
-  // (ManifestValidationError); it never silently skips (P2).
+  // Enumerate one source dir's files (optionally filtered) into the expected
+  // map. A root that is not a directory contributes nothing. `validate` runs
+  // AFTER `keep` and BEFORE `add` — copyFilteredDir's order — so a
+  // non-candidate name never throws while a candidate is held to the same
+  // allowlist on both write paths; it throws, never silently skips.
   const addDir = (
     relDir: string,
     keep?: (rel: string) => boolean,
@@ -224,13 +192,10 @@ function collectInstallManifest(params: {
     return added;
   };
 
-  // The filename floor copyFilteredDir applies to the same three surfaces. Both
-  // keep predicates require `!rel.includes('/')`, so `rel` here IS the basename —
-  // the same input install-capabilities.ts validates. Scoped to commands, hooks
-  // and agents ONLY: capability dirs, pharn-contracts/, pharn-core/, .dev/floor/ and the
-  // trusted docs are copied verbatim by recursive cpSync with no name check, so
-  // validating them here would BREAK the mirror (and reject legitimate evals/
-  // fixtures, uppercase names, and non-md/cjs/mjs/json extensions).
+  // The filename floor copyFilteredDir applies to commands, hooks and agents
+  // ONLY (`rel` is the basename there). Everything else is copied verbatim by
+  // recursive cpSync with no name check, so validating it here would break the
+  // mirror.
   const copyNameFloor =
     (dir: string) =>
     (rel: string): void => {
@@ -263,25 +228,18 @@ function collectInstallManifest(params: {
       copyNameFloor(CLAUDE_HOOKS_DIR),
     ),
   );
-  // Agent definitions: top-level non-dev pharn-*.md. Deliberately NOT
-  // accounted: the surface is optional (pharn-oss before 6.64.0 ships none,
-  // and `/pharn-review` then falls back to a general-purpose agent), so a
-  // clone without it is not "not shipped" — reporting it would turn `status
-  // --strict` red for every older clone.
+  // Agent definitions: top-level non-dev pharn-*.md. NOT accounted: the surface
+  // is optional (pharn-oss before 6.64.0 ships none), so reporting its absence
+  // would turn `status --strict` red for every older clone.
   addDir(
     CLAUDE_AGENTS_DIR,
     isProductAgentFile,
     copyNameFloor(CLAUDE_AGENTS_DIR),
   );
   // Trusted docs, at the path THIS clone keeps each one (resolveTrustedDocs:
-  // flat keeps all four at the root; the pharn layout keeps them under pharn/,
-  // except that a pre-7.0 clone still ships THREAT-MODEL + LIMITS at the root).
-  // The probe is existence-only, so this loop needs no per-entry knowledge of
-  // the split.
-  // isFile, not exists: a directory can stand where a doc is expected.
-  // Absent → named at the LAYOUT's own path, not the fallback the probe
-  // returned (the features-readme rule below): the root path is only a
-  // pre-7.0 window on the pharn layout.
+  // a pre-7.0 pharn-layout clone keeps THREAT-MODEL + LIMITS at the root).
+  // isFile, not exists: a directory can stand where a doc is expected. Absent →
+  // named at the LAYOUT's own path, not the probe's fallback.
   const layoutDocs = paths.docs;
   resolveTrustedDocs(repoDir, layout).forEach((doc, i) => {
     const from = safeJoin(repoDir, doc);
@@ -290,9 +248,8 @@ function collectInstallManifest(params: {
     if (shipped) add(doc, from);
     account('trusted-doc', shipped ? doc : layoutDocs[i]!, shipped ? 1 : 0);
   });
-  // Upstream's LICENSE at a MAPPED destination — the one entry whose dest differs
-  // from its source, which is exactly what this map's dest→source shape exists
-  // for.
+  // Upstream's LICENSE at a MAPPED destination — the one entry whose dest
+  // differs from its source, which is what the dest→source map shape is for.
   let licenseShipped = false;
   const licenseFrom = safeJoin(repoDir, paths.license.from);
   if (lstatSync(licenseFrom, { throwIfNoEntry: false })?.isFile()) {
@@ -300,7 +257,7 @@ function collectInstallManifest(params: {
     licenseShipped = true;
   }
   account('license', paths.license.from, licenseShipped ? 1 : 0);
-  // features/README.md — layout-dependent since pharn-oss 5.0.0; see resolveFeaturesReadme.
+  // features/README.md — layout-dependent; see resolveFeaturesReadme.
   const featuresRel = resolveFeaturesReadme(repoDir, layout);
   let featuresShipped = false;
   const featuresFrom = safeJoin(repoDir, featuresRel);
@@ -308,26 +265,19 @@ function collectInstallManifest(params: {
     add(featuresRel, featuresFrom);
     featuresShipped = true;
   }
-  // Absent → named at the LAYOUT's own path, not the fallback the resolver
-  // returned: the root path is only a pre-relocation window on the pharn layout.
+  // Absent → named at the LAYOUT's own path, not the resolver's fallback.
   account(
     'features-readme',
     featuresShipped ? featuresRel : paths.featuresReadme,
     featuresShipped ? 1 : 0,
   );
   // Contracts + pharn-core (whole dirs) + floor checkers (test files excluded),
-  // at layout paths. pharn-core is a FIXED surface, not a capability, so it
-  // reaches status/update only through this entry — a flat clone has none, so
-  // addDir's lstat finds no directory and contributes nothing (P7).
+  // at layout paths. A flat clone has no pharn-core, so it contributes nothing.
   account('contracts', paths.contracts, addDir(paths.contracts));
   const coreFiles = addDir(paths.core);
   if (layout === 'pharn') account('core', paths.core, coreFiles);
-  // `rel` here is ALREADY a floor-relative posix path (walkFiles builds it with
-  // `/`), and the writer's predicate is anchored at the floor root — so both
-  // sides test the SAME string, and their equivalence is readable rather than
-  // argued. Kept exactly as wide as the writer's, no wider: a mirror that
-  // excludes more than the writer copies is the same divergence in the other
-  // direction (update would report permanent `missing` entries).
+  // The floor filter tests the same floor-relative string as the writer's, and
+  // is exactly as wide: excluding more would leave permanent `missing` entries.
   const floorFiles = addDir(
     paths.floor,
     (rel) => !/\.test\.(mjs|cjs)$/.test(rel) && !isFloorTestFixturePath(rel),
@@ -339,11 +289,9 @@ function collectInstallManifest(params: {
 
 /**
  * Is this floor-RELATIVE posix path one of the floor's test-apparatus dirs
- * (`FLOOR_TEST_FIXTURES_DIRS`) or inside one? Anchored at the floor root: only
- * the root's DIRECT child of that name matches, so `lib/fixtures/x` and a file
- * merely named `my-test-fixtures.mjs` are kept, and `''` (the root) never
- * matches. The ONE predicate both the writer (install-capabilities.ts) and this
- * manifest use, so the two cannot disagree on what the floor copy contains.
+ * (`FLOOR_TEST_FIXTURES_DIRS`) or inside one? Anchored at the floor root, so a
+ * nested `lib/fixtures/x` is kept and `''` never matches. The ONE predicate the
+ * writer and this manifest share.
  */
 export function isFloorTestFixturePath(rel: string): boolean {
   return FLOOR_TEST_FIXTURES_DIRS.some(
@@ -352,32 +300,22 @@ export function isFloorTestFixturePath(rel: string): boolean {
 }
 
 /**
- * The project-root-relative paths an archetype install would write that ALREADY
- * exist under `projectRoot` — the pre-install overwrite-conflict set. Derived
- * from collectExpectedInstallPaths (the copied product surfaces + selected
- * capabilities) PLUS `pharn.config.json` (init also writes it; the old
- * confirmOverwriteIfExists guarded exactly it). Sorted for deterministic output
- * (P5). Every existence check is safeJoin-contained (P2). Pure; a fresh project
- * (nothing already installed) yields `[]`.
+ * The paths an archetype install would write that ALREADY exist under
+ * `projectRoot` — the overwrite-conflict set: the manifest plus
+ * `pharn.config.json`, sorted. A fresh project yields `[]`.
  *
- * NOT every path an install writes. `init` also writes `pharn.records.json`,
- * and it is deliberately absent from this set: it is CLI-owned DERIVED state
- * that a re-install legitimately regenerates from what it just copied, so
- * prompting about it would add a line the user cannot act on to a warning whose
- * whole value is that every line is one of THEIR files. `pharn/.backup/` is
- * excluded for the same reason. Pinned by the "CLI-owned metadata is outside
- * the install set" case in tests/install-manifest.test.ts — widening this set
- * to match a loose reading of "the install's write targets" breaks it on
- * purpose.
+ * `pharn.records.json` and `pharn/.backup/` are deliberately NOT in it: they are
+ * CLI-owned derived state, and every line of this warning should be one of the
+ * user's files. Pinned by "CLI-owned metadata is outside the install set" in
+ * tests/install-manifest.test.ts.
  */
 export function conflictingWriteTargets(params: {
   repoDir: string;
   projectRoot: string;
   capabilities: InstalledCapability[];
   layout: Layout;
-  // The manifest for exactly these inputs, when the caller already has it:
-  // `init` computes it ONCE per run and hands the same map to this prompt and
-  // to the install (commands/init.ts). Absent → computed here.
+  // The manifest for exactly these inputs, when the caller has it (`init`
+  // computes it once per run). Absent → computed here.
   expected?: ReadonlyMap<string, string>;
 }): string[] {
   const { repoDir, projectRoot, capabilities, layout } = params;
@@ -399,21 +337,12 @@ export function conflictingWriteTargets(params: {
 
 /**
  * The project-root-relative paths of ONE capability's files, enumerated in the
- * CLONE — what a copy of that dir would actually write. The relative path is the
- * same on both sides (the layout is mirrored, lib/layout.ts), so the result
- * addresses the clone source and the project destination at once.
+ * CLONE (the layout is mirrored, so each addresses source and destination).
+ * `pharn add` derives its drift set and records keys from it, so a user's file
+ * that merely sits in a leftover capability dir is never recorded as pharn's.
  *
- * `pharn add` uses it twice: for the destination-drift set it backs up
- * (lib/dest-drift.ts) and for the records it merges. Deriving both from the
- * CLONE is what keeps a pre-existing user file that merely SITS in a leftover
- * capability directory out of them — a dest walk would sweep it in and record it
- * as pharn-written.
- *
- * READ-SIDE guards, deliberately not the writer's: a source that is absent or
- * is not a directory contributes NOTHING. The
- * curated refusal for those cases belongs to installCapabilityDirs' pre-flight
- * (lib/install-capabilities.ts), which runs after this and must be the message
- * the user sees — the same skips-here/throws-there split `addDir` above uses.
+ * A source that is absent or not a directory contributes NOTHING: the curated
+ * refusal belongs to installCapabilityDirs' pre-flight, which runs after this.
  */
 export function capabilityCloneFiles(
   repoDir: string,

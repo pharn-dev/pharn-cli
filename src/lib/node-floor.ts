@@ -3,22 +3,16 @@ import { terminalSafe } from './terminal-safe.js';
 
 // ---------------------------------------------------------------------------
 // THE NODE FLOOR — the oldest Node this CLI, and the PHARN floor checkers it
-// installs, will run on. Pure: no I/O, no exit, so the same verdict feeds the
-// `init`/`update` preflight (steps/prereqs.ts) and `status`'s NODE note.
+// installs, will run on. Pure, so one verdict feeds the `init`/`update`
+// preflight and `status`'s NODE note.
 //
-// Why 24.2.0: every pharn-oss floor CLI is gated on `import.meta.main`, which
-// older Node leaves undefined — the CLI then exited 0 having checked NOTHING, a
-// silent false green. Since pharn-oss 6.50.0 those CLIs refuse to run below
-// 24.2.0 (one stderr line, exit 2). A user on an older Node could install
-// successfully and then meet those refusals mid-run, so this CLI says it up
-// front, and `engines.node` (package.json) declares the same number.
-// `tests/node-floor.test.ts` pins the constant equal to the declared bound.
+// Why 24.2.0: pharn-oss's floor CLIs refuse to run below it, so an install on
+// an older Node would meet those refusals mid-run; this CLI says so up front.
+// `tests/node-floor.test.ts` pins it equal to `engines.node`.
 //
-// FAIL-CLOSED, the opposite of the MIN_CLI gate (lib/min-cli-gate.ts): that gate
-// fails open because a typo upstream must not brick the fleet; this one fails
-// closed because its whole purpose is to refuse an environment where a check
-// would silently pass without running. A Node version we cannot read is not a
-// version we can vouch for.
+// FAIL-CLOSED, unlike the MIN_CLI gate: its purpose is to refuse an
+// environment where a check would silently pass without running, and a Node
+// version we cannot read is not one we can vouch for.
 // ---------------------------------------------------------------------------
 
 export const NODE_FLOOR = '24.2.0';
@@ -32,16 +26,13 @@ export type NodeFloorStatus =
   | { kind: 'unparseable'; raw: string | undefined };
 
 /**
- * Compare a Node version string (callers pass `process.versions.node`: no
- * leading `v`) with the floor. The argument is REQUIRED, not defaulted: a
- * default would also fire for an explicit `undefined`, silently substituting the
- * running Node for "the runtime reported no version". Total and deterministic (P5): a three-integer compare with an
- * explicit "cannot read" outcome, never a throw.
+ * Compare a Node version string (`process.versions.node`, no leading `v`) with
+ * the floor. REQUIRED, not defaulted: a default would silently substitute the
+ * running Node for an explicit `undefined`. Never throws.
  *
- * A prerelease of the floor itself (`24.2.0-rc.1`) is BELOW it: semver orders a
- * prerelease before its release, and `compareVersionCore` (which deliberately
- * equates the two for the MIN_CLI handshake) would otherwise wave through a
- * build that may predate the floor's behaviour.
+ * A prerelease of the floor itself (`24.2.0-rc.1`) is BELOW it, as semver
+ * orders it — `compareVersionCore` equates the two for MIN_CLI and would wave
+ * through a build that may predate the floor's behaviour.
  */
 export function nodeFloorStatus(current: string | undefined): NodeFloorStatus {
   if (typeof current !== 'string') return { kind: 'unparseable', raw: current };
@@ -54,10 +45,9 @@ export function nodeFloorStatus(current: string | undefined): NodeFloorStatus {
 }
 
 /**
- * The refusal message for a command that must not run on this Node, or `null`
- * when the Node is fine. `command` is one of the CLI's own literal command
- * names, never argv. Every message says nothing was written, because the
- * preflight sits ahead of any write.
+ * The refusal message for a command that must not run on this Node, or `null`.
+ * `command` is a literal command name, never argv. Every message says nothing
+ * was written: the preflight precedes any write.
  */
 export function nodeFloorRefusal(
   status: NodeFloorStatus,

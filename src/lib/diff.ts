@@ -6,18 +6,14 @@ import type { InstalledCapability, Layout } from '../types.js';
 export interface InstallDiff {
   // .claude-relative paths present on disk but whose bytes differ from upstream.
   modified: string[];
-  // Expected by an installed module/skill but absent on disk.
+  // Expected but absent on disk.
   missing: string[];
-  // Expected paths that cannot be compared: a symlink (live OR dangling) at the
-  // path OR at any parent component below the project root, a directory,
-  // another non-regular file, an unreadable file, or a path whose parent is a
-  // regular file. Not all of them EXIST — a dangling parent symlink and an
-  // ENOTDIR parent both leave nothing at the leaf, and both belong here rather
-  // than in `missing`, because something is in the way and a restore would
-  // write through it. Reported by name with the reason, never folded
-  // into ok/modified/missing — a symlink read THROUGH would masquerade as
-  // `modified` (different bytes) or, worse, as `ok` (identical bytes), silently
-  // blessing a path that points outside the install. Sorted by `rel`.
+  // Expected paths that cannot be compared: a symlink (live or dangling) at the
+  // path or any parent component, a directory or other non-regular file, an
+  // unreadable file, or a path under a regular file. Not in `missing`, since a
+  // restore would write through what is in the way; never folded into ok or
+  // modified, since a symlink read THROUGH would bless a path pointing outside
+  // the install. Sorted by `rel`.
   unreadable: { rel: string; reason: string }[];
   // Files present on disk and identical to upstream (contentHash: CRLF≡LF in text).
   okCount: number;
@@ -25,28 +21,20 @@ export interface InstallDiff {
 
 /**
  * Read-only comparison of an archetype install's PHARN-owned files against a
- * fetched clone. The expected set is the shared install manifest
- * (lib/install-manifest.ts → collectExpectedInstallPaths — the selected capability
- * dirs + the fixed product surfaces at the recorded layout); this byte-compares
- * each entry against `projectRoot`. `.claude/settings.json` is user-owned
- * (preserved at install) and is excluded by the manifest; the copied-verbatim
- * trusted docs, hooks, contracts, and floor checkers ARE compared.
- *
- * Every read stays safeJoin-contained, though this module no longer calls
- * safeJoin itself: the project side is contained by `readDiskState`
- * (lib/apply-update.ts) and the clone side by `collectExpectedInstallPaths`.
+ * fetched clone. The expected set is the shared install manifest at the
+ * recorded layout; `.claude/settings.json` (user-owned) is excluded, the
+ * copied-verbatim docs, hooks, contracts and floor checkers ARE compared.
+ * Reads stay contained through `readDiskState` (project) and
+ * `collectExpectedInstallPaths` (clone).
  */
 export function diffInstalledCapabilities(params: {
   repoDir: string;
   projectRoot: string;
   capabilities: InstalledCapability[];
-  // The project's recorded layout (config.layout via configLayout). The expected
-  // set is derived at the layout's paths for BOTH the clone source and the project
-  // dest (the mirror) — except the license entry, whose dest differs from its
-  // source by design (lib/layout.ts, LayoutPaths.license), which is why the
-  // manifest is a dest→source MAP rather than a set of paths. A clone at @main
-  // whose layout differs simply lacks the source (existsSync false → skipped) in
-  // the manifest.
+  // The project's recorded layout. The expected set is derived at its paths
+  // for both clone source and project dest — except the license, whose dest
+  // differs from its source, hence a dest→source MAP. A clone at another layout
+  // simply lacks the sources.
   layout: Layout;
 }): InstallDiff {
   const { repoDir, projectRoot, capabilities, layout } = params;
@@ -58,24 +46,12 @@ export function diffInstalledCapabilities(params: {
   return compareExpected(expected, projectRoot);
 }
 
-// Compare each expected file against `baseDir`, partitioning into
-// modified / missing / unreadable / ok.
-//
-// The PROJECT side goes through `readDiskState` — the same total classifier
-// `pharn update` writes against, and it runs the same physical component walk
-// the write side does (lib/symlink-guard.ts), so both refuse a symlink ANYWHERE
-// below the project root rather than only at the leaf. That shared walk is what
-// makes "the read and the write agree" true: while the classifier checked the
-// leaf alone, `status` hashed through a symlinked PARENT and counted the file
-// ok while `update` planned a write and aborted on it. It never throws, so one
-// unreadable path can no longer collapse the whole report.
-//
-// The CLONE side is deliberately NOT symmetric: a plain `contentHash`. The
-// manifest only ever emits paths it existsSync-verified in a fresh private temp
-// clone THIS run, and its walkers exclude symlinks — so a clone-side read
-// failure means the clone corrupted mid-run, which is genuinely exceptional and
-// keeps its existing behavior of surfacing through runStatus's catch. There is
-// no fifth state.
+// Compare each expected file against `baseDir`: modified / missing /
+// unreadable / ok. The PROJECT side goes through `readDiskState`, the same
+// classifier and symlink walk `pharn update` writes against, so the read and
+// write agree; it never throws. The CLONE side is a plain `contentHash`: the
+// manifest only emits paths verified in this run's private clone, so a read
+// failure there is exceptional and surfaces through runStatus's catch.
 function compareExpected(
   expected: Map<string, string>,
   baseDir: string,
@@ -98,11 +74,8 @@ function compareExpected(
   }
   modified.sort();
   missing.sort();
-  // Code-unit comparison, matching the `.sort()` default above. NOT
-  // localeCompare, which is locale-dependent and would order the report
-  // differently across machines (P5). Written branch-free rather than as a
-  // ternary chain so there is no equality arm that map-key uniqueness makes
-  // unreachable — this yields -1 / 0 / 1 arithmetically.
+  // Code-unit comparison, matching `.sort()` — never localeCompare, which
+  // differs across machines.
   unreadable.sort((a, b) => Number(a.rel > b.rel) - Number(a.rel < b.rel));
   return { modified, missing, unreadable, okCount };
 }

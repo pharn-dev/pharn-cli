@@ -23,70 +23,39 @@ import type {
 } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Capability index — the FETCH BOUNDARY (P2). This is the untrusted-frontmatter
-// → typed CapabilityIndex boundary that resolve-capabilities.ts explicitly
-// defers ("parsing + validating the untrusted index bytes is the fetch
-// boundary's job, a later increment"). Given a fetched pharn-oss clone, it
-// enumerates the griller + lens subtrees and derives one CapabilityEntry per
-// capability from its markdown frontmatter — pharn-oss declares applicability in
-// each capability's `applies:` field (there is no separate index file).
+// Capability index — the FETCH BOUNDARY: untrusted capability frontmatter in a
+// fetched pharn-oss clone → a typed CapabilityIndex, one CapabilityEntry per
+// griller/lens directory (pharn-oss declares applicability in each capability's
+// `applies:` field; there is no index file).
 //
-// Trust (P2): the fetched frontmatter is untrusted. We read ONLY the three
-// declared fields (`name`/`role`/`applies`) via a STRICT field reader — never a
-// general YAML parser over untrusted bytes — and validate every value against a
-// fixed allowlist (validate.ts): dir names against CAPABILITY_NAME_RE (+ no
-// `..`) before any path-join, `role` against {griller,lens}, each `applies`
-// token against the archetype/`universal` enum. Every filesystem read is
-// safeJoin-guarded. No free-text frontmatter value escapes: the typed
-// `capabilities` output carries only enum/regex-validated fields.
+// Trust: only `role` and `applies` are read (the name is the directory's), by a
+// STRICT line reader — never a general YAML parser — and every value is checked
+// against an allowlist (validate.ts) before use: dir names against
+// CAPABILITY_NAME_RE before any path-join, `role` against {griller,lens}, each
+// `applies` token against the archetype/`universal` enum. Every read is
+// safeJoin-guarded, and `capabilities` carries only validated fields.
 //
-// FORWARD COMPATIBILITY — fail closed on INSTALLING, never on SEEING (the
-// contract this file exists to hold). A released CLI always fetches `main` HEAD
-// and can never pin older content (lib/repo.ts), so before this contract ONE
-// routine grammar evolution upstream — a new capability subdirectory without its
-// markdown, a new `role`, a new `applies` token — aborted init/add/update in
-// EVERY deployed CLI simultaneously, with no rollback lever. `add` was doubly
-// wedged: its version gate points at `pharn update`, whose own first act is this
-// parse.
-//
-// So a malformed or unknown value no longer kills the index. The tolerance is
-// scoped by WHERE the failure happens, not by an enumerated list of shapes:
-// ANY ManifestValidationError raised while processing ONE capability inside the
-// per-capability loop becomes an `unknown` entry plus a `continue`. Enumerating
-// only some shapes would be the same bug again on a different day. Nothing in
-// `unknown` is ever pushed to `capabilities`, so nothing unvalidated can be
-// selected, copied, or enumerated by the install manifest — and nothing is
-// SILENTLY dropped either: every caller renders the list
-// (lib/unknown-capabilities.ts).
-//
-// What stays fatal is what is STRUCTURAL: a missing subtree is not "one unknown
-// capability", it is a clone whose shape the CLI cannot address at all.
-//
-// One axis (P3): deriving the typed index from fetched capability frontmatter.
-// The disk-reading shape is intentionally minimal (a strict frontmatter reader
-// co-located here); the selection RULE over the produced index lives next door
-// in resolve-capabilities.ts, and the archetype detection in detect-archetype.ts.
+// Fail closed on INSTALLING, never on SEEING: upstream grammar evolves faster
+// than CLI releases (a new role, a new token), so ANY ManifestValidationError
+// raised for ONE capability makes it an `unknown` entry instead of aborting the
+// index. Scoped by location, not by shape, so a future refusal is covered too.
+// Nothing in `unknown` is ever selected or copied, and every caller names the
+// list (lib/unknown-capabilities.ts). Only a missing subtree stays fatal: that
+// is a clone whose shape the CLI cannot address at all.
 // ---------------------------------------------------------------------------
 
 /**
- * Parse + validate the capability index from a fetched pharn-oss clone.
- *
- * Deterministic (P5): capabilities are enumerated in sorted directory order
- * within each subtree, grillers before lenses, so the same clone always yields
- * the same `capabilities` AND the same `unknown` list.
- *
- * A capability whose directory name, markdown, frontmatter, `role` or `applies`
- * fails validation is SKIPPED and reported in `unknown` — never installed, never
- * silent. Only a missing subtree throws (structural, see the header).
+ * Parse + validate the capability index from a fetched pharn-oss clone, in
+ * sorted directory order, grillers before lenses. A capability failing any
+ * validation is SKIPPED and reported in `unknown` — never installed, never
+ * silent. Only a missing subtree throws.
  */
 export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
   const capabilities: CapabilityEntry[] = [];
   const unknown: UnknownCapability[] = [];
 
-  // Mirror the fetched clone's layout (flat OR the relocated pharn/) so the CLI
-  // enumerates capabilities wherever pharn-oss put them (P5 — membership on the
-  // clone, lib/layout.ts). Each subtree is authoritative for `role`; the
-  // frontmatter `role` is cross-checked against it (wrong subtree → hard-fail).
+  // Mirror the clone's layout (flat OR pharn/). Each subtree is authoritative
+  // for `role`; the frontmatter `role` is cross-checked against it.
   const paths = layoutPaths(detectLayout(repoDir));
   const subtrees: { dir: string; role: 'griller' | 'lens' }[] = [
     { dir: paths.grillers, role: 'griller' },
@@ -107,17 +76,11 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
     for (const name of names) {
-      // ONE try around the WHOLE loop body. Scoping the tolerance by LOCATION
-      // (this capability) rather than by shape is what makes it total: every
-      // throw site reachable from here — the dir-name allowlist, the missing
-      // markdown, the missing frontmatter fence, a missing `role`/`applies`
-      // field, an invalid role, the role/subtree mismatch, and every
-      // readApplies refusal — lands in the same skip-and-report path, including
-      // any refusal a FUTURE edit adds.
+      // ONE try around the WHOLE loop body, so every throw site reachable from
+      // here — including one a future edit adds — lands in skip-and-report.
       try {
-        // Validate the untrusted dir name BEFORE any path-join (P2). A name that
-        // fails here is reported and joined no further — it never reaches the
-        // filesystem at all. CAPABILITY_NAME_RE admits no `.`, so no `..`.
+        // Validate the untrusted dir name BEFORE any path-join; a name that
+        // fails never reaches the filesystem. CAPABILITY_NAME_RE admits no `.`.
         assertSafeString(name, `capability "${name}"`, CAPABILITY_NAME_RE);
 
         const capFile = safeJoin(subtreeDir, `${name}/${name}.md`);
@@ -136,15 +99,12 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
 
         capabilities.push({ name, role, applies });
       } catch (err) {
-        // ONLY a validation refusal is tolerated. An I/O failure (the clone
-        // vanished mid-run, a permission error) is genuinely exceptional and
-        // still propagates — swallowing it would turn a broken clone into a
-        // silently empty index, which is the fail-open direction.
+        // ONLY a validation refusal is tolerated. An I/O failure still
+        // propagates: swallowing it would turn a broken clone into a silently
+        // empty index (fail open).
         if (!(err instanceof ManifestValidationError)) throw err;
-        // The SUBTREE's role, not the frontmatter's: the declared role may be
-        // exactly what failed, and the subtree is authoritative here anyway
-        // (see the cross-check above). That is what lets a caller build a
-        // `role:name` key for an entry it could not otherwise type.
+        // The SUBTREE's role: the declared role may be what failed, and callers
+        // still need a `role:name` key.
         unknown.push({
           name,
           role: subtree.role,
@@ -160,15 +120,10 @@ export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
 
 /**
  * Read one capability's markdown, refusing anything that is not a regular file
- * with a ManifestValidationError — the error the per-capability loop tolerates.
- *
- * `existsSync` + `readFileSync` let a DIRECTORY at this path through the check
- * and then threw EISDIR, which is NOT a validation error, so one oddly-shaped
- * upstream capability aborted the whole index for every deployed CLI. The
- * type check is made on the OPENED descriptor and the read goes through that
- * same descriptor. A directory becomes `unknown`; a link, FIFO or device cannot
- * be there (the clone invariant, lib/repo.ts). Other I/O failures still
- * propagate.
+ * with a ManifestValidationError (the error the loop tolerates). The type check
+ * is made on the OPENED descriptor and the read goes through it, so a directory
+ * becomes `unknown` rather than an EISDIR that aborts the index. Other I/O
+ * failures still propagate.
  */
 function readCapabilityMarkdown(
   capFile: string,
@@ -205,45 +160,32 @@ function readCapabilityMarkdown(
 }
 
 /**
- * One leading U+FEFF (a byte-order mark), and the lead that makes a fence
- * DISPLACED: only whitespace or Unicode format characters before `---` (`\s`
- * covers a newline, a space, a tab, NBSP and a second U+FEFF; `\p{Cf}` covers
- * U+200B and the other invisible marks). Both are pharn-oss's own, from
- * pharn/floor/frontmatter-core.mjs (`stripBom`, `DISPLACED_LEAD_RE`).
+ * One leading U+FEFF, and the lead that makes a fence DISPLACED: only
+ * whitespace or Unicode format characters before `---`. Both are pharn-oss's
+ * own, from pharn/floor/frontmatter-core.mjs (`stripBom`, `DISPLACED_LEAD_RE`).
  */
 const BOM_RE = /^\uFEFF/;
 const DISPLACED_LEAD_RE = /^[\s\p{Cf}]+(?=---)/u;
 
 /**
- * Extract the raw `---`-fenced frontmatter block from a capability markdown
- * file. Only this block is parsed — a field-looking line in the prose body is
- * never read. Hard-fails (naming the capability) when no frontmatter fence is
- * present, or when the fence is displaced (P5).
+ * Extract the raw `---`-fenced frontmatter block; a field-looking line in the
+ * body is never read. Hard-fails when no fence is present or it is displaced.
  *
- * The fence is UPSTREAM'S rule, ported literally from pharn-oss's own validator
- * (pharn/floor/validate.mjs → parseFrontmatter, which reads through
- * frontmatter-core.mjs `looseFrontmatter`; both vendored for the differential
- * test at tests/fixtures/pharn-oss/), so a capability upstream's CI passes is
- * never skipped here for its fence, and one its CI refuses is never installed:
- *   - exactly ONE leading byte-order mark is stripped first (a second one is a
- *     displaced lead, below);
+ * The fence is UPSTREAM'S rule, ported literally from pharn-oss's validator
+ * (pharn/floor/validate.mjs → parseFrontmatter → frontmatter-core.mjs
+ * `looseFrontmatter`, vendored at tests/fixtures/pharn-oss/), so a capability
+ * upstream's CI passes is never skipped for its fence, and one it refuses is
+ * never installed:
+ *   - exactly ONE leading byte-order mark is stripped first;
  *   - the file must then START with `---`;
- *   - the block is everything from the fourth character up to the first newline
- *     followed by `---` — so it closes at the next line that STARTS with `---`
- *     (`---`, `----`, `--- note`), and the rest of the opening line belongs to
- *     the block;
- *   - the block is trimmed, as upstream trims it;
- *   - a fence that opens after a DISPLACED lead and closes is refused with its
- *     own reason: upstream reads such a block and REDs it when it declares a
- *     role (`P6/frontmatter-offset`, pharn-oss 7.3.0). A role-less one is "not a
- *     capability" upstream; here it is refused the same way, since a capability
- *     directory's markdown with no role is refused anyway. A displaced lead whose
- *     fence never closes is no fence at all, upstream and here.
- * Any other lead (a letter, an HTML comment) leaves the file without a fence.
- * An empty block (`---` then `---`) is '' — every field is missing, and both
- * parsers refuse it rather than reading the BODY as frontmatter (PHARN-14).
- * tests/capability-index.test.ts runs every fence shape through the validator's
- * own function and requires the same verdict.
+ *   - the block runs from the fourth character to the first newline followed
+ *     by `---` (so `----` or `--- note` closes it too), and is trimmed;
+ *   - a fence after a DISPLACED lead that closes is refused with its own reason
+ *     (upstream REDs it when role-bearing; a role-less one is refused anyway). A
+ *     displaced lead whose fence never closes is no fence at all.
+ * An empty block is '' — every field missing, never the BODY read instead.
+ * tests/capability-index.test.ts runs every fence shape through the vendored
+ * validator's own function and requires the same verdict.
  */
 function extractFrontmatter(content: string, name: string): string {
   let text = content.replace(BOM_RE, '');
@@ -270,30 +212,19 @@ function extractFrontmatter(content: string, name: string): string {
 }
 
 /**
- * One frontmatter field's value, read by UPSTREAM'S line rule — ported
- * literally from pharn-oss's validator (pharn/floor/validate.mjs →
- * parseFrontmatter; vendored for the differential test at
- * tests/fixtures/pharn-oss/validate.mjs), so the CLI and upstream's CI read the
- * same value from the same block (F-26):
- *   - the block is split on `\r?\n` (CRLF or LF); a line is a field when it matches
- *     `^([A-Za-z0-9_]+):\s*(.*)$` (so a key never has leading whitespace, and
- *     `roles:` is not `role:`), and its value is the trimmed rest of the line;
+ * One frontmatter field's value, read by UPSTREAM'S line rule, ported literally
+ * from pharn/floor/validate.mjs → parseFrontmatter (vendored at
+ * tests/fixtures/pharn-oss/validate.mjs, differential-tested):
+ *   - the block is split on `\r?\n`; a field line matches
+ *     `^([A-Za-z0-9_]+):\s*(.*)$` and its value is the trimmed rest;
  *   - a value wrapped in `[` … `]` is an array: split on `,`, each element
- *     trimmed and unquoted, empty elements dropped; anything else is a scalar,
- *     unquoted;
+ *     trimmed and unquoted, empties dropped; anything else is an unquoted scalar;
  *   - unquoting strips ONE leading and ONE trailing `"`/`'`, independently;
- *   - a key that appears more than once keeps its LAST value.
- * Last-wins is safe to adopt (it used to be refused, PHARN-14, because a
- * first-match reader here could install a different value than upstream
- * validated): the value read is exactly the one upstream's CI checked, and it
- * is still validated against the role / applies enums below before anything
- * uses it — an earlier occurrence is discarded, never read.
+ *   - a repeated key keeps its LAST value — exactly the one upstream's CI
+ *     checked, and still enum-validated below.
+ * A lone `\r` inside a line yields no field, upstream and here.
  *
- * A lone `\r` inside a line is not a line break: `(.*)$` cannot match across
- * it, so that line yields no field, upstream and here.
- *
- * `undefined` = the field is absent (or its last occurrence is empty — upstream
- * reads that as missing too).
+ * `undefined` = absent (or its last occurrence is empty, as upstream reads it).
  */
 const FIELD_LINE_RE = /^([A-Za-z0-9_]+):\s*(.*)$/;
 
@@ -329,9 +260,8 @@ function missingField(field: string, name: string): ManifestValidationError {
 }
 
 /**
- * The `role` field: one scalar, checked against the role enum by the caller
- * (`assertRole`). An array (`role: [lens]`) is not a role — upstream refuses it
- * too.
+ * The `role` field: one scalar, enum-checked by the caller (`assertRole`). An
+ * array (`role: [lens]`) is refused, as upstream refuses it.
  */
 function readRole(frontmatter: string, name: string): string {
   const role = readField(frontmatter, 'role');
@@ -345,19 +275,13 @@ function readRole(frontmatter: string, name: string): string {
 }
 
 /**
- * Parse + validate the `applies` value into the resolver's shape — upstream's
- * acceptance rule (validate.mjs CHECK 4b), ported: an array is its elements, a
- * non-empty scalar is a one-element list (`applies: universal` reads as
- * `applies: [universal]`, `applies: ssr` as `[ssr]`), and every element must be
- * in the enum. Tokens may be quoted or bare. Then:
- *   - any `universal` → `'universal'` (always selected). Upstream accepts
- *     `[universal, ssr]`, and `universal` already selects every archetype, so
- *     the archetypes beside it add nothing — it resolves as `[universal]` does
- *     instead of being skipped;
- *   - otherwise the archetype list.
- * Hard-fails (P2/P5) on a missing field, an empty array, or any element outside
- * the enum (`[../etc]`, `mobile`, or a quoted array `"[ssr]"`, which upstream
- * reads as one scalar). Nothing upstream refuses is accepted.
+ * Parse + validate `applies` by upstream's acceptance rule (validate.mjs CHECK
+ * 4b), ported: an array is its elements, a non-empty scalar is a one-element
+ * list, and every element must be in the enum. Any `universal` → `'universal'`
+ * (it already selects every archetype, so `[universal, ssr]` resolves as
+ * `[universal]`); otherwise the archetype list. Hard-fails on a missing field,
+ * an empty array, or any element outside the enum (`[../etc]`, `mobile`, a
+ * quoted `"[ssr]"`, which upstream reads as one scalar).
  */
 function readApplies(
   frontmatter: string,

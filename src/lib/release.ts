@@ -6,33 +6,24 @@ import { COMMIT_RE, RELEASE_TAG_RE } from './validate.js';
 // ---------------------------------------------------------------------------
 // WHICH pharn-oss commit an install takes — the verified-release resolver.
 //
-// The DEFAULT channel for a new install (`pharn init`) is `latest`: the newest
-// pharn-oss GitHub RELEASE — a tag (`v<SKILLS_VERSION>`) pharn-oss's release
-// workflow creates only after every required check on that commit has passed.
-// `--ref main` is the explicit contributor channel: the TIP of pharn-oss `main`
-// — whatever merged last, whether or not its post-merge CI has finished
-// (LIMITS.md §1d). The choice is recorded in the config as `ref: "latest"`;
-// `main` is recorded by the key's ABSENCE, which is also what every install made
-// before `--ref` existed carries — so `update`, `add` and `status` keep such an
-// install on `main` (`channelOf`) and never switch a channel on their own.
+// A new install (`pharn init`) defaults to `latest`: the newest pharn-oss
+// GitHub RELEASE, a tag (`v<SKILLS_VERSION>`) created only after every required
+// check on that commit passed. `--ref main` is the contributor channel: the TIP
+// of `main`, whether or not its post-merge CI has finished (LIMITS.md §1d). The
+// config records `ref: "latest"`; `main` is the key's ABSENCE (as on every
+// install made before `--ref`), so `update`, `add` and `status` never switch a
+// channel on their own.
 //
-// FAIL-CLOSED. When the release cannot be resolved — no release published, the
-// API unreachable or rate-limited, a malformed answer — the command refuses and
-// names `--ref main`. It never floats to the tip on its own: a project that
-// follows verified releases must not be handed unverified content silently.
-// (The `main` channel keeps its own documented degraded mode, LIMITS.md §3b.)
+// FAIL-CLOSED: when the release cannot be resolved (none published, API
+// unreachable or rate-limited, a malformed answer) the command refuses and
+// names `--ref main` — it never floats to the tip. The `main` channel keeps its
+// own degraded mode (LIMITS.md §3b).
 //
-// The release is resolved with TWO small GETs against api.github.com — the
-// latest release's tag, then that tag's commit — and the tarball is then
-// downloaded at that exact commit (lib/repo.ts), whose SKILLS_VERSION must equal
-// the tag (`fetchRepo` refuses otherwise). Trust stays provenance, not
-// cryptography (LIMITS.md §1b): what this adds is that the provenance points at
-// a commit pharn-oss's CI verified, rather than at whatever merged last.
-//
-// Untrusted input (P2): `tag_name` must match RELEASE_TAG_RE and the commit id
-// COMMIT_RE before either becomes a URL segment, a displayed string or a
-// recorded value. Network floor as everywhere else: `redirect: 'error'`, an 8 s
-// hard deadline per request, and a byte cap on every body.
+// Two small GETs (the latest release's tag, then its commit); the tarball is
+// then downloaded at that commit, whose SKILLS_VERSION must equal the tag
+// (lib/repo.ts). Trust is provenance, not cryptography (LIMITS.md §1b).
+// `tag_name` must match RELEASE_TAG_RE and the commit COMMIT_RE before either
+// is used; `redirect: 'error'`, an 8 s deadline and a byte cap on every body.
 // ---------------------------------------------------------------------------
 
 const API = 'https://api.github.com';
@@ -41,8 +32,7 @@ const FETCH_TIMEOUT_MS = 8000;
 // characters), so 1 MiB bounds the read with room to spare.
 const MAX_RELEASE_BYTES = 1024 * 1024;
 // `application/vnd.github.sha` answers with the bare 40-character id. Shared
-// with the `main` channel's `fetchCommitSha` (lib/repo.ts), which asks for the
-// same media type.
+// with `fetchCommitSha` (lib/repo.ts).
 export const MAX_SHA_BYTES = 1024;
 
 /** The channel a command installs from: `main`'s tip, or a verified release. */
@@ -67,10 +57,8 @@ export type InstallSource =
   | { kind: 'main' };
 
 /**
- * WHAT a source is, without the commit it would be downloaded at — what a
- * report needs. Every `InstallSource` is one; `status --no-drift` builds one
- * from a single request (`resolveLatestReleaseVersion`), which never learns the
- * commit and must not invent one.
+ * WHAT a source is, without its commit — what a report needs. `status
+ * --no-drift` builds one from a single request that never learns the commit.
  */
 export type SourceSummary =
   { kind: 'release'; tag: string; version: string } | { kind: 'main' };
@@ -115,9 +103,8 @@ export async function resolveSource(ref: RefChoice): Promise<InstallSource> {
 
 /**
  * The newest verified release's tag and version from ONE bounded GET
- * (`releases/latest`) — what `status --no-drift` needs to say whether a newer
- * release exists. It does not resolve the tag's commit (nothing is downloaded),
- * and fails closed exactly like `resolveSource('latest')`.
+ * (`releases/latest`), for `status --no-drift`. No commit resolve; fails
+ * closed like `resolveSource('latest')`.
  */
 export async function resolveLatestReleaseVersion(): Promise<{
   kind: 'release';
@@ -137,8 +124,7 @@ export async function resolveLatestReleaseVersion(): Promise<{
   }
   const body = parseRelease(release, releaseUrl);
   if (body.draft === true || body.prerelease === true) {
-    // `releases/latest` never returns either today; this is the backstop that
-    // keeps "latest" meaning a published, final release if that ever changes.
+    // `releases/latest` never returns either today; a backstop.
     throw refusal(
       `the release ${releaseUrl} returned is marked ${body.draft === true ? 'draft' : 'prerelease'}`,
     );
@@ -156,16 +142,11 @@ export async function resolveLatestReleaseVersion(): Promise<{
 async function resolveLatestRelease(): Promise<InstallSource> {
   const { tag, version } = await resolveLatestReleaseVersion();
 
-  // The tag's COMMIT, dereferenced by GitHub (annotated or lightweight alike).
-  // `tag` passed RELEASE_TAG_RE, so it is safe as a URL segment.
-  //
-  // Asked through the FULL tag ref, never the bare name: GitHub does not say
-  // whether `commits/<name>` picks a branch or a tag when both exist, and a
-  // branch named like the release tag would otherwise stand in for the
-  // verified release (its SKILLS_VERSION can match the tag too). The documented
-  // `commits/tags/<tag>` form answers 422 (measured 2026-11-11 and 2026-11-12);
-  // `commits/refs/tags/<tag>` answers the same commit as the bare name. That it
-  // resolves ONLY the tag is GitHub's behaviour, measured, not documented.
+  // The tag's COMMIT, asked through the FULL tag ref so a same-named branch
+  // cannot stand in for the release. The documented `commits/tags/<tag>` form
+  // answers 422; that `commits/refs/tags/<tag>` resolves ONLY the tag is
+  // GitHub's measured, undocumented behaviour (tests/release.test.ts pins the
+  // URL). `tag` passed RELEASE_TAG_RE, so it is safe as a URL segment.
   const shaUrl = `${API}/repos/${REPO}/commits/refs/tags/${tag}`;
   const commit = await get(shaUrl, 'application/vnd.github.sha', MAX_SHA_BYTES);
   if (commit.text === null) {
@@ -248,12 +229,10 @@ function httpReason(status: number, url: string): string {
 }
 
 /**
- * The body as UTF-8, read through our own reader under a hard byte cap, and
- * cancelled by our listener on our signal (an unread or still-streaming body
- * holds its socket, and with it the process). Over the cap the read is
- * cancelled and a {@link ReleaseResolveError} is thrown. Also used by
- * `fetchCommitSha` (lib/repo.ts), which swallows EVERY throw to its documented
- * `null` — so there the error type is irrelevant, only that the read stops.
+ * The body as UTF-8 under a hard byte cap, read through our own reader and
+ * cancelled on our signal (a still-streaming body holds its socket). Over the
+ * cap the read is cancelled and a {@link ReleaseResolveError} thrown. Also
+ * used by `fetchCommitSha`, which maps any throw to `null`.
  */
 export async function readCapped(
   res: Response,

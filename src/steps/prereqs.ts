@@ -3,17 +3,15 @@ import { dirname, join, resolve } from 'node:path';
 import { logError, logErrorPlain } from '../lib/report-error.js';
 import { escapeUnsafe } from '../lib/terminal-safe.js';
 
-// Universal, framework-agnostic gate. Run up-front, before the wizard.
-// `json` (init --dry-run --json) keeps the clack chrome out: one plain stderr
-// line, stdout untouched.
+// The git prerequisite, run up-front. `json` (init --dry-run --json): one plain
+// stderr line, no clack chrome, stdout untouched.
 export function runGitPrereq(opts: { json?: boolean } = {}): void {
   const cwd = process.cwd();
 
   if (!existsSync(resolve(cwd, '.git'))) {
-    // Inside a repository but below its root (a monorepo's `apps/web`):
-    // "git init" here would create a NESTED repository, so name the root
-    // instead (CORE-168). The paths are the user's own directory names —
-    // display data, escaped like every local path pharn prints.
+    // Below a repository's root (a monorepo's `apps/web`): "git init" would
+    // create a NESTED repository, so name the root instead. The paths are
+    // display data, escaped.
     const root = findAncestorGitRoot(cwd);
     fail(
       root === null
@@ -39,11 +37,8 @@ export function findAncestorGitRoot(start: string): string | null {
   }
 }
 
-// Reported through the shared reporter, NOT clack's `cancel()`.
-// `cancel` writes to process.stdout, so this — the one fatal a first-time
-// user is most likely to hit — exited 1 with an empty stderr while every
-// other fatal in the CLI went through `logError`. It is an error, not a
-// user cancellation, and the stream is what says so.
+// Through the shared reporter, NOT clack's `cancel()`, which writes to stdout:
+// this is an error, not a user cancellation.
 function fail(message: string, json: boolean): never {
   if (json) logErrorPlain(message);
   else logError(message);

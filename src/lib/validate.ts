@@ -9,42 +9,29 @@ export class ManifestValidationError extends Error {
 }
 
 export const VERSION_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
-// Capability directory basename (archetype install): lowercase alnum words joined
-// by single hyphens, no leading/trailing/double hyphen (e.g. `a11y`, `n-plus-one`,
-// `copy-paste-drift`). Every capability name read from the fetched tree is
-// validated with this before it is path-joined (P2).
+// Capability directory basename: lowercase alnum words joined by single hyphens
+// (`a11y`, `n-plus-one`). Every name read from the fetched tree is checked
+// against it before any path-join; it admits no `.`, so no `..`.
 export const CAPABILITY_NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-// A product command / hook filename copied from the fetched tree (validated
-// before path-join). `pharn-plan.md`, `set-writes-scope.cjs`, etc.
+// A product command / hook filename copied from the fetched tree.
 export const COPY_FILENAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*\.(md|cjs|mjs|json)$/;
-// A full commit SHA — 40 lowercase hex chars (git's canonical form, as GitHub's
-// commits API returns it). The network-derived sha (src/lib/repo.ts,
-// fetchCommitSha) is validated against this before that value becomes the final
-// segment of the codeload tarball URL or is recorded as pharn.config.json
-// `commit` (P2); `null` (degraded mode, LIMITS.md §3b) is handled by the
-// caller's null-guard.
+// A full commit SHA (40 lowercase hex). A network-derived sha is checked
+// against it before it becomes a codeload URL segment or the recorded `commit`.
 export const COMMIT_RE = /^[0-9a-f]{40}$/;
-// A pharn-oss RELEASE tag — `v` + a plain three-part version, nothing else: no
-// prerelease suffix (a verified release is never a prerelease), no padding. The
-// network-derived `tag_name` (src/lib/release.ts) is validated against this
-// before it becomes a URL segment, is displayed, or is compared with the
-// fetched tree's SKILLS_VERSION (P2). Anchored, so a control character fails.
+// A pharn-oss RELEASE tag — `v` + a plain three-part version (a verified
+// release is never a prerelease). Checked before `tag_name` becomes a URL
+// segment, is displayed, or is compared with SKILLS_VERSION. Anchored.
 export const RELEASE_TAG_RE = /^v(\d+\.\d+\.\d+)$/;
-// Capability `role` frontmatter enum — the two installable kinds shipped today
-// (ARCHITECTURE.md §3.1 role enum, narrowed consumer-side).
+// Capability `role` enum — the two installable kinds.
 export const ROLE_VALUES = ['griller', 'lens'] as const;
-// The project archetypes — the ONE runtime list (`Archetype` in types.ts is
-// derived from it). Its order is detection's fixed output order (lib/archetype.ts).
-// Read by the `applies` frontmatter enum below and by `pharn.config.json`'s
-// `archetypes` ingest check (lib/pharn-config.ts).
+// The project archetypes — the ONE runtime list (`Archetype` derives from it);
+// its order is detection's output order.
 export const ARCHETYPE_VALUES = ['ssr', 'backend', 'spa', 'lib'] as const;
-// Capability `applies` frontmatter tokens: `universal` (→ always selected) or a
-// project archetype (ssr|backend|spa|lib). Membership, not judgment (P5).
+// Capability `applies` tokens: `universal` (always selected) or an archetype.
 export const APPLIES_TOKEN_VALUES = ['universal', ...ARCHETYPE_VALUES] as const;
 /**
- * Assert a fetched capability `role` value is one of the installable kinds
- * ({griller, lens}); hard-fail otherwise (P2/P5 — no silent trust of untrusted
- * frontmatter). `label` names the offending capability in the error.
+ * Assert a fetched capability `role` is an installable kind; hard-fail
+ * otherwise. `label` names the capability in the error.
  */
 export function assertRole(
   value: unknown,
@@ -62,10 +49,7 @@ export function assertRole(
   return match;
 }
 
-/**
- * Assert a single fetched `applies` token is a known enum value
- * ({universal, ssr, backend, spa, lib}); hard-fail otherwise (P2/P5).
- */
+/** Assert a single fetched `applies` token is a known enum value. */
 export function assertAppliesToken(
   value: string,
   label: string,
@@ -87,12 +71,9 @@ export function assertSafeString(
   if (typeof value !== 'string') {
     throw new ManifestValidationError(`${label} must be a string`);
   }
-  // The early reject is the ONE unsafe set (lib/terminal-safe.ts), so this
-  // message never quotes the value. The name allowlists exclude every such
-  // character anyway; rejecting first keeps the format message below from
-  // echoing one. Both messages are escaped as a whole because the LABEL is not
-  // ours either: call sites interpolate the untrusted name into it
-  // (`capability "${name}"`, `${relDir}/${entry.name}`).
+  // The unsafe-character reject runs first, so neither message quotes such a
+  // character. Both are escaped whole because the LABEL is not ours either:
+  // call sites interpolate the untrusted name into it.
   if (hasUnsafeChars(value)) {
     throw new ManifestValidationError(
       escapeUnsafe(`${label} contains control characters`),
@@ -110,13 +91,9 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-// Defense-in-depth against path traversal in fetched/copied paths (already
-// validated by CAPABILITY_NAME_RE upstream, but never let a copy or read escape
-// its base directory). This is the LEXICAL gate (resolve +
-// startsWith); it does NOT resolve symlinks — the symlink-aware backstop lives
-// at the copy write sites in install-capabilities.ts (P2). Co-located with the
-// other structural-validation primitives (one security-validation axis, P3);
-// the archetype install + drift check + remove all guard their fs access with it.
+// The LEXICAL path-containment gate (resolve + startsWith): nothing joined
+// through it escapes `base`. It does NOT resolve symlinks — the physical check
+// is lib/symlink-guard.ts.
 export function safeJoin(base: string, rel: string): string {
   const target = resolve(base, rel);
   const root = resolve(base);
@@ -129,10 +106,8 @@ export function safeJoin(base: string, rel: string): string {
 }
 
 // The STRICT-child form of safeJoin, for a destructive op addressed by one
-// name: the result is always exactly one segment below `base` — never `base`
-// itself (which safeJoin allows, so `${subtree}/../..` resolved to the project
-// root and `pharn remove` deleted it) and never a grandchild (`a/b`). Lexical,
-// like safeJoin; the symlink-aware walk stays a separate, physical check.
+// name: always exactly one segment below `base` — never `base` itself (which
+// safeJoin allows) and never a grandchild. Lexical, like safeJoin.
 export function safeChildJoin(base: string, name: string): string {
   const root = resolve(base);
   const target = resolve(root, name);
@@ -144,18 +119,10 @@ export function safeChildJoin(base: string, name: string): string {
   return target;
 }
 
-// Normalize a dest/relpath to a posix, no-trailing-slash key. Purely LEXICAL —
-// it rewrites the string and touches no filesystem — which is why it lives here
-// beside safeJoin rather than in a consumer (one lexical-path axis, P3). Shared
-// by the install manifest's map keys and by symlink-guard.ts, which normalizes
-// before splitting its components.
-//
-// It converts the PLATFORM separator, so what it does depends on where it runs:
-// on win32 (`sep` = `\`) a `a\b\c` rel becomes `a/b/c` and splits into three
-// components; on posix (`sep` = `/`) that same string is left EXACTLY as it is
-// and stays one opaque segment — a backslash is a legal posix filename
-// character, so treating it as a separator there would invent components the
-// filesystem does not have. Only the trailing-slash strip is cross-platform.
+// Normalize a rel to a posix, no-trailing-slash key. Purely LEXICAL. It
+// converts the PLATFORM separator: on win32 `a\b\c` becomes `a/b/c`; on posix
+// a backslash is a legal filename character and stays one opaque segment.
+// Only the trailing-slash strip is cross-platform.
 export function toPosix(rel: string): string {
   return rel.split(sep).join('/').replace(/\/+$/, '');
 }

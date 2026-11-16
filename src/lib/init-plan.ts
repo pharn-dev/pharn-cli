@@ -73,64 +73,53 @@ import type {
 // ---------------------------------------------------------------------------
 // `init`'s planning, in two read-only phases — never a write, never a log:
 //
-// 1. resolveInitSelection — what a run installs: the archetypes' selection,
-//    plus what a re-run carries over from the config it replaces. The real run
-//    and `--dry-run` both call it, so the carry rules have one copy.
-// 2. buildInitPlan — what installing that selection would do to THIS project:
-//    the manifest, the destination pre-flight (which THROWS, as in a real run),
-//    the targets that exist, the files that would be backed up, the settings /
-//    hooks / models outcomes. Only `--dry-run` calls it: the real run computes
-//    the same things one step at a time, between its prompts, so that a
-//    cancelled summary builds no manifest (commands/init.ts).
+// 1. resolveInitSelection — what a run installs: the archetypes' selection plus
+//    what a re-run carries over from the config it replaces. The real run and
+//    `--dry-run` share it, so the carry rules have one copy.
+// 2. buildInitPlan — what installing it would do to THIS project (manifest,
+//    destination pre-flight, existing targets, backups, settings/hooks/models).
+//    Only `--dry-run` calls it: the real run computes the same things between
+//    its prompts, so a cancelled summary builds no manifest.
 //
-// The plan is a SNAPSHOT (advisory): a real run re-fetches and re-checks
-// everything under its lock.
+// The plan is an advisory SNAPSHOT: a real run re-checks everything under its
+// lock.
 // ---------------------------------------------------------------------------
 
-/**
- * What a re-run `init` carries over from the config it replaces (built here by
- * carryOver). Empty for a first install.
- */
+/** What a re-run `init` carries over from the config it replaces; empty for a first install. */
 export interface InstallCarry {
-  // `role:name` of every capability the user added by hand (`pharn add` →
-  // `source: 'manual'`) that the fetched index still has — selected by the
-  // archetypes or not. Recorded `manual`, so `pharn update` keeps them (its merge
-  // table, rows 3 and 6); every other installed entry is `auto`.
+  // `role:name` of every manual (`pharn add`) entry the fetched index still
+  // has, selected by the archetypes or not. Recorded `manual`, so `update`
+  // keeps them; every other installed entry is `auto`.
   manualKeys: ReadonlySet<string>;
-  // Previous entries, of ANY source, whose capability upstream still ships but
-  // this CLI could not PARSE (`index.unknown`) — `update`'s row 0. Nothing is
-  // copied for them: each is written back VERBATIM, listed in
-  // `frozenCapabilities` so `update` re-checks it, and keeps its records.
+  // Previous entries, of ANY source, upstream ships but this CLI cannot PARSE
+  // (`index.unknown`): written back verbatim, listed in `frozenCapabilities`,
+  // records kept, nothing copied.
   kept: readonly InstalledCapability[];
-  // The (skillsVersion, commit) of the config being replaced, or null on a
-  // first install (no readable config to replace). Non-null is what makes this
-  // a RE-install: only then does init read the records the replaced install
-  // wrote (reinstallBaseline) or retire its root footprint. The records'
-  // own stamp is never compared with it (lib/install-records.ts, THE STAMP).
+  // The replaced config's (skillsVersion, commit), or null on a first install.
+  // Non-null is what makes this a RE-install: only then are the replaced
+  // install's records read and its root footprint retired. The records' own
+  // stamp is never compared with it.
   previousStamp: { skillsVersion: string; commit: string | null } | null;
-  // Not carried over: the channel THIS run installed from, recorded as the
-  // config's `ref` — `"latest"` for `--ref latest`, absent (the `main`
-  // default) otherwise. A re-run init follows its own flag, never the old
-  // config's channel (lib/release.ts).
+  // The channel THIS run installed from, recorded as `ref` — never carried from
+  // the old config.
   ref?: 'latest';
-  // Previous entries this install DROPS from the config (carryOver below) —
-  // their directories are deleted under the lock, after a backup
-  // (lib/capability-removal.ts). Absent/empty for a first install.
+  // Previous entries this install DROPS; their directories are deleted under
+  // the lock after a backup (lib/capability-removal.ts).
   dropped?: readonly CapabilityDrop[];
-  // The layout the replaced config recorded — where the dropped capabilities'
-  // directories are, and how their records are keyed.
+  // The replaced config's layout: where the dropped directories are and how
+  // their records are keyed.
   previousLayout?: Layout;
 }
 
 export interface InitCarry extends InstallCarry {
-  // Manual entries the index has but the archetypes did not select — added to
-  // the selection so they are installed again (row 6).
+  // Manual entries the index has but the archetypes did not select — installed
+  // again.
   extra: InstalledCapability[];
-  // Manual entries upstream no longer ships — dropped and NAMED (row 7).
+  // Manual entries upstream no longer ships — dropped and NAMED.
   gone: InstalledCapability[];
-  // EVERY previous entry this install drops: `gone` above, plus `auto` and
-  // source-less entries the archetypes no longer select. Never a kept
-  // (frozen) entry, never one installed again.
+  // EVERY previous entry this install drops: `gone`, plus `auto` and
+  // source-less entries the archetypes no longer select. Never a kept or
+  // re-installed entry.
   dropped: CapabilityDrop[];
 }
 
@@ -142,9 +131,8 @@ export function capabilityKey(cap: { name: string; role: string }): string {
 export interface PreviousConfig {
   fingerprint: string;
   config: PharnConfig | null;
-  // Why a pharn.config.json that EXISTS could not be read as a config — display
-  // text for the summary (`previousConfigLines`), escaped and capped; `null`
-  // when the file is absent or was read. Never a branch input.
+  // Why a pharn.config.json that EXISTS could not be read — escaped, capped
+  // display text; `null` when absent or read. Never a branch input.
   unreadable: string | null;
 }
 
@@ -153,13 +141,11 @@ const UNREADABLE_REASON_MAX = 200;
 
 /**
  * The config a re-run init is about to replace, read TOLERANTLY: init is the
- * command every other one points at for recovery, so an absent, unreadable,
- * invalid or pre-archetype config simply means "nothing to carry over" — never
- * a refusal. But a config that EXISTS and could not be read is NAMED, with the
- * reason (`unreadable`), because carrying nothing over drops the user's manual
- * capabilities (CORE-164). The fingerprint is taken FIRST, so a write that lands
- * between the reads fails the under-lock check (closed) instead of being
- * blessed by it.
+ * recovery command, so any unreadable config means "nothing to carry over",
+ * never a refusal. A config that EXISTS but could not be read is NAMED
+ * (`unreadable`), because carrying nothing drops the user's manual
+ * capabilities. The fingerprint is taken FIRST, so a write landing between the
+ * reads fails the under-lock check instead of being blessed by it.
  */
 export function readPreviousConfig(cwd: string): PreviousConfig {
   const fingerprint = configFingerprint(cwd);
@@ -171,9 +157,8 @@ export function readPreviousConfig(cwd: string): PreviousConfig {
         : null;
     return { fingerprint, config, unreadable };
   } catch (err) {
-    // A named validation error. Only its FIRST sentence is the defect; the rest
-    // is repair advice written for the other commands ("do NOT run `pharn init`
-    // to clear it"), which would contradict the line init prints while running.
+    // Only the FIRST sentence is the defect; the rest is repair advice for the
+    // other commands ("do NOT run `pharn init`"), which would contradict init.
     const reason = escapeUnsafe(firstSentence(errorMessage(err)));
     return {
       fingerprint,
@@ -185,11 +170,8 @@ export function readPreviousConfig(cwd: string): PreviousConfig {
 
 /**
  * `text` up to (not including) its first `.` that sits outside a double-quoted
- * span (the validation errors JSON-quote their offenders, so a `.` inside one
- * never cuts) and is followed by whitespace or the end; the whole text when
- * there is none. The period is dropped because the reason is printed inside
- * parentheses. Display only: an odd path in `ConfigParseError`'s message (a
- * directory named `a. b`) merely shortens the reason. Exported for its tests.
+ * span and is followed by whitespace or the end; the whole text when there is
+ * none. Display only. Exported for its tests.
  */
 export function firstSentence(text: string): string {
   let quoted = false;
@@ -212,9 +194,7 @@ export function firstSentence(text: string): string {
 
 /**
  * Why `readPharnConfig` returned `null` for a file that exists — fixed text
- * only, never file content (P2). Every branch is a membership test (P5); a
- * file that changed between the reads says so (the under-lock fingerprint
- * check refuses that run anyway).
+ * only, never file content.
  */
 function describeUnreadConfig(cwd: string): string {
   const read = readJsonBounded(configPath(cwd));
@@ -230,11 +210,8 @@ function describeUnreadConfig(cwd: string): string {
 
 /**
  * The summary line a re-run init prints when the config it replaces exists but
- * could not be read (`PreviousConfig.unreadable`): nothing is carried over, so
- * the manual capabilities it recorded are dropped. Empty otherwise. Printed by
- * the real run and the text dry run, before any prompt. (`init --yes` refuses
- * any existing config before the fetch, `existingConfigRefusal`, so it never
- * reaches the summary with one.)
+ * could not be read: nothing is carried over, so its manual capabilities are
+ * dropped. Empty otherwise.
  */
 export function previousConfigLines(
   previous: Pick<PreviousConfig, 'unreadable'>,
@@ -247,27 +224,18 @@ export function previousConfigLines(
 
 /**
  * What a re-run init carries over from the previous config, by `update`'s own
- * membership table (lib/merge-capabilities.ts — cited, not restated, P4). Pure:
- * every branch is a `role:name` set lookup or an exact `source` compare (P5).
+ * membership table (lib/merge-capabilities.ts). Pure.
  *
  * - Row 0: an entry of ANY source whose capability the fetch could not PARSE
- *   (`index.unknown`) is KEPT verbatim — a parse failure is evidence about
- *   upstream's bytes, not about who asked for it.
- * - Rows 3 and 6: a `manual` entry the index still has stays `manual`, whether
- *   or not the archetypes also select it (sticky).
+ *   is KEPT verbatim — a parse failure says nothing about who asked for it.
+ * - Rows 3 and 6: a `manual` entry the index still has stays `manual` (sticky).
  * - Row 7: a `manual` entry the index no longer has is dropped — and named.
- * - Everything else (`auto`, or a legacy entry with no `source`) is simply
- *   re-resolved from the archetypes: init starts over. Resolving an ABSENT
- *   source is the merge's job alone, so it is not inferred here.
+ * - Everything else (`auto`, or source-less) is re-resolved from the
+ *   archetypes; resolving an ABSENT source is the merge's job alone.
  *
- * `dropped` lists every previous entry that does not survive: a `gone` manual
- * entry (`dropped-gone`), an `auto` entry the archetypes no longer select
- * (`dropped-unselected`, as update's row 5), and a source-less entry they no
- * longer select (`dropped-unselected` while the index has it, else
- * `dropped-gone`). Its directory is deleted by the install (after a backup) —
- * PHARN runs whatever capability directories are on disk.
- *
- * The first entry wins for a duplicated key, as in the merge.
+ * `dropped` lists every previous entry that does not survive; its directory is
+ * deleted by the install (after a backup), since PHARN runs whatever capability
+ * directories are on disk. The first entry wins for a duplicated key.
  */
 export function carryOver(
   previous: PharnConfig | null,
@@ -325,12 +293,10 @@ export function carryOver(
 }
 
 /**
- * The directories this re-install deletes — one per dropped capability, at the
- * layout the replaced config recorded — and the files it saves first, judged
- * against the reinstall baseline. Reads only; throws CapabilityRemovalError (a
- * named refusal) for a symlinked component or an unreadable file. The real run
- * plans it before its prompt and AGAIN under the lock (steps/install-archetype.ts),
- * where it is authoritative.
+ * The directories this re-install deletes (one per dropped capability, at the
+ * replaced config's layout) and the files it saves first. Reads only; throws
+ * CapabilityRemovalError for a symlinked component or an unreadable file. The
+ * real run plans it again under the lock, where it is authoritative.
  */
 export function planInitRemovals(
   cwd: string,
@@ -350,8 +316,8 @@ export function planInitRemovals(
 export interface InitSelection {
   previous: PreviousConfig;
   carry: InitCarry;
-  // The archetypes' selection, plus every carried manual entry they did not
-  // select (matched: 'manual', and no longer listed as skipped).
+  // The archetypes' selection plus every carried manual entry they did not
+  // select.
   selection: Selection;
 }
 
@@ -363,9 +329,8 @@ export function resolveInitSelection(params: {
 }): InitSelection {
   const { cwd, archetypes, index } = params;
   const resolved = resolveCapabilities(archetypes, index);
-  // A re-run init must not silently drop what the user added by hand, nor what
-  // this CLI merely could not READ upstream: the config it replaces is carried
-  // over by `update`'s own merge rules (carryOver, above).
+  // A re-run must not silently drop the user's manual adds, nor what this CLI
+  // could not READ upstream (carryOver, above).
   const previous = readPreviousConfig(cwd);
   const carry = carryOver(previous.config, index, resolved);
   const extraKeys = new Set(carry.extra.map(capabilityKey));
@@ -390,18 +355,12 @@ export function resolveInitSelection(params: {
 
 /**
  * The records a re-install tells pharn's bytes from the user's by: the store
- * the install replaces, through `update`'s own reader (`recordsBaseline`) —
- * used whatever its stamp, since a recorded hash proves authorship on its own.
- * `null` — a first install (no replaced config), or a store that is absent or
- * corrupt — means every file that differs from upstream is `unverifiable`, and
- * so backed up: never minted, never blessed, never guessed about.
+ * the install replaces, through `recordsBaseline`, whatever its stamp. `null`
+ * (a first install, or an absent/corrupt store) means every file that differs
+ * from upstream is `unverifiable`, and so backed up.
  *
- * Keyed by PATH, at the layout of the install that wrote it. A re-install
- * whose clone changed layout (flat → pharn/) writes to new paths, which the
- * project does not have yet, and leaves the old files in place (init deletes
- * only the directories of capabilities it drops) — so it backs up nothing
- * extra. Only a file of the user's own
- * already at one of the new paths has no record there, and is backed up
+ * Keyed by PATH at the old install's layout: a re-install that changed layout
+ * writes new paths, so only a user file already at one of them is backed up
  * (`unrecorded`). Pinned by tests/init-archetype.test.ts.
  */
 export function reinstallBaseline(
@@ -414,12 +373,10 @@ export function reinstallBaseline(
 }
 
 /**
- * The paths the record store of an install from `manifest` will hold: the
- * kept (frozen) capabilities' carried records, the replaced install's orphans
- * (lib/orphans.ts) and the manifest — the composition runInstallArchetype
- * writes (steps/install-archetype.ts). The dry run derives its
- * `.prettierignore` preview from it; the real run uses the keys it actually
- * wrote. Read-only.
+ * The paths the record store of an install from `manifest` will hold: kept
+ * capabilities' records, the replaced install's orphans and the manifest — the
+ * composition runInstallArchetype writes. Feeds the dry run's
+ * `.prettierignore` preview.
  */
 export function initRecordedPaths(params: {
   cwd: string;
@@ -445,25 +402,14 @@ export function initRecordedPaths(params: {
 }
 
 /**
- * The user-owned top-level entries (`userOwnedConfigEntries`) of the
- * pharn.config.json this install is about to replace — `{}` on ANY failure.
- * Read TOLERANTLY, like readPreviousConfig: init is the command every other one
- * points at for recovery, so an absent, unreadable or unparseable config means
- * "nothing to carry over", never a refusal.
- *
- * Deliberately NOT readPharnConfig, whose verdict is about the keys pharn OWNS:
- * it returns null for a config with no string `skillsVersion` (or with neither
- * a `modules` array nor a `capabilities` key) — which every other command
- * answers with "Run `pharn init` first" — and throws on a value it rejects
- * (an invalid `capabilities` entry, `archetypes` or stamp). Neither says
- * anything about the user's own keys, and reading through it would drop
- * `testResults` on exactly the recovery path pharn prescribes. So the one requirement is a JSON object at top level. Exported
- * for init alone (the install's write and the dry run's preview): a total-catch
- * reader is right for carrying keys across and wrong for anything that must
- * refuse a config it failed to understand.
+ * The user-owned top-level entries (`userOwnedConfigEntries`) of the config
+ * this install replaces — `{}` on ANY failure, read tolerantly. Deliberately
+ * NOT readPharnConfig, whose null/throw verdicts are about the keys pharn OWNS
+ * and would drop `testResults` on exactly the recovery path pharn prescribes;
+ * the one requirement is a top-level JSON object. A total-catch reader is right
+ * for carrying keys across and wrong for anything that must refuse a config.
  */
 export function readCarriedEntries(cwd: string): Record<string, unknown> {
-  // Bounded and non-blocking (lib/bounded-read.ts), like every read of this file.
   const read = readJsonBounded(configPath(cwd));
   if (read.kind !== 'ok') return {};
   return isPlainObject(read.value) ? userOwnedConfigEntries(read.value) : {};
@@ -474,25 +420,20 @@ export interface InitTarget {
   rel: string;
   // `overwrite` ⇔ the path exists now (`conflictingWriteTargets`' test).
   action: 'create' | 'overwrite';
-  // Why it would be backed up first, or null when it would not be:
-  // update's drift label, or `rewritten` for an existing pharn.config.json,
-  // which init rebuilds (`models` reset) and always backs up.
+  // Why it would be backed up first, or null: update's drift label, or
+  // `rewritten` for an existing pharn.config.json (always backed up).
   label: DriftLabel | 'rewritten' | null;
 }
 
 /** What `pharn init --dry-run` found: plain data, JSON-safe. */
 export interface InitPlanReport {
   archetypes: Archetype[];
-  // Where `archetypes` came from: detection (with its evidence) or
-  // `--archetype` (with what detection found instead).
+  // Detection (with its evidence) or `--archetype`.
   archetypeOrigin: ArchetypeOrigin;
-  // The replaced config's `archetypes` reduced to canonical members, or null —
-  // display only (the summary's "previously recorded" line).
+  // The replaced config's canonical `archetypes`, or null — display only.
   previousArchetypes: Archetype[] | null;
-  // The summary's "previously followed: main" lines (`previousChannelLines`).
   channelLines: string[];
-  // The summary's "could not be read" line (`previousConfigLines`). Text only:
-  // not projected into `--dry-run --json`.
+  // Text only: not projected into `--dry-run --json`.
   previousConfigLines: string[];
   channel: RefChoice;
   source: InstallSource;
@@ -510,54 +451,42 @@ export interface InitPlanReport {
   unknownCapabilities: UnknownCapability[];
   // Every write target (the manifest plus pharn.config.json), sorted by path.
   targets: InitTarget[];
-  // The existing ones, labelled first — the order the prompt lists them in.
+  // The existing ones, labelled first — the prompt's order.
   conflicts: string[];
   // An existing pharn.config.json would be rewritten, and backed up first.
   configBackedUp: boolean;
-  // The capability directories it would delete (dropped from the config), and
-  // what it would back up from them first.
+  // Dropped capability directories it would delete, with their backups.
   removals: CapabilityRemoval[];
-  // What the install would copy to `pharn/.backup/<timestamp>/` first —
-  // overwrites, the replaced config and the removals' files.
+  // Everything it would back up first: overwrites, the replaced config and the
+  // removals' files.
   backups: string[];
   counts: { create: number; overwrite: number; backup: number };
   settingsPreserved: boolean;
-  // Compared only when settings.json would be preserved (a fresh one is
-  // written from upstream); null otherwise.
+  // Compared only when settings.json would be preserved; null otherwise.
   hookWiring: HookWiringDiff | null;
-  // What the settings.json a fresh install would WRITE from upstream wires —
-  // the HOOKS note the real run prints (CORE-172). Non-null only when the
-  // project has none AND the clone ships a copyable one
-  // (upstreamSettingsCopyable, the install's own predicate); null otherwise.
+  // What the settings.json a fresh install would WRITE wires (the real run's
+  // HOOKS note). Non-null only when the project has none and the clone's is
+  // copyable (upstreamSettingsCopyable).
   freshSettings: FreshSettingsSummary | null;
-  // pharn-oss's models block: copied, absent upstream, or rejected (reasons
-  // quote upstream bytes).
+  // Reasons quote upstream bytes.
   models: { outcome: 'copy' | 'none' | 'rejected'; reasons: string[] };
-  // The declared product surfaces the clone ships no file for, at its layout
-  // (lib/install-manifest.ts → absentInstallSurfaces) — what a real run warns
-  // about after the copy.
+  // Declared surfaces the clone ships no file for (absentInstallSurfaces).
   absentUpstream: AbsentSurface[];
-  // The top-level keys of the replaced config that pharn does not own — the
-  // NAMES only, never their values.
+  // The NAMES of the replaced config's unowned keys, never their values.
   carriedConfigKeys: string[];
-  // The old root footprint a RE-RUN would retire (lib/root-migration.ts), or
-  // null — always null for a first install, which has nothing of pharn's at
-  // the root to retire, so it prints no hint about the user's data either.
+  // The old root footprint a RE-RUN would retire; always null for a first
+  // install, which has nothing of pharn's at the root.
   rootMigration: RootMigration | null;
-  // What the install would append to the project's `.gitignore`
-  // (lib/gitignore.ts); `none` when it already covers pharn's entries.
+  // `none` when `.gitignore` already covers pharn's entries.
   gitignore: GitignorePlan;
-  // What the install would append to the project's `.prettierignore`
-  // (lib/prettierignore.ts); `none` when the project does not use Prettier or
-  // the file already covers the paths pharn writes.
+  // `none` when the project does not use Prettier or is already covered.
   prettierignore: PrettierignorePlan;
 }
 
 /**
- * The root migration a re-run init makes (lib/root-migration.ts), or null. A
- * first install — no replaced config with a readable stamp — makes none: its
- * root holds nothing pharn wrote, and `memory-bank/` there is the user's to
- * place. Shared by the dry run and the real install, so the two agree.
+ * The root migration a re-run init makes (lib/root-migration.ts), or null for
+ * a first install, whose root holds nothing pharn wrote. Shared by the dry run
+ * and the real install.
  */
 export function initRootMigration(
   repoDir: string,
@@ -565,9 +494,8 @@ export function initRootMigration(
   carry: InstallCarry,
 ): RootMigration | null {
   if (carry.previousStamp === null) return null;
-  // Tolerant of a clone without a valid SKILLS_VERSION: the hints and notices
-  // are then inert (no major to compare), and the install's own read reports the
-  // packaging bug at the step it always has.
+  // Tolerant of a clone without a valid SKILLS_VERSION: the hints are then
+  // inert, and the install's own read reports the packaging bug.
   let skillsVersion = '';
   try {
     skillsVersion = readSkillsVersion(repoDir);
@@ -586,11 +514,9 @@ export function initRootMigration(
 
 /**
  * The summary lines a RE-RUN init prints when it moves an install off `main`
- * because the default channel is now verified releases: the replaced config
- * (read tolerantly; `null` on a first install) follows `main`, this run takes
- * `latest`, and no `--ref` was passed. Plus a warning when the installed version
- * is newer than that release, i.e. the re-install goes BACK (one comparator,
- * `versionStatus`). Empty otherwise. Pure; every branch is a membership test.
+ * (no `--ref`, the replaced config follows `main`, this run takes `latest`),
+ * plus a warning when the installed version is newer than that release, i.e.
+ * the re-install goes BACK. Empty otherwise. Pure.
  */
 export function previousChannelLines(params: {
   previous: { ref?: unknown; skillsVersion?: unknown } | null;
@@ -619,8 +545,7 @@ export function previousChannelLines(params: {
 
 /**
  * Phase 2: what installing `chosen.selection` from `repoDir` would do to `cwd`.
- * Read-only; throws what a real run throws at the same step
- * (ManifestValidationError from the pre-flight, a bad SKILLS_VERSION).
+ * Read-only; throws what a real run throws at the same step.
  */
 export function buildInitPlan(params: {
   repoDir: string;
@@ -633,8 +558,7 @@ export function buildInitPlan(params: {
   origin?: ArchetypeOrigin;
   index: CapabilityIndex;
   chosen: InitSelection;
-  // Whether `--ref` was passed: the user chose the channel, so the summary
-  // names no change of it.
+  // Whether `--ref` was passed: then the summary names no channel change.
   refExplicit?: boolean;
 }): InitPlanReport {
   const { repoDir, cwd, sha, source, channel, archetypes, index, chosen } =
@@ -651,8 +575,7 @@ export function buildInitPlan(params: {
     capabilities: selection.selected,
     layout,
   });
-  // The destination pre-flight a real run makes before its overwrite prompt:
-  // a project the install could not finish in is refused here too.
+  // The real run's destination pre-flight: refused here too.
   prepareInstall(repoDir, cwd, selection.selected, manifest);
   // The dropped capabilities' directories, refused as a real run refuses them.
   const removals = planInitRemovals(cwd, carry);
@@ -679,8 +602,7 @@ export function buildInitPlan(params: {
           : null),
     }));
   const rootMigration = initRootMigration(repoDir, cwd, carry);
-  // What runInstallArchetype backs up under the lock: the drifted files, then
-  // the replaced config (steps/install-archetype.ts) and the removals' files.
+  // What runInstallArchetype backs up under the lock.
   const backups = [
     ...new Set([
       ...[...labels.keys()].sort(),
@@ -689,8 +611,7 @@ export function buildInitPlan(params: {
     ]),
   ];
 
-  // `existsSync` FOLLOWS a link, exactly as the install's own test does
-  // (lib/install-capabilities.ts), so a live settings link counts as preserved.
+  // `existsSync` FOLLOWS a link, as the install's own test does.
   const settingsPreserved = existsSync(safeJoin(cwd, CLAUDE_SETTINGS_FILE));
   const upstreamModels = readUpstreamModels(repoDir);
 

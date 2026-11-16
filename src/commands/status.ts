@@ -62,21 +62,14 @@ import {
 import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 
 /**
- * Read-only audit of an archetype install: is it current (version section) and
- * have any PHARN-owned files drifted from what it follows — pharn-oss `main`,
- * or the newest verified release for a config that records `ref: "latest"` (drift
- * section)? Never writes, deletes, or overwrites — fixing is `pharn update` /
- * `pharn add`. The module/manifest flow was removed; a pre-archetype config is
- * rejected up front by loadArchetypeConfigOrExit.
+ * Read-only audit of an archetype install: is it current (version section),
+ * and have any PHARN-owned files drifted from the source it follows (drift
+ * section)? Never writes — fixing is `pharn update` / `pharn add`.
  *
- * Default clones the repo once and reuses it for both sections. `--no-drift`
- * skips the clone and only checks the version (via the lightweight SKILLS_VERSION
- * fetch). `--strict` exits 1 when anything is outdated, modified, or missing,
- * or when a hook upstream wires is not wired in `.claude/settings.json`.
- *
- * `--json` emits ONE JSON object on stdout and nothing else there — no clack
- * chrome at all; diagnostics and every failure go to stderr, with stdout empty.
- * It carries what the text notes report, and the exit codes are the same.
+ * Default clones once for both sections; `--no-drift` checks the version only.
+ * `--strict` exits 1 on anything outdated, modified or missing, a layout
+ * mismatch or an unwired upstream hook. `--json` emits ONE object on stdout and
+ * nothing else; diagnostics and failures go to stderr. Exit codes match.
  */
 export async function runStatus(
   opts: { strict?: boolean; drift?: boolean; json?: boolean } = {},
@@ -97,11 +90,9 @@ export async function runStatus(
 }
 
 // The `--json` twin of runArchetypeStatus: the same fetches in the same order,
-// but NOTHING reaches stdout until the report is complete — every failure
-// before that point writes to stderr and exits 1 with stdout empty. A strict
-// failure still prints the report (it is a finding, not a failure to report)
-// and sets `process.exitCode` rather than calling `process.exit`, so a large
-// object piped to `jq` is flushed, not cut off; the code is the text mode's.
+// but nothing reaches stdout until the report is complete. A strict failure
+// still prints the report and sets `process.exitCode` (no `process.exit`), so a
+// large piped object is flushed.
 async function runArchetypeStatusJson(
   config: PharnConfig,
   opts: { strict: boolean; drift: boolean },
@@ -158,10 +149,9 @@ async function runArchetypeStatusJson(
     const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
     const recordedLayout = configLayout(config);
     const upstreamLayout = detectLayout(repo.dir);
-    // Across layouts nothing is compared (CORE-167): the expected set would sit
-    // at paths the clone does not use. Otherwise the file diff at the recorded
-    // layout, and the surface scan at the CLONE's own layout — "absent" means
-    // upstream ships nothing there.
+    // Across layouts nothing is compared: the expected set would sit at paths
+    // the clone does not use. Otherwise the file diff at the recorded layout,
+    // and the surface scan at the CLONE's layout.
     const files = layoutMismatch(recordedLayout, upstreamLayout)
       ? { diff: null, absentUpstream: null }
       : {
@@ -205,9 +195,8 @@ async function runArchetypeStatusJson(
   emit(report);
 }
 
-// Archetype install audit: version via SKILLS_VERSION + capability drift.
-// Cleanup runs before any process.exit (Node skips finally on exit), so the
-// desired exit code is recorded and applied only after the finally.
+// Archetype install audit. Cleanup runs before any process.exit, so the exit
+// code is recorded and applied only after the finally.
 async function runArchetypeStatus(
   config: PharnConfig,
   opts: { strict: boolean; drift: boolean },
@@ -215,39 +204,24 @@ async function runArchetypeStatus(
 ): Promise<void> {
   const { strict, drift } = opts;
 
-  // NODE note: local and instant, so it prints first and survives a failed
-  // fetch. A mismatch is REPORTED, never fatal and never a `--strict` input:
-  // `status` is the read-only report, and the verdict that matters — PHARN's
-  // floor checks refusing to run on this Node — is theirs to give.
+  // NODE note: local, so it prints first and survives a failed fetch. A
+  // mismatch is REPORTED, never fatal and never a `--strict` input: refusing to
+  // run on this Node is the floor checks' verdict to give.
   note(
     nodeFloorLines(nodeFloorStatus(process.versions.node)).join('\n'),
     'NODE',
   );
 
-  // What a configured proxy means here (nothing: fetch never uses one), emitted
-  // ONCE above the branch so it precedes EVERY fetch this command can make —
-  // `--no-drift`'s SKILLS_VERSION read and the drift path's clone alike. BOTH
-  // branches are network-bearing, and that is the whole correction: this block
-  // used to sit inside the drift branch, justified by "`--no-drift` never
-  // clones". True, and irrelevant — never clones is not never fetches, and
-  // `--no-drift` still reaches the network at `fetchRemoteSkillsVersion`. So the
-  // one user the notice exists for (proxy-only, direct egress blocked) got an
-  // unexplained timeout from the single path that skipped it, against
-  // LIMITS.md §3a: EVERY network-bearing command warns before fetching.
-  //
-  // Above both spinners for the same reason it was always pre-spinner: a
-  // log.warn into a live clack spinner frame is overwritten, and each branch
-  // starts its own spinner below (see src/commands/init.ts for the full
-  // rationale). Still below loadArchetypeConfigOrExit, so a legacy-config
-  // refusal keeps winning at zero round-trips.
+  // The proxy notice, emitted ONCE above the branch so it precedes every fetch
+  // — `--no-drift` still fetches SKILLS_VERSION (LIMITS.md §3a) — and above both
+  // spinners, since a log.warn into a live clack spinner frame is overwritten.
   const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
     log.warn(proxyNoticeMessage(proxyNotice));
   }
 
-  // The channel the install follows, never a flag: `status` reports on the
-  // install as it is configured. A release that cannot be resolved fails the
-  // command (exit 1) on both paths, exactly like an unreachable fetch did.
+  // The channel the install follows, never a flag. An unresolvable release
+  // fails the command (exit 1) on both paths.
   const channel = channelOf(config);
 
   if (!drift) {
@@ -293,22 +267,18 @@ async function runArchetypeStatus(
     );
     printModels(config);
     printPrettierignore(cwd);
-    // Exclude FROZEN capabilities — the ones the fetch boundary could not parse
-    // in this clone. `update` deliberately keeps their config entry but never
-    // writes their files, so comparing them here would report drift that no
-    // command can ever resolve and make `status --strict` exit 1 forever over a
-    // transient upstream grammar break. The two commands must agree about which
-    // capabilities this install actually owns bytes for.
+    // Exclude FROZEN capabilities: `update` keeps their entry but never writes
+    // their files, so comparing them would report drift no command can resolve
+    // and fail `--strict` forever over a transient upstream break.
     const index = parseCapabilityIndex(repo.dir);
     const unknownWarning = unknownCapabilitiesWarning(index.unknown);
     if (unknownWarning) log.warn(unknownWarning);
     const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
     const recordedLayout = configLayout(config);
     const upstreamLayout = detectLayout(repo.dir);
-    // A recorded layout the clone does not ship: nothing is compared (CORE-167)
-    // — the expected set would sit at paths the clone does not use, so whole
-    // capability directories dropped out unreported. The LAYOUT note says why
-    // and what moves the install; it fails --strict.
+    // A recorded layout the clone does not ship: nothing is compared, since
+    // whole capability dirs would drop out unreported. The LAYOUT note says
+    // what moves the install; it fails --strict.
     const mismatch = layoutMismatch(recordedLayout, upstreamLayout);
     let result: InstallDiff | undefined;
     let absentUpstream: readonly AbsentSurface[] | undefined;
@@ -323,22 +293,20 @@ async function runArchetypeStatus(
         ),
         layout: recordedLayout,
       });
-      // The declared product surfaces upstream ships NO file for, at the
-      // CLONE's own layout — so the label means exactly that.
+      // Declared surfaces upstream ships NO file for, at the CLONE's layout.
       absentUpstream = absentInstallSurfaces({
         repoDir: repo.dir,
         layout: upstreamLayout,
       });
       printDriftSection(result, absentUpstream, sourceLabel(repo.source));
     }
-    // ORPHANED: report only — never a --strict input (no pharn command can
-    // clear one; update never deletes).
+    // ORPHANED: report only — no pharn command can clear one.
     const orphanLines = orphanNoteLines(
       statusOrphans(repo.dir, cwd, config, frozen) ?? [],
     );
     if (orphanLines) note(orphanLines.join('\n'), 'ORPHANED');
-    // HOOKS: settings.json is user-owned and never compared as a file above;
-    // what IS checked is whether every hook upstream wires is wired here.
+    // HOOKS: settings.json is never compared as a file; what IS checked is
+    // whether every upstream hook is wired here.
     const hooks = diffHookWiring(repo.dir, cwd);
     const hookLines = hookWiringLines(hooks);
     if (hookLines) note(hookLines.join('\n'), 'HOOKS');
@@ -365,10 +333,9 @@ async function runArchetypeStatus(
   outro(pc.dim('Read-only — nothing changed.'));
 }
 
-// `--no-drift`'s version check: what the channel offers, without a clone. On
-// `latest` that is ONE bounded GET (`releases/latest` — its tag names the
-// version; nothing is downloaded, so the tag's commit is never resolved); on
-// `main`, the tip's SKILLS_VERSION file. Both fail closed (throw).
+// `--no-drift`'s version check without a clone: ONE bounded GET of
+// `releases/latest` on `latest`, the tip's SKILLS_VERSION on `main`. Both fail
+// closed.
 async function latestWithoutClone(
   channel: RefChoice,
 ): Promise<{ latest: string; source: SourceSummary }> {
@@ -382,23 +349,18 @@ async function latestWithoutClone(
   };
 }
 
-// The channel the config records, for the VERSION note. `main` is recorded by
-// the key's absence (lib/release.ts), so the row cannot tell an explicit
-// `--ref main` from an install made before `--ref` existed — and does not try.
+// The channel the config records. `main` is the key's absence, so an explicit
+// `--ref main` and a pre-`--ref` install read the same.
 function channelRow(channel: RefChoice): string {
   return channel === 'latest'
     ? row('Channel', 'latest — verified releases')
     : `${row('Channel', 'main — the pharn-oss tip')} ${pc.dim('(`pharn update --ref latest` follows verified releases)')}`;
 }
 
-// VERSION note for an archetype install: skillsVersion currency + a summary of
-// the detected archetypes and installed capability count. Returns outdated.
-//
-// AHEAD is not outdated (lib/version-status.ts): the install is newer than the
-// source it follows — ahead of the newest verified release (installed from
-// main, then switched), or ahead of main itself (main moved back) — and
-// `pharn update` refuses that downgrade without `--force`, so `--strict` must
-// not fail on it either, or CI would demand a run that does nothing.
+// VERSION note: skillsVersion currency + an archetype / capability summary.
+// Returns outdated. AHEAD is not outdated (lib/version-status.ts): `update`
+// refuses that downgrade without `--force`, so `--strict` must not fail on it,
+// or CI would demand a run that does nothing.
 function printArchetypeVersion(
   config: PharnConfig,
   latest: string,
@@ -409,16 +371,14 @@ function printArchetypeVersion(
     installed: config.skillsVersion,
     latest,
   });
-  // The config's own string: validated at load (VERSION_RE, F-18) and
-  // sanitized again at the one place it reaches the terminal.
+  // The config's VERSION_RE-validated string, sanitized again.
   const installed = terminalSafe(config.skillsVersion);
   const aheadNote =
     source.kind === 'release'
       ? `(ahead of the latest verified release v${latest} — installed from main)`
       : `(ahead of pharn-oss main (v${latest}) — main has moved back; \`pharn update --force\` downgrades)`;
-  // On the release channel the answer is about RELEASES: is a newer verified
-  // one out than the installed SKILLS_VERSION (`versionStatus`, the one
-  // comparator) — the tag passed RELEASE_TAG_RE before it got here.
+  // On the release channel: is a newer verified release out than the
+  // installed SKILLS_VERSION?
   const outdatedNote =
     source.kind === 'release'
       ? `(newer verified release ${source.tag} — run \`pharn update\`)`
@@ -444,14 +404,10 @@ function printArchetypeVersion(
   return outdated;
 }
 
-// MODELS note: the `models` block, resolved per product stage — a declaration,
-// labeled as one. /pharn-ship and /pharn-loop read it to pick the model they
-// request for routed stages (never effort); a directly invoked /pharn-* stage
-// uses its own frontmatter, which the block is held to, and pharn-oss's
-// checker (installed under the floor dir) compares the two on request. Omitted
-// when `models` is absent (P7 additive/legacy). Read-only, local (no clone),
-// and NOT a `--strict` input: the block's verdict is pharn-oss's checker's to
-// give — this note reports it, through this CLI's pinned copy of its rules.
+// MODELS note: the `models` block resolved per product stage, labeled as a
+// declaration. Omitted when absent. Local, and NOT a `--strict` input: the
+// block's verdict is pharn-oss's checker's, reported through this CLI's pinned
+// copy of its rules.
 function printModels(config: PharnConfig): void {
   if (config.models === undefined) return;
   const floor = layoutPaths(configLayout(config)).floor;
@@ -489,11 +445,9 @@ function modelsNoteLines(block: unknown, floor: string): string[] {
   ];
 }
 
-// What `pharn update` would add to `.prettierignore` (lib/prettierignore.ts),
-// derived from the usable record store — the paths pharn recorded writing, the
-// same input as update's same-version re-open. null without a usable store
-// (nothing local says what pharn wrote). Local and read-only, so it is
-// answered with or without `--no-drift`.
+// What `pharn update` would add to `.prettierignore`, derived from the usable
+// record store (the same input as update's re-open); null without one. Local,
+// so answered with or without `--no-drift`.
 function statusPrettierignore(cwd: string): PrettierignorePlan | null {
   const { records } = recordsBaseline(readRecords(cwd));
   return records === null
@@ -501,9 +455,7 @@ function statusPrettierignore(cwd: string): PrettierignorePlan | null {
     : planPrettierignore(cwd, Object.keys(records));
 }
 
-// PRETTIER note: the project uses Prettier and its `.prettierignore` does not
-// cover what pharn installs and rewrites. Advisory — never a `--strict` input
-// (`pharn update` adds the lines; a refused file needs the user).
+// PRETTIER note — advisory, never a `--strict` input.
 function printPrettierignore(cwd: string): void {
   const plan = statusPrettierignore(cwd);
   const lines =
@@ -511,15 +463,10 @@ function printPrettierignore(cwd: string): void {
   if (lines !== null) note(lines.text, 'PRETTIER');
 }
 
-// Recorded files the install no longer owns (lib/orphans.ts), or null when
-// that cannot be determined. This is the ONLY reason status reads
-// pharn.records.json: the drift section above stays a records-free byte compare.
-//
-// null — not "none" — when the store is absent / invalid (no baseline to name
-// a file by; a store stamped for another state is still one), or when the
-// clone is at another layout than the install: the expected set is then derived at paths the clone does
-// not have, so nearly every recorded file would read as orphaned. `update` is
-// the command that migrates the layout, and it names the copies it leaves.
+// Recorded files the install no longer owns (lib/orphans.ts) — the ONLY reason
+// status reads pharn.records.json. null — not "none" — without a usable store,
+// or when the clone is at another layout than the install, where nearly every
+// recorded file would read as orphaned.
 function statusOrphans(
   repoDir: string,
   cwd: string,
@@ -547,13 +494,10 @@ function statusOrphans(
   }).orphans;
 }
 
-// LAYOUT note, printed only when the install is recorded at a layout the
-// fetched clone does not ship (CORE-167): it replaces the DRIFT section, and it
-// fails --strict. `pharn update` moves the install (it records the clone's
-// layout) — but at the same skills version its early return never looks at the
-// layout and says "Already up to date", so the note names `--force` too, with
-// what that costs. Every command named either moves the install without
-// overwriting edits or says that it overwrites them.
+// LAYOUT note, printed in place of DRIFT when the install is recorded at a
+// layout the clone does not ship; it fails --strict. At the same skills version
+// `update`'s early return answers "Already up to date", so the note names
+// `--force` too, with what it costs.
 function printLayoutNote(recorded: Layout, upstream: Layout): void {
   note(
     [
@@ -576,10 +520,8 @@ function printLayoutNote(recorded: Layout, upstream: Layout): void {
   );
 }
 
-// DRIFT note: differing, missing and unreadable PHARN-owned files, the declared
-// surfaces upstream ships nothing for, or a clean bill. Takes the InstallDiff
-// type rather than an inline structural literal, so a partition added to the
-// diff cannot be silently left unrendered here.
+// DRIFT note. Takes the InstallDiff type, so a partition added to the diff
+// cannot be silently left unrendered.
 function printDriftSection(
   result: InstallDiff,
   absentUpstream: readonly AbsentSurface[],
@@ -597,10 +539,8 @@ function printDriftSection(
 
   const lines: string[] = [];
   if (result.modified.length) {
-    // "DIFFERS FROM …", not "locally modified": this comparison is against
-    // what upstream ships NOW, so a file can differ because UPSTREAM moved, not only
-    // because the user edited it. `update` is the command that can tell those
-    // apart (it has the per-file install records); this report cannot.
+    // "DIFFERS FROM …", not "locally modified": upstream may have moved. Only
+    // `update`, with the install records, can tell the two apart.
     lines.push(`  DIFFERS FROM ${ref} (PHARN-owned)`);
     for (const p of result.modified) lines.push(`  ${p}`);
     lines.push(
@@ -613,12 +553,9 @@ function printDriftSection(
     if (lines.length) lines.push('');
     lines.push('  MISSING (expected but absent)');
     for (const p of result.missing) lines.push(`  ${p}`);
-    // A plain `update` restores these and keeps edits: `findMissingInstalled`
-    // re-opens its same-version early return for a provably missing capability
-    // dir or a key of a USABLE records store. `--force` also overwrites every
-    // edited file, so it is named only as the fallback for what that re-open
-    // cannot see (no usable store, or a file upstream added at the same
-    // skills version), never as the first advice (CORE-163).
+    // A plain `update` restores these and keeps edits (findMissingInstalled
+    // re-opens its early return). `--force` overwrites every edit, so it is
+    // only the fallback for what that re-open cannot see.
     lines.push(
       pc.dim(
         '  Run `pharn update` to restore them (files you edited are kept).',
@@ -634,10 +571,8 @@ function printDriftSection(
     );
   }
   if (result.unreadable.length) {
-    // Last, mirroring update's SKIP_ORDER: these are neither an edit nor an
-    // absence, and nothing pharn can run resolves them — only the user can.
-    // The heading is update's skip heading verbatim, because the write side
-    // refuses these exact paths for the exact same reason.
+    // Last, as in update's SKIP_ORDER, with update's heading verbatim: only the
+    // user can resolve these.
     if (lines.length) lines.push('');
     lines.push('  UNREADABLE — not a regular readable file');
     for (const { rel, reason } of result.unreadable) {
@@ -652,9 +587,7 @@ function printDriftSection(
     );
   }
   if (absentUpstream.length) {
-    // Not a file of the project's: a surface the install declares and the
-    // clone ships no file for, so nothing was installed there. No pharn
-    // command can fix it — upstream moved or dropped it.
+    // A declared surface the clone ships no file for; no pharn command fixes it.
     if (lines.length) lines.push('');
     lines.push(`  NOT SHIPPED UPSTREAM — ${ref} has no file here`);
     for (const { surface, path } of absentUpstream) {

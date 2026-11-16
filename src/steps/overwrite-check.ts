@@ -20,56 +20,28 @@ import { safeJoin, VERSION_RE } from '../lib/validate.js';
 import type { Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// The pre-install write-target conflict check (init stage). PHARN installs into
-// an EXISTING project (CLAUDE.md), so the only real init risk is overwriting
-// files that already exist. This computes the exact paths the archetype install
-// would write (lib/install-manifest.ts, derived from the fetched clone's layout +
-// the resolved selection) that ALREADY exist in the project, and — only when that
-// set is non-empty — warns listing them and confirms (default No). A conflict-free
-// project gets NO prompt at all (zero friction).
-//
-// Subsumes the old init.ts confirmOverwriteIfExists (which guarded only
-// pharn.config.json): conflictingWriteTargets includes pharn.config.json, so a
-// re-install still prompts — now naming every file at risk, in one prompt, with no
-// double-warn.
-//
-// Determinism (P5): the branch is `conflicts.length > 0`, a membership test over a
-// deterministic set; the terminal fallback is the confirm's default No (a safe
-// cancel), never a guess. Trust (P2): the paths come from the untrusted clone but
-// are path-contained (safeJoin, in install-manifest) and only displayed as data —
-// never executed. One axis (P3): the write-target conflict init stage.
+// The pre-install write-target conflict check. PHARN installs into an EXISTING
+// project, so init's real risk is overwriting files that already exist: this
+// lists the install's write targets that ALREADY exist (pharn.config.json
+// included) and, only then, confirms (default No). A conflict-free project gets
+// no prompt. The paths come from the untrusted clone but are safeJoin-contained
+// and only displayed.
 // ---------------------------------------------------------------------------
 
 // The list cap, shared with init's --yes refusal (lib/write-targets.ts).
 export { MAX_LISTED };
 
 // The `skillsVersion` the project's own pharn.config.json records, or null when
-// there is not one worth showing. Cosmetic input, cosmetic failure.
+// there is none worth showing — cosmetic input, cosmetic failure.
 //
-// DELIBERATELY NOT readPharnConfig (lib/pharn-config.ts). That reader lets
-// CapabilityEntryError / CapabilitySourceError / ArchetypesError PROPAGATE so a bad
-// hand-edit is never collapsed into the "run init" lie — correct for every
-// command that must not act on a config it failed to understand. But `init` IS
-// the command you run to REPAIR a broken config, and it has no recovery around
-// this stage: an unguarded read here would turn a repairable config into an
-// aborting init. So this reads the ONE scalar it displays and treats EVERY
-// failure (absent, EISDIR, EACCES, truncated JSON, a JSON scalar at top level,
-// a missing or wrong-typed field) as "no version to show" — it can never change
-// the prompt's outcome, only whether one extra clause is printed.
-//
-// Kept file-local and UNEXPORTED on purpose (P3): a total-catch reader is right
-// for decorating one prompt and wrong for every other caller, so it must not
-// become importable from the module whose whole point is that it throws.
-//
-// Trust (P2): the value reaches a terminal warning, so it is filtered through
-// VERSION_RE — the same allowlist readSkillsVersion holds the upstream
-// SKILLS_VERSION to — before interpolation. A hand-edited escape sequence is
-// DROPPED, never printed. The read is safeJoin-contained under the project root
-// even though PHARN_CONFIG_FILE is a compile-time constant. Zero network: this
-// is the local config's number, never upstream's.
+// Deliberately NOT readPharnConfig, which throws on a bad hand-edit: `init` is
+// the command that REPAIRS a broken config, so this reads the one scalar it
+// displays and treats every failure as "no version to show". File-local and
+// unexported: a total-catch reader is wrong for any other caller. Filtered
+// through VERSION_RE before reaching the terminal, so an escape sequence is
+// dropped, never printed.
 function recordedSkillsVersion(cwd: string): string | null {
-  // Bounded and non-blocking (lib/bounded-read.ts): a FIFO here must not hang
-  // the prompt it only decorates.
+  // Bounded and non-blocking: a FIFO must not hang the prompt it decorates.
   const read = readJsonBounded(safeJoin(cwd, PHARN_CONFIG_FILE));
   if (read.kind !== 'ok') return null;
   const parsed = read.value;
@@ -81,25 +53,16 @@ function recordedSkillsVersion(cwd: string): string | null {
 }
 
 /**
- * What the user decided about overwriting existing write targets.
- *
- * Three states, not a boolean, and the third is the point: this stage must
- * NEVER call process.exit. It runs inside init's `try`, whose
- * `finally { repo.cleanup() }` disposes of the multi-megabyte temp clone — and
- * Node does not run `finally` on process.exit. Exiting from here therefore
- * orphaned the clone on every Ctrl+C, which is reachable on ANY re-install
- * since an existing pharn.config.json alone makes the conflict set non-empty.
- *
- * The caller owns the exit and takes it after the finally, exactly as
- * runArchetypeSummary's 'cancel' already does one prompt earlier. `decline` and
- * `cancel` are kept DISTINCT even though init maps both to `cancelled`:
- * collapsing them back into one boolean is precisely how the exit crept in.
+ * What the user decided about overwriting existing write targets. Three
+ * states, and this stage NEVER calls process.exit: it runs inside init's `try`,
+ * whose `finally` disposes of the temp clone, which Node skips on exit. The
+ * caller exits after the finally. `decline` and `cancel` stay DISTINCT even
+ * though init maps both to `cancelled`.
  */
 export type WriteTargetsAction = 'proceed' | 'decline' | 'cancel';
 
 // One line per group: WHY these files are backed up. "Your edits" is claimed
-// only where pharn can show it — a file that changed since pharn recorded
-// writing it; without a usable records store the line says so instead.
+// only where pharn can show it.
 function labelLine(label: DriftLabel, n: number): string {
   const one = n === 1;
   switch (label) {
@@ -113,18 +76,15 @@ function labelLine(label: DriftLabel, n: number): string {
 }
 
 /**
- * What init already knows when it asks: the install manifest it computed once
- * for this run (commands/init.ts), and the records baseline of the install it
- * replaces (steps/install-archetype.ts → reinstallBaseline). Each is optional:
- * no manifest → computed here; no records → every differing file is
- * `unverifiable`.
+ * What init already knows when it asks: the manifest it computed once and the
+ * replaced install's records baseline. No manifest → computed here; no records
+ * → every differing file is `unverifiable`.
  */
 export interface WriteTargetsContext {
   manifest?: ReadonlyMap<string, string>;
   records?: FileRecords | null;
-  // The dropped capabilities' directories this install would delete
-  // (lib/init-plan.ts → planInitRemovals). Listed in the same prompt; with any
-  // to delete, the prompt is shown even when nothing would be overwritten.
+  // The dropped capability directories this install would delete, listed in
+  // the same prompt; any deletion shows the prompt even with no overwrite.
   removals?: readonly CapabilityRemoval[];
 }
 
@@ -143,18 +103,12 @@ export async function confirmWriteTargets(
       capabilities: selection.selected,
       layout: detectLayout(repoDir),
     });
-  // Which targets exist, which of them the install will back up (the files
-  // `update` would have SKIPPED), and the order to list them in — one
-  // computation shared with `init --dry-run` and `init --yes`
-  // (lib/write-targets.ts). A file still at the hash pharn recorded is pharn's
-  // own bytes, merely outdated: not marked, not backed up.
-  //
-  // ADVISORY: runInstallArchetype re-scans under the lock, immediately before
-  // the copy, and that scan is the one that backs files up — this snapshot
-  // only labels the list. `pharn.config.json` is outside the manifest (init
-  // regenerates it), so it is never scanned: an existing one is marked on its
-  // own (`configBackedUp`), ranked right after the labelled files so the
-  // MAX_LISTED cap cannot hide it, and always backed up.
+  // Which targets exist, which will be backed up (the files `update` would
+  // have SKIPPED), and their order — one computation shared with `init
+  // --dry-run` and `init --yes` (lib/write-targets.ts). ADVISORY: the install
+  // re-scans under the lock right before the copy. An existing
+  // `pharn.config.json` is always backed up and ranked right after the
+  // labelled files, so the MAX_LISTED cap cannot hide it.
   const { conflicts, labels, configBackedUp, removals } = planWriteTargets({
     repoDir,
     projectRoot: cwd,
@@ -164,8 +118,8 @@ export async function confirmWriteTargets(
     removals: context.removals,
   });
   const deletes = removalLines(removals);
-  // Zero friction — nothing to overwrite and nothing to delete. A deletion is
-  // destructive on its own, so it always asks.
+  // Nothing to overwrite and nothing to delete → no prompt. A deletion always
+  // asks.
   if (conflicts.length === 0 && deletes.length === 0) return 'proceed';
   const deleteBackups = removals
     .filter((r) => r.present)
@@ -199,10 +153,8 @@ export async function confirmWriteTargets(
   const configLine = configBackedUp
     ? `\n${PHARN_CONFIG_FILE} will be rewritten (models reset to its default); it will be copied to ${BACKUP_DIR}/ first.`
     : '';
-  // Only when the config itself is at risk — i.e. a re-install over an existing
-  // one — and only AFTER the zero-conflict return above, so a conflict-free
-  // project still reaches none of this (P5: the branch stays `conflicts.length
-  // > 0`, and a banner must never turn a silent install into a prompting one).
+  // Only on a re-install over an existing config, and only after the
+  // zero-conflict return above, so a banner never makes a silent install prompt.
   const version = conflicts.includes(PHARN_CONFIG_FILE)
     ? recordedSkillsVersion(cwd)
     : null;
@@ -210,9 +162,8 @@ export async function confirmWriteTargets(
     version === null
       ? 'PHARN installs into your existing project.'
       : `PHARN installs into your existing project (currently at skills v${version}).`;
-  // Direct clack rather than a confirm.ts helper, mirroring
-  // steps/archetype-summary.ts: every helper there ends in cancelAndExit, and
-  // this stage's whole contract is that it does not exit.
+  // Direct clack rather than a confirm.ts helper: every helper there ends in
+  // cancelAndExit, and this stage must not exit.
   log.warn(
     `${intro} These paths already exist and may be overwritten:\n${list}${editsLine}${configLine}${deleteBlock ? `\n${deleteBlock}` : ''}`,
   );

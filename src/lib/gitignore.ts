@@ -10,29 +10,22 @@ import {
 import { safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
-// pharn's lines in the project's root `.gitignore`. One axis (P3): make sure
-// git never tracks PHARN's runtime scratch (`pharn/.run/`, written by
-// pharn-oss's floor at a fixed path for every layout) or this CLI's backups
-// (`pharn/.backup/`). A tracked run directory turned a correct build into 55
-// "escapes" in pharn-oss's reconcile (pharn-oss #408), and a backup holds the
-// user's pre-overwrite bytes, which do not belong in a commit.
+// pharn's lines in the project's root `.gitignore`: git must never track
+// PHARN's runtime scratch (`pharn/.run/`, written by pharn-oss's floor for
+// every layout — a tracked one breaks pharn-oss's reconcile) or this CLI's
+// backups (`pharn/.backup/`, the user's pre-overwrite bytes).
 //
-// APPEND-ONLY. The new file is the old file's exact bytes followed by pharn's
-// block — never a decode/re-encode, never a reorder, never a removed line. An
-// entry already covered (in any recognised spelling, or deliberately negated)
-// is not added, so a second run writes nothing.
+// APPEND-ONLY: the new file is the old file's exact bytes plus pharn's block,
+// never re-encoded or reordered. An entry already covered (or deliberately
+// negated) is not added, so a second run writes nothing.
 //
-// What this does NOT promise (advisory, P0): a `.gitignore` line does not
-// untrack a file already committed, and a broader pattern that also covers the
-// path (`pharn/`, `pharn/.*`, `*`) is not recognised — pharn then appends its
-// own line, which is redundant and harmless.
+// NOT promised: a line does not untrack a committed file, and a broader
+// pattern (`pharn/`, `*`) is not recognised — pharn then appends a redundant,
+// harmless line.
 //
-// Trust (P2): `.gitignore` is project content and may be hostile. It is read
-// bounded and only compared against fixed literals; its text never reaches a
-// terminal and never drives a path. The only write target is the fixed root
-// `.gitignore`, replaced atomically — never written through a symlink or into a
-// hard-linked inode. The reading, parsing and appending are lib/ignore-file.ts,
-// shared with lib/prettierignore.ts; the covered test below is this file's.
+// `.gitignore` is project content: read bounded, compared only against fixed
+// literals, never printed, never a path. The write is atomic and never through
+// a symlink or into a hard-linked inode. Mechanics: lib/ignore-file.ts.
 // ---------------------------------------------------------------------------
 
 export const GITIGNORE_FILE = '.gitignore';
@@ -85,13 +78,10 @@ export function decidedEntries(bytes: Buffer): Set<GitignoreEntry> {
 }
 
 /**
- * The bytes to APPEND to `bytes` (null = no file yet) so that every entry is
- * decided, and which entries they add. Empty when nothing is missing.
- *
- * Line endings follow the file: CRLF when its first line ending is `\r\n`,
- * else LF (and LF for a new file). A non-empty file that does not end in a line
- * ending gets one first, so pharn's block starts on a line of its own. The
- * comment is written only when the file does not already hold it.
+ * The bytes to APPEND to `bytes` (null = no file yet) so every entry is
+ * decided, and which entries they add; empty when nothing is missing. Line
+ * endings follow the file's first one; a file lacking a final newline gets one
+ * first; the comment is written only once per file.
  */
 export function gitignoreAddition(bytes: Buffer | null): {
   entries: GitignoreEntry[];
@@ -102,8 +92,7 @@ export function gitignoreAddition(bytes: Buffer | null): {
   return { entries, append: ignoreAddition(bytes, entries, GITIGNORE_COMMENT) };
 }
 
-// The plan plus the bytes it was made from, so apply writes exactly what it
-// planned over.
+// The plan plus the bytes it was made from, so apply writes over exactly those.
 function readPlan(projectRoot: string): {
   plan: GitignorePlan;
   old: Buffer | null;
@@ -133,10 +122,9 @@ export function planGitignore(projectRoot: string): GitignorePlan {
 }
 
 /**
- * Make `.gitignore` cover pharn's entries: plan again (callers run this under
- * the project lock, after the install wrote everything else), then write the
- * old bytes plus the addition atomically. A refusal writes nothing; a failed
- * write is returned, never thrown — the install it follows has already landed.
+ * Make `.gitignore` cover pharn's entries: re-plan (under the project lock,
+ * after every other write), then write the old bytes plus the addition
+ * atomically. A failed write is returned, never thrown.
  */
 export async function applyGitignore(
   projectRoot: string,
@@ -181,8 +169,8 @@ const REFUSAL_TEXT: Record<GitignoreRefusal, string> = {
 
 /**
  * The lines that report `outcome` — ONE wording for `init`, `update` and both
- * dry runs. `preview` = future tense (a dry run). Null when there is nothing to
- * say. `warn` marks lines a caller prints as a warning.
+ * dry runs (`preview` = future tense). Null when there is nothing to say; `warn`
+ * marks a warning.
  */
 export function gitignoreLines(
   outcome: GitignoreOutcome,
@@ -226,9 +214,8 @@ export type GitignoreReport =
   | { action: 'refused'; reason: GitignoreRefusal; entries: string[] };
 
 /**
- * The JSON form of `plan`, or null when nothing would change — the caller then
- * omits the key, so a report with nothing to add keeps its earlier bytes.
- * Built field by field: every value is a fixed literal.
+ * The JSON form of `plan`, or null when nothing would change (the caller then
+ * omits the key). Every value is a fixed literal.
  */
 export function gitignoreReport(plan: GitignorePlan): GitignoreReport | null {
   switch (plan.action) {

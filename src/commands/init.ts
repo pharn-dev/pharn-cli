@@ -80,8 +80,7 @@ export interface InitOptions {
   ref?: RefChoice;
   // `--archetype`: install for these instead of the detected archetypes.
   archetypes?: Archetype[];
-  // Install without prompts — but ONLY where nothing would be overwritten
-  // (see the TTY gate below).
+  // Install without prompts — ONLY where nothing would be overwritten.
   yes?: boolean;
   // Plan, print, write nothing.
   dryRun?: boolean;
@@ -93,40 +92,26 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
   const yes = opts.yes ?? false;
   const dryRun = opts.dryRun ?? false;
   const json = opts.json ?? false;
-  // `--json` is the dry run's machine-readable form and nothing else: the
-  // dispatch refuses it alone, and a direct caller fails closed here rather than
-  // reaching a real install that would print clack chrome into a JSON consumer.
+  // `--json` is the dry run's machine-readable form only; a direct caller fails
+  // closed rather than printing clack chrome into a JSON consumer.
   if (json && !dryRun) {
     reportFatalPlain('--json is only available with --dry-run.');
     process.exit(1);
   }
-  // FIRST, before even the git prerequisite: the Node floor is a fact about the
-  // environment that nothing later can repair, and an install made on a Node the
-  // PHARN floor checkers refuse to run on would fail mid-run. Refuses with
-  // nothing written, ahead of every prompt and every network call.
+  // FIRST: the Node floor is environmental and nothing later can repair it; an
+  // install on a Node the floor checkers refuse would fail mid-run.
   runNodePrereq('init', { json });
 
   runGitPrereq({ json });
 
-  // Non-TTY (CI, a pipe) → NEVER prompt into the void: a usage error + exit(1),
-  // BEFORE `fetchRepo` (P5 — the terminal fallback is a hard-fail, not a guess).
-  // Without this, init's first prompt (the archetype summary's select) renders
-  // into a dead stream and cancels through cancelAndExit's exit(0) — a silent
-  // no-op that has ALREADY paid for a full clone, since the fetch precedes it.
-  // Refusing here wastes no network round trip at all.
+  // Non-TTY (CI, a pipe) → hard-fail BEFORE `fetchRepo`: the first prompt would
+  // render into a dead stream and cancel through cancelAndExit's exit(0), a
+  // silent no-op that had already paid for a clone. The git prerequisite runs
+  // first so a directory with no `.git` gets the more useful error.
   //
-  // The prereq runs FIRST and deliberately so: a directory with no `.git` gets
-  // the more useful "run git init" error, exactly as `update` lets its config
-  // error win over this message.
-  //
-  // Two runs prompt nothing, so they have nothing to gate. `--dry-run` writes
-  // nothing. `--yes` skips the summary confirm and NEVER answers the second,
-  // destructive one: it installs only when none of init's write targets exists
-  // (so there is nothing to confirm), and otherwise refuses — before the lock
-  // and again under it. Auto-confirming file overwrites in a pipeline is the
-  // hazard that prompt exists to prevent, so `--yes` does not; a re-install
-  // (where `pharn.config.json` always exists) therefore always refuses it and
-  // is pointed at `pharn update` — right below this gate, before any fetch.
+  // `--dry-run` prompts nothing. `--yes` skips the summary confirm and NEVER
+  // answers the destructive overwrite one: it installs only when none of init's
+  // write targets exists, and otherwise refuses (a re-install always does).
   if (
     !dryRun &&
     !yes &&
@@ -141,12 +126,11 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
     process.exit(1);
   }
 
-  // `--yes` over an existing `pharn.config.json`: a CERTAIN refusal — that file
-  // is always one of init's write targets — so it is decided here, from one
-  // local existence test, rather than after downloading the tarball only to
-  // refuse (CORE-168). Same exit and ways forward as the in-run refusal, which
-  // still guards every other target (before the lock and under it). A policy
-  // refusal: no PHARN_DEBUG hint. `--dry-run` writes nothing, so it previews.
+  // `--yes` over an existing `pharn.config.json` is a CERTAIN refusal (that file
+  // is always a write target), so it is decided from one local existence test
+  // rather than after downloading the tarball. Same exit and ways forward as the
+  // in-run refusal, which still guards every other target. A policy refusal: no
+  // PHARN_DEBUG hint.
   if (yes && !dryRun) {
     const refusal = existingConfigRefusal(process.cwd());
     if (refusal !== null) {
@@ -155,25 +139,19 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
     }
   }
 
-  // The banner and intro come only now, AFTER the Node floor, the git
-  // prerequisite, the TTY gate and the `--yes` config check: a refused init
-  // prints its one error and nothing else, rather than a logo on stdout above
-  // an error on stderr. Under `--json` NOTHING reaches stdout but the one
-  // report: no banner, no clack.
+  // The banner and intro only now, after every refusal above, so a refused init
+  // prints its one error and no logo. Under `--json` stdout holds only the report.
   if (!json) {
     showBanner();
     intro(dryRun ? 'pharn init --dry-run' : 'init wizard');
   }
 
-  // Archetype-driven install is the default (and only) init flow: detect the
-  // project's archetype(s) and install the applicable capabilities. Framework-
-  // agnostic — no module catalog / manifest fetch. (The legacy module/wizard
-  // flow was removed entirely; add/update/status/remove reject a pre-archetype
-  // config up front via loadArchetypeConfigOrExit — there is no manifest fallback.)
+  // The archetype-driven install, the only init flow: detect the project's
+  // archetype(s) and install the applicable capabilities.
   await runInitArchetype({
-    // A NEW install takes the newest verified release unless `--ref main`
-    // (lib/release.ts); `refExplicit` lets a re-run's summary say when the
-    // default moved an install off `main`.
+    // A NEW install takes the newest verified release unless `--ref main`;
+    // `refExplicit` lets a re-run's summary say when the default moved it off
+    // `main`.
     channel: opts.ref ?? DEFAULT_INIT_REF,
     refExplicit: opts.ref !== undefined,
     override: opts.archetypes,
@@ -197,23 +175,20 @@ interface RunMode {
   json: boolean;
 }
 
-// schemaVersion-free archetype flow: detect archetypes from the project, fetch
-// pharn-oss, derive + resolve the capability index, confirm, then copy the
-// applicable capabilities + product surfaces. The fetched temp clone lives
-// across the interactive summary, so cleanup runs in a finally and every
-// process.exit / cancelAndExit happens AFTER it (Node skips finally on exit).
+// Detect archetypes, fetch pharn-oss, resolve the capability index, confirm,
+// then copy the capabilities + product surfaces. The temp clone lives across
+// the prompts, so cleanup runs in a finally and every process.exit /
+// cancelAndExit happens AFTER it (Node skips finally on exit).
 async function runInitArchetype(mode: RunMode): Promise<void> {
   const { channel, refExplicit, override, yes, dryRun, json } = mode;
-  // `--json` swaps the sinks, not the logic: diagnostics and failures as plain
-  // stderr lines (stdout empty, exit 1), and no spinner.
+  // `--json` swaps the sinks, not the logic.
   const warn = json
     ? (message: string) => logErrorPlain(message)
     : (message: string) => log.warn(message);
   const fatal = json ? reportFatalPlain : reportFatal;
   const cwd = process.cwd();
   // `--archetype` REPLACES detection: it is what is resolved, installed and
-  // recorded (so `update` keeps it). Detection still runs — local and bounded —
-  // so the summary and the dry-run report can show what it would have chosen.
+  // recorded. Detection still runs (local, bounded) so the summary can show it.
   const detection = detectArchetypesFromProject(cwd);
   const archetypes = override ?? detection.archetypes;
   const origin: ArchetypeOrigin = override
@@ -228,16 +203,11 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         evidence: detection.evidence,
         truncated: detection.truncated,
       };
-  // The archetypes are printed ONCE, in the summary (archetypeOriginLines) —
-  // not also in a note ahead of it (CORE-168).
+  // The archetypes are printed ONCE, in the summary (archetypeOriginLines).
 
-  // pharn's fetches go through Node's global fetch, which reads NO proxy
-  // environment variable on any platform — so a configured proxy is simply
-  // unused, and in a network that blocks direct egress the only symptom is a
-  // timeout with nothing pointing at the cause (LIMITS.md §3a). Emit BEFORE the
-  // spinner starts, for two reasons: a log.warn into an active clack spinner
-  // frame is overwritten, and a fetch that FAILS because of a proxy-only network
-  // is exactly when the user most needs to have been told.
+  // Node's global fetch reads NO proxy variable, so a configured proxy is
+  // unused and a blocked network only times out (LIMITS.md §3a). Emitted BEFORE
+  // the spinner: a log.warn into an active clack spinner frame is overwritten.
   const proxyNotice = detectProxyNotice(process.env);
   if (proxyNotice) {
     warn(proxyNoticeMessage(proxyNotice));
@@ -247,10 +217,9 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
   s.start(`Fetching PHARN from ${REPO_URL}`);
   let repo: Awaited<ReturnType<typeof fetchRepo>>;
   try {
-    // WHICH commit, first: the newest verified release by default, or the tip
-    // of main with `--ref main`. A release that cannot be resolved REFUSES (no
-    // fallback to the tip), and the error already names `--ref main`
-    // (lib/release.ts).
+    // WHICH commit first: the newest verified release, or main's tip with
+    // `--ref main`. An unresolvable release REFUSES (never the tip), naming
+    // `--ref main`.
     repo = await fetchRepo(await resolveSource(channel));
   } catch (err) {
     s.stop('Failed to fetch PHARN');
@@ -275,46 +244,36 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
   }
 
   let outcome: 'installed' | 'cancelled' = 'cancelled';
-  // The ERROR OBJECT, not its message: the reporter needs it to decide whether
-  // this failure came from an exception (and so deserves the PHARN_DEBUG
-  // affordance). Boxed rather than stored bare so that a thrown `null` or
-  // `undefined` is still distinguishable from "nothing failed" — the exit is
-  // deferred past the finally, which is exactly where a nullish sentinel would
-  // silently read as success. The SAME box is what reportFatal takes, so it
-  // travels intact rather than being flattened one line short of the reporter.
+  // The ERROR OBJECT, not its message: the reporter tells an exception (which
+  // earns the PHARN_DEBUG hint) from a refusal. Boxed so a thrown nullish value
+  // is not read as success at the exit deferred past the finally.
   let failure: FatalCause | null = null;
   let refusal: string | null = null;
   try {
-    // THE MIN_CLI GATE — refuse a too-old CLI CLEANLY, before the index parse
-    // and before any prompt or write. Inside the try so the clone's finally
-    // cleanup still runs before the exit (P0: cleanup before exit).
+    // THE MIN_CLI GATE — refuse a too-old CLI cleanly, before the index parse
+    // and any prompt or write; inside the try so the clone is cleaned up first.
     const gate = minCliGate(repo.dir, PHARN_VERSION);
     if (gate.warning) log.warn(gate.warning);
     if (gate.refusal) {
       refusal = gate.refusal;
     } else {
       const index = parseCapabilityIndex(repo.dir);
-      // No silent skips (P5): name every capability the fetch boundary refused,
-      // immediately after the parse and BEFORE the summary the user acts on.
+      // Name every capability the fetch boundary refused, before the summary.
       const unknownWarning = unknownCapabilitiesWarning(index.unknown);
       if (unknownWarning) log.warn(unknownWarning);
-      // The archetypes' selection plus what a re-run carries over from the
-      // config it replaces — the same computation the dry run makes
-      // (lib/init-plan.ts).
+      // The archetypes' selection plus what a re-run carries over — the dry
+      // run's computation (lib/init-plan.ts).
       const { previous, carry, selection } = resolveInitSelection({
         cwd,
         archetypes,
         index,
       });
       reportCarry(carry);
-      // What the replaced config recorded, for display only: a re-run
-      // re-detects, and the summary names a different recorded set so an
-      // earlier `--archetype` never disappears silently.
+      // What the replaced config recorded, for display only, so an earlier
+      // `--archetype` never disappears silently.
       const recorded = recordedArchetypes(previous.config?.archetypes);
-      // And, likewise, when the new default moves an install off `main`.
-      // A config that exists but could not be read carries nothing over: the
-      // summary names it, with the reason, BEFORE any prompt (CORE-164). Then
-      // the move off `main`, when the new default makes one.
+      // A config that exists but could not be read is named BEFORE any
+      // prompt, then a move off `main` when the new default makes one.
       const rerunLines = [
         ...previousConfigLines(previous),
         ...previousChannelLines({
@@ -325,8 +284,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         }),
       ];
 
-      // `--yes` answers the summary's question ("install?") and nothing else:
-      // the summary is still printed, so a CI log says what was installed.
+      // `--yes` answers the summary's question and nothing else; the summary
+      // still prints, so a CI log says what was installed.
       let action: 'install' | 'cancel';
       if (yes) {
         note(
@@ -348,47 +307,36 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
           rerunLines,
         );
       }
-      // Both prompts return a VALUE and neither exits, so `outcome` stays
-      // 'cancelled' and the single cancelAndExit below fires AFTER the finally
-      // that disposes of the clone. 'decline' and 'cancel' are indistinguishable
-      // to the user here — same message, same exit 0 — but only one of them used
-      // to leak the clone.
+      // Both prompts return a VALUE and neither exits, so the single
+      // cancelAndExit below fires AFTER the finally that disposes of the clone.
       //
-      // The install manifest — every file this install writes, dest → source —
-      // computed ONCE, here, and handed to the early pre-flight, the prompt and
-      // the install (its pre-flight, backup scan, copy and records). It depends
-      // only on the clone, the selection and the clone's layout, and none of
-      // those change during the run; it used to be rebuilt five times. Only the
-      // HASHING is repeated, deliberately: the install re-scans under the lock,
-      // so an edit made while the prompt was open is still backed up.
+      // The install manifest (dest → source) is computed ONCE and handed to the
+      // pre-flight, the prompt and the install: it depends only on the clone,
+      // the selection and the layout. Only the HASHING is repeated: the install
+      // re-scans under the lock, so an edit made while the prompt was open is
+      // still backed up.
       const manifest =
         action === 'install' ? installManifest(repo.dir, selection) : null;
-      // The destination pre-flight, BEFORE the overwrite prompt: a project the
-      // install cannot finish in (a symlink on the way, a type in the way) is
-      // refused here — exit 1 through the catch below, the clone cleaned up
-      // first — rather than after the user has answered yes to a question whose
-      // yes could not be honoured. The early answer only: the tree can change
-      // while the prompt is open, so the same checks run again under the lock
-      // (runInstallArchetype, before its backup), and those are authoritative.
+      // The destination pre-flight, BEFORE the overwrite prompt, so a project
+      // the install cannot finish in is refused before the user answers yes.
+      // The early answer only: the same checks run again under the lock, and
+      // those are authoritative.
       if (manifest !== null) {
         preflightInstall(repo.dir, cwd, selection, manifest);
       }
-      // `--yes` never answers the overwrite question: where any write target
-      // already exists it refuses (OverwriteRefusedError → exit 1, the clone
-      // cleaned up first, nothing written); otherwise there is no question.
+      // `--yes` never answers the overwrite question: any existing write target
+      // refuses (OverwriteRefusedError); otherwise there is no question.
       let overwrite: Awaited<ReturnType<typeof confirmWriteTargets>> = 'cancel';
       if (manifest !== null) {
         const records = reinstallBaseline(cwd, carry);
-        // The dropped capabilities' directories this install would delete —
-        // listed in the prompt, and refused here (CapabilityRemovalError, a
-        // named refusal, nothing written) when one sits behind a symlink or
-        // holds a file that cannot be read. Planned again under the lock.
+        // The dropped capability directories this install would delete: listed
+        // in the prompt, and refused here when one sits behind a symlink or
+        // holds an unreadable file. Planned again under the lock.
         const removals = planInitRemovals(cwd, carry);
         if (yes) {
-          // `--yes` never deletes either, and needs no removal check for it: a
-          // removal comes only from a replaced pharn.config.json, which refused
-          // `--yes` before the fetch — and one that appeared since is itself a
-          // conflict here.
+          // `--yes` never deletes either: a removal comes only from a replaced
+          // pharn.config.json, which refused `--yes` before the fetch, and one
+          // that appeared since is itself a conflict here.
           assertNoExistingTargets({
             repoDir: repo.dir,
             projectRoot: cwd,
@@ -399,8 +347,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
           overwrite = 'proceed';
         } else {
           // What a re-run would retire from the project root, named BEFORE the
-          // question the user answers (lib/root-migration.ts). Planned again
-          // under the lock; this is the preview.
+          // question; planned again under the lock.
           const migration = initRootMigration(repo.dir, cwd, carry);
           const migrationLines =
             migration === null ? null : rootMigrationNoteLines(migration, null);
@@ -413,45 +360,24 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         }
       }
       if (manifest !== null && overwrite === 'proceed') {
-        // Reuse the SHA the tree was pinned to (recorded == fetched, or null when
-        // the branch was floated — LIMITS.md §3b); no separate fetch (TOCTOU).
+        // Reuse the SHA the tree was pinned to (null when the branch was
+        // floated — LIMITS.md §3b); no separate fetch (TOCTOU).
         const commit = repo.sha;
         // The single-writer lock, taken after BOTH prompts and released in the
-        // same finally that disposes of the clone. Holding it across an
-        // unanswered confirm would block an agent hook for as long as a human
-        // takes to answer.
-        //
-        // DELIBERATELY NOT MOVED BEFORE THE FETCH — `add` and `update` were, and
-        // this is the one that was not. Do not "fix" it for consistency.
-        //
-        // Those two acquire before `fetchRepo` so a run that will be refused
-        // never pays for the ~2.5 MB tarball. `init` cannot be given that shape:
-        // BOTH of its prompts sit BETWEEN the fetch and the install (the summary
-        // needs the parsed capability index, and confirmWriteTargets needs the
-        // install manifest — each derived from the clone), so the only slot
-        // before the fetch is also before both prompts. That trades a bounded
-        // hold for an unbounded one: `fetchRepo` is capped by construction
-        // (repo.ts — 8s SHA resolve, 60s download), while a prompt is capped only
-        // by human attention, and `init` hard-fails off a TTY so it is ALWAYS a
-        // human at a keyboard. A walked-away init would refuse every other pharn
-        // command in the project for as long as its prompt stayed open: age never
-        // breaks a live holder on the same host (project-lock.ts, isStale). The
-        // lock REFUSES rather than queues, so a longer hold is a wider refusal
-        // window.
-        //
-        // The cost is named, not hidden: a second writer racing `pharn init`
-        // still pays the full download before being refused. Accepted — init is
-        // the bootstrap command, run once, interactively, and it is where a
-        // concurrent-writer collision is least likely.
+        // finally that disposes of the clone. Deliberately NOT before the fetch
+        // as in `add`/`update`: both prompts sit between the fetch and the
+        // install (each needs the clone), so taking it earlier would hold it
+        // across prompts — capped only by human attention — and a live holder
+        // on the same host is never broken by age (project-lock.ts). Stated
+        // cost: a second writer racing `pharn init` pays the full download
+        // before being refused.
         await withProjectLock(cwd, 'init', () => {
-          // PHARN-03's re-check, for init. The carry-over was computed from the
-          // config as it was BEFORE both prompts; a pharn run that wrote it since
-          // (a concurrent `pharn add`) would be silently overwritten. Refuse
-          // instead — before the first write, the backup included.
+          // The carry-over was computed before both prompts; a run that wrote
+          // the config since (a concurrent `pharn add`) would be silently
+          // overwritten. Refuse instead, before the first write.
           assertConfigFingerprintUnchanged(cwd, previous.fingerprint, 'init');
-          // The authoritative `--yes` check, under the lock and immediately
-          // before the install: a target that appeared since the check above
-          // refuses here, before the first write (the backup included).
+          // The authoritative `--yes` check: a target that appeared since the
+          // check above refuses here, before the first write.
           if (yes) {
             assertNoExistingTargets({
               repoDir: repo.dir,
@@ -475,8 +401,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       }
     }
   } catch (err) {
-    // A held lock — or a `--yes` run that met an existing file — is a policy
-    // refusal, not a crash: named, actionable, and no PHARN_DEBUG hint.
+    // A held lock, a `--yes` run that met an existing file, or an unsafe
+    // removal is a policy refusal: named, no PHARN_DEBUG hint.
     if (
       err instanceof ProjectLockedError ||
       err instanceof OverwriteRefusedError ||
@@ -488,9 +414,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     repo.cleanup();
   }
 
-  // A policy refusal is not a failure to debug — no PHARN_DEBUG hint, and it
-  // wins over the cancel path below (nothing was installed, but the reason is
-  // the refusal, not a user choice).
+  // A policy refusal wins over the cancel path below: nothing was installed,
+  // but the reason is the refusal, not a user choice.
   if (refusal) {
     reportFatal(refusal);
     process.exit(1);
@@ -502,8 +427,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
   if (outcome === 'cancelled') cancelAndExit();
 }
 
-// What a re-run carries over, named before the summary the user acts on — the
-// same three lines in the real run and in the preview.
+// What a re-run carries over, named before the summary — the real run and the
+// preview alike.
 function reportCarry(carry: InitCarry): void {
   if (carry.extra.length) {
     log.info(
@@ -521,8 +446,7 @@ function reportCarry(carry: InitCarry): void {
     );
   }
   // The rest of what this install drops — `auto` (and source-less) entries the
-  // archetypes no longer select. Silent before; named, since their directories
-  // are deleted too.
+  // archetypes no longer select — named, since their directories are deleted.
   const goneKeys = new Set(carry.gone.map(capabilityKey));
   const unselected = carry.dropped.filter(
     (d) => !goneKeys.has(capabilityKey(d.cap)),
@@ -534,18 +458,11 @@ function reportCarry(carry: InitCarry): void {
   }
 }
 
-// `--dry-run`: the real run's steps up to its first prompt — MIN_CLI, index,
-// selection, carry-over — then the rest of the plan (manifest, pre-flight,
-// targets, backups, settings, hooks, models: lib/init-plan.ts), printed, exit 0.
-// It writes NOTHING: no prompt, no lock, no fingerprint check, no backup, no
-// copy, no records, no config — none of those functions is reachable from here.
-// The only thing created is the clone's temp dir under the OS temp dir, removed
-// in the finally below exactly as the real run removes it.
-//
-// `--json` swaps the sinks, not the logic: diagnostics and failures on plain
-// stderr (stdout empty, exit 1), and one report on stdout at the end, through a
-// normal return (never `process.exit`, so a large object piped to `jq` is
-// flushed).
+// `--dry-run`: the real run's steps up to its first prompt, then the rest of
+// the plan (lib/init-plan.ts), printed, exit 0. It writes NOTHING: no prompt,
+// lock, backup, copy, records or config function is reachable from here; only
+// the clone's temp dir is created and removed. `--json` swaps the sinks, not
+// the logic, and ends in a normal return so a large piped object is flushed.
 async function runInitDryRun(
   repo: Awaited<ReturnType<typeof fetchRepo>>,
   cwd: string,
@@ -586,8 +503,7 @@ async function runInitDryRun(
       });
     }
   } catch (err) {
-    // A dropped capability's directory the real run would refuse to delete is
-    // reported as the same named refusal.
+    // A directory the real run would refuse to delete: the same named refusal.
     if (err instanceof CapabilityRemovalError) refusal = err.message;
     else failure = { err };
   } finally {
@@ -617,11 +533,9 @@ async function runInitDryRun(
   reportInitDryRun(plan);
 }
 
-// The preview: the summary the interactive run would ask about, then a PLAN
-// note — every existing file it would overwrite (marked exactly as the prompt
-// marks them, labelled ones first), the files it would create as a count, the
-// backups, the config — then the HOOKS note a real run would print, and the
-// models outcome.
+// The preview: the summary, a PLAN note (overwrites marked as the prompt marks
+// them, creates as a count, deletes, backups, the config), then the notes a
+// real run would print.
 function reportInitDryRun(r: InitPlanReport): void {
   note(
     archetypeSummaryLines(
@@ -692,11 +606,11 @@ function reportInitDryRun(r: InitPlanReport): void {
       `  Would write ${CLAUDE_SETTINGS_FILE} from upstream; see HOOKS.`,
     );
   }
-  // What the install would append to `.gitignore` (lib/gitignore.ts owns the
-  // wording); a refusal is a warning, printed after the note.
+  // What the install would append to `.gitignore`; a refusal is a warning,
+  // printed after the note.
   const gitignore = gitignoreLines(r.gitignore, { preview: true });
   if (gitignore !== null && !gitignore.warn) lines.push(`  ${gitignore.text}`);
-  // The same for `.prettierignore` (lib/prettierignore.ts).
+  // The same for `.prettierignore`.
   const prettierignore = prettierignoreLines(r.prettierignore, {
     preview: true,
   });
@@ -704,8 +618,8 @@ function reportInitDryRun(r: InitPlanReport): void {
     lines.push(`  ${prettierignore.text}`);
   lines.push(
     '',
-    // A deletion needs a replaced pharn.config.json, which is itself an
-    // overwrite — so the overwrite count alone decides (CORE-168).
+    // A deletion needs a replaced pharn.config.json, itself an overwrite, so
+    // the overwrite count alone decides.
     r.counts.overwrite === 0
       ? '  `pharn init --yes` would install (nothing would be overwritten).'
       : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
@@ -714,16 +628,15 @@ function reportInitDryRun(r: InitPlanReport): void {
   if (gitignore?.warn) log.warn(gitignore.text);
   if (prettierignore?.warn) log.warn(prettierignore.text);
 
-  // The ROOT MIGRATION note a real re-run prints after the install, as a
-  // preview (lib/root-migration.ts owns the wording).
+  // The ROOT MIGRATION note a real re-run prints, as a preview.
   const migrationLines =
     r.rootMigration === null
       ? null
       : rootMigrationNoteLines(r.rootMigration, null);
   if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
 
-  // The same note a real run prints over a preserved settings.json, or after
-  // writing a fresh one (steps/install-archetype.ts), from the same functions.
+  // The note a real run prints over a preserved or freshly written
+  // settings.json, from the same functions.
   const hookLines =
     r.hookWiring !== null
       ? preservedSettingsHookLines(r.hookWiring)

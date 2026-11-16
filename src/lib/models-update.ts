@@ -5,23 +5,16 @@ import { isPlainObject } from './validate.js';
 import type { UpstreamModels } from './upstream-models.js';
 
 // ---------------------------------------------------------------------------
-// What `pharn update` does with the `models` block in pharn.config.json.
-//
-// The block's schema is pharn-oss's (lib/model-config.ts), but before 0.7.0
-// this CLI wrote a block of its own: a top-level `default`, and model ids
-// (`opus-4-8`, `sonnet-5`, …) that neither Claude Code nor pharn-oss's checker
-// accepts. That OLD format is this CLI's, so the knowledge of it lives here:
-// the id map, the two defaults it ever wrote, and how an edited block
-// converts.
+// What `pharn update` does with the `models` block. The schema is pharn-oss's
+// (lib/model-config.ts), but before 0.7.0 this CLI wrote a block of its own (a
+// top-level `default`, model ids no checker accepts) — so knowledge of that OLD
+// format lives here: the id map, the defaults it wrote, and the conversion.
 //
 // The decision is the per-file one — `decideFileAction`, called, not copied —
-// with the block's hash standing in for a file's. So the rows are the rows:
-// absent → restored; equal to pharn-oss's → ok; still what pharn wrote (its
-// record, or one of the old defaults) → updated; anything else is the user's
-// and is KEPT, unless `--force`, which backs up pharn.config.json first. A kept
-// block in the old format is CONVERTED — never reset, never guessed at.
-//
-// Pure: no I/O. One axis (P3): update's treatment of the models block.
+// with the block's hash standing in for a file's: absent → restored; equal to
+// pharn-oss's → ok; still pharn's (its record, or an old default) → updated;
+// anything else is the user's and KEPT unless `--force` (config backed up
+// first). A kept old-format block is CONVERTED, never reset. Pure: no I/O.
 // ---------------------------------------------------------------------------
 
 /** The four model ids pharn wrote before 0.7.0 → the Claude Code alias. */
@@ -33,12 +26,11 @@ const LEGACY_MODEL_ALIASES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
- * Every `models` block an earlier pharn wrote on a fresh install, serialized
- * as pharn wrote it. A block equal to one of these was never edited — it is
- * pharn's, records file or not.
+ * Every `models` block an earlier pharn wrote on a fresh install, serialized as
+ * pharn wrote it. A block equal to one of these was never edited.
  */
 const LEGACY_DEFAULTS: readonly string[] = [
-  // #57 (2026-07-23) through 0.6.0 — every published release.
+  // Written through 0.6.0 — every published release.
   JSON.stringify({
     default: { model: 'sonnet-5', effort: 'high' },
     stages: {
@@ -46,7 +38,7 @@ const LEGACY_DEFAULTS: readonly string[] = [
       review: { model: 'opus-4-8', effort: 'high' },
     },
   }),
-  // #24 (2026-07-07) until #57 — source builds only, never published.
+  // Written before that by source builds only, never published.
   JSON.stringify({
     default: { model: 'sonnet-5', effort: 'high' },
     stages: {
@@ -57,18 +49,16 @@ const LEGACY_DEFAULTS: readonly string[] = [
 ];
 
 /**
- * Is this block, byte for byte as pharn serializes it, a default an earlier
- * pharn wrote? `JSON.stringify` of the parsed block: re-indenting is not an
- * edit, reordering keys is — the conservative reading, since an edited block
- * is kept.
+ * Is this block, as pharn serializes it, a default an earlier pharn wrote?
+ * `JSON.stringify` of the parsed block: re-indenting is not an edit, reordering
+ * keys is — the conservative reading, since an edited block is kept.
  */
 export function isLegacyDefault(block: unknown): boolean {
   return block !== undefined && LEGACY_DEFAULTS.includes(JSON.stringify(block));
 }
 
 export interface ModelsConversion {
-  // The converted block — a new object — or the input itself when nothing
-  // converted.
+  // The converted block (a new object), or the input when nothing converted.
   block: unknown;
   // What was converted, one named line each.
   changes: string[];
@@ -77,13 +67,10 @@ export interface ModelsConversion {
 }
 
 /**
- * Convert a block from the format pharn wrote before 0.7.0 to pharn-oss's: a
- * top-level `default` moves into `stages.default`, and each old model id
- * becomes its alias. Everything else is copied verbatim. A `default` that
- * cannot move (`stages.default` is already set, or `stages` is not an object)
- * stays where it is and is named. Objects are rebuilt with spread and
- * `Object.fromEntries`, which define own properties, so a `__proto__` key
- * stays data.
+ * Convert a pre-0.7.0 block to pharn-oss's format: a top-level `default` moves
+ * into `stages.default`, each old model id becomes its alias, everything else
+ * is copied verbatim. A `default` that cannot move stays and is named. Objects
+ * are rebuilt with own-property definitions, so a `__proto__` key stays data.
  */
 export function convertLegacyModels(block: unknown): ModelsConversion {
   if (!isPlainObject(block)) return { block, changes: [], leftovers: [] };
@@ -141,12 +128,10 @@ export function needsModelsConversion(block: unknown): boolean {
 }
 
 /**
- * Should `update` go past its same-version early return to migrate this
- * block? While it still needs converting — unless it is exactly the block
- * pharn recorded writing (`recorded`: the store's MODELS_RECORD_KEY entry),
- * which can only be pharn-oss's own and which `update` never converts. That
- * exception is what bounds the gate: a run either converts the block, or
- * writes pharn-oss's and records it, so the next run returns early.
+ * Should `update` pass its same-version early return to migrate this block?
+ * While it still needs converting — unless it is exactly the block pharn
+ * recorded writing (only ever pharn-oss's). That exception bounds the gate: a
+ * run converts the block or writes and records pharn-oss's.
  */
 export function modelsMigrationPending(
   block: unknown,
@@ -175,23 +160,20 @@ export type ModelsOutcome =
 
 export interface ModelsUpdate {
   outcome: ModelsOutcome;
-  // The per-file skip label behind `kept` / `forced` — why the block is the
-  // user's: `modified`, `unrecorded` or `unverifiable`.
+  // Why the block is the user's (`kept` / `forced`): the per-file skip label.
   label: UpdateLabel | null;
   // `updated` / `forced` over a default an earlier pharn wrote.
   replacedLegacyDefault: boolean;
   // The block to write back; `undefined` means no `models` key.
   next: unknown;
   // The record to store under MODELS_RECORD_KEY; `null` means none. A block
-  // pharn did not just write carries its previous record, never a new one, so
-  // the next run still reads it as the user's.
+  // pharn did not just write carries its previous record, never a new one.
   nextRecord: string | null;
   // Back up pharn.config.json before the config is written.
   backup: boolean;
   // Set when a kept block was converted from the old format.
   conversion: ModelsConversion | null;
-  // Why the kept block still fails pharn-oss's rules — a `models.default` that
-  // could not move, then the checker's REDs. Untrusted text: `terminalSafe`.
+  // Why the kept block still fails pharn-oss's rules. Untrusted: `terminalSafe`.
   problems: string[];
   // Why pharn-oss's block was not applied (`upstream-invalid`).
   upstreamReasons: string[];
@@ -203,8 +185,7 @@ export function decideModelsUpdate(input: {
   upstream: UpstreamModels;
   // The store's MODELS_RECORD_KEY entry, or null.
   recorded: string | null;
-  // False when pharn.records.json is absent or invalid — `recordsBaseline`'s
-  // null.
+  // False when pharn.records.json is absent or invalid.
   recordsAvailable: boolean;
   force: boolean;
 }): ModelsUpdate {
@@ -218,12 +199,10 @@ export function decideModelsUpdate(input: {
     upstreamReasons: [],
   };
 
-  // Nothing to compare with: the user's block stays, and the old format is
-  // still converted — it is rejected whatever pharn-oss ships. A block that was
-  // pharn's (an old default, or the block it recorded) is still pharn's once
-  // converted, so its record follows it: otherwise the conversion would erase
-  // the only evidence, and the next run — with pharn-oss's block usable again
-  // — would keep it as the user's forever.
+  // Nothing to compare with: the user's block stays, still converted if old
+  // (rejected whatever pharn-oss ships). A block that was pharn's keeps its
+  // record through the conversion, or a later run would read it as the user's
+  // forever.
   if (upstream.kind !== 'ok') {
     const kept = keep(current);
     const pharns =
@@ -242,8 +221,8 @@ export function decideModelsUpdate(input: {
 
   const latestHash = modelsRecordHash(upstream.block);
   const diskHash = current === undefined ? null : modelsRecordHash(current);
-  // A default an earlier pharn wrote is proof of authorship on its own, so it
-  // is fed to the table as the record — with or without a records file.
+  // A default an earlier pharn wrote is proof of authorship on its own, fed to
+  // the table as the record.
   const legacyDefault = isLegacyDefault(current);
   const decision = decideFileAction({
     diskHash,
@@ -280,8 +259,8 @@ export function decideModelsUpdate(input: {
   };
 }
 
-// The user's block as it stays: converted when it is in the old format, and
-// with whatever pharn-oss's rules still reject.
+// The user's block as it stays: converted if old, with what pharn-oss's rules
+// still reject.
 function keep(
   current: unknown,
 ): Pick<ModelsUpdate, 'next' | 'conversion' | 'problems'> {

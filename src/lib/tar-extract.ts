@@ -7,56 +7,33 @@ import { safeJoin } from './validate.js';
 /**
  * The tar half of pharn's fetch boundary — a minimal, strict ustar reader for
  * the ONE archive shape pharn consumes: GitHub's `codeload.../tar.gz/<sha>`.
- *
- * Why in-repo rather than a tar dependency (P3, and the four-dependency
- * posture): the guarantees below ARE the fetch boundary. Handing them to a
- * dependency re-imports the exact problem the degit pin existed to manage —
- * properties measured once, at one version, that a transitive bump can move
- * without a pharn test noticing. Everything here is unit-testable against
- * hand-built adversarial archives, so the rejections are pharn's own floor.
- *
- * STRICTER THAN WHAT IT REPLACES. degit passed neither `strict` nor `onwarn`,
- * so a malformed entry was silently dropped and extraction still resolved. Here
- * every unexpected entry is a THROW: the archive pharn fetches contains only
- * regular files and directories, so anything else is a signal, not noise.
+ * In-repo rather than a dependency because these guarantees ARE the fetch
+ * boundary, unit-tested against hand-built adversarial archives; every
+ * unexpected entry is a THROW, never a silent drop.
  *
  * WHAT THE TREE CAN HOLD (the invariant `fetchRepo` states, lib/repo.ts): only
- * regular files and directories, under `destDir`. Nothing else is ever created:
- * the only writes are `mkdirSync` and `writeFileSync`, each through `safeJoin`.
- * Clone-side readers rely on this instead of re-checking for links.
- *
- * Three buckets:
+ * regular files and directories, under `destDir` — the only writes are
+ * `mkdirSync` and `writeFileSync`, each through `safeJoin`. Clone-side readers
+ * rely on this instead of re-checking for links.
  *
  *   ACCEPT  typeflag '0' / NUL (regular file) and '5' (directory).
- *   SKIP    typeflag 'g' (pax global header), its payload UNREAD. Every GitHub
- *           codeload tarball opens with a `pax_global_header` whose
- *           single-segment name has no leading component to strip, so it is the
- *           one entry that must be skipped rather than judged as a path. It
- *           still counts toward `maxEntries`.
+ *   SKIP    typeflag 'g' (pax global header), payload UNREAD — every codeload
+ *           tarball opens with one. It still counts toward `maxEntries`.
  *   REJECT  everything else: 'x' (pax extended header), '1'/'2' (hard/symlink),
- *           '3'/'4' (devices), '6' (fifo), '7', GNU 'L'/'K' (long name / long
- *           link name), and any unknown byte.
+ *           '3'/'4' (devices), '6' (fifo), '7', GNU 'L'/'K', any unknown byte.
  *
- * WHY PAX IS NEVER HONOURED. pharn reads ONLY the ustar fields: `name`,
- * `prefix`, `size`, `typeflag`. A pax record would override two of them —
- * `path=` replaces prefix+name, `size=` how many bytes the entry spans — so
- * honouring pax would mean a second untrusted path source. A per-file 'x' header
- * exists to carry exactly those overrides, and a writer emits one when the real
- * path does not fit ustar (writing it TRUNCATED into `name`, where it would pass
- * every rule below), so 'x' is refused on its typeflag alone, payload unread.
- * A global 'g' header cannot be refused (every real archive has one), and
- * ignoring it is safe: its defaults are never consulted, so the entries that
- * follow land at their own ustar paths under every rule below, and the walk is
- * framed by the ustar `size` alone — a stream that does not agree with it fails
- * the next header's checksum or magic. The cost, named: an archive whose `g`
- * meant "put everything at X" is extracted at its ustar paths, contained.
+ * PAX IS NEVER HONOURED: only the ustar `name`, `prefix`, `size` and
+ * `typeflag` are read. A pax record would be a second untrusted path/size
+ * source, and a writer emits 'x' exactly when the real path does not fit ustar
+ * (truncating it into `name`, where it would pass every rule), so 'x' is
+ * refused on its typeflag. Ignoring 'g' is safe: its defaults are never
+ * consulted, and the walk is framed by the ustar `size` alone (a disagreeing
+ * stream fails the next header's checksum or magic). Cost: a `g` meaning "put
+ * everything at X" is extracted at its ustar paths, contained.
  *
- * Untrusted input (P2): the archive is remote bytes. Every accepted path is
- * reconstructed from `prefix` + `name`, checked for absoluteness, `..`
- * segments, `\` and `:`, stripped of exactly one leading component, and
- * resolved through `safeJoin` against the destination — the same lexical
- * containment gate the install writers use. Contents are written verbatim,
- * never executed.
+ * Every accepted path is rebuilt from `prefix` + `name`, refused when absolute
+ * or holding `..`, `\` or `:`, stripped of one leading component, and resolved
+ * through `safeJoin`. Contents are written verbatim, never executed.
  */
 /** A ustar header block is exactly 512 bytes; payloads are padded to that. */
 const BLOCK = 512;
@@ -117,10 +94,9 @@ function describeBytes(bytes: Buffer, max = 200): string {
 
 /**
  * Entry-path fields are decoded ONCE, and the check and the write both use the
- * result. `fatal`: bytes that are not valid UTF-8 are a refusal, never a
- * replacement character. `ignoreBOM`: a leading U+FEFF stays IN the string —
- * the default strips it silently — so the format-character check below sees,
- * and refuses, exactly the name that would otherwise be written.
+ * result. `fatal`: invalid UTF-8 is a refusal, never a replacement character.
+ * `ignoreBOM`: a leading U+FEFF stays in the string (the default strips it), so
+ * the format-character check refuses exactly the name that would be written.
  */
 const PATH_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
@@ -139,11 +115,9 @@ function readPathField(block: Buffer, offset: number, length: number): string {
 }
 
 /**
- * A ustar numeric field: octal digits, space- or NUL-terminated. GNU's base-256
- * extension (high bit set on the first byte) is never misread: no such byte is
- * an octal digit, so it fails the octal test below. Only ASCII space is trimmed
- * — `String#trim` would also strip U+00A0 (latin1 0xA0, a high-bit byte) and
- * read the digits behind it.
+ * A ustar numeric field: octal digits, space- or NUL-terminated. GNU base-256
+ * (high bit on the first byte) fails the octal test. Only ASCII space is
+ * trimmed — `String#trim` would strip U+00A0 (latin1 0xA0) and read past it.
  */
 function readOctal(block: Buffer, offset: number, length: number): number {
   const text = readString(block, offset, length).replace(/^ +| +$/g, '');
@@ -160,14 +134,10 @@ function readOctal(block: Buffer, offset: number, length: number): number {
 }
 
 /**
- * Refuse an entry path holding a control character or a Unicode format
- * character (U+202E, U+200B, U+FEFF, …). Such a name would be printed later —
- * by an error here, or by `status`/`update` listing installed files — and a
- * terminal interprets those characters. `fullPath` is the strict UTF-8 decoding
- * (`readPathField`) that the path rules and the write also use, so what is
- * judged here is exactly the name passed to the filesystem: an ordinary
- * non-ASCII name (`é`, `—`) passes and is written as those same bytes, while a
- * C1 byte never survives the decode. pharn-oss ships no non-ASCII name today.
+ * Refuse an entry path holding a control or Unicode format character (U+202E,
+ * U+200B, U+FEFF, …): the name is printed later, and a terminal interprets
+ * them. `fullPath` is the same strict UTF-8 decoding the path rules and the
+ * write use, so an ordinary non-ASCII name passes and is written as-is.
  */
 function assertDisplayablePath(fullPath: string): void {
   if (hasUnsafeChars(fullPath)) {
@@ -210,9 +180,8 @@ function isZeroBlock(block: Buffer): boolean {
 
 /**
  * Verify the header checksum: the sum of every header byte with the checksum
- * field itself read as eight spaces. Historic writers disagree on whether the
- * bytes are signed, so both are accepted — the point is detecting a corrupt or
- * truncated stream, not adjudicating a format dispute.
+ * field read as eight spaces. Signed and unsigned sums are both accepted
+ * (historic writers disagree); the point is detecting a corrupt stream.
  */
 function checksumOk(block: Buffer): boolean {
   const stored = readOctal(block, OFF_CHKSUM, LEN_CHKSUM);
@@ -229,15 +198,11 @@ function checksumOk(block: Buffer): boolean {
 
 /**
  * Apply the path rules to an ACCEPTed entry and return its destination-relative
- * path, or `null` when the entry is the archive's own root directory (which has
- * nothing left after the strip and is not an error).
+ * path, or `null` for the archive's own root directory.
  *
- * Order matters: the full path is reconstructed from `prefix` + `name` BEFORE
- * any rule runs. ustar splits any path over 100 characters across `prefix`
- * (offset 345) and `name` (offset 0); reading `name` alone yields a bare
- * leaf for those entries, which the strip-1 rule would then reject for having
- * no leading component — silently losing a third of the tree rather than
- * misplacing it.
+ * The full path is reconstructed from `prefix` + `name` BEFORE any rule runs:
+ * ustar splits a path over 100 characters across the two, and `name` alone
+ * would be a bare leaf the strip-1 rule rejects.
  */
 function resolveEntryPath(
   fullPath: string,
@@ -271,9 +236,8 @@ function resolveEntryPath(
       `tar entry has no leading component: ${fullPath}`,
     );
   }
-  // One root, and the same one throughout. A GitHub archive is a single
-  // `pharn-oss-<sha>/` tree; a second root would mean the strip-1 rule is
-  // flattening two unrelated trees into one destination.
+  // One root, the same throughout: a second root would mean strip-1 flattens
+  // two unrelated trees into one destination.
   if (expectedRoot !== null && root !== expectedRoot) {
     throw new TarExtractError(
       `tar archive has more than one root component: ${expectedRoot} and ${root}`,
@@ -331,9 +295,8 @@ export function extractTar(
 
   while (offset + BLOCK <= tar.length) {
     const header = tar.subarray(offset, offset + BLOCK);
-    // The end-of-archive marker. Everything after it must be zero padding: a
-    // zero block followed by more entries used to end the walk there and drop
-    // the rest of the tree in silence, and trailing garbage was accepted.
+    // The end-of-archive marker; everything after it must be zero padding, so
+    // a zero block cannot end the walk early and drop the rest in silence.
     if (isZeroBlock(header)) {
       assertZeroTail(tar, offset + BLOCK);
       return;
@@ -362,8 +325,7 @@ export function extractTar(
     const next = dataStart + Math.ceil(size / BLOCK) * BLOCK;
     const typeflag = String.fromCharCode(header[OFF_TYPEFLAG]!);
 
-    // SKIP — a pax GLOBAL header, payload unread (see the module comment). It
-    // counts toward the entry cap like any other header.
+    // SKIP — a pax GLOBAL header, payload unread; it counts toward the cap.
     if (typeflag === 'g') {
       entries += 1;
       if (entries > limits.maxEntries) {
@@ -375,9 +337,8 @@ export function extractTar(
       continue;
     }
 
-    // The FULL path (prefix + name) is judged before any other entry rule, so
-    // no later message can interpolate a control or format character from it —
-    // and it is the same decoded string the path rules and the write use.
+    // The FULL path is judged before any other entry rule, so no later message
+    // interpolates a control character from it.
     const name = readPathField(header, OFF_NAME, LEN_NAME);
     const prefix = readPathField(header, OFF_PREFIX, LEN_PREFIX);
     const fullPath = prefix === '' ? name : `${prefix}/${name}`;
@@ -401,9 +362,7 @@ export function extractTar(
           `tar archive has more than ${limits.maxEntries} entries.`,
         );
       }
-      // safeJoin is the lexical containment gate (lib/validate.ts) every path
-      // derived from untrusted input goes through, here as the backstop behind
-      // the segment rules above rather than instead of them.
+      // safeJoin is the lexical containment backstop behind the segment rules.
       const target = safeJoin(destDir, rel);
       if (isDirectory) {
         mkdirSync(target, { recursive: true });

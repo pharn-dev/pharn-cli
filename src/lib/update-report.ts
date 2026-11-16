@@ -30,25 +30,20 @@ import type { InstallSurface } from './install-manifest.js';
 import type { Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// The `pharn update --dry-run --json` report: ONE pure object, built from what
-// the command already computed (the planner's `UpdatePlanReport`, or just the
-// early-return outcome), serialized once by `serializeJsonReport`. No I/O, no
-// clack, no exit — so the text notes and the JSON cannot disagree about a value.
+// The `pharn update --dry-run --json` report: ONE pure object built from what
+// the command already computed, serialized once by `serializeJsonReport`, so
+// the text notes and the JSON cannot disagree about a value.
 //
-// It is an EXPLICIT field-by-field projection, never a spread: a field added to
-// `UpdatePlanReport` later does not become public contract by accident. `models`
-// omits the block itself (`next`) and its record hash — arbitrary upstream JSON
-// and an internal value; the outcome and the reasons are what a reader acts on.
+// An EXPLICIT field-by-field projection, never a spread, so a field added to
+// `UpdatePlanReport` does not become public contract by accident. `models`
+// omits the block itself and its record hash. `schemaVersion` versions
+// independently of `status --json`'s: additive keys within 1, a breaking change
+// bumps it (a documented contract, not enforced).
 //
-// `schemaVersion` is matched exactly by a consumer (P5): additive keys may
-// arrive within 1, a breaking change bumps it. Its own constant — this report
-// versions independently of `status --json`'s. That stability is a documented
-// contract (advisory); the floor cannot enforce it.
-//
-// Trust (P2): every free-text field is UNTRUSTED DATA — serialized as a JSON
-// string, never interpreted, capped here and escaped by `serializeJsonReport`.
-// Enum-like fields (`status`, `action`, `label`, `outcome`, `reason`, `channel`,
-// `source.kind`, `hooks.status`) come from this CLI's own membership tests.
+// Every free-text field is UNTRUSTED DATA — capped here, escaped by
+// `serializeJsonReport`. Enum-like fields come from this CLI's own membership
+// tests. Optional keys below are present ONLY when non-empty (or when their
+// flag is passed), so a report without them keeps its earlier bytes.
 // ---------------------------------------------------------------------------
 
 export const UPDATE_SCHEMA_VERSION = 1;
@@ -57,9 +52,8 @@ export const UPDATE_SCHEMA_VERSION = 1;
 const MAX_REASON = 300;
 const MAX_UNKNOWN_FIELD = 200;
 
-// `ahead-of-release` / `ahead-of-main`: the install is newer than the source it
-// follows (the newest verified release, or a main that moved back) and a real
-// run would change nothing without `--force`.
+// `ahead-of-release` / `ahead-of-main`: the install is newer than its source,
+// and a real run would change nothing without `--force`.
 export type UpdateStatus =
   'planned' | 'up-to-date' | 'ahead-of-release' | 'ahead-of-main';
 
@@ -67,9 +61,8 @@ export interface UpdateReport {
   schemaVersion: typeof UPDATE_SCHEMA_VERSION;
   command: 'update';
   dryRun: true;
-  // Present (as `true`) ONLY under `--compact`, on every status: the list in
-  // `plan.files` may then be filtered, see `plan.filesOmitted`. Absent in the
-  // default report, which is byte-identical to the one 0.10.0 shipped.
+  // `true` ONLY under `--compact`: `plan.files` may then be filtered (see
+  // `plan.filesOmitted`).
   compact?: true;
   // `planned` ⇒ `plan` is set; the early returns ⇒ `plan` is null.
   status: UpdateStatus;
@@ -91,13 +84,10 @@ export interface UpdateReport {
     layout: Layout;
     abandonedLayout: Layout | null;
     featuresReadmeRelocation: boolean;
-    // The old ROOT footprint of a pharn-layout install this run would retire
-    // (lib/root-migration.ts): root THREAT-MODEL.md / LIMITS.md deleted or kept,
-    // and two notices. ALWAYS present (added within 1); `null` when nothing
-    // applies — a flat clone, or one below SKILLS 7 that still keeps both docs
-    // at the root. `moves` is ALWAYS `[]` (CORE-158): the user data is never
-    // moved, its hint is text-only, and dropping the key would not be additive
-    // under schemaVersion 1.
+    // The old ROOT footprint this run would retire (lib/root-migration.ts).
+    // ALWAYS present, `null` when nothing applies. `moves` is ALWAYS `[]`: user
+    // data is never moved (its hint is text-only), and removing the key would
+    // not be additive under schemaVersion 1.
     rootMigration: {
       docs: { rel: string; action: RootDocAction }[];
       moves: [];
@@ -112,10 +102,8 @@ export interface UpdateReport {
         source: 'auto' | 'manual' | null;
         reason: CapabilityChange['reason'];
       }[];
-      // The capability directories a real run would DELETE — one per entry it
-      // drops from the config — and the files it would back up first. Present
-      // ONLY when there is one (read it as `?? []`), so a report without a drop
-      // stays byte-identical to earlier releases; added within 1.
+      // The capability directories a real run would DELETE (one per entry it
+      // drops) and the files it would back up first. Read it as `?? []`.
       removals?: {
         role: CapabilityRemoval['cap']['role'];
         name: string;
@@ -132,21 +120,17 @@ export interface UpdateReport {
       backup: boolean;
       forced: boolean;
     }[];
-    // Present ONLY under `--compact`: what `files` leaves out. The count always
-    // equals `counts.ok`, so `files.length + count` is the installed-file total.
+    // ONLY under `--compact`: what `files` leaves out. `count` equals
+    // `counts.ok`, so `files.length + count` is the installed-file total.
     filesOmitted?: { action: 'noop'; count: number };
     writes: string[];
     backups: string[];
     skipped: { label: SkipLabel; rels: string[] }[];
     counts: UpdatePlan['counts'];
     // The executable-unit hold (lib/executable-unit.ts): the unit files a real
-    // run would skip, and the unit writes it would withhold because of them —
-    // the floor, hooks and pharn-* commands are written all or none. Present
-    // ONLY when a hold happens (then `held` is also a `label` in `files` and
-    // `skipped`), so a report without one keeps its earlier bytes; additive
-    // within schemaVersion 1. Added in 0.18.0. `missing` (CORE-159): the held
-    // files that are not on disk and stay missing until the hold ends, present
-    // ONLY when non-empty.
+    // run would skip and the unit writes it would withhold because of them
+    // (`held` is then also a `label` in `files` and `skipped`). `missing`: held
+    // files not on disk until the hold ends.
     executableUnit?: {
       blocking: { rel: string; label: SkipLabel }[];
       held: string[];
@@ -167,12 +151,11 @@ export interface UpdateReport {
       localOnly: HookEntry[];
       file: string | null;
       reason: string | null;
-      // Present ONLY when non-empty: missing hooks the project already wires
-      // in another spelling (same script, event and matcher) — replace, not add.
+      // Missing hooks the project already wires in another spelling (same
+      // script, event and matcher) — replace, not add.
       replace?: HookReplacement[];
     };
-    // The declared product surfaces the clone ships no file for. Present ONLY
-    // when there is one, so a report with none keeps the 0.10.0 bytes.
+    // The declared product surfaces the clone ships no file for.
     absentUpstream?: { surface: InstallSurface; path: string }[];
     frozenCapabilities: string[];
     unknownCapabilities: {
@@ -182,24 +165,15 @@ export interface UpdateReport {
       reason: string;
     }[];
     recordsNote: string | null;
-    // Recorded files upstream no longer ships, still on disk (lib/orphans.ts).
-    // Present ONLY when there is at least one, so a report with none keeps the
-    // bytes 0.10.0 shipped; additive within schemaVersion 1; never filtered by
-    // `--compact`.
+    // Recorded files upstream no longer ships, still on disk (lib/orphans.ts);
+    // never filtered by `--compact`.
     orphans?: { path: string; state: OrphanState; reason?: string }[];
-    // What a real run would add to the project's `.gitignore`
-    // (lib/gitignore.ts). Present ONLY when it would add something (or is
-    // refused), so a report with nothing to add keeps its earlier bytes;
-    // additive within schemaVersion 1. Added in 0.16.0.
+    // What a real run would add to `.gitignore` (or why it would not).
     gitignore?: GitignoreReport;
-    // What a real run would add to the project's `.prettierignore`
-    // (lib/prettierignore.ts). Present ONLY when it would add something (or
-    // would have to leave the file alone). Added in 0.17.0.
+    // What a real run would add to `.prettierignore` (or why it would not).
     prettierignore?: PrettierignoreReport;
-    // Present (as `true`) ONLY when a real run would change nothing — no file,
-    // directory, record or config field beyond `updatedAt`/`pharnVersion`
-    // (lib/update-next.ts) — and so would ask nothing and write nothing.
-    // `status` stays `planned`. Additive within schemaVersion 1 (CORE-162).
+    // `true` ONLY when a real run would change nothing (lib/update-next.ts) and
+    // so would ask and write nothing. `status` stays `planned`.
     changesNothing?: true;
   } | null;
 }
@@ -228,8 +202,7 @@ function planReport(
   p: UpdatePlanReport,
   compact: boolean,
 ): NonNullable<UpdateReport['plan']> {
-  // Membership on the `UpdateAction` enum, nothing heuristic: every other
-  // entry is kept whole, and `counts` is never filtered.
+  // Membership on the action enum; `counts` is never filtered.
   const kept = compact ? p.files.filter((f) => f.action !== 'noop') : p.files;
   return {
     layout: p.layout,
@@ -284,8 +257,8 @@ function planReport(
         }
       : {}),
     writes: [...p.writes],
-    // The `--force` casualties (and the config) — every file the one backup
-    // directory holds except a dropped capability's, which its removal lists.
+    // The `--force` casualties (and the config); a dropped capability's
+    // backups are listed by its removal.
     backups: [...new Set(p.backups)],
     skipped: p.skipped.map((g) => ({ label: g.label, rels: [...g.rels] })),
     counts: {
