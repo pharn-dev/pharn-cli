@@ -61,7 +61,7 @@ const MSG = {
   isTTY:
     "Read isTTY only as an argument to interactiveAllowed({...}) (src/lib/capability-picker.ts): one predicate decides 'interactive', so no caller can check only stdout and let a pipe through.",
   processExit:
-    'process.exit skips every `finally` (the temp clone, the project lock): throw a CliError (src/lib/cli-error.ts) and let runCli in src/index.ts report it and set process.exitCode. Only src/index.ts and src/lib/fatal-signal.ts may call it.',
+    'process.exit skips every `finally` (the temp clone, the project lock): throw a CliError (src/lib/cli-error.ts) and let runCli in src/index.ts report it and set process.exitCode. Only src/lib/fatal-signal.ts may call it.',
   updatePrompt:
     "update's confirm is its only prompt: `update --yes` skips exactly that confirm, so any other prompt would block a piped `--yes` run.",
   diffPrimitives:
@@ -88,10 +88,11 @@ const reportModules = readdirSync(new URL('./src/lib/', import.meta.url))
   .filter((f) => f.endsWith('.ts') && f.includes('report'))
   .map((f) => `src/lib/${f}`);
 
-// The only files that may call process.exit: the entry point (its argv
-// refusals run before any command) and the fatal-signal handler. Everything
-// else throws a CliError (src/lib/cli-error.ts), which `runCli` reports once.
-const PROCESS_EXIT_ALLOWLIST = ['src/index.ts', 'src/lib/fatal-signal.ts'];
+// The only file that may call process.exit: the fatal-signal handler, whose
+// re-raise fallback must end the process. Everything else, the entry point's
+// argv refusals included, throws a CliError (src/lib/cli-error.ts), which
+// `runCli` (src/index.ts) turns into process.exitCode once.
+const PROCESS_EXIT_ALLOWLIST = ['src/lib/fatal-signal.ts'];
 
 /**
  * One entry per invariant. `rule` is the eslint rule, `kind` the option slot

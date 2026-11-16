@@ -81,14 +81,20 @@ const CASES: [string, string, string, Reason[]][] = [
   ],
   ['process.exit', PROBE, 'process.exit(1);', ['processExit']],
   [
-    'process.exit in an allowlisted file',
-    'src/index.ts',
+    'process.exit in the allowlisted fatal-signal handler',
+    'src/lib/fatal-signal.ts',
     'process.exit(1);',
     [],
   ],
   [
     'process.exit in a command (commands throw a CliError)',
     'src/commands/update.ts',
+    'process.exit(1);',
+    ['processExit'],
+  ],
+  [
+    'process.exit in the entry point (its refusals throw a CliError)',
+    'src/index.ts',
     'process.exit(1);',
     ['processExit'],
   ],
