@@ -36,4 +36,8 @@ Ended at: GATE 2 (the human decision).
 
 - GATE 2: DELIVER. Keep "0.20.0" in the docs (0.19.0 already shipped, CORE-172 precedent); commit these artifacts in their own commit after the code commit; name in the PR body the CORE-160 (#369) / CORE-161 (#370) overlap of the `commit ?? null` / `stampMismatches` change, the dry-run test rename and the no-lock P0 note. No version bump; do not merge.
 
+## After CORE-160 merged (#369, f86dbf4)
+
+Rebased onto the new main. CORE-160 made `readPharnConfig` load an absent archetype `commit` as `null`, and made `readRecords` read an absent store commit as `null`. That makes this PR's `stampMismatches` `?? null` and its two `commit ?? null` record stamps redundant, so they were dropped in favour of main's form, along with their two unit tests: the `install-records` absent-commit stamp case and the `nextRecordStore` null-stamp case. `loadResolved`'s `commit ?? null` stays, so the config comparison never depends on the loader. The end-to-end absent-commit test in `tests/update.test.ts` is kept and passes through the real reader. PLAN, GRILL and REVIEW above describe the pre-rebase form.
+
 The chain ran, and the named floor verdicts are as shown. This is NOT a judgment that the increment is good or wise; that is the human's call at the post-review gate.
