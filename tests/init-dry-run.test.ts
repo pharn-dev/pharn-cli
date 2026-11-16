@@ -399,7 +399,7 @@ describe('pharn init --dry-run', () => {
       );
       expect(plan).toContain('WOULD BACK UP 3 file(s)');
       expect(plan).toContain(
-        'The existing pharn.config.json would be rewritten (seam and models reset to their defaults)',
+        'The existing pharn.config.json would be rewritten (models reset to its default)',
       );
       expect(plan).toContain('`pharn init --yes` would refuse');
       // Labelled files are listed first.

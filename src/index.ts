@@ -491,8 +491,7 @@ function unmetRequirements(
 // capture is not that.
 //
 // Offenders are `JSON.stringify`-escaped: argv is untrusted text (P2), so a
-// control-char argument is echoed as data, never raw — mirroring how
-// `lib/seam-config.ts` names an unknown config key.
+// control-char argument is echoed as data, never raw.
 //
 // De-duplicated because minimist reports a short BUNDLE once per unknown letter
 // in it, naming the whole token each time: `pharn status -xz` used to print

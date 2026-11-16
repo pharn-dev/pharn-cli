@@ -60,7 +60,6 @@ import {
 } from '../lib/model-config-format.js';
 import { readUpstreamModels } from '../lib/upstream-models.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
-import { DEFAULT_SEAM_CONFIG } from '../lib/seam-config.js';
 import { writePharnConfig } from '../lib/pharn-config.js';
 import {
   applyGitignore,
@@ -190,8 +189,7 @@ export async function runInstallArchetype(
   // The old root footprint a re-run retires (lib/root-migration.ts), planned
   // here, under the lock, against the same baseline. Null on a first install.
   const migration = initRootMigration(repoDir, cwd, carry);
-  // The config this install replaces is rewritten below (`seam` and `models`
-  // reset), so an existing one is always saved too — in the SAME backup, even
+  // The config this install replaces is rewritten below (`models` reset), so an existing one is always saved too — in the SAME backup, even
   // alone (lib/backup.ts → replacedConfigBackup). None on a fresh install. The
   // files of a dropped capability's directory pharn cannot prove it wrote go in
   // the same one backup.
@@ -366,8 +364,6 @@ export async function runInstallArchetype(
     installedAt: new Date().toISOString(),
     // pharn-oss's `models` block, or no key at all (`undefined` is not written).
     models,
-    // Seam-resolution policy, written on every fresh install (P7 — additive).
-    seam: DEFAULT_SEAM_CONFIG,
     archetypes,
     // An entry from archetype resolution is `auto` — `pharn update` owns it and
     // may drop it when the archetypes stop selecting it. `manual` is what
@@ -434,7 +430,7 @@ export async function runInstallArchetype(
   };
   await writeRecords(cwd, { skillsVersion, commit, files });
   // The config this install replaces may hold keys pharn does not own —
-  // upstream's `testResults` / `ship`, which users add by hand — and the object
+  // upstream's `testResults` / `ship` / `seam`, which users add by hand — and the object
   // above is built from pharn's own fields alone. Carry them over (why every
   // such key: userOwnedConfigEntries). Read HERE, inside init's project lock and
   // immediately before the write, for the reason the backup scan above is taken

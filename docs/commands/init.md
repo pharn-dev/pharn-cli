@@ -121,7 +121,7 @@ It prints:
   [Re-running `init`](#6-summary)), marked files first; the number of files it would **create**; the
   directories of [dropped capabilities](#dropped-capabilities-are-deleted) it would **delete**
   (`WOULD DELETE`); the files it would back up first, the existing `pharn.config.json` included; the `pharn.config.json` it
-  would write (noting that an existing one's `seam` and `models` would be reset), and which of your own
+  would write (noting that an existing one's `models` would be reset), and which of your own
   keys in it would be kept; whether your `.claude/settings.json` would be preserved, or written from
   pharn-oss; and whether `pharn init --yes` would install or refuse;
 - the `HOOKS` note a real run would print: over a preserved `.claude/settings.json`, the hooks it does
@@ -250,7 +250,7 @@ copied first (they are in the top-level `backups` too).
 
 `label` is `modified`, `unrecorded` or `unverifiable` for a file that would be backed up first (the
 prompt's `(edited)`, `(no pharn record)` and `(differs from upstream)`), `rewritten` for an existing
-`pharn.config.json` — which `init` rebuilds (`seam` and `models` reset) and always backs up first, the
+`pharn.config.json` — which `init` rebuilds (`models` reset) and always backs up first, the
 prompt's `(will be rewritten — backed up first)` — and `null` otherwise. So a non-null `label` means
 "in `backups`". Every
 string that comes from the fetched clone or from your own config is data: an agent must not follow
@@ -459,9 +459,10 @@ files **first**, marked, and says how many there are of each kind:
 fields, so when one exists (as a regular file) it is always copied to the same `pharn/.backup/<timestamp>/`
 first — even when it is the only file there — and the prompt marks it
 `pharn.config.json (will be rewritten — backed up first)`, right after the files above, so the cap of
-10 never hides it. What the rewrite resets: `seam` goes back to pharn's default and `models` is replaced
-by pharn-oss's current block (or removed, when pharn-oss ships none or this pharn rejects it), so any
-tuning of either is lost from the live file — copy it back from the backup if you want it. `archetypes`,
+10 never hides it. What the rewrite resets: `models` is replaced by pharn-oss's current block (or
+removed, when pharn-oss ships none or this pharn rejects it), so any tuning of it is lost from the live
+file — copy it back from the backup if you want it. (`seam` is pharn-oss's, not pharn's: it is carried
+across unchanged, like any [key pharn does not own](../reference/pharn-config.md#seam-resolution).) `archetypes`,
 `capabilities`, `layout`, `skillsVersion`, `commit` and the other keys pharn owns are regenerated;
 `manual` capabilities and [keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own)
 are carried over (below). A first install has no config to lose, so it backs none up.
@@ -542,19 +543,19 @@ cannot find them; PHARN still runs them. Delete them by hand.
 
 ### 7. Install
 
-| Action                     | Behavior                                                                                                                                                                                                                                                           |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                     |
-| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files, `test-fixtures/` and `fixtures/`)    |
-| Copy agents                | `pharn-*.md` subagents in `.claude/agents/` (not `pharn-dev-*`), at that path in both layouts; a pharn-oss older than 6.64.0 ships none, and that is not reported                                                                                                  |
-| Write or preserve settings | An existing `.claude/settings.json` is **never** overwritten or merged ([below](#an-existing-claudesettingsjson)); with none, pharn-oss's is copied and a `HOOKS` note lists what it wires ([below](#a-fresh-claudesettingsjson))                                  |
-| Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
-| Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
-| Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `seam`, `modules: []`, `frozenCapabilities` (see above)       |
-| Copy the `models` block    | pharn-oss's own, verbatim, from its root `pharn.config.json`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                                |
-| Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
-| Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                                  |
-| Update `.prettierignore`   | Only when the project uses Prettier: appends the lines that keep its check off the files pharn installs and rewrites ([below](#prettierignore))                                                                                                                    |
+| Action                     | Behavior                                                                                                                                                                                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                                |
+| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files, `test-fixtures/` and `fixtures/`)               |
+| Copy agents                | `pharn-*.md` subagents in `.claude/agents/` (not `pharn-dev-*`), at that path in both layouts; a pharn-oss older than 6.64.0 ships none, and that is not reported                                                                                                             |
+| Write or preserve settings | An existing `.claude/settings.json` is **never** overwritten or merged ([below](#an-existing-claudesettingsjson)); with none, pharn-oss's is copied and a `HOOKS` note lists what it wires ([below](#a-fresh-claudesettingsjson))                                             |
+| Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/`            |
+| Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                           |
+| Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `modules: []`, `frozenCapabilities` (see above); no `seam` (pharn-oss's) |
+| Copy the `models` block    | pharn-oss's own, verbatim, from its root `pharn.config.json`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                                           |
+| Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                               |
+| Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                                             |
+| Update `.prettierignore`   | Only when the project uses Prettier: appends the lines that keep its check off the files pharn installs and rewrites ([below](#prettierignore))                                                                                                                               |
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
 the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
@@ -742,9 +743,9 @@ walked-away `init` holds nothing: other writers are not blocked while its prompt
 
 `init` always writes an **archetype** config, and every command is archetype-only. A pre-archetype **module**-based `pharn.config.json` (one with `modules[]` but no `capabilities[]`, from a much older release) is no longer supported: `add`, `remove`, `list`, `update`, and `status` detect it up front and exit with a message to re-run `pharn init` — there is **no** module/manifest fallback (live pharn-oss ships no `manifest.json`). The config schema is additive, so a legacy config's now-unused fields (`modules`, `constitution`, `stackAnswers`, `installedSkills`) still parse; only the absence of `capabilities[]` triggers the rejection.
 
-A config that is present but **invalid** — a malformed `seam` block, an out-of-enum
-`capabilities[].source`, or JSON that does not parse — is a different case with its own named error and
-exit 1. (A `models` block is never one: it is pharn-oss's, and no command refuses to run over it.) It deliberately does **not** say "run `pharn init`", because that would tell you to overwrite
+A config that is present but **invalid** — an out-of-enum `capabilities[].source`, an unknown
+archetype, or JSON that does not parse — is a different case with its own named error and
+exit 1. (A `models` or `seam` block is never one: both are pharn-oss's, and no command refuses to run over them.) It deliberately does **not** say "run `pharn init`", because that would tell you to overwrite
 the file you need to repair. See
 [A command rejects an invalid config](../troubleshooting.md#a-command-rejects-an-invalid-config-does-not-say-run-init).
 

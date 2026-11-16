@@ -41,10 +41,22 @@ import {
 } from '../src/lib/pharn-config.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
 import type { PharnConfig } from '../src/types.js';
-import {
-  DEFAULT_SEAM_CONFIG,
-  SeamConfigError,
-} from '../src/lib/seam-config.js';
+
+// `seam` blocks the CLI used to refuse (CORE-165) — every one of them a block
+// pharn-oss's own checker accepts (extra keys, a repeated step, a threshold with
+// no `model` step) or one this CLI simply has no business judging (an unknown
+// step, a missing terminal `ask`, a non-object). pharn-oss owns the schema.
+const ODD_SEAM_BLOCKS: [string, unknown][] = [
+  ['extra keys', { resolutionOrder: ['model', 'ask'], note: 'why', zeta: 1 }],
+  ['a duplicate step', { resolutionOrder: ['model', 'ask', 'ask'] }],
+  ['an unknown step', { resolutionOrder: ['guess', 'ask'] }],
+  ['no terminal ask', { resolutionOrder: ['official-skill', 'model'] }],
+  [
+    'a threshold with no model step',
+    { resolutionOrder: ['ask'], modelConfidenceThreshold: 'high' },
+  ],
+  ['a non-object', 'ask first'],
+];
 
 // pharn-config.ts imports `log` from @clack/prompts for loadConfigOrExit; mock it
 // so the loud-vs-"run init" message can be asserted (and no real terminal output).
@@ -267,40 +279,43 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toEqual(raw);
   });
 
-  it('round-trips a config with a valid seam block', async () => {
-    const withSeam: PharnConfig = {
-      ...sample,
-      seam: DEFAULT_SEAM_CONFIG,
-    };
+  // CORE-165: `seam` is pharn-oss's. The loader neither validates nor rebuilds
+  // it — the block comes back deep-equal AND in its own key order, on a legacy
+  // and on an archetype config alike.
+  it.each(ODD_SEAM_BLOCKS)(
+    'loads a seam block with %s verbatim, without validating it',
+    (_label, seam) => {
+      const raw = {
+        skillsVersion: '0.1.0',
+        modules: [],
+        capabilities: [],
+        commit: null,
+        seam,
+      };
+      writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(raw));
+      const loaded = readPharnConfig(tmp.path());
+      expect(loaded).toEqual(raw);
+      expect(JSON.stringify(loaded?.seam)).toBe(JSON.stringify(seam));
+    },
+  );
+
+  it('round-trips a seam block through write + read, key order kept', async () => {
+    const seam = { zeta: true, resolutionOrder: ['ask', 'ask'], alpha: 'x' };
+    const withSeam: PharnConfig = { ...sample, seam };
     await writePharnConfig(tmp.path(), withSeam);
-    expect(readPharnConfig(tmp.path())).toEqual(withSeam);
+    const loaded = readPharnConfig(tmp.path());
+    expect(loaded).toEqual(withSeam);
+    expect(JSON.stringify(loaded?.seam)).toBe(JSON.stringify(seam));
   });
 
-  it('THROWS (naming the offender), not null, when the seam block is invalid (BUG 1)', () => {
-    writeFileSync(
-      join(tmp.path(), 'pharn.config.json'),
-      JSON.stringify({
-        skillsVersion: '0.1.0',
-        modules: [],
-        seam: { resolutionOrder: ['official-skill', 'model', 'fetch'] },
-      }),
-    );
-    expect(() => readPharnConfig(tmp.path())).toThrow(SeamConfigError);
-    expect(() => readPharnConfig(tmp.path())).toThrow(/ask/);
-  });
-
-  it('THROWS naming an unknown key in the seam block — raw does NOT survive (BUG 2/BUG 3)', () => {
-    writeFileSync(
-      join(tmp.path(), 'pharn.config.json'),
-      JSON.stringify({
-        skillsVersion: '0.1.0',
-        modules: [],
-        seam: { resolutionOrder: ['ask'], EXTRA: 'x' },
-      }),
-    );
-    // The loader returns the validators' result, not `raw` — so an unknown key is
-    // rejected (named), never carried verbatim into the runtime config.
-    expect(() => readPharnConfig(tmp.path())).toThrow(/EXTRA/);
+  it('never counts a seam block as a config validation error', () => {
+    for (const [, seam] of ODD_SEAM_BLOCKS) {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify({ skillsVersion: '0.1.0', modules: [], seam }),
+      );
+      expect(() => readPharnConfig(tmp.path())).not.toThrow();
+    }
   });
 
   it('round-trips the schemaVersion 2 additive fields (incl. skip answers)', async () => {
@@ -1071,22 +1086,15 @@ describe('loadConfigOrExit', () => {
   stubProcessExit();
   afterEach(() => vi.mocked(log.error).mockClear());
 
-  it('exits(1) with the offender-naming message (NOT "run init") on an invalid seam block (BUG 1)', () => {
-    writeFileSync(
-      join(tmp.path(), 'pharn.config.json'),
-      JSON.stringify({
-        skillsVersion: '0.1.0',
-        modules: [],
-        seam: { resolutionOrder: ['model', 'guess'] },
-      }),
-    );
-    expect(() => loadConfigOrExit(tmp.path())).toThrow(ProcessExit);
-    const msg = vi
-      .mocked(log.error)
-      .mock.calls.map((c) => String(c[0]))
-      .join('\n');
-    expect(msg).toMatch(/guess/);
-    expect(msg).not.toMatch(/pharn init/);
+  it('loads a config whose seam block this CLI used to refuse — pharn-oss owns it (CORE-165)', () => {
+    const raw = {
+      skillsVersion: '0.1.0',
+      modules: [],
+      seam: { resolutionOrder: ['model', 'ask', 'ask'], note: 'kept' },
+    };
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(raw));
+    expect(loadConfigOrExit(tmp.path())).toEqual(raw);
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   it('loads a config whose models block pharn-oss would reject — not this CLI’s to refuse', () => {
@@ -1198,7 +1206,6 @@ describe('loadConfigOrExit', () => {
 
 describe('isConfigValidationError', () => {
   it('is true for the named validator errors, false for a plain Error (the config-vs-bug boundary)', () => {
-    expect(isConfigValidationError(new SeamConfigError('x'))).toBe(true);
     expect(isConfigValidationError(new CapabilityEntryError('x'))).toBe(true);
     expect(isConfigValidationError(new CapabilitySourceError('x'))).toBe(true);
     expect(isConfigValidationError(new ArchetypesError('x'))).toBe(true);

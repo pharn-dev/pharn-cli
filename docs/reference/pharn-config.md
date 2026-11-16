@@ -28,7 +28,6 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 | `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                                                  |     |
 | `modules`       | array          | Always `[]` for an archetype install (the install unit is capabilities)                                                |     |
 | `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                           |     |
-| `seam`          | object         | Seam-resolution policy ([`seam-config.ts`](../../src/lib/seam-config.ts))                                              |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
 A `capabilities` that is present but **not** an array (for example `"capabilities": "x"` or `null`) is a
@@ -112,9 +111,9 @@ field is a valid fix — the next update sets it.
 > cannot read is kept exactly as it was (and listed in `frozenCapabilities`). A `manual` entry
 > upstream no longer ships is dropped and named; an entry with **no** `source` is re-resolved from
 > the archetypes like an `auto` one. [Keys pharn does not own](#keys-pharn-does-not-own) are copied
-> across. Everything else pharn owns is written fresh — notably `seam` is reset to pharn's default and
-> `models` to pharn-oss's current block (or removed, when it ships none or this pharn rejects it), so
-> hand-tuning of either does not survive in the live file. `init` warns before overwriting
+> across — the [`seam` block](#seam-resolution) among them. Everything else pharn owns is written
+> fresh — notably `models` is reset to pharn-oss's current block (or removed, when it ships none or
+> this pharn rejects it), so hand-tuning of it does not survive in the live file. `init` warns before overwriting
 > `pharn.config.json` and defaults to **No**, and before rewriting it copies the existing file
 > (a regular file, not a symlink) to `pharn/.backup/<timestamp>/` — the prompt marks it
 > `(will be rewritten — backed up first)` — so that tuning is recoverable from the backup. Use
@@ -161,25 +160,14 @@ from the list. A value that is not a list of
   ],
   "layout": "pharn",
   "modules": [],
-  "models": { "stages": { "…": "…" } },
-  "seam": {
-    "resolutionOrder": [
-      "official-skill",
-      "pinned-docs",
-      "model",
-      "fetch",
-      "ask"
-    ],
-    "modelConfidenceThreshold": "high",
-    "haltOnUnknown": true
-  }
+  "models": { "stages": { "…": "…" } }
 }
 ```
 
 ## Models
 
 The `models` block is **pharn-oss's**, not this CLI's: pharn-oss owns its schema and its defaults —
-every other field on this page is pharn's. It declares a model and an effort for each PHARN product
+every other field on this page but `seam` is pharn's. It declares a model and an effort for each PHARN product
 stage. Two things use it, and they are not the same thing:
 
 - **Orchestrated runs read it.** `/pharn-ship` and `/pharn-loop` run the stages their routing policy
@@ -286,12 +274,21 @@ unedited block is replaced with pharn-oss's, and an edited one is converted and 
 
 ## Seam resolution
 
-The `seam` block records how PHARN should resolve an unfamiliar integration point. It is **written on
-every fresh install** and **user-owned afterwards** — `pharn` never migrates it — and it is validated
-on every command, so a bad hand-edit fails loudly rather than being ignored. Source of truth:
-[`seam-config.ts`](../../src/lib/seam-config.ts).
+The `seam` block records how PHARN should resolve an unfamiliar integration point. It is
+**pharn-oss's**, not this CLI's: its schema is pharn-oss's contract `pharn-contracts/seam-config.md`
+(installed with PHARN, under `pharn/pharn-contracts/` in the `pharn` layout), and pharn-oss's own
+floor fills in its default and checks it. `pharn` reads nothing in it, so it **neither validates nor
+writes it** (releases up to 0.19.0 wrote a default block and refused, in every command, a
+block pharn-oss's checker accepts, such as one with an extra key or a repeated step):
 
-The installed default:
+- `pharn init` writes no `seam` block. When it is absent, pharn-oss uses its default order.
+- Every command keeps an existing block exactly as it is — `add`, `remove` and `update` write it back
+  unchanged, and a re-run `init` carries it across like any
+  [key pharn does not own](#keys-pharn-does-not-own).
+- No `pharn` command refuses to run because of it, `status --strict` included. A block pharn-oss
+  rejects is reported by pharn-oss's floor, not by `pharn`.
+
+A block an older `pharn` wrote looks like this, and stays valid:
 
 ```json
 {
@@ -309,21 +306,12 @@ The installed default:
 }
 ```
 
-| Field                      | Type    | Meaning                                                                       |
-| -------------------------- | ------- | ----------------------------------------------------------------------------- |
-| `resolutionOrder`          | array   | The steps to try, in order. Must contain `ask`, anywhere in the list.         |
-| `modelConfidenceThreshold` | string  | How sure the model must be before its answer counts. Requires a `model` step. |
-| `haltOnUnknown`            | boolean | Stop rather than guess when nothing in the order resolves.                    |
-
-Five hand-edits are rejected by name: an unknown sibling key, an unknown step, a **duplicate** step, a
-`resolutionOrder` that does not contain `ask`, and a `modelConfidenceThreshold` set without a `model`
-step in the order.
-
 ## Keys pharn does not own
 
 Every field on this page is **pharn's** to write, including the
 [legacy fields](#legacy-fields-pre-archetype-configs-still-load) it no longer writes — `models` too,
-though pharn-oss defines what goes inside it. Any **other** top-level key is **yours**: `pharn` does not
+though pharn-oss defines what goes inside it — except [`seam`](#seam-resolution), which is
+pharn-oss's and kept like the keys below. Any **other** top-level key is **yours**: `pharn` does not
 interpret or validate it, and every command that writes this file keeps it. Upstream PHARN documents
 four that you add by hand:
 
@@ -360,16 +348,16 @@ How each command keeps them:
 - `pharn init` writes the file afresh from its own fields, then **copies every key pharn does not own
   across from the config it replaces**, unchanged, after its own. It does this for any file that
   parses as a JSON object, including one the other commands refuse: a config missing its
-  `skillsVersion` (the case where they tell you to run `pharn init`), or one with an invalid `seam` block. A
+  `skillsVersion` (the case where they tell you to run `pharn init`), or one with an invalid `capabilities` entry. A
   file that is **not valid JSON** carries nothing over. Move it aside first
   ([troubleshooting](../troubleshooting.md#the-config-is-not-valid-json)), then copy your keys back.
 
 `init` **never** carries over a key pharn owns. It writes `pharnVersion`, `skillsVersion`, `repo`,
 `commit`, `installedAt`, `archetypes`, `capabilities`, `layout` and `modules` fresh, and writes no
 `updatedAt` (a carried one is dropped). `models` becomes
-pharn-oss's block again (or is left out, when pharn-oss ships none) and `seam` goes back to its
-default, so a hand-edit in either does not survive a re-run `init` — unlike `pharn update`, which
-keeps an edited `models` block.
+pharn-oss's block again (or is left out, when pharn-oss ships none), so a hand-edit in it does not
+survive a re-run `init` — unlike `pharn update`, which keeps an edited `models` block. (`seam` is
+not pharn's: it is carried across, unchanged.)
 `pendingSkillsVersion`, `frozenCapabilities` and the legacy fields below are dropped. (`capabilities`
 is rewritten too, but the entries you added with `pharn add` are kept as `manual` — see the
 [init command](../commands/init.md#6-summary).)

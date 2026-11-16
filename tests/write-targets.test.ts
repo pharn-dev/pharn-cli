@@ -66,7 +66,7 @@ describe('planWriteTargets', () => {
     expect(plan.labels.size).toBe(0);
   });
 
-  // F-08: init rewrites an existing config (`seam` and `models` reset), so it
+  // F-08: init rewrites an existing config (`models` reset), so it
   // is always backed up — marked on its own, never as drift.
   it('counts an existing pharn.config.json as a target that is backed up, not as drift', () => {
     const { repo, proj, manifest } = fixture(tmp.path());

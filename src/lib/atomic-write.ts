@@ -22,7 +22,7 @@ import type { FileHandle } from 'node:fs/promises';
 // closed (`invalid` → every update decision degrades to `unverifiable`). For the
 // config it is worse: `readPharnConfig` collapses malformed JSON to `null` and
 // every command then says "No pharn.config.json found. Run `pharn init` first."
-// — and that re-init resets hand-edited `models`/`seam` blocks to defaults and
+// — and that re-init resets a hand-edited `models` block to pharn-oss's and
 // stamps every capability `source: 'auto'`, destroying manual-add provenance.
 // The file exists; the message says it does not.
 //

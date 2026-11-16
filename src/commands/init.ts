@@ -675,7 +675,7 @@ function reportInitDryRun(r: InitPlanReport): void {
   // The prompt's own line for the replaced config (steps/overwrite-check.ts).
   if (r.configBackedUp) {
     lines.push(
-      `  The existing pharn.config.json would be rewritten (seam and models reset to their defaults); it would be copied to ${BACKUP_DIR}/ first.`,
+      `  The existing pharn.config.json would be rewritten (models reset to its default); it would be copied to ${BACKUP_DIR}/ first.`,
     );
   }
   if (r.carriedConfigKeys.length > 0) {

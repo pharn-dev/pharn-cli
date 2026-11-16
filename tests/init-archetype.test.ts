@@ -801,9 +801,10 @@ describe('re-running init over an existing install (PHARN-11)', () => {
     expect(backedUp(proj)).toEqual(['CONSTITUTION.md']);
   });
 
-  // F-08: the rewrite resets `seam` to pharn's default and `models` to
-  // pharn-oss's block. Carrying them over is a separate question; losing them
-  // with no copy anywhere is the defect — the backup makes it recoverable.
+  // F-08: the rewrite resets `models` to pharn-oss's block. Carrying it over
+  // is a separate question; losing it with no copy anywhere is the defect —
+  // the backup makes it recoverable. (`seam` is pharn-oss's and carried across
+  // verbatim since CORE-165; the backup still holds it, byte for byte.)
   it('backs up the original pharn.config.json bytes — hand-tuned seam and models — before rewriting it', async () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -833,19 +834,9 @@ describe('re-running init over an existing install (PHARN-11)', () => {
         'utf8',
       ),
     ).toBe(original);
-    // The rewrite itself is unchanged: both blocks are reset.
+    // The rewrite resets `models`; `seam` is carried, verbatim.
     const rewritten = readPharnConfig(proj)!;
-    expect(rewritten.seam).toEqual({
-      resolutionOrder: [
-        'official-skill',
-        'pinned-docs',
-        'model',
-        'fetch',
-        'ask',
-      ],
-      modelConfidenceThreshold: 'high',
-      haltOnUnknown: true,
-    });
+    expect(rewritten.seam).toEqual(tuned.seam);
     expect(rewritten.models).toEqual(UPSTREAM_MODELS);
     const info = vi
       .mocked(prompts.log.info)
@@ -1160,6 +1151,32 @@ describe('re-running init keeps the config keys pharn does not own', () => {
     expect(readPharnConfig(proj)).toMatchObject({ testResults, ship });
   });
 
+  // CORE-165: `seam` is pharn-oss's. A fresh install writes none (pharn-oss
+  // materializes its own default when the block is absent), and a re-run
+  // carries the user's block across VERBATIM — whatever pharn-oss's checker
+  // accepts, and things this CLI used to refuse — in its own key order.
+  it('writes no seam block, and carries an existing one verbatim (CORE-165)', async () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    await firstInstall(repo, proj);
+    expect(readRaw(proj)).not.toHaveProperty('seam');
+    const seam = {
+      note: 'ours',
+      resolutionOrder: ['model', 'ask', 'ask', 'guess'],
+      modelConfidenceThreshold: 'high',
+    };
+    handEdit(proj, (c) => {
+      c.seam = seam;
+    });
+
+    await install(repo, proj);
+
+    const written = readRaw(proj);
+    expect(written.seam).toEqual(seam);
+    expect(JSON.stringify(written.seam)).toBe(JSON.stringify(seam));
+    expect(readPharnConfig(proj)?.seam).toEqual(seam);
+  });
+
   it('never carries a key pharn owns — init rewrites every one of them', async () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -1186,7 +1203,6 @@ describe('re-running init keeps the config keys pharn does not own', () => {
         default: { model: 'haiku-4-5', effort: 'low' },
         stages: {},
       };
-      c.seam = { resolutionOrder: ['ask'] };
       // Module-era fields: nothing writes them any more, but they are still
       // pharn's, not the user's.
       c.modules = [{ name: 'core', version: '1.0.0' }];
@@ -1220,9 +1236,9 @@ describe('re-running init keeps the config keys pharn does not own', () => {
       },
     ],
     [
-      'has an invalid `seam` block (a named hand-edit error)',
+      'has an invalid `capabilities[].source` (a named hand-edit error)',
       (c) => {
-        c.seam = { resolutionOrder: ['model'] };
+        c.capabilities = [{ name: 'a11y', role: 'lens', source: 'guess' }];
       },
     ],
   ])(

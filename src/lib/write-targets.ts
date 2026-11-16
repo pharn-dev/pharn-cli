@@ -42,8 +42,8 @@ export const DRIFT_LABEL_ORDER: readonly DriftLabel[] = [
   'unrecorded',
   'unverifiable',
 ];
-// The existing pharn.config.json: not drift, but rewritten (`seam` and
-// `models` reset) — and always backed up first (lib/backup.ts →
+// The existing pharn.config.json: not drift, but rewritten (`models` reset)
+// — and always backed up first (lib/backup.ts →
 // replacedConfigBackup).
 export const CONFIG_MARKER = '(will be rewritten — backed up first)';
 

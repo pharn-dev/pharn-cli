@@ -13,8 +13,8 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
 ## Behavior
 
 1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
-   a hint to run `pharn init` first. A config that exists but is **invalid** (a bad `seam`
-   block, an out-of-enum `capabilities[].source`, unparseable JSON) is reported by its own named error
+   a hint to run `pharn init` first. A config that exists but is **invalid** (an out-of-enum
+   `capabilities[].source`, an unknown archetype, unparseable JSON) is reported by its own named error
    and exits 1 — deliberately not the "run `pharn init`" hint, which would tell you to overwrite it.
 2. Takes the project lock (`pharn/.lock`) — **before** any download, so a run that will be refused pays
    for no network — warns if a proxy is configured, then clones `pharn-dev/pharn-oss` (SHA-pinned).

@@ -76,6 +76,7 @@ const { runAdd } = await import('../src/commands/add.js');
 const { runUpdate } = await import('../src/commands/update.js');
 const { runRemove } = await import('../src/commands/remove.js');
 const { runStatus } = await import('../src/commands/status.js');
+const { runList } = await import('../src/commands/list.js');
 const { runUninstall } = await import('../src/commands/uninstall.js');
 
 const REPO = 'pharn-dev/pharn-oss';
@@ -906,6 +907,64 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(keys).toContain(SECURITY);
     // Every file was pharn's and unchanged, so nothing needed saving.
     expect(existsSync(at('pharn/.backup'))).toBe(false);
+  });
+
+  // CORE-165: `seam` is pharn-oss's. A block its checker accepts (an extra key,
+  // a repeated step) — and one this CLI has no business judging (an unknown
+  // step) — stops no command, and every command that writes the config writes
+  // it back deep-equal, its keys in their own order.
+  it('a seam block pharn-oss owns stops no command and survives update, add and remove verbatim', async () => {
+    await init();
+    // A fresh install writes none: pharn-oss materializes its own default.
+    expect(read('pharn.config.json')).not.toContain('"seam"');
+    const seam = {
+      note: 'tuned by hand',
+      resolutionOrder: ['model', 'ask', 'ask', 'guess'],
+      haltOnUnknown: false,
+    };
+    const raw = JSON.parse(read('pharn.config.json')) as Record<
+      string,
+      unknown
+    >;
+    writeFileSync(
+      at('pharn.config.json'),
+      `${JSON.stringify({ ...raw, seam }, null, 2)}\n`,
+    );
+    const seamOf = (): string =>
+      JSON.stringify(
+        (JSON.parse(read('pharn.config.json')) as { seam?: unknown }).seam,
+      );
+    const expected = JSON.stringify(seam);
+
+    stdout = [];
+    expect(await run(() => runList({ json: true }))).toBeNull();
+    expect(stdout).toHaveLength(1);
+    expect(JSON.parse(stdout[0] ?? '')).toMatchObject({
+      archetypes: ['lib'],
+    });
+
+    stdout = [];
+    expect(await run(() => runStatus({ json: true, strict: true }))).toBeNull();
+    const status = JSON.parse(stdout[0] ?? '') as StatusJson;
+    expect(status.strict.failed).toBe(false);
+    expect(process.exitCode).toBeUndefined();
+
+    serveTip(SHA_V2, '2.0.0');
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(config().skillsVersion).toBe('2.0.0');
+    expect(seamOf()).toBe(expected);
+
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    expect(config().capabilities).toContainEqual({
+      name: 'a11y',
+      role: 'griller',
+      source: 'manual',
+    });
+    expect(seamOf()).toBe(expected);
+
+    expect(await run(() => runRemove('a11y'))).toBeNull();
+    expect(existsSync(at('pharn/pharn-pipeline/grillers/a11y'))).toBe(false);
+    expect(seamOf()).toBe(expected);
   });
 
   it('status --json prints one report: current, no drift, then the edit it finds', async () => {

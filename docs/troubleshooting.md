@@ -736,26 +736,27 @@ If your `pharn.config.json` predates the archetype model (it has `modules` but n
 ## A command rejects an invalid config (does NOT say "run init")
 
 ```text
-seam.resolutionOrder[1] has invalid step "guess" (expected one of official-skill, pinned-docs, fetch, model, ask)
+pharn.config.json: capabilities[1].source must be "auto" or "manual" (found "guess"). Fix it by hand, or delete the field — an absent `source` is valid and the next `pharn update` will set it.
 ```
 
 If `pharn.config.json` **exists but was hand-edited into an invalid state**, `add` / `status` /
 `update` / `remove` / `list` print the loud, specific error above (naming the offending field) and
 exit non-zero — they do **not** say to run `pharn init` (the file is there; re-running init would
-offer to clobber your edits). Fix the named field and re-run. The `seam` block rejects an out-of-enum
-value, an unknown key (e.g. a typo'd `haltOnUnknwon`), a duplicate `resolutionOrder` step, or a
-`modelConfidenceThreshold` with no `model` step to gate. The same refusal covers a `capabilities`
+offer to clobber your edits). Fix the named field and re-run. The same refusal covers a `capabilities`
 that is not an array or has an invalid entry, an `archetypes` that is not a list of known archetypes,
 and a `skillsVersion` or `commit` that is not a version / a full commit SHA (or `null`) — see
 [`pharn.config.json`](reference/pharn-config.md#skillsversion-and-commit--checked-when-the-config-loads).
 
 The `models` block is **not** checked here: it is pharn-oss's, and no command refuses to run over it.
-See [`pharn status` lists a problem with `models`](#pharn-status-lists-a-problem-with-models).
+See [`pharn status` lists a problem with `models`](#pharn-status-lists-a-problem-with-models). Nor is
+the `seam` block: it is pharn-oss's too, `pharn` carries it unchanged, and pharn-oss's own floor
+checks it (releases up to 0.19.0 refused, in every command, a `seam` block pharn-oss accepts — one
+with an extra key or a repeated step; upgrade `pharn` if one stops yours).
 
 ### The config is not valid JSON
 
 ```text
-/path/to/your/project/pharn.config.json is not valid JSON (line 4, column 1). The file exists — fix its syntax by hand. Do NOT run `pharn init` to clear it: init OVERWRITES this config, discarding your recorded capabilities, any manual `pharn add` provenance, and hand-edited models/seam blocks. If it is beyond repair, move it aside first (`mv pharn.config.json pharn.config.json.bak`), then run `pharn init`.
+/path/to/your/project/pharn.config.json is not valid JSON (line 4, column 1). The file exists — fix its syntax by hand. Do NOT run `pharn init` to clear it: init OVERWRITES this config, discarding your recorded capabilities, any manual `pharn add` provenance, and a hand-edited models block. If it is beyond repair, move it aside first (`mv pharn.config.json pharn.config.json.bak`), then run `pharn init`.
 ```
 
 A syntax error — most often a trailing comma — is reported with the file's full path and, when the
@@ -763,9 +764,8 @@ JSON parser supplies one, the **line and column** of the offending byte. Open th
 position and fix it; nothing else is needed, and nothing has been written.
 
 **Do not reach for `pharn init` here.** It rewrites `pharn.config.json` wholesale: a hand-edited
-`models` block becomes pharn-oss's again, `seam` goes back to its default, keys of your own such as
-`testResults` are not carried
-over, and every capability is re-stamped `source: "auto"`, which discards the record of which
+`models` block becomes pharn-oss's again, keys of your own such as `testResults` and the `seam`
+block are not carried over (nothing is, from a file that does not parse), and every capability is re-stamped `source: "auto"`, which discards the record of which
 capabilities you added by hand with `pharn add`. That record
 lives nowhere else, and `pharn update` reads it to keep your manual additions across upgrades.
 

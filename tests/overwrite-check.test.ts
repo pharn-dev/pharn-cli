@@ -17,8 +17,8 @@ const { confirmWriteTargets, MAX_LISTED } =
 const { installCapabilities } =
   await import('../src/lib/install-capabilities.js');
 type Selection = import('../src/types.js').Selection;
-const { readPharnConfig } = await import('../src/lib/pharn-config.js');
-const { SeamConfigError } = await import('../src/lib/seam-config.js');
+const { readPharnConfig, CapabilitySourceError } =
+  await import('../src/lib/pharn-config.js');
 const { contentHash } = await import('../src/lib/hash.js');
 
 // ESC built from its code point, so no literal control character lives in this
@@ -29,10 +29,10 @@ const ESC = String.fromCharCode(27);
 // are raw strings so they are exactly what a hand-edit leaves behind.
 const CONFIG_2_3_4 = '{"skillsVersion":"2.3.4","modules":[]}';
 const CONFIG_TRUNCATED = '{"skillsVersion":';
-// readPharnConfig THROWS SeamConfigError on this one (unknown step) — the exact
-// class of config `init` has to stay able to repair.
-const CONFIG_BAD_SEAM =
-  '{"skillsVersion":"2.3.4","modules":[],"seam":{"resolutionOrder":["guess","ask"]}}';
+// readPharnConfig THROWS CapabilitySourceError on this one (an out-of-enum
+// `source`) — the exact class of config `init` has to stay able to repair.
+const CONFIG_BAD_SOURCE =
+  '{"skillsVersion":"2.3.4","modules":[],"capabilities":[{"name":"a11y","role":"lens","source":"guess"}]}';
 // Valid JSON (stringify escapes the ESC), so JSON.parse SUCCEEDS and it is
 // VERSION_RE, not the parse guard, that drops the value.
 const CONFIG_ESCAPED_VERSION = JSON.stringify({
@@ -292,13 +292,13 @@ describe('confirmWriteTargets', () => {
 
   it('survives a config readPharnConfig would REJECT — init is the repair command', async () => {
     const { repo, proj } = dirs(scaffoldRepo);
-    write(join(proj, 'pharn.config.json'), CONFIG_BAD_SEAM);
+    write(join(proj, 'pharn.config.json'), CONFIG_BAD_SOURCE);
     // Two-sided on purpose: prove the fixture really IS the dangerous class
     // before claiming the stage survives it. readPharnConfig lets
-    // SeamConfigError PROPAGATE by design (lib/pharn-config.ts), and init has
+    // CapabilitySourceError PROPAGATE by design (lib/pharn-config.ts), and init has
     // no recovery around this stage — so an unguarded read here would make the
     // one command that repairs a broken config abort on it instead.
-    expect(() => readPharnConfig(proj)).toThrow(SeamConfigError);
+    expect(() => readPharnConfig(proj)).toThrow(CapabilitySourceError);
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
       'proceed',
@@ -484,8 +484,8 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
   });
 });
 
-// F-08: a re-install rewrites pharn.config.json — its `seam` and `models`
-// blocks are reset — so the install backs the existing file up first, and the
+// F-08: a re-install rewrites pharn.config.json — its `models` block is reset
+// (`seam`, pharn-oss's, is carried like any unowned key, CORE-165) — so the install backs the existing file up first, and the
 // prompt says so before the user confirms. Listed right after the backed-up
 // files, so the MAX_LISTED cap cannot hide it.
 describe('confirmWriteTargets — pharn.config.json is rewritten, backed up first (F-08)', () => {
@@ -494,7 +494,7 @@ describe('confirmWriteTargets — pharn.config.json is rewritten, backed up firs
   const NPO = 'pharn-review/n-plus-one/n-plus-one.md';
   const MARKED = 'pharn.config.json (will be rewritten — backed up first)';
   const CONFIG_LINE =
-    'pharn.config.json will be rewritten (seam and models reset to their defaults); it will be copied to pharn/.backup/ first.';
+    'pharn.config.json will be rewritten (models reset to its default); it will be copied to pharn/.backup/ first.';
 
   function bullets(warning: string): string[] {
     return warning.split('\n').filter((l) => l.trimStart().startsWith('•'));

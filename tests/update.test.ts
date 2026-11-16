@@ -4227,7 +4227,8 @@ describe('runUpdate (drift-safe)', () => {
   // CORE-162: once a kept edit withholds the bump, every later run re-plans.
   // A run whose plan changes nothing asks nothing and writes nothing — and a
   // value the READER resolves (an absent layout, an absent commit, a ref other
-  // than "latest", a re-ordered seam block) never forces a write by itself.
+  // than "latest") never forces a write by itself — nor does a `seam` block,
+  // which is pharn-oss's and carried verbatim (CORE-165).
   describe('a run that changes nothing', () => {
     // Run 1 over a kept edit: every other file upgraded and recorded, DOC kept,
     // the bump withheld with 1.1.0 pending. Then `edit` reshapes the written
@@ -4305,14 +4306,35 @@ describe('runUpdate (drift-safe)', () => {
       await expectNothingChanged(before);
     });
 
-    it('a seam block the reader re-orders is not rewritten', async () => {
+    // A block this CLI used to refuse (CORE-165): pharn-oss's checker
+    // accepts the extra key and the repeated step; the unknown step is not
+    // this CLI's to judge. Keys deliberately out of their usual order.
+    const ODD_SEAM = {
+      note: 'ours',
+      haltOnUnknown: true,
+      resolutionOrder: ['model', 'ask', 'ask', 'guess'],
+    };
+
+    it('a seam block pharn-oss owns is loaded and not rewritten', async () => {
       const before = await afterWithheldRun((cfg) => {
-        cfg.seam = {
-          haltOnUnknown: true,
-          resolutionOrder: ['pinned-docs', 'ask'],
-        };
+        cfg.seam = ODD_SEAM;
       });
       await expectNothingChanged(before);
+    });
+
+    it('a run that writes the config writes its seam block back unchanged', async () => {
+      await afterWithheldRun((cfg) => {
+        cfg.seam = ODD_SEAM;
+      });
+      write(join(proj, CAP_FILE), readFileSync(join(repo, CAP_FILE), 'utf8'));
+      rmSync(join(proj, HOOK));
+      await runUpdate();
+      const raw = JSON.parse(
+        readFileSync(join(proj, 'pharn.config.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      expect(raw.updatedAt).toEqual(expect.any(String));
+      expect(raw.seam).toEqual(ODD_SEAM);
+      expect(JSON.stringify(raw.seam)).toBe(JSON.stringify(ODD_SEAM));
     });
 
     // The opposite race: the snapshot changes something, but by the time the

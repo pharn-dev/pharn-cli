@@ -47,7 +47,7 @@ export { MAX_LISTED };
 // there is not one worth showing. Cosmetic input, cosmetic failure.
 //
 // DELIBERATELY NOT readPharnConfig (lib/pharn-config.ts). That reader lets
-// SeamConfigError / CapabilityEntryError / CapabilitySourceError PROPAGATE so a bad
+// CapabilityEntryError / CapabilitySourceError / ArchetypesError PROPAGATE so a bad
 // hand-edit is never collapsed into the "run init" lie — correct for every
 // command that must not act on a config it failed to understand. But `init` IS
 // the command you run to REPAIR a broken config, and it has no recovery around
@@ -197,7 +197,7 @@ export async function confirmWriteTargets(
       ? `\n${counts.map(([label, n]) => labelLine(label, n)).join('\n')}\n${labels.size === 1 ? 'It' : `All ${labels.size}`} will be copied to ${BACKUP_DIR}/ before being overwritten.`
       : '';
   const configLine = configBackedUp
-    ? `\n${PHARN_CONFIG_FILE} will be rewritten (seam and models reset to their defaults); it will be copied to ${BACKUP_DIR}/ first.`
+    ? `\n${PHARN_CONFIG_FILE} will be rewritten (models reset to its default); it will be copied to ${BACKUP_DIR}/ first.`
     : '';
   // Only when the config itself is at risk — i.e. a re-install over an existing
   // one — and only AFTER the zero-conflict return above, so a conflict-free

@@ -40,40 +40,16 @@ export interface InstalledCapability {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Seam-resolution config — the `seam` block in pharn.config.json. The CLI owns
-// this schema; it conforms to pharn-contracts/seam-config.md (the SoT) and the
-// parallel floor validator .dev/floor/check-seam-config.mjs. It is the policy
-// for the agnostic seam resolver's confidence-gated chain (ARCHITECTURE.md §5):
-// an ordered resolutionOrder walked until a step resolves, with a MANDATORY
-// terminal `ask` (P5, fail-closed). The CLI owns the config shape + its
-// validator; the runtime resolver that WALKS it is pharn-oss's seam-resolver
-// skill, installed verbatim as part of the fixed `pharn-core` surface
-// (lib/constants.ts → PHARN_CORE_DIR). The CLI never parses or executes it.
+// The `seam` block (seam-resolution policy) is pharn-oss's too (CORE-165): its
+// schema is pharn-contracts/seam-config.md, and pharn-oss's own floor
+// materializes the default and checks the block. This CLI reads nothing in it,
+// so it neither validates nor writes it: `PharnConfig.seam` is `unknown`, and
+// every command — a re-run init included — carries it VERBATIM.
 // ---------------------------------------------------------------------------
 
-// One step in the seam-resolution chain (ARCHITECTURE.md §5 sources). Runtime
-// allowlist: RESOLUTION_STEPS in src/lib/seam-config.ts.
-export type ResolutionStep =
-  'official-skill' | 'pinned-docs' | 'fetch' | 'model' | 'ask';
-
-// The confidence bar at the `model` step ({low, medium, high} — the seam-config
-// contract's scale, NOT the models block's effort levels). Runtime allowlist:
-// SEAM_CONFIDENCE_LEVELS in src/lib/seam-config.ts.
-export type SeamConfidence = 'low' | 'medium' | 'high';
-
-// The `seam` block: an ordered resolutionOrder (non-empty, every element a known
-// step, MUST contain the terminal `ask`) plus two optional policy knobs. Absent
-// optional fields ⇒ the runtime default applies (seam-config.md). Validated by
-// validateSeamConfig (src/lib/seam-config.ts).
-export interface SeamConfig {
-  resolutionOrder: ResolutionStep[];
-  modelConfidenceThreshold?: SeamConfidence;
-  haltOnUnknown?: boolean;
-}
-
-// Every key declared here is pharn-OWNED: `pharn init` rewrites it from scratch
-// (CLI_OWNED_KEYS in src/lib/pharn-config.ts must list it — the typecheck
-// enforces that). Keys the user adds that are NOT declared — upstream pharn-oss's
+// Every key declared here is pharn-OWNED — except `seam` (see above): `pharn
+// init` rewrites it from scratch (CLI_OWNED_KEYS in src/lib/pharn-config.ts must
+// list it — the typecheck enforces that). Keys the user adds that are NOT declared — upstream pharn-oss's
 // `testResults` and `ship` — are user-owned and survive every command, init
 // included (userOwnedConfigEntries). So declaring an upstream key here is not a
 // harmless typing convenience: it would make init start dropping it.
@@ -140,10 +116,11 @@ export interface PharnConfig {
   // upstream has none); absent on installs that predate it (P7 — additive). The
   // key stays pharn's to WRITE (CLI_OWNED_KEYS), so a re-run init replaces it.
   models?: unknown;
-  // Seam-resolution policy (the `seam` block). Written on every fresh install
-  // with DEFAULT_SEAM_CONFIG; absent on legacy installs predating it (P7 —
-  // additive). Validated by validateSeamConfig (src/lib/seam-config.ts).
-  seam?: SeamConfig;
+  // The `seam` block — pharn-oss's schema (see above). NOT pharn-owned: never
+  // validated, never written by `init`, carried VERBATIM by every command (a
+  // re-run init included, via userOwnedConfigEntries). Declared only so readers
+  // know it exists; the one key deliberately absent from CLI_OWNED_KEYS.
+  seam?: unknown;
   // LEGACY schemaVersion 2 (wizard) fields: nothing reads them; they still
   // load (P7), so an old config carrying them type-checks on read.
   stackAnswers?: Record<string, string>;
