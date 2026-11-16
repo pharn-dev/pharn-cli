@@ -217,7 +217,7 @@ Two rules that are easy to get wrong:
 | `lint-rules.test.ts` / `dependency-overrides.test.ts`                                                 | Each `src/` lint rule fires on a planted violation and each exemption stays silent; every `overrides` floor holds in the lockfile                                                                                             |
 | `repo-signals.test.ts` / `model-config-format.test.ts`                                                | Fetch abort/cleanup signals; the `models` render                                                                                                                                                                              |
 | `dist-smoke.test.ts`                                                                                  | The built bundle, run with `node`: `--version`, `--help`, `status` with no config, option refusals                                                                                                                            |
-| `commands-integration.test.ts`                                                                        | One unmocked happy path per command (`init --yes`, `add`, `update --yes`, `remove`, `status --json`, `uninstall --yes`) against a real temp project, with only `fetch` stubbed to serve a real tarball                        |
+| `commands/*.test.ts` (+ `support/harness.ts`)                                                         | One behaviour suite per command against a real temp project: only `fetch` is stubbed (serving a real codeload tarball) and `@clack/prompts` at the prompt boundary; no `src/` module is mocked                                |
 
 When changing behavior, add or update tests before docs.
 
