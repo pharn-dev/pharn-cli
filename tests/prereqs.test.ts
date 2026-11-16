@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
@@ -11,7 +11,8 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 const { log } = await import('@clack/prompts');
-const { runGitPrereq } = await import('../src/steps/prereqs.js');
+const { findAncestorGitRoot, runGitPrereq } =
+  await import('../src/steps/prereqs.js');
 
 describe('runGitPrereq', () => {
   const tmp = useTmpDir();
@@ -71,5 +72,80 @@ describe('runGitPrereq', () => {
     expect(log.error).not.toHaveBeenCalled();
     expect(String(errSpy.mock.calls[0]![0])).toContain('git init');
     errSpy.mockRestore();
+  });
+
+  // CORE-168: in a monorepo's `apps/web`, "Run: git init" creates a NESTED
+  // repository. When an ancestor holds `.git`, the message names the root.
+  describe('inside a git repository, below its root', () => {
+    it('names the repository root and never suggests git init', () => {
+      const root = join(tmp.path(), 'repo');
+      const sub = join(root, 'apps', 'web');
+      mkdirSync(join(root, '.git'), { recursive: true });
+      mkdirSync(sub, { recursive: true });
+      vi.mocked(log.error).mockClear();
+      const cwd = vi.spyOn(process, 'cwd').mockReturnValue(sub);
+      expect(() => runGitPrereq()).toThrow(ProcessExit);
+      cwd.mockRestore();
+
+      const message = vi.mocked(log.error).mock.calls.at(-1)![0];
+      expect(message).toContain(`repository root (${root})`);
+      expect(message).toContain('pharn init');
+      expect(message).toContain(sub);
+      expect(message).not.toContain('git init');
+      expect(message).not.toContain('git not found');
+      expect(log.error).toHaveBeenCalledWith(expect.any(String), {
+        output: process.stderr,
+      });
+    });
+
+    it('says the same plainly on stderr under { json: true }', () => {
+      const root = join(tmp.path(), 'repo');
+      const sub = join(root, 'packages', 'a');
+      mkdirSync(join(root, '.git'), { recursive: true });
+      mkdirSync(sub, { recursive: true });
+      const errSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => undefined);
+      const cwd = vi.spyOn(process, 'cwd').mockReturnValue(sub);
+      vi.mocked(log.error).mockClear();
+      expect(() => runGitPrereq({ json: true })).toThrow(ProcessExit);
+      cwd.mockRestore();
+      expect(log.error).not.toHaveBeenCalled();
+      const text = String(errSpy.mock.calls[0]![0]);
+      expect(text).toContain(`repository root (${root})`);
+      expect(text).not.toContain('git init');
+      errSpy.mockRestore();
+    });
+  });
+
+  describe('findAncestorGitRoot', () => {
+    it('returns the NEAREST ancestor holding .git', () => {
+      const outer = join(tmp.path(), 'outer');
+      const inner = join(outer, 'inner');
+      const deep = join(inner, 'a', 'b');
+      mkdirSync(join(outer, '.git'), { recursive: true });
+      mkdirSync(join(inner, '.git'), { recursive: true });
+      mkdirSync(deep, { recursive: true });
+      expect(findAncestorGitRoot(deep)).toBe(inner);
+    });
+
+    it('counts a .git FILE (a worktree or submodule), like the cwd check', () => {
+      const root = join(tmp.path(), 'wt');
+      mkdirSync(join(root, 'sub'), { recursive: true });
+      writeFileSync(join(root, '.git'), 'gitdir: /elsewhere\n');
+      expect(findAncestorGitRoot(join(root, 'sub'))).toBe(root);
+    });
+
+    it('never answers with the start directory itself', () => {
+      const root = join(tmp.path(), 'self');
+      mkdirSync(join(root, '.git'), { recursive: true });
+      expect(findAncestorGitRoot(root)).toBeNull();
+    });
+
+    it('returns null when no ancestor holds .git', () => {
+      const dir = join(tmp.path(), 'plain', 'x');
+      mkdirSync(dir, { recursive: true });
+      expect(findAncestorGitRoot(dir)).toBeNull();
+    });
   });
 });

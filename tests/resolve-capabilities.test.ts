@@ -50,6 +50,16 @@ describe('resolveCapabilities', () => {
     expect(backend.skipped[0]!.reason).toContain('backend');
   });
 
+  // CORE-168: the archetypes come from detection, from `--archetype`, or (for
+  // `update`) from the config — so the reason names none of those origins.
+  it('words the skip reason neutrally: applies to […]; archetypes […]', () => {
+    const r = resolveCapabilities(['backend', 'lib'], index(a11y));
+    expect(r.skipped[0]!.reason).toBe(
+      'applies to [ssr, spa]; archetypes [backend, lib]',
+    );
+    expect(r.skipped[0]!.reason).not.toContain('detected');
+  });
+
   it('selects a capability that applies to any detected archetype (multi)', () => {
     const r = resolveCapabilities(['ssr', 'backend'], index(a11y, nPlusOne));
     // a11y [ssr,spa] matches ssr; n-plus-one [ssr,backend] matches both

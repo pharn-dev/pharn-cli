@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CANCEL,
@@ -111,6 +112,7 @@ vi.mock('../src/lib/pharn-config.js', () => ({
 // add uses the real parseCapabilityArg (name / role:name parsing) and the real
 // buildAddSelection / interactiveAllowed (available = index − installed).
 const { runAdd } = await import('../src/commands/add.js');
+const { resolveAddPicker } = await import('../src/steps/add-picker.js');
 const prompts = await import('@clack/prompts');
 const { readRecords, writeRecords, RECORDS_FILE } =
   await import('../src/lib/install-records.js');
@@ -455,6 +457,47 @@ describe('runAdd (archetype)', () => {
       { name: 'a11y', role: 'griller', source: 'manual' },
       { name: 'n-plus-one', role: 'lens', source: 'manual' },
     ]);
+    // CORE-168: every pick landed → the outro as before, and exit 0.
+    const outroText = vi
+      .mocked(prompts.outro)
+      .mock.calls.map((c) => stripVTControlCharacters(String(c[0])));
+    expect(outroText).toEqual(['✔ Added 2 capabilities.']);
+  });
+
+  // CORE-168: the picker's own outcome counts a failed pick by its `role:name`
+  // value, and keeps installing the rest.
+  it('resolveAddPicker returns the failed picks beside the added ones', async () => {
+    mockClone();
+    vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+      'griller:a11y',
+      'lens:n-plus-one',
+    ]);
+    const addOne = vi.fn(async (_r, _s, _c, _w, parsed: { name: string }) =>
+      parsed.name === 'a11y'
+        ? { kind: 'error' as const, message: 'refused' }
+        : {
+            kind: 'added' as const,
+            name: parsed.name,
+            version: '1.0.0',
+            stamp: { skillsVersion: '1.0.0', commit: null },
+          },
+    );
+
+    const outcome = await resolveAddPicker(
+      '/repo',
+      null,
+      archConfig(),
+      '/proj',
+      addOne,
+    );
+
+    expect(addOne).toHaveBeenCalledTimes(2);
+    expect(outcome).toEqual({
+      kind: 'installed',
+      added: ['n-plus-one'],
+      failed: ['griller:a11y'],
+    });
+    expect(prompts.log.error).toHaveBeenCalled();
   });
 
   // --- the proxy notice (wiring) ----------------------------------------------
@@ -1196,6 +1239,68 @@ describe('runAdd — pharn.records.json', () => {
       const err = vi.mocked(prompts.log.error).mock.calls.at(-1)![0] as string;
       expect(err).toContain('pharn-pipeline/grillers/a11y/evals');
       expect(err).toContain('symlink');
+    });
+
+    // CORE-168: the picker used to log a failed pick, carry on, and exit 0
+    // with "Added N capabilities" (N could be 0). A refused pick is real — the
+    // symlink refusal above is one — so it is counted, named, and exits 1.
+    it('the picker names a refused pick in its outro and exits 1; the other pick still lands', async () => {
+      await seedStore();
+      write(join(proj, 'elsewhere/basic.md'), 'BYTES OUTSIDE THE CAPABILITY');
+      mkdirSync(join(proj, 'pharn-pipeline/grillers/a11y'), {
+        recursive: true,
+      });
+      symlinkSync(
+        join(proj, 'elsewhere'),
+        join(proj, 'pharn-pipeline/grillers/a11y/evals'),
+      );
+      setTTY(true, true);
+      vi.mocked(prompts.groupMultiselect).mockResolvedValue([
+        'griller:a11y',
+        'lens:n-plus-one',
+      ]);
+
+      await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
+
+      expect(installCapabilityDirs).toHaveBeenCalledTimes(1);
+      expect(readFileSync(join(proj, LENS_FILE), 'utf8')).toBe(
+        'n-plus-one upstream',
+      );
+      const written = writePharnConfig.mock.calls.at(-1)![1] as PharnConfig;
+      expect(written.capabilities?.map((c) => c.name)).toEqual([
+        'security',
+        'n-plus-one',
+      ]);
+      const outroText = vi
+        .mocked(prompts.outro)
+        .mock.calls.map((c) => stripVTControlCharacters(String(c[0])));
+      expect(outroText).toEqual([
+        'Added 1 capability; 1 failed: griller:a11y.',
+      ]);
+    });
+
+    it('the picker says nothing was added when every pick fails, and exits 1', async () => {
+      await seedStore();
+      write(join(proj, 'elsewhere/basic.md'), 'x');
+      mkdirSync(join(proj, 'pharn-pipeline/grillers/a11y'), {
+        recursive: true,
+      });
+      symlinkSync(
+        join(proj, 'elsewhere'),
+        join(proj, 'pharn-pipeline/grillers/a11y/evals'),
+      );
+      setTTY(true, true);
+      vi.mocked(prompts.groupMultiselect).mockResolvedValue(['griller:a11y']);
+
+      await expect(runAdd(undefined)).rejects.toMatchObject(new ProcessExit(1));
+      expect(installCapabilityDirs).not.toHaveBeenCalled();
+      expect(writePharnConfig).not.toHaveBeenCalled();
+      const outroText = vi
+        .mocked(prompts.outro)
+        .mock.calls.map((c) => stripVTControlCharacters(String(c[0])));
+      expect(outroText).toEqual([
+        'No capabilities were added; 1 failed: griller:a11y.',
+      ]);
     });
 
     it('aborts with the user bytes intact when the backup cannot be written', async () => {

@@ -419,9 +419,22 @@ async function runAddPicker(config: PharnConfig, cwd: string): Promise<void> {
     outro('Nothing selected. No capabilities were added.');
     return;
   }
+  const n = outcome.added.length;
+  if (outcome.failed.length === 0) {
+    outro(`${pc.green('✔')} Added ${n} ${plural(n)}.`);
+    return;
+  }
+  // A pick that failed (each already reported as it happened) makes the run a
+  // failure: named again here, and exit 1 — never "Added 0 capabilities" and a
+  // success code (CORE-168). The names are the picks' own `role:name` values,
+  // built from the validated index.
+  const failures = `${outcome.failed.length} failed: ${outcome.failed.join(', ')}.`;
   outro(
-    `${pc.green('✔')} Added ${outcome.added.length} ${plural(outcome.added.length)}.`,
+    n === 0
+      ? `No capabilities were added; ${failures}`
+      : `Added ${n} ${plural(n)}; ${failures}`,
   );
+  process.exit(1);
 }
 
 function plural(n: number): string {

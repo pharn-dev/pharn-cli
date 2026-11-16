@@ -52,6 +52,7 @@ import {
 import { buildInitReport } from '../lib/init-report.js';
 import {
   assertNoExistingTargets,
+  existingConfigRefusal,
   OverwriteRefusedError,
   removalLines,
   targetLines,
@@ -124,7 +125,7 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
   // and again under it. Auto-confirming file overwrites in a pipeline is the
   // hazard that prompt exists to prevent, so `--yes` does not; a re-install
   // (where `pharn.config.json` always exists) therefore always refuses it and
-  // is pointed at `pharn update`.
+  // is pointed at `pharn update` — right below this gate, before any fetch.
   if (
     !dryRun &&
     !yes &&
@@ -139,10 +140,25 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
     process.exit(1);
   }
 
+  // `--yes` over an existing `pharn.config.json`: a CERTAIN refusal — that file
+  // is always one of init's write targets — so it is decided here, from one
+  // local existence test, rather than after downloading the tarball only to
+  // refuse (CORE-168). Same exit and ways forward as the in-run refusal, which
+  // still guards every other target (before the lock and under it). A policy
+  // refusal: no PHARN_DEBUG hint. `--dry-run` writes nothing, so it previews.
+  if (yes && !dryRun) {
+    const refusal = existingConfigRefusal(process.cwd());
+    if (refusal !== null) {
+      reportFatal(refusal);
+      process.exit(1);
+    }
+  }
+
   // The banner and intro come only now, AFTER the Node floor, the git
-  // prerequisite and the TTY gate: a refused init prints its one error and
-  // nothing else, rather than a logo on stdout above an error on stderr. Under
-  // `--json` NOTHING reaches stdout but the one report: no banner, no clack.
+  // prerequisite, the TTY gate and the `--yes` config check: a refused init
+  // prints its one error and nothing else, rather than a logo on stdout above
+  // an error on stderr. Under `--json` NOTHING reaches stdout but the one
+  // report: no banner, no clack.
   if (!json) {
     showBanner();
     intro(dryRun ? 'pharn init --dry-run' : 'init wizard');
@@ -211,12 +227,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         evidence: detection.evidence,
         truncated: detection.truncated,
       };
-  if (!json) {
-    note(
-      archetypes.join(', '),
-      override ? 'Archetypes (from --archetype)' : 'Detected archetypes',
-    );
-  }
+  // The archetypes are printed ONCE, in the summary (archetypeOriginLines) —
+  // not also in a note ahead of it (CORE-168).
 
   // pharn's fetches go through Node's global fetch, which reads NO proxy
   // environment variable on any platform — so a configured proxy is simply
@@ -366,14 +378,16 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         // holds a file that cannot be read. Planned again under the lock.
         const removals = planInitRemovals(cwd, carry);
         if (yes) {
-          // `--yes` never deletes: any removal refuses, as any overwrite does.
+          // `--yes` never deletes either, and needs no removal check for it: a
+          // removal comes only from a replaced pharn.config.json, which refused
+          // `--yes` before the fetch — and one that appeared since is itself a
+          // conflict here.
           assertNoExistingTargets({
             repoDir: repo.dir,
             projectRoot: cwd,
             capabilities: selection.selected,
             manifest,
             records,
-            removals,
           });
           overwrite = 'proceed';
         } else {
@@ -438,7 +452,6 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
               capabilities: selection.selected,
               manifest,
               records: reinstallBaseline(cwd, carry),
-              removals: planInitRemovals(cwd, carry),
             });
           }
           return runInstallArchetype(
@@ -684,11 +697,11 @@ function reportInitDryRun(r: InitPlanReport): void {
     lines.push(`  ${prettierignore.text}`);
   lines.push(
     '',
-    deletes.length > 0
-      ? `  \`pharn init --yes\` would refuse: ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} would be deleted.`
-      : r.counts.overwrite === 0
-        ? '  `pharn init --yes` would install (nothing would be overwritten).'
-        : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
+    // A deletion needs a replaced pharn.config.json, which is itself an
+    // overwrite — so the overwrite count alone decides (CORE-168).
+    r.counts.overwrite === 0
+      ? '  `pharn init --yes` would install (nothing would be overwritten).'
+      : `  \`pharn init --yes\` would refuse: ${r.counts.overwrite} existing file(s) would be overwritten.`,
   );
   note(lines.join('\n'), 'PLAN');
   if (gitignore?.warn) log.warn(gitignore.text);

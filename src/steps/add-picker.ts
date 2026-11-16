@@ -38,7 +38,9 @@ export type AddOne = (
 ) => Promise<AddResult>;
 
 export type PickerAddOutcome =
-  | { kind: 'installed'; added: string[] }
+  // `failed`: the picks that came back as `error`, by their own `role:name`
+  // value — the command names them and exits 1 when any is listed.
+  | { kind: 'installed'; added: string[]; failed: string[] }
   | { kind: 'all-installed' }
   | { kind: 'none' }
   | { kind: 'cancelled' }
@@ -92,6 +94,7 @@ export async function resolveAddPicker(
   // resolveArchetypeAdd writes pharn.config.json off the `cfg` passed in, so cfg
   // must accumulate every prior pick or the writes clobber down to the last one.
   const added: string[] = [];
+  const failed: string[] = [];
   let cfg = config;
   for (const value of values) {
     const parsed = parseCapabilityArg(value);
@@ -122,12 +125,17 @@ export async function resolveAddPicker(
       // Defensive: the picker only offers not-installed capabilities.
       log.info(`${result.name} is already installed.`);
     } else {
-      // Defensive: values come from the validated index, so this is unexpected.
-      // `logError`, not `reportFatal`: this does not exit — the loop continues to
-      // the next pick — and `resolveArchetypeAdd` only ever returns CURATED
-      // errors here (unknown / ambiguous), so there is no stack to offer.
+      // REACHABLE, not defensive: the values come from the validated index, but
+      // `resolveArchetypeAdd` also refuses a pick whose capability directory in
+      // the project crosses a symlink (it would write through the link). The
+      // pick is named now and counted, so the command can name it again in its
+      // outro and exit 1 (CORE-168). `logError`, not `reportFatal`: this does
+      // not exit — the loop continues to the next pick — and the error is a
+      // CURATED message, so there is no stack to offer. (A pick that THROWS
+      // still aborts the loop through the command's catch, also exit 1.)
       logError(`⚠ ${result.message}`);
+      failed.push(value);
     }
   }
-  return { kind: 'installed', added };
+  return { kind: 'installed', added, failed };
 }

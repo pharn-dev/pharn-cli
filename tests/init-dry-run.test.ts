@@ -389,9 +389,12 @@ describe('pharn init --dry-run', () => {
       expect(plan).toContain(
         'pharn-review/path-traversal/ (lens:path-traversal — 1 file(s)',
       );
-      expect(plan).toContain(
-        '`pharn init --yes` would refuse: 1 capability directory would be deleted.',
+      // CORE-168: no separate removal reason — a re-install always overwrites
+      // pharn.config.json, and that alone is why `--yes` refuses.
+      expect(plan).toMatch(
+        /`pharn init --yes` would refuse: \d+ existing file\(s\) would be overwritten\./,
       );
+      expect(plan).not.toContain('capability directory would be deleted');
       expect(outro()).toContain('delete 1 directory');
       expect(logged('warn')).toContain(
         'your archetypes no longer select: lens:path-traversal',

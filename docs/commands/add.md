@@ -276,6 +276,12 @@ capabilities are shown as an `Installed (N): …` summary above the list, not as
 additive-only. Pick zero or more, and each is installed through the **same** per-capability path as
 `pharn add <name>`, echoed as it lands. An empty selection is a no-op.
 
+A pick that is refused (for example, its capability directory in your project sits under a symbolic
+link) is reported as it happens, and the others still install. The closing line then names every
+refused pick (`Added 1 capability; 1 failed: griller:a11y.`, or `No capabilities were added; …` when
+none landed) and `pharn add` **exits 1**. When every pick lands it ends with `Added N capabilities.` and
+exits 0.
+
 The picker only opens when both stdin and stdout are a TTY. In a non-interactive context (CI, a pipe),
 `pharn add` with no argument does **not** prompt — it exits with a usage error pointing you at
 `pharn add <name>` or an interactive terminal.
