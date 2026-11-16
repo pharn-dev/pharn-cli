@@ -1,5 +1,4 @@
 import {
-  chmodSync,
   existsSync,
   linkSync,
   lstatSync,
@@ -370,101 +369,105 @@ describe('installCapabilities', () => {
     expect(readdirSync(outside)).toEqual([]);
   });
 
+  // The manifest init computed, plus one LAST entry whose clone source is gone
+  // by the time it is written: a real writer failure (ENOENT on the read) that
+  // happens for every user, root included, after every other file landed.
+  const LATE = 'pharn-contracts/zz-late.md';
+  function manifestWithVanishedSource(repo: string): Map<string, string> {
+    return new Map([
+      ...collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+        layout: 'flat',
+      }),
+      [LATE, join(repo, 'vanished-since-the-plan.md')],
+    ]);
+  }
+
+  function thrown(fn: () => unknown): ApplyError {
+    try {
+      fn();
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApplyError);
+      return err as ApplyError;
+    }
+    throw new Error('expected an ApplyError');
+  }
+
   // A write that fails part-way throws an ApplyError carrying what landed, so
   // init/add can name those files; the caller writes no records or config.
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-    'a write failing part-way throws an ApplyError naming what was written',
-    () => {
-      const repo = join(tmp.path(), 'repo');
-      const proj = join(tmp.path(), 'proj');
-      scaffoldRepo(repo);
-      mkdirSync(join(proj, '.dev/floor'), { recursive: true });
-      chmodSync(join(proj, '.dev/floor'), 0o555);
-      try {
-        let caught: unknown;
-        try {
-          installCapabilities(repo, proj, selection());
-        } catch (err) {
-          caught = err;
-        }
-        expect(caught).toBeInstanceOf(ApplyError);
-        const { written, message } = caught as ApplyError;
-        expect(message).toMatch(/^Failed to write \.dev\/floor\//);
-        expect(written).toContain('CONSTITUTION.md');
-        expect(written.some((rel) => rel.startsWith('.dev/floor/'))).toBe(
-          false,
-        );
-        expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false);
-      } finally {
-        chmodSync(join(proj, '.dev/floor'), 0o755);
-      }
-    },
-  );
+  it('a write failing part-way throws an ApplyError naming what was written', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    mkdirSync(proj, { recursive: true });
+    const manifest = manifestWithVanishedSource(repo);
+
+    const { written, message } = thrown(() =>
+      installCapabilities(repo, proj, selection(), manifest),
+    );
+
+    expect(message).toMatch(new RegExp(`^Failed to write ${LATE}: ENOENT`));
+    expect(message).toContain(
+      `${manifest.size - 1} files were written before the failure`,
+    );
+    expect(written).toEqual([...manifest.keys()].slice(0, -1));
+    expect(existsSync(join(proj, LATE))).toBe(false);
+    expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false);
+  });
 
   // settings.json is written last; its failure names every file before it.
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-    'a settings.json write failure names the files already written',
-    () => {
-      const repo = join(tmp.path(), 'repo');
-      const proj = join(tmp.path(), 'proj');
-      scaffoldRepo(repo);
-      mkdirSync(join(proj, '.claude/commands'), { recursive: true });
-      mkdirSync(join(proj, '.claude/hooks'), { recursive: true });
-      chmodSync(join(proj, '.claude'), 0o555);
-      try {
-        let caught: unknown;
-        try {
-          installCapabilities(repo, proj, selection());
-        } catch (err) {
-          caught = err;
-        }
-        expect(caught).toBeInstanceOf(ApplyError);
-        const { written, message } = caught as ApplyError;
-        expect(message).toContain('were written before the failure');
-        expect(written).toContain('.claude/commands/pharn-plan.md');
-        expect(written).toContain('.dev/floor/validate.mjs');
-        expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false);
-      } finally {
-        chmodSync(join(proj, '.claude'), 0o755);
-      }
-    },
-  );
+  // Here `.claude` is a regular FILE: the pre-flight walks only manifest paths,
+  // and this clone ships no other `.claude/` file, so only settings hits it.
+  it('a settings.json write failure names the files already written', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    rmSync(join(repo, '.claude/commands'), { recursive: true });
+    rmSync(join(repo, '.claude/hooks'), { recursive: true });
+    write(join(proj, '.claude'), 'a regular file where a directory goes');
 
-  // The second pass of the changed-file path keeps the first pass's paths.
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-    'a failure while writing the changed files still carries every written path',
-    () => {
-      const repo = join(tmp.path(), 'repo');
-      const proj = join(tmp.path(), 'proj');
-      scaffoldRepo(repo);
-      // The only manifest file in its directory, so only the second pass fails.
-      const rel = 'pharn-contracts/finding-shape.md';
-      write(join(proj, rel), 'edited after the scan');
-      chmodSync(join(proj, 'pharn-contracts'), 0o555);
-      try {
-        let caught: unknown;
-        try {
-          installCapabilities(
-            repo,
-            proj,
-            selection(),
-            undefined,
-            new Map([[rel, null]]),
-          );
-        } catch (err) {
-          caught = err;
-        }
-        expect(caught).toBeInstanceOf(ApplyError);
-        const { written, message } = caught as ApplyError;
-        expect(message).toMatch(/^Failed to write pharn-contracts\//);
-        expect(written).toContain('CONSTITUTION.md');
-        expect(written).toContain('.dev/floor/validate.mjs');
-        expect(written).not.toContain(rel);
-      } finally {
-        chmodSync(join(proj, 'pharn-contracts'), 0o755);
-      }
-    },
-  );
+    const { written, message } = thrown(() =>
+      installCapabilities(repo, proj, selection()),
+    );
+
+    expect(message).toContain('were written before the failure');
+    expect(written).toContain('CONSTITUTION.md');
+    expect(written).toContain('.dev/floor/validate.mjs');
+    expect(readFileSync(join(proj, '.claude'), 'utf8')).toBe(
+      'a regular file where a directory goes',
+    );
+  });
+
+  // The second pass of the changed-file path keeps the first pass's paths: the
+  // edited file is skipped by the first pass, backed up, then fails to write.
+  it('a failure while writing the changed files still carries every written path', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    const manifest = manifestWithVanishedSource(repo);
+    write(join(proj, LATE), 'edited after the scan');
+
+    const { written, message } = thrown(() =>
+      installCapabilities(
+        repo,
+        proj,
+        selection(),
+        manifest,
+        new Map([[LATE, null]]),
+      ),
+    );
+
+    expect(message).toMatch(new RegExp(`^Failed to write ${LATE}: ENOENT`));
+    expect(written).toEqual([...manifest.keys()].slice(0, -1));
+    expect(readFileSync(join(proj, LATE), 'utf8')).toBe(
+      'edited after the scan',
+    );
+    const [backup] = readdirSync(join(proj, 'pharn/.backup'));
+    expect(
+      readFileSync(join(proj, 'pharn/.backup', backup!, LATE), 'utf8'),
+    ).toBe('edited after the scan');
+  });
 
   it('rejects a selected capability whose name escapes the base (P2 safeJoin)', () => {
     const repo = join(tmp.path(), 'repo');
