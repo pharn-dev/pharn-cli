@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, expectTypeOf, it, beforeEach } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
@@ -456,6 +456,25 @@ describe('buildUpdatePlan', () => {
     expect(plan(cfg).report.frozenCapabilities).toEqual(['griller:a11y']);
     write(join(proj, CAP_FILE), 'a11y v1');
     expect(plan(cfg).report.frozenCapabilities).toEqual([]);
+  });
+
+  // src/types.ts: `frozenCapabilities` is optional (omitted when none) and
+  // every `update` re-checks it — there is no same-version shortcut to skip.
+  it('re-checks frozenCapabilities at the same version too, and clears one that parses again', async () => {
+    expectTypeOf<PharnConfig['frozenCapabilities']>().toEqualTypeOf<
+      string[] | undefined
+    >();
+    const cfg = config({
+      skillsVersion: '1.1.0',
+      frozenCapabilities: ['griller:a11y'],
+      capabilities: [{ ...CAP, source: 'auto' }],
+    });
+    await fixture(cfg);
+    const { report } = plan(cfg);
+    expect(report.currentVersion).toBe(report.installedVersion);
+    expect(report.frozenCapabilities).toEqual([]);
+    expect(report.stateChanges.config).toBe(true);
+    expect(report.changesNothing).toBe(false);
   });
 
   it('plans the abandoned layout in both directions, only when something would be written', async () => {
