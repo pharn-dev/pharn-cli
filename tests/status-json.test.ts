@@ -278,7 +278,8 @@ describe('runStatus --json', () => {
     });
 
     // F-10: a declared surface upstream ships no file for is reported as data
-    // and fails --strict on its own; the layout pair is reported and does not.
+    // and fails --strict on its own. CORE-167: so does a layout mismatch, which
+    // also nulls `drift` (nothing is compared across layouts).
     it('exit code 1 on a surface upstream does not ship, listed in drift.absentUpstream', async () => {
       absentInstallSurfaces.mockReturnValueOnce([
         { surface: 'floor', path: 'pharn/floor' },
@@ -291,12 +292,37 @@ describe('runStatus --json', () => {
       expect(report().strict).toEqual({ enabled: true, failed: true });
     });
 
-    it('reports the recorded and upstream layout; a mismatch alone leaves the code 0', async () => {
+    it('a layout mismatch nulls drift, fills the layout pair, and alone sets exit code 1', async () => {
       // '/repo' does not exist, so the clone reads as flat; the config says pharn.
       loadArchetypeConfigOrExit.mockReturnValue(config({ layout: 'pharn' }));
       await runStatus({ json: true, strict: true });
-      expect(report().layout).toEqual({ recorded: 'pharn', upstream: 'flat' });
-      expect(report().drift.absentUpstream).toEqual([]);
+      expect(out).toHaveBeenCalledTimes(1);
+      const r = report();
+      expect(r.layout).toEqual({ recorded: 'pharn', upstream: 'flat' });
+      expect(r.drift).toBeNull();
+      // The file diff and the surface scan never ran across layouts.
+      expect(diffInstalledCapabilities).not.toHaveBeenCalled();
+      expect(absentInstallSurfaces).not.toHaveBeenCalled();
+      // What does not depend on the layout is still reported.
+      expect(r.hooks).toMatchObject({ status: 'match' });
+      expect(r.unknownCapabilities).toEqual([]);
+      expect(r.strict).toEqual({ enabled: true, failed: true });
+      expect(process.exitCode).toBe(1);
+      expect(cleanup).toHaveBeenCalled();
+    });
+
+    it('a layout mismatch without --strict leaves the code 0', async () => {
+      loadArchetypeConfigOrExit.mockReturnValue(config({ layout: 'pharn' }));
+      await runStatus({ json: true });
+      expect(report().drift).toBeNull();
+      expect(report().strict).toEqual({ enabled: false, failed: false });
+      expect(process.exitCode).toBeUndefined();
+    });
+
+    it('matching layouts keep the drift object and the code 0', async () => {
+      await runStatus({ json: true, strict: true });
+      expect(report().layout).toEqual({ recorded: 'flat', upstream: 'flat' });
+      expect(report().drift).toMatchObject({ okCount: 5, absentUpstream: [] });
       expect(process.exitCode).toBeUndefined();
     });
 

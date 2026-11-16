@@ -15,6 +15,7 @@ import {
 import { versionStatus } from '../lib/version-status.js';
 import {
   buildStatusReport,
+  layoutMismatch,
   serializeStatusReport,
   strictFails,
 } from '../lib/status-report.js';
@@ -155,17 +156,28 @@ async function runArchetypeStatusJson(
   try {
     const index = parseCapabilityIndex(repo.dir);
     const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
-    const diff = diffInstalledCapabilities({
-      repoDir: repo.dir,
-      projectRoot: cwd,
-      capabilities: (config.capabilities ?? []).filter(
-        (cap) => !frozen.has(`${cap.role}:${cap.name}`),
-      ),
-      layout: configLayout(config),
-    });
-    // At the CLONE's own layout: "absent" means upstream ships nothing there,
-    // never "the install is recorded at another layout" (that is `layout`).
+    const recordedLayout = configLayout(config);
     const upstreamLayout = detectLayout(repo.dir);
+    // Across layouts nothing is compared (CORE-167): the expected set would sit
+    // at paths the clone does not use. Otherwise the file diff at the recorded
+    // layout, and the surface scan at the CLONE's own layout — "absent" means
+    // upstream ships nothing there.
+    const files = layoutMismatch(recordedLayout, upstreamLayout)
+      ? { diff: null, absentUpstream: null }
+      : {
+          diff: diffInstalledCapabilities({
+            repoDir: repo.dir,
+            projectRoot: cwd,
+            capabilities: (config.capabilities ?? []).filter(
+              (cap) => !frozen.has(`${cap.role}:${cap.name}`),
+            ),
+            layout: recordedLayout,
+          }),
+          absentUpstream: absentInstallSurfaces({
+            repoDir: repo.dir,
+            layout: upstreamLayout,
+          }),
+        };
     report = buildStatusReport({
       node,
       config,
@@ -173,14 +185,10 @@ async function runArchetypeStatusJson(
       latest: readSkillsVersion(repo.dir),
       source: repo.source,
       drift: {
-        diff,
+        ...files,
         hooks: diffHookWiring(repo.dir, cwd),
         unknown: index.unknown,
         orphans: statusOrphans(repo.dir, cwd, config, frozen),
-        absentUpstream: absentInstallSurfaces({
-          repoDir: repo.dir,
-          layout: upstreamLayout,
-        }),
         upstreamLayout,
       },
       prettierignore: statusPrettierignore(cwd),
@@ -295,24 +303,34 @@ async function runArchetypeStatus(
     const unknownWarning = unknownCapabilitiesWarning(index.unknown);
     if (unknownWarning) log.warn(unknownWarning);
     const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
-    const result = diffInstalledCapabilities({
-      repoDir: repo.dir,
-      projectRoot: cwd,
-      capabilities: (config.capabilities ?? []).filter(
-        (cap) => !frozen.has(`${cap.role}:${cap.name}`),
-      ),
-      layout: configLayout(config),
-    });
-    // The declared product surfaces upstream ships NO file for, at the CLONE's
-    // own layout — so the label means exactly that. A recorded layout that
-    // differs from it is the LAYOUT note's to say, and is not a --strict input.
+    const recordedLayout = configLayout(config);
     const upstreamLayout = detectLayout(repo.dir);
-    const absentUpstream = absentInstallSurfaces({
-      repoDir: repo.dir,
-      layout: upstreamLayout,
-    });
-    printLayoutNote(configLayout(config), upstreamLayout);
-    printDriftSection(result, absentUpstream, sourceLabel(repo.source));
+    // A recorded layout the clone does not ship: nothing is compared (CORE-167)
+    // — the expected set would sit at paths the clone does not use, so whole
+    // capability directories dropped out unreported. The LAYOUT note says why
+    // and what moves the install; it fails --strict.
+    const mismatch = layoutMismatch(recordedLayout, upstreamLayout);
+    let result: InstallDiff | undefined;
+    let absentUpstream: readonly AbsentSurface[] | undefined;
+    if (mismatch) {
+      printLayoutNote(recordedLayout, upstreamLayout);
+    } else {
+      result = diffInstalledCapabilities({
+        repoDir: repo.dir,
+        projectRoot: cwd,
+        capabilities: (config.capabilities ?? []).filter(
+          (cap) => !frozen.has(`${cap.role}:${cap.name}`),
+        ),
+        layout: recordedLayout,
+      });
+      // The declared product surfaces upstream ships NO file for, at the
+      // CLONE's own layout — so the label means exactly that.
+      absentUpstream = absentInstallSurfaces({
+        repoDir: repo.dir,
+        layout: upstreamLayout,
+      });
+      printDriftSection(result, absentUpstream, sourceLabel(repo.source));
+    }
     // ORPHANED: report only — never a --strict input (no pharn command can
     // clear one; update never deletes).
     const orphanLines = orphanNoteLines(
@@ -326,7 +344,13 @@ async function runArchetypeStatus(
     if (hookLines) note(hookLines.join('\n'), 'HOOKS');
     if (
       strict &&
-      strictFails({ outdated, diff: result, hooks, absentUpstream })
+      strictFails({
+        outdated,
+        diff: result,
+        hooks,
+        absentUpstream,
+        layoutMismatch: mismatch,
+      })
     ) {
       exitCode = 1;
     }
@@ -523,17 +547,30 @@ function statusOrphans(
   }).orphans;
 }
 
-// LAYOUT note: the install is recorded at a layout the fetched clone no longer
-// ships. Advisory and never a --strict input: the drift check still compares
-// the files at the recorded layout, and `pharn update` is what moves the
-// install (it records the clone's layout). Nothing printed when they agree.
+// LAYOUT note, printed only when the install is recorded at a layout the
+// fetched clone does not ship (CORE-167): it replaces the DRIFT section, and it
+// fails --strict. `pharn update` moves the install (it records the clone's
+// layout) — but at the same skills version its early return never looks at the
+// layout and says "Already up to date", so the note names `--force` too, with
+// what that costs. Every command named either moves the install without
+// overwriting edits or says that it overwrites them.
 function printLayoutNote(recorded: Layout, upstream: Layout): void {
-  if (recorded === upstream) return;
   note(
     [
       `Recorded at the ${recorded} layout; pharn-oss now ships the ${upstream} layout.`,
-      pc.dim('`pharn update` moves the install to it. Until then the drift'),
-      pc.dim(`check compares your files at the ${recorded} layout's paths.`),
+      'Drift is not checked across layouts — your files are not where this',
+      'source puts them, so neither the file comparison nor the NOT SHIPPED',
+      'UPSTREAM check ran.',
+      pc.dim(
+        'Run `pharn update` to move the install; drift is checked after the move.',
+      ),
+      pc.dim(
+        'If it answers "Already up to date", `pharn update --force` moves it,',
+      ),
+      pc.dim(
+        'but also overwrites files you edited (backed up to pharn/.backup/ first).',
+      ),
+      pc.dim('`pharn status --strict` fails until the install is moved.'),
     ].join('\n'),
     'LAYOUT',
   );
