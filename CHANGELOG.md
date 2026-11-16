@@ -13,6 +13,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 - **CodeRabbit now skips internal workflow and asset directories during review.** Its repository configuration excludes `.agents/`, `.claude/`, `.codex/`, `.dev/`, `.phargus/`, `.pharn/`, `pharn/` and `assets/`. The Phargus logo asset was also refreshed.
 
+### Fixed
+
+- **A `pharn.config.json` without a `commit` key no longer makes `pharn.records.json` unusable.** An archetype config with no `commit` (a hand-edit, or an older tool) loaded with the key missing, which never matched the record store's `"commit": null` stamp. `pharn update` then ignored the store, so every unedited file that differed from upstream was skipped as `unverifiable` instead of upgraded, and a run that withheld its version bump wrote the store without a `commit` key, after which the store read as invalid for good and only `--force` could finish the upgrade. An absent `commit` in the config is now read as `null`, and so is an absent `commit` in `pharn.records.json`, so stores written by the bug are usable again. A pre-archetype config is unchanged.
+
 ## [0.19.0] — 2026-11-12
 
 ### Added

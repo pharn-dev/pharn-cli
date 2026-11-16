@@ -668,9 +668,12 @@ describe('pharn-config', () => {
         expect(read?.skillsVersion).toBe(skillsVersion);
         expect(read?.commit).toBe(sha);
       }
-      // An absent commit stays legal (additive), as it was before.
+      // An absent commit stays legal (additive) and is read as `null` (CORE-160),
+      // so the records store's `commit: null` stamp matches it.
       writeRaw(withStamp('1.0.0', ABSENT));
-      expect(readPharnConfig(tmp.path())).not.toHaveProperty('commit');
+      const read = readPharnConfig(tmp.path());
+      expect(read).toHaveProperty('commit');
+      expect(read?.commit).toBeNull();
     });
 
     it('does not validate a pre-archetype (module) config, whose fields still load (P7)', () => {
@@ -679,6 +682,16 @@ describe('pharn-config', () => {
         skillsVersion: '0.68',
         commit: 'abc123',
       });
+    });
+
+    it('leaves an absent commit absent on a pre-archetype (module) config (CORE-160)', () => {
+      const legacy: Record<string, unknown> = { ...sample };
+      delete legacy.commit;
+      writeRaw(legacy);
+      const read = readPharnConfig(tmp.path());
+      expect(read).not.toBeNull();
+      expect(read).not.toHaveProperty('commit');
+      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
     });
 
     it('joins isConfigValidationError, so every loader reports it and exits 1', () => {
@@ -1074,9 +1087,11 @@ describe('loadConfigOrExit', () => {
     it('still loads a valid archetype config', () => {
       const raw = { skillsVersion: '0.1.0', modules: [], capabilities: [] };
       writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(raw));
-      expect(loadArchetypeConfigOrExit(tmp.path(), { json: true })).toEqual(
-        raw,
-      );
+      // An absent `commit` is read as `null` (CORE-160).
+      expect(loadArchetypeConfigOrExit(tmp.path(), { json: true })).toEqual({
+        ...raw,
+        commit: null,
+      });
       expect(said()).toBe('');
     });
   });

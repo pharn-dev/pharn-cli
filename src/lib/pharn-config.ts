@@ -181,8 +181,8 @@ function validateArchetypes(raw: unknown): void {
  * §3b). Both are printed by `list`/`status`/`update` and compared by `update`'s
  * early return and `add`'s version gate, so before this check a hand-edited ESC
  * byte reached the terminal and a garbage version was compared as if real.
- * ABSENT `commit` stays legal (P7), and a pre-archetype config is not checked —
- * its unused fields keep loading.
+ * ABSENT `commit` stays legal (P7) and is read as `null` (CORE-160), and a
+ * pre-archetype config is not checked — its unused fields keep loading.
  */
 export class ConfigStampError extends Error {
   constructor(message: string) {
@@ -464,6 +464,12 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
     ...(raw as unknown as PharnConfig),
     ...(seam !== undefined ? { seam } : {}),
   };
+  // An archetype config with no `commit` reads as `null` (CORE-160): the records
+  // store is stamped `commit: null`, which `undefined` never equals, and a write
+  // stamped with `undefined` drops the key. A legacy config is left as it is (P7).
+  if (Array.isArray(raw.capabilities) && raw.commit === undefined) {
+    config.commit = null;
+  }
   // Additive `layout` (lib/layout.ts): coerce to the {pharn, flat} enum. A legacy
   // config omits it and a hand-edited garbage value is dropped — both resolve to
   // 'flat' downstream (configLayout), the safe default (P5/P7). Only 'pharn' /

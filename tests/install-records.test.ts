@@ -24,6 +24,7 @@ import {
   writeRecords,
 } from '../src/lib/install-records.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
+import { readPharnConfig } from '../src/lib/pharn-config.js';
 import { escapeUnsafe, hasUnsafeChars } from '../src/lib/terminal-safe.js';
 import type { UpdateLabel } from '../src/lib/update-decision.js';
 
@@ -335,6 +336,58 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
     expect(readRecords(proj).kind).toBe('invalid');
     writeStore(proj, { ...validStore(), commit: 42 });
     expect(readRecords(proj).kind).toBe('invalid');
+  });
+
+  it('a store with NO commit key reads back valid, as commit null (CORE-160)', () => {
+    // An earlier CLI stamped a store from a config with no `commit`, and
+    // JSON.stringify dropped the key. That store must not stay invalid for good.
+    const proj = tmp.path();
+    const store: Record<string, unknown> = { ...validStore() };
+    delete store.commit;
+    writeStore(proj, store);
+    const read = readRecords(proj);
+    expect(read).toEqual({
+      kind: 'ok',
+      store: { ...validStore(), commit: null },
+    });
+    expect(recordsBaseline(read, STAMP)).toEqual({
+      records: validStore().files,
+      note: null,
+    });
+  });
+
+  it('records stamped for a config with no commit round-trip and stay usable (CORE-160)', async () => {
+    const proj = tmp.path();
+    writeFileSync(
+      join(proj, 'pharn.config.json'),
+      JSON.stringify({
+        pharnVersion: '0.19.0',
+        skillsVersion: '1.0.0',
+        repo: 'pharn-dev/pharn-oss',
+        modules: [],
+        installedAt: '2026-11-16T00:00:00.000Z',
+        archetypes: ['lib'],
+        capabilities: [],
+      }),
+    );
+    const config = readPharnConfig(proj)!;
+    const files = { 'a.md': sha('a') };
+    await writeRecords(proj, {
+      skillsVersion: config.skillsVersion,
+      commit: config.commit,
+      files,
+    });
+    const onDisk = JSON.parse(
+      readFileSync(join(proj, RECORDS_FILE), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(onDisk).toHaveProperty('commit', null);
+    const read = readRecords(proj);
+    expect(read.kind).toBe('ok');
+    expect(recordsBaseline(read, config)).toEqual({
+      records: files,
+      note: null,
+    });
+    expect(recordsStampStale(read, config)).toBe(false);
   });
 
   it('an odd-but-string stamp is KEPT — the stamp is compared, never consumed', () => {
