@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   buildRecords,
+  carriedSettingsRecord,
   mergeRecords,
   MODELS_RECORD_KEY,
   modelsRecordHash,
@@ -547,6 +548,38 @@ describe('buildRecords — an unstatable dest is skipped, not fatal', () => {
     const files = buildRecords(proj, ['CONSTITUTION.md', 'features/README.md']);
 
     expect(Object.keys(files)).toEqual(['CONSTITUTION.md']);
+  });
+});
+
+// CORE-166: the record of the `.claude/settings.json` a fresh `init` wrote is
+// carried by `update` and a re-run `init` only while something is at that path
+// — the file is never rewritten, so a deleted one is never restored, and its
+// record goes rather than linger.
+describe('carriedSettingsRecord — kept while something is at the path', () => {
+  const tmp = useTmpDir();
+  const KEY = '.claude/settings.json';
+  const HASH = sha('settings');
+
+  it('carries the record while the file exists (its hash is not re-checked)', () => {
+    write(join(tmp.path(), KEY), 'edited since');
+    expect(
+      carriedSettingsRecord(tmp.path(), { [KEY]: HASH, 'a.md': HASH }),
+    ).toEqual({ [KEY]: HASH });
+  });
+
+  it('carries nothing once the file is gone', () => {
+    expect(carriedSettingsRecord(tmp.path(), { [KEY]: HASH })).toEqual({});
+  });
+
+  it('carries nothing when the store has no record of it (a preserved file)', () => {
+    write(join(tmp.path(), KEY), '{}');
+    expect(carriedSettingsRecord(tmp.path(), { 'a.md': HASH })).toEqual({});
+    expect(carriedSettingsRecord(tmp.path(), null)).toEqual({});
+  });
+
+  it('carries nothing when `.claude` is a regular file (ENOTDIR)', () => {
+    writeFileSync(join(tmp.path(), '.claude'), 'not a dir');
+    expect(carriedSettingsRecord(tmp.path(), { [KEY]: HASH })).toEqual({});
   });
 });
 

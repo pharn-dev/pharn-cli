@@ -253,6 +253,64 @@ describe('runUninstall', () => {
     expect(hooks).toContain('pharn never edits these files');
   });
 
+  // CORE-166: a fresh `init` records the settings.json it wrote. While it still
+  // matches that record it is pharn's bytes, so uninstall deletes it with the
+  // rest — `.claude/` then ends empty and goes too, and nothing is left wiring a
+  // removed script. The UNTOUCHED line stops claiming the file is left.
+  describe('a recorded .claude/settings.json (CORE-166)', () => {
+    const SETTINGS_FILE = '.claude/settings.json';
+    const UNTOUCHED_WITHOUT_SETTINGS =
+      '.claude/settings.local.json, every pharn/.backup/ directory and the lines pharn added to .gitignore and .prettierignore are left untouched.';
+
+    async function installRecordingSettings(): Promise<void> {
+      await install(FLAT_FILES);
+      const records: Record<string, string> = {};
+      for (const rel of FLAT_FILES) records[rel] = contentHash(join(proj, rel));
+      records[SETTINGS_FILE] = contentHash(join(proj, SETTINGS_FILE));
+      await writeRecords(proj, {
+        skillsVersion: config().skillsVersion,
+        commit: config().commit,
+        files: records,
+      });
+    }
+
+    it('deletes it while unchanged, removes the emptied .claude/, and prints no HOOKS note', async () => {
+      await installRecordingSettings();
+      await runUninstall({ yes: true });
+      expect(existsSync(join(proj, SETTINGS_FILE))).toBe(false);
+      expect(existsSync(join(proj, '.claude'))).toBe(false);
+      expect(notes('HOOKS')).toBe('');
+      const plan = notes('PLAN');
+      expect(plan).toContain(
+        `Delete ${FLAT_FILES.length + 1} file(s) pharn installed and nobody changed.`,
+      );
+      expect(plan).toContain(UNTOUCHED_WITHOUT_SETTINGS);
+      expect(plan).not.toContain('.claude/settings.json,');
+      const done = notes('UNINSTALLED');
+      expect(done).toContain(`Deleted ${FLAT_FILES.length + 1} file(s)`);
+      expect(done).toContain(UNTOUCHED_WITHOUT_SETTINGS);
+      expect(done).not.toContain('.claude/settings.json,');
+      expect(done).not.toContain('still hold other files');
+    });
+
+    it('keeps it once edited, lists it as changed, and the HOOKS note behaves as before', async () => {
+      await installRecordingSettings();
+      const edited = { ...SETTINGS, mine: true };
+      write(SETTINGS_FILE, JSON.stringify(edited, null, 2));
+      await runUninstall({ yes: true });
+      expect(
+        JSON.parse(readFileSync(join(proj, SETTINGS_FILE), 'utf8')),
+      ).toEqual(edited);
+      expect(notes('PLAN')).toContain(
+        'Keep 1 file(s) you changed (they stay where they are):\n  • .claude/settings.json',
+      );
+      expect(notes('UNINSTALLED')).toContain('  • .claude/settings.json');
+      expect(notes('HOOKS')).toContain(
+        '.claude/settings.json still wires 1 hook(s) whose script was removed:',
+      );
+    });
+  });
+
   // F-10: the install copies `.mjs` hooks, so uninstall's install-root bound
   // must take them too — else a pharn-written ESM hook would be left behind.
   it('deletes a recorded .mjs hook, and names its wiring in the HOOKS note', async () => {

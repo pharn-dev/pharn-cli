@@ -305,7 +305,8 @@ describe('archetype install (fixture e2e)', () => {
     if (read.kind !== 'ok') return;
 
     // Exactly the install manifest, plus the models block it wrote into the
-    // config — nothing missing, nothing invented.
+    // config and the settings.json this fresh install created (CORE-166) —
+    // nothing missing, nothing invented.
     const expected = collectExpectedInstallPaths({
       repoDir: repo,
       capabilities: selection.selected.map((c) => ({
@@ -315,7 +316,7 @@ describe('archetype install (fixture e2e)', () => {
       layout: 'flat',
     });
     expect(Object.keys(read.store.files).sort()).toEqual(
-      [...expected.keys(), MODELS_RECORD_KEY].sort(),
+      [...expected.keys(), MODELS_RECORD_KEY, '.claude/settings.json'].sort(),
     );
     // The block's record is the block as written — read back from the config.
     expect(read.store.files[MODELS_RECORD_KEY]).toBe(
@@ -432,25 +433,39 @@ describe('archetype install (fixture e2e)', () => {
     });
   });
 
-  it('does not record the user-owned .claude/settings.json', async () => {
+  // CORE-166: the settings.json a fresh install CREATED is pharn's bytes, and is
+  // recorded at its dest hash so `uninstall` can remove it while unchanged. One
+  // that was already there is the user's, and is never recorded.
+  it('records the .claude/settings.json it created, never one it preserved', async () => {
     const repo = join(tmp.path(), 'repo');
-    const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
-    write(join(proj, 'package.json'), '{}');
+    const install = async (proj: string): Promise<Record<string, string>> => {
+      write(join(proj, 'package.json'), '{}');
+      const { archetypes } = detectArchetypesFromProject(proj);
+      const selection = resolveCapabilities(
+        archetypes,
+        parseCapabilityIndex(repo),
+      );
+      await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
+      const read = readRecords(proj);
+      expect(read.kind).toBe('ok');
+      return read.kind === 'ok' ? read.store.files : {};
+    };
 
-    const { archetypes } = detectArchetypesFromProject(proj);
-    const selection = resolveCapabilities(
-      archetypes,
-      parseCapabilityIndex(repo),
+    const fresh = join(tmp.path(), 'fresh');
+    const freshFiles = await install(fresh);
+    expect(existsSync(join(fresh, '.claude/settings.json'))).toBe(true);
+    expect(freshFiles['.claude/settings.json']).toBe(
+      contentHash(join(fresh, '.claude/settings.json')),
     );
-    await runInstallArchetype(repo, proj, archetypes, selection, SHA_C);
 
-    const read = readRecords(proj);
-    expect(read.kind).toBe('ok');
-    if (read.kind !== 'ok') return;
-    expect(read.store.files['.claude/settings.json']).toBeUndefined();
-    // ...even though the install DID write it.
-    expect(existsSync(join(proj, '.claude/settings.json'))).toBe(true);
+    const owned = join(tmp.path(), 'owned');
+    write(join(owned, '.claude/settings.json'), '{"mine":true}\n');
+    const ownedFiles = await install(owned);
+    expect(readFileSync(join(owned, '.claude/settings.json'), 'utf8')).toBe(
+      '{"mine":true}\n',
+    );
+    expect(ownedFiles['.claude/settings.json']).toBeUndefined();
   });
 
   // THE LIVE REPRO, end to end on a real fixture tree. An untracked WIP directory

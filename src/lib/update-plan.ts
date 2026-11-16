@@ -28,6 +28,7 @@ import {
   type LayoutPaths,
 } from './layout.js';
 import {
+  carriedSettingsRecord,
   MODELS_RECORD_KEY,
   readRecords,
   recordsBaseline,
@@ -177,6 +178,10 @@ export interface UpdateApplyInputs {
   frozenRecords: FileRecords;
   // The orphans' previous records, carried so they stay listed on later runs.
   orphanRecords: FileRecords;
+  // The record of the `.claude/settings.json` a fresh init wrote, carried while
+  // the file is there (CORE-166; lib/install-records.ts →
+  // carriedSettingsRecord). `update` never writes that file.
+  settingsRecords: FileRecords;
   nextSkillsVersion: string;
   nextCommit: string | null;
   frozenKeys: string[];
@@ -470,6 +475,8 @@ export function buildUpdatePlan(input: {
     frozen,
     frozenRecords,
     orphanRecords: orphanScan.records,
+    // Not an install path, so neither an orphan nor a `.prettierignore` input.
+    settingsRecords: carriedSettingsRecord(cwd, records),
     nextSkillsVersion,
     nextCommit,
     frozenKeys,

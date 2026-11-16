@@ -699,6 +699,11 @@ its hooks could not be listed — read it yourself. Nothing is printed when phar
 `settings.json`, since none is written. The list is there for you to review: pharn trusts pharn-oss by
 where the files come from, not by a signature, and never runs these commands itself.
 
+`init` records the hash of the `settings.json` it wrote in `pharn.records.json`, so
+[`pharn uninstall`](uninstall.md) can remove it later while you have not changed it. A `settings.json`
+that was already there is never recorded (see
+[`.claude/settings.json`](../reference/pharn-records.md#claudesettingsjson)).
+
 The install copies pharn-oss's canonical `CONSTITUTION.md` verbatim — there is no privacy-posture / constitution-variant question in the archetype flow. Only capability contents are copied; the CLI never executes or parses them (your Claude Code runs them later).
 
 On success, the CLI reports the capability count, prints the `models` block it copied resolved per stage — under the label that says what reads it (`/pharn-ship` and `/pharn-loop`, for the model only) and that a directly run stage uses its command's own frontmatter, which the block is held to — and suggests opening Claude Code and running `/pharn-spec` — intent capture for your first feature, which feeds `/pharn-plan`.

@@ -35,6 +35,7 @@ import {
 } from '../lib/backup.js';
 import {
   buildRecords,
+  carriedSettingsRecord,
   MODELS_RECORD_KEY,
   modelsRecordHash,
   recordsUnderCapabilities,
@@ -407,6 +408,15 @@ export async function runInstallArchetype(
         }).records,
       ).filter(([rel]) => !retired.has(rel)),
     ),
+    // `.claude/settings.json` (CORE-166): the file this run wrote fresh is
+    // pharn's bytes, recorded so `uninstall` can remove it while unchanged. A
+    // file this run PRESERVED is never recorded anew — a first install's
+    // baseline is null, and a re-run only carries the record a previous fresh
+    // install made, while the file is still there. Not in the manifest, so
+    // disjoint from the records below.
+    ...(settingsWritten
+      ? buildRecords(cwd, [CLAUDE_SETTINGS_FILE])
+      : carriedSettingsRecord(cwd, baseline)),
     ...buildRecords(cwd, prepared.manifest.keys()),
     // The block pharn just wrote, so `pharn update` can tell it from an edit.
     ...(models !== undefined

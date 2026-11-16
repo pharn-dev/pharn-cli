@@ -167,6 +167,19 @@ describe('findOrphans', () => {
     expect(scan).toEqual({ orphans: [], records: {} });
   });
 
+  // CORE-166: init records the settings.json it wrote fresh, and that record
+  // outlives the manifest (which never holds the file) — but it is not an
+  // install-root path, so it is never named as an orphan, even while present.
+  it('the .claude/settings.json record is never an orphan, even while the file exists', () => {
+    write(tmp.path(), '.claude/settings.json', '{}');
+    const scan = run({
+      '.claude/settings.json': contentHash(
+        join(tmp.path(), '.claude/settings.json'),
+      ),
+    });
+    expect(scan).toEqual({ orphans: [], records: {} });
+  });
+
   it('never reads a key outside the install roots, even when the file exists', () => {
     vi.mocked(readDiskState).mockClear();
     write(tmp.path(), 'src/auth.ts', 'secret');

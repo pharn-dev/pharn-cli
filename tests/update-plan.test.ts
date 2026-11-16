@@ -261,6 +261,66 @@ describe('buildUpdatePlan', () => {
       expect(report.writes.length).toBeGreaterThan(0);
       expect(report.changesNothing).toBe(false);
     });
+
+    // CORE-166: the settings.json record init wrote. Carried while the file
+    // exists (no change); the user deleted the file → the next planned run is
+    // a store-only change that drops it; once dropped, the plan changes
+    // nothing again — the drop is one-shot, never a loop or a prompt per run.
+    describe('the .claude/settings.json record (CORE-166)', () => {
+      const SETTINGS = '.claude/settings.json';
+
+      async function withSettingsRecord(present: boolean): Promise<void> {
+        await afterWithheldRun();
+        write(join(proj, SETTINGS), '{"hooks":{}}');
+        const read = (
+          await import('../src/lib/install-records.js')
+        ).readRecords(proj);
+        const files = read.kind === 'ok' ? { ...read.store.files } : {};
+        files[SETTINGS] = contentHash(join(proj, SETTINGS));
+        await writeRecords(proj, {
+          skillsVersion: '1.0.0',
+          commit: null,
+          files,
+        });
+        if (!present) rmSync(join(proj, SETTINGS));
+      }
+
+      it('carries the record while the file exists: no change, never an orphan', async () => {
+        await withSettingsRecord(true);
+        const { report, apply } = plan(settled);
+        expect(apply.settingsRecords).toEqual({
+          [SETTINGS]: contentHash(join(proj, SETTINGS)),
+        });
+        expect(report.orphans).toEqual([]);
+        expect(apply.prettierignorePaths).not.toContain(SETTINGS);
+        expect(report.stateChanges).toEqual({ config: false, records: false });
+        expect(report.changesNothing).toBe(true);
+      });
+
+      it('drops it once the file is gone, then changes nothing on the next run', async () => {
+        await withSettingsRecord(false);
+        const first = plan(settled);
+        expect(first.apply.settingsRecords).toEqual({});
+        expect(first.report.stateChanges).toEqual({
+          config: false,
+          records: true,
+        });
+        expect(first.report.changesNothing).toBe(false);
+
+        // The store that run writes (its records), then plan again.
+        const { nextRecordStore } = await import('../src/lib/update-next.js');
+        await writeRecords(
+          proj,
+          nextRecordStore(first.apply, { written: {}, retired: new Set() }),
+        );
+        const second = plan(settled);
+        expect(second.report.stateChanges).toEqual({
+          config: false,
+          records: false,
+        });
+        expect(second.report.changesNothing).toBe(true);
+      });
+    });
   });
 
   it('records no pending version when the skip is not a user edit', async () => {

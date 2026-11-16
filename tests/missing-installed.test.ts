@@ -108,6 +108,19 @@ describe('findMissingInstalled', () => {
     ).toBeNull();
   });
 
+  // CORE-166: deleting the settings.json init wrote must not re-open the
+  // same-version early return — update never writes that file, so the opened
+  // run could not restore it.
+  it('skips a recorded .claude/settings.json that is gone', () => {
+    put(DOC);
+    expect(
+      findMissingInstalled(tmp.path(), config([]), {
+        [DOC]: HASH,
+        '.claude/settings.json': HASH,
+      }),
+    ).toBeNull();
+  });
+
   it('with no usable records, checks only the capability dirs', () => {
     put(CAP_FILE);
     // CONSTITUTION.md is absent, but nothing records it: not provable.

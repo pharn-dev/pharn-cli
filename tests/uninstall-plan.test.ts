@@ -216,4 +216,57 @@ describe('planUninstall', () => {
       'pharn/floor/validate.mjs',
     ]);
   });
+
+  // CORE-166: `init` records the `.claude/settings.json` it wrote fresh. That
+  // ONE key is admitted besides the install-root set, and then classified like
+  // every other record — so the user's edit keeps it, and a symlinked
+  // `.claude/` refuses the run.
+  describe('the .claude/settings.json record (CORE-166)', () => {
+    const SETTINGS = '.claude/settings.json';
+
+    it('deletes it while it still matches its record', () => {
+      const root = proj();
+      const records: Record<string, string> = {};
+      recorded(root, records, SETTINGS);
+      const plan = planUninstall(root, records);
+      expect(plan.delete).toEqual([SETTINGS]);
+      expect(plan.outside).toEqual([]);
+    });
+
+    it('keeps it as edited once it changed', () => {
+      const root = proj();
+      const records: Record<string, string> = {};
+      recorded(root, records, SETTINGS);
+      write(root, SETTINGS, '{"hooks":{},"mine":true}');
+      const plan = planUninstall(root, records);
+      expect(plan.edited).toEqual([SETTINGS]);
+      expect(plan.delete).toEqual([]);
+    });
+
+    it('reads it as absent when it is gone', () => {
+      const root = proj();
+      expect(planUninstall(root, { [SETTINGS]: HASH }).absent).toEqual([
+        SETTINGS,
+      ]);
+    });
+
+    it('flags it as unsafe behind a symlinked .claude/', () => {
+      const root = proj();
+      const elsewhere = join(tmp.path(), 'elsewhere');
+      const target = write(elsewhere, 'settings.json');
+      symlinkSync(elsewhere, join(root, '.claude'));
+      const plan = planUninstall(root, { [SETTINGS]: contentHash(target) });
+      expect(plan.unsafe).toEqual([{ rel: SETTINGS, component: '.claude' }]);
+      expect(plan.delete).toEqual([]);
+    });
+
+    it('admits only that one key: settings.local.json stays outside', () => {
+      const root = proj();
+      const records: Record<string, string> = {};
+      recorded(root, records, '.claude/settings.local.json');
+      const plan = planUninstall(root, records);
+      expect(plan.outside).toEqual(['.claude/settings.local.json']);
+      expect(plan.delete).toEqual([]);
+    });
+  });
 });

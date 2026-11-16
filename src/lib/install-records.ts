@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { contentHash } from './hash.js';
 import { isPlainObject, safeJoin, toPosix } from './validate.js';
 import { capabilitySubtree, type LayoutPaths } from './layout.js';
+import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -29,9 +30,11 @@ import type { InstalledCapability } from '../types.js';
 // could have written), and passes a safeJoin + symlink-component +
 // regular-file floor: orphan detection (lib/orphans.ts) READS it (lstat +
 // hash), and `pharn uninstall` (lib/uninstall-plan.ts) DELETES it — and only
-// when its bytes still match the recorded hash. A corrupt store is reported BY
-// NAME, never silently collapsed into "absent" (the same lesson
-// lib/pharn-config.ts encodes for `seam`).
+// when its bytes still match the recorded hash. `uninstall` admits exactly one
+// key beside that set, by equality: `.claude/settings.json`, recorded only when
+// a fresh `init` wrote it (CORE-166, carriedSettingsRecord below), under the
+// same floor. A corrupt store is reported BY NAME, never silently collapsed
+// into "absent" (the same lesson lib/pharn-config.ts encodes for `seam`).
 //
 // THE STAMP: the store carries the `skillsVersion` + `commit` that
 // `pharn.config.json` holds after the operation that wrote it. It is written
@@ -280,6 +283,36 @@ function sortRecords(files: FileRecords): FileRecords {
   const out: FileRecords = {};
   for (const key of Object.keys(files).sort()) out[key] = files[key]!;
   return out;
+}
+
+/**
+ * The record of the `.claude/settings.json` a fresh `init` wrote (CORE-166),
+ * carried forward by `update` and a re-run `init` — or nothing.
+ *
+ * No install manifest holds that file (it is never rewritten, so never
+ * planned), and both writers key their store by the manifest, so without this
+ * the record would be dropped by the next run. It is carried only while the
+ * store has it AND something is at the path (lstat, any type): pharn never
+ * writes the file again, so a deleted one is never restored, and keeping its
+ * record would only describe bytes that are gone. A walk that throws (ENOTDIR)
+ * is "nothing there". The hash is NOT re-checked: an edited file keeps the
+ * record of what pharn wrote, which is exactly what tells `uninstall` to keep
+ * it. Read-only; never throws.
+ */
+export function carriedSettingsRecord(
+  projectRoot: string,
+  records: FileRecords | null,
+): FileRecords {
+  const recorded = records?.[CLAUDE_SETTINGS_FILE];
+  if (recorded === undefined) return {};
+  try {
+    const stat = lstatSync(safeJoin(projectRoot, CLAUDE_SETTINGS_FILE), {
+      throwIfNoEntry: false,
+    });
+    return stat === undefined ? {} : { [CLAUDE_SETTINGS_FILE]: recorded };
+  } catch {
+    return {};
+  }
 }
 
 /**

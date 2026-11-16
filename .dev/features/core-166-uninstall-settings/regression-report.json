@@ -1,0 +1,41 @@
+{
+  "base": "688a838052bccded07443b736aa08e7afeada7e7",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/commands/init.md",
+    "docs/commands/uninstall.md",
+    "docs/commands/update.md",
+    "docs/reference/pharn-records.md",
+    "docs/troubleshooting.md",
+    "src/commands/uninstall.ts",
+    "src/lib/install-records.ts",
+    "src/lib/missing-installed.ts",
+    "src/lib/uninstall-plan.ts",
+    "src/lib/update-next.ts",
+    "src/lib/update-plan.ts",
+    "src/steps/install-archetype.ts",
+    "tests/commands-integration.test.ts",
+    "tests/init-archetype.test.ts",
+    "tests/install-records.test.ts",
+    "tests/missing-installed.test.ts",
+    "tests/orphans.test.ts",
+    "tests/uninstall-plan.test.ts",
+    "tests/uninstall.test.ts",
+    "tests/update-next.test.ts",
+    "tests/update-plan.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
