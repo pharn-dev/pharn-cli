@@ -35,5 +35,11 @@ imports `src/index.ts` and runs `main(argv)` end to end on the real commands (`m
 same implication the parser applies, with their failure rows turned into positive tests. Re-checked with
 `npm run check` and `npm run build` before the push.
 
+Rebase onto `origin/main` 0f7a9511 (C5.6, #385): `src/index.ts` keeps the parser and `main(args)` with #385's
+lazy `await import()` dispatch; `tests/index.test.ts` keeps #385's lazy-dispatch case verbatim (static import, hoisted
+`loaded` registry); `scripts/build.mjs` is #385's with `'minimist'` dropped from `external`, and
+`tests/build-config.test.ts` asserts that in place; CHANGELOG and CLAUDE.md keep both PRs' entries. Re-checked with
+`npm run check` and `npm run build` before the force-push.
+
 The chain ran and the named floor verdicts are as shown. This is NOT a judgment that the increment is good or
 wise; that is the human's call at the post-review gate.

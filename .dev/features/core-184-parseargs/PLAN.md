@@ -81,6 +81,8 @@
 - `src/commands/update.ts` — post-PR (orchestrator): likewise for `--json` and `--compact` — command
 - `tests/commands/init-dry-run.test.ts` — the guard's failure row becomes a positive "--json alone is the JSON dry run" test — test
 - `tests/commands/update-dry-run.test.ts` — likewise for `--json` and `--compact` alone — test
+- `scripts/build.mjs` — after rebasing onto C5.6 (#385, 0f7a9511): drop `'minimist'` from `external` — build
+- `tests/build-config.test.ts` — the externals assertion updated in place (no minimist) — test
 - `tests/main.test.ts` — NEW (post-PR, orchestrator): statically imports `src/index.ts`; `main()` parses and dispatches end to end on the real commands (harness, stubbed fetch, no src mock) — test
 - `CLAUDE.md` — Conventions "Options are per command" paragraph and Module-map `src/index.ts` line (+ new
   `cli-args` in the map) — repo docs
@@ -96,7 +98,7 @@
 - `SECURITY.md` — "three runtime dependencies (`@clack/prompts`, `minimist`, `picocolors`)" → two — docs
 - `CHANGELOG.md` — `### Changed` line under `## [Unreleased]` — docs
 
-NOT touched: `scripts/build.mjs` (post-PR: its stale `minimist` external is harmless and C5.6 #385 rewrites the file), protected root docs, `.agents/skills/` (vendored
+NOT touched: protected root docs, `.agents/skills/` (vendored
 copy of the published skill; its `--dry-run --json --compact` invocation keeps working).
 
 ## Tests (rewritten / added / deleted)
