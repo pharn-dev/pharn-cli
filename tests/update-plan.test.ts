@@ -7,14 +7,18 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
 import type { PharnConfig } from '../src/types.js';
 
-const parseCapabilityIndex = vi.fn();
-vi.mock('../src/lib/capability-index.js', () => ({ parseCapabilityIndex }));
-const resolveCapabilities = vi.fn();
-vi.mock('../src/lib/resolve-capabilities.js', () => ({ resolveCapabilities }));
+// The clone is a real tree: its capability files carry the frontmatter the real
+// index parses (lib/capability-index.ts), and the real resolver selects from
+// it against the config's archetypes. A griller every `ssr` project selects:
+const capDoc = (body: string): string =>
+  `---\nrole: griller\napplies: ["ssr"]\n---\n${body}`;
+// One upstream ships but this CLI cannot parse (a role outside the enum): the
+// index lists it as unknown, so update keeps it frozen.
+const UNPARSABLE = '---\nrole: bogus\napplies: ["ssr"]\n---\nWIP\n';
 
 const { buildUpdatePlan, CapabilityRemovalError } =
   await import('../src/lib/update-plan.js');
@@ -67,7 +71,7 @@ describe('buildUpdatePlan', () => {
       },
     });
     write(join(repo, 'SKILLS_VERSION'), '1.1.0\n');
-    write(join(repo, CAP_FILE), 'a11y v2');
+    write(join(repo, CAP_FILE), capDoc('a11y v2'));
     write(join(repo, DOC), 'constitution v2');
   }
 
@@ -85,11 +89,14 @@ describe('buildUpdatePlan', () => {
     proj = join(tmp.path(), 'proj');
     repo = join(tmp.path(), 'repo');
     mkdirSync(proj, { recursive: true });
-    parseCapabilityIndex.mockReturnValue({ capabilities: [], unknown: [] });
-    resolveCapabilities.mockReturnValue({
-      selected: [{ ...CAP, matched: ['ssr'] }],
-      skipped: [],
-    });
+    // Both role subtrees, at both layouts: the index requires them to exist.
+    for (const sub of [
+      'pharn-pipeline/grillers',
+      'pharn-review',
+      'pharn/pharn-pipeline/grillers',
+      'pharn/pharn-review',
+    ])
+      mkdirSync(join(repo, sub), { recursive: true });
   });
 
   it('reads the project and the clone and writes nothing', async () => {
@@ -130,7 +137,7 @@ describe('buildUpdatePlan', () => {
     };
 
     async function multilineFixture(): Promise<void> {
-      write(join(proj, CAP_FILE), '# a11y\nv1\n');
+      write(join(proj, CAP_FILE), capDoc('# a11y\nv1\n'));
       write(join(proj, DOC), '# C\nv1\n');
       await writeRecords(proj, {
         skillsVersion: '1.0.0',
@@ -145,7 +152,7 @@ describe('buildUpdatePlan', () => {
 
     it('upstream moved on: a CRLF copy of the recorded bytes is upgraded, never skipped', async () => {
       await multilineFixture();
-      write(join(repo, CAP_FILE), '# a11y\nv2\n');
+      write(join(repo, CAP_FILE), capDoc('# a11y\nv2\n'));
       write(join(repo, DOC), '# C\nv2\n');
       toCrlf(CAP_FILE);
       toCrlf(DOC);
@@ -158,7 +165,7 @@ describe('buildUpdatePlan', () => {
 
     it('upstream unchanged: a CRLF copy is a no-op (ok), and the version is not withheld', async () => {
       await multilineFixture();
-      write(join(repo, CAP_FILE), '# a11y\nv1\n');
+      write(join(repo, CAP_FILE), capDoc('# a11y\nv1\n'));
       write(join(repo, DOC), '# C\nv1\n');
       toCrlf(CAP_FILE);
       toCrlf(DOC);
@@ -171,7 +178,7 @@ describe('buildUpdatePlan', () => {
 
     it('a real edit in a CRLF file is still a modified skip', async () => {
       await multilineFixture();
-      write(join(repo, CAP_FILE), '# a11y\nv2\n');
+      write(join(repo, CAP_FILE), capDoc('# a11y\nv2\n'));
       write(join(repo, DOC), '# C\nv2\n');
       toCrlf(CAP_FILE);
       write(join(proj, DOC), '# C\r\nMY EDIT\r\n');
@@ -205,7 +212,7 @@ describe('buildUpdatePlan', () => {
       await fixture();
       writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
       const docRecord = contentHash(join(proj, DOC));
-      write(join(proj, CAP_FILE), 'a11y v2');
+      write(join(proj, CAP_FILE), capDoc('a11y v2'));
       write(join(proj, DOC), 'MY EDIT');
       await writeRecords(proj, {
         skillsVersion: '1.0.0',
@@ -361,18 +368,7 @@ describe('buildUpdatePlan', () => {
     await fixture(
       config({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] }),
     );
-    write(join(repo, FROZEN_FILE), 'WIP');
-    parseCapabilityIndex.mockReturnValue({
-      capabilities: [],
-      unknown: [
-        {
-          name: FROZEN.name,
-          role: FROZEN.role,
-          subtree: 'pharn-pipeline/grillers',
-          reason: 'bad role',
-        },
-      ],
-    });
+    write(join(repo, FROZEN_FILE), UNPARSABLE);
     const warnings: string[] = [];
     const { report, apply } = buildUpdatePlan({
       repoDir: repo,
@@ -394,7 +390,8 @@ describe('buildUpdatePlan', () => {
         role: 'griller',
         name: 'backwards-compat',
         subtree: 'pharn-pipeline/grillers',
-        reason: 'bad role',
+        reason:
+          'backwards-compat has invalid role "bogus" (expected one of griller, lens)',
       }),
     ]);
   });
@@ -414,7 +411,10 @@ describe('buildUpdatePlan', () => {
   it('plans the abandoned layout in both directions, only when something would be written', async () => {
     await fixture();
     write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v2');
-    write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a');
+    write(
+      join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'),
+      capDoc('a'),
+    );
     write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'c');
     const report = plan(config()).report;
     expect(report.layout).toBe('pharn');
@@ -473,9 +473,11 @@ describe('buildUpdatePlan', () => {
 
     it('excludes the files of a capability this run drops', async () => {
       await withOrphans();
-      resolveCapabilities.mockReturnValue({ selected: [], skipped: [] });
       const { report, apply } = plan(
-        config({ capabilities: [{ ...CAP, source: 'auto' }] }),
+        config({
+          archetypes: ['lib'],
+          capabilities: [{ ...CAP, source: 'auto' }],
+        }),
       );
       expect(apply.configCapabilities).toEqual([]);
       expect(report.orphans.map((o) => o.path)).toEqual([OLD_CMD]);
@@ -483,17 +485,7 @@ describe('buildUpdatePlan', () => {
 
     it('excludes the files of a frozen capability (carried as frozenRecords)', async () => {
       await withOrphans();
-      parseCapabilityIndex.mockReturnValue({
-        capabilities: [],
-        unknown: [
-          {
-            name: CAP.name,
-            role: CAP.role,
-            subtree: 'pharn-pipeline/grillers',
-            reason: 'bad role',
-          },
-        ],
-      });
+      write(join(repo, CAP_FILE), UNPARSABLE);
       const { report, apply } = plan(config());
       expect(report.orphans.map((o) => o.path)).toEqual([OLD_CMD]);
       expect(apply.frozenRecords).toHaveProperty(OLD_CAP_FILE);
@@ -527,7 +519,6 @@ describe('buildUpdatePlan', () => {
       write(join(repo, OLD_FLOOR), 'baseline v7');
       write(join(repo, NEW_FLOOR), 'fingerprint v7');
       write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v7');
-      resolveCapabilities.mockReturnValue({ selected: [], skipped: [] });
       return cfg;
     }
 
@@ -815,7 +806,10 @@ describe('buildUpdatePlan', () => {
     it('addresses the directory at the layout the CONFIG recorded, not the clone’s', async () => {
       const cfg = await withStale();
       write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v2');
-      write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a');
+      write(
+        join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'),
+        capDoc('a'),
+      );
       write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'c');
       const { report, apply } = plan(cfg);
       expect(report.layout).toBe('pharn');
@@ -825,17 +819,7 @@ describe('buildUpdatePlan', () => {
 
     it('never removes a frozen (kept, unparsed) capability', async () => {
       const cfg = await withStale();
-      parseCapabilityIndex.mockReturnValue({
-        capabilities: [],
-        unknown: [
-          {
-            name: STALE.name,
-            role: STALE.role,
-            subtree: 'pharn-review',
-            reason: 'bad role',
-          },
-        ],
-      });
+      write(join(repo, `${STALE_DIR}/stale.md`), UNPARSABLE);
       expect(plan(cfg).report.removals).toEqual([]);
     });
 

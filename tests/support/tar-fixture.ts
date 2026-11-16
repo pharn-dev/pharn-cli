@@ -55,6 +55,27 @@ export function codeloadArchive(
   sha: string,
   files: Readonly<Record<string, string>>,
 ): Buffer {
+  // Memoized per (sha, tree): the command suites serve the same upstream state
+  // to every command of a test and to many tests, and gzip is the bulk of a
+  // download's cost. The key is the content, so a tree edited in place misses.
+  const key = `${sha}\0${JSON.stringify(
+    Object.keys(files)
+      .sort()
+      .map((rel) => [rel, files[rel]]),
+  )}`;
+  const hit = archiveCache.get(key);
+  if (hit) return hit;
+  const archive = buildArchive(sha, files);
+  archiveCache.set(key, archive);
+  return archive;
+}
+
+const archiveCache = new Map<string, Buffer>();
+
+function buildArchive(
+  sha: string,
+  files: Readonly<Record<string, string>>,
+): Buffer {
   const root = `pharn-oss-${sha.slice(0, 7)}`;
   const parts = [
     entry('pax_global_header', 'g', `52 comment=${sha}\n`),

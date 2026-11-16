@@ -1,0 +1,1649 @@
+import { spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
+import * as prettier from 'prettier';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as clack from '@clack/prompts';
+import {
+  CANCEL,
+  restoreNodeVersion,
+  setNodeVersion,
+  setTTY,
+} from '../helpers.js';
+import {
+  A11Y,
+  AGENT,
+  at,
+  backupFiles,
+  capability,
+  clearOutput,
+  config,
+  CONSTITUTION,
+  editConfig,
+  editRecords,
+  exists,
+  failures,
+  fetched,
+  fetchStub,
+  flatTree,
+  FLAT,
+  HOOK,
+  HOOK_SETTINGS,
+  INSTALLED,
+  installFresh,
+  interactive,
+  lastOutro,
+  logs,
+  N_PLUS_ONE,
+  notes,
+  PLAN_COMMAND,
+  proj,
+  projectFiles,
+  read,
+  records,
+  RELEASE_URL,
+  RESOLVE_URL,
+  run,
+  SECURITY,
+  serveTip,
+  SETTINGS,
+  sha256,
+  SHA_V1,
+  SHA_V2,
+  SHA_V3,
+  snapshot,
+  STATE_FILES,
+  stderr,
+  stdout,
+  tagCommitUrl,
+  upstream,
+  upstreamTree7,
+  UPSTREAM_MODELS,
+  useHarness,
+  VERSION_URL,
+  write,
+} from '../support/harness.js';
+import { runInit } from '../../src/commands/init.js';
+import { runAdd } from '../../src/commands/add.js';
+import { runUpdate } from '../../src/commands/update.js';
+import { runRemove } from '../../src/commands/remove.js';
+import { runStatus } from '../../src/commands/status.js';
+import { runUninstall } from '../../src/commands/uninstall.js';
+import { displayHook } from '../../src/lib/hook-wiring.js';
+import {
+  MODELS_RECORD_KEY,
+  modelsRecordHash,
+} from '../../src/lib/install-records.js';
+
+// A pass-through `node:fs` with one hook: the lock's exclusive create, so a
+// case can make a write target appear INSIDE the lock — after init's pre-lock
+// check, before its install — the way a concurrent writer would.
+const fsHooks = vi.hoisted(() => ({
+  open: null as null | ((path: string, flags: unknown) => void),
+}));
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs')>();
+  const openSync = ((path: string, flags: unknown, ...rest: unknown[]) => {
+    fsHooks.open?.(String(path), flags);
+    return (real.openSync as (...a: unknown[]) => number)(path, flags, ...rest);
+  }) as typeof real.openSync;
+  return { ...real, default: { ...real, openSync }, openSync };
+});
+
+vi.mock('@clack/prompts', async () =>
+  (await import('../support/clack-stub.js')).clackStub(),
+);
+
+useHarness();
+afterEach(() => {
+  fsHooks.open = null;
+  restoreNodeVersion();
+});
+
+/** The slice of the `status --json` report these cases read. */
+interface StatusJson {
+  capabilities: { count: number };
+}
+
+const NEXT_APP = JSON.stringify({ dependencies: { next: '14.0.0' } });
+/** A Next.js app: detection resolves `ssr` (security + a11y, not n-plus-one). */
+const ssrProject = (): void => write('package.json', NEXT_APP);
+
+const errors = (): string => logs('error').join('\n');
+const warned = (): string => logs('warn').join('\n');
+const informed = (): string => logs('info').join('\n');
+const allNotes = (): string[] =>
+  vi
+    .mocked(clack.note)
+    .mock.calls.map(([body]) => stripVTControlCharacters(String(body)));
+const summary = (): string =>
+  allNotes().find((b) => b.includes('PHARN Install Summary')) ?? '';
+/** The overwrite prompt's warning (the only one that lists paths). */
+const overwriteWarning = (): string =>
+  logs('warn').find((w) =>
+    w.includes('already exist and may be overwritten'),
+  ) ?? '';
+
+/**
+ * Point the clone's temp dir (os.tmpdir) at a private directory, so a case can
+ * see the clone removed — `repo.cleanup()` in init's `finally` — on every exit.
+ */
+function watchClones(): () => string[] {
+  const dir = join(proj(), '..', 'clones');
+  mkdirSync(dir);
+  vi.stubEnv('TMPDIR', dir);
+  return () => readdirSync(dir);
+}
+
+/** The interactive re-run: the summary answered, the overwrite prompt too. */
+async function rerun(
+  answers: { select?: unknown[]; confirm?: unknown[] } = {
+    select: ['install'],
+    confirm: [true],
+  },
+): Promise<number | null> {
+  clearOutput();
+  interactive(answers);
+  return run(() => runInit());
+}
+
+describe('pharn init, end to end', () => {
+  it('init --yes installs the archetype selection into an empty project', async () => {
+    await installFresh();
+
+    // The selection for `lib` (the universal griller only), every product
+    // surface at the clone's `pharn/` layout, and none of the dev-only files.
+    expect(projectFiles()).toEqual([...INSTALLED, ...STATE_FILES].sort());
+    expect(read(SECURITY)).toContain('security 1.0.0');
+    expect(read('pharn/LICENSE')).toBe('Apache-2.0\n');
+
+    expect(config()).toMatchObject({
+      skillsVersion: '1.0.0',
+      commit: SHA_V1,
+      layout: 'pharn',
+      capabilities: [{ name: 'security', role: 'griller', source: 'auto' }],
+      archetypes: ['lib'],
+      models: UPSTREAM_MODELS,
+      modules: [],
+    });
+    expect(config()).not.toHaveProperty('frozenCapabilities');
+    expect(config()).not.toHaveProperty('seam');
+    expect(config()).not.toHaveProperty('updatedAt');
+
+    // Every file pharn wrote is recorded at the hash of what landed, stamped
+    // with the config pair — the settings.json this fresh install wrote too
+    // (CORE-166), so `uninstall` can prove it is pharn's — plus the models
+    // block, and nothing else.
+    const rec = records();
+    expect(rec).toMatchObject({ skillsVersion: '1.0.0', commit: SHA_V1 });
+    for (const rel of INSTALLED) expect(rec.files[rel], rel).toBe(sha256(rel));
+    expect(Object.keys(rec.files).sort()).toEqual(
+      [...INSTALLED, MODELS_RECORD_KEY].sort(),
+    );
+    expect(rec.files[MODELS_RECORD_KEY]).toBe(
+      modelsRecordHash(UPSTREAM_MODELS),
+    );
+    // A first install makes no backup, and a fully parsed clone warns nothing.
+    expect(exists('pharn/.backup')).toBe(false);
+    expect(informed()).not.toContain('Backed up');
+    expect(logs('warn')).toEqual([]);
+  });
+
+  // CORE-172: the settings.json a fresh init writes is the hook commands
+  // Claude Code will run; init lists them, read from the clone it copied.
+  it('init --yes lists the hooks of the settings.json it writes', async () => {
+    await installFresh();
+    const hooks = notes('HOOKS');
+    expect(hooks).toHaveLength(1);
+    expect(hooks[0]).toContain(
+      'Wrote .claude/settings.json from upstream. It wires 1 hook(s):',
+    );
+    expect(hooks[0]).toContain(
+      'PreToolUse [Write]: {"type":"command","command":"node .claude/hooks/guard.cjs"}',
+    );
+    expect(hooks[0]).toContain(
+      'Claude Code runs these commands; review `.claude/settings.json`.',
+    );
+    expect(read(SETTINGS)).toBe(HOOK_SETTINGS);
+  });
+
+  it('init keeps a Prettier project’s check off every file pharn wrote; update, status and uninstall leave it', async () => {
+    writeFileSync(at('.prettierrc'), '{}\n');
+    await installFresh();
+    const written = read('.prettierignore');
+    const owned = [
+      ...INSTALLED.filter((f) => f !== SETTINGS),
+      'pharn.config.json',
+      'pharn.records.json',
+    ];
+    for (const rel of owned) {
+      const info = await prettier.getFileInfo(at(rel), {
+        ignorePath: at('.prettierignore'),
+      });
+      expect(info.ignored, rel).toBe(true);
+    }
+    // The user's own settings and files stay under their check.
+    for (const rel of [SETTINGS, 'src/index.ts', 'README.md'])
+      expect(
+        (
+          await prettier.getFileInfo(at(rel), {
+            ignorePath: at('.prettierignore'),
+          })
+        ).ignored,
+        rel,
+      ).toBe(false);
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('.prettierignore')).toBe(written);
+
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    expect(JSON.parse(stdout().at(-1) ?? '').prettierignore).toBeNull();
+
+    // A deleted line comes back, once.
+    writeFileSync(
+      at('.prettierignore'),
+      written.replace('/pharn.config.json\n', ''),
+    );
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    expect(JSON.parse(stdout().at(-1) ?? '').prettierignore).toEqual({
+      action: 'append',
+      entries: ['/pharn.config.json'],
+    });
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read('.prettierignore')).toBe(
+      written.replace('/pharn.config.json\n', '') + '/pharn.config.json\n',
+    );
+
+    const before = read('.prettierignore');
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+    expect(read('.prettierignore')).toBe(before);
+  });
+
+  it('a config without `modules` loads in every command, and a re-run init carries its manual entry', async () => {
+    await installFresh();
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    editConfig((c) => {
+      delete c.modules;
+    });
+
+    clearOutput();
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    const report = JSON.parse(stdout().at(-1) ?? '') as StatusJson;
+    expect(report.capabilities.count).toBe(2);
+    expect(await run(() => runAdd('n-plus-one'))).toBeNull();
+    expect(config().capabilities).toContainEqual({
+      name: 'n-plus-one',
+      role: 'lens',
+      source: 'manual',
+    });
+    expect(await run(() => runRemove('n-plus-one'))).toBeNull();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+
+    clearOutput();
+    expect(await run(() => runInit({ dryRun: true, json: true }))).toBeNull();
+    const plan = JSON.parse(stdout().at(-1) ?? '') as {
+      capabilities: { carried: { manual: string[] } };
+    };
+    expect(plan.capabilities.carried.manual).toEqual(['griller:a11y']);
+  });
+
+  it('an init that preserved an existing settings.json records nothing for it', async () => {
+    write(SETTINGS, '{"mine":true}\n');
+    await installFresh();
+    expect(read(SETTINGS)).toBe('{"mine":true}\n');
+    expect(records().files).not.toHaveProperty(SETTINGS);
+  });
+
+  it('a re-run init keeps the record of the settings.json it now preserves', async () => {
+    await installFresh();
+    const hash = records().files[SETTINGS];
+    expect(hash).toBe(sha256(SETTINGS));
+    expect(await rerun()).toBeNull();
+    expect(read(SETTINGS)).toBe(HOOK_SETTINGS);
+    expect(records().files[SETTINGS]).toBe(hash);
+  });
+
+  it('init --yes installs and records the review lens agent, never a pharn-dev-* agent', async () => {
+    await installFresh();
+    expect(read(AGENT)).toBe('review lens agent 1.0.0\n');
+    expect(records().files[AGENT]).toBe(sha256(AGENT));
+    expect(existsSync(at('.claude/agents/pharn-dev-reviewer.md'))).toBe(false);
+  });
+
+  it('a first init prints no ROOT MIGRATION note, even with memory-bank/ at the root', async () => {
+    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    write('memory-bank/canon.md', 'canon\n');
+    await installFresh();
+    expect(notes('ROOT MIGRATION')).toEqual([]);
+    expect(read('memory-bank/canon.md')).toBe('canon\n');
+  });
+
+  it('a re-run init hints at memory-bank/ and never moves it (dry run and real run)', async () => {
+    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    await installFresh();
+    write('memory-bank/canon.md', 'canon\n');
+    const HINT = 'git mv memory-bank pharn/memory-bank';
+
+    clearOutput();
+    expect(await run(() => runInit({ dryRun: true }))).toBeNull();
+    expect(notes('ROOT MIGRATION').join('\n')).toContain(HINT);
+
+    expect(await rerun()).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+    expect(notes('ROOT MIGRATION').join('\n')).toContain(HINT);
+    expect(read('memory-bank/canon.md')).toBe('canon\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
+  });
+
+  it('init with no --ref installs the newest verified release and records it', async () => {
+    await installFresh();
+    expect(config()).toMatchObject({
+      ref: 'latest',
+      skillsVersion: '1.0.0',
+      commit: SHA_V1,
+    });
+    // The release and its tag's commit were resolved; the tip never was.
+    expect(fetched()).toContain(RELEASE_URL);
+    expect(fetched()).toContain(tagCommitUrl('v1.0.0'));
+    expect(fetched()).not.toContain(RESOLVE_URL);
+  });
+
+  // A re-run without --ref moves an install off `main` to the release: the
+  // summary says so, names the flag that keeps it, and that it goes BACK.
+  it('a re-run without --ref over a `main` install names the move to the release', async () => {
+    serveTip(SHA_V2, '2.0.0');
+    await installFresh({ ref: 'main' });
+    serveTip(SHA_V1, '1.0.0');
+    expect(await rerun()).toBeNull();
+    expect(summary()).toContain(
+      'previously followed: main (the pharn-oss tip) — pass --ref main to keep it',
+    );
+    expect(summary()).toContain(
+      'installed v2.0.0 is newer than release v1.0.0 — this re-install goes back to it',
+    );
+    expect(config()).toMatchObject({ ref: 'latest', skillsVersion: '1.0.0' });
+  });
+
+  it('--ref latest is the same channel, recorded the same way', async () => {
+    await installFresh({ ref: 'latest' });
+    expect(config().ref).toBe('latest');
+    expect(fetched()).not.toContain(RESOLVE_URL);
+  });
+
+  it('init with no --ref and no release refuses, names --ref main, and fetches no tarball', async () => {
+    serveTip(SHA_V1, '1.0.0', { published: false });
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(existsSync(at('pharn.config.json'))).toBe(false);
+    expect(fetched().some((u) => u.startsWith('https://codeload.'))).toBe(
+      false,
+    );
+    expect(errors()).toContain('has published no release yet');
+    expect(errors()).toContain('pharn init --ref main');
+    // The resolver's own message, never wrapped as a network failure, and no
+    // fall back to main.
+    expect(errors()).not.toContain('Could not reach');
+    expect(fetched()).not.toContain(RESOLVE_URL);
+  });
+
+  it('--ref main installs the tip, records no ref, and update keeps it on main with one notice', async () => {
+    expect(await run(() => runInit({ yes: true, ref: 'main' }))).toBeNull();
+    expect(config().ref).toBeUndefined();
+    expect(fetched()).toContain(RESOLVE_URL);
+    expect(fetched()).not.toContain(RELEASE_URL);
+    const notice = (): string[] =>
+      logs('info').filter((m) =>
+        m.startsWith('Verified releases are now the default'),
+      );
+    // init itself prints no notice.
+    expect(notice()).toEqual([]);
+
+    serveTip(SHA_V2, '2.0.0');
+    fetchStub.mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    // Followed main — not the release the stub also publishes — and said so once.
+    expect(fetched()).toContain(VERSION_URL);
+    expect(fetched()).not.toContain(RELEASE_URL);
+    expect(config()).toMatchObject({ skillsVersion: '2.0.0', commit: SHA_V2 });
+    expect(config().ref).toBeUndefined();
+    expect(notice()).toEqual([
+      'Verified releases are now the default for new installs. This install keeps following pharn-oss main; run `pharn update --ref latest` to switch (recorded on first use).',
+    ]);
+
+    // And status reports the recorded channel as main.
+    clearOutput();
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    const report = JSON.parse(stdout()[0] ?? '') as {
+      version: { channel: string; source: { kind: string } };
+    };
+    expect(report.version.channel).toBe('main');
+    expect(report.version.source.kind).toBe('main');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Every refusal that comes before the download: nothing fetched, nothing
+// written, and nothing on stdout (the banner and intro print only once every
+// gate has passed — F-29).
+// ---------------------------------------------------------------------------
+
+describe('init refuses before any download', () => {
+  const refusedQuietly = (): void => {
+    expect(fetched()).toEqual([]);
+    expect(stdout()).toEqual([]);
+    expect(clack.intro).not.toHaveBeenCalled();
+    expect(informed()).not.toContain('PHARN_DEBUG');
+  };
+
+  // The Node floor is the first fact about the environment: it wins over a
+  // missing .git and over the non-TTY refusal.
+  it.each([
+    ['24.1.9', '24.1.9'],
+    ['20.13.0', '20.13.0'],
+    ['weird', 'could not read'],
+  ])('on Node %s: exit 1, ahead of every other gate', async (v, named) => {
+    setNodeVersion(v);
+    rmSync(at('.git'), { recursive: true });
+    const before = snapshot();
+    expect(await run(() => runInit())).toBe(1);
+    expect(errors()).toContain('24.2.0');
+    expect(errors()).toContain(named);
+    expect(errors()).not.toContain('git not found');
+    expect(errors()).not.toContain('interactive');
+    expect(snapshot()).toEqual(before);
+    refusedQuietly();
+  });
+
+  it('lets a supported Node through to the normal flow', async () => {
+    setNodeVersion('24.2.0');
+    await installFresh();
+  });
+
+  // The git prerequisite's error wins over the TTY message.
+  it('without a .git: exit 1, says how to make one — over the TTY refusal', async () => {
+    rmSync(at('.git'), { recursive: true });
+    setTTY(false, false);
+    expect(await run(() => runInit())).toBe(1);
+    expect(errors()).toContain('git not found');
+    expect(errors()).toContain('git init');
+    expect(errors()).not.toContain('interactive');
+    refusedQuietly();
+  });
+
+  it('below the repository root: names the root instead of `git init` (CORE-168)', async () => {
+    mkdirSync(at('apps/web'), { recursive: true });
+    vi.mocked(process.cwd).mockReturnValue(at('apps/web'));
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain(
+      `is inside the git repository at ${proj()}, not at its root.`,
+    );
+    expect(errors()).not.toContain('git init');
+    refusedQuietly();
+  });
+
+  // Off a TTY the summary would render into a dead stream and "cancel" with
+  // exit 0, having paid for a clone. Both streams must be terminals.
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+  ])(
+    'off a TTY (stdin %s, stdout %s): exit 1, naming --yes and --dry-run',
+    async (i, o) => {
+      setTTY(i, o);
+      expect(await run(() => runInit())).toBe(1);
+      expect(errors()).toContain('interactive terminal');
+      expect(errors()).toContain('--yes');
+      expect(errors()).toContain('never overwrites');
+      expect(errors()).toContain('--dry-run');
+      expect(exists('pharn.config.json')).toBe(false);
+      refusedQuietly();
+    },
+  );
+
+  // CORE-168: an existing pharn.config.json is ALWAYS a write target, so the
+  // `--yes` refusal is certain and needs no network.
+  it.each<[string, () => void]>([
+    ['a file', () => write('pharn.config.json', '{"hand":"written"}')],
+    ['a directory', () => mkdirSync(at('pharn.config.json'))],
+    [
+      'an unreadable config',
+      () =>
+        write(
+          'pharn.config.json',
+          '{"skillsVersion":"1.0.0","archetypes":"ssr","capabilities":[]}',
+        ),
+    ],
+  ])(
+    '--yes over %s at pharn.config.json: exit 1 before the fetch',
+    async (_l, plant) => {
+      plant();
+      const before = snapshot();
+      expect(await run(() => runInit({ yes: true }))).toBe(1);
+      expect(snapshot()).toEqual(before);
+      expect(errors()).toContain(
+        'pharn init --yes installs only into a project where none of its files exists yet, and pharn.config.json already exists.',
+      );
+      expect(errors()).toContain('--yes never overwrites');
+      expect(errors()).toContain('`pharn init` in a terminal');
+      expect(errors()).toContain('`pharn init --dry-run`');
+      expect(errors()).toContain('`pharn update`');
+      // Only the config is named: the marked target list needs the clone.
+      expect(errors()).not.toContain('•');
+      expect(summary()).toBe('');
+      refusedQuietly();
+    },
+  );
+
+  it('--dry-run --yes over an existing config previews instead of refusing', async () => {
+    await installFresh();
+    const before = snapshot();
+    clearOutput();
+    expect(await run(() => runInit({ yes: true, dryRun: true }))).toBeNull();
+    expect(snapshot()).toEqual(before);
+    expect(notes('PLAN').join('\n')).toContain(
+      '`pharn init --yes` would refuse',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The download, and what goes wrong after it. Every exit below happens AFTER
+// the clone is removed (the finally): watchClones() sees it gone.
+// ---------------------------------------------------------------------------
+
+describe('init after the download', () => {
+  it('a failed download: exit 1, names the host and the PHARN_DEBUG hint, after the banner', async () => {
+    const clones = watchClones();
+    failures.tarball = 'throw';
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain('Could not reach');
+    expect(errors()).toContain('fetch failed');
+    expect(informed()).toContain('PHARN_DEBUG=1');
+    // The banner and intro come before the fetch, once the gates passed.
+    expect(stdout().length).toBeGreaterThan(0);
+    expect(clack.intro).toHaveBeenCalledWith('init wizard');
+    expect(exists('pharn.config.json')).toBe(false);
+    expect(clones()).toEqual([]);
+  });
+
+  it('under PHARN_DEBUG the failure is dumped to stderr instead of the hint', async () => {
+    vi.stubEnv('PHARN_DEBUG', '1');
+    failures.tarball = 'throw';
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(informed()).not.toContain('PHARN_DEBUG=1');
+    expect(stderr().join('\n')).toContain('fetch failed');
+  });
+
+  // pharn's fetch reads no proxy variable, so a configured one is silently
+  // unused: the notice says so BEFORE the fetch — here the fetch fails, and the
+  // warning is already out.
+  it.each(['HTTPS_PROXY', 'https_proxy'])(
+    'warns about %s before the fetch',
+    async (name) => {
+      vi.stubEnv(name, 'http://proxy.internal:3128');
+      failures.release = 'throw';
+      expect(await run(() => runInit({ yes: true }))).toBe(1);
+      expect(warned()).toContain(name);
+      expect(warned()).toContain('DIRECTLY');
+      expect(warned()).not.toContain('degit');
+    },
+  );
+
+  it('refuses a too-old CLI (MIN_CLI): exit 1, no hint, nothing written', async () => {
+    const clones = watchClones();
+    upstream.tree.MIN_CLI = '99.0.0\n';
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain('This pharn is too old');
+    expect(errors()).toContain('Nothing was written');
+    // A policy refusal is not a crash.
+    expect(informed()).not.toContain('PHARN_DEBUG');
+    expect(summary()).toBe('');
+    expect(snapshot()).toEqual(before);
+    expect(clones()).toEqual([]);
+  });
+
+  it('a malformed clone: exit 1 with the hint, nothing written, the clone removed', async () => {
+    const clones = watchClones();
+    delete upstream.tree[N_PLUS_ONE]; // the whole lens subtree is gone
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain(
+      'Capability subtree "pharn/pharn-review" is missing in the fetched repo.',
+    );
+    expect(informed()).toContain('PHARN_DEBUG=1');
+    expect(snapshot()).toEqual(before);
+    expect(clones()).toEqual([]);
+  });
+
+  it('a copy that fails part-way: exit 1 (never the cancel’s 0), the lock released, the clone removed', async () => {
+    const clones = watchClones();
+    mkdirSync(at('.claude'));
+    chmodSync(at('.claude'), 0o555);
+    try {
+      expect(await run(() => runInit({ yes: true }))).toBe(1);
+    } finally {
+      chmodSync(at('.claude'), 0o755);
+    }
+    expect(errors()).toContain('EACCES');
+    expect(informed()).toContain('PHARN_DEBUG=1');
+    expect(exists('pharn.config.json')).toBe(false);
+    expect(exists('pharn/.lock')).toBe(false);
+    expect(clones()).toEqual([]);
+  });
+
+  // An upstream capability this CLI cannot read is skipped, named before the
+  // summary the user acts on, and never copied. A MIN_CLI it cannot read only
+  // warns.
+  it('names an unreadable upstream capability before the summary, and never copies it', async () => {
+    ssrProject();
+    upstream.tree['pharn/pharn-pipeline/grillers/backwards-compat/NOTES.md'] =
+      'WIP\n';
+    upstream.tree.MIN_CLI = 'garbage\n';
+    interactive({ select: ['install'] });
+    expect(await run(() => runInit())).toBeNull();
+
+    expect(warned()).toContain('backwards-compat');
+    expect(warned()).toContain('MIN_CLI');
+    const warnAt = vi.mocked(clack.log.warn).mock.invocationCallOrder[0]!;
+    expect(warnAt).toBeLessThan(
+      vi.mocked(clack.select).mock.invocationCallOrder[0]!,
+    );
+    expect(exists('pharn/pharn-pipeline/grillers/backwards-compat')).toBe(
+      false,
+    );
+    expect(config().capabilities.map((c) => c.name)).not.toContain(
+      'backwards-compat',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A fresh install, interactively and with --yes.
+// ---------------------------------------------------------------------------
+
+describe('a fresh install', () => {
+  it('detect → summary → install: the ssr selection, no overwrite prompt, the outro', async () => {
+    ssrProject();
+    // pharn-oss's root config carries keys of its own besides `models`.
+    upstream.tree['pharn.config.json'] = JSON.stringify({
+      _models_stages_note: 'not copied',
+      models: UPSTREAM_MODELS,
+      ship: { requireAttestation: true },
+    });
+    interactive({ select: ['install'] }); // no conflict, so no confirm
+    expect(await run(() => runInit())).toBeNull();
+
+    expect(clack.select).toHaveBeenCalledTimes(1);
+    expect(summary()).toContain('a11y (griller)');
+    expect(summary()).toContain('security (griller)');
+    expect(summary()).toContain('n-plus-one (lens)');
+    expect(read(A11Y)).toContain('a11y');
+    expect(exists('pharn/pharn-review/n-plus-one')).toBe(false);
+    expect(exists('.claude/commands/pharn-dev-plan.md')).toBe(false);
+    expect(exists('pharn/floor/validate.test.mjs')).toBe(false);
+
+    const raw = config();
+    expect(raw.archetypes).toEqual(['ssr']);
+    expect(raw.capabilities).toEqual([
+      { name: 'a11y', role: 'griller', source: 'auto' },
+      { name: 'security', role: 'griller', source: 'auto' },
+    ]);
+    expect(raw.models).toEqual(UPSTREAM_MODELS);
+    expect(raw).not.toHaveProperty('_models_stages_note');
+    expect(raw).not.toHaveProperty('ship');
+    expect(records().files[A11Y]).toBe(sha256(A11Y));
+
+    // pharn-oss's own checker passes the block init wrote.
+    const r = spawnSync(
+      process.execPath,
+      [
+        join(
+          import.meta.dirname,
+          '../fixtures/pharn-oss/check-model-config.mjs',
+        ),
+        'validate',
+        '--config',
+        at('pharn.config.json'),
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(r.stdout).toMatch(/^GREEN/);
+    expect(r.status).toBe(0);
+
+    // The outro claims what landed, and labels the block truthfully.
+    const outro = lastOutro();
+    expect(outro).toContain('4 trusted docs written');
+    expect(outro).toContain('PHARN commands + hooks + agents written');
+    expect(outro).toContain('Declared model per stage');
+    expect(outro).toContain('plan             opus · high');
+    expect(outro).toContain('ship             sonnet · high  (default)');
+    expect(outro).toContain(
+      '/pharn-ship and /pharn-loop read this block to pick the model they',
+    );
+    expect(outro).toContain('Effort is never');
+  });
+
+  it('cancelling the summary exits 0 and writes nothing', async () => {
+    const clones = watchClones();
+    ssrProject();
+    const before = snapshot();
+    interactive({ select: ['cancel'] });
+    expect(await run(() => runInit())).toBe(0);
+    expect(snapshot()).toEqual(before);
+    expect(clones()).toEqual([]);
+  });
+
+  // F-17: `--yes` composes with `--archetype`, in a TTY too, without a prompt.
+  it('`--yes --archetype backend` installs and records the flag’s archetypes, prompting nothing', async () => {
+    setTTY(true, true);
+    expect(
+      await run(() => runInit({ yes: true, archetypes: ['backend'] })),
+    ).toBeNull();
+    expect(config().archetypes).toEqual(['backend']);
+    expect(
+      config()
+        .capabilities.map((c) => c.name)
+        .sort(),
+    ).toEqual(['n-plus-one', 'security']);
+    expect(summary()).toMatch(/Archetypes \(--archetype\)\s+backend/);
+    expect(summary()).toContain('detection found lib (not used)');
+    expect(noteTitlesOf('Archetypes (from --archetype)')).toBe(false);
+  });
+
+  // pharn-oss owns `models`: init copies its block, never invents one, never
+  // writes one its rules reject — and the install always finishes.
+  it.each<[string, string | null]>([
+    ['no root config', null],
+    ['a root config without models', '{"ship":{}}'],
+    ['models: null', '{"models":null}'],
+    [
+      'a block too deep to copy',
+      `{"models":{"stages":{"default":{"model":"opus","effort":"high"}},"deep":${'['.repeat(100_000)}${']'.repeat(100_000)}}}`,
+    ],
+  ])('writes no models key for %s', async (_l, root) => {
+    if (root === null) delete upstream.tree['pharn.config.json'];
+    else upstream.tree['pharn.config.json'] = root;
+    await installFresh();
+    expect(config()).not.toHaveProperty('models');
+    expect(records().files).not.toHaveProperty([MODELS_RECORD_KEY]);
+    expect(lastOutro()).not.toContain('Declared model per stage');
+  });
+
+  it("writes no models block, and says why, when pharn-oss's fails its rules", async () => {
+    const RLO = String.fromCharCode(0x202e);
+    upstream.tree['pharn.config.json'] = JSON.stringify({
+      models: {
+        stages: {
+          default: { model: 'sonnet', effort: 'high' },
+          deploy: { model: 'opus', effort: 'high' },
+          plan: { model: `${RLO}opus`, effort: 'high' },
+        },
+      },
+    });
+    await installFresh();
+    expect(config()).not.toHaveProperty('models');
+    const warning = logs('warn').find((m) => m.includes('models block')) ?? '';
+    expect(warning).toContain(
+      "pharn-oss's models block was not written; this pharn rejects it:",
+    );
+    expect(warning).toContain('stage "deploy" is not a product stage');
+    expect(warning).toContain('stage "plan" model "opus" is not an alias');
+    expect(warning).toContain('upgrade pharn');
+    expect(warning).not.toContain(RLO);
+  });
+
+  // F-10: every declared surface the clone ships nothing for is named in ONE
+  // warning, never fatal; the outro claims only what landed.
+  it.each<[string, string[], string[], string[]]>([
+    [
+      'no agent (only a pharn-dev-* one)',
+      [AGENT],
+      ['PHARN commands + hooks written'],
+      [],
+    ],
+    [
+      'no hooks, docs, LICENSE or features README',
+      [HOOK, 'LIMITS.md', 'LICENSE', 'pharn/features/README.md'],
+      ['3 trusted docs written', 'PHARN commands + agents written'],
+      [
+        '.claude/hooks (hooks)',
+        'LIMITS.md (trusted-doc)',
+        'LICENSE (license)',
+        'pharn/features/README.md (features-readme)',
+      ],
+    ],
+    [
+      'no command, hook or agent',
+      [PLAN_COMMAND, '.claude/commands/pharn-dev-plan.md', HOOK, AGENT],
+      ['no PHARN commands or hooks written'],
+      ['.claude/commands (commands)', '.claude/hooks (hooks)'],
+    ],
+    [
+      'one trusted doc',
+      ['pharn/ARCHITECTURE.md', 'THREAT-MODEL.md', 'LIMITS.md'],
+      ['1 trusted doc written'],
+      ['ARCHITECTURE.md (trusted-doc)', 'THREAT-MODEL.md (trusted-doc)'],
+    ],
+    [
+      'no trusted doc at all',
+      [CONSTITUTION, 'pharn/ARCHITECTURE.md', 'THREAT-MODEL.md', 'LIMITS.md'],
+      ['no trusted docs written'],
+      ['CONSTITUTION.md (trusted-doc)', 'LIMITS.md (trusted-doc)'],
+    ],
+  ])('a clone with %s', async (_l, drop, outroHas, absent) => {
+    for (const rel of drop) delete upstream.tree[rel];
+    await installFresh();
+    const outro = lastOutro();
+    for (const s of outroHas) expect(outro).toContain(s);
+    if (outroHas.includes('no trusted docs written'))
+      expect(outro).not.toContain('docs written →');
+    if (!drop.includes(AGENT)) expect(outro).toContain('agents');
+    else expect(outro).not.toContain('agents');
+    const warnings = logs('warn').filter((w) =>
+      w.includes('pharn-oss ships nothing'),
+    );
+    expect(warnings).toHaveLength(absent.length ? 1 : 0);
+    for (const s of absent) expect(warnings[0]).toContain(s);
+    if (absent.length) {
+      expect(warnings[0]).not.toContain('(floor)');
+      expect(warnings[0]).not.toContain('(core)');
+    }
+    expect(exists('pharn.records.json')).toBe(true);
+  });
+
+  // A flat clone has no pharn-core (a documented no-op, never reported); one
+  // that ships no pharn-contracts either still installs, naming the contracts.
+  it('a flat clone with no pharn-contracts installs, naming only the contracts as absent', async () => {
+    const tree = flatTree('1.0.0');
+    delete tree['pharn-contracts/finding-shape.md'];
+    serveTip(SHA_V1, '1.0.0', { tree });
+    await installFresh();
+    expect(config().layout).toBe('flat');
+    const warnings = logs('warn').filter((w) =>
+      w.includes('pharn-oss ships nothing'),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('pharn-contracts (contracts)');
+    expect(warnings[0]).not.toContain('(core)');
+    expect(exists('pharn-contracts')).toBe(false);
+    expect(exists('pharn-core')).toBe(false);
+    expect(read(FLAT.security)).toContain('security 1.0.0');
+  });
+});
+
+function noteTitlesOf(title: string): boolean {
+  return vi.mocked(clack.note).mock.calls.some(([, t]) => t === title);
+}
+
+// ---------------------------------------------------------------------------
+// What `--yes` refuses once it has the clone, and what init refuses to install
+// into: exit 1, nothing written, the clone removed.
+// ---------------------------------------------------------------------------
+
+describe('init refuses a project it cannot install into', () => {
+  it.each<[string, () => void, string[]]>([
+    [
+      'a file of yours at a target (--yes)',
+      () => write(PLAN_COMMAND, 'mine'),
+      [
+        '.claude/commands/pharn-plan.md (differs from upstream)',
+        'pharn init --dry-run',
+      ],
+    ],
+    [
+      'a dangling symlink at a target',
+      () => {
+        mkdirSync(at('.claude/commands'), { recursive: true });
+        symlinkSync(join(proj(), '..', 'nowhere'), at(PLAN_COMMAND));
+      },
+      ['.claude/commands/pharn-plan.md'],
+    ],
+    [
+      'a directory at pharn.records.json',
+      () => mkdirSync(at('pharn.records.json')),
+      ['Refusing to install: pharn.records.json is in the way'],
+    ],
+  ])('%s', async (_l, plant, named) => {
+    const clones = watchClones();
+    plant();
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    for (const s of named) expect(errors()).toContain(s);
+    expect(snapshot()).toEqual(before);
+    expect(clones()).toEqual([]);
+  });
+
+  it('--yes refuses under the lock when a target appears after the first check', async () => {
+    let planted = false;
+    fsHooks.open = (path, flags) => {
+      if (!planted && flags === 'wx' && path.endsWith(join('pharn', '.lock'))) {
+        planted = true;
+        write(CONSTITUTION, 'appeared');
+      }
+    };
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(planted).toBe(true);
+    expect(read(CONSTITUTION)).toBe('appeared');
+    expect(errors()).toContain(CONSTITUTION);
+    expect(exists('pharn.config.json')).toBe(false);
+    expect(exists(PLAN_COMMAND)).toBe(false);
+    // The refusal is thrown inside the lock, which is released on the way out.
+    expect(exists('pharn/.lock')).toBe(false);
+  });
+
+  // The pre-flight runs BEFORE the overwrite prompt: a project the install
+  // cannot finish in is refused without being asked "Continue and overwrite?".
+  it('refuses a re-install before asking to overwrite or backing anything up', async () => {
+    await installFresh();
+    write(PLAN_COMMAND, 'MY EDIT');
+    rmSync(at('pharn/pharn-contracts'), { recursive: true });
+    write('pharn/pharn-contracts', 'a FILE where a directory goes');
+
+    expect(await rerun()).toBe(1);
+    expect(clack.confirm).not.toHaveBeenCalled();
+    expect(overwriteWarning()).toBe('');
+    expect(errors()).toContain(
+      'Refusing to install: pharn/pharn-contracts is in the way',
+    );
+    expect(exists('pharn/.backup')).toBe(false);
+    expect(read(PLAN_COMMAND)).toBe('MY EDIT');
+    expect(config().commit).toBe(SHA_V1);
+  });
+
+  // PHARN-03's re-check: the config fingerprint is taken before the prompts,
+  // so a pharn run that writes the config while they are open is not
+  // overwritten from the stale snapshot.
+  it.each([
+    ['appeared where there was none', false],
+    ['was rewritten by another run', true],
+  ])(
+    'refuses when pharn.config.json %s while the prompts were open',
+    async (_l, reinstall) => {
+      if (reinstall) await installFresh();
+      const concurrent = '{"written":"by another run"}\n';
+      interactive({ confirm: [true] });
+      vi.mocked(clack.select).mockImplementationOnce(async () => {
+        writeFileSync(at('pharn.config.json'), concurrent);
+        return 'install';
+      });
+      clearOutput();
+      expect(await run(() => runInit())).toBe(1);
+      expect(errors()).toContain(
+        'pharn.config.json changed while `pharn init` was running',
+      );
+      // The concurrent write survives untouched.
+      expect(read('pharn.config.json')).toBe(concurrent);
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// A re-run init over an existing install. It overwrites every file it
+// installs; what it marks and backs up first is what `update` would have
+// SKIPPED — through the records the previous install wrote — so an upstream
+// bump alone is never "your edits".
+// ---------------------------------------------------------------------------
+
+describe('re-running init over an install', () => {
+  it('after an upstream bump alone: no installed file marked or backed up — only the config', async () => {
+    await installFresh();
+    const planRecord = records().files[PLAN_COMMAND];
+    serveTip(SHA_V2, '2.0.0');
+    // Upstream stops shipping two files: one is still here, one is not.
+    delete upstream.tree[PLAN_COMMAND];
+    delete upstream.tree[AGENT];
+    rmSync(at(AGENT));
+
+    expect(await rerun()).toBeNull();
+
+    const warning = overwriteWarning();
+    expect(warning).toContain(CONSTITUTION);
+    expect(warning).not.toContain('(edited)');
+    expect(warning).not.toContain('(differs from upstream)');
+    expect(warning).toContain(
+      'pharn.config.json (will be rewritten — backed up first)',
+    );
+    expect(backupFiles()).toEqual(['pharn.config.json']);
+    expect(informed()).toContain('Backed up 1 file(s) to pharn/.backup/');
+    expect(read(CONSTITUTION)).toBe('constitution 2.0.0\n');
+    expect(config()).toMatchObject({ skillsVersion: '2.0.0', commit: SHA_V2 });
+    // F-12: a file upstream stopped shipping keeps its record while it exists;
+    // one that is gone keeps none.
+    expect(read(PLAN_COMMAND)).toBe('plan\n');
+    expect(records().files[PLAN_COMMAND]).toBe(planRecord);
+    expect(records().files).not.toHaveProperty([AGENT]);
+  });
+
+  it('marks and backs up exactly the files the user changed, then upgrades them', async () => {
+    await installFresh();
+    serveTip(SHA_V2, '2.0.0');
+    write(CONSTITUTION, 'MY CONSTITUTION');
+    write('pharn/LICENSE', 'MY LICENSE NOTES');
+
+    expect(await rerun()).toBeNull();
+
+    const bullets = overwriteWarning()
+      .split('\n')
+      .filter((l) => l.trimStart().startsWith('•'));
+    expect(bullets.filter((b) => b.includes('('))).toHaveLength(3);
+    expect(bullets[0]).toContain('(edited)');
+    expect(bullets[1]).toContain('(edited)');
+    expect(overwriteWarning()).toContain(
+      '2 of them changed since pharn wrote them (your edits).',
+    );
+    expect(backupFiles()).toEqual(
+      ['pharn.config.json', CONSTITUTION, 'pharn/LICENSE'].sort(),
+    );
+    const [dir] = readdirSync(at('pharn/.backup'));
+    expect(read(`pharn/.backup/${dir!}/${CONSTITUTION}`)).toBe(
+      'MY CONSTITUTION',
+    );
+    expect(read(CONSTITUTION)).toBe('constitution 2.0.0\n');
+    expect(read('pharn/LICENSE')).toBe('Apache-2.0\n');
+  });
+
+  // CORE-161: the stamp does not gate — a store stamped for another install
+  // state still proves which bytes pharn wrote. With no store at all, every
+  // differing file is backed up: conservative, never a guess.
+  it.each<[string, () => void, string[]]>([
+    [
+      'a store stamped for another install state',
+      () =>
+        editRecords((r) => {
+          r.skillsVersion = '0.9.0';
+          r.commit = SHA_V3;
+        }),
+      ['pharn.config.json'],
+    ],
+    [
+      'no record store',
+      () => rmSync(at('pharn.records.json')),
+      ['pharn.config.json', AGENT, CONSTITUTION, SECURITY],
+    ],
+  ])('over %s', async (_l, damage, backedUp) => {
+    await installFresh();
+    damage();
+    serveTip(SHA_V2, '2.0.0');
+    expect(await rerun()).toBeNull();
+    expect(backupFiles()).toEqual([...backedUp].sort());
+    if (backedUp.length > 1)
+      expect(overwriteWarning()).toContain(
+        `${CONSTITUTION} (differs from upstream)`,
+      );
+  });
+
+  // F-08: the rewrite resets `models` (`seam` is carried, CORE-165), so the
+  // original bytes are saved first.
+  it('backs up the original pharn.config.json bytes before rewriting it', async () => {
+    await installFresh();
+    const tuned = {
+      ...config(),
+      seam: { resolutionOrder: ['pinned-docs', 'ask'], haltOnUnknown: false },
+      models: { stages: { default: { model: 'haiku', effort: 'low' } } },
+    };
+    const original = `${JSON.stringify(tuned, null, 4)}\n`;
+    writeFileSync(at('pharn.config.json'), original);
+
+    expect(await rerun()).toBeNull();
+
+    expect(backupFiles()).toEqual(['pharn.config.json']);
+    const [dir] = readdirSync(at('pharn/.backup'));
+    expect(read(`pharn/.backup/${dir!}/pharn.config.json`)).toBe(original);
+    expect(config().seam).toEqual(tuned.seam);
+    expect(config().models).toEqual(UPSTREAM_MODELS);
+    // This install keeps pharn/.backup/ out of git itself, so no advice.
+    expect(informed()).not.toContain('not gitignored');
+    expect(read('.gitignore')).toContain('pharn/.backup/\n');
+  });
+
+  it('never writes through a pharn.config.json that is a symlink, nor backs it up', async () => {
+    await installFresh();
+    const outside = join(proj(), '..', 'outside.json');
+    renameSync(at('pharn.config.json'), outside);
+    symlinkSync(outside, at('pharn.config.json'));
+    const before = readFileSync(outside, 'utf8');
+    serveTip(SHA_V2, '2.0.0');
+
+    expect(await rerun()).toBeNull();
+
+    expect(exists('pharn/.backup')).toBe(false);
+    expect(readFileSync(outside, 'utf8')).toBe(before);
+    expect(config().commit).toBe(SHA_V2);
+  });
+
+  // Declining is a graceful exit 0, and so is Ctrl-C at the prompt — which
+  // used to leave the clone behind.
+  it.each([
+    ['declined', false],
+    ['cancelled (Ctrl-C)', CANCEL],
+  ])(
+    'the overwrite prompt %s: exit 0, nothing written, the clone removed',
+    async (_l, answer) => {
+      await installFresh();
+      serveTip(SHA_V2, '2.0.0');
+      write(CONSTITUTION, 'MY CONSTITUTION');
+      const clones = watchClones();
+      const before = snapshot();
+      expect(await rerun({ select: ['install'], confirm: [answer] })).toBe(0);
+      expect(snapshot()).toEqual(before);
+      expect(clones()).toEqual([]);
+    },
+  );
+
+  describe('flat layout', () => {
+    it("backs up an edited PHARN-LICENSE, compared with upstream's LICENSE", async () => {
+      serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+      await installFresh();
+      expect(config().layout).toBe('flat');
+      write(FLAT.license, 'MY LICENSE NOTES');
+      expect(await rerun()).toBeNull();
+      expect(backupFiles()).toEqual([FLAT.license, 'pharn.config.json']);
+      expect(read(FLAT.license)).toBe('Apache-2.0\n');
+    });
+
+    // The records are keyed by PATH: a layout change writes to new paths and
+    // leaves the old files in place (init deletes only dropped capabilities),
+    // so only a file of the user's at a new path is backed up.
+    it('a layout change (flat → pharn/) backs up only a file of yours at a new path', async () => {
+      serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+      await installFresh();
+      write('pharn/LICENSE', 'MY OWN NOTES');
+      serveTip(SHA_V2, '2.0.0');
+      expect(await rerun()).toBeNull();
+      expect(backupFiles()).toEqual(['pharn.config.json', 'pharn/LICENSE']);
+      expect(read(CONSTITUTION)).toBe('constitution 2.0.0\n');
+      expect(config().layout).toBe('pharn');
+      expect(exists(FLAT.constitution)).toBe(true);
+      expect(exists(FLAT.license)).toBe(true);
+    });
+  });
+
+  // PHARN-11 + update's merge rows: a manual entry the index still has is
+  // installed again and stays manual (also when the archetypes select it); one
+  // upstream no longer ships is dropped, NAMED, and its directory deleted.
+  it('carries the hand-added capabilities over, and drops one upstream no longer ships', async () => {
+    ssrProject();
+    await installFresh();
+    editConfig((c) => {
+      c.capabilities = [
+        { name: 'a11y', role: 'griller', source: 'manual' },
+        { name: 'security', role: 'griller', source: 'auto' },
+        { name: 'n-plus-one', role: 'lens', source: 'manual' },
+        { name: 'gone-now', role: 'lens', source: 'manual' },
+      ];
+    });
+    write('pharn/pharn-review/gone-now/gone-now.md', 'old upstream bytes');
+
+    expect(await rerun()).toBeNull();
+
+    expect(config().capabilities).toEqual(
+      expect.arrayContaining([
+        { name: 'a11y', role: 'griller', source: 'manual' },
+        { name: 'security', role: 'griller', source: 'auto' },
+        { name: 'n-plus-one', role: 'lens', source: 'manual' },
+      ]),
+    );
+    expect(config().capabilities).toHaveLength(3);
+    expect(read(N_PLUS_ONE)).toContain('n-plus-one');
+    expect(records().files[N_PLUS_ONE]).toBe(sha256(N_PLUS_ONE));
+    expect(informed()).toContain(
+      'Keeping 1 capability you added by hand: lens:n-plus-one.',
+    );
+    expect(summary()).toContain('n-plus-one (lens)');
+    expect(warned()).toContain(
+      'Not keeping 1 capability you added by hand that upstream no longer ships: lens:gone-now.',
+    );
+    expect(exists('pharn/pharn-review/gone-now')).toBe(false);
+    expect(backupFiles()).toContain('pharn/pharn-review/gone-now/gone-now.md');
+  });
+
+  // F-04: a capability the archetypes no longer select is dropped and its
+  // directory DELETED — PHARN runs every capability directory on disk — after
+  // backing up what pharn cannot prove it wrote. Named before the summary,
+  // listed in the prompt, asked once.
+  it('deletes the directory of a capability the archetypes no longer select', async () => {
+    ssrProject();
+    await installFresh({ archetypes: ['ssr', 'backend'] });
+    write('pharn/pharn-review/n-plus-one/NOTES.md', 'my notes');
+    editConfig((c) => {
+      c.capabilities.push({ name: 'legacy-gone', role: 'lens' });
+    });
+
+    expect(await rerun()).toBeNull();
+
+    // Re-detection says ssr; the summary says what was recorded.
+    expect(summary()).toContain(
+      'previously recorded: ssr, backend — pass --archetype ssr,backend to keep them',
+    );
+    expect(warned()).toContain(
+      'your archetypes no longer select (or upstream no longer ships): lens:n-plus-one, lens:legacy-gone',
+    );
+    expect(warned()).toContain('will be DELETED');
+    expect(warned()).toContain(
+      'pharn/pharn-review/n-plus-one/ (lens:n-plus-one — 1 file(s)',
+    );
+    expect(clack.confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Continue, overwrite and delete?' }),
+    );
+    expect(exists('pharn/pharn-review/n-plus-one')).toBe(false);
+    expect(backupFiles()).toEqual([
+      'pharn.config.json',
+      'pharn/pharn-review/n-plus-one/NOTES.md',
+    ]);
+    expect(informed()).toContain('before overwriting and removing.');
+    expect(informed()).toContain(
+      'Deleted 1 capability directory no longer installed: pharn/pharn-review/n-plus-one/.',
+    );
+    expect(
+      config()
+        .capabilities.map((c) => c.name)
+        .sort(),
+    ).toEqual(['a11y', 'security']);
+    expect(
+      Object.keys(records().files).filter((k) =>
+        k.startsWith('pharn/pharn-review/'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('refuses, writing nothing, when the dropped directory sits behind a symlink', async () => {
+    ssrProject();
+    await installFresh({ archetypes: ['ssr', 'backend'] });
+    const outside = join(proj(), '..', 'shared-review');
+    renameSync(at('pharn/pharn-review'), outside);
+    symlinkSync(outside, at('pharn/pharn-review'));
+
+    expect(await rerun()).toBe(1);
+
+    expect(clack.confirm).not.toHaveBeenCalled();
+    expect(errors()).toMatch(
+      /Refusing to init: n-plus-one \(lens\) is no longer installed[\s\S]*pharn\/pharn-review is a symbolic link/,
+    );
+    expect(errors()).not.toContain('PHARN_DEBUG');
+    expect(
+      readFileSync(join(outside, 'n-plus-one/n-plus-one.md'), 'utf8'),
+    ).toContain('n-plus-one');
+    expect(exists('pharn/.backup')).toBe(false);
+    expect(config().archetypes).toEqual(['ssr', 'backend']);
+  });
+
+  // CORE-164: a config with no `modules` key loads; its manual entries carry
+  // and its dropped directories are deleted; `modules: []` is written again.
+  it.each([
+    ['a manual entry is kept', true],
+    ['a dropped entry is deleted', false],
+  ])('over a config with no `modules`: %s', async (_l, manual) => {
+    ssrProject();
+    await installFresh({ archetypes: ['ssr', 'backend'] });
+    editConfig((c) => {
+      delete c.modules;
+      if (manual)
+        c.capabilities = c.capabilities.map((x) =>
+          x.name === 'n-plus-one' ? { ...x, source: 'manual' } : x,
+        );
+    });
+
+    expect(await rerun()).toBeNull();
+
+    expect(exists(N_PLUS_ONE)).toBe(manual);
+    if (manual)
+      expect(config().capabilities).toContainEqual({
+        name: 'n-plus-one',
+        role: 'lens',
+        source: 'manual',
+      });
+    else expect(warned()).toContain('will be DELETED');
+    expect(config().modules).toEqual([]);
+    expect(summary()).not.toContain('could not be read');
+  });
+
+  // Upstream ships a capability this CLI cannot parse: its entries (manual or
+  // source-less) are KEPT verbatim, listed in frozenCapabilities, their files
+  // untouched and their records carried — never minted from nothing.
+  it.each([
+    ['a usable store', 'keep'],
+    ['a store stamped for another state', 'stale'],
+    ['no store', 'none'],
+  ])(
+    'keeps a capability this pharn cannot parse, over %s',
+    async (_l, store) => {
+      const PERF = 'pharn/pharn-review/perf/perf.md';
+      const unparseable = (): void => {
+        upstream.tree[PERF] = capability('lens', '["bogus"]', 'perf');
+        upstream.tree['pharn/pharn-pipeline/grillers/legacy/legacy.md'] =
+          capability('griller', '["bogus"]', 'legacy');
+      };
+      unparseable();
+      await installFresh();
+      write(PERF, 'perf as installed');
+      const perfHash = sha256(PERF);
+      editRecords((r) => {
+        r.files[PERF] = perfHash;
+        if (store === 'stale') {
+          r.skillsVersion = '0.9.0';
+          r.commit = SHA_V3;
+        }
+      });
+      if (store === 'none') rmSync(at('pharn.records.json'));
+      editConfig((c) => {
+        c.capabilities.push(
+          { name: 'perf', role: 'lens', source: 'manual' },
+          { name: 'legacy', role: 'griller' },
+        );
+        c.testResults = { test: 'vitest-json' };
+      });
+      serveTip(SHA_V2, '2.0.0');
+      unparseable();
+
+      expect(await rerun()).toBeNull();
+
+      const c = config();
+      expect(c.capabilities).toContainEqual({
+        name: 'perf',
+        role: 'lens',
+        source: 'manual',
+      });
+      expect(c.capabilities.find((x) => x.name === 'legacy')).toEqual({
+        name: 'legacy',
+        role: 'griller',
+      });
+      expect(c.frozenCapabilities).toEqual(['griller:legacy', 'lens:perf']);
+      expect(c.testResults).toEqual({ test: 'vitest-json' });
+      expect(informed()).toContain('Keeping 2 capabilities as installed');
+      expect(warned()).not.toContain('Not keeping');
+      expect(read(PERF)).toBe('perf as installed');
+      expect(records().commit).toBe(SHA_V2);
+      if (store === 'none') expect(records().files).not.toHaveProperty([PERF]);
+      else expect(records().files[PERF]).toBe(perfHash);
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The config a re-run replaces: keys pharn does not own are carried across;
+// every key pharn owns is rewritten; one it cannot read is NAMED.
+// ---------------------------------------------------------------------------
+
+describe('re-running init over the config it replaces', () => {
+  it('carries the keys pharn does not own verbatim and rewrites every key it does', async () => {
+    ssrProject();
+    await installFresh();
+    const fresh = config();
+    const userKeys = {
+      testResults: { test: 'vitest-json', 'test:e2e': 'playwright-json' },
+      ship: { requireAttestation: true },
+      // CORE-165: pharn-oss's; carried in its own key order, even values this
+      // CLI used to refuse.
+      seam: { note: 'ours', resolutionOrder: ['model', 'ask', 'ask', 'guess'] },
+    };
+    editConfig((c) => {
+      Object.assign(c, userKeys, {
+        // State an earlier run recorded, stale the moment init reinstalls.
+        pharnVersion: '0.0.1',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+        pendingSkillsVersion: '0.0.2',
+        frozenCapabilities: ['lens:path-traversal'],
+        layout: 'flat',
+        archetypes: ['ssr'],
+        capabilities: [{ name: 'security', role: 'griller', source: 'auto' }],
+        models: { default: { model: 'haiku-4-5', effort: 'low' }, stages: {} },
+        modules: [{ name: 'core', version: '1.0.0' }],
+        constitution: 'minimal',
+        stackAnswers: { db: 'postgres' },
+        installedSkills: [{ skill: 'x', from: 'y' }],
+      });
+    });
+
+    expect(await rerun()).toBeNull();
+
+    // Exactly what a fresh install writes, plus the keys pharn does not own.
+    expect({ ...config(), installedAt: null }).toEqual({
+      ...fresh,
+      installedAt: null,
+      ...userKeys,
+    });
+    expect(JSON.stringify(config().seam)).toBe(JSON.stringify(userKeys.seam));
+  });
+
+  // Carried as DATA: `__proto__` (an own key after JSON.parse) round-trips as
+  // a key and never becomes the written object's prototype.
+  it('carries keys named like Object.prototype members as plain data', async () => {
+    await installFresh();
+    writeFileSync(
+      at('pharn.config.json'),
+      read('pharn.config.json').replace(
+        /^\{/,
+        '{\n  "__proto__": { "polluted": true },\n  "constructor": "mine",\n  "toString": 1,',
+      ),
+    );
+    expect(await rerun()).toBeNull();
+    const written = JSON.parse(read('pharn.config.json')) as object;
+    expect(
+      Object.getOwnPropertyDescriptor(written, '__proto__')?.value,
+    ).toEqual({ polluted: true });
+    expect(Object.getPrototypeOf(written)).toBe(Object.prototype);
+    expect(Object.getOwnPropertyDescriptor(written, 'constructor')?.value).toBe(
+      'mine',
+    );
+    expect(Object.getOwnPropertyDescriptor(written, 'toString')?.value).toBe(1);
+  });
+
+  // CORE-164: a config that EXISTS but cannot be read carries nothing — and
+  // says so, with the reason, in the summary before either prompt. The keys
+  // pharn does not own still carry from any JSON object.
+  const damaged =
+    (edit: (c: Record<string, unknown>) => void) =>
+    (c: Record<string, unknown>): string => {
+      edit(c);
+      return JSON.stringify(c);
+    };
+  it.each<
+    [string, (c: Record<string, unknown>) => string, string | null, boolean]
+  >([
+    [
+      'archetypes that is not an array',
+      damaged((c) => {
+        c.archetypes = 'ssr';
+      }),
+      'pharn.config.json: archetypes must be an array of "ssr", "backend", "spa", "lib" (found "ssr")',
+      true,
+    ],
+    [
+      'no skillsVersion string',
+      damaged((c) => {
+        delete c.skillsVersion;
+      }),
+      'it has no "skillsVersion" string',
+      true,
+    ],
+    [
+      'an invalid capabilities[].source',
+      damaged((c) => {
+        c.capabilities = [{ name: 'a11y', role: 'griller', source: 'guess' }];
+      }),
+      null,
+      true,
+    ],
+    [
+      'an archetype holding control bytes (escaped, never raw)',
+      damaged((c) => {
+        c.archetypes = ['ssr\u001b[2J'];
+      }),
+      'pharn.config.json: archetypes[0] must be one of "ssr", "backend", "spa", "lib" (found "ssr\\u001b[2J"))',
+      true,
+    ],
+    ['not JSON', () => '{ "testResults": ', null, false],
+    ['a JSON array', () => '[{ "testResults": {} }]', null, false],
+  ])(
+    'names a config with %s, and still installs',
+    async (_l, damage, reason, carries) => {
+      ssrProject();
+      await installFresh({ archetypes: ['ssr', 'backend'] });
+      editConfig((c) => {
+        c.testResults = { test: 'vitest-json' };
+        c.capabilities = c.capabilities.map((x) =>
+          x.name === 'n-plus-one' ? { ...x, source: 'manual' } : x,
+        );
+      });
+      writeFileSync(
+        at('pharn.config.json'),
+        damage(
+          JSON.parse(read('pharn.config.json')) as Record<string, unknown>,
+        ),
+      );
+
+      expect(await rerun()).toBeNull();
+
+      const line = summary();
+      expect(line).toContain(
+        `the previous pharn.config.json could not be read (${reason ?? ''}`,
+      );
+      expect(line).toContain(
+        'nothing is carried over, so manual capabilities will be dropped',
+      );
+      expect(line).not.toContain('pharn init');
+      expect(line).not.toContain('previously recorded');
+      const summaryAt = vi.mocked(clack.note).mock.invocationCallOrder[
+        vi
+          .mocked(clack.note)
+          .mock.calls.findIndex(([b]) =>
+            String(b).includes('PHARN Install Summary'),
+          )
+      ]!;
+      expect(summaryAt).toBeLessThan(
+        vi.mocked(clack.select).mock.invocationCallOrder[0]!,
+      );
+      // As the line says: the manual entry was not carried.
+      expect(config().capabilities.map((x) => x.name)).not.toContain(
+        'n-plus-one',
+      );
+      expect(config().skillsVersion).toBe('1.0.0');
+      if (carries)
+        expect(config().testResults).toEqual({ test: 'vitest-json' });
+      else expect(config()).not.toHaveProperty('testResults');
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------
+// F-02 / CORE-172: an existing `.claude/settings.json` is never overwritten or
+// merged. While the clone still exists, init prints the HOOKS note `status`
+// and `update` print; a fresh one lists what it wires.
+// ---------------------------------------------------------------------------
+
+describe('init and .claude/settings.json — the HOOKS note', () => {
+  const SCOPE = {
+    type: 'command',
+    command:
+      'node "${CLAUDE_PROJECT_DIR}"/.claude/hooks/enforce-writes-scope.cjs',
+  };
+  const STOP = {
+    type: 'command',
+    command: 'node',
+    args: ['.claude/hooks/stop-check.cjs'],
+  };
+  const UPSTREAM_SETTINGS = {
+    hooks: {
+      PreToolUse: [{ matcher: 'Write|Edit', hooks: [SCOPE] }],
+      Stop: [{ hooks: [STOP] }],
+    },
+  };
+  const SCOPE_LINE = displayHook({
+    event: 'PreToolUse',
+    matcher: 'Write|Edit',
+    command: SCOPE.command,
+    args: [],
+  });
+  const STOP_LINE = displayHook({
+    event: 'Stop',
+    matcher: '',
+    command: STOP.command,
+    args: STOP.args,
+  });
+  const STRICT = '`pharn status --strict` fails until';
+
+  it.each<[string, { settings: string; local?: string }, string[], string[]]>([
+    [
+      'wires one of the two upstream hooks',
+      {
+        settings: JSON.stringify({
+          permissions: { allow: ['Bash(ls)'] },
+          hooks: { PreToolUse: [{ matcher: 'Write|Edit', hooks: [SCOPE] }] },
+        }),
+      },
+      [STOP_LINE, '.claude/settings.local.json', STRICT],
+      [SCOPE_LINE],
+    ],
+    [
+      'wires none',
+      { settings: '{"permissions":{}}' },
+      [SCOPE_LINE, STOP_LINE, 'Upstream wires 2 hook(s)'],
+      [],
+    ],
+    [
+      'wires them only in settings.local.json',
+      { settings: '{}', local: JSON.stringify(UPSTREAM_SETTINGS) },
+      ['only in .claude/settings.local.json'],
+      ['--strict'],
+    ],
+    [
+      'is not valid JSON',
+      { settings: '{ not json' },
+      [
+        '.claude/settings.json could not be read (it is not valid JSON)',
+        SCOPE_LINE,
+        STRICT,
+      ],
+      [],
+    ],
+  ])('a preserved file that %s', async (_l, files, has, hasNot) => {
+    upstream.tree[SETTINGS] = JSON.stringify(UPSTREAM_SETTINGS);
+    write(SETTINGS, files.settings);
+    if (files.local) write('.claude/settings.local.json', files.local);
+    await installFresh();
+    const hooks = notes('HOOKS');
+    expect(hooks).toHaveLength(1);
+    for (const s of has) expect(hooks[0]).toContain(s);
+    for (const s of hasNot) expect(hooks[0]).not.toContain(s);
+    expect(informed()).toContain('Existing .claude/settings.json preserved');
+    expect(warned()).not.toContain('compare it against pharn-oss');
+    // Never written or merged: the user's bytes, exactly.
+    expect(read(SETTINGS)).toBe(files.settings);
+    expect(lastOutro()).not.toBe('');
+  });
+
+  it('prints no HOOKS note when the preserved file already wires every upstream hook', async () => {
+    upstream.tree[SETTINGS] = JSON.stringify(UPSTREAM_SETTINGS);
+    write(SETTINGS, JSON.stringify({ ...UPSTREAM_SETTINGS, model: 'opus' }));
+    await installFresh();
+    expect(notes('HOOKS')).toEqual([]);
+    expect(informed()).toContain('Existing .claude/settings.json preserved');
+  });
+
+  it('lists the hooks a fresh install writes from upstream, then the review line', async () => {
+    upstream.tree[SETTINGS] = JSON.stringify(UPSTREAM_SETTINGS);
+    await installFresh();
+    expect(notes('HOOKS')).toEqual([
+      [
+        '  Wrote .claude/settings.json from upstream. It wires 2 hook(s):',
+        `  ${SCOPE_LINE}`,
+        `  ${STOP_LINE}`,
+        '  Claude Code runs these commands; review `.claude/settings.json`.',
+      ].join('\n'),
+    ]);
+    expect(informed()).not.toContain('preserved');
+    expect(JSON.parse(read(SETTINGS))).toEqual(UPSTREAM_SETTINGS);
+  });
+});
