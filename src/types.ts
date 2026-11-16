@@ -47,8 +47,8 @@ export interface PharnConfig {
   pendingSkillsVersion?: string;
   // `role:name` of every installed capability `update` (or a re-run `init`)
   // KEPT because it could not parse it upstream — plus one parseable again
-  // while any of its files was still skipped. Sorted; omitted when none. Every
-  // `update` re-checks them.
+  // while any of its files was still skipped. Sorted; omitted when none. While
+  // non-empty, `update` skips its same-version early return.
   frozenCapabilities?: string[];
   repo: string;
   commit: string | null;
