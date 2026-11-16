@@ -5,6 +5,7 @@ import {
 import { log, note, outro, spinner } from '@clack/prompts';
 import pc from '../lib/color.js';
 import {
+  CLAUDE_AGENTS_DIR,
   CLAUDE_SETTINGS_FILE,
   FIRST_FEATURE_COMMAND,
   REPO_URL,
@@ -333,10 +334,18 @@ export async function runInstallArchetype(
   const legacyBackups = legacyBackupNotice(cwd);
   if (legacyBackups) log.info(legacyBackups);
   // The `.claude/` surfaces that actually landed, for the outro: never claim
-  // a surface the warning above just named as not shipped.
-  const claudeWritten = (['commands', 'hooks'] as const).filter(
-    (surface) => !absent.some((a) => a.surface === surface),
+  // a surface the warning above just named as not shipped. Agents are an
+  // OPTIONAL surface (never in `absent`: pharn-oss < 6.64.0 ships none), so
+  // they are named only when the manifest the copy applied holds one (CORE-272).
+  const agentsWritten = [...prepared.manifest.keys()].some((rel) =>
+    rel.startsWith(`${CLAUDE_AGENTS_DIR}/`),
   );
+  const claudeWritten = [
+    ...(['commands', 'hooks'] as const).filter(
+      (surface) => !absent.some((a) => a.surface === surface),
+    ),
+    ...(agentsWritten ? (['agents'] as const) : []),
+  ];
 
   const frozenCapabilities = [
     ...new Set(carry.kept.map((c) => `${c.role}:${c.name}`)),

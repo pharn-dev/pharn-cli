@@ -652,7 +652,8 @@ If pharn-oss moved them, a newer pharn may know where:
 
 `--dry-run` prints the same warning, and `--dry-run --json` carries the same list as `absentUpstream`
 (`[{surface, path}]`, present only when there is one). The closing summary names only the `.claude/`
-surfaces that landed (`PHARN commands written`, say, when no hooks did). It is a warning, never a
+surfaces that landed (`PHARN commands written`, say, when no hooks did; `+ agents` only when
+`.claude/agents/` received an agent, which a pharn-oss older than 6.64.0 does not ship). It is a warning, never a
 refusal: the install, `pharn.config.json` and `pharn.records.json` complete as usual, `--yes` is not
 refused by it, and [`pharn status --strict`](status.md) fails while any surface is missing upstream. A
 directory that ships files, but none `init` takes (hooks with an extension other than `.cjs` or `.mjs`,
