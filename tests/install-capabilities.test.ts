@@ -583,7 +583,7 @@ describe('installCapabilities', () => {
       /Refusing to install: features is in the way.*Move or rename it/,
     );
     expect(readFileSync(join(proj, 'features'), 'utf8')).toBe('a regular file');
-    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+    expect(readdirSync(proj)).toEqual(['features']);
   });
 
   // The floor ships the deterministic checkers the installed product commands
