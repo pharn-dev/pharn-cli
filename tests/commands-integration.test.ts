@@ -18,7 +18,14 @@ import {
   vi,
   type Mock,
 } from 'vitest';
-import { ProcessExit, stubProcessExit, useTmpDir } from './helpers.js';
+import {
+  ProcessExit,
+  restoreTTY,
+  setTTY,
+  snapshotTree,
+  stubProcessExit,
+  useTmpDir,
+} from './helpers.js';
 import { codeloadArchive } from './support/tar-fixture.js';
 import { PHARN_VERSION } from '../src/version.js';
 
@@ -580,6 +587,85 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
       });
       expect(existsSync(at('pharn/.backup'))).toBe(false);
     });
+  });
+
+  // CORE-162: once a kept edit withholds the bump, every later run re-plans —
+  // and a run whose plan changes nothing asks nothing and writes nothing.
+  it('a second update over a kept edit asks nothing and writes nothing', async () => {
+    await init();
+    writeFileSync(at(CONSTITUTION), `my own constitution\n`);
+    serveTip(SHA_V2, '2.0.0');
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(config().pendingSkillsVersion).toBe('2.0.0');
+
+    const before = {
+      tree: snapshotTree(proj),
+      config: read('pharn.config.json'),
+      records: read('pharn.records.json'),
+    };
+    vi.mocked(clack.note).mockClear();
+    vi.mocked(clack.outro).mockClear();
+    // An interactive terminal and NO --yes: the throwing confirm would fail
+    // the run if it were reached.
+    setTTY(true, true);
+    try {
+      expect(await run(() => runUpdate())).toBeNull();
+    } finally {
+      restoreTTY();
+    }
+
+    expect(clack.confirm).not.toHaveBeenCalled();
+    expect(read('pharn.config.json')).toBe(before.config);
+    expect(read('pharn.records.json')).toBe(before.records);
+    expect(snapshotTree(proj)).toEqual(before.tree);
+    // The kept edit is still named, and the run ends saying so.
+    const skipped = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'SKIPPED')
+      .map(([body]) => String(body))
+      .join('\n');
+    expect(skipped).toContain(CONSTITUTION);
+    expect(String(vi.mocked(clack.outro).mock.calls.at(-1)?.[0])).toContain(
+      'Nothing to change.',
+    );
+  });
+
+  it('update --force lists every file it will overwrite before it asks, then records the run', async () => {
+    await init();
+    writeFileSync(at(CONSTITUTION), `my own constitution\n`);
+    serveTip(SHA_V2, '2.0.0');
+    const order: string[] = [];
+    vi.mocked(clack.note).mockImplementation((body, title) => {
+      order.push(`note ${String(title)}: ${String(body)}`);
+    });
+    vi.mocked(clack.confirm).mockImplementationOnce(() => {
+      order.push('confirm');
+      return Promise.resolve(true);
+    });
+    setTTY(true, true);
+    try {
+      expect(await run(() => runUpdate({ force: true }))).toBeNull();
+    } finally {
+      restoreTTY();
+      vi.mocked(clack.note).mockReset();
+    }
+
+    const confirmAt = order.indexOf('confirm');
+    const listAt = order.findIndex(
+      (e) => e.startsWith('note OVERWRITE:') && e.includes(CONSTITUTION),
+    );
+    expect(confirmAt).toBeGreaterThan(-1);
+    expect(listAt).toBeGreaterThan(-1);
+    expect(listAt).toBeLessThan(confirmAt);
+    expect(order[listAt]).toContain('WILL OVERWRITE (--force) — modified');
+    // A run that writes still records itself.
+    expect(read(CONSTITUTION)).toBe('constitution 2.0.0\n');
+    const cfg = JSON.parse(read('pharn.config.json')) as {
+      updatedAt?: string;
+      pharnVersion?: string;
+    };
+    expect(typeof cfg.updatedAt).toBe('string');
+    expect(cfg.pharnVersion).toBe(PHARN_VERSION);
   });
 
   // 0.18.0, the measured mixed-version failure: a NEW floor file beside an

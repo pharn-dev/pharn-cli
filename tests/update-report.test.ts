@@ -96,6 +96,8 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
     orphans: [],
     rootMigration: null,
     rootMoveBackups: [],
+    stateChanges: { config: true, records: true },
+    changesNothing: false,
     ...over,
   };
 }
@@ -337,6 +339,28 @@ describe('buildUpdateReport — planned', () => {
   // ONLY when there is one, so a report with none stays byte-identical to the
   // one 0.10.0 shipped (pinned below).
   // 0.18.0: the executable-unit hold, additive and present ONLY on a hold.
+  // CORE-162: present (as true) ONLY when a real run would change nothing;
+  // `status` stays `planned`, and the internal `stateChanges` never leaks.
+  it('omits changesNothing when the run changes something', () => {
+    expect('changesNothing' in r.plan!).toBe(false);
+    expect('stateChanges' in r.plan!).toBe(false);
+  });
+
+  it('carries plan.changesNothing: true last, status still planned, when nothing changes', () => {
+    const quiet = buildUpdateReport(
+      input({
+        plan: planReport({
+          changesNothing: true,
+          stateChanges: { config: false, records: false },
+        }),
+      }),
+    );
+    expect(quiet.status).toBe('planned');
+    expect(quiet.plan!.changesNothing).toBe(true);
+    expect(Object.keys(quiet.plan!).at(-1)).toBe('changesNothing');
+    expect('stateChanges' in quiet.plan!).toBe(false);
+  });
+
   it('omits executableUnit when nothing was held', () => {
     expect('executableUnit' in r.plan!).toBe(false);
   });

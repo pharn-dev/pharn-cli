@@ -13,7 +13,10 @@ vi.mock('@clack/prompts', () => ({
 const prompts = await import('@clack/prompts');
 const {
   executableUnitLines,
+  forcedOverwriteSections,
+  noChangeVerdict,
   reportExecutableUnit,
+  reportForcedOverwrites,
   reportOutcome,
   reportDryRun,
 } = await import('../src/lib/update-render.js');
@@ -170,6 +173,8 @@ describe('the records note is escaped at both print sites', () => {
     orphans: [],
     rootMigration: null,
     rootMoveBackups: [],
+    stateChanges: { config: false, records: false },
+    changesNothing: true,
   };
 
   const warned = (): string =>
@@ -199,5 +204,119 @@ describe('the records note is escaped at both print sites', () => {
   it('reportDryRun (the preview)', () => {
     reportDryRun(report, false, 'main', {} as PharnConfig);
     expectEscaped(warned());
+  });
+
+  // CORE-162: the same verdict closes both reports of a plan that changes
+  // nothing, in place of the counts summary / "Run pharn update to apply".
+  it('an unchanged outcome and a changes-nothing preview both end with the verdict', () => {
+    vi.mocked(prompts.outro).mockClear();
+    reportOutcome({ ...outcome, unchanged: true }, false);
+    const real = String(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0]);
+    expect(real).toContain('Up to date.');
+    expect(real).not.toContain('✔');
+    reportDryRun(report, false, 'main', {} as PharnConfig);
+    const preview = String(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0]);
+    expect(preview).toContain('Dry run — Up to date.');
+    expect(preview).not.toContain('to apply');
+  });
+});
+
+// CORE-162: the WOULD OVERWRITE sections, shared by the dry run (`WOULD`) and
+// the real run's note before its confirm (`WILL`).
+describe('forcedOverwriteSections — what --force overwrites', () => {
+  const file = (
+    rel: string,
+    label: 'modified' | 'unrecorded' | 'unverifiable' | 'updated',
+    forced: boolean,
+  ) => ({
+    rel,
+    action: 'write' as const,
+    label,
+    backup: forced,
+    forced,
+  });
+  const files = [
+    file('a.md', 'modified', true),
+    file('b.md', 'unrecorded', true),
+    file('c.md', 'unverifiable', true),
+    file('d.md', 'updated', false),
+  ];
+  const models = (backup: boolean) => ({ backup }) as ModelsUpdate;
+
+  it('groups the forced writes by label and leaves out clean upgrades', () => {
+    expect(
+      forcedOverwriteSections({ files, models: models(false) }, 'WILL'),
+    ).toEqual([
+      { heading: 'WILL OVERWRITE (--force) — modified', rels: ['a.md'] },
+      { heading: 'WILL OVERWRITE (--force) — unrecorded', rels: ['b.md'] },
+      { heading: 'WILL OVERWRITE (--force) — unverifiable', rels: ['c.md'] },
+    ]);
+  });
+
+  it('adds pharn.config.json when the models block is backed up', () => {
+    const sections = forcedOverwriteSections(
+      { files: [], models: models(true) },
+      'WOULD',
+    );
+    expect(sections).toEqual([
+      {
+        heading: 'WOULD OVERWRITE (--force) — your models block',
+        rels: ['pharn.config.json'],
+      },
+    ]);
+  });
+
+  it('reportForcedOverwrites prints one OVERWRITE note, and none when nothing is forced', () => {
+    vi.mocked(prompts.note).mockClear();
+    reportForcedOverwrites({ files: [], models: models(false), backups: [] });
+    expect(prompts.note).not.toHaveBeenCalled();
+    reportForcedOverwrites({
+      files,
+      models: models(true),
+      backups: ['a.md', 'b.md', 'c.md', 'pharn.config.json'],
+    });
+    const [body, title] = vi.mocked(prompts.note).mock.calls[0]!;
+    expect(title).toBe('OVERWRITE');
+    expect(String(body)).toContain('WILL OVERWRITE (--force) — modified');
+    expect(String(body)).toContain('  a.md');
+    expect(String(body)).toContain('  pharn.config.json');
+    expect(String(body)).not.toContain('d.md');
+  });
+});
+
+describe('noChangeVerdict — the closing words of a run that changes nothing', () => {
+  const counts = (skipped: number) => ({
+    updated: 0,
+    restored: 0,
+    ok: 3,
+    forced: 0,
+    skipped,
+  });
+
+  it('is "Up to date." only with nothing skipped and the version recorded', () => {
+    expect(
+      noChangeVerdict({
+        counts: counts(0),
+        recordedVersion: '2.0.0',
+        installedVersion: '2.0.0',
+      }),
+    ).toBe('Up to date.');
+  });
+
+  it('is "Nothing to change." with a skip, or a withheld version', () => {
+    expect(
+      noChangeVerdict({
+        counts: counts(1),
+        recordedVersion: '2.0.0',
+        installedVersion: '2.0.0',
+      }),
+    ).toBe('Nothing to change.');
+    expect(
+      noChangeVerdict({
+        counts: counts(0),
+        recordedVersion: '1.0.0',
+        installedVersion: '2.0.0',
+      }),
+    ).toBe('Nothing to change.');
   });
 });

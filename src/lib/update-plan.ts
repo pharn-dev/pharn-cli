@@ -52,6 +52,11 @@ import {
   type UpdatePlan,
 } from './update-decision.js';
 import { isExecutableUnitPath } from './executable-unit.js';
+import {
+  changesNothing,
+  planStateChanges,
+  type StateChanges,
+} from './update-next.js';
 import { diffHookWiring, type HookWiringDiff } from './hook-wiring.js';
 import { readSkillsVersion } from './skills-version.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
@@ -152,6 +157,15 @@ export interface UpdatePlanReport {
   // the file already covers the paths this run records. Re-planned under the
   // lock by the writer over `apply.prettierignorePaths`.
   prettierignore: PrettierignorePlan;
+  // Whether the run would change pharn.config.json (beyond `updatedAt` /
+  // `pharnVersion`) and pharn.records.json, against what it loaded
+  // (lib/update-next.ts). Internal: never projected into the JSON report.
+  stateChanges: StateChanges;
+  // THE "changes nothing" predicate (lib/update-next.ts, CORE-162): no file,
+  // directory, root doc, move, ignore-file line, record or config field would
+  // change. The real run then asks nothing and writes nothing; the dry run and
+  // `--json` (`plan.changesNothing`) read this same boolean.
+  changesNothing: boolean;
 }
 
 export interface UpdateApplyInputs {
@@ -195,7 +209,7 @@ export function buildUpdatePlan(input: {
   // throw). `report.unknownWarning` carries the same string.
   onUnknownWarning?: (warning: string) => void;
 }): PlannedUpdate {
-  const { repoDir, sha, config, cwd, force, onUnknownWarning } = input;
+  const { repoDir, sha, config, cwd, force, channel, onUnknownWarning } = input;
 
   const index = parseCapabilityIndex(repoDir);
   // No silent skips (P5): a capability the fetch boundary refused is NAMED.
@@ -247,7 +261,10 @@ export function buildUpdatePlan(input: {
   for (const rel of expected.keys())
     diskStates.set(rel, readDiskState(cwd, rel));
 
-  const { records, note: recordsNote } = recordsBaseline(readRecords(cwd), {
+  // Read ONCE: the baseline below, and the store the "changes nothing"
+  // comparison holds the next one against (lib/update-next.ts).
+  const loadedRecords = readRecords(cwd);
+  const { records, note: recordsNote } = recordsBaseline(loadedRecords, {
     skillsVersion: config.skillsVersion,
     commit: config.commit,
   });
@@ -403,64 +420,77 @@ export function buildUpdatePlan(input: {
     ),
   ].sort();
 
+  const report: Omit<UpdatePlanReport, 'stateChanges' | 'changesNothing'> = {
+    currentVersion: config.skillsVersion,
+    installedVersion,
+    recordedVersion: nextSkillsVersion,
+    versionWithheld,
+    pendingSkillsVersion,
+    frozenCapabilities: frozenKeys,
+    capCount: configCapabilities.length,
+    layout,
+    // `applyWrites` returns exactly `plan.writes` on success, so the number of
+    // files written is known before anything is written.
+    abandonedLayout:
+      previousLayout !== layout && plan.writes.length > 0
+        ? previousLayout
+        : null,
+    featuresReadmeRelocation:
+      records !== null &&
+      FEATURES_README in records &&
+      resolveFeaturesReadme(repoDir, layout) !== FEATURES_README,
+    capabilityChanges: merged.changes,
+    removals,
+    files: plan.files,
+    writes: plan.writes,
+    backups,
+    skipped: plan.skipped,
+    counts: plan.counts,
+    executableUnit: plan.held,
+    models,
+    modelsFloor: paths.floor,
+    // Read-only, never throws, and `update` never writes the settings files it
+    // reads, so the answer is the same before and after the writes.
+    hookWiring: diffHookWiring(repoDir, cwd),
+    absentUpstream: absentInstallSurfaces({ repoDir, layout }),
+    recordsNote,
+    unknownWarning,
+    unknownCapabilities: index.unknown,
+    orphans,
+    rootMigration: rootMigration?.report ?? null,
+    rootMoveBackups: rootMigration?.backups ?? [],
+    gitignore: planGitignore(cwd),
+    prettierignore: planPrettierignore(cwd, prettierignorePaths),
+  };
+  const apply: UpdateApplyInputs = {
+    expected,
+    records,
+    plan,
+    models,
+    configCapabilities,
+    frozen,
+    frozenRecords,
+    orphanRecords: orphanScan.records,
+    nextSkillsVersion,
+    nextCommit,
+    frozenKeys,
+    removalPaths,
+    rootMoveBackups: rootMigration?.backups ?? [],
+    prettierignorePaths,
+  };
+  const stateChanges = planStateChanges({
+    config,
+    report,
+    apply,
+    channel,
+    loadedRecords,
+  });
   return {
     report: {
-      currentVersion: config.skillsVersion,
-      installedVersion,
-      recordedVersion: nextSkillsVersion,
-      versionWithheld,
-      pendingSkillsVersion,
-      frozenCapabilities: frozenKeys,
-      capCount: configCapabilities.length,
-      layout,
-      // `applyWrites` returns exactly `plan.writes` on success, so the number of
-      // files written is known before anything is written.
-      abandonedLayout:
-        previousLayout !== layout && plan.writes.length > 0
-          ? previousLayout
-          : null,
-      featuresReadmeRelocation:
-        records !== null &&
-        FEATURES_README in records &&
-        resolveFeaturesReadme(repoDir, layout) !== FEATURES_README,
-      capabilityChanges: merged.changes,
-      removals,
-      files: plan.files,
-      writes: plan.writes,
-      backups,
-      skipped: plan.skipped,
-      counts: plan.counts,
-      executableUnit: plan.held,
-      models,
-      modelsFloor: paths.floor,
-      // Read-only, never throws, and `update` never writes the settings files it
-      // reads, so the answer is the same before and after the writes.
-      hookWiring: diffHookWiring(repoDir, cwd),
-      absentUpstream: absentInstallSurfaces({ repoDir, layout }),
-      recordsNote,
-      unknownWarning,
-      unknownCapabilities: index.unknown,
-      orphans,
-      rootMigration: rootMigration?.report ?? null,
-      rootMoveBackups: rootMigration?.backups ?? [],
-      gitignore: planGitignore(cwd),
-      prettierignore: planPrettierignore(cwd, prettierignorePaths),
+      ...report,
+      stateChanges,
+      changesNothing: changesNothing(report, stateChanges),
     },
-    apply: {
-      expected,
-      records,
-      plan,
-      models,
-      configCapabilities,
-      frozen,
-      frozenRecords,
-      orphanRecords: orphanScan.records,
-      nextSkillsVersion,
-      nextCommit,
-      frozenKeys,
-      removalPaths,
-      rootMoveBackups: rootMigration?.backups ?? [],
-      prettierignorePaths,
-    },
+    apply,
   };
 }

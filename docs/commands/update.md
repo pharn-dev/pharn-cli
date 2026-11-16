@@ -55,11 +55,16 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    latest capability index and **unions** that result with the capabilities you added by hand. A failed
    download, a `MIN_CLI` refusal, or a dropped capability whose directory cannot be deleted safely stops
    the run here (exit 1), before you are asked anything.
-7. Lists, in a `CAPABILITIES` note, every capability the update would **add** or **drop**, with the
-   directory each drop would delete (see [Before you confirm](#before-you-confirm)), and asks for
+7. If the plan **changes nothing** — no file to write, no directory or root doc to delete, no line to add
+   to `.gitignore` / `.prettierignore`, and `pharn.records.json` and `pharn.config.json` would stay as
+   they are — it prints its notes (a kept edit is still listed under `SKIPPED`), asks nothing, writes
+   nothing, and ends with `Nothing to change.` (see [When there is nothing to change](#when-there-is-nothing-to-change)).
+8. Otherwise lists, in a `CAPABILITIES` note, every capability the update would **add** or **drop**, with the
+   directory each drop would delete, and under `--force` every file it would overwrite (see
+   [Before you confirm](#before-you-confirm)), and asks for
    confirmation — unless you passed `--yes`, which skips that one prompt and nothing else.
-8. On confirm, takes the project lock and plans again from the same download, against your project as it
-   is now. If the capabilities it would change are no longer exactly the ones you were shown, it stops
+9. On confirm, takes the project lock and plans again from the same download, against your project as it
+   is now. If that plan changes nothing (another run did the work meanwhile), it writes nothing. If the capabilities it would change are no longer exactly the ones you were shown, it stops
    (exit 1) with nothing changed. Otherwise it decides each expected file with the table below — and your `models` block the same way — backs up
    anything `--force` is about to overwrite and every file in a dropped capability's directory that
    `pharn` cannot prove it wrote, **deletes the directories of the capabilities it drops** (see
@@ -98,6 +103,11 @@ It prints:
   **delete** (`WOULD DELETE`), the files it would **back up** first
   (`pharn/.backup/<timestamp>/` — the timestamp is only known when a real run makes the backup), how
   many are unchanged or skipped, and the channel it would record when `--ref` changes it;
+- `Nothing would be written.` when a real run would [change nothing](#when-there-is-nothing-to-change)
+  (it would then ask nothing either), or `Would rewrite only pharn.config.json` (or
+  `pharn.records.json`, or both) when those are all it would change; under `--force` the
+  `WOULD OVERWRITE (--force)` groups also name `pharn.config.json` when your `models` block would be
+  replaced;
 - the `SKIPPED`, `CAPABILITIES`, `MODELS`, `HOOKS` and `NOT SHIPPED` notes of a real run, worded as
   what _would_ happen;
 - whether the recorded `skillsVersion` would be **withheld** (and recorded as pending), and the layout
@@ -231,6 +241,7 @@ key. Treat a `status` you do not recognise as "do not apply".
 | `plan.gitignore`                            | Present only when a real run would change [`.gitignore`](#gitignore): `{action, entries}` with `action` `create` or `append` and `entries` the lines it adds, or `{action: "refused", reason, entries}` (`reason` `symlink`, `not-a-file` or `unreadable`) when it would have to leave the file alone. Absent otherwise, so such a report is byte-identical to earlier releases. Added in 0.16.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                               |
 | `plan.prettierignore`                       | Present only when a real run would change [`.prettierignore`](#prettierignore) in a project that uses Prettier: `{action, entries}` (`create`/`append`, the lines it adds) or `{action: "refused", reason, entries}`. Absent otherwise. Added in 0.17.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `plan.orphans`                              | Present only when there is at least one: every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). With none, the key is **absent** (not `[]`), so such a report is byte-identical to the one 0.10.0 printed; read it as `plan.orphans ?? []`. Never filtered by `--compact`.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `plan.changesNothing`                       | Present **only** (as `true`) when a real run would [change nothing](#when-there-is-nothing-to-change): it would ask nothing and write nothing, not even `pharn.config.json`. `status` stays `planned`; the early returns keep `plan: null`. Added in 0.20.0 within `1`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 #### `--compact`: leave out the unchanged files
 
@@ -742,6 +753,18 @@ update adds or drops capabilities, a `CAPABILITIES` note lists them first, in th
 │    Files in them pharn did not write would be copied to pharn/.backup/ first.
 ```
 
+With `--force`, an `OVERWRITE` note then lists every file the run will overwrite, grouped by why each
+needed `--force` — the same groups as the dry run's `WOULD OVERWRITE (--force)` — and
+`pharn.config.json` when your `models` block is replaced:
+
+```text
+◇  OVERWRITE
+│    WILL OVERWRITE (--force) — modified
+│    pharn/CONSTITUTION.md
+│
+│    Each is copied to pharn/.backup/<timestamp>/ first (1 file(s)).
+```
+
 The question is `Apply this update?` (`Apply this update and overwrite your changes?` with `--force`).
 When the update deletes a capability directory it adds how many — `It deletes 1 capability directory.` —
 and the default answer becomes **No**, as `pharn init` does when it would overwrite or delete. With
@@ -759,6 +782,32 @@ The cost of asking with that knowledge: the ~2.5 MB download happens before the 
 — or a run refused by another pharn process's lock — has already downloaded it (and removed it again).
 The terminal check still comes first: off a terminal without `--yes`, `update` refuses before any network
 call.
+
+## When there is nothing to change
+
+A run whose plan changes nothing does not ask and does not write. "Nothing" means all of these: no file
+to write or restore, no capability directory or root doc to delete, nothing to move, no line to add to
+`.gitignore` or `.prettierignore`, the same `pharn.records.json`, and the same `pharn.config.json` apart
+from `updatedAt` and `pharnVersion`. Those two describe a write, not your install, so they change only on
+a run that writes something — a run that changes nothing leaves `pharn.config.json` byte for byte, and
+`git status` clean.
+
+The common case is a [kept edit](#the-recorded-version-stays-true): the version bump is withheld, so every
+later run still plans, and before 0.20.0 each one asked to confirm and rewrote `pharn.config.json` with a
+new `updatedAt`. Now such a run prints its notes — the `SKIPPED` note naming your edit, the withheld-version
+warning — and ends with:
+
+- `Nothing to change.` when something is skipped or the recorded version is behind upstream;
+- `Up to date.` when nothing is skipped and the recorded version is the one upstream ships.
+
+The comparison is made against `pharn.config.json` as `pharn` reads it, so a value the reader already
+resolves never forces a write on its own: no `layout` key is the flat layout, no `commit` key is `null`, a
+`ref` other than `"latest"` is `main`. A real difference — the download is the other layout, you switch
+channel, a new commit — still changes the file.
+
+The terminal check is unchanged: off a terminal without `--yes`, `update` still refuses before any network
+call, because it cannot know the plan until it has downloaded. The [dry run](#previewing-an-update) says
+`Nothing would be written.` for the same plans, and `--dry-run --json` adds `plan.changesNothing: true`.
 
 ## Concurrency
 
