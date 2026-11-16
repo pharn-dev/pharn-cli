@@ -495,9 +495,11 @@ What follows from a hold:
   something else (`unverifiable` because there is no usable record store, or `unreadable`), nothing is
   recorded, and `pharn add` refuses until the update can finish. `pharn update --dry-run` shows what
   blocks it.
-- A unit file that is **missing** is not put back while the unit is held. A hook you deleted stays off
-  until you revert your edit or use `--force`. The note names such files under "Of those, these are not
-  on disk, so they stay missing until the hold ends".
+- A unit file that is **missing** is not put back while the unit is held. The note names such files
+  under "Of those, these are not on disk, so they stay missing until the hold ends". For a hook you
+  deleted, that means: `pharn` never touches `.claude/settings.json`, so the hook entry stays wired to a
+  script that is not on disk, and that guard does not run until the hold ends (revert your edit, or run
+  `pharn update --force`). [`pharn status`](status.md) reports the file as missing in the meantime.
 - A held file keeps its old record, and a file new upstream gets none. The next run decides them again.
 - The [root-footprint migration](#the-root-footprint-migration) waits too. It moves and deletes paths the
   old floor still reads, so it runs with the update that upgrades the set.
