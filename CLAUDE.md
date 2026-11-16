@@ -8,8 +8,8 @@ Guidance for Claude Code (claude.ai/code) working in this repository. The flows 
 `pharn` is an interactive CLI that installs [PHARN](https://github.com/pharn-dev/pharn-oss) into an existing project.
 `pharn init` detects the project's archetypes (`ssr`/`backend`/`spa`/`lib`), downloads pharn-oss as a codeload tarball
 (by default the newest verified release; `--ref main` takes the tip of `main`), copies the selected capabilities
-(grillers and lenses) and the fixed product surfaces into `.claude/` and `pharn/`, and writes `pharn.config.json` and
-`pharn.records.json`. It is published on npm as `@pharn-dev/pharn` with one bin, `pharn`. Every command is
+(grillers and lenses) and the fixed product surfaces into `.claude/` and `pharn/`, and writes pharn.config.json and
+pharn.records.json in that project. It is published on npm as `@pharn-dev/pharn` with one bin, `pharn`. Every command is
 archetype-only: a pre-archetype (module) config is refused with "re-run `pharn init`". It targets Claude Code today.
 
 ## Commands
@@ -67,7 +67,8 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   `REQUIRED_WITH` refuses a flag passed without its partner (`update --json` needs `--dry-run`). Both refuse with one
   stderr line and exit 1, above the `--help` and `--version` short-circuits.
 - Every prompt (`init`, `update`, `uninstall`, the bare `add`/`remove` pickers) exits 1 off a TTY, through the one
-  `interactiveAllowed` predicate (`lib/capability-picker.ts`). `--yes` skips only what it names: `init --yes` never confirms an overwrite.
+  `interactiveAllowed` predicate (`lib/capability-picker.ts`). `--yes` skips only what it names: `init --yes` never
+  confirms an overwrite.
 - P3: `index.ts` dispatches, each `commands/` file owns one verb, each `steps/` file one stage, and shared logic lives
   in `lib/`. Never import command→command or step→step.
 - Comments: a module header plus "why" comments and named residuals. No incident ids or "used to…" stories; that
@@ -89,11 +90,11 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **One unsafe-character set** (`lib/terminal-safe.ts`). Untrusted text is escaped where it is printed, value by value,
   never as a whole line (pharn's own colour codes use ESC).
 - **Records are the proof.** Overwriting or deleting a file requires that its `contentHash` (`lib/hash.ts`, CRLF folded
-  for text) equals its record in `pharn.records.json`. The store's stamp is diagnostics and never gates the baseline.
+  for text) equals its record in pharn.records.json. The store's stamp is diagnostics and never gates the baseline.
   A file with no record is never deleted.
-- **Back up before overwrite or delete.** What pharn cannot prove it wrote is copied by one `createBackup` into
-  `pharn/.backup/<ts>/` before the first destructive write, announced at creation through `printBackupNotice`. `update` deletes only the directories of capabilities it
-  drops. User data (`memory-bank/`) is never moved, and an existing `.claude/settings.json` is never overwritten.
+- **Back up before overwrite or delete.** What pharn cannot prove it wrote goes to `pharn/.backup/<ts>/` first (one
+  `createBackup`, announced via `printBackupNotice`). `update` deletes only the directories of dropped capabilities.
+  User data (`memory-bank/`) is never moved, and an existing `.claude/settings.json` is never overwritten.
 - **Fail closed on release resolution.** `lib/release.ts` refuses (naming `--ref main`) when the latest release cannot
   be resolved or is malformed. It never floats to the tip of `main`.
 - **Network bounds.** `redirect: 'error'`, a per-request deadline and a body cap on every fetch. The tarball has its
@@ -101,7 +102,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **The project lock.** `init`/`add`/`update`/`remove`/`uninstall` write under `pharn/.lock`, and first re-check
   inside it that the config they loaded is unchanged. No prompt is ever held under the lock. Readers (`list`,
   `status`) never take it.
-- **Bounded local reads.** `pharn.config.json`, `pharn.records.json` and the lock are read through `readBoundedFile`
+- **Bounded local reads.** pharn.config.json, pharn.records.json and the lock are read through `readBoundedFile`
   (regular file, size cap, `O_NONBLOCK`), so a FIFO or a huge file never hangs or floods a command.
 - **Config schema is additive** (P7): legacy fields still load, and new keys are optional. The CLI owns every key
   **except `models` and `seam`, which belong to pharn-oss**. They ride the spread verbatim, are never validated at
@@ -137,8 +138,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - `tests/commands-integration.test.ts` mocks no `src/` module. It runs real commands against a temp project with only
   `fetch` stubbed to serve a real tarball (`tests/support/tar-fixture.ts`). Use it for bugs between modules.
 - `tests/dist-smoke.test.ts` builds the shipped bundle with `scripts/build.mjs` and runs it (bundle-only regressions).
-- Vendored pharn-oss files under `tests/fixtures/pharn-oss/` are byte-for-byte and sha256-pinned. Refresh them by the
-  procedure in `docs/contributing.md`.
+- Vendored pharn-oss files in `tests/fixtures/pharn-oss/` are byte-for-byte, sha256-pinned; refresh per `docs/contributing.md`.
 - CI sets `CI=1`, which turns colour on: run `CI=1 npx vitest run` before pushing a test that matches coloured text.
 
 ## Documentation discipline
