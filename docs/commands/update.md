@@ -602,7 +602,8 @@ What is **not** listed:
 
 Every run plans, so an up-to-date run prints the `ORPHANED` note too;
 [`pharn status`](status.md#orphaned-files) reports orphans whenever it runs its drift check.
-`--dry-run` prints the same note, and `--dry-run --json` lists them in `plan.orphans`.
+`--dry-run` prints the same note, and `--dry-run --json` lists them in `plan.orphans` when its `status` is
+`planned`; an `up-to-date` report has `plan: null`, so use `pharn status --json` (`orphans`) to list them then.
 
 ## `--force` and `pharn/.backup/`
 
