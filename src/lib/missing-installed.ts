@@ -1,5 +1,6 @@
 import { lstatSync } from 'node:fs';
 import { MODELS_RECORD_KEY, type FileRecords } from './install-records.js';
+import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import { capabilitySubtree, configLayout, layoutPaths } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { safeJoin } from './validate.js';
@@ -19,7 +20,10 @@ import type { PharnConfig } from '../types.js';
  *    layout (`configLayout` — the address `remove`/`status` use too);
  * 2. a key of a USABLE `pharn.records.json` (the caller passes the
  *    baseline, or `null`) whose path is absent. The models record is not a
- *    path and is skipped. With no usable store only (1) applies.
+ *    path and is skipped, and so is `.claude/settings.json` (CORE-166):
+ *    `update` never writes that file, so the opened run could not restore a
+ *    deleted one, and re-opening for it would only re-plan. With no usable
+ *    store only (1) applies.
  *
  * "Provably" is the whole contract, and it is what keeps the re-open BOUNDED.
  * A path counts only when every existing component is a real directory and
@@ -47,7 +51,7 @@ export function findMissingInstalled(
   }
   if (records === null) return null;
   for (const rel of Object.keys(records).sort()) {
-    if (rel === MODELS_RECORD_KEY) continue;
+    if (rel === MODELS_RECORD_KEY || rel === CLAUDE_SETTINGS_FILE) continue;
     if (provablyAbsent(cwd, rel)) return rel;
   }
   return null;

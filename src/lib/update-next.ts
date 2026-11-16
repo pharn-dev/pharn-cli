@@ -39,6 +39,7 @@ export function nextRecordStore(
     UpdateApplyInputs,
     | 'frozenRecords'
     | 'orphanRecords'
+    | 'settingsRecords'
     | 'plan'
     | 'models'
     | 'nextSkillsVersion'
@@ -60,6 +61,10 @@ export function nextRecordStore(
       // `status`) still name them. Disjoint from the manifest by construction.
       // A root doc the run retired is gone, so its record goes with it.
       ...orphanRecords,
+      // The settings.json init wrote (CORE-166): outside the manifest too, and
+      // carried only while the file is there — so a deleted file's record is
+      // dropped by the first run that plans, once.
+      ...apply.settingsRecords,
       ...apply.plan.nextRecords,
       ...extra.written,
       // `planUpdate` keys its records by the manifest, which holds no models

@@ -346,12 +346,12 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
       models: UPSTREAM_MODELS,
     });
 
-    // Every file pharn wrote is recorded at the hash of what landed (the
-    // user-owned settings.json is not pharn's), stamped with the config pair.
+    // Every file pharn wrote is recorded at the hash of what landed, stamped
+    // with the config pair — the settings.json this fresh install wrote too
+    // (CORE-166), so `uninstall` can prove it is pharn's.
     const rec = records();
     expect(rec).toMatchObject({ skillsVersion: '1.0.0', commit: SHA_V1 });
-    const owned = INSTALLED.filter((f) => f !== '.claude/settings.json');
-    for (const rel of owned) expect(rec.files[rel], rel).toBe(sha256(rel));
+    for (const rel of INSTALLED) expect(rec.files[rel], rel).toBe(sha256(rel));
   });
 
   // CORE-172: the settings.json a fresh init writes is the hook commands
@@ -982,14 +982,16 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(process.exitCode).toBe(1);
   });
 
-  it('uninstall --yes deletes what the records prove, keeps edits and settings', async () => {
+  it('uninstall --yes deletes what the records prove — the settings.json init wrote included — and keeps edits', async () => {
     await init();
     writeFileSync(at(CONSTITUTION), `my own constitution\n`);
+    vi.mocked(clack.note).mockClear();
     expect(await run(() => runUninstall({ yes: true }))).toBeNull();
 
-    // Left: the user-owned settings, the edited file, and the backup of the
-    // config uninstall removed. Everything else pharn wrote is gone, the
-    // directories it emptied included.
+    // Left: the edited file and the backup of the config uninstall removed.
+    // Everything else pharn wrote is gone, the directories it emptied
+    // included — `.claude/` too, since the settings.json init wrote was still
+    // its bytes (CORE-166).
     const left = projectFiles();
     const backups = left.filter((f) => f.startsWith('pharn/.backup/'));
     expect(backups).toHaveLength(1);
@@ -997,15 +999,139 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     // `.gitignore` too: pharn's lines in it are harmless and stay (removing
     // a user-file line would be a rewrite).
     expect(left.filter((f) => !f.startsWith('pharn/.backup/'))).toEqual([
-      '.claude/settings.json',
       '.gitignore',
       CONSTITUTION,
     ]);
     expect(read('.gitignore')).toBe(PHARN_GITIGNORE_BLOCK);
     expect(read(CONSTITUTION)).toBe(`my own constitution\n`);
     expect(existsSync(at('pharn/pharn-pipeline'))).toBe(false);
-    expect(existsSync(at('.claude/commands'))).toBe(false);
+    expect(existsSync(at('.claude'))).toBe(false);
     expect(existsSync(at(REPO_DIR))).toBe(true);
+    // Nothing is left wiring a removed script, so there is no HOOKS note.
+    expect(
+      vi.mocked(clack.note).mock.calls.some(([, title]) => title === 'HOOKS'),
+    ).toBe(false);
+  });
+
+  it('uninstall --yes keeps a settings.json edited after init, lists it, and names its dangling hooks', async () => {
+    await init();
+    const edited = HOOK_SETTINGS.replace('}}', '},"mine":true}');
+    expect(edited).not.toBe(HOOK_SETTINGS);
+    writeFileSync(at('.claude/settings.json'), edited);
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+
+    expect(read('.claude/settings.json')).toBe(edited);
+    const bodies = (title: string): string =>
+      vi
+        .mocked(clack.note)
+        .mock.calls.filter(([, t]) => t === title)
+        .map(([body]) => String(body))
+        .join('\n');
+    expect(bodies('PLAN')).toContain(
+      'Keep 1 file(s) you changed (they stay where they are):\n  • .claude/settings.json',
+    );
+    expect(bodies('HOOKS')).toContain(
+      '.claude/settings.json still wires 1 hook(s) whose script was removed:',
+    );
+    expect(bodies('HOOKS')).toContain('.claude/hooks/guard.cjs');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CORE-166: the `.claude/settings.json` a fresh init writes is recorded, so
+// `uninstall` can remove it while it is unchanged. No command but init ever
+// writes the file; every command keeps the record while the file is there.
+// ---------------------------------------------------------------------------
+
+describe('the settings.json record, end to end (CORE-166)', () => {
+  const SETTINGS = '.claude/settings.json';
+  const fetchedTarball = (): boolean =>
+    fetchStub.mock.calls.some(([u]) => String(u) === tarballUrl(tip.sha));
+
+  afterEach(() => restoreTTY());
+
+  it('an init that preserved an existing settings.json records nothing for it', async () => {
+    mkdirSync(at('.claude'));
+    writeFileSync(at(SETTINGS), '{"mine":true}\n');
+    await init();
+    expect(read(SETTINGS)).toBe('{"mine":true}\n');
+    expect(records().files).not.toHaveProperty(SETTINGS);
+  });
+
+  it('update, add and remove keep the record and never touch the file; it is never an orphan', async () => {
+    await init();
+    const hash = sha256(SETTINGS);
+    expect(records().files[SETTINGS]).toBe(hash);
+
+    serveTip(SHA_V2, '2.0.0');
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
+    expect(stdout.at(-1)).not.toContain(SETTINGS);
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(config().skillsVersion).toBe('2.0.0');
+    expect(records().files[SETTINGS]).toBe(hash);
+    expect(read(SETTINGS)).toBe(HOOK_SETTINGS);
+
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    expect(records().files[SETTINGS]).toBe(hash);
+    expect(await run(() => runRemove('a11y'))).toBeNull();
+    expect(records().files[SETTINGS]).toBe(hash);
+    expect(read(SETTINGS)).toBe(HOOK_SETTINGS);
+
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    const status = JSON.parse(stdout.at(-1) ?? '') as {
+      orphans: unknown[] | null;
+    };
+    expect(status.orphans).toEqual([]);
+  });
+
+  it('a re-run init keeps the record of the settings.json it now preserves', async () => {
+    await init();
+    const hash = records().files[SETTINGS];
+    expect(hash).toBe(sha256(SETTINGS));
+    // `init --yes` refuses every re-install, so the real re-run is the
+    // interactive one: the summary answered "install", the overwrite "yes".
+    setTTY(true, true);
+    vi.mocked(clack.select).mockResolvedValueOnce('install');
+    vi.mocked(clack.confirm).mockResolvedValueOnce(true);
+    expect(await run(() => runInit({}))).toBeNull();
+    expect(vi.mocked(clack.select)).toHaveBeenCalled();
+    expect(read(SETTINGS)).toBe(HOOK_SETTINGS);
+    expect(records().files[SETTINGS]).toBe(hash);
+  });
+
+  it('deleting it never re-opens update; the next run that plans drops the record once, and the run after asks and writes nothing', async () => {
+    await init();
+    rmSync(at(SETTINGS));
+
+    // Same version: the early return holds — no download, nothing written.
+    const before = read('pharn.records.json');
+    fetchStub.mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(fetchedTarball()).toBe(false);
+    expect(read('pharn.records.json')).toBe(before);
+
+    // A newer upstream: the run plans, does not restore the file (update never
+    // writes it), and drops its record.
+    serveTip(SHA_V2, '2.0.0');
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(existsSync(at(SETTINGS))).toBe(false);
+    expect(records().files).not.toHaveProperty(SETTINGS);
+
+    // The next run that plans (--force skips the same-version early return)
+    // over that state changes nothing: in a terminal, without --yes, it never
+    // reaches the confirm (the mocked prompt throws), and writes nothing.
+    const settledRecords = read('pharn.records.json');
+    const settledConfig = read('pharn.config.json');
+    setTTY(true, true);
+    fetchStub.mockClear();
+    vi.mocked(clack.confirm).mockClear();
+    expect(await run(() => runUpdate({ force: true }))).toBeNull();
+    expect(fetchedTarball()).toBe(true);
+    expect(vi.mocked(clack.confirm)).not.toHaveBeenCalled();
+    expect(read('pharn.records.json')).toBe(settledRecords);
+    expect(read('pharn.config.json')).toBe(settledConfig);
+    expect(existsSync(at(SETTINGS))).toBe(false);
   });
 });
 
@@ -1528,7 +1654,9 @@ describe('root-footprint migration, end to end', () => {
     await init();
     expect(await run(() => runUninstall({ yes: true }))).toBeNull();
     expect(readdirSync(at('pharn'))).toEqual(['.backup']);
-    expect(rootEntries()).toEqual(['.claude', '.gitignore', 'pharn']);
+    // `.claude/` is gone too: the settings.json init wrote was unchanged, so
+    // uninstall deleted it, and the directory ended empty (CORE-166).
+    expect(rootEntries()).toEqual(['.gitignore', 'pharn']);
   });
 });
 

@@ -1,6 +1,7 @@
 import { lstatSync } from 'node:fs';
 import { posix } from 'node:path';
 import { contentHash } from './hash.js';
+import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import { MODELS_RECORD_KEY, type FileRecords } from './install-records.js';
 import { isInstallRootPath } from './orphans.js';
 import { findSymlinkComponent } from './symlink-guard.js';
@@ -26,7 +27,12 @@ import { safeJoin } from './validate.js';
 //                 Both layouts on purpose: an install that moved from `flat` to
 //                 `pharn` still records its old-layout files while they exist
 //                 (lib/orphans.ts carries an orphan's record), and those are
-//                 pharn's bytes too.
+//                 pharn's bytes too. ONE key outside that set is admitted, by
+//                 exact equality: `.claude/settings.json`, which a fresh
+//                 `init` records when it wrote the file (CORE-166). It is not
+//                 an install-root path on purpose — that would make it an
+//                 orphan and a `.prettierignore` line — so it is named here,
+//                 and then classified like every other key below.
 //   unsafe        a DIRECTORY on the way to it is a symbolic link, so deleting
 //                 through it would reach outside the project. The caller refuses
 //                 the whole run.
@@ -42,10 +48,11 @@ import { safeJoin } from './validate.js';
 // The `models` record key is not a file (lib/install-records.ts) and is skipped.
 //
 // Trust (P2): record keys are local, user-editable text. This is the one place a
-// key is DELETED by, and only after isInstallRootPath accepted it, through
-// safeJoin, after a symlink walk of its parent directories, and only when its
-// bytes match the record. (Orphan detection reads keys under the same guard.) File
-// contents are hashed, never parsed or executed.
+// key is DELETED by, and only after isInstallRootPath accepted it (or it is
+// exactly `.claude/settings.json`), through safeJoin, after a symlink walk of
+// its parent directories, and only when its bytes match the record. (Orphan
+// detection reads keys under the same guard.) File contents are hashed, never
+// parsed or executed.
 //
 // NOT a lock (stated, P0): the classification reads the tree at time T and the
 // delete runs at T+1; the caller re-plans under the project lock, which keeps
@@ -78,7 +85,7 @@ export function planUninstall(
   };
   for (const rel of Object.keys(records).sort()) {
     if (rel === MODELS_RECORD_KEY) continue;
-    if (!isInstallRootPath(rel)) {
+    if (rel !== CLAUDE_SETTINGS_FILE && !isInstallRootPath(rel)) {
       plan.outside.push(rel);
       continue;
     }

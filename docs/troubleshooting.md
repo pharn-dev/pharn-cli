@@ -903,7 +903,8 @@ writes; **review each path before deleting it** — anything you wrote yourself 
    - the hook scripts PHARN installed in `.claude/hooks/`
 3. **Unwire the hooks.** Remove the entries in `.claude/settings.json` (and `.claude/settings.local.json`)
    whose command runs one of the scripts you deleted. If `pharn init` created `settings.json` and you never
-   added anything to it, you can delete the file.
+   added anything to it, you can delete the file. (`pharn uninstall` does this itself when
+   `pharn.records.json` has a `.claude/settings.json` entry — a fresh `init` records one.)
 4. **Delete pharn's own files:** `pharn.config.json`, `pharn.records.json`, and `pharn/.lock` (or, from
    an older `pharn`, `.pharn.lock`) if it exists and no `pharn` command is running. `pharn/.run/` (or
    `.pharn/` before pharn-oss 7.0.0) is runtime scratch written while PHARN commands run, and

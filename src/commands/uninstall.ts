@@ -36,8 +36,10 @@ import type { PharnConfig } from '../types.js';
 // `pharn uninstall` — remove PHARN from a project, deleting only what pharn can
 // PROVE it wrote and nobody changed (lib/uninstall-plan.ts): a file recorded in a
 // usable `pharn.records.json`, at a path an install writes, still at its
-// recorded sha256. Everything else stays where it is — an edited file, a file
-// pharn has no record of, `.claude/settings.json` (never written), and every
+// recorded sha256. The `.claude/settings.json` a fresh `init` wrote is recorded
+// too (CORE-166), so it goes the same way while unchanged. Everything else
+// stays where it is — an edited file, a file pharn has no record of (a
+// settings.json that existed before `init` included), and every
 // `pharn/.backup/` directory — and the edited/unverifiable files are listed.
 //
 // Offline, like `remove`: no clone, no network, no repo module imported. The
@@ -107,7 +109,7 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
     logError(unsafeMessage(preview));
     process.exit(1);
   }
-  note(planLines(preview).join('\n'), 'PLAN');
+  note(planLines(preview, settingsRecorded(records)).join('\n'), 'PLAN');
 
   if (!opts.yes) {
     if (
@@ -233,10 +235,11 @@ function unlinkIfPresent(abs: string, label: string): void {
 // Remove the directories the deletes left EMPTY, deepest first, climbing from
 // each deleted file toward — never to — the project root. `rmdirSync` is
 // non-recursive: the kernel refuses a directory that still holds anything, so a
-// user's feature folder, an edited or unrecorded file, or `.claude/settings.json`
-// keeps its directory by construction (the floor here is the syscall, not this
-// code's judgment). A directory that could not be removed blocks every ancestor
-// (they cannot be empty), and only the deepest such directories are reported.
+// user's feature folder, an edited or unrecorded file, or a kept
+// `.claude/settings.json` keeps its directory by construction (the floor here
+// is the syscall, not this code's judgment). A directory that could not be
+// removed blocks every ancestor (they cannot be empty), and only the deepest
+// such directories are reported.
 function removeEmptyDirs(
   cwd: string,
   deleted: readonly string[],
@@ -276,9 +279,21 @@ function listed(rels: readonly string[]): string[] {
   return more > 0 ? [...shown, `  …and ${more} more`] : shown;
 }
 
-const UNTOUCHED = `${CLAUDE_SETTINGS_FILE}, .claude/settings.local.json, every ${BACKUP_DIR}/ directory and the lines pharn added to .gitignore and .prettierignore are left untouched.`;
+// Whether the store records `.claude/settings.json` — i.e. a fresh `init` wrote
+// it (CORE-166). Its fate is then in the plan's own buckets (delete / keep /
+// already gone), so the closing line must not also call it untouched.
+function settingsRecorded(records: FileRecords): boolean {
+  return Object.hasOwn(records, CLAUDE_SETTINGS_FILE);
+}
 
-function planLines(plan: UninstallPlan): string[] {
+// What uninstall never touches. Byte-identical to the line before CORE-166 for
+// an install that has no settings record.
+function untouchedLine(settingsIsRecorded: boolean): string {
+  const settings = settingsIsRecorded ? '' : `${CLAUDE_SETTINGS_FILE}, `;
+  return `${settings}.claude/settings.local.json, every ${BACKUP_DIR}/ directory and the lines pharn added to .gitignore and .prettierignore are left untouched.`;
+}
+
+function planLines(plan: UninstallPlan, settingsIsRecorded: boolean): string[] {
   const lines = [
     `Delete ${plan.delete.length} file(s) pharn installed and nobody changed.`,
   ];
@@ -305,7 +320,7 @@ function planLines(plan: UninstallPlan): string[] {
   }
   lines.push(
     `Then remove directories left empty, and delete ${RECORDS_FILE} and ${CONFIG_FILENAME} (backed up to ${BACKUP_DIR}/ first).`,
-    `Files pharn has no record of are never deleted. ${UNTOUCHED}`,
+    `Files pharn has no record of are never deleted. ${untouchedLine(settingsIsRecorded)}`,
   );
   return lines;
 }
@@ -357,7 +372,7 @@ function reportResult(
   }
   lines.push(
     `${CONFIG_FILENAME} was backed up to ${backupDir}.`,
-    `${UNTOUCHED} Delete ${BACKUP_DIR}/ yourself once you no longer need it.`,
+    `${untouchedLine(settingsRecorded(result.records))} Delete ${BACKUP_DIR}/ yourself once you no longer need it.`,
   );
   if (pharnLeft !== null) {
     const names = pharnLeft.slice(0, MAX_LISTED).map((n) => escapeUnsafe(n));

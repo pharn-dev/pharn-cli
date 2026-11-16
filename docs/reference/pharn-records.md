@@ -4,10 +4,11 @@ A CLI-owned sidecar written next to [`pharn.config.json`](pharn-config.md) at yo
 `files` map holds a sha256 per **install-manifest path** — the PHARN-owned surfaces and selected
 capabilities collected by `runInstallArchetype` (`collectExpectedInstallPaths`), not every file `pharn`
 writes. [`pharn update`](../commands/update.md) compares against it to tell pharn's bytes from your
-edits and refuse to destroy the latter. `pharn.config.json`, this file, and `.claude/settings.json`
-are excluded from the map — with one exception that is not a file: `pharn.config.json#/models` records
-the `models` block `pharn` wrote **inside** `pharn.config.json` (see
-[The `models` block](#the-models-block)).
+edits and refuse to destroy the latter. `pharn.config.json` and this file are excluded from the map.
+Two entries are not install-manifest paths: `pharn.config.json#/models`, which is not a file — it
+records the `models` block `pharn` wrote **inside** `pharn.config.json` (see
+[The `models` block](#the-models-block)) — and `.claude/settings.json`, only when `init` created it (see
+[`.claude/settings.json`](#claudesettingsjson)).
 
 Source: [`install-records.ts`](../../src/lib/install-records.ts).
 
@@ -49,19 +50,33 @@ this is the plain sha256 of its bytes, so stores written by earlier versions sta
 
 ## Who writes it
 
-| Command     | Effect                                                                                                                                                                                                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `init`      | Writes the full store — every file the install wrote, and the `models` block when it wrote one. A re-run keeps the entries of [orphaned files](#orphaned-files), and reads the replaced store to decide what to back up before deleting a dropped capability's directory |
-| `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                                                                                                                                   |
-| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files). Reads it first to decide what to back up before deleting a dropped capability's directory                 |
-| `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                                                                                                                                        |
-| `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                                                                                                                                    |
-
-`.claude/settings.json` is **never** recorded: it is yours, and the install only ever creates it when
-absent.
+| Command     | Effect                                                                                                                                                                                                                                                                                                               |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`      | Writes the full store — every file the install wrote, the `models` block when it wrote one, and `.claude/settings.json` when it created it. A re-run keeps the entries of [orphaned files](#orphaned-files), and reads the replaced store to decide what to back up before deleting a dropped capability's directory |
+| `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                                                                                                                                                                               |
+| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files). Reads it first to decide what to back up before deleting a dropped capability's directory                                                             |
+| `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                                                                                                                                                                                    |
+| `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                                                                                                                                                                                |
 
 [`pharn status`](../commands/status.md#orphaned-files) **reads** it for one thing: to find orphaned
 files. Its drift comparison does not use it.
+
+## `.claude/settings.json`
+
+The install only ever creates `.claude/settings.json` when your project has none — it copies pharn-oss's
+verbatim — and never writes it again. When a fresh `init` created it, its hash is recorded under
+`.claude/settings.json`, so [`pharn uninstall`](../commands/uninstall.md) can delete it while it still
+matches, and keep it (listed) once you have changed it. A `settings.json` that existed before `init` is
+**never** recorded: it is yours.
+
+- A re-run `init`, which now preserves the file, keeps the record. `update` keeps it too, and `add` and
+  `remove` leave it alone. None of them writes the file.
+- `init` and `update` keep the record only while something is at that path. If you delete the file,
+  `pharn` does not put it back; the next `update` that has work to do drops the record (it rewrites only
+  `pharn.records.json` for it, once), and deleting it never makes an already-current `update` re-run.
+- It is never an [orphan](#orphaned-files) and never gets a `.prettierignore` line: it is not one of the
+  install paths.
+- A store written before this change has no such entry, so `uninstall` leaves the file, as it always did.
 
 ## The `models` block
 
@@ -161,7 +176,9 @@ recorded here at its current hash is deleted without a copy, and every other fil
 **only** proof of what `pharn` wrote. It deletes a recorded file only when the key is a path an install
 writes at your recorded layout, the file is a regular file reached without a symlinked directory, and
 its bytes still match the recorded hash. Every other key is left alone — an edited file is kept and
-listed, and a key outside `pharn`'s install paths is never deleted whatever its hash says. With no
+listed, and a key outside `pharn`'s install paths is never deleted whatever its hash says — except
+`.claude/settings.json`, admitted by name when `init` recorded it (see
+[`.claude/settings.json`](#claudesettingsjson)) and then checked the same way. With no
 usable store (absent or corrupt) `uninstall` refuses and deletes nothing; a store written for another
 `skillsVersion`/`commit` is still usable, since only a file whose hash equals its record is deleted.
 The store itself is deleted after the files, before `pharn.config.json`.

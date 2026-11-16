@@ -53,6 +53,7 @@ function apply(over: Record<string, unknown> = {}) {
   return {
     frozenRecords: {},
     orphanRecords: {},
+    settingsRecords: {} as Record<string, string>,
     plan: {
       files: [],
       writes: [],
@@ -114,6 +115,7 @@ describe('nextRecordStore / nextConfig — what the writer writes', () => {
       apply({
         frozenRecords: { 'f.md': H('3') },
         orphanRecords: { 'o.md': H('4'), 'LIMITS.md': H('5') },
+        settingsRecords: { '.claude/settings.json': H('8') },
         models: models({ nextRecord: H('6') }),
       }),
       { written: { 'a.md': H('7') }, retired: new Set(['LIMITS.md']) },
@@ -124,6 +126,8 @@ describe('nextRecordStore / nextConfig — what the writer writes', () => {
       files: {
         'f.md': H('3'),
         'o.md': H('4'),
+        // CORE-166: the settings.json record init wrote, carried as given.
+        '.claude/settings.json': H('8'),
         'a.md': H('7'),
         'b.md': H('2'),
         'pharn.config.json#/models': H('6'),
@@ -256,6 +260,35 @@ describe('planStateChanges — against what the run LOADED', () => {
     expect(
       state({ loadedRecords: { kind: 'invalid', message: 'x' } }).records,
     ).toBe(true);
+  });
+
+  // CORE-166: the settings.json record `init` wrote is carried only while the
+  // file exists (lib/install-records.ts → carriedSettingsRecord). Carried and
+  // loaded alike → no change; the user deleted the file → ONE store rewrite
+  // drops it; after that the loaded store no longer has it and nothing is
+  // carried → no change again, so the drop never loops.
+  describe('the .claude/settings.json record (CORE-166)', () => {
+    const SETTINGS = '.claude/settings.json';
+    const withSettings = store({
+      files: { 'a.md': H('1'), 'b.md': H('2'), [SETTINGS]: H('8') },
+    });
+
+    it('carried and loaded alike: no change', () => {
+      expect(
+        state({
+          apply: apply({ settingsRecords: { [SETTINGS]: H('8') } }),
+          loadedRecords: withSettings,
+        }),
+      ).toEqual({ config: false, records: false });
+    });
+
+    it('the file was deleted: one records change drops it', () => {
+      expect(state({ loadedRecords: withSettings }).records).toBe(true);
+    });
+
+    it('after the run that dropped it: no change', () => {
+      expect(state({})).toEqual({ config: false, records: false });
+    });
   });
 });
 

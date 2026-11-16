@@ -27,10 +27,17 @@ hold:
   after a `core.autocrlf=true` checkout) is still deleted — see
   [Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf).
 
+The install-path rule has one named exception: **`.claude/settings.json`, when `pharn init` created it.**
+A fresh `init` copies pharn-oss's `settings.json` only when your project has none, and records its hash.
+While the file still matches that record it is deleted with the rest, so nothing is left wiring hooks to
+the scripts `uninstall` removes. Once you have edited it, it is kept and listed with your changed files.
+A `settings.json` that existed before `init` is never recorded, so it is never deleted.
+
 Then each directory left **empty** is removed, deepest first, up to (never including) the project root.
 A directory that still holds anything is left — so your own `pharn/features/<feature>/` work, a file you
-added inside a capability directory, and `.claude/` (which still holds `settings.json`) keep their
-directories. If `.claude/` or `pharn/` ends up completely empty, it is removed too.
+added inside a capability directory, and a `.claude/` that still holds a `settings.json` (or anything
+else of yours) keep their directories. If `.claude/` or `pharn/` ends up completely empty, it is removed
+too.
 
 Last, `pharn.records.json` is deleted, then `pharn.config.json` — after it is copied to
 `pharn/.backup/<timestamp>/pharn.config.json`, printed as soon as it exists:
@@ -51,9 +58,9 @@ The backup keeps whatever only the config held: your `models` and `seam` blocks 
   even when its hash matches. These are named in the plan.
 - **Anything that is not a regular file** at a recorded path (a directory, a symbolic link, a FIFO), or
   a file that cannot be read. Listed as kept.
-- **`.claude/settings.json` and `.claude/settings.local.json`.** `pharn` never writes them after `init`.
-  Instead, `uninstall` prints the hooks still wired in them to a hook script it removed — see
-  [Hooks](#hooks).
+- **`.claude/settings.local.json`, and a `.claude/settings.json` `pharn` has no record of or that you
+  changed.** `pharn` never writes either file after `init`. Instead, `uninstall` prints the hooks still
+  wired in them to a hook script it removed — see [Hooks](#hooks).
 - **Every `pharn/.backup/` directory**, including the one this run creates. Delete it yourself once you
   no longer need it.
 - **`pharn/` itself, while anything is still in it.** After the deletes (and after the project lock in
@@ -62,15 +69,26 @@ The backup keeps whatever only the config held: your `models` and `seam` blocks 
   `.backup`, or pharn-oss's runtime scratch `.run`) and that you may delete `pharn/` once you no longer
   need them.
 
+### A `settings.json` from an install made before this change
+
+Installs made with an older `pharn` did not record `.claude/settings.json`, so `uninstall` leaves it, as
+it always did, and the `HOOKS` note lists the hooks it still wires to removed scripts. To check, look for
+a `".claude/settings.json"` entry in the `files` map of `pharn.records.json` before you uninstall — none
+means the file will be left. If `pharn init` created the file and you never added anything to it, delete
+it yourself after `uninstall` (and `.claude/` if it is then empty); otherwise remove the entries the
+`HOOKS` note lists. See also [Removing PHARN by hand](../troubleshooting.md#removing-pharn-by-hand).
+
 ## The plan and the confirmation
 
 Before anything is written, `uninstall` prints a `PLAN` note: how many files it will delete, the files
 it keeps because you changed them, paths it cannot verify, recorded paths outside the install paths, and
-how many recorded files are already gone. It always ends with the reminder that `.claude/settings.json`,
+how many recorded files are already gone. It always ends with the reminder that
 `.claude/settings.local.json`, every `pharn/.backup/` directory and the lines pharn added to `.gitignore`
 and `.prettierignore` are left untouched (they are harmless without PHARN; delete them by hand if you
 like). pharn only ever appends to those two files, so `uninstall` does not edit them either — not even a
-`.prettierignore` pharn created, which may hold your own lines by now.
+`.prettierignore` pharn created, which may hold your own lines by now. The reminder names
+`.claude/settings.json` too, unless `pharn.records.json` records it: then the plan's own lines already
+say whether it is deleted, kept, or already gone.
 
 In a terminal it then asks one question, defaulting to **No**:
 
@@ -92,7 +110,9 @@ When a hook script `uninstall` removed (or that was already gone) is still refer
 `.claude/settings.json` or `.claude/settings.local.json`, a `HOOKS` note lists each such entry as JSON
 under its event and matcher, so you can delete it by hand. Matching is textual — an entry whose command
 or arguments contain the script's path, e.g. `.claude/hooks/protect-trusted-paths.cjs`. A hook that
-reaches a removed script another way (a wrapper script, a differently spelled path) is not listed.
+reaches a removed script another way (a wrapper script, a differently spelled path) is not listed. A
+`settings.json` that `init` created and you never changed is deleted by the run, so it has no entries
+left to list.
 
 ## When `uninstall` refuses
 
