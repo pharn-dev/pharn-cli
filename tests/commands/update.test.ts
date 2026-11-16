@@ -3306,6 +3306,27 @@ describe('a layout move', () => {
     );
   });
 
+  // Every run plans, so a layout move needs no version bump and no --force.
+  it('flat → pharn/ at the same skills version: one plain update moves it, and the next run is up to date', async () => {
+    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+    await installed();
+    expect(config().layout).toBe('flat');
+    serveTip(SHA_V1, '1.0.0');
+    expect(await updateYes()).toBeNull();
+    expect(config().layout).toBe('pharn');
+    expect(config().skillsVersion).toBe('1.0.0');
+    expect(read(SECURITY)).toContain('security 1.0.0');
+    expect(records().files[SECURITY]).toBe(sha256(SECURITY));
+    expect(exists('pharn/.backup')).toBe(false);
+
+    const settled = snapshot();
+    fetchStub.mockClear();
+    expect(await updateYes()).toBeNull();
+    expect(tarballFetches()).toBe(1);
+    expect(lastOutro()).toMatch(upToDate());
+    expect(snapshot()).toEqual(settled);
+  });
+
   it('pharn/ → flat: records flat and warns about the abandoned pharn/ tree', async () => {
     await installed();
     serveTip(SHA_V2, '2.0.0', { tree: flatTree('2.0.0') });
