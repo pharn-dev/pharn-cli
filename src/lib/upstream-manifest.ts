@@ -344,12 +344,13 @@ function guard<T>(fn: () => T): T {
   try {
     return fn();
   } catch (err) {
-    if (err instanceof ManifestValidationError) {
-      throw new UpstreamManifestError(
-        `pharn-oss's ${MANIFEST_FILE}: ${err.message}; refusing to install. Nothing was written.`,
-      );
-    }
-    throw err;
+    // Every validator wrapped here throws only ManifestValidationError;
+    // anything else passes through unchanged.
+    throw err instanceof ManifestValidationError
+      ? new UpstreamManifestError(
+          `pharn-oss's ${MANIFEST_FILE}: ${err.message}; refusing to install. Nothing was written.`,
+        )
+      : err;
   }
 }
 
