@@ -91,7 +91,7 @@ leaves your project untouched. Two options run without a terminal, because neith
 
 `init` refuses any other option, such as `--force` or `--compact` (exit 1), and an extra positional
 (`pharn init extra` → `Unexpected argument`). Its options are `--ref` (below), `--dry-run`, `--json`
-(only with `--dry-run`), `--yes` / `-y`, and `--archetype` (above).
+(implies `--dry-run`), `--yes` / `-y`, and `--archetype` (above).
 
 A directory with no `.git` still gets its own, more useful error first (see **Prerequisites** below) —
 the interactivity check never masks it.
@@ -146,8 +146,8 @@ with the same contract as [`pharn update --dry-run --json`](update.md#json-outpu
 proxy notice, an unreadable upstream capability, a `MIN_CLI` warning) go to stderr, and on **any**
 failure stdout stays empty, the reason goes to stderr as a plain line, and the exit code is 1.
 Characters a terminal would interpret are written as `\uXXXX` escapes, so the output parses back
-losslessly. `--json` is accepted only together with `--dry-run`: `pharn init --json` (and a bare
-`pharn --json`) is refused with an `Incomplete option for` error, exit 1.
+losslessly. `--json` implies `--dry-run`: `pharn init --json`, and a bare `pharn --json`, run
+`pharn init --dry-run --json`.
 
 ```jsonc
 {

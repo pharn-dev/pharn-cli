@@ -683,6 +683,17 @@ describe('pharn init --dry-run --json', () => {
     expect(read('.gitignore')).toBe('pharn/.run/\n');
   });
 
+  it('--json alone is the JSON dry run: the same one object, nothing written', async () => {
+    const before = snapshot();
+    expect(await run(() => runInit({ json: true }))).toBeNull();
+    expectNoClack();
+    const implied = jsonOut<Report>();
+    expect(snapshot()).toEqual(before);
+    clearOutput();
+    expect(implied).toEqual(await jsonRun());
+    expect(implied.schemaVersion).toBe(1);
+  });
+
   it('sends the proxy notice to stderr, not stdout', async () => {
     vi.stubEnv('HTTPS_PROXY', 'http://proxy.invalid:8080');
     await jsonRun();
@@ -697,12 +708,6 @@ describe('pharn init --dry-run --json', () => {
       says?: string;
       fetches: boolean;
     }>([
-      {
-        name: '--json without --dry-run fails closed',
-        opts: { json: true },
-        says: '--dry-run',
-        fetches: false,
-      },
       {
         name: 'below the Node floor',
         setup: () => setNodeVersion('20.0.0'),

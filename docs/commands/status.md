@@ -89,7 +89,7 @@ v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, 
    - If none of the four, reports **No drift**.
    - Then an `ORPHANED` note, when there is any: see [Orphaned files](#orphaned-files).
 6. **Models** — whenever `pharn.config.json` carries a `models` block, `status` prints a `MODELS` note
-   on **both** paths (with and without `--drift`): every product stage beside the model and effort it
+   on **both** paths (with and without `--no-drift`): every product stage beside the model and effort it
    resolves to — its own entry, or `default`, marked `(default)`. Under the rows, the label that says
    what reads them: `/pharn-ship` and `/pharn-loop` read the block to pick the model they request for the
    stages they route (never the effort), and a stage you run directly uses its command's own `model:` /

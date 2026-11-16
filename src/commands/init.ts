@@ -84,20 +84,16 @@ export interface InitOptions {
   yes?: boolean;
   // Plan, print, write nothing.
   dryRun?: boolean;
-  // With `dryRun`: the plan as ONE JSON object on stdout, nothing else.
+  // The plan as ONE JSON object on stdout, nothing else (implies `dryRun`).
   json?: boolean;
 }
 
 export async function runInit(opts: InitOptions = {}): Promise<void> {
   const yes = opts.yes ?? false;
-  const dryRun = opts.dryRun ?? false;
   const json = opts.json ?? false;
-  // `--json` is the dry run's machine-readable form only; a direct caller fails
-  // closed rather than printing clack chrome into a JSON consumer.
-  if (json && !dryRun) {
-    reportFatalPlain('--json is only available with --dry-run.');
-    process.exit(1);
-  }
+  // `--json` is the dry run's machine-readable form, so it implies the dry run
+  // (the argv parser applies the same rule).
+  const dryRun = (opts.dryRun ?? false) || json;
   // FIRST: the Node floor is environmental and nothing later can repair it; an
   // install on a Node the floor checkers refuse would fail mid-run.
   runNodePrereq('init', { json });

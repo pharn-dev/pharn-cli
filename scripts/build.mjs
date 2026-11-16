@@ -36,7 +36,7 @@ export function buildOptions(outdir = 'dist') {
     format: 'esm',
     // The `engines` floor (>=24.2.0).
     target: 'node24',
-    external: ['@clack/prompts', 'minimist', 'picocolors'],
+    external: ['@clack/prompts', 'picocolors'],
     minifyWhitespace: true,
     minifySyntax: true,
     legalComments: 'none',

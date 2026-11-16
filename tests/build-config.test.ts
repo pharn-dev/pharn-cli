@@ -37,10 +37,6 @@ describe('scripts/build.mjs buildOptions', () => {
   });
 
   it('leaves the runtime dependencies external', () => {
-    expect(buildOptions().external).toEqual([
-      '@clack/prompts',
-      'minimist',
-      'picocolors',
-    ]);
+    expect(buildOptions().external).toEqual(['@clack/prompts', 'picocolors']);
   });
 });

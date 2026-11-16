@@ -1193,6 +1193,33 @@ describe('pharn update --dry-run --json', () => {
     });
   });
 
+  describe('--json implies --dry-run, --compact implies --json', () => {
+    it.each<[string, Opts, Opts]>([
+      ['--json alone', { json: true }, {}],
+      ['--compact alone', { compact: true }, { compact: true }],
+      [
+        '--compact --dry-run',
+        { compact: true, dryRun: true },
+        { compact: true },
+      ],
+    ])(
+      '%s prints the same one-object plan as the explicit JSON dry run and writes nothing',
+      async (_name, alone, explicit) => {
+        await installFresh();
+        v2();
+        const before = snapshot();
+        fresh();
+        expect(await run(() => runUpdate(alone))).toBeNull();
+        expectClackSilent();
+        const implied = jsonOut<Json>();
+        expect(snapshot()).toEqual(before);
+        clearOutput();
+        expect(implied).toEqual(await dryJson(explicit));
+        expect(implied.status).toBe('planned');
+      },
+    );
+  });
+
   describe('--compact', () => {
     // CONSTITUTION, SECURITY and AGENT are clean upgrades, ARCHITECTURE is an
     // edit that would be skipped, everything else already matches (noop).
@@ -1300,20 +1327,6 @@ describe('pharn update --dry-run --json', () => {
         name: 'a missing config, read json-aware',
         setup: () => rmSync(at('pharn.config.json')),
         stderr: 'pharn init',
-        network: false,
-      },
-      {
-        name: '--json without --dry-run (fails closed)',
-        opts: { dryRun: false },
-        setup: () => {},
-        stderr: '--dry-run',
-        network: false,
-      },
-      {
-        name: '--compact without --json (fails closed)',
-        opts: { json: false, compact: true },
-        setup: () => {},
-        stderr: '--compact',
         network: false,
       },
     ])('$name', async (row) => {

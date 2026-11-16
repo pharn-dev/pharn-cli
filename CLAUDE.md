@@ -60,9 +60,9 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   `tests/lint-rules.test.ts` proves that each fires. They cover: no `child_process`; `picocolors` only via
   `color.ts`; `sha256File` only in `hash.ts`; `isTTY` only inside `interactiveAllowed()`; the `process.exit`
   allowlist; and the per-module bans.
-- Options are per command: `ALLOWED_FLAGS` (`src/index.ts`) refuses a flag the command does not read, and
-  `REQUIRED_WITH` refuses a flag passed without its partner (`update --json` needs `--dry-run`). Both refuse with one
-  stderr line and exit 1, above the `--help` and `--version` short-circuits.
+- Options are per command: `parseCliArgs` (`lib/cli-args.ts`, pure) runs one `util.parseArgs` and checks its tokens
+  against `OPTIONS[].uses`, the table `--help` renders. It refuses an unknown or another command's option, a value on
+  an on/off option, a repeated `--ref`/`--archetype`: one stderr line, exit 1, above `--help`/`--version`.
 - Every prompt (`init`, `update`, `uninstall`, the bare `add`/`remove` pickers) exits 1 off a TTY, through the one
   `interactiveAllowed` predicate (`lib/capability-picker.ts`). `--yes` skips only what it names: `init --yes` never
   confirms an overwrite.
@@ -109,7 +109,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 
 ## Module map
 
-- `src/index.ts`: argv parsing, `ALLOWED_FLAGS`/`REQUIRED_WITH`, per-command help, dispatch (`init` is the default).
+- `src/index.ts`: dispatch only. `lib/cli-args.ts`: the command/option tables, help text and the argv parse (`init` default).
 - `commands/`: one verb each (`init`, `add`, `remove`/`rm`, `update`, `list`, `status`, `uninstall`).
 - `steps/`: init stages (`node-prereq`, `prereqs`, `archetype-summary`, `overwrite-check`, `install-archetype`), `add-picker`.
 - Fetch boundary: `fetch-capped` (the one bounded GET), `release` (which commit), `repo` + `tar-extract`, `skills-version`,
