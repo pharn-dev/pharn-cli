@@ -32,4 +32,5 @@ The CLI version (`pharn --version`) and the content version it installs (`skills
 - [Roadmap](roadmap.md) — what's shipped and what's planned
 - [Contributing](../CONTRIBUTING.md) — developing the CLI and keeping docs in sync
 - [Contributor guide](contributing.md) — quality gates, test map, and the security-sensitive modules
+- [Architecture](architecture.md) — how the commands and modules fit together, for maintainers
 - [Releasing](RELEASING.md) — maintainer release steps and Trusted Publishing
