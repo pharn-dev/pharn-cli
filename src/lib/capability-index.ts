@@ -15,6 +15,10 @@ import {
   ManifestValidationError,
   safeJoin,
 } from './validate.js';
+import {
+  manifestCapabilityIndex,
+  readUpstreamManifest,
+} from './upstream-manifest.js';
 import type {
   Archetype,
   CapabilityEntry,
@@ -51,6 +55,12 @@ import type {
  * silent. Only a missing subtree throws.
  */
 export function parseCapabilityIndex(repoDir: string): CapabilityIndex {
+  // A tree that declares pharn-install.json is indexed from it (validated by
+  // the one parser). The frontmatter derivation below is the fallback for a
+  // tree without it: removed in v0.22.0 (CORE-186).
+  const manifest = readUpstreamManifest(repoDir);
+  if (manifest) return manifestCapabilityIndex(manifest);
+
   const capabilities: CapabilityEntry[] = [];
   const unknown: UnknownCapability[] = [];
 

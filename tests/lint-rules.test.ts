@@ -66,6 +66,13 @@ const CASES: [string, string, string, Reason[]][] = [
     ['sha256File'],
   ],
   ['contentHash', PROBE, "import { contentHash } from './hash.js';", []],
+  // The declared-digest check pharn-install.json verification uses (CORE-194).
+  [
+    'matchesRawSha256',
+    PROBE,
+    "import { matchesRawSha256 } from './hash.js';",
+    [],
+  ],
   ['bare isTTY', PROBE, 'const tty = process.stdout.isTTY;', ['isTTY']],
   [
     'isTTY inside interactiveAllowed',

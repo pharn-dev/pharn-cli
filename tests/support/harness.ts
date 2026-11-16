@@ -555,3 +555,187 @@ export const rootEntries = (): string[] =>
   readdirSync(projectDir)
     .filter((n) => n !== REPO_DIR)
     .sort();
+
+// ---------------------------------------------------------------------------
+// pharn-install.json (CORE-194). Built FROM the fixture tree by the schema in
+// pharn-oss's docs/install-manifest.md, with the real sha256 of the bytes the
+// tarball serves — never a vendored upstream file. A test edits the result
+// through `edit` to make the manifest disagree with the derivation (so a pass
+// proves the manifest was the source) or to break it.
+// ---------------------------------------------------------------------------
+
+export const MANIFEST = 'pharn-install.json';
+// A surface this CLI names nowhere, installed only because a manifest declares it.
+export const NEW_SURFACE = '.claude/skills/pharn-x/SKILL.md';
+
+export interface ManifestFileEntry {
+  path: string;
+  dest: string;
+  surface: string;
+  capability?: string;
+  policy: string;
+  sha256: string;
+}
+export interface ManifestDoc {
+  schemaVersion: unknown;
+  skillsVersion: unknown;
+  layout: Record<string, unknown>;
+  capabilities: Record<string, unknown>[];
+  files: ManifestFileEntry[];
+  models: Record<string, unknown>;
+  installRoots: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+const GRILLERS = 'pharn/pharn-pipeline/grillers';
+const LENSES = 'pharn/pharn-review';
+const PHARN_DOCS = [
+  'pharn/CONSTITUTION.md',
+  'pharn/ARCHITECTURE.md',
+  'pharn/THREAT-MODEL.md',
+  'pharn/LIMITS.md',
+];
+
+export const rawSha256 = (content: string): string =>
+  createHash('sha256').update(Buffer.from(content, 'utf8')).digest('hex');
+
+// One tree path's surface by the schema's rules, or null when not installable.
+function surfaceOf(path: string): { surface: string; dest?: string } | null {
+  if (/\.test\./.test(path.slice(path.lastIndexOf('/') + 1))) return null;
+  const owned = (dir: string): boolean =>
+    path.startsWith(`${dir}/pharn-`) &&
+    !path.startsWith(`${dir}/pharn-dev-`) &&
+    path.endsWith('.md') &&
+    path.split('/').length === 3;
+  if (owned('.claude/commands')) return { surface: 'commands' };
+  if (owned('.claude/agents')) return { surface: 'agents' };
+  if (/^\.claude\/hooks\/[^/]+\.cjs$/.test(path)) return { surface: 'hooks' };
+  if (path === SETTINGS) return { surface: 'settings' };
+  // A surface the CLI does not name: `.claude/<dir>/pharn-<x>/...`.
+  const extra = /^\.claude\/([a-z]+)\/pharn-[a-z0-9-]+\//.exec(path);
+  if (extra) return { surface: extra[1]! };
+  if (PHARN_DOCS.includes(path)) return { surface: 'trusted-doc' };
+  if (path === 'LICENSE') return { surface: 'license', dest: 'pharn/LICENSE' };
+  if (path === 'pharn/features/README.md')
+    return { surface: 'features-readme' };
+  if (path.startsWith('pharn/pharn-contracts/'))
+    return { surface: 'contracts' };
+  if (path.startsWith('pharn/pharn-core/')) return { surface: 'core' };
+  if (path.startsWith('pharn/floor/test-fixtures/')) return null;
+  if (path.startsWith('pharn/floor/')) return { surface: 'floor' };
+  // A `pharn/pharn-<x>/` surface the CLI does not name.
+  const owned2 = /^pharn\/pharn-([a-z0-9-]+)\//.exec(path);
+  if (owned2 && !['pipeline', 'review'].includes(owned2[1]!))
+    return { surface: owned2[1]! };
+  return null;
+}
+
+/**
+ * `tree` plus a `pharn-install.json` that declares it: every installable file
+ * with its raw sha256, the capabilities read off each capability markdown, and
+ * the root config's `models` block as `models.defaults`. `edit` may change the
+ * document (and so disagree with the tree) before it is serialized.
+ */
+export function withManifest(
+  tree: Tree,
+  edit?: (m: ManifestDoc) => void,
+): Tree {
+  const capabilities: Record<string, unknown>[] = [];
+  const capDirs = new Map<string, string>();
+  for (const [subtree, role] of [
+    [GRILLERS, 'griller'],
+    [LENSES, 'lens'],
+  ] as const) {
+    const names = new Set(
+      Object.keys(tree)
+        .filter((p) => p.startsWith(`${subtree}/`))
+        .map((p) => p.slice(subtree.length + 1).split('/'))
+        .filter((segs) => segs.length > 1)
+        .map((segs) => segs[0]!),
+    );
+    for (const name of [...names].sort()) {
+      const md = tree[`${subtree}/${name}/${name}.md`] ?? '';
+      const raw = /^applies:\s*(.*)$/m.exec(md)?.[1] ?? '["universal"]';
+      const tokens = JSON.parse(raw) as string[];
+      const applies =
+        tokens.length === 1 && tokens[0] === 'universal' ? 'universal' : tokens;
+      const dir = `${subtree}/${name}`;
+      capabilities.push({ name, role, applies, dir });
+      capDirs.set(dir, name);
+    }
+  }
+  const files: ManifestFileEntry[] = [];
+  for (const path of Object.keys(tree).sort()) {
+    const content = tree[path]!;
+    const capDir = [...capDirs.keys()].find((d) => path.startsWith(`${d}/`));
+    if (capDir !== undefined) {
+      files.push({
+        path,
+        dest: path,
+        surface: 'capability',
+        capability: capDirs.get(capDir)!,
+        policy: 'managed',
+        sha256: rawSha256(content),
+      });
+      continue;
+    }
+    const s = surfaceOf(path);
+    if (s === null) continue;
+    files.push({
+      path,
+      dest: s.dest ?? path,
+      surface: s.surface,
+      policy: s.surface === 'settings' ? 'if-absent' : 'managed',
+      sha256: rawSha256(content),
+    });
+  }
+  const rootConfig = tree['pharn.config.json'];
+  const doc: ManifestDoc = {
+    $comment: 'GENERATED (test fixture)',
+    schemaVersion: 1,
+    skillsVersion: (tree.SKILLS_VERSION ?? '').trim(),
+    layout: {
+      name: 'pharn',
+      marker: 'pharn/pharn-contracts',
+      capabilitySubtrees: { griller: GRILLERS, lens: LENSES },
+    },
+    capabilities,
+    files,
+    models: {
+      defaults:
+        rootConfig === undefined
+          ? undefined
+          : (JSON.parse(rootConfig) as { models?: unknown }).models,
+      rules: {
+        fallbackStage: 'default',
+        stages: ['plan'],
+        aliases: ['sonnet', 'opus'],
+        modelIdPattern: '^claude-[a-z0-9][a-z0-9-]*$',
+        effortLevels: ['high'],
+      },
+    },
+    installRoots: { include: ['**'], exclude: [], legacy: [] },
+  };
+  edit?.(doc);
+  return { ...tree, [MANIFEST]: `${JSON.stringify(doc, null, 2)}\n` };
+}
+
+/** pharn-oss 7.x with a manifest, plus a file in a surface the CLI names nowhere. */
+export function manifestTree(
+  version: string,
+  edit?: (m: ManifestDoc) => void,
+): Tree {
+  return withManifest(
+    { ...upstreamTree7(version), [NEW_SURFACE]: `skill ${version}\n` },
+    edit,
+  );
+}
+
+/** Write `tree` under `dir` (a fake clone for a lib test); returns `dir`. */
+export function writeTree(dir: string, tree: Tree): string {
+  for (const [rel, content] of Object.entries(tree)) {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), content);
+  }
+  return dir;
+}

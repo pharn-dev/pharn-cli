@@ -26,6 +26,10 @@ import {
 } from './install-manifest.js';
 import { RECORDS_FILE } from './install-records.js';
 import {
+  manifestDeclaresSettings,
+  readUpstreamManifest,
+} from './upstream-manifest.js';
+import {
   applyWrites,
   ApplyError,
   writtenBeforeFailureLines,
@@ -294,6 +298,10 @@ function copySettingsIfAbsent(repoDir: string, projectRoot: string): boolean {
  * that has none? ONE predicate for the copy and `init --dry-run`'s plan.
  */
 export function upstreamSettingsCopyable(repoDir: string): boolean {
+  // Declared `if-absent` by the manifest (and sha-verified, so present); the
+  // existence probe is the fallback, removed in v0.22.0 (CORE-186).
+  const manifest = readUpstreamManifest(repoDir);
+  if (manifest) return manifestDeclaresSettings(manifest);
   const from = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
   return existsSync(from);
 }

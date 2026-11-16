@@ -2,14 +2,12 @@ import {
   CLAUDE_AGENTS_DIR,
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
+  DEV_COMMAND_PREFIX,
+  PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
-import {
-  isInstalledHookFile,
-  isProductAgentFile,
-  isProductCommandFile,
-} from './install-manifest.js';
 import { MODELS_RECORD_KEY } from './install-records.js';
 import { layoutPaths, type LayoutPaths } from './layout.js';
+import { COPY_FILENAME_RE } from './validate.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
@@ -17,6 +15,41 @@ import type { InstalledCapability } from '../types.js';
 // paths some install could have written. Shared by orphan detection,
 // `uninstall` and the `.prettierignore` entries, so none keeps its own list.
 // ---------------------------------------------------------------------------
+
+// The filename filters the install applies to its flat `.claude/` surfaces,
+// shared with every reader that classifies an installed path (re-exported by
+// lib/install-manifest.ts). `name` is relative to the
+// surface dir: anything nested is never taken.
+
+/** A product command: a top-level `pharn-*.md` that is not a `pharn-dev-*` one. */
+export function isProductCommandFile(name: string): boolean {
+  return (
+    !name.includes('/') &&
+    name.endsWith('.md') &&
+    name.startsWith(PRODUCT_COMMAND_PREFIX) &&
+    !name.startsWith(DEV_COMMAND_PREFIX)
+  );
+}
+
+/**
+ * A product agent definition under `.claude/agents/`: the command name rule, so
+ * a dev-loop agent stays out of a product install like a dev-loop command does.
+ */
+export function isProductAgentFile(name: string): boolean {
+  return isProductCommandFile(name);
+}
+
+/**
+ * A hook script: a top-level `.cjs` OR `.mjs` file that is not a test
+ * (`*.test.cjs` / `*.test.mjs`) — upstream may ship either flavour.
+ */
+export function isInstalledHookFile(name: string): boolean {
+  return (
+    !name.includes('/') &&
+    /\.(cjs|mjs)$/.test(name) &&
+    !/\.test\.(cjs|mjs)$/.test(name)
+  );
+}
 
 const BOTH_LAYOUTS: readonly LayoutPaths[] = [
   layoutPaths('flat'),
@@ -67,11 +100,20 @@ export function capabilityOf(rel: string): string | null {
 }
 
 /**
- * Could ANY install (flat or pharn layout) have written `rel`? Mirrors the
- * surfaces lib/install-manifest.ts enumerates, derived from `layoutPaths`.
+ * Could ANY install have written `rel`? A file of either layout's fixed
+ * surfaces (derived from `layoutPaths`, with the install's own name filters),
+ * or a path inside the outer bound an install from pharn-install.json may write
+ * ({@link isPharnOwnedPath}), so a file installed into a surface this CLI does
+ * not name can still be updated, orphaned and uninstalled — each of those still
+ * gated by its record's hash.
  */
 export function isInstallRootPath(rel: string): boolean {
   if (rel === MODELS_RECORD_KEY) return false;
+  return isLegacyInstallPath(rel) || isPharnOwnedPath(rel);
+}
+
+// The surfaces this CLI names, both layouts (every install before the manifest).
+function isLegacyInstallPath(rel: string): boolean {
   if (SURFACE_FILES.has(rel)) return true;
   if (SURFACE_DIRS.some((dir) => rel.startsWith(`${dir}/`))) return true;
   if (capabilityOf(rel) !== null) return true;
@@ -84,4 +126,77 @@ export function isInstallRootPath(rel: string): boolean {
   const hook = directChild(rel, CLAUDE_HOOKS_DIR);
   if (hook !== null) return isInstalledHookFile(hook);
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// THE OUTER BOUND — the one CLI-owned answer to "may a pharn-install.json
+// `dest` name this path?", and the record-key bound beside it. The manifest is
+// untrusted, so its own `installRoots` never decide this (an `include: ["**"]`
+// would reach `.git/hooks/`). Wide enough that a surface upstream ADDS under a
+// pharn-owned name installs with no CLI release; narrow enough that it never
+// reaches the project root, a `.git` or dot-led segment, `.claude/settings*`,
+// or user data under `pharn/` (`memory-bank/`, `features/<x>/`,
+// `spec-template.md`, `.backup/`, `.lock`). `.claude/settings.json` is not in
+// it: the manifest may name it only as `if-absent` (lib/upstream-manifest.ts).
+// ---------------------------------------------------------------------------
+
+const PHARN_ROOT = 'pharn';
+const CLAUDE_ROOT = '.claude';
+// One path segment an install may create: no dot-led name (so no `.`, `..`,
+// `.git`, `.backup`, `.lock`), nothing outside the portable filename set.
+const OWNED_SEGMENT_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+// A directory name under `.claude/` (`commands`, `skills`, ...).
+const CLAUDE_DIR_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+// A pharn-owned entry name: `pharn-*`, never a dev-loop `pharn-dev-*`.
+const isPharnOwnedName = (name: string): boolean =>
+  name.startsWith(PRODUCT_COMMAND_PREFIX) &&
+  !name.startsWith(DEV_COMMAND_PREFIX) &&
+  name.length > PRODUCT_COMMAND_PREFIX.length;
+
+// The pharn layout's fixed roots below `pharn/` whose names are not `pharn-*`:
+// files, and the one directory (`floor/`) installed whole.
+const PHARN = layoutPaths('pharn');
+const PHARN_FIXED_FILES: ReadonlySet<string> = new Set([
+  ...PHARN.docs,
+  PHARN.license.to,
+  PHARN.featuresReadme,
+]);
+const PHARN_FIXED_DIRS: readonly string[] = [PHARN.floor];
+const PHARN_SUBTREES: readonly string[] = [PHARN.grillers, PHARN.lenses];
+
+/**
+ * Is `rel` inside the outer bound: (a) below `pharn/`, inside a `pharn-*` entry
+ * or one of the layout's fixed roots (a capability subtree only inside a
+ * capability dir), or (b) below `.claude/<dir>/`, inside a `pharn-*` entry (a
+ * file directly there also passes COPY_FILENAME_RE), or a top-level hook under
+ * `.claude/hooks/` (upstream hook names carry no `pharn-` prefix).
+ */
+export function isPharnOwnedPath(rel: string): boolean {
+  const segments = rel.split('/');
+  const [root, entry] = segments as [string, string, ...string[]];
+  // The two roots are fixed names; every segment below one must be ownable.
+  if (root !== PHARN_ROOT && root !== CLAUDE_ROOT) return false;
+  const below = segments.slice(1);
+  if (below.length === 0 || !below.every((s) => OWNED_SEGMENT_RE.test(s)))
+    return false;
+  if (root === PHARN_ROOT) {
+    if (PHARN_FIXED_FILES.has(rel)) return true;
+    if (PHARN_FIXED_DIRS.some((dir) => rel.startsWith(`${dir}/`))) return true;
+    if (PHARN_SUBTREES.some((dir) => rel.startsWith(`${dir}/`)))
+      return capabilityOf(rel) !== null;
+    return segments.length > 2 && isPharnOwnedName(entry);
+  }
+  if (segments.length < 3) return false;
+  const dir = entry;
+  const name = segments[2]!;
+  if (!CLAUDE_DIR_RE.test(dir)) return false;
+  const isFile = segments.length === 3;
+  if (
+    isFile &&
+    `${root}/${dir}` === CLAUDE_HOOKS_DIR &&
+    isInstalledHookFile(name)
+  )
+    return COPY_FILENAME_RE.test(name);
+  if (!isPharnOwnedName(name)) return false;
+  return !isFile || COPY_FILENAME_RE.test(name);
 }

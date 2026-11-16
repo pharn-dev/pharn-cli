@@ -6,6 +6,7 @@ import {
   readUpstreamModels,
 } from '../src/lib/upstream-models.js';
 import { useTmpDir } from './helpers.js';
+import { manifestTree, writeTree } from './support/harness.js';
 
 // pharn-oss's own models block, read out of a fetched clone's ROOT
 // pharn.config.json. Its verdicts against pharn-oss's checker are pinned in
@@ -138,5 +139,42 @@ describe('readUpstreamModels', () => {
       kind: 'invalid',
       reasons: ["pharn-oss's pharn.config.json is larger than 1 MiB"],
     });
+  });
+});
+
+describe('readUpstreamModels — from pharn-install.json (CORE-194)', () => {
+  const tmp = useTmpDir();
+  const repo = (tree: Record<string, string>): string =>
+    writeTree(join(tmp.path(), 'r'), tree);
+  const declared = {
+    stages: { default: { model: 'haiku', effort: 'low' } },
+  };
+
+  it('takes models.defaults over the root config', () => {
+    const tree = manifestTree('7.20.0', (m) => {
+      m.models.defaults = declared;
+    });
+    expect(readUpstreamModels(repo(tree))).toEqual({
+      kind: 'ok',
+      block: declared,
+    });
+  });
+
+  it('absent or null defaults → absent, even when the root config has a block', () => {
+    const tree = manifestTree('7.20.0', (m) => {
+      m.models.defaults = null;
+    });
+    expect(readUpstreamModels(repo(tree))).toEqual({ kind: 'absent' });
+  });
+
+  it('holds the declared defaults to the same gate', () => {
+    const tree = manifestTree('7.20.0', (m) => {
+      m.models.defaults = { stages: { plan: { model: 'gpt', effort: 'low' } } };
+    });
+    const got = readUpstreamModels(repo(tree));
+    expect(got.kind).toBe('invalid');
+    expect(got.kind === 'invalid' && got.reasons.join('\n')).toMatch(
+      /missing required `default`/,
+    );
   });
 });

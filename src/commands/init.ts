@@ -15,6 +15,7 @@ import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { fetchRepo } from '../lib/repo.js';
+import { UpstreamManifestError } from '../lib/upstream-manifest.js';
 import {
   DEFAULT_INIT_REF,
   ReleaseResolveError,
@@ -216,7 +217,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     throw CliError.failure(err, {
       json,
       message:
-        err instanceof ReleaseResolveError
+        err instanceof ReleaseResolveError ||
+        err instanceof UpstreamManifestError
           ? err.message
           : `Could not reach ${REPO_URL}: ${errorMessage(err)}`,
     });

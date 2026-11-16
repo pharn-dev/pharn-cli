@@ -4,9 +4,7 @@ import {
   CLAUDE_AGENTS_DIR,
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
-  DEV_COMMAND_PREFIX,
   FLOOR_TEST_FIXTURES_DIRS,
-  PRODUCT_COMMAND_PREFIX,
 } from './constants.js';
 import {
   capabilitySubtree,
@@ -21,13 +19,25 @@ import {
   safeJoin,
   toPosix,
 } from './validate.js';
+import {
+  isInstalledHookFile,
+  isProductAgentFile,
+  isProductCommandFile,
+} from './install-surfaces.js';
+import {
+  manifestCapabilityFiles,
+  manifestInstallFiles,
+  readUpstreamManifest,
+} from './upstream-manifest.js';
 import type { InstalledCapability, Layout } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Install manifest — the SINGLE source of truth for the project-root-relative
 // paths an archetype install writes. Pure + read-only: it enumerates the
 // fetched clone and never writes. Consumed by lib/diff.ts (`status`), the
-// overwrite prompt, and — via capabilityCloneFiles — `add`.
+// overwrite prompt, and — via capabilityCloneFiles — `add`. When the tree
+// declares pharn-install.json (lib/upstream-manifest.ts), the set is the one it
+// declares; the enumeration below is the fallback for a tree without it.
 //
 // It IS the copy list: installCapabilities (lib/install-capabilities.ts)
 // writes exactly these files; tests/install-manifest.test.ts compares a REAL
@@ -44,39 +54,13 @@ import type { InstalledCapability, Layout } from '../types.js';
 // conflict set below.
 export const PHARN_CONFIG_FILE = 'pharn.config.json';
 
-// The filename filters the install applies to its flat surfaces, shared with
-// every reader that classifies an installed path. `name` is relative to the
-// surface dir: anything nested is never taken.
-
-/** A product command: a top-level `pharn-*.md` that is not a `pharn-dev-*` one. */
-export function isProductCommandFile(name: string): boolean {
-  return (
-    !name.includes('/') &&
-    name.endsWith('.md') &&
-    name.startsWith(PRODUCT_COMMAND_PREFIX) &&
-    !name.startsWith(DEV_COMMAND_PREFIX)
-  );
-}
-
-/**
- * A product agent definition under `.claude/agents/`: the command name rule, so
- * a dev-loop agent stays out of a product install like a dev-loop command does.
- */
-export function isProductAgentFile(name: string): boolean {
-  return isProductCommandFile(name);
-}
-
-/**
- * A hook script: a top-level `.cjs` OR `.mjs` file that is not a test
- * (`*.test.cjs` / `*.test.mjs`) — upstream may ship either flavour.
- */
-export function isInstalledHookFile(name: string): boolean {
-  return (
-    !name.includes('/') &&
-    /\.(cjs|mjs)$/.test(name) &&
-    !/\.test\.(cjs|mjs)$/.test(name)
-  );
-}
+// The filename filters for the flat `.claude/` surfaces live beside the
+// install-root bound that also uses them (lib/install-surfaces.ts).
+export {
+  isInstalledHookFile,
+  isProductAgentFile,
+  isProductCommandFile,
+} from './install-surfaces.js';
 
 /**
  * The fixed product surfaces an install DECLARES — everything it copies that is
@@ -158,6 +142,15 @@ function collectInstallManifest(params: {
 }): { expected: Map<string, string>; surfaces: SurfaceAccount[] } {
   const { repoDir, capabilities, layout } = params;
   const paths = layoutPaths(layout);
+  // A tree that declares pharn-install.json installs exactly what it declares,
+  // at its one layout (`pharn`); a request for another layout is answered by
+  // the derivation below, as before. The derivation is the fallback for a tree
+  // without the manifest: removed in v0.22.0 (CORE-186).
+  const manifest = layout === 'pharn' ? readUpstreamManifest(repoDir) : null;
+  if (manifest) {
+    const expected = manifestInstallFiles(repoDir, manifest, capabilities);
+    return { expected, surfaces: accountManifest(expected, paths) };
+  }
   const expected = new Map<string, string>();
   const surfaces: SurfaceAccount[] = [];
   const add = (rel: string, repoPath: string): void => {
@@ -284,6 +277,54 @@ function collectInstallManifest(params: {
   return { expected, surfaces };
 }
 
+// The same accounting as the derivation's, read off a manifest's install set
+// by destination: what each surface this CLI declares contributed, so
+// `absentInstallSurfaces` means "contributes zero files" either way. A surface
+// the manifest adds is installed but not accounted (nothing to report).
+function accountManifest(
+  expected: ReadonlyMap<string, string>,
+  paths: LayoutPaths,
+): SurfaceAccount[] {
+  const dests = [...expected.keys()];
+  const under = (dir: string): number =>
+    dests.filter((d) => d.startsWith(`${dir}/`)).length;
+  const one = (dest: string): number => (expected.has(dest) ? 1 : 0);
+  return [
+    {
+      surface: 'commands',
+      path: CLAUDE_COMMANDS_DIR,
+      files: under(CLAUDE_COMMANDS_DIR),
+    },
+    {
+      surface: 'hooks',
+      path: CLAUDE_HOOKS_DIR,
+      files: under(CLAUDE_HOOKS_DIR),
+    },
+    ...paths.docs.map((doc) => ({
+      surface: 'trusted-doc' as const,
+      path: doc,
+      files: one(doc),
+    })),
+    {
+      surface: 'license',
+      path: paths.license.from,
+      files: one(paths.license.to),
+    },
+    {
+      surface: 'features-readme',
+      path: paths.featuresReadme,
+      files: one(paths.featuresReadme),
+    },
+    {
+      surface: 'contracts',
+      path: paths.contracts,
+      files: under(paths.contracts),
+    },
+    { surface: 'core', path: paths.core, files: under(paths.core) },
+    { surface: 'floor', path: paths.floor, files: under(paths.floor) },
+  ];
+}
+
 /**
  * Is this floor-RELATIVE posix path one of the floor's test-apparatus dirs
  * (`FLOOR_TEST_FIXTURES_DIRS`) or inside one? Anchored at the floor root, so a
@@ -345,6 +386,11 @@ export function capabilityCloneFiles(
   paths: LayoutPaths,
   capability: InstalledCapability,
 ): string[] {
+  // From the manifest when the tree declares one (same rule as the install
+  // set above); the walk is the fallback, removed in v0.22.0 (CORE-186).
+  const manifest =
+    paths.layout === 'pharn' ? readUpstreamManifest(repoDir) : null;
+  if (manifest) return manifestCapabilityFiles(manifest, capability);
   const subtree = capabilitySubtree(paths, capability.role);
   const relDir = `${subtree}/${capability.name}`;
   const from = safeJoin(repoDir, relDir);

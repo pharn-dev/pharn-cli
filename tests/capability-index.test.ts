@@ -8,6 +8,7 @@ import { parseCapabilityIndex } from '../src/lib/capability-index.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 import { sha256File } from '../src/lib/hash.js';
 import type { CapabilityEntry } from '../src/types.js';
+import { A11Y, manifestTree, writeTree } from './support/harness.js';
 
 const GRILLERS = 'pharn-pipeline/grillers';
 const LENSES = 'pharn-review';
@@ -803,5 +804,35 @@ describe("parseCapabilityIndex — role and applies values are upstream's (F-26)
     expect(verdictOf('a duplicate applies whose last is invalid')).toBe(false);
     expect(verdictOf('a duplicate role whose last is valid')).toBe(true);
     expect(verdictOf('a duplicate role whose last is empty')).toBe(false);
+  });
+});
+
+describe('parseCapabilityIndex — from pharn-install.json (CORE-194)', () => {
+  const tmp = useTmpDir();
+
+  it('indexes the manifest, not the frontmatter', () => {
+    const tree = manifestTree('7.20.0', (m) => {
+      m.capabilities.find((c) => c.name === 'a11y')!.applies = ['backend'];
+    });
+    // Frontmatter that would make the derivation skip a11y as unknown.
+    tree[A11Y] = 'no frontmatter at all\n';
+    // The manifest's sha must still match for a fetch, but the index reads
+    // no file: this proves the frontmatter is never consulted.
+    const index = parseCapabilityIndex(writeTree(join(tmp.path(), 'r'), tree));
+    expect(index.capabilities).toEqual([
+      { name: 'a11y', role: 'griller', applies: ['backend'] },
+      { name: 'security', role: 'griller', applies: 'universal' },
+      { name: 'n-plus-one', role: 'lens', applies: ['backend'] },
+    ]);
+    expect(index.unknown).toEqual([]);
+  });
+
+  it('refuses a malformed manifest instead of falling back to the frontmatter', () => {
+    const tree = manifestTree('7.20.0', (m) => {
+      m.capabilities[0]!.role = 'verifier';
+    });
+    expect(() =>
+      parseCapabilityIndex(writeTree(join(tmp.path(), 'r'), tree)),
+    ).toThrow(/invalid role/);
   });
 });

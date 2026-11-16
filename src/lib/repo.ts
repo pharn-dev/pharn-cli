@@ -10,6 +10,10 @@ import type { InstallSource } from './release.js';
 import { readSkillsVersion } from './skills-version.js';
 import { extractTarGz } from './tar-extract.js';
 import {
+  readUpstreamManifest,
+  verifyUpstreamManifest,
+} from './upstream-manifest.js';
+import {
   assertSafeString,
   COMMIT_RE,
   ManifestValidationError,
@@ -134,6 +138,11 @@ async function fetchAt(
         );
       }
     }
+    // A declared install manifest is validated (the one parser) and every file
+    // it declares is held to its raw sha256 HERE, before the tree is returned:
+    // no command can reach an install branch point on a tree that fails.
+    const manifest = readUpstreamManifest(dir);
+    if (manifest) verifyUpstreamManifest(dir, manifest);
   } catch (err) {
     // Extraction is not transactional, so a partially-written tree must never
     // be returned. Callers treat a fetchRepo throw as fatal.

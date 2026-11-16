@@ -410,6 +410,16 @@ unless you are told. Resolves the newest verified release (or, with `--ref main`
 If the fetched version declares a `MIN_CLI` newer than your CLI, `init` stops here with a named error
 and writes nothing.
 
+From pharn-oss 7.20.0 on, the tree carries `pharn-install.json`, pharn-oss's own list of every file an
+install receives, with its destination and SHA-256. `init` checks it here, before anything else runs:
+every file must match its SHA-256, every destination must be one pharn may write (under `pharn/` or a
+`pharn-*` entry of `.claude/`, never your own files), and its `schemaVersion` must be one this pharn
+reads. Any failure stops the run with exit 1, names what failed, and writes nothing; an unknown
+`schemaVersion` says to upgrade pharn. The install then copies exactly what the manifest declares,
+including a surface this pharn does not know by name (a new `.claude/skills/pharn-*` directory, say),
+and takes the `models` block and the capability list from it. A tree without the manifest (every
+release before 7.20.0) is installed the way it always was, until pharn v0.22.0 drops that path.
+
 ### 5. Resolve capabilities
 
 Parses the capability index from the fetched clone and selects the capabilities that apply to your archetypes (universal + archetype-matched), in the index's declared order. Skipped capabilities are kept with a reason (e.g. `applies to [backend]; archetypes [ssr]`). The wording is neutral because the archetypes may be detected or given with `--archetype`; `init --dry-run --json` carries the same text in `capabilities.skipped[].reason`, and `pharn update` resolves the recorded archetypes through the same function.
