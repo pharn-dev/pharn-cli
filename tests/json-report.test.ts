@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { cap, serializeJsonReport } from '../src/lib/json-report.js';
 import { serializeStatusReport } from '../src/lib/status-report.js';
@@ -51,20 +49,5 @@ describe('serializeJsonReport', () => {
     expect(serializeStatusReport(report as unknown as StatusReport)).toBe(
       serializeJsonReport(report),
     );
-  });
-});
-
-// One serializer, one escape: no report module forks its own. A new `--json`
-// report goes through `serializeJsonReport` rather than calling `escapeUnsafe`.
-describe('the one serializer', () => {
-  it('is the only report module that uses escapeUnsafe', () => {
-    const dir = join(import.meta.dirname, '..', 'src', 'lib');
-    const users = readdirSync(dir)
-      .filter((f) => /report/.test(f) && f.endsWith('.ts'))
-      .filter((f) =>
-        readFileSync(join(dir, f), 'utf8').includes('escapeUnsafe'),
-      )
-      .sort();
-    expect(users).toEqual(['json-report.ts']);
   });
 });

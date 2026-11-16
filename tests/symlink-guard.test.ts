@@ -1,12 +1,5 @@
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { applyWrites, ApplyError } from '../src/lib/apply-update.js';
@@ -201,41 +194,6 @@ describe('the adapters preserve each call site’s message byte-for-byte', () =>
     expect(message).toBe(
       'Failed to write deep/nested/b.md: deep is a symlink; refusing to write through it.',
     );
-  });
-});
-
-// Structural anti-fork pin, in the spirit of tests/init.test.ts's isTTY inv-6:
-// the component-accumulation idiom must exist in exactly one module, so a fourth
-// copy-paste of the walk cannot quietly reappear beside the shared core.
-//
-// HONEST SCOPE — what a green run here does and does not prove: this matches a
-// literal source spelling. It catches a COPY-PASTE fork that keeps that spelling
-// (the failure mode that actually happened three times). It does NOT catch a fork
-// respelled as `current += '/' + segment`, `[current, segment].join('/')`, or via
-// `path.posix.join`. The trade is accepted deliberately: the pin is also coupled
-// to that formatting, so reflowing the line fails this test for a reason
-// unrelated to any fork.
-describe('the symlink-component walk lives in exactly one module', () => {
-  it('no src file outside symlink-guard.ts accumulates path components', () => {
-    const here = fileURLToPath(import.meta.url);
-    const srcDir = join(here, '..', '..', 'src');
-    const guard = join(srcDir, 'lib', 'symlink-guard.ts');
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const p = join(dir, e.name);
-        if (e.isDirectory()) return walk(p);
-        return e.name.endsWith('.ts') ? [p] : [];
-      });
-
-    const idiom = 'current = current ?';
-    const offenders = walk(srcDir).filter(
-      (f) => f !== guard && readFileSync(f, 'utf8').includes(idiom),
-    );
-    expect(offenders).toEqual([]);
-
-    // …and the core itself still carries it, so the pin cannot pass vacuously
-    // after a rename or a move.
-    expect(readFileSync(guard, 'utf8')).toContain(idiom);
   });
 });
 

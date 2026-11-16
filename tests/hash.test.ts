@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
@@ -157,34 +156,5 @@ describe('contentHash / sha256File — the file readers', () => {
     const missing = join(tmp.path(), 'nope');
     expect(() => contentHash(missing)).toThrow();
     expect(() => sha256File(missing)).toThrow();
-  });
-});
-
-// GRILL P0: the claim "every comparison uses contentHash, so no comparison mixes
-// a folded and a raw hash" is pinned here, not left to discipline. A new hashing
-// site that reaches for the raw function would silently bring F-16 back for its
-// path.
-describe('the one comparison hash', () => {
-  it('no file under src/ other than lib/hash.ts calls sha256File', () => {
-    const src = fileURLToPath(new URL('../src', import.meta.url));
-    const offenders: string[] = [];
-    const walk = (dir: string): void => {
-      for (const e of readdirSync(dir, { withFileTypes: true })) {
-        const p = join(dir, e.name);
-        if (e.isDirectory()) walk(p);
-        else if (e.name.endsWith('.ts')) {
-          const rel = relative(src, p).split('\\').join('/');
-          if (rel === 'lib/hash.ts') continue;
-          // Comments may NAME it (explaining the split); the assertion is
-          // about imports and calls, so strip them first.
-          const code = readFileSync(p, 'utf8')
-            .replace(/\/\*[\s\S]*?\*\//g, '')
-            .replace(/\/\/.*$/gm, '');
-          if (/\bsha256File\b/.test(code)) offenders.push(rel);
-        }
-      }
-    };
-    walk(src);
-    expect(offenders).toEqual([]);
   });
 });

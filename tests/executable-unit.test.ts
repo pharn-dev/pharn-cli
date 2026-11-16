@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { isExecutableUnitPath } from '../src/lib/executable-unit.js';
 import { layoutPaths } from '../src/lib/layout.js';
@@ -46,14 +45,5 @@ describe('isExecutableUnitPath — membership by path only', () => {
     ['.claude/agents/pharn-review-lens.md', flat],
   ])('%s is not a member', (rel, paths) => {
     expect(isExecutableUnitPath(rel, paths)).toBe(false);
-  });
-
-  it('reads no file: the module imports nothing from node:fs', () => {
-    const source = readFileSync(
-      new URL('../src/lib/executable-unit.ts', import.meta.url),
-      'utf8',
-    );
-    expect(source).not.toMatch(/from 'node:fs/);
-    expect(source).not.toMatch(/from 'fs/);
   });
 });

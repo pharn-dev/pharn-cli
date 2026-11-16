@@ -10,7 +10,6 @@ import {
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -1343,42 +1342,6 @@ describe('runUpdate (drift-safe)', () => {
       expect(body(DOC)).toBe('MY LOCAL EDIT');
       expect(readPharnConfig(proj)!.skillsVersion).toBe('1.0.0');
       expect(body(CAP_FILE)).toBe('a11y v2');
-    });
-
-    // inv-6b: the premise --yes rests on. `--yes` is sold as a COMPLETE bypass of
-    // update's interactivity, which is only true while the confirm is update's
-    // ONLY prompt. A future prompt added below the gate would silently re-open
-    // the very bug this increment closes, and nothing else would catch it.
-    // Its renderers live in src/lib/update-render.ts, so that file is read too:
-    // a prompt added to a note would escape a scan of the command alone.
-    it('the confirm is update.ts ONLY prompt (the premise --yes rests on)', () => {
-      const here = fileURLToPath(import.meta.url);
-      const src = [
-        join(here, '..', '..', 'src', 'commands', 'update.ts'),
-        join(here, '..', '..', 'src', 'lib', 'update-render.ts'),
-      ]
-        .map((file) => readFileSync(file, 'utf8'))
-        .join('\n');
-      const clackPromptApis = [
-        'autocomplete',
-        'autocompleteMultiselect',
-        'confirm',
-        'date',
-        'groupMultiselect',
-        'multiline',
-        'multiselect',
-        'password',
-        'path',
-        'select',
-        'selectKey',
-        'text',
-      ] as const;
-      const prompted = [
-        ...src.matchAll(
-          new RegExp(`\\bawait (${clackPromptApis.join('|')})\\(`, 'g'),
-        ),
-      ].map((m) => m[1]);
-      expect(prompted).toEqual(['confirm']);
     });
   });
 

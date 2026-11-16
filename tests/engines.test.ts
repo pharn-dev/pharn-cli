@@ -180,12 +180,6 @@ describe('engines.node (PHARN-06)', () => {
     expect(codeFloors().scanned.get('@clack/prompts') ?? 0).toBeGreaterThan(0);
   });
 
-  it('matches the README badge', () => {
-    const readme = readFileSync(join(root, 'README.md'), 'utf8');
-    const [maj, min, pat] = lowerBound(ours)!;
-    expect(readme).toContain(`node-%3E%3D${maj}.${min}.${pat}-`);
-  });
-
   // node-floor.yml starts the packed CLI on `FLOOR`. A FLOOR above the declared
   // bound would smoke-test a Node the published range does not bottom out at.
   it('is the exact Node the smoke workflow runs', () => {

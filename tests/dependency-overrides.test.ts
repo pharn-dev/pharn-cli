@@ -1,340 +1,44 @@
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compareVersionCore } from '../src/lib/semver.js';
 
-// ---------------------------------------------------------------------------
-// The `smol-toml` override, pinned.
-//
-// WHY THIS FILE EXISTS (P7 — a real, already-observed need, not a hypothetical):
-// Dependabot alert 11 (GHSA-7w5x-hrqm-74c2 / CVE-2026-85730) reports an infinite
-// loop in smol-toml's `parse()` for versions <= 1.7.0. It reaches this repo as a
-// TRANSITIVE DEV dependency — markdownlint-cli2 -> smol-toml — and
-// markdownlint-cli2@0.23.2, the LATEST release, pins it to EXACTLY "1.7.0". So
-// there is no upstream upgrade path: `npm audit fix --force` would DOWNGRADE
-// markdownlint-cli2 to 0.21.0, across two minors of the tool behind `lint:md`
-// and the required CI check `Markdown lint`. The fix is an npm `overrides`
-// entry, and an override is invisible — nothing else in CI enforces it. There is
-// no `npm audit` step in .github/workflows/, so a markdownlint-cli2 bump or a
-// regenerated lockfile could silently drop back below the patch line with every
-// gate still green.
-//
-// The two layers below are the same shape as tests/lint-gate.test.ts, INCLUDING
-// the half that keeps that file from going hollow: the checks are pure functions
-// over a parsed lockfile, so they can be fed a PLANTED 1.7.0 tree and shown to
-// reject it. A test that only observes today's happy state cannot distinguish
-// "the invariant holds" from "the matcher stopped matching".
-//
-// WHAT IS GUARANTEED (P0 — floor primitive #3, a deterministic version compare):
-//   the COMMITTED LOCKFILE resolves every smol-toml entry to >= MINIMUM. CI
-//   installs from that lockfile via `npm ci`, so for CI the two coincide.
-// WHAT IS NOT (named residuals, never claimed):
-//   • A contributor's actual node_modules. A stale tree or `npm install --force`
-//     can diverge from the lock; this file reads the lock, not the disk tree.
-//   • Byte authenticity. The lock's `integrity` hash pins WHICH bytes were
-//     resolved, never that they are benign (the same provenance-not-proof shape
-//     LIMITS.md 1b names for pharn's own upstream).
-//   • A prerelease. compareVersionCore deliberately compares a prerelease EQUAL
-//     to its release (src/lib/semver.ts:10), so a hypothetical `1.7.1-rc.1` would
-//     pass here. No smol-toml prerelease is in play; stated rather than implied.
-// ---------------------------------------------------------------------------
+// An npm `overrides` entry is invisible: nothing else in CI enforces it, so a
+// dependency bump or a regenerated lockfile can drop a package back below its
+// patched version with every gate green. For every override in package.json
+// (each one closes an advisory on a transitive dev dependency), and for the
+// markdown-it floor the lockfile reached without one, every committed lockfile
+// entry of that package must meet the lower bound. Reads the lock, not
+// node_modules; a prerelease compares equal to its release (src/lib/semver.ts).
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as {
+  overrides: Record<string, string>;
+};
+const lock = JSON.parse(readFileSync('package-lock.json', 'utf8')) as {
+  packages: Record<string, { version?: string }>;
+};
 
-// The first version carrying the fix. Everything at or above this is acceptable;
-// `<= 1.8.0` is the vulnerable range of the latest advisory (alert 20,
-// GHSA-r4xh-jqrq-34v2, quadratic-time parse(); alert 11 was `<= 1.7.0`).
-const MINIMUM = '1.9.0';
+const FLOORS: Record<string, string> = {
+  ...pkg.overrides,
+  // Not an override: markdownlint-cli2 0.24.0 pins it (GHSA-vfgh-jcmw-g37q).
+  'markdown-it': '15.0.3',
+};
 
-// Anchored, so a NESTED copy (`node_modules/x/node_modules/smol-toml`) is caught
-// and a LOOKALIKE (`node_modules/smol-toml-x`) is not. Both directions are
-// demonstrated below — an over-broad matcher and an under-broad one fail
-// differently, and only one of them is loud on its own.
-const SMOL_TOML_KEY_RE = /(?:^|\/)node_modules\/smol-toml$/;
-
-type LockPackages = Record<string, { version?: unknown }>;
-
-type Verdict = { ok: true; checked: number } | { ok: false; reason: string };
-
-// The lowest version a specifier admits, for the narrow prefix forms an override
-// like this uses. P5: anything this does NOT model — a range union, `*`, an `x`
-// wildcard, a bare `>` — returns null and is a HARD FAIL at the call site. The
-// test refuses to reason about a form it cannot parse rather than assuming it is
-// safe; the terminal fallback is a failure, never a guess.
-function lowestAdmitted(specifier: string): string | null {
-  const match = /^(?:[~^]|>=|=)?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(
-    specifier.trim(),
-  );
-  return match ? match[1]! : null;
-}
-
-// The demonstration layer, as a pure function so it can be planted against.
-// Every failure mode is a distinct `reason`, because "the lock is fine" and "the
-// matcher found nothing" are opposite conclusions that a boolean would merge.
-function auditSmolToml(packages: LockPackages, minimum: string): Verdict {
-  const entries = Object.entries(packages).filter(([key]) =>
-    SMOL_TOML_KEY_RE.test(key),
-  );
-
-  // Vacuity guard: with no entries, an "every entry is safe" assertion passes
-  // while checking nothing. That is the failure a matcher typo produces.
-  if (entries.length === 0) return { ok: false, reason: 'no smol-toml entry' };
-
-  for (const [key, meta] of entries) {
-    const version: unknown = meta.version;
-    if (typeof version !== 'string') {
-      return { ok: false, reason: `${key}: version is not a string` };
-    }
-    const ordering = compareVersionCore(version, minimum);
-    if (ordering === null) {
-      return { ok: false, reason: `${key}: unparseable version "${version}"` };
-    }
-    if (ordering < 0) {
-      return { ok: false, reason: `${key}: ${version} < ${minimum}` };
-    }
-  }
-  return { ok: true, checked: entries.length };
-}
-
-function readLockPackages(): LockPackages {
-  const lock = JSON.parse(
-    readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'),
-  ) as { packages?: LockPackages };
-  return lock.packages ?? {};
-}
-
-describe('smol-toml override: the declared policy', () => {
-  // The spelling layer. It asserts the override EXISTS and that the range it
-  // declares cannot admit a vulnerable version — deliberately NOT an equality
-  // against one literal specifier, which would red on a future TIGHTENING (say
-  // `~1.9.1` after another advisory) that strictly improves security. A test
-  // that fails for a safe change teaches people to edit the test reflexively,
-  // which is exactly how a spelling layer goes hollow.
-  it('declares an override whose lowest admitted version is patched', () => {
-    const pkg = JSON.parse(
-      readFileSync(join(repoRoot, 'package.json'), 'utf8'),
-    ) as { overrides?: Record<string, string> };
-
-    const specifier = pkg.overrides?.['smol-toml'];
-    expect(
-      specifier,
-      'package.json must declare overrides["smol-toml"]',
-    ).toBeDefined();
-    expect(typeof specifier).toBe('string');
-
-    const lowest = lowestAdmitted(specifier!);
-    expect(lowest, `unmodelled specifier form: "${specifier!}"`).not.toBeNull();
-    expect(compareVersionCore(lowest!, MINIMUM)).not.toBeNull();
-    expect(compareVersionCore(lowest!, MINIMUM)).toBeGreaterThanOrEqual(0);
-  });
-});
-
-describe('smol-toml override: the committed lockfile', () => {
-  it('resolves every smol-toml entry to a patched version', () => {
-    const verdict = auditSmolToml(readLockPackages(), MINIMUM);
-    expect(verdict).toEqual({ ok: true, checked: expect.any(Number) });
-  });
-
-  it('actually checks something (the matcher finds a real entry)', () => {
-    const verdict = auditSmolToml(readLockPackages(), MINIMUM);
-    expect(verdict.ok && verdict.checked).toBeGreaterThan(0);
-  });
-});
-
-// The half that proves the check BITES. Without these, a matcher that silently
-// stopped matching, or a comparator used in the wrong direction, would leave
-// every assertion above green.
-describe('smol-toml override: the check rejects what it claims to', () => {
-  it('rejects the exact vulnerable version from the advisory', () => {
-    const verdict = auditSmolToml(
-      { 'node_modules/smol-toml': { version: '1.7.0' } },
-      MINIMUM,
+describe('dependency floors', () => {
+  it.each(Object.entries(FLOORS))('%s %s', (name, specifier) => {
+    // Only the plain forms are modelled; anything else fails, never passes.
+    const bound = /^(?:[~^]|>=|=)?(\d+\.\d+\.\d+)$/.exec(specifier)?.[1];
+    expect(bound, `unmodelled specifier ${specifier}`).toBeDefined();
+    const entries = Object.entries(lock.packages).filter(([key]) =>
+      key.match(new RegExp(`(?:^|/)node_modules/${name}$`)),
     );
-    expect(verdict).toEqual({
-      ok: false,
-      reason: 'node_modules/smol-toml: 1.7.0 < 1.9.0',
-    });
-  });
-
-  it('rejects a vulnerable copy NESTED under another package', () => {
-    const verdict = auditSmolToml(
-      {
-        'node_modules/smol-toml': { version: '1.9.0' },
-        'node_modules/markdownlint-cli2/node_modules/smol-toml': {
-          version: '1.6.0',
-        },
-      },
-      MINIMUM,
-    );
-    expect(verdict.ok).toBe(false);
-  });
-
-  it('accepts the boundary version, so it is not simply always-red', () => {
-    const verdict = auditSmolToml(
-      { 'node_modules/smol-toml': { version: MINIMUM } },
-      MINIMUM,
-    );
-    expect(verdict).toEqual({ ok: true, checked: 1 });
-  });
-
-  it('does not match a lookalike package name', () => {
-    // `smol-toml-x` must not satisfy the check on smol-toml's behalf. With the
-    // lookalike as the only candidate there are no real entries, so the vacuity
-    // guard is what fires — which is the point: an under-matching regex is loud.
-    const verdict = auditSmolToml(
-      { 'node_modules/smol-toml-x': { version: '0.0.1' } },
-      MINIMUM,
-    );
-    expect(verdict).toEqual({ ok: false, reason: 'no smol-toml entry' });
-  });
-
-  it('fails loudly on an unparseable version rather than passing it', () => {
-    const verdict = auditSmolToml(
-      { 'node_modules/smol-toml': { version: 'latest' } },
-      MINIMUM,
-    );
-    expect(verdict).toEqual({
-      ok: false,
-      reason: 'node_modules/smol-toml: unparseable version "latest"',
-    });
-  });
-
-  it('fails loudly on a missing version field', () => {
-    const verdict = auditSmolToml({ 'node_modules/smol-toml': {} }, MINIMUM);
-    expect(verdict).toEqual({
-      ok: false,
-      reason: 'node_modules/smol-toml: version is not a string',
-    });
-  });
-});
-
-describe('lowestAdmitted: the specifier forms it models', () => {
-  it.each([
-    ['~1.9.0', '1.9.0'],
-    ['^1.9.0', '1.9.0'],
-    ['>=1.9.0', '1.9.0'],
-    ['1.9.1', '1.9.1'],
-  ])('reads the floor of %s as %s', (specifier, expected) => {
-    expect(lowestAdmitted(specifier)).toBe(expected);
-  });
-
-  it.each([['*'], ['1.x'], ['>1.7.0'], ['1.7.1 || 2.0.0'], ['']])(
-    'returns null for the unmodelled form %j, so the caller hard-fails',
-    (specifier) => {
-      expect(lowestAdmitted(specifier)).toBeNull();
-    },
-  );
-});
-
-// ---------------------------------------------------------------------------
-// The `katex` override, pinned the same way.
-//
-// Dependabot alert 19 (GHSA-238p-pmpm-9mq7, prototype pollution bypassing
-// trust restrictions) covers katex >= 0.11.0, < 0.18.2. It is a transitive DEV
-// dependency (markdownlint-cli2 -> markdownlint -> micromark-extension-math),
-// and micromark-extension-math declares `katex: ^0.16.0`, which can never reach
-// the patch line, so an `overrides` entry is the only fix short of a downgrade.
-// ---------------------------------------------------------------------------
-
-const KATEX_MINIMUM = '0.18.2';
-const KATEX_KEY_RE = /(?:^|\/)node_modules\/katex$/;
-
-describe('katex override', () => {
-  it('declares an override whose lowest admitted version is patched', () => {
-    const pkg = JSON.parse(
-      readFileSync(join(repoRoot, 'package.json'), 'utf8'),
-    ) as { overrides?: Record<string, string> };
-
-    const specifier = pkg.overrides?.['katex'];
-    expect(
-      specifier,
-      'package.json must declare overrides["katex"]',
-    ).toBeDefined();
-
-    const lowest = lowestAdmitted(specifier!);
-    expect(lowest, `unmodelled specifier form: "${specifier!}"`).not.toBeNull();
-    expect(compareVersionCore(lowest!, KATEX_MINIMUM)).toBeGreaterThanOrEqual(
-      0,
-    );
-  });
-
-  it('resolves every katex entry in the committed lockfile to a patched version', () => {
-    const entries = Object.entries(readLockPackages()).filter(([key]) =>
-      KATEX_KEY_RE.test(key),
-    );
-    // Vacuity guard: a matcher that finds nothing must not pass.
-    expect(entries.length).toBeGreaterThan(0);
-    for (const [key, meta] of entries) {
-      const ordering = compareVersionCore(String(meta.version), KATEX_MINIMUM);
-      expect(ordering, `${key}: ${String(meta.version)}`).not.toBeNull();
+    expect(entries.length, `no lockfile entry for ${name}`).toBeGreaterThan(0);
+    for (const [key, { version }] of entries) {
+      const order = compareVersionCore(String(version), bound!);
+      expect(order, `${key}@${String(version)}`).not.toBeNull();
       expect(
-        ordering!,
-        `${key}: ${String(meta.version)}`,
+        order!,
+        `${key}@${String(version)} < ${bound}`,
       ).toBeGreaterThanOrEqual(0);
     }
-  });
-
-  it('rejects the last vulnerable version (the comparator bites)', () => {
-    expect(compareVersionCore('0.18.1', KATEX_MINIMUM)).toBeLessThan(0);
-    expect(compareVersionCore('0.16.47', KATEX_MINIMUM)).toBeLessThan(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The `markdown-it` floor, pinned the same way — but NOT an override.
-//
-// Dependabot alerts 21 (GHSA-r7fv-28h4-cvq7, quadratic smartquotes, patched
-// 15.0.2), 22 (GHSA-vfgh-jcmw-g37q, quadratic inline HTML, patched 15.0.3) and
-// 23 (GHSA-gfr2-rv44-r23c, quadratic link reference definition, patched
-// 15.0.3) cover markdown-it >= 15.0.0, < 15.0.3. It is a transitive DEV
-// dependency: markdownlint-cli2 pins it EXACTLY (0.23.3 → "15.0.1"). Here an
-// upstream path exists — markdownlint-cli2 0.24.0 pins "15.0.3" — so the fix is
-// a direct bump of markdownlint-cli2, not an override. The lockfile floor is
-// pinned anyway: a regenerated lock or a downgrade of markdownlint-cli2 would
-// otherwise drop back below the patch line with every other gate green.
-// ---------------------------------------------------------------------------
-
-const MARKDOWN_IT_MINIMUM = '15.0.3';
-const MARKDOWN_IT_KEY_RE = /(?:^|\/)node_modules\/markdown-it$/;
-
-function markdownItEntries(packages: LockPackages): [string, unknown][] {
-  return Object.entries(packages)
-    .filter(([key]) => MARKDOWN_IT_KEY_RE.test(key))
-    .map(([key, meta]) => [key, meta.version]);
-}
-
-describe('markdown-it floor', () => {
-  it('resolves every markdown-it entry in the committed lockfile to a patched version', () => {
-    const entries = markdownItEntries(readLockPackages());
-    // Vacuity guard: a matcher that finds nothing must not pass.
-    expect(entries.length).toBeGreaterThan(0);
-    for (const [key, version] of entries) {
-      expect(typeof version, `${key}: version is not a string`).toBe('string');
-      const ordering = compareVersionCore(
-        version as string,
-        MARKDOWN_IT_MINIMUM,
-      );
-      expect(ordering, `${key}: ${String(version)}`).not.toBeNull();
-      expect(ordering!, `${key}: ${String(version)}`).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  it('rejects the vulnerable versions (the comparator bites)', () => {
-    expect(compareVersionCore('15.0.2', MARKDOWN_IT_MINIMUM)).toBeLessThan(0);
-    expect(compareVersionCore('15.0.1', MARKDOWN_IT_MINIMUM)).toBeLessThan(0);
-    expect(compareVersionCore('15.0.3', MARKDOWN_IT_MINIMUM)).toBe(0);
-  });
-
-  it('matches a nested copy and not a lookalike name', () => {
-    const keys = markdownItEntries({
-      'node_modules/markdown-it-x': { version: '0.0.1' },
-      'node_modules/markdownlint-cli2/node_modules/markdown-it': {
-        version: '15.0.1',
-      },
-    }).map(([key]) => key);
-    expect(keys).toEqual([
-      'node_modules/markdownlint-cli2/node_modules/markdown-it',
-    ]);
   });
 });

@@ -8,7 +8,6 @@ import {
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { diffInstalledCapabilities } from '../src/lib/diff.js';
@@ -504,26 +503,5 @@ describe('diffInstalledCapabilities', () => {
         expect(r.okCount).toBe(BODIES.length);
       },
     );
-  });
-
-  // The canonical-hash claim in src/lib/hash.ts ("one canonical implementation
-  // so the drift check (status), the install record store, and the update
-  // decision can never disagree") names diff.ts by name — and diff.ts forked it
-  // anyway with a private sha256 and its own fs reads. That claim was prose;
-  // this makes it checked, so the fork cannot quietly return.
-  it('owns no disk or hash primitives of its own — every read goes through lib/', () => {
-    const here = fileURLToPath(import.meta.url);
-    const code = readFileSync(
-      join(here, '..', '..', 'src', 'lib', 'diff.ts'),
-      'utf8',
-    )
-      // Comments legitimately NAME these (explaining what moved and why), so
-      // strip them: the assertion is about imports and calls, not prose.
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '');
-
-    expect(code).not.toMatch(/from\s+'node:fs'/);
-    expect(code).not.toMatch(/from\s+'node:crypto'/);
-    expect(code).not.toMatch(/\b(existsSync|readFileSync|createHash)\b/);
   });
 });

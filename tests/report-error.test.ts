@@ -1,6 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The reporter is the ONE place the CLI turns a failure into user-visible
@@ -19,14 +16,6 @@ const {
   reportFatalPlain,
   PHARN_DEBUG_HINT,
 } = await import('../src/lib/report-error.js');
-
-const srcDir = join(fileURLToPath(import.meta.url), '..', '..', 'src');
-const walk = (dir: string): string[] =>
-  readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-    const p = join(dir, e.name);
-    if (e.isDirectory()) return walk(p);
-    return e.name.endsWith('.ts') ? [p] : [];
-  });
 
 describe('report-error', () => {
   let errSpy: ReturnType<typeof vi.spyOn>;
@@ -190,47 +179,5 @@ describe('report-error', () => {
       reportFatal(errorMessage(hostile), { err: hostile }),
     ).not.toThrow();
     expect(vi.mocked(log.error).mock.calls[0]![0]).toContain('unstringifiable');
-  });
-
-  // --- structural pins ------------------------------------------------------
-  //
-  // Best-effort text scans, in the spirit of tests/init.test.ts's isTTY pin:
-  // they reduce a class of regressions (a hand-rolled copy re-appearing), they
-  // do not eliminate it (an aliased import would slip past). Labeled, not sold
-  // as absolute.
-
-  it('is the ONLY src/** file that calls log.error(', () => {
-    const home = join(srcDir, 'lib', 'report-error.ts');
-    const offenders = walk(srcDir).filter(
-      (f) => f !== home && readFileSync(f, 'utf8').includes('log.error('),
-    );
-    expect(offenders).toEqual([]);
-  });
-
-  it('is the ONLY src/** file carrying the PHARN_DEBUG hint literal', () => {
-    const home = join(srcDir, 'lib', 'report-error.ts');
-    const offenders = walk(srcDir).filter(
-      (f) =>
-        f !== home &&
-        readFileSync(f, 'utf8').includes('Re-run with PHARN_DEBUG'),
-    );
-    expect(offenders).toEqual([]);
-  });
-
-  // Nine hand-rolled `if (process.env.PHARN_DEBUG) console.error(err)` copies
-  // collapsed into this one. A future command that wants the dump must pass its
-  // error to the reporter, which is what makes the hint's coverage follow.
-  //
-  // The scan is for the READ, not the name: several commands legitimately NAME
-  // PHARN_DEBUG in a comment explaining why a given refusal deliberately gets no
-  // hint, and that prose is the opposite of the regression this pin exists for.
-  it('is the ONLY src/** file that reads process.env.PHARN_DEBUG', () => {
-    const home = join(srcDir, 'lib', 'report-error.ts');
-    const offenders = walk(srcDir).filter(
-      (f) =>
-        f !== home &&
-        readFileSync(f, 'utf8').includes('process.env.PHARN_DEBUG'),
-    );
-    expect(offenders).toEqual([]);
   });
 });

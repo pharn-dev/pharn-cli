@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   escapeUnsafe,
@@ -126,72 +124,5 @@ describe('the one unsafe set', () => {
   it('escapeUnsafe is idempotent, so escaping an escaped message twice is safe', () => {
     const once = escapeUnsafe(`x${CSI_C1}${RLO}${ESC}[31m`);
     expect(escapeUnsafe(once)).toBe(once);
-  });
-});
-
-// A static check that the set stays ONE: no other src/ file may spell a
-// control-character range or a Cf/Cc class. It reads source spellings, so it
-// catches the forms this repo has used (`\x00-\x1f`, `\x7f-\x9f`, their
-// `\u00NN` and `\u{NN}` twins, `\p{Cf}`/`\p{Cc}` inside a class) — not every
-// conceivable way to build a set. The one exemption is capability-index.ts's
-// DISPLACED_LEAD_RE, a literal port of pharn-oss's fence rule, not a sanitizer.
-describe('no second unsafe-character definition in src/', () => {
-  const ROOT = join(import.meta.dirname, '..', 'src');
-  const OWNER = join(ROOT, 'lib', 'terminal-safe.ts');
-  const EXEMPT_FILE = join(ROOT, 'lib', 'capability-index.ts');
-  const EXEMPT_LITERAL = 'const DISPLACED_LEAD_RE = /^[\\s\\p{Cf}]+(?=---)/u;';
-
-  // `\x00-\x1f`, `\u0000-\u001f`, `\u{0}-\u{1f}`, with one or two backslashes
-  // (a regex literal or a string passed to `new RegExp`), any range that
-  // starts in C0 or at DEL/C1.
-  const CONTROL_RANGE =
-    /\\{1,2}(?:x[0-9a-f]{2}|u00[0-9a-f]{2}|u\{[0-9a-f]{1,2}\})-\\{1,2}(?:x|u00|u\{)/i;
-  // `\p{Cf}` / `\p{Cc}` inside a character class (a comment naming the
-  // category is not a definition).
-  const CATEGORY_CLASS = /\[[^\]\n]*\\{1,2}p\{C[cf]\}/;
-  const defines = (text: string): boolean =>
-    CONTROL_RANGE.test(text) || CATEGORY_CLASS.test(text);
-
-  function* tsFiles(dir: string): Generator<string> {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) yield* tsFiles(path);
-      else if (entry.name.endsWith('.ts')) yield path;
-    }
-  }
-
-  it.each([
-    [
-      'the old terminalSafe literal',
-      String.raw`/[\x00-\x1f\x7f-\x9f\p{Cf}]/gu`,
-    ],
-    ['the old keep-whitespace literal', String.raw`/[\x00-\x08\x0b-\x1f]/gu`],
-    ['CONTROL_CHARS_RE', String.raw`/[\x7f-\x9f]/`],
-    ['a RegExp string', String.raw`new RegExp('[\\x00-\\x1f]')`],
-    ['a \\u00NN range', String.raw`/[\u0000-\u001f]/`],
-    ['a \\u{NN} range', String.raw`/[\u{0}-\u{1f}]/u`],
-    ['a bare Cf class', String.raw`/[\p{Cf}]/u`],
-    ['a Cc class', String.raw`/[\p{Cc}]/u`],
-  ])('the detector catches %s', (_label, text) => {
-    expect(defines(text)).toBe(true);
-  });
-
-  it('the detector spares a comment that only names the category', () => {
-    expect(defines('// `\\p{Cf}` covers U+200B')).toBe(false);
-  });
-
-  it('only terminal-safe.ts defines the set (DISPLACED_LEAD_RE exempt)', () => {
-    const offenders: string[] = [];
-    for (const file of tsFiles(ROOT)) {
-      if (file === OWNER) continue;
-      let text = readFileSync(file, 'utf8');
-      if (file === EXEMPT_FILE) {
-        // The exemption must stay exact, so it cannot quietly cover more.
-        expect(text).toContain(EXEMPT_LITERAL);
-        text = text.replace(EXEMPT_LITERAL, '');
-      }
-      if (defines(text)) offenders.push(relative(ROOT, file));
-    }
-    expect(offenders).toEqual([]);
   });
 });

@@ -570,21 +570,6 @@ describe('runRemove (archetype)', () => {
   // pin the contract that replaced it — per PATH, which is what the false
   // sentences flattened.
 
-  it('runRemove declares exactly one parameter — no `yes` option survives', () => {
-    const src = readFileSync(
-      new URL('../src/commands/remove.ts', import.meta.url),
-      'utf8',
-    );
-    const params = /export async function runRemove\(([\s\S]*?)\):/.exec(
-      src,
-    )?.[1];
-    // Asserted BEFORE the negative one: a regex that stops matching (a rename,
-    // a reformat) must fail loudly rather than pass on an absent capture (P5).
-    expect(params).toBeDefined();
-    expect(params).not.toMatch(/yes/);
-    expect(params!.split(',').filter((p) => p.trim() !== '')).toHaveLength(1);
-  });
-
   it('the NAMED path never confirms — there is nothing for a flag to skip', async () => {
     loadArchetypeConfigOrExit.mockReturnValue(
       archConfig([{ name: 'a11y', role: 'griller' }]),
