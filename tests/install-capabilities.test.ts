@@ -439,6 +439,30 @@ describe('installCapabilities', () => {
     );
   });
 
+  // Only EEXIST means "the user's file is there"; any other copy error is a
+  // failure, named with the files before it. Here the clone's settings.json is
+  // a DIRECTORY, which the exclusive copy cannot copy on any OS, as any user.
+  it('a settings.json copy error other than EEXIST is a failure, not "preserved"', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    rmSync(join(repo, '.claude/settings.json'));
+    write(join(repo, '.claude/settings.json/inside.txt'), 'x');
+    mkdirSync(proj, { recursive: true });
+
+    const { written, message } = thrown(() =>
+      installCapabilities(repo, proj, selection()),
+    );
+
+    expect(message).toContain('were written before the failure');
+    expect(written).toContain('.claude/commands/pharn-plan.md');
+    expect(
+      lstatSync(join(proj, '.claude/settings.json'), {
+        throwIfNoEntry: false,
+      })?.isFile(),
+    ).not.toBe(true);
+  });
+
   // The second pass of the changed-file path keeps the first pass's paths: the
   // edited file is skipped by the first pass, backed up, then fails to write.
   it('a failure while writing the changed files still carries every written path', () => {
