@@ -102,9 +102,9 @@ export async function resolveAddPicker(
       // parsed.role is always defined — our option `value`s are `role:name`.
       // Carry EVERY field resolveArchetypeAdd persisted, not just capabilities:
       // `cfg` must mirror the config just written, or the next pick reads a
-      // config that disagrees with disk. (Concretely: the records store is
-      // stamped with the persisted skillsVersion/commit, so a stale `cfg` makes
-      // the next pick's stamp check fail and silently drop its records.)
+      // config that disagrees with disk. (Concretely: the next pick's config
+      // write would put back the pre-pick skillsVersion/commit, so the config
+      // and the records stamp would disagree.)
       cfg = {
         ...cfg,
         ...result.stamp,

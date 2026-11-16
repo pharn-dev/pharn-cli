@@ -81,7 +81,7 @@ import { safeJoin, toPosix } from './validate.js';
 // `sources` are names read from it. Both `safeJoin`s run BEFORE either walk, so
 // a path that escapes either base is refused LOUDLY and no catch below can bury
 // it. File contents are hashed, never parsed or executed. `records` is local,
-// stamp-checked data (lib/install-records.ts), and it can only take a file OUT
+// validated data (lib/install-records.ts), and it can only take a file OUT
 // of the backup set: one whose bytes are still exactly what pharn recorded
 // writing — the files update upgrades without asking.
 //

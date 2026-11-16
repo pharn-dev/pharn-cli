@@ -1142,8 +1142,18 @@ describe('runStatus — ORPHANED', () => {
     expect(noteBody('DRIFT')).toContain('No drift');
   });
 
-  it('prints nothing without a usable records store', async () => {
+  // CORE-161: the store's stamp does not gate — a store stamped for another
+  // install state is still a usable baseline for the orphan check.
+  it('names orphans from a store stamped for another install state', async () => {
     records({ [OLD]: hash(OLD) }, '0.9.0'); // stamped for another state
+    await runStatus({});
+    const body = stripVTControlCharacters(noteBody('ORPHANED'));
+    expect(body).toContain('UNCHANGED');
+    expect(body).toContain(OLD);
+  });
+
+  it('prints nothing without a usable records store', async () => {
+    writeFileSync(join(proj, 'pharn.records.json'), '{ not json');
     await runStatus({});
     expect(noteBody('ORPHANED')).toBe('');
   });

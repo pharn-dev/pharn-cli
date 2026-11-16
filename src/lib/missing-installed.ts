@@ -17,7 +17,7 @@ import type { PharnConfig } from '../types.js';
  *
  * 1. a `config.capabilities` entry whose directory is absent at the RECORDED
  *    layout (`configLayout` — the address `remove`/`status` use too);
- * 2. a key of a USABLE `pharn.records.json` (the caller passes the stamped
+ * 2. a key of a USABLE `pharn.records.json` (the caller passes the
  *    baseline, or `null`) whose path is absent. The models record is not a
  *    path and is skipped. With no usable store only (1) applies.
  *

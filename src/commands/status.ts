@@ -136,7 +136,7 @@ async function runArchetypeStatusJson(
         latest,
         source,
         drift: null,
-        prettierignore: statusPrettierignore(cwd, config),
+        prettierignore: statusPrettierignore(cwd),
         strict,
       }),
     );
@@ -183,7 +183,7 @@ async function runArchetypeStatusJson(
         }),
         upstreamLayout,
       },
-      prettierignore: statusPrettierignore(cwd, config),
+      prettierignore: statusPrettierignore(cwd),
       strict,
     });
   } catch (err) {
@@ -257,7 +257,7 @@ async function runArchetypeStatus(
     }
     const outdated = printArchetypeVersion(config, latest, source, channel);
     printModels(config);
-    printPrettierignore(cwd, config);
+    printPrettierignore(cwd);
     if (strict && strictFails({ outdated })) process.exit(1);
     outro(pc.dim('Read-only — nothing changed (drift check skipped).'));
     return;
@@ -284,7 +284,7 @@ async function runArchetypeStatus(
       channel,
     );
     printModels(config);
-    printPrettierignore(cwd, config);
+    printPrettierignore(cwd);
     // Exclude FROZEN capabilities — the ones the fetch boundary could not parse
     // in this clone. `update` deliberately keeps their config entry but never
     // writes their files, so comparing them here would report drift that no
@@ -470,14 +470,8 @@ function modelsNoteLines(block: unknown, floor: string): string[] {
 // same input as update's same-version re-open. null without a usable store
 // (nothing local says what pharn wrote). Local and read-only, so it is
 // answered with or without `--no-drift`.
-function statusPrettierignore(
-  cwd: string,
-  config: PharnConfig,
-): PrettierignorePlan | null {
-  const { records } = recordsBaseline(readRecords(cwd), {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  });
+function statusPrettierignore(cwd: string): PrettierignorePlan | null {
+  const { records } = recordsBaseline(readRecords(cwd));
   return records === null
     ? null
     : planPrettierignore(cwd, Object.keys(records));
@@ -486,8 +480,8 @@ function statusPrettierignore(
 // PRETTIER note: the project uses Prettier and its `.prettierignore` does not
 // cover what pharn installs and rewrites. Advisory — never a `--strict` input
 // (`pharn update` adds the lines; a refused file needs the user).
-function printPrettierignore(cwd: string, config: PharnConfig): void {
-  const plan = statusPrettierignore(cwd, config);
+function printPrettierignore(cwd: string): void {
+  const plan = statusPrettierignore(cwd);
   const lines =
     plan === null ? null : prettierignoreLines(plan, { status: true });
   if (lines !== null) note(lines.text, 'PRETTIER');
@@ -497,9 +491,9 @@ function printPrettierignore(cwd: string, config: PharnConfig): void {
 // that cannot be determined. This is the ONLY reason status reads
 // pharn.records.json: the drift section above stays a records-free byte compare.
 //
-// null — not "none" — when the store is absent / invalid / stamped for another
-// state (no baseline to name a file by), or when the clone is at another layout
-// than the install: the expected set is then derived at paths the clone does
+// null — not "none" — when the store is absent / invalid (no baseline to name
+// a file by; a store stamped for another state is still one), or when the
+// clone is at another layout than the install: the expected set is then derived at paths the clone does
 // not have, so nearly every recorded file would read as orphaned. `update` is
 // the command that migrates the layout, and it names the copies it leaves.
 function statusOrphans(
@@ -508,10 +502,7 @@ function statusOrphans(
   config: PharnConfig,
   frozen: ReadonlySet<string>,
 ): Orphan[] | null {
-  const { records } = recordsBaseline(readRecords(cwd), {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  });
+  const { records } = recordsBaseline(readRecords(cwd));
   if (records === null) return null;
   const layout = configLayout(config);
   if (detectLayout(repoDir) !== layout) return null;

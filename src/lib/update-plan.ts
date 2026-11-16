@@ -264,10 +264,7 @@ export function buildUpdatePlan(input: {
   // Read ONCE: the baseline below, and the store the "changes nothing"
   // comparison holds the next one against (lib/update-next.ts).
   const loadedRecords = readRecords(cwd);
-  const { records, note: recordsNote } = recordsBaseline(loadedRecords, {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  });
+  const { records, note: recordsNote } = recordsBaseline(loadedRecords);
 
   // The unit is held only when this run moves the version: at the same version
   // a write puts back same-version bytes, so nothing can be mixed. The unit is

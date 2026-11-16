@@ -64,15 +64,16 @@ old file and writes the archetypes it detects.
 ### `skillsVersion` and `commit` — checked when the config loads
 
 These two fields are the install's stamp: `status` and `update` compare `skillsVersion` with
-pharn-oss, `add` gates on it, and [`pharn.records.json`](pharn-records.md) is stamped with both. So
+pharn-oss, `add` gates on it, and [`pharn.records.json`](pharn-records.md) records both. So
 in an archetype config, `list`, `status`, `update`, `add`, `remove` and `uninstall` check them when
 they load the config:
 
 - `skillsVersion` must be a version such as `"3.0.2"` (a prerelease suffix such as `"3.0.2-rc.1"` is
   allowed) — the shape `pharn` reads from pharn-oss's `SKILLS_VERSION`.
 - `commit` must be a full 40-character lowercase hex commit SHA, or `null` (what `pharn` writes when
-  it could not resolve the SHA). An absent `commit` is accepted and read as `null`, so it matches a
-  `pharn.records.json` stamped `"commit": null`, and the next write records `"commit": null`.
+  it could not resolve the SHA). An absent `commit` is accepted and read as `null`, and the next
+  write records `"commit": null` in both files (whatever `pharn.records.json` holds, its stamp is not
+  a gate).
 
 Anything else — `"1.0"`, `"v3.0.2"`, a short SHA such as `"abc123"`, a number — is a hand-edit
 error. `pharn` names the field and the value it found and exits 1 before any download, the same way
@@ -120,11 +121,12 @@ field is a valid fix — the next update sets it.
 > `pharn update` to refresh an existing install; `init` is for installing one.
 
 A sibling file, [`pharn.records.json`](pharn-records.md), holds a sha256 per installed file. It is
-written by the same operations that write this config and is **stamped** with this file's
-`skillsVersion` + `commit`; if the two disagree, `pharn update` treats the store as unavailable —
-present files that differ are skipped (`unverifiable`), but **missing** files are still restored.
-Re-run `pharn update` once both files agree, or pass `--force` to back up and overwrite differences.
-The hash map lives there rather than here so this file stays small and hand-editable.
+written by the same operations that write this config and records this file's `skillsVersion` +
+`commit` when it was written. That stamp is not a gate: if the two disagree (an interrupted `add` or
+`update` writes the store first), the store is still used, because a file at its recorded hash holds
+bytes `pharn` wrote whatever the stamp — see
+[The stamp is not a gate](pharn-records.md#the-stamp-is-not-a-gate). The hash map lives there rather
+than here so this file stays small and hand-editable.
 
 Note that `skillsVersion` / `commit` describe the last **complete** install: a `pharn update` that
 skipped any file deliberately leaves them at their previous values (see [update](../commands/update.md)).

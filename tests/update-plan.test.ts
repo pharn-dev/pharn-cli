@@ -401,7 +401,10 @@ describe('buildUpdatePlan', () => {
 
     it('is empty (and carries nothing) without a usable store', async () => {
       await withOrphans();
-      const { report, apply } = plan(config({ skillsVersion: '0.9.0' }));
+      // A corrupt store — a stamp mismatch no longer makes one unusable
+      // (CORE-161).
+      writeFileSync(join(proj, 'pharn.records.json'), '{ not json');
+      const { report, apply } = plan(config());
       expect(report.recordsNote).not.toBeNull();
       expect(report.orphans).toEqual([]);
       expect(apply.orphanRecords).toEqual({});
@@ -598,9 +601,18 @@ describe('buildUpdatePlan', () => {
       ]);
     });
 
-    it('backs up every file when there is no usable record store', async () => {
+    // CORE-161: the store's stamp does not gate — a recorded hash proves
+    // authorship, so a stamp mismatch still spares the unchanged recorded file.
+    it('backs up only what pharn cannot prove it wrote, even when the store is stamped for another state', async () => {
       const cfg = await withStale();
       const { report } = plan({ ...cfg, commit: 'c'.repeat(40) }); // stamp mismatch
+      expect(report.removals[0]!.backups).toEqual([`${STALE_DIR}/NOTES.md`]);
+    });
+
+    it('backs up every file when there is no usable record store', async () => {
+      const cfg = await withStale();
+      writeFileSync(join(proj, 'pharn.records.json'), '{ not json');
+      const { report } = plan(cfg);
       expect(report.removals[0]!.backups).toEqual([
         `${STALE_DIR}/NOTES.md`,
         `${STALE_DIR}/stale.md`,

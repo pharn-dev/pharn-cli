@@ -97,7 +97,7 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
   }
   const config = loadArchetypeConfigOrExit(cwd);
 
-  const records = usableRecords(cwd, config);
+  const records = usableRecords(cwd);
   if (typeof records === 'string') {
     logError(records);
     process.exit(1);
@@ -147,22 +147,19 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
   outro(`${pc.green('✔')} PHARN was uninstalled.`);
 }
 
-// The validated, stamp-checked record store, or the refusal naming why there
-// is none. Absent, corrupt and stamped-for-another-state all mean the same
-// thing here: nothing is provable, so nothing may be deleted.
-function usableRecords(cwd: string, config: PharnConfig): FileRecords | string {
+// The validated record store, or the refusal naming why there is none. Absent
+// and corrupt both mean the same thing here: nothing is provable, so nothing
+// may be deleted. A store stamped for another install state is still usable —
+// a recorded hash proves authorship whatever the stamp, and only a file whose
+// hash equals its record is ever deleted (lib/uninstall-plan.ts).
+function usableRecords(cwd: string): FileRecords | string {
   const read = readRecords(cwd);
-  const baseline = recordsBaseline(read, {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  });
+  const baseline = recordsBaseline(read);
   if (baseline.records !== null) return baseline.records;
   const reason =
-    read.kind === 'absent'
-      ? `there is no ${RECORDS_FILE}`
-      : read.kind === 'invalid'
-        ? escapeUnsafe(read.message)
-        : `${RECORDS_FILE} was written for a different install state than ${CONFIG_FILENAME}`;
+    read.kind === 'invalid'
+      ? escapeUnsafe(read.message)
+      : `there is no ${RECORDS_FILE}`;
   return `Cannot uninstall: ${reason}. ${RECORDS_FILE} is the only proof of which files pharn wrote, so without a usable one nothing was removed. Remove PHARN by hand instead (docs/troubleshooting.md, "Removing PHARN by hand").`;
 }
 
@@ -179,7 +176,7 @@ async function applyUninstall(
   assertConfigUnchanged(cwd, config, 'uninstall');
   // Re-read and re-plan under the lock: the prompt may have been open while the
   // tree changed, and THIS plan is the one that decides.
-  const records = usableRecords(cwd, config);
+  const records = usableRecords(cwd);
   if (typeof records === 'string') throw new UninstallError(records);
   const plan = planUninstall(cwd, records);
   if (plan.unsafe.length > 0) throw new UninstallError(unsafeMessage(plan));

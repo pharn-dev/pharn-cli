@@ -908,15 +908,12 @@ describe('runUpdate (drift-safe)', () => {
     });
   });
 
-  // F-22: `add` writes pharn.records.json (stamped with the new commit) BEFORE
-  // pharn.config.json, so a torn add leaves a store stamped for a state the
-  // config never reached. The baseline then reads as unavailable, and the
-  // same-version early return used to say "Already up to date" over it — so
-  // the NEXT version bump degraded every differing file to `unverifiable`. A
-  // store that PARSES but is stamped for another state now re-opens the run,
-  // which re-records the install at the config's stamp; an ABSENT or corrupt
-  // store does not (nothing torn to repair, and a corrupt one is the user's to
-  // fix — re-minting it would discard what they could still recover).
+  // CORE-161: `add` writes pharn.records.json (stamped with the new commit)
+  // BEFORE pharn.config.json, so a torn add leaves a store stamped for a state
+  // the config never reached. The stamp no longer gates the baseline: a
+  // recorded hash proves authorship whatever the stamp, so such a store is used
+  // as is — the same-version run has nothing to repair (no re-open), and the
+  // next version bump upgrades every unedited file instead of skipping it.
   describe('same version, records stamped for another install state (F-22)', () => {
     const noteText = () =>
       vi
@@ -944,43 +941,8 @@ describe('runUpdate (drift-safe)', () => {
       return config;
     }
 
-    it('re-opens the early return and names the reason in the header', async () => {
+    it('does not re-open the same-version early return — the store is usable as is', async () => {
       await tornAdd();
-
-      await runUpdate();
-
-      expect(prompts.outro).not.toHaveBeenCalledWith(
-        'Already up to date (skills v1.1.0).',
-      );
-      expect(fetchRepo).toHaveBeenCalledTimes(1);
-      expect(noteText()).toContain(
-        `${RECORDS_FILE} is stamped for a different install state than pharn.config.json`,
-      );
-      expect(noteText()).toContain(
-        'this run re-applies the install and records it again',
-      );
-    });
-
-    it('re-records the store at the config stamp, so the next run early-returns', async () => {
-      await tornAdd();
-
-      await runUpdate();
-
-      const read = readRecords(proj);
-      expect(read.kind).toBe('ok');
-      if (read.kind !== 'ok') return;
-      const config = readPharnConfig(proj)!;
-      expect(read.store.skillsVersion).toBe(config.skillsVersion);
-      expect(read.store.commit).toBe(config.commit);
-      expect(read.store.commit).not.toBe(TORN_COMMIT);
-      for (const rel of RELS)
-        expect(read.store.files[rel]).toBe(contentHash(join(proj, rel)));
-      expect(backupDirs()).toEqual([]);
-
-      loadArchetypeConfigOrExit.mockReturnValue(config);
-      vi.clearAllMocks();
-      fetchRepo.mockResolvedValue({ dir: repo, sha: 'a'.repeat(40), cleanup });
-      fetchRemoteSkillsVersion.mockResolvedValue('1.1.0');
 
       await runUpdate();
 
@@ -990,14 +952,8 @@ describe('runUpdate (drift-safe)', () => {
       expect(fetchRepo).not.toHaveBeenCalled();
     });
 
-    // The consequence the fix exists for: after the repair, the next version
-    // bump is a clean upgrade instead of a wall of `unverifiable` skips.
     it('lets the next version bump upgrade cleanly instead of skipping unverifiable', async () => {
       await tornAdd();
-      await runUpdate();
-
-      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj)!);
-      vi.clearAllMocks();
       scaffoldClone(repo, '1.2.0', 'v3');
       fetchRepo.mockResolvedValue({ dir: repo, sha: 'c'.repeat(40), cleanup });
       fetchRemoteSkillsVersion.mockResolvedValue('1.2.0');
@@ -1007,6 +963,8 @@ describe('runUpdate (drift-safe)', () => {
       for (const rel of RELS) expect(body(rel)).toContain('v3');
       expect(readPharnConfig(proj)!.skillsVersion).toBe('1.2.0');
       expect(noteText()).not.toContain('unverifiable');
+      expect(noteText()).not.toContain('UNVERIFIABLE');
+      expect(backupDirs()).toEqual([]);
     });
 
     it('an ABSENT store does not re-open it', async () => {
@@ -1051,8 +1009,7 @@ describe('runUpdate (drift-safe)', () => {
       expect(fetchRepo).not.toHaveBeenCalled();
     });
 
-    // The ahead-of-source guard still wins: a stale store cannot carry a
-    // downgrade in, because the guard runs before every re-open.
+    // The ahead-of-source guard still wins over a torn store.
     it('does not re-open an install ahead of its source', async () => {
       await tornAdd();
       loadArchetypeConfigOrExit.mockReturnValue(
@@ -2601,7 +2558,7 @@ describe('runUpdate (drift-safe)', () => {
     expect(warned).toContain(RECORDS_FILE);
   });
 
-  it('ignores a store whose stamp disagrees with the config (a downgrade round-trip)', async () => {
+  it('trusts a store whose stamp disagrees with the config — a recorded hash proves authorship', async () => {
     await installed();
     await writeRecords(proj, {
       skillsVersion: '0.9.0', // written for a different install state
@@ -2611,8 +2568,8 @@ describe('runUpdate (drift-safe)', () => {
 
     await runUpdate();
 
-    // Fails CLOSED: the stale store is not trusted, so nothing is overwritten.
-    expect(body(DOC)).toBe('constitution v1');
+    // The file still holds the bytes pharn recorded, so it upgrades.
+    expect(body(DOC)).toBe('constitution v2');
   });
 
   // -------------------------------------------------------------------------

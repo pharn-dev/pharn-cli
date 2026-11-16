@@ -18,15 +18,12 @@ import {
   modelsRecordHash,
   readRecords,
   recordsBaseline,
-  recordsStampStale,
   RECORDS_FILE,
   RECORDS_SCHEMA_VERSION,
   writeRecords,
 } from '../src/lib/install-records.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
 import { readPharnConfig } from '../src/lib/pharn-config.js';
-import { escapeUnsafe, hasUnsafeChars } from '../src/lib/terminal-safe.js';
-import type { UpdateLabel } from '../src/lib/update-decision.js';
 
 // The atomic write's temp name carries a random nonce. It is wrapped (not
 // replaced) so only the test that needs a predictable name pins one, to plant
@@ -350,7 +347,7 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
       kind: 'ok',
       store: { ...validStore(), commit: null },
     });
-    expect(recordsBaseline(read, STAMP)).toEqual({
+    expect(recordsBaseline(read)).toEqual({
       records: validStore().files,
       note: null,
     });
@@ -383,11 +380,10 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
     expect(onDisk).toHaveProperty('commit', null);
     const read = readRecords(proj);
     expect(read.kind).toBe('ok');
-    expect(recordsBaseline(read, config)).toEqual({
+    expect(recordsBaseline(read)).toEqual({
       records: files,
       note: null,
     });
-    expect(recordsStampStale(read, config)).toBe(false);
   });
 
   it('an odd-but-string stamp is KEPT — the stamp is compared, never consumed', () => {
@@ -403,230 +399,73 @@ describe('readRecords — validation is fail-closed and NAMES the failure', () =
   });
 });
 
-describe('recordsBaseline — the stamp gate', () => {
-  // CORE-170: the stamp is only TYPE-checked, and JSON.stringify is not a
-  // sanitizer — it leaves C1 (the 8-bit CSI) and bidi overrides raw. The note
-  // stays DATA here; each print site escapes it with escapeUnsafe.
-  it('a hostile stamp stays raw in the note, and escapeUnsafe makes it inert', () => {
-    const CSI = '\u009b';
-    const RLO = '\u202e';
-    const store = {
-      schemaVersion: 1,
-      skillsVersion: `1.0.0${CSI}2J${RLO}`,
-      commit: null,
-      files: { 'a.md': sha('a') },
-    };
-    const { records, note } = recordsBaseline(
-      { kind: 'ok', store },
-      { skillsVersion: '1.0.0', commit: null },
-    );
-    expect(records).toBeNull();
-    expect(note).toContain(`"1.0.0${CSI}2J${RLO}"`);
-    const printed = escapeUnsafe(note!);
-    expect(printed).toContain('"1.0.0\\u009b2J\\u202e"');
-    expect(hasUnsafeChars(printed)).toBe(false);
-  });
+describe('recordsBaseline — a parsed store is the baseline, whatever its stamp', () => {
+  // CORE-161: a recorded hash proves authorship on its own. A path whose
+  // current hash equals its record holds bytes pharn wrote, whichever
+  // skillsVersion/commit the store was stamped with — so the stamp is
+  // written (diagnostics) but never gates.
   it('a matching stamp yields the records', () => {
     const files = { 'a.md': sha('a') };
     expect(
-      recordsBaseline(
-        { kind: 'ok', store: { schemaVersion: 1, ...STAMP, files } },
-        STAMP,
-      ),
+      recordsBaseline({
+        kind: 'ok',
+        store: { schemaVersion: 1, ...STAMP, files },
+      }),
     ).toEqual({ records: files, note: null });
   });
 
   it('absent → no records, and NO note (a legacy install is not a problem to report)', () => {
-    expect(recordsBaseline({ kind: 'absent' }, STAMP)).toEqual({
+    expect(recordsBaseline({ kind: 'absent' })).toEqual({
       records: null,
       note: null,
     });
   });
 
   it('invalid → no records, and the named reason is carried through for the report', () => {
-    expect(
-      recordsBaseline({ kind: 'invalid', message: 'boom' }, STAMP),
-    ).toEqual({ records: null, note: 'boom' });
+    expect(recordsBaseline({ kind: 'invalid', message: 'boom' })).toEqual({
+      records: null,
+      note: 'boom',
+    });
   });
 
-  it('a stamp disagreeing with the config is ignored — a downgrade round-trip fails CLOSED', () => {
-    // The scenario: an older CLI rewrote the tree and advanced pharn.config.json
-    // while ignoring the store. Trusting it would label upstream bytes as the
-    // user's edits and freeze the install.
-    const store = {
-      schemaVersion: 1,
-      skillsVersion: '1.0.0',
-      commit: null,
-      files: { 'a.md': sha('a') },
-    };
-    const result = recordsBaseline(
-      { kind: 'ok', store },
-      {
-        skillsVersion: '1.1.0',
-        commit: null,
-      },
-    );
-    expect(result.records).toBeNull();
-    expect(result.note).toMatch(/different install state/);
-    // Names the field that differs, with BOTH values — and does not drag in the
-    // field that agrees.
-    expect(result.note).toContain('(skillsVersion "1.0.0")');
-    expect(result.note).toContain('pharn.config.json (skillsVersion "1.1.0")');
-    expect(result.note).not.toContain('commit');
+  it('a store stamped for another skillsVersion is STILL the baseline — no note', () => {
+    // The torn run: `add`/`update` wrote the store, then the config write
+    // failed. The store's hashes still describe the bytes pharn wrote.
+    const files = { 'a.md': sha('a') };
+    const result = recordsBaseline({
+      kind: 'ok',
+      store: { schemaVersion: 1, skillsVersion: '0.9.0', commit: null, files },
+    });
+    expect(result).toEqual({ records: files, note: null });
   });
 
-  // -------------------------------------------------------------------------
-  // The note must name the field that ACTUALLY differs. The check fires on
-  // either stamp field, but the message used to interpolate `skillsVersion` on
-  // both sides — so a commit-only mismatch read "(skills v3.0.1) than
-  // pharn.config.json (skills v3.0.1)": two identical values presented as a
-  // difference, while the records were dropped for real.
-  // -------------------------------------------------------------------------
-  it('a differing commit alone also invalidates the baseline — and the note says COMMIT, not skillsVersion', () => {
-    const store = {
-      schemaVersion: 1,
-      skillsVersion: '1.0.0',
-      commit: 'a'.repeat(40),
-      files: {},
-    };
-    const result = recordsBaseline(
-      { kind: 'ok', store },
-      {
+  it('a store stamped for another commit is STILL the baseline', () => {
+    const files = { 'a.md': sha('a') };
+    const result = recordsBaseline({
+      kind: 'ok',
+      store: {
+        schemaVersion: 1,
         skillsVersion: '1.0.0',
-        commit: 'b'.repeat(40),
+        commit: 'a'.repeat(40),
+        files,
       },
-    );
-    expect(result.records).toBeNull();
-    expect(result.note).not.toContain('skillsVersion');
-    // Both SHAs in FULL: the stamp is type-checked, never COMMIT_RE-checked, so
-    // no prefix length is guaranteed to identify it — and two SHAs sharing a
-    // short prefix would print as an identical pair, which is the very defect
-    // this test exists for.
-    expect(result.note).toContain(`(commit "${'a'.repeat(40)}")`);
-    expect(result.note).toContain(
-      `pharn.config.json (commit "${'b'.repeat(40)}")`,
-    );
-    // The regression itself, stated directly: the two rendered sides differ.
-    const [storeSide, configSide] = result.note!.split(
-      ') than pharn.config.json (',
-    );
-    expect(storeSide).not.toBe(configSide);
+    });
+    expect(result).toEqual({ records: files, note: null });
   });
 
-  it('both fields differing are BOTH named, in source order', () => {
-    const result = recordsBaseline(
-      {
+  it('an odd-but-string stamp does not matter either — the hashes are the baseline', () => {
+    const files = { 'a.md': sha('a') };
+    expect(
+      recordsBaseline({
         kind: 'ok',
         store: {
           schemaVersion: 1,
-          skillsVersion: '1.0.0',
-          commit: 'a'.repeat(40),
-          files: {},
+          skillsVersion: '1.0.0\u009b2J\u202e',
+          commit: '',
+          files,
         },
-      },
-      { skillsVersion: '1.1.0', commit: 'b'.repeat(40) },
-    );
-    expect(result.records).toBeNull();
-    expect(result.note).toContain(
-      `(skillsVersion "1.0.0", commit "${'a'.repeat(40)}")`,
-    );
-    expect(result.note).toContain(
-      `pharn.config.json (skillsVersion "1.1.0", commit "${'b'.repeat(40)}")`,
-    );
-  });
-
-  it('a null commit renders as `null`, not as blank or the string "null"', () => {
-    // The legal floated-branch case: a store stamped with no SHA. Rendering it
-    // as nothing would print `(commit )`.
-    const result = recordsBaseline(
-      {
-        kind: 'ok',
-        store: {
-          schemaVersion: 1,
-          skillsVersion: '1.0.0',
-          commit: null,
-          files: {},
-        },
-      },
-      { skillsVersion: '1.0.0', commit: 'a'.repeat(40) },
-    );
-    expect(result.note).toContain('(commit null)');
-    expect(result.note).not.toContain('(commit "null")');
-  });
-
-  it('an empty-string version stays visible instead of collapsing to blank', () => {
-    // Both stamp fields are TYPE-checked, never format-checked, so a hand edit
-    // can leave `""` here. Unquoted it would render `(skillsVersion )`.
-    const result = recordsBaseline(
-      {
-        kind: 'ok',
-        store: {
-          schemaVersion: 1,
-          skillsVersion: '',
-          commit: null,
-          files: {},
-        },
-      },
-      { skillsVersion: '1.0.0', commit: null },
-    );
-    expect(result.note).toContain('(skillsVersion "")');
-  });
-
-  it('the note states the cost — `unverifiable`, the label update will actually use', () => {
-    // Bound through UpdateLabel so a rename in lib/update-decision.ts fails
-    // `npm run typecheck` here rather than shipping a message that names a
-    // bucket which no longer exists. With NO usable store every differing file
-    // is row 6 `unverifiable` — NOT row 5 `unrecorded`, which requires a store.
-    const UNVERIFIABLE: UpdateLabel = 'unverifiable';
-    const result = recordsBaseline(
-      {
-        kind: 'ok',
-        store: {
-          schemaVersion: 1,
-          skillsVersion: '0.9.0',
-          commit: null,
-          files: {},
-        },
-      },
-      STAMP,
-    );
-    expect(result.note).toContain(UNVERIFIABLE);
-    expect(result.note).not.toContain('unrecorded');
-  });
-});
-
-// F-22: the one unusable-store case `pharn update` re-opens its same-version
-// early return for. Absent and invalid stores are NOT stale: nothing torn to
-// repair, or a store the user could still fix.
-describe('recordsStampStale — only a PARSED store with a disagreeing stamp', () => {
-  const store = (
-    over: Partial<{ skillsVersion: string; commit: string | null }>,
-  ) => ({
-    kind: 'ok' as const,
-    store: { schemaVersion: 1, ...STAMP, ...over, files: {} },
-  });
-
-  it('a matching stamp is not stale', () => {
-    expect(recordsStampStale(store({}), STAMP)).toBe(false);
-  });
-
-  it('a commit-only mismatch (a torn add) is stale', () => {
-    expect(recordsStampStale(store({ commit: 'b'.repeat(40) }), STAMP)).toBe(
-      true,
-    );
-  });
-
-  it('a skillsVersion mismatch is stale', () => {
-    expect(recordsStampStale(store({ skillsVersion: '0.9.0' }), STAMP)).toBe(
-      true,
-    );
-  });
-
-  it('absent and invalid stores are never stale', () => {
-    expect(recordsStampStale({ kind: 'absent' }, STAMP)).toBe(false);
-    expect(recordsStampStale({ kind: 'invalid', message: 'boom' }, STAMP)).toBe(
-      false,
-    );
+      }).records,
+    ).toEqual(files);
   });
 });
 

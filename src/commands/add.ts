@@ -576,8 +576,8 @@ async function resolveArchetypeAdd(
 
 // Extend `pharn.records.json` with one just-installed capability's files. The
 // store is re-stamped with the same (skillsVersion, commit) written to the config
-// beside it, so the two stay consistent — a stamp that disagrees with the config
-// is how a store written by another tool is detected and ignored.
+// beside it, so the two stay consistent (the stamp is diagnostics; it never
+// gates the baseline — lib/install-records.ts).
 async function mergeCapabilityRecords(
   cwd: string,
   config: PharnConfig,
@@ -587,11 +587,8 @@ async function mergeCapabilityRecords(
   skillsVersion: string,
   commit: string | null,
 ): Promise<void> {
-  const { records } = recordsBaseline(readRecords(cwd), {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  });
-  if (records === null) return; // absent/corrupt/stale → leave it alone
+  const { records } = recordsBaseline(readRecords(cwd));
+  if (records === null) return; // absent/corrupt → leave it alone
   const added = buildRecords(cwd, cloneRels);
   await writeRecords(cwd, {
     skillsVersion,

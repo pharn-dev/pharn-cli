@@ -19,9 +19,8 @@ import { safeJoin } from './validate.js';
 //                          them again.
 //   IN the set           — everything else: a file pharn has no record of, a
 //                          recorded file whose bytes changed, and EVERY file when
-//                          there is no usable store (`records === null` — absent,
-//                          corrupt, or stamped for another install state, per
-//                          `recordsBaseline`). Without a store nothing is
+//                          there is no usable store (`records === null` — absent
+//                          or corrupt, per `recordsBaseline`). Without a store nothing is
 //                          provable, so nothing is assumed.
 //
 // Only REGULAR files are candidates. A symbolic link is neither followed nor

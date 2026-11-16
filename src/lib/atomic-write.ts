@@ -28,8 +28,8 @@ import type { FileHandle } from 'node:fs/promises';
 //
 // What this DOES guarantee: the target is replaced or left alone. What it does
 // NOT: it makes no PAIR of files atomic (a crash between the records write and
-// the config write still leaves a stamp mismatch, which `recordsBaseline`
-// already reports by name), it provides NO mutual exclusion between two
+// the config write still leaves the store stamped for a state the config never
+// reached — harmless, since the stamp never gates the baseline), it provides NO mutual exclusion between two
 // concurrent `pharn` processes (there is no lock here), and it does not `fsync`
 // — durability against a power cut at the block layer is a different claim from
 // never observing a torn file, and only the second is made (P0).

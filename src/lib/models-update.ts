@@ -203,8 +203,8 @@ export function decideModelsUpdate(input: {
   upstream: UpstreamModels;
   // The store's MODELS_RECORD_KEY entry, or null.
   recorded: string | null;
-  // False when pharn.records.json is absent, invalid or stamped for another
-  // install state — `recordsBaseline`'s null.
+  // False when pharn.records.json is absent or invalid — `recordsBaseline`'s
+  // null.
   recordsAvailable: boolean;
   force: boolean;
 }): ModelsUpdate {

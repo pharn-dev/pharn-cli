@@ -264,7 +264,7 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   const { counts } = plan;
 
   // The note quotes strings from the hand-editable pharn.records.json (a key,
-  // the stamp): escape the VALUE here, never the line (CORE-170). The JSON
+  // a schemaVersion): escape the VALUE here, never the line (CORE-170). The JSON
   // report carries it raw, because its serializer escapes it.
   if (recordsNote) log.warn(`⚠ ${escapeUnsafe(recordsNote)}`);
 

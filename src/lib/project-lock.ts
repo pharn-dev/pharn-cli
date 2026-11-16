@@ -26,11 +26,11 @@ import { safeJoin } from './validate.js';
 // backs up and overwrites F; B — which planned against the pre-A snapshot —
 // overwrites F again from its own clone and persists records claiming F's hash;
 // A then persists ITS records and config last, recording a hash for F that B's
-// copy replaced. The store now disagrees with disk UNDER A MATCHING STAMP, which
-// is precisely the state the stamp check exists to detect.
+// copy replaced. The store now disagrees with disk UNDER A MATCHING STAMP.
 //
-// The stamp cannot catch it: it only detects an interleave that SPLITS one
-// process's records/config pair. Skipped and unchanged files carry plan-time
+// Nothing else catches it: the stamp is diagnostics only (it never gates the
+// baseline, lib/install-records.ts), and even read as a check it would only
+// show an interleave that SPLITS one process's records/config pair. Skipped and unchanged files carry plan-time
 // hashes straight through to persist with no re-read of disk, so when one pair
 // lands last and intact the result is a silently-wrong drift baseline — no
 // crash, no warning, and `update`'s entire ability to tell "pharn wrote this"

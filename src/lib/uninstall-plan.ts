@@ -10,8 +10,8 @@ import { safeJoin } from './validate.js';
 // What `pharn uninstall` may delete. Read-only: it classifies, it never writes.
 //
 // The only proof that pharn wrote a file is `pharn.records.json` — a contentHash of
-// the bytes every install wrote, stamp-checked against `pharn.config.json` by the
-// caller (`recordsBaseline`). Uninstall has no clone, so the install manifest is
+// the bytes every install wrote, validated by the caller (`recordsBaseline`;
+// its stamp is never a gate — a recorded hash proves authorship on its own). Uninstall has no clone, so the install manifest is
 // out of reach; the RECORD STORE is therefore the candidate list, and a file
 // pharn has no record of is never a candidate at all.
 //

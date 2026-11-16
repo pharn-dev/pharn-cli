@@ -359,7 +359,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       // cleaned up first, nothing written); otherwise there is no question.
       let overwrite: Awaited<ReturnType<typeof confirmWriteTargets>> = 'cancel';
       if (manifest !== null) {
-        const records = reinstallBaseline(cwd, carry.previousStamp);
+        const records = reinstallBaseline(cwd, carry);
         // The dropped capabilities' directories this install would delete —
         // listed in the prompt, and refused here (CapabilityRemovalError, a
         // named refusal, nothing written) when one sits behind a symlink or
@@ -439,7 +439,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
               projectRoot: cwd,
               capabilities: selection.selected,
               manifest,
-              records: reinstallBaseline(cwd, carry.previousStamp),
+              records: reinstallBaseline(cwd, carry),
               removals: planInitRemovals(cwd, carry),
             });
           }

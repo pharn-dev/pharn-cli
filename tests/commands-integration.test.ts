@@ -90,6 +90,8 @@ const tarballUrl = (sha: string): string =>
 
 const SHA_V1 = '1'.repeat(40);
 const SHA_V2 = '2'.repeat(40);
+// The same 1.0.0 at a later commit — what a torn `add` stamps the store with.
+const SHA_V1_LATER = '3'.repeat(40);
 
 // pharn-oss's own `models` block, which init copies verbatim.
 const UPSTREAM_MODELS = {
@@ -668,6 +670,61 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(cfg.pharnVersion).toBe(PHARN_VERSION);
   });
 
+  // CORE-161, the reviewed repro: a torn `add` (records written stamped for a
+  // commit the config never reached, the config write lost), then upstream
+  // releases. A recorded hash proves authorship whatever the stamp, so the
+  // unedited files upgrade, the edited one skips as `modified`, nothing is
+  // `unrecorded` or `unverifiable` — on this run or the next — and no
+  // `--force` is needed.
+  it('update --yes after a torn add and an upstream bump upgrades clean files without --force', async () => {
+    await init();
+    const configBefore = read('pharn.config.json');
+    serveTip(SHA_V1_LATER, '1.0.0');
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    // The torn half: the store carries the add, the config never did.
+    writeFileSync(at('pharn.config.json'), configBefore);
+    expect(records().commit).toBe(SHA_V1_LATER);
+    expect(config().commit).toBe(SHA_V1);
+    const v1Constitution = records().files[CONSTITUTION];
+    writeFileSync(at(CONSTITUTION), 'my own constitution\n');
+
+    serveTip(SHA_V2, '2.0.0');
+    const skippedNotes = (): string =>
+      vi
+        .mocked(clack.note)
+        .mock.calls.filter(([, title]) => title === 'SKIPPED')
+        .map(([body]) => String(body))
+        .join('\n');
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+
+    // Unedited files upgrade: the store still proves pharn wrote them.
+    expect(read(SECURITY)).toContain('security 2.0.0');
+    expect(read(PLAN_COMMAND)).toBe('plan\n');
+    expect(records().files[SECURITY]).toBe(sha256(SECURITY));
+    // The edited file is the user's: kept, its record carried.
+    expect(read(CONSTITUTION)).toBe('my own constitution\n');
+    expect(records().files[CONSTITUTION]).toBe(v1Constitution);
+    const first = skippedNotes();
+    expect(first).toContain('MODIFIED');
+    expect(first).toContain(CONSTITUTION);
+    expect(first).not.toContain('UNRECORDED');
+    expect(first).not.toContain('UNVERIFIABLE');
+    expect(config().pendingSkillsVersion).toBe('2.0.0');
+    expect(existsSync(at('pharn/.backup'))).toBe(false);
+
+    // The next run reads the same: still only the user's edit, never
+    // `unrecorded`.
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    const second = skippedNotes();
+    expect(second).toContain('MODIFIED');
+    expect(second).not.toContain('UNRECORDED');
+    expect(second).not.toContain('UNVERIFIABLE');
+    expect(read(CONSTITUTION)).toBe('my own constitution\n');
+    expect(existsSync(at('pharn/.backup'))).toBe(false);
+  });
+
   // 0.18.0, the measured mixed-version failure: a NEW floor file beside an
   // EDITED one. The executable unit (floor + hooks + pharn-* commands) is
   // written all or none, so nothing in it lands; everything else still
@@ -867,24 +924,21 @@ describe('a hostile pharn.records.json reaches the terminal escaped', () => {
     writeFileSync(at('pharn.records.json'), JSON.stringify(r, null, 2));
   };
 
-  it('a hostile stamp at the same upstream version: update prints it escaped, --json escapes it once', async () => {
+  // CORE-161: the stamp no longer gates the baseline, so no note quotes it —
+  // a hostile stamp is never printed, raw or otherwise, even when upstream
+  // moves and the run plans.
+  it('a hostile stamp is never printed: update (newer upstream) names no stamp, --json carries no note', async () => {
     await init();
     plantStore((r) => {
       r.skillsVersion = `1.0.0${CSI}2J${RLO}x${ESC}[31m`;
     });
-    // JSON.stringify escaped ESC when the note was built; the two it leaves
-    // raw are escaped at print.
-    const shown = '"1.0.0\\u009b2J\\u202ex\\u001b[31m"';
+    serveTip(SHA_V2, '2.0.0');
 
     clearPrinted();
     expect(await run(() => runUpdate({ dryRun: true }))).toBeNull();
-    expect(
-      vi.mocked(clack.log.warn).mock.calls.map(String).join('\n'),
-    ).toContain(shown);
     expectNoRaw(printed());
+    expect(printed()).not.toContain('2J');
 
-    // The JSON report carries the note RAW and the serializer escapes it,
-    // losslessly: escaping it at build time as well would escape it twice.
     stdout = [];
     expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
     expect(stdout).toHaveLength(1);
@@ -892,16 +946,12 @@ describe('a hostile pharn.records.json reaches the terminal escaped', () => {
     const report = JSON.parse(stdout[0]!) as {
       plan: { recordsNote: string | null };
     };
-    expect(report.plan.recordsNote).toContain(
-      `"1.0.0${CSI}2J${RLO}x\\u001b[31m"`,
-    );
+    expect(report.plan.recordsNote).toBeNull();
 
     clearPrinted();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    expect(
-      vi.mocked(clack.log.warn).mock.calls.map(String).join('\n'),
-    ).toContain(shown);
     expectNoRaw(printed());
+    expect(printed()).not.toContain('2J');
   });
 
   it('a hostile key in an invalid store: update (newer upstream) and uninstall print it escaped', async () => {

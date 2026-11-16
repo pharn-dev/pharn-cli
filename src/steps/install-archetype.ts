@@ -171,7 +171,7 @@ export async function runInstallArchetype(
   // Taken HERE, under init's lock and immediately before the copy, not at the
   // prompt: an edit made while the prompt was open must be covered too, so this
   // scan is the authoritative one — the prompt's labels are advisory.
-  const baseline = reinstallBaseline(cwd, carry.previousStamp);
+  const baseline = reinstallBaseline(cwd, carry);
   const scan = scanDest({
     repoDir,
     projectRoot: cwd,
@@ -527,8 +527,8 @@ export async function runInstallArchetype(
 /**
  * The records of every kept (frozen) capability, carried from the store this
  * install replaces — the pair `update` uses for its frozen entries
- * (`recordsBaseline` + `recordsUnderCapabilities`). A store that is absent,
- * unreadable, or stamped for a different install state carries NOTHING: never
+ * (`recordsBaseline` + `recordsUnderCapabilities`). A store that is absent or
+ * unreadable carries NOTHING (one stamped for another state still carries): never
  * minted, never blessed. Nothing under a kept capability was touched, so the
  * hashes it does carry are still true; dropping them would make the next
  * `update` read those files as `unrecorded` and skip them. Keyed at the clone's

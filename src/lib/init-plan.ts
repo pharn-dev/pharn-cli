@@ -105,8 +105,11 @@ export interface InstallCarry {
   // copied for them: each is written back VERBATIM, listed in
   // `frozenCapabilities` so `update` re-checks it, and keeps its records.
   kept: readonly InstalledCapability[];
-  // The (skillsVersion, commit) of the config being replaced — the stamp the
-  // records store must carry for a kept entry's records to be trusted.
+  // The (skillsVersion, commit) of the config being replaced, or null on a
+  // first install (no readable config to replace). Non-null is what makes this
+  // a RE-install: only then does init read the records the replaced install
+  // wrote (reinstallBaseline) or retire its root footprint. The records'
+  // own stamp is never compared with it (lib/install-records.ts, THE STAMP).
   previousStamp: { skillsVersion: string; commit: string | null } | null;
   // Not carried over: the channel THIS run installed from, recorded as the
   // config's `ref` — `"latest"` for `--ref latest`, absent (the `main`
@@ -259,7 +262,7 @@ export function planInitRemovals(
     cwd,
     paths: layoutPaths(carry.previousLayout ?? 'flat'),
     drops,
-    records: reinstallBaseline(cwd, carry.previousStamp),
+    records: reinstallBaseline(cwd, carry),
     command: 'init',
   });
 }
@@ -307,11 +310,11 @@ export function resolveInitSelection(params: {
 
 /**
  * The records a re-install tells pharn's bytes from the user's by: the store
- * the install replaces, through `update`'s own gate (`recordsBaseline`) against
- * the stamp of the config it replaces. `null` — a first install, or a store
- * that is absent, corrupt or stamped for another install state — means every
- * file that differs from upstream is `unverifiable`, and so backed up: never
- * minted, never blessed, never guessed about.
+ * the install replaces, through `update`'s own reader (`recordsBaseline`) —
+ * used whatever its stamp, since a recorded hash proves authorship on its own.
+ * `null` — a first install (no replaced config), or a store that is absent or
+ * corrupt — means every file that differs from upstream is `unverifiable`, and
+ * so backed up: never minted, never blessed, never guessed about.
  *
  * Keyed by PATH, at the layout of the install that wrote it. A re-install
  * whose clone changed layout (flat → pharn/) writes to new paths, which the
@@ -323,11 +326,11 @@ export function resolveInitSelection(params: {
  */
 export function reinstallBaseline(
   cwd: string,
-  previousStamp: InstallCarry['previousStamp'],
+  carry: Pick<InstallCarry, 'previousStamp'>,
 ): FileRecords | null {
-  return previousStamp === null
+  return carry.previousStamp === null
     ? null
-    : recordsBaseline(readRecords(cwd), previousStamp).records;
+    : recordsBaseline(readRecords(cwd)).records;
 }
 
 /**
@@ -346,7 +349,7 @@ export function initRecordedPaths(params: {
   layout: Layout;
 }): string[] {
   const { cwd, manifest, carry, capabilities, layout } = params;
-  const baseline = reinstallBaseline(cwd, carry.previousStamp);
+  const baseline = reinstallBaseline(cwd, carry);
   const kept =
     carry.kept.length === 0 || baseline === null
       ? {}
@@ -494,7 +497,7 @@ export function initRootMigration(
     layout: detectLayout(repoDir),
     installedLayout: carry.previousLayout ?? 'flat',
     skillsVersion,
-    records: reinstallBaseline(cwd, carry.previousStamp),
+    records: reinstallBaseline(cwd, carry),
   });
 }
 
@@ -576,7 +579,7 @@ export function buildInitPlan(params: {
     projectRoot: cwd,
     capabilities: selection.selected,
     manifest,
-    records: reinstallBaseline(cwd, carry.previousStamp),
+    records: reinstallBaseline(cwd, carry),
   });
   const existing = new Set(conflicts);
   const targets: InitTarget[] = [

@@ -33,8 +33,8 @@ missing ones; files identical to upstream are no-ops and have their records refr
 | Field           | Type           | Description                                                                               |
 | --------------- | -------------- | ----------------------------------------------------------------------------------------- |
 | `schemaVersion` | number         | Matched **exactly**. An unknown value is not guessed at — see below                       |
-| `skillsVersion` | string         | The `skillsVersion` in `pharn.config.json` when this store was written                    |
-| `commit`        | string \| null | The `commit` in `pharn.config.json` when this store was written                           |
+| `skillsVersion` | string         | The `skillsVersion` in `pharn.config.json` when this store was written (never a gate)     |
+| `commit`        | string \| null | The `commit` in `pharn.config.json` when this store was written (never a gate)            |
 | `files`         | object         | Project-root-relative path → content hash (lowercase sha256 hex) of the bytes that landed |
 
 Hashes are taken from the **written file**, never from the upstream source, so a record cannot
@@ -90,20 +90,31 @@ differs from upstream, labelling them `unverifiable` — whenever it is:
   Any one of these invalidates the **whole** store rather than
   a single entry, and the reason is reported by name so a fixable JSON error is not mistaken for a
   legacy install;
-- **an unknown `schemaVersion`** — a store written by a newer `pharn` is never partially interpreted;
-- **stamped for a different state** — `skillsVersion`/`commit` here disagree with `pharn.config.json`.
-  Every `pharn` operation writes both files together, so a disagreement means something else changed
-  one without the other (typically an older CLI that rewrote the tree while ignoring this file).
-  Trusting it would label upstream's bytes as your edits and freeze the install. The typical
-  cause is an interrupted `pharn add` or `pharn update` (each writes this file before the config);
-  at the same skills version `pharn update` then re-applies the install and writes the store again
-  with the config's stamp — see
-  [A records store from an interrupted run](../commands/update.md#a-records-store-from-an-interrupted-run).
+- **an unknown `schemaVersion`** — a store written by a newer `pharn` is never partially interpreted.
 
 In every case the consequence for **present** files that differ is the same and it is the safe
 one: `pharn` skips rather than overwrites, and tells you why. **Missing** expected files are still
 restored; files already identical to upstream are no-ops. `pharn update --force` backs up and
 overwrites the skipped files instead.
+
+## The stamp is not a gate
+
+`skillsVersion` and `commit` record the config's values when the store was written. They help when you
+read the file, but no command compares them with `pharn.config.json` before using the store. A path
+whose current hash equals its recorded hash holds bytes `pharn` wrote, whatever version the store was
+written for — and that is the only thing the [update table](../commands/update.md) needs.
+
+So a store from an interrupted `pharn add` or `pharn update` (each writes this file before the
+config, so a failure between the two leaves it stamped for a state the config never reached) is used
+as it is: on the next upstream release your unedited files upgrade, your edited ones are skipped as
+`modified`, and no `--force` is needed. Every overwrite and every delete still requires the file's
+hash to equal its record. Two edge cases follow from that:
+
+- **A store left by an older `pharn`** that rewrote the tree while ignoring this file still holds the
+  hashes of the bytes that older install wrote. A file upstream has since changed then reads as
+  `modified` instead of `unverifiable` — a different label, the same outcome: it is skipped.
+- **A file you reverted on purpose** to bytes such a store recorded matches its record, so `update`
+  upgrades it like any other file `pharn` wrote.
 
 ## Pruning
 
@@ -134,9 +145,9 @@ over instead. Dropping them would make every one of those files `unrecorded` on 
 removes it, rather than leaving them for the next `update`. It drops every key under that capability's
 directory — matched as a **string prefix on the key**, never by walking your filesystem, which is what
 lets it clean up correctly even when the directory was already gone. Nothing else in the store is
-touched, and the `skillsVersion`/`commit` stamp does not move: `remove` changes neither, so the store
-stays stamped for the state it is still in. If the store is absent, unreadable, or stamped for another
-state, `remove` leaves the file exactly as it found it — it never mints a store and never rewrites one
+touched, and the `skillsVersion`/`commit` stamp is written with the values `pharn.config.json` holds:
+`remove` changes neither. If the store is absent or unreadable, `remove` leaves the file exactly as it
+found it — it never mints a store and never rewrites one
 it could not verify, the same rule [`add`](../commands/add.md) follows.
 
 Before that delete, `remove` also **reads** the store: a file in the capability directory whose path is
@@ -151,7 +162,8 @@ recorded here at its current hash is deleted without a copy, and every other fil
 writes at your recorded layout, the file is a regular file reached without a symlinked directory, and
 its bytes still match the recorded hash. Every other key is left alone — an edited file is kept and
 listed, and a key outside `pharn`'s install paths is never deleted whatever its hash says. With no
-usable store (absent, corrupt, or stamped for another state) `uninstall` refuses and deletes nothing.
+usable store (absent or corrupt) `uninstall` refuses and deletes nothing; a store written for another
+`skillsVersion`/`commit` is still usable, since only a file whose hash equals its record is deleted.
 The store itself is deleted after the files, before `pharn.config.json`.
 
 ## Trust
@@ -178,8 +190,7 @@ key is never touched, whatever its hash). Within those paths, a hash edited to m
 `init`, `add`, `remove`, `update` and `uninstall` hold a single-writer lock — `pharn/.lock` (inside `pharn/`),
 carrying the holder's pid, host, command and start time — across the write phase, and a second pharn
 process refuses instead of interleaving. Without it, two runs can leave this store describing bytes
-the other one replaced, **under a matching stamp**, which is precisely the case the stamp cannot
-detect. See [troubleshooting](../troubleshooting.md#another-pharn-process-is-running).
+the other one replaced, with nothing in the store to show it (the stamp is not a check). See [troubleshooting](../troubleshooting.md#another-pharn-process-is-running).
 
 The lock is a transient sidecar, not part of the install: it is never in the expected install set,
 never in the overwrite-conflict list, and never recorded here — so `pharn status` reports no drift on
@@ -188,7 +199,7 @@ it. `list` and `status` neither take it nor are blocked by it.
 ## Related
 
 - [update](../commands/update.md) — the decision table these hashes drive
-- [pharn.config.json](pharn-config.md) — the config this store is stamped against
+- [pharn.config.json](pharn-config.md) — the config whose `skillsVersion`/`commit` this store records
 - [status](../commands/status.md) — the read-only drift report
 - [`THREAT-MODEL.md` §4c](../../THREAT-MODEL.md) and [`LIMITS.md` §1b](../../LIMITS.md) — why these
   hashes are **drift baselines, not provenance**: they are taken from the written file, so they detect
