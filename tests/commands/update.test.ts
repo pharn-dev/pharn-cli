@@ -2365,6 +2365,35 @@ describe('capability membership', () => {
     expect(printed()).not.toContain(DEBUG_HINT);
   });
 
+  it.skipIf(asRoot)(
+    'a file in a dropped directory that becomes unreadable while the confirm is open refuses the run, nothing deleted',
+    async () => {
+      // pharn's own recorded file: proving it unchanged means reading it.
+      const recorded = `${A11Y_DIR}/a11y.md`;
+      await droppedA11y(false);
+      const bytes = read(recorded);
+      setTTY(true, true);
+      vi.mocked(clack.confirm).mockImplementationOnce(async () => {
+        chmodSync(at(recorded), 0o000);
+        return true;
+      });
+      try {
+        expect(await run(() => runUpdate())).toBe(1);
+      } finally {
+        chmodSync(at(recorded), 0o644);
+      }
+      expect(read(recorded)).toBe(bytes);
+      expect(exists('pharn/.backup')).toBe(false);
+      expect(config().skillsVersion).toBe('1.0.0');
+      const said = printed();
+      expect(said).toContain(
+        `Could not check the files in ${A11Y_DIR}/ before \`pharn update\` deletes them`,
+      );
+      expect(said).toContain('Nothing was changed.');
+      expect(said).not.toContain(DEBUG_HINT);
+    },
+  );
+
   it('a file added to a dropped directory while the confirm is open is backed up before the delete', async () => {
     await droppedA11y(false);
     setTTY(true, true);
