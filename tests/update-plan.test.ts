@@ -192,6 +192,76 @@ describe('buildUpdatePlan', () => {
     expect(report.skipped).toEqual([{ label: 'modified', rels: [DOC] }]);
   });
 
+  // CORE-162: the state a withheld run leaves — every file but the kept edit
+  // at 1.1.0 and recorded, 1.1.0 pending — is a plan that changes nothing.
+  describe('changesNothing', () => {
+    const settled = config({
+      capabilities: [{ ...CAP, source: 'auto' }],
+      pendingSkillsVersion: '1.1.0',
+    });
+
+    async function afterWithheldRun(): Promise<void> {
+      await fixture();
+      writeFileSync(join(proj, '.gitignore'), 'pharn/.run/\npharn/.backup/\n');
+      const docRecord = contentHash(join(proj, DOC));
+      write(join(proj, CAP_FILE), 'a11y v2');
+      write(join(proj, DOC), 'MY EDIT');
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: null,
+        files: {
+          [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+          [DOC]: docRecord,
+        },
+      });
+    }
+
+    it('holds for a kept edit over a settled install', async () => {
+      await afterWithheldRun();
+      const { report } = plan(settled);
+      expect(report.skipped).toEqual([{ label: 'modified', rels: [DOC] }]);
+      expect(report.writes).toEqual([]);
+      expect(report.stateChanges).toEqual({ config: false, records: false });
+      expect(report.changesNothing).toBe(true);
+    });
+
+    it('does not hold when the config would change (pending not yet recorded)', async () => {
+      await afterWithheldRun();
+      const { pendingSkillsVersion: _p, ...noPending } = settled;
+      const { report } = plan(noPending as PharnConfig);
+      expect(report.stateChanges).toEqual({ config: true, records: false });
+      expect(report.changesNothing).toBe(false);
+    });
+
+    it('does not hold when the store would change (an upstream file not yet recorded)', async () => {
+      await afterWithheldRun();
+      // CAP_FILE is already at upstream but unrecorded: the run records it.
+      const read = (await import('../src/lib/install-records.js')).readRecords(
+        proj,
+      );
+      const files = read.kind === 'ok' ? { ...read.store.files } : {};
+      delete files[CAP_FILE];
+      await writeRecords(proj, { skillsVersion: '1.0.0', commit: null, files });
+      const { report } = plan(settled);
+      expect(report.writes).toEqual([]);
+      expect(report.stateChanges).toEqual({ config: false, records: true });
+      expect(report.changesNothing).toBe(false);
+    });
+
+    it('does not hold when a file would be written', async () => {
+      const { report } = await (async () => {
+        await fixture();
+        writeFileSync(
+          join(proj, '.gitignore'),
+          'pharn/.run/\npharn/.backup/\n',
+        );
+        return plan(settled);
+      })();
+      expect(report.writes.length).toBeGreaterThan(0);
+      expect(report.changesNothing).toBe(false);
+    });
+  });
+
   it('records no pending version when the skip is not a user edit', async () => {
     await fixture();
     // A directory where a regular file is expected → `unreadable`.

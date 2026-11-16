@@ -1,11 +1,6 @@
-import {
-  gitignoreLines,
-  gitignorePending,
-  type GitignoreOutcome,
-} from './gitignore.js';
+import { gitignoreLines, type GitignoreOutcome } from './gitignore.js';
 import {
   prettierignoreLines,
-  prettierignorePending,
   type PrettierignoreOutcome,
 } from './prettierignore.js';
 import { log, note, outro } from '@clack/prompts';
@@ -22,6 +17,7 @@ import {
   type BackupAction,
 } from './backup.js';
 import { RECORDS_FILE } from './install-records.js';
+import { changesNoFiles } from './update-next.js';
 import { modelsLabelLines } from './model-config-format.js';
 import type { ModelsUpdate } from './models-update.js';
 import { escapeUnsafe, terminalSafe } from './terminal-safe.js';
@@ -115,6 +111,75 @@ export interface UpdateOutcome {
   // the writer actually did. Both null when nothing applied.
   rootMigration: RootMigration | null;
   rootMigrationResult: RootMigrationResult | null;
+  // True when the plan changed nothing (lib/update-next.ts, CORE-162): no
+  // confirm was asked and nothing was written, so the report ends with the
+  // no-change verdict instead of the counts summary.
+  unchanged?: boolean;
+}
+
+/**
+ * The closing words of a run — real or dry — whose plan changes nothing
+ * (CORE-162). "Up to date." only when nothing is skipped either and the
+ * recorded version is the installed one; a kept edit, a held unit or a
+ * withheld version is "Nothing to change." after the notes that name it.
+ * ONE wording for both outros, so they cannot drift apart.
+ */
+export function noChangeVerdict(
+  r: Pick<UpdatePlanReport, 'counts' | 'recordedVersion' | 'installedVersion'>,
+): 'Up to date.' | 'Nothing to change.' {
+  return r.counts.skipped === 0 && r.recordedVersion === r.installedVersion
+    ? 'Up to date.'
+    : 'Nothing to change.';
+}
+
+/**
+ * The files a `--force` run overwrites, grouped by why each is not pharn's to
+ * overwrite without it — plus `pharn.config.json` when the user's models block
+ * is replaced (the whole file is backed up first). ONE list for the dry run's
+ * PLAN note (`WOULD`) and the real run's note before its confirm (`WILL`).
+ * Empty groups are left out.
+ */
+export function forcedOverwriteSections(
+  r: Pick<UpdatePlanReport, 'files' | 'models'>,
+  verb: 'WOULD' | 'WILL',
+): { heading: string; rels: string[] }[] {
+  const sections = (['modified', 'unrecorded', 'unverifiable'] as const).map(
+    (label) => ({
+      heading: `${verb} OVERWRITE (--force) — ${label}`,
+      rels: r.files
+        .filter((f) => f.action === 'write' && f.forced && f.label === label)
+        .map((f) => f.rel),
+    }),
+  );
+  sections.push({
+    heading: `${verb} OVERWRITE (--force) — your models block`,
+    rels: r.models.backup ? [CONFIG_FILENAME] : [],
+  });
+  return sections.filter((s) => s.rels.length > 0);
+}
+
+/**
+ * The real run's `--force` note, printed BEFORE its confirm (and printed under
+ * `--yes` too, like every other note): every file the confirm's "overwrite
+ * your changes" refers to. Nothing to overwrite → no note.
+ */
+export function reportForcedOverwrites(
+  r: Pick<UpdatePlanReport, 'files' | 'models' | 'backups'>,
+): void {
+  const sections = forcedOverwriteSections(r, 'WILL');
+  if (sections.length === 0) return;
+  const lines: string[] = [];
+  for (const { heading, rels } of sections) {
+    lines.push(`  ${heading}`);
+    for (const rel of rels) lines.push(`  ${rel}`);
+    lines.push('');
+  }
+  lines.push(
+    pc.dim(
+      `  Each is copied to ${BACKUP_DIR}/<timestamp>/ first (${r.backups.length} file(s)).`,
+    ),
+  );
+  note(lines.join('\n'), 'OVERWRITE');
 }
 
 // The ROOT MIGRATION note (lib/root-migration.ts owns the wording, shared with
@@ -232,6 +297,13 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
     log.warn(
       `${counts.skipped} file(s) were skipped, so your install is still recorded as skills v${outcome.recordedVersion} (upstream is v${outcome.installedVersion}) — resolve them${forceable ? ', or re-run with --force,' : ''} to finish the upgrade.`,
     );
+  }
+
+  if (outcome.unchanged) {
+    outro(
+      `${noChangeVerdict({ counts, recordedVersion: outcome.recordedVersion, installedVersion: outcome.installedVersion })} ${pc.dim(`(unchanged ${counts.ok} · skipped ${counts.skipped} · ${outcome.capCount} capabilit${outcome.capCount === 1 ? 'y' : 'ies'}, skills v${outcome.recordedVersion})`)}`,
+    );
+    return;
   }
 
   const summary =
@@ -368,12 +440,7 @@ export function reportDryRun(
       heading: 'WOULD WRITE — updated (still exactly as pharn wrote them)',
       rels: writes.filter((f) => f.label === 'updated').map((f) => f.rel),
     },
-    ...(['modified', 'unrecorded', 'unverifiable'] as const).map((label) => ({
-      heading: `WOULD OVERWRITE (--force) — ${label}`,
-      rels: writes
-        .filter((f) => f.forced && f.label === label)
-        .map((f) => f.rel),
-    })),
+    ...forcedOverwriteSections(r, 'WOULD'),
   ];
   const deletes = r.removals.filter((removal) => removal.present);
   sections.push({
@@ -389,10 +456,6 @@ export function reportDryRun(
       ...r.rootMoveBackups,
     ]),
   ];
-  // The root migration changes the project too (its own note names what).
-  const migrates =
-    (r.rootMigration?.docs ?? []).some((d) => d.action === 'delete') ||
-    (r.rootMigration?.moves ?? []).some((m) => m.action === 'move');
   const lines: string[] = [];
   for (const { heading, rels } of sections) {
     if (rels.length === 0) continue;
@@ -418,14 +481,16 @@ export function reportDryRun(
   });
   if (prettierignore !== null && !prettierignore.warn)
     lines.push(`  ${prettierignore.text}`, '');
-  if (
-    writes.length === 0 &&
-    deletes.length === 0 &&
-    !migrates &&
-    !gitignorePending(r.gitignore) &&
-    !prettierignorePending(r.prettierignore)
-  )
-    lines.push('  Nothing would be written.', '');
+  // THE "changes nothing" predicate (lib/update-next.ts) — the same boolean
+  // the real run and `--json` read. When the only changes left are the state
+  // files, say which: the old "Nothing would be written." hid them.
+  const stateFiles = [
+    ...(r.stateChanges.config ? [CONFIG_FILENAME] : []),
+    ...(r.stateChanges.records ? [RECORDS_FILE] : []),
+  ];
+  if (r.changesNothing) lines.push('  Nothing would be written.', '');
+  else if (changesNoFiles(r))
+    lines.push(`  Would rewrite only ${stateFiles.join(' and ')}.`, '');
   lines.push(
     `  UNCHANGED ${r.counts.ok} file(s) · SKIPPED ${r.counts.skipped} file(s)`,
   );
@@ -467,6 +532,12 @@ export function reportDryRun(
     );
   }
 
+  if (r.changesNothing) {
+    outro(
+      `Dry run — ${noChangeVerdict(r)} Unchanged ${r.counts.ok} · skipped ${r.counts.skipped}. A real run would ask nothing and write nothing.`,
+    );
+    return;
+  }
   outro(
     `Dry run — would write ${writes.length}${deletes.length > 0 ? ` · delete ${deletes.length} director${deletes.length === 1 ? 'y' : 'ies'}` : ''} · back up ${backupRels.length} · unchanged ${r.counts.ok} · skipped ${r.counts.skipped}. Nothing was changed. Run \`pharn update${force ? ' --force' : ''}\` to apply.`,
   );

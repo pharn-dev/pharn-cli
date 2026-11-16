@@ -191,6 +191,11 @@ export interface UpdateReport {
     // (lib/prettierignore.ts). Present ONLY when it would add something (or
     // would have to leave the file alone). Added in 0.17.0.
     prettierignore?: PrettierignoreReport;
+    // Present (as `true`) ONLY when a real run would change nothing — no file,
+    // directory, record or config field beyond `updatedAt`/`pharnVersion`
+    // (lib/update-next.ts) — and so would ask nothing and write nothing.
+    // `status` stays `planned`. Additive within schemaVersion 1 (CORE-162).
+    changesNothing?: true;
   } | null;
 }
 
@@ -355,6 +360,7 @@ function planReport(
       : {}),
     ...gitignoreKey(p.gitignore),
     ...prettierignoreKey(p.prettierignore),
+    ...(p.changesNothing ? { changesNothing: true as const } : {}),
   };
 }
 

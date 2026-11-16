@@ -539,14 +539,77 @@ describe('runUpdate --dry-run', () => {
       expect(outroText()).toContain('Run `pharn update` to apply');
     });
 
-    it('says nothing would be written when everything is current (under --force)', async () => {
+    // CORE-162: the files are current, but the records describe the old bytes
+    // and the config records no commit — a real run rewrites both. The old
+    // "Nothing would be written." hid that; the line now names them.
+    it('names the state files when they are all a run would change (under --force)', async () => {
       await installed({ skillsVersion: '1.1.0' });
       for (const rel of [CAP_FILE, DOC, HOOK, CMD]) {
         write(join(proj, rel), readFileSync(join(repo, rel), 'utf8'));
       }
       await runUpdate({ dryRun: true, force: true });
-      expect(noteBody('PLAN')).toContain('Nothing would be written');
+      expect(noteBody('PLAN')).toContain(
+        'Would rewrite only pharn.config.json and pharn.records.json.',
+      );
+      expect(noteBody('PLAN')).not.toContain('Nothing would be written');
       expect(outroText()).toContain('Run `pharn update --force` to apply');
+    });
+
+    it('says nothing would be written, and ends with the verdict, when the plan changes nothing', async () => {
+      await installed({
+        skillsVersion: '1.1.0',
+        commit: 'a'.repeat(40),
+        capabilities: [{ ...CAP, source: 'auto' }],
+      });
+      for (const rel of [CAP_FILE, DOC, HOOK, CMD]) {
+        write(join(proj, rel), readFileSync(join(repo, rel), 'utf8'));
+      }
+      await writeRecords(proj, {
+        skillsVersion: '1.1.0',
+        commit: 'a'.repeat(40),
+        files: Object.fromEntries(
+          [CAP_FILE, DOC, HOOK, CMD].map((rel) => [
+            rel,
+            contentHash(join(proj, rel)),
+          ]),
+        ),
+      });
+      await runUpdate({ dryRun: true, force: true });
+      expect(noteBody('PLAN')).toContain('Nothing would be written');
+      expect(noteBody('PLAN')).not.toContain('Would rewrite only');
+      expect(outroText()).toContain('Dry run — Up to date.');
+      expect(outroText()).not.toContain('to apply');
+    });
+
+    it('a kept edit that changes nothing ends "Nothing to change." after the SKIPPED note', async () => {
+      // The state a withheld run leaves: every file but the edited DOC at
+      // 1.1.0 and recorded, the bump withheld, 1.1.0 pending.
+      await installed({
+        pendingSkillsVersion: '1.1.0',
+        capabilities: [{ ...CAP, source: 'auto' }],
+      });
+      const docRecord = contentHash(join(proj, DOC));
+      for (const rel of [CAP_FILE, HOOK, CMD]) {
+        write(join(proj, rel), readFileSync(join(repo, rel), 'utf8'));
+      }
+      write(join(proj, DOC), 'MY EDIT');
+      await writeRecords(proj, {
+        skillsVersion: '1.0.0',
+        commit: null,
+        files: {
+          ...Object.fromEntries(
+            [CAP_FILE, HOOK, CMD].map((rel) => [
+              rel,
+              contentHash(join(proj, rel)),
+            ]),
+          ),
+          [DOC]: docRecord,
+        },
+      });
+      await runUpdate({ dryRun: true });
+      expect(noteBody('SKIPPED')).toContain(DOC);
+      expect(noteBody('PLAN')).toContain('Nothing would be written');
+      expect(outroText()).toContain('Dry run — Nothing to change.');
     });
 
     it('previews the .gitignore lines a same-version run would add, writing nothing', async () => {

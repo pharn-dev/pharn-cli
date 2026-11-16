@@ -4244,6 +4244,133 @@ describe('runUpdate (drift-safe)', () => {
     });
   });
 
+  // CORE-162: once a kept edit withholds the bump, every later run re-plans.
+  // A run whose plan changes nothing asks nothing and writes nothing — and a
+  // value the READER resolves (an absent layout, an absent commit, a ref other
+  // than "latest", a re-ordered seam block) never forces a write by itself.
+  describe('a run that changes nothing', () => {
+    // Run 1 over a kept edit: every other file upgraded and recorded, DOC kept,
+    // the bump withheld with 1.1.0 pending. Then `edit` reshapes the written
+    // config by hand, and the next run loads it through the real reader.
+    async function afterWithheldRun(
+      edit: (cfg: Record<string, unknown>) => void = () => undefined,
+    ): Promise<{ config: string; records: string }> {
+      await installed();
+      write(join(proj, DOC), 'MY EDIT');
+      await runUpdate({ yes: true });
+      expect(readPharnConfig(proj)!.pendingSkillsVersion).toBe('1.1.0');
+      const raw = JSON.parse(
+        readFileSync(join(proj, 'pharn.config.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      edit(raw);
+      await writePharnConfig(proj, raw as unknown as PharnConfig);
+      loadArchetypeConfigOrExit.mockReturnValue(readPharnConfig(proj));
+      vi.mocked(prompts.confirm).mockClear();
+      vi.mocked(prompts.outro).mockClear();
+      vi.mocked(prompts.note).mockClear();
+      return {
+        config: readFileSync(join(proj, 'pharn.config.json'), 'utf8'),
+        records: readFileSync(join(proj, RECORDS_FILE), 'utf8'),
+      };
+    }
+
+    async function expectNothingChanged(before: {
+      config: string;
+      records: string;
+    }): Promise<void> {
+      const tree = snapshotTree(proj);
+      await runUpdate();
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      expect(readFileSync(join(proj, 'pharn.config.json'), 'utf8')).toBe(
+        before.config,
+      );
+      expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(
+        before.records,
+      );
+      expect(snapshotTree(proj)).toEqual(tree);
+      expect(existsSync(join(proj, LOCK_FILE))).toBe(false);
+      const notes = vi.mocked(prompts.note).mock.calls;
+      expect(
+        notes.some(([b, t]) => t === 'SKIPPED' && String(b).includes(DOC)),
+      ).toBe(true);
+      expect(String(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0])).toContain(
+        'Nothing to change.',
+      );
+    }
+
+    it('a kept edit: the second run asks nothing and writes nothing', async () => {
+      await expectNothingChanged(await afterWithheldRun());
+    });
+
+    it('a config with no layout key (the clone is flat) is not rewritten', async () => {
+      const before = await afterWithheldRun((cfg) => {
+        delete cfg.layout;
+      });
+      expect(before.config).not.toContain('"layout"');
+      await expectNothingChanged(before);
+    });
+
+    it('a config with no commit key is not rewritten', async () => {
+      const before = await afterWithheldRun((cfg) => {
+        delete cfg.commit;
+      });
+      expect(before.config).not.toContain('"commit"');
+      await expectNothingChanged(before);
+    });
+
+    it('a ref other than "latest" (dropped at load) is not rewritten on main', async () => {
+      const before = await afterWithheldRun((cfg) => {
+        cfg.ref = 'bogus';
+      });
+      await expectNothingChanged(before);
+    });
+
+    it('a seam block the reader re-orders is not rewritten', async () => {
+      const before = await afterWithheldRun((cfg) => {
+        cfg.seam = {
+          haltOnUnknown: true,
+          resolutionOrder: ['pinned-docs', 'ask'],
+        };
+      });
+      await expectNothingChanged(before);
+    });
+
+    // The opposite race: the snapshot changes something, but by the time the
+    // lock is held the work is done — the authoritative re-plan changes
+    // nothing, so nothing is written, not even updatedAt.
+    it('writes nothing when the plan under the lock changes nothing', async () => {
+      const before = await afterWithheldRun();
+      const hook = body(HOOK);
+      rmSync(join(proj, HOOK));
+      vi.mocked(prompts.confirm).mockImplementationOnce(() => {
+        writeFileSync(join(proj, HOOK), hook);
+        return Promise.resolve(true);
+      });
+      await runUpdate();
+      expect(prompts.confirm).toHaveBeenCalledTimes(1);
+      expect(readFileSync(join(proj, 'pharn.config.json'), 'utf8')).toBe(
+        before.config,
+      );
+      expect(readFileSync(join(proj, RECORDS_FILE), 'utf8')).toBe(
+        before.records,
+      );
+      expect(shown).toContain('stop: Nothing to change');
+      expect(String(vi.mocked(prompts.outro).mock.calls.at(-1)?.[0])).toContain(
+        'Nothing to change.',
+      );
+    });
+
+    it('still plans, asks and writes when something does change', async () => {
+      await afterWithheldRun();
+      write(join(proj, CAP_FILE), readFileSync(join(repo, CAP_FILE), 'utf8'));
+      rmSync(join(proj, HOOK));
+      await runUpdate();
+      expect(prompts.confirm).toHaveBeenCalledTimes(1);
+      expect(body(HOOK)).toBe('hook v2');
+      expect(readPharnConfig(proj)!.updatedAt).toEqual(expect.any(String));
+    });
+  });
+
   describe('layout migration (the (d) fix)', () => {
     // A project recorded `flat` meeting a `pharn`-layout clone: the copy has
     // always landed at the clone's paths, but the config used to keep saying

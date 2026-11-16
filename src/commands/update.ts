@@ -5,6 +5,7 @@ import {
   type UpdatePlanReport,
 } from '../lib/update-plan.js';
 import { deleteCapabilityDir } from '../lib/capability-dir.js';
+import { nextConfig, nextRecordStore } from '../lib/update-next.js';
 import {
   backupAction,
   defaultChannelNotice,
@@ -14,6 +15,7 @@ import {
   reportOutcome,
   reportRootMigration,
   reportExecutableUnit,
+  reportForcedOverwrites,
   type Backup,
   type UpdateOutcome,
 } from '../lib/update-render.js';
@@ -586,7 +588,21 @@ async function runArchetypeUpdate(
     pre.stop(planStopMessage(snapshot));
     if (snapshot.kind === 'refused') refusalRef.current = snapshot.refusal;
     else if (snapshot.kind === 'failed') failure = snapshot.failure;
-    else {
+    else if (snapshot.planned.report.changesNothing) {
+      // THE PLAN CHANGES NOTHING (lib/update-next.ts, CORE-162): no file,
+      // directory, root doc, move, ignore-file line, record or config field
+      // beyond updatedAt/pharnVersion. So nothing is asked and nothing is
+      // written — no confirm, no lock, no backup, and no rewrite of
+      // pharn.config.json (so no updatedAt churn in a committed file). The
+      // report below still prints every note (SKIPPED, KEPT, MODELS, HOOKS…):
+      // a kept edit is still worth naming on every run.
+      //
+      // Skipping the lock is safe because nothing is written: the lock only
+      // serialises writers, and a run that wrote meanwhile is the next run's to
+      // see. The opposite race (the snapshot changes something, the locked
+      // re-plan nothing) is answered by applyPlannedUpdate's own check.
+      outcome = unchangedOutcome(snapshot.planned);
+    } else {
       const confirmed = snapshot.planned.report;
       // What this run would change about membership, in the future tense —
       // the same renderer the dry run uses. Nothing changes → no note.
@@ -601,6 +617,9 @@ async function runArchetypeUpdate(
       // The executable unit it would hold (lib/executable-unit.ts), so a user
       // who would rather revert their edits first learns it before applying.
       reportExecutableUnit(confirmed.executableUnit, true);
+      // What "overwrite your changes" means, file by file — named before the
+      // question, not only by `--dry-run`.
+      if (force) reportForcedOverwrites(confirmed);
       const deletes = confirmed.removals.filter((r) => r.present).length;
       // `--yes` skips THE CONFIRM AND NOTHING ELSE. The notes above have
       // already printed (a non-interactive log deserves the same context a
@@ -843,7 +862,11 @@ async function applyUnderLock(
       },
     );
     spinnerRef.current.stop(
-      applied.plan.writes.length ? 'Capabilities updated' : 'Nothing to write',
+      applied.unchanged
+        ? 'Nothing to change'
+        : applied.plan.writes.length
+          ? 'Capabilities updated'
+          : 'Nothing to write',
     );
     return applied;
   });
@@ -864,7 +887,12 @@ async function applyPlannedUpdate(
   onBackup: (backup: Backup) => void,
 ): Promise<UpdateOutcome> {
   const { report, apply } = planned;
-  const { expected, records, plan, models, configCapabilities } = apply;
+  const { expected, records, plan, models } = apply;
+
+  // A plan that changes nothing writes nothing — not even pharn.config.json's
+  // updatedAt/pharnVersion (CORE-162). Checked here as well as before the
+  // confirm, because this plan is the authoritative one made under the lock.
+  if (report.changesNothing) return unchangedOutcome(planned);
 
   // Back up EVERY about-to-be-clobbered file before a single original is
   // touched; a failure here aborts with the whole tree still intact.
@@ -963,9 +991,6 @@ async function applyPlannedUpdate(
       ? { deleted: [], kept: [] }
       : deleteRootDocs(cwd, repoDir, migration.docs);
   const retired = new Set(docResult.deleted);
-  const orphanRecords = Object.fromEntries(
-    Object.entries(apply.orphanRecords).filter(([rel]) => !retired.has(rel)),
-  );
 
   // Records first, then the config: if the config write fails, the records still
   // describe the bytes on disk, and the stamp mismatch makes them safely ignored
@@ -976,54 +1001,17 @@ async function applyPlannedUpdate(
   // exactly the assumption a record exists to avoid making: hashing what landed
   // is what makes "the record cannot disagree with disk" true by construction
   // rather than by trusting the copy (lib/install-records.ts).
-  await writeRecords(cwd, {
-    skillsVersion: apply.nextSkillsVersion,
-    commit: apply.nextCommit,
-    files: {
-      ...apply.frozenRecords,
-      // Orphans keep their record while their file exists, so later runs (and
-      // `status`) still name them. Disjoint from the manifest by construction.
-      // A root doc retired just above is gone, so its record goes with it.
-      ...orphanRecords,
-      ...plan.nextRecords,
-      ...buildRecords(cwd, written),
-      // `planUpdate` keys its records by the manifest, which holds no models
-      // block, so the block's record is written here.
-      ...(models.nextRecord !== null
-        ? { [MODELS_RECORD_KEY]: models.nextRecord }
-        : {}),
-    },
-  });
-  const {
-    pendingSkillsVersion: _previousPending,
-    frozenCapabilities: _previousFrozen,
-    ref: _previousRef,
-    ...rest
-  } = config;
-  await writePharnConfig(cwd, {
-    ...rest,
-    // The CLI that wrote this install state, as `init` records it.
-    pharnVersion: PHARN_VERSION,
-    skillsVersion: apply.nextSkillsVersion,
-    commit: apply.nextCommit,
-    // The channel this run used — even when the version bump is withheld: it is
-    // the user's choice of source, not a claim about the bytes.
-    ...(channel === 'latest' ? { ref: 'latest' as const } : {}),
-    ...(report.pendingSkillsVersion !== null
-      ? { pendingSkillsVersion: report.pendingSkillsVersion }
-      : {}),
-    ...(apply.frozenKeys.length > 0
-      ? { frozenCapabilities: apply.frozenKeys }
-      : {}),
-    capabilities: configCapabilities,
-    layout: report.layout,
-    // `installedAt` rides the spread: it is the first install's date, not this
-    // run's. The time of this rewrite goes in `updatedAt`.
-    updatedAt: new Date().toISOString(),
-    // In place: the key keeps its position in the file, and `undefined` (there
-    // was none and there is none to write) writes no key.
-    models: models.next,
-  });
+  await writeRecords(
+    cwd,
+    nextRecordStore(apply, { written: buildRecords(cwd, written), retired }),
+  );
+  await writePharnConfig(
+    cwd,
+    nextConfig(config, report, apply, channel, {
+      pharnVersion: PHARN_VERSION,
+      updatedAt: new Date().toISOString(),
+    }),
+  );
 
   // Keep PHARN's run state and backups out of git (lib/gitignore.ts): planned
   // again here, under the lock, and appended after every pharn-owned write. A
@@ -1067,6 +1055,42 @@ async function applyPlannedUpdate(
     rootMigration: migration,
     rootMigrationResult:
       migration === null ? null : { ...docResult, ...moveResult },
+  };
+}
+
+// The outcome of a plan that changes nothing (CORE-162): everything the report
+// prints, with nothing written — no backup, no root doc deleted, no move made.
+// The ignore-file plans ride along so a REFUSED `.gitignore`/`.prettierignore`
+// is still warned about, as a writing run warns.
+function unchangedOutcome(planned: PlannedUpdate): UpdateOutcome {
+  const { report, apply } = planned;
+  return {
+    installedVersion: report.installedVersion,
+    recordedVersion: report.recordedVersion,
+    capCount: report.capCount,
+    capabilityChanges: report.capabilityChanges,
+    removals: report.removals,
+    plan: apply.plan,
+    backup: null,
+    recordsNote: report.recordsNote,
+    versionWithheld: report.versionWithheld,
+    abandonedLayout: report.abandonedLayout,
+    featuresReadmeRelocation: report.featuresReadmeRelocation,
+    hookWiring: report.hookWiring,
+    absentUpstream: report.absentUpstream,
+    models: apply.models,
+    modelsFloor: report.modelsFloor,
+    orphans: report.orphans,
+    gitignore: report.gitignore,
+    prettierignore: report.prettierignore,
+    rootMigration: report.rootMigration,
+    // What the writer would report with nothing to do — so a blocked move
+    // still fails the run (rootMigrationFailed), as it does when it writes.
+    rootMigrationResult:
+      report.rootMigration === null
+        ? null
+        : { deleted: [], kept: [], moved: [], failed: [] },
+    unchanged: true,
   };
 }
 
