@@ -1,0 +1,39 @@
+{
+  "base": "790d9c39b33f80083ed5cfff5899a575542f71b0",
+  "inside": [
+    ".dev/features/core-184-parseargs/GRILL.md",
+    ".dev/features/core-184-parseargs/PLAN.md",
+    ".dev/features/core-184-parseargs/REGRESSION.md",
+    ".dev/features/core-184-parseargs/regression-report.json",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "SECURITY.md",
+    "docs/architecture.md",
+    "docs/commands/init.md",
+    "docs/commands/list.md",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "docs/troubleshooting.md",
+    "package-lock.json",
+    "package.json",
+    "scripts/build.mjs",
+    "src/index.ts",
+    "src/lib/cli-args.ts",
+    "tests/cli-args.test.ts",
+    "tests/dist-smoke.test.ts",
+    "tests/index.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
