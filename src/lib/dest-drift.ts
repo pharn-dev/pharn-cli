@@ -22,7 +22,7 @@ import { safeJoin, toPosix } from './validate.js';
 //
 // `unsafe` is a REFUSAL, not a skip: with a symlinked INTERMEDIATE directory,
 // `cpSync` writes straight through it, outside the project included (pinned by
-// tests/dest-drift.test.ts and tests/add.test.ts). A skip would let the copy
+// tests/dest-drift.test.ts and tests/commands/add.test.ts). A skip would let the copy
 // write through while the backup omitted the file, and a backup is impossible
 // (`createBackup` refuses symlinked components).
 //

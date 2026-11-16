@@ -408,8 +408,9 @@ async function resolveArchetypeAdd(
   const scan = scanDest({ repoDir, projectRoot: cwd, rels: cloneRels });
 
   // REFUSE a symlinked component under the capability dir: cpSync writes
-  // THROUGH a symlinked intermediate directory (pinned by tests/add.test.ts,
-  // "REFUSES rather than copy through a symlinked directory"), and such a path
+  // THROUGH a symlinked intermediate directory (pinned by
+  // tests/commands/add.test.ts, "refuses rather than copy through a symlinked
+  // directory, naming it"), and such a path
   // cannot be backed up either.
   if (scan.unsafe.length > 0) {
     const first = scan.unsafe[0]!;

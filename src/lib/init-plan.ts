@@ -361,7 +361,8 @@ export function resolveInitSelection(params: {
  *
  * Keyed by PATH at the old install's layout: a re-install that changed layout
  * writes new paths, so only a user file already at one of them is backed up
- * (`unrecorded`). Pinned by tests/init-archetype.test.ts.
+ * (`unrecorded`). Pinned by tests/commands/init.test.ts ("a layout change
+ * (flat → pharn/) backs up only a file of yours at a new path").
  */
 export function reinstallBaseline(
   cwd: string,

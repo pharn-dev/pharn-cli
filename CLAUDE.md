@@ -1,7 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) working in this repository. The flows behind the bullets below are in
-[`docs/architecture.md`](docs/architecture.md). The "why" behind a guard lives in the module that implements it.
+Guidance for Claude Code in this repository. Flows: [`docs/architecture.md`](docs/architecture.md); each guard's "why" is in its module.
 
 ## What this is
 
@@ -37,8 +36,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   non-required job instead (that is what `Smoke (node floor)`, `node-floor.yml`, is).
 - The ruleset also requires `floor`, `gitleaks` and `Analyze (javascript-typescript)` from other workflows, plus two
   checks no workflow here produces: `Socket Security: Project Report` and `Socket Security: Pull Request Alerts`, from
-  the Socket GitHub App. If Socket renames one, the ruleset must be edited.
-- `tests/ci-workflow.test.ts` checks that the workflows produce the required contexts. It cannot see the ruleset.
+  the Socket GitHub App (if Socket renames one, edit the ruleset). `tests/ci-workflow.test.ts` cannot see the ruleset.
 - Gates run on ubuntu-latest with Node 24 only. The Node floor is `engines.node` `>=24.2.0` (pharn-oss's floor CLIs
   refuse to run below it). `lib/node-floor.ts` `NODE_FLOOR` must equal it, and `init`/`update` refuse to run below it.
 
@@ -49,8 +47,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **No npm tokens exist anywhere.** Publishing uses npm Trusted Publishing (OIDC) only. If a token ever seems needed,
   the Trusted Publisher config is broken: fix it on npmjs.com and **never** add a secret.
 - Only the `publish` job holds `id-token: write`, and it installs nothing. Only `release` holds `contents: write`.
-- The first publish of a new package name is a manual local `npm publish` (npm needs the package to exist first).
-- Full maintainer steps: [`docs/RELEASING.md`](docs/RELEASING.md). `0.2.0` is burned on this package name.
+- A new package name's first publish is a manual local `npm publish`. Full steps: [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Conventions
 
@@ -132,11 +129,14 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 
 ## Testing
 
-- Tests live in `tests/*.test.ts` (vitest, node env). When changing behaviour, update the matching test first.
-- `tests/helpers.ts` has `stubProcessExit` (`process.exit` → a throwable `ProcessExit`), `useTmpDir` and `CANCEL`.
-- Lib tests build fake clones on disk. A fake clone must respect the clone invariant: no links in it.
-- `tests/commands-integration.test.ts` mocks no `src/` module. It runs real commands against a temp project with only
-  `fetch` stubbed to serve a real tarball (`tests/support/tar-fixture.ts`). Use it for bugs between modules.
+- Vitest, node env. Lib tests are `tests/*.test.ts`; command suites are `tests/commands/` (`init`, `init-dry-run`, `add`,
+  `remove`, `update`, `update-dry-run`, `status`, `list`, `uninstall`, `lock`). Update the matching test before the code.
+- A command suite runs the real `run<Command>()` on a temp project via `tests/support/harness.ts`. Only two boundaries
+  are replaced: global `fetch`, which serves a real codeload tarball (`tests/support/tar-fixture.ts`), and
+  `@clack/prompts` (`tests/support/clack-stub.ts`), where an unscripted prompt throws.
+- No test `vi.mock`s a `src/` module (`tests/index.test.ts` excepted). The coverage floors in `vitest.config.ts` are
+  90/85/90/90 (statements/branches/functions/lines).
+- `tests/helpers.ts` has `stubProcessExit`, `useTmpDir`, `CANCEL`. A fake clone must respect the clone invariant (no links).
 - `tests/dist-smoke.test.ts` builds the shipped bundle with `scripts/build.mjs` and runs it (bundle-only regressions).
 - Vendored pharn-oss files in `tests/fixtures/pharn-oss/` are byte-for-byte, sha256-pinned; refresh per `docs/contributing.md`.
 - CI sets `CI=1`, which turns colour on: run `CI=1 npx vitest run` before pushing a test that matches coloured text.
