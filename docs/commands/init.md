@@ -467,8 +467,10 @@ across unchanged, like any [key pharn does not own](../reference/pharn-config.md
 `manual` capabilities and [keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own)
 are carried over (below). A first install has no config to lose, so it backs none up.
 
-`pharn.records.json` counts as usable only when it matches the `skillsVersion` and `commit` of the
-config being replaced, as for `update`. Records are kept by path, so a file of yours at a path the
+`pharn.records.json` counts as usable whenever it parses, whatever `skillsVersion` and `commit` it is
+stamped with, as for `update` (see
+[the stamp is not a gate](../reference/pharn-records.md#the-stamp-is-not-a-gate)); an absent or
+unreadable store is not used, and every differing file is then marked `(differs from upstream)`. Records are kept by path, so a file of yours at a path the
 previous install did not write — for example your own file at a path a newer pharn now installs to —
 has no record and is backed up, marked `(no pharn record)`. A change of layout (flat → `pharn/`)
 installs to new paths and leaves the old copies where they are (`init` never deletes), so it backs up

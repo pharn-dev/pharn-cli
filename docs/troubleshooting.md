@@ -718,12 +718,19 @@ No pharn.config.json found. Run `pharn init` first.
 
 All non-`init` commands operate on an already-installed project. Run `pharn init` to create `pharn.config.json`.
 
-This message means the file is genuinely **not there** (or cannot be read at all). A
-`pharn.config.json` that exists but is broken never produces it — see
-[the corrupt-config case](#a-command-rejects-an-invalid-config-does-not-say-run-init) below. That
-distinction matters: `pharn init` **overwrites** the config, so being told to run it about a file
-that is sitting right there would cost you your recorded capabilities and manual `pharn add`
-provenance.
+This message means the file is **not there**, or is there but cannot be read as a config at all: it
+is not a regular file (a directory, a FIFO), it cannot be opened or is larger than 16 MiB, its JSON
+is not an object, it has no string `skillsVersion`, or it has neither a `capabilities` nor a `modules`
+key. Invalid JSON, and a config that has those keys but an invalid field, get their own named
+errors instead — see [the corrupt-config case](#a-command-rejects-an-invalid-config-does-not-say-run-init)
+below.
+
+If the file **is** there, look at it before you run `pharn init`: init **overwrites** the config, so
+re-running it can cost you your recorded capabilities and manual `pharn add` provenance. A re-run
+`init` over such a file says so in its summary — `the previous pharn.config.json could not be read
+(<reason>); nothing is carried over, so manual capabilities will be dropped` — and its overwrite
+prompt defaults to No. Move the file aside (`mv pharn.config.json pharn.config.json.bak`) if you want
+to keep a copy.
 
 ### Legacy (pre-archetype) config
 
