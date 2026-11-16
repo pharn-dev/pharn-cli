@@ -359,7 +359,7 @@ export async function runInstallArchetype(
     // No constitution variant: the archetype install copies pharn-oss's canonical
     // CONSTITUTION.md verbatim. No modules — capabilities are the install unit —
     // but the empty `modules` key is still written: every released CLI
-    // (0.3.0–0.12.0) reads a config without a `modules` array as NO config, so an
+    // (0.3.0–0.19.x) reads a config without a `modules` array as NO config, so an
     // older, pinned CLI would report this install as absent (and a re-run init
     // from one would carry nothing over). See `PharnConfig.modules`.
     modules: [],

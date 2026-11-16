@@ -425,7 +425,13 @@ Detected archetypes         ssr, backend
 `lib` reads `← no framework signal found`. With `--archetype` the block shows your list and
 `detection found … (not used)` instead; on a re-run whose archetypes differ from the replaced config's,
 a `previously recorded: …` line follows (see `--archetype` above). Paths are printed with terminal
-control characters removed and are cut at 120 characters.
+control characters removed and are cut at 120 characters. On a re-run over a `pharn.config.json` that
+exists but cannot be read, the block also says so, with the reason (see **Re-running `init` over an
+existing install** below):
+
+```text
+    the previous pharn.config.json could not be read (pharn.config.json: archetypes must be an array of "ssr", "backend", "spa", "lib" (found "ssr")); nothing is carried over, so manual capabilities will be dropped
+```
 
 Then it lists the **selected** capabilities (name, role, and why — `universal` or the matched archetype) and the **skipped** ones (with reason), and asks:
 
@@ -479,9 +485,18 @@ is **left as it is**, however it was added: its config entry, files and records 
 listed in `frozenCapabilities` so the next [`pharn update`](update.md) re-checks it. Top-level keys in
 `pharn.config.json` that pharn does not own, such as upstream's `testResults` and `ship`, are copied
 across unchanged — see [Keys pharn does not own](../reference/pharn-config.md#keys-pharn-does-not-own).
-An unreadable or invalid existing config never blocks `init`. Capabilities are carried over only from a
-config the other commands would accept, and your own keys from any config that parses as a JSON object;
-a config that is not valid JSON carries nothing over. If `pharn.config.json` changes while `init` waits at
+An unreadable or invalid existing config never blocks `init`. Capabilities are carried over from any
+config the other commands would accept, which is any config with a string `skillsVersion` and a
+`capabilities` array; a missing `modules` key does not matter. Your own keys are carried over from any
+config that parses as a JSON object. When `pharn.config.json` exists but cannot be read as a config, for
+example because it is not valid JSON, holds a value pharn rejects (an invalid `capabilities` entry,
+`archetypes`, `skillsVersion` or `commit`), is not a JSON object or has no `skillsVersion`, nothing is
+carried over. The summary says so before any prompt, in the real run and in `--dry-run`: _"the previous pharn.config.json could not be read (<reason>); nothing is carried over, so
+manual capabilities will be dropped"_. The reason is the first sentence of the error the other commands
+print, cut at 200 characters. To keep your manual capabilities, cancel, fix the file by hand (the other
+commands name the problem), and re-run. Otherwise the overwrite prompt that follows lists
+`pharn.config.json` and defaults to No. `init --yes` refuses any existing config before it downloads
+anything, so it never gets as far as the summary. If `pharn.config.json` changes while `init` waits at
 its prompts (another `pharn` command wrote it), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 **When `init` refuses to install.** After you choose **install**, and before it asks to overwrite

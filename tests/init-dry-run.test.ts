@@ -317,6 +317,64 @@ describe('pharn init --dry-run', () => {
   describe('over an existing install', () => {
     beforeEach(() => setTTY(true, true));
 
+    // CORE-164: the preview prints the same "could not be read" line the real
+    // run's summary prints, and carries a manual entry over from a config that
+    // has no `modules` key.
+    describe('over a config with no `modules`, or one it cannot read', () => {
+      const configFile = (proj: string): string =>
+        join(proj, 'pharn.config.json');
+      const handEdit = (
+        proj: string,
+        edit: (raw: Record<string, unknown>) => void,
+      ): void => {
+        const raw = JSON.parse(
+          readFileSync(configFile(proj), 'utf8'),
+        ) as Record<string, unknown>;
+        edit(raw);
+        writeFileSync(configFile(proj), JSON.stringify(raw, null, 2));
+      };
+      const summary = (): string =>
+        vi
+          .mocked(prompts.note)
+          .mock.calls.map((c) => stripVTControlCharacters(String(c[0])))
+          .find((b) => b.includes('PHARN Install Summary'))!;
+
+      it('names a config it cannot read, with the reason, and writes nothing', async () => {
+        const { repo, proj } = fixture(tmp.path());
+        await init(repo, proj);
+        handEdit(proj, (raw) => {
+          raw.archetypes = 'ssr';
+        });
+        vi.clearAllMocks();
+
+        await init(repo, proj, { dryRun: true });
+
+        expect(summary()).toContain(
+          'the previous pharn.config.json could not be read (pharn.config.json: archetypes must be an array of "ssr", "backend", "spa", "lib" (found "ssr")); nothing is carried over, so manual capabilities will be dropped',
+        );
+        noWriteReached();
+      });
+
+      it('carries a manual entry over from a config with no `modules` key', async () => {
+        const { repo, proj } = fixture(tmp.path());
+        await init(repo, proj);
+        handEdit(proj, (raw) => {
+          delete raw.modules;
+          raw.capabilities = [
+            ...(raw.capabilities as unknown[]),
+            { name: 'path-traversal', role: 'lens', source: 'manual' },
+          ];
+        });
+        vi.clearAllMocks();
+
+        await init(repo, proj, { dryRun: true });
+
+        expect(summary()).toMatch(/path-traversal \(lens\)\s+added by hand/);
+        expect(summary()).not.toContain('could not be read');
+        noWriteReached();
+      });
+    });
+
     it('marks exactly the files a real run backs up, and backs up none itself', async () => {
       const { repo, proj } = fixture(tmp.path());
       await init(repo, proj);

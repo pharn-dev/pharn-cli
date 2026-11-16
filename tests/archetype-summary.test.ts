@@ -1,5 +1,7 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { CANCEL } from './helpers.js';
+import { CANCEL, useTmpDir } from './helpers.js';
 import type { Archetype, Selection } from '../src/types.js';
 
 vi.mock('@clack/prompts', () => ({
@@ -365,5 +367,149 @@ describe('previousChannelLines (re-run init, lib/init-plan.ts)', () => {
     expect(at).toBeLessThan(
       out.findIndex((l) => l.includes('CAPABILITIES SELECTED')),
     );
+  });
+});
+
+// CORE-164: a re-run init over a config that EXISTS but cannot be read carries
+// nothing over — and the summary now says so, with the reason, instead of
+// dropping the manual capabilities silently.
+const { firstSentence, previousConfigLines, readPreviousConfig } =
+  await import('../src/lib/init-plan.js');
+
+describe('firstSentence (the reason a thrown config error gives)', () => {
+  it.each([
+    ['cuts before the first sentence break', 'One. Two.', 'One'],
+    ['drops a final period', 'Only one.', 'Only one'],
+    ['keeps a text with no period whole', 'no period here', 'no period here'],
+    [
+      'never cuts inside a quoted span, escaped quotes included',
+      'found "a \\". b". Rest',
+      'found "a \\". b"',
+    ],
+    [
+      'never cuts at a period inside a word',
+      'pharn.config.json bad. x',
+      'pharn.config.json bad',
+    ],
+  ])('%s', (_, text, expected) => {
+    expect(firstSentence(text)).toBe(expected);
+  });
+});
+
+describe('previousConfigLines (re-run init, lib/init-plan.ts)', () => {
+  it('is silent when the previous config was read, or there is none', () => {
+    expect(previousConfigLines({ unreadable: null })).toEqual([]);
+  });
+
+  it('names the unreadable config, its reason and the consequence, on one line', () => {
+    expect(
+      previousConfigLines({ unreadable: 'it is not a JSON object' }),
+    ).toEqual([
+      '    the previous pharn.config.json could not be read (it is not a JSON object); nothing is carried over, so manual capabilities will be dropped',
+    ]);
+  });
+
+  it('lands in the summary in the re-run block, before the capabilities', () => {
+    const [line] = previousConfigLines({ unreadable: 'x' });
+    const out = archetypeSummaryLines(archetypes, selection, undefined, null, [
+      line!,
+    ]);
+    const at = out.indexOf(line!);
+    expect(at).toBeGreaterThan(out.findIndex((l) => l.includes('Detected')));
+    expect(at).toBeLessThan(
+      out.findIndex((l) => l.includes('CAPABILITIES SELECTED')),
+    );
+  });
+});
+
+describe('readPreviousConfig — the reason a config that exists was not read', () => {
+  const tmp = useTmpDir();
+  const configFile = (): string => join(tmp.path(), 'pharn.config.json');
+  const writeRaw = (value: unknown): void =>
+    writeFileSync(configFile(), JSON.stringify(value));
+  const archetypeConfig = {
+    skillsVersion: '1.0.0',
+    commit: null,
+    archetypes: ['ssr'],
+    capabilities: [{ name: 'a11y', role: 'lens', source: 'manual' }],
+  };
+
+  it('reports nothing for an absent config (a first install)', () => {
+    expect(readPreviousConfig(tmp.path())).toEqual({
+      fingerprint: 'absent',
+      config: null,
+      unreadable: null,
+    });
+  });
+
+  it('reports nothing for a config it read — `modules` or not', () => {
+    writeRaw(archetypeConfig);
+    const previous = readPreviousConfig(tmp.path());
+    expect(previous.config).toEqual(archetypeConfig);
+    expect(previous.unreadable).toBeNull();
+  });
+
+  it.each([
+    ['not a JSON object', [1, 2], 'it is not a JSON object'],
+    [
+      'missing its `skillsVersion`',
+      { capabilities: [] },
+      'it has no "skillsVersion" string',
+    ],
+    [
+      'neither an archetype nor a legacy config',
+      { skillsVersion: '1.0.0', modules: 'oops' },
+      'it has neither a "capabilities" key nor a "modules" array',
+    ],
+  ])('names a config that is %s', (_, raw, reason) => {
+    writeRaw(raw);
+    const previous = readPreviousConfig(tmp.path());
+    expect(previous.config).toBeNull();
+    expect(previous.unreadable).toBe(reason);
+  });
+
+  it('names a directory at the config path', () => {
+    mkdirSync(configFile());
+    expect(readPreviousConfig(tmp.path()).unreadable).toBe(
+      'it is not a regular file',
+    );
+  });
+
+  it("keeps only a validation error's first sentence — never its advice about `pharn init`", () => {
+    writeRaw({ ...archetypeConfig, capabilities: 'x' });
+    expect(readPreviousConfig(tmp.path()).unreadable).toBe(
+      'pharn.config.json: capabilities must be an array of {"name", "role"} entries (found "x")',
+    );
+    writeRaw({ ...archetypeConfig, archetypes: 'ssr' });
+    expect(readPreviousConfig(tmp.path()).unreadable).toMatch(
+      /^pharn\.config\.json: archetypes must be an array of .*\(found "ssr"\)$/,
+    );
+  });
+
+  it('cuts an unparseable config at its first sentence too', () => {
+    writeFileSync(configFile(), '{ "skillsVersion": "1.0.0", }');
+    const { unreadable } = readPreviousConfig(tmp.path());
+    expect(unreadable).toMatch(
+      /pharn\.config\.json is not valid JSON( \(line \d+, column \d+\))?$/,
+    );
+    expect(unreadable).not.toContain('pharn init');
+  });
+
+  it('does not cut at a `. ` inside a quoted offender, and caps a long reason at 200 characters', () => {
+    writeRaw({ ...archetypeConfig, capabilities: ['a. b'.repeat(100)] });
+    const { unreadable } = readPreviousConfig(tmp.path());
+    expect(unreadable).toMatch(
+      /^pharn\.config\.json: capabilities\[0\] must be an object with "name" and "role" \(found "a\. ba\. b/,
+    );
+    expect(unreadable).toHaveLength(201);
+    expect(unreadable!.endsWith('…')).toBe(true);
+  });
+
+  it('escapes an unsafe character in the reason', () => {
+    const RLO = String.fromCharCode(0x202e);
+    writeRaw({ ...archetypeConfig, capabilities: [RLO] });
+    const { unreadable } = readPreviousConfig(tmp.path());
+    expect(unreadable).toContain('(found "\\u202e")');
+    expect(unreadable).not.toContain(RLO);
   });
 });

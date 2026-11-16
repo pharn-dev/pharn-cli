@@ -117,12 +117,15 @@ export interface PharnConfig {
   // command acts on. Do not reintroduce a reader without reinstating the
   // writer — a half-present flag is worse than an absent one.
   isMultiTenant?: boolean;
-  // Always `[]` on an archetype install, and still WRITTEN: every released CLI
-  // (0.3.0–0.12.0) reads a config whose `modules` is not an array as NO config
-  // ("Run `pharn init` first"), so dropping the key would make an older, pinned
-  // CLI treat this install as absent. The legacy module entries it held are no
-  // longer read (P7: they still load, untyped).
-  modules: unknown[];
+  // Always `[]` on an archetype install, and still WRITTEN by `init`: every
+  // released CLI (0.3.0–0.19.x) reads a config whose `modules` is not an array
+  // as NO config ("Run `pharn init` first"), so dropping the key would make an
+  // older, pinned CLI treat this install as absent. This CLI also reads a config
+  // that has a `capabilities` key and no `modules` (CORE-164), so the type
+  // admits its absence on read; `add`/`update`/`remove` write such a config
+  // back as they found it. The legacy module entries it held are no longer read
+  // (P7: they still load, untyped).
+  modules?: unknown[];
   // When the install was first made: written by `init` (a re-run included, since
   // it rebuilds the install) and carried unchanged by `update`, `add` and
   // `remove`.

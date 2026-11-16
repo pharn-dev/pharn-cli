@@ -163,6 +163,75 @@ describe('pharn-config', () => {
     expect(readPharnConfig(tmp.path())).toBeNull();
   });
 
+  // CORE-164: `modules` is no longer what makes a config readable. A config
+  // with a `capabilities` key and no `modules` used to read as ABSENT ("Run
+  // `pharn init` first"), and a re-run init then carried nothing over.
+  describe('the shape guard: `skillsVersion` ∧ (`modules` array ∨ `capabilities`)', () => {
+    stubProcessExit();
+    afterEach(() => vi.mocked(log.error).mockClear());
+    const writeRaw = (value: unknown): void => {
+      writeFileSync(
+        join(tmp.path(), 'pharn.config.json'),
+        JSON.stringify(value, null, 2),
+      );
+    };
+    const noModules = {
+      pharnVersion: '0.19.0',
+      skillsVersion: '1.0.0',
+      repo: 'pharn-dev/pharn-oss',
+      commit: null,
+      installedAt: '2026-08-07T00:00:00.000Z',
+      archetypes: ['ssr'],
+      capabilities: [
+        { name: 'a11y', role: 'lens', source: 'manual' },
+        { name: 'n-plus-one', role: 'lens', source: 'auto' },
+      ],
+    };
+
+    it('loads an archetype config with no `modules` key, in every command', () => {
+      writeRaw(noModules);
+      const config = readPharnConfig(tmp.path());
+      expect(config).toEqual(noModules);
+      expect(isArchetypeConfig(config!)).toBe(true);
+      // The shared load surface of add/update/status/remove/list/uninstall.
+      expect(loadArchetypeConfigOrExit(tmp.path())).toEqual(noModules);
+      expect(log.error).not.toHaveBeenCalled();
+    });
+
+    it('validates such a config like any archetype config (a non-array `capabilities` still throws, F-30)', () => {
+      writeRaw({ skillsVersion: '1.0.0', capabilities: 'x' });
+      expect(() => readPharnConfig(tmp.path())).toThrow(CapabilityEntryError);
+      writeRaw({ ...noModules, archetypes: 'ssr' });
+      expect(() => readPharnConfig(tmp.path())).toThrow(ArchetypesError);
+    });
+
+    it.each([
+      ['no `modules` and no `capabilities`', { skillsVersion: '1.0.0' }],
+      [
+        'a non-array `modules` and no `capabilities`',
+        { skillsVersion: '1.0.0', modules: 'oops' },
+      ],
+      [
+        'no string `skillsVersion`',
+        { skillsVersion: 1, capabilities: [], modules: [] },
+      ],
+    ])('still reads %s as no config', (_, raw) => {
+      writeRaw(raw);
+      expect(readPharnConfig(tmp.path())).toBeNull();
+    });
+
+    it('still loads a pre-archetype config, which is refused with LEGACY_CONFIG_MESSAGE', () => {
+      writeRaw({ skillsVersion: '0.1.0', modules: [{ name: 'pharn-core' }] });
+      const config = readPharnConfig(tmp.path());
+      expect(config).not.toBeNull();
+      expect(isArchetypeConfig(config!)).toBe(false);
+      expect(() => loadArchetypeConfigOrExit(tmp.path())).toThrow(ProcessExit);
+      expect(vi.mocked(log.error).mock.calls.map(String).join()).toContain(
+        LEGACY_CONFIG_MESSAGE,
+      );
+    });
+  });
+
   it("round-trips pharn-oss's models block", async () => {
     const withModels: PharnConfig = {
       ...sample,

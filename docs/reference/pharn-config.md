@@ -359,8 +359,8 @@ How each command keeps them:
   stays where it is.
 - `pharn init` writes the file afresh from its own fields, then **copies every key pharn does not own
   across from the config it replaces**, unchanged, after its own. It does this for any file that
-  parses as a JSON object, including one the other commands refuse: a config missing its `modules`
-  array (the case where they tell you to run `pharn init`), or one with an invalid `seam` block. A
+  parses as a JSON object, including one the other commands refuse: a config missing its
+  `skillsVersion` (the case where they tell you to run `pharn init`), or one with an invalid `seam` block. A
   file that is **not valid JSON** carries nothing over. Move it aside first
   ([troubleshooting](../troubleshooting.md#the-config-is-not-valid-json)), then copy your keys back.
 
@@ -380,10 +380,19 @@ The schema is **additive** (P7): a `pharn.config.json` written by an older, modu
 and its now-unused fields are preserved on read. They are still pharn's fields, though, so a re-run
 `pharn init` drops them rather than [carrying them over](#keys-pharn-does-not-own).
 
-Two fields are nonetheless **load-bearing**, and deleting either makes the file unreadable: a config
-without a string `skillsVersion` or without a `modules` array is treated as absent, and every command
-answers _"No pharn.config.json found. Run `pharn init` first."_ `modules` is always `[]` on an archetype
-install, which makes it easy to mistake for removable — it is not.
+`skillsVersion` is nonetheless **load-bearing**: a config without a string `skillsVersion` is treated
+as absent, and every command answers _"No pharn.config.json found. Run `pharn init` first."_ So is a
+config with neither a `modules` array nor a `capabilities` key. A pre-archetype config is recognised by
+its `modules` array; an archetype config loads without one, as long as it has `capabilities`.
+
+`modules` is always `[]` on an archetype install, and `init` keeps writing it, because every released
+`pharn` from 0.3.0 to 0.19.x reads a config without a `modules` array as absent. `add`, `update` and
+`remove` write the file back as they found it, so if you deleted the key and an older, pinned `pharn`
+must still read the file, add `"modules": []` back.
+
+A re-run `pharn init` over a config it cannot read (not valid JSON, a value pharn rejects, no
+`skillsVersion`) carries no capabilities over, and its summary says so with the reason. See
+[Re-running `init` over an existing install](../commands/init.md#6-summary).
 
 | Field             | Type   | Note                                                             |
 | ----------------- | ------ | ---------------------------------------------------------------- |

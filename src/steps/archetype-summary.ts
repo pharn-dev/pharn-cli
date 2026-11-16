@@ -101,9 +101,10 @@ export function archetypeSummaryLines(
     truncated: false,
   },
   previous: readonly Archetype[] | null = null,
-  // What a re-run's channel change means (`previousChannelLines`,
-  // lib/init-plan.ts) — empty on a first install or when nothing changed.
-  channelLines: readonly string[] = [],
+  // What the config a re-run replaces means for it (lib/init-plan.ts): a config
+  // that could not be read (`previousConfigLines`), a channel change
+  // (`previousChannelLines`) — empty on a first install or when nothing changed.
+  rerunLines: readonly string[] = [],
 ): string[] {
   const lines: string[] = [
     '────────────────────────────────────────',
@@ -111,7 +112,7 @@ export function archetypeSummaryLines(
     '────────────────────────────────────────',
     '',
     ...archetypeOriginLines(archetypes, origin, previous),
-    ...channelLines,
+    ...rerunLines,
     '',
     `  CAPABILITIES SELECTED (${selection.selected.length})`,
     ...(selection.selected.length > 0
@@ -148,7 +149,7 @@ export async function runArchetypeSummary(
     truncated: false,
   },
   previous: readonly Archetype[] | null = null,
-  channelLines: readonly string[] = [],
+  rerunLines: readonly string[] = [],
 ): Promise<ArchetypeSummaryAction> {
   note(
     archetypeSummaryLines(
@@ -156,7 +157,7 @@ export async function runArchetypeSummary(
       selection,
       origin,
       previous,
-      channelLines,
+      rerunLines,
     ).join('\n'),
   );
 
