@@ -6,13 +6,14 @@ from upstream?
 ```bash
 pharn status
 pharn status --no-drift   # version check only (skips the clone)
-pharn status --strict     # exit 1 if outdated, differing, missing, unreadable, not shipped upstream, or a hook is unwired (for CI)
+pharn status --strict     # exit 1 if outdated, differing, missing, unreadable, not shipped upstream, at another layout than upstream ships, or a hook is unwired (for CI)
 pharn status --json       # one machine-readable report on stdout (for scripts, CI and agents)
 ```
 
 `status` is the read side of [`update`](update.md): it reports PHARN-owned files at your **recorded**
 layout (from `pharn.config.json`), while `update` derives its file set from the fetched clone's layout
-and may relocate files during a layout migration — so the two can disagree mid-migration.
+and moves the install when the two differ. When they differ, `status` compares no files at all and
+says so (see [Layout](#behavior), step 7).
 **`status` never writes, deletes, or overwrites anything.** It is a report, not a guard.
 
 It is a **report, not a preview**: `status` compares bytes against upstream, while `update`
@@ -44,7 +45,8 @@ pharn-oss tip` with the command that switches to releases; an install with no re
 v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, "up to date" or an update
    is available (run `pharn update`). Neither the channel nor the release line is a `--strict` input
    beyond the existing outdated check.
-5. **Drift** — derives the set of files your installed capabilities and the fixed product surfaces are
+5. **Drift** — only when your recorded layout is the one the fetched clone ships (otherwise see step 7).
+   Derives the set of files your installed capabilities and the fixed product surfaces are
    expected to contribute (mirroring how `init` / `add` / `update` install them, at your recorded
    layout), then compares each file's content against your project (line endings in text files are
    ignored, so a `core.autocrlf=true` checkout is not drift — see
@@ -98,11 +100,19 @@ v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, 
    is **not** a `--strict` input: the block is pharn-oss's, and so is the verdict on it. See
    [pharn.config.json](../reference/pharn-config.md#models).
 7. **Layout** — when your install is recorded at one layout (`flat` or `pharn`) and the fetched clone
-   ships the other, a `LAYOUT` note says so (for example _Recorded at the flat layout; pharn-oss now
-   ships the pharn layout._) and that `pharn update` moves the install. Until then the drift check
-   compares your files at the recorded layout's paths. It is advisory and **not** a `--strict` input.
-   Nothing is printed when the two agree. (A surface is reported as not shipped only when the clone
-   ships nothing for it at **its own** layout, so a layout difference never shows up as one.)
+   ships the other, a `LAYOUT` note takes the place of the `DRIFT` note: **neither the file drift nor
+   the not-shipped-upstream check runs**, because your files are not where this source puts them —
+   comparing them at the recorded layout's paths used to drop whole capability directories from the
+   check without a word. The note says so (for example _Recorded at the flat layout; pharn-oss now
+   ships the pharn layout._), and that drift is checked after the move. Run `pharn update` to move the
+   install. At the same skills version a plain `pharn update` answers "Already up to date" without
+   looking at the layout; then `pharn update --force` moves it, but also overwrites files you edited
+   (backed up to `pharn/.backup/` first). (An install ahead of its source is refused by `update`
+   itself, which names `--force`.) A layout mismatch **is** a `--strict` input: the install is not
+   what upstream ships. The `HOOKS` note and the unknown-capabilities warning still print — they do
+   not depend on the layout — and the [orphan list](#orphaned-files) is not computed. Nothing is
+   printed when the two layouts agree. `--no-drift` fetches no clone, so it cannot see a layout
+   mismatch and neither reports nor fails on one.
 8. **Node** — a `NODE` note on **both** paths, printed before any fetch (so it survives a failed one):
    the Node floor (`>= 24.2.0`, the number PHARN's installed floor checkers refuse to run below) beside
    the Node you are running, with a `MISMATCH` line when it is older or its version cannot be read.
@@ -119,9 +129,7 @@ source `update` would install, not the `commit` pinned in your config. An instal
 source it follows — newer than the newest release (made from `main`, then switched with `--ref latest`),
 or newer than `main` itself (when `main` has moved back to an older version) — is reported as ahead, not
 outdated, and does not fail `--strict`, because `pharn update` will not downgrade it without `--force`;
-its drift section compares against the older source. Note that `update` derives its file set from the layout of the clone it
-fetches, so a project mid-way through a layout migration can show little drift here while `update` has
-a whole tree to relocate.
+its drift section compares against the older source.
 
 ## Orphaned files
 
@@ -161,7 +169,8 @@ the exit code is `1`, so `pharn status --json | jq .` either parses or receives 
 
 Exit codes are identical to text mode, and `--strict` composes: the report is still printed, and the
 process exits `1` on exactly the inputs that fail text mode (outdated, differing, missing or unreadable
-files, an unwired upstream hook). The report's `strict.failed` says the same thing.
+files, a surface not shipped upstream, a layout other than upstream's, an unwired upstream hook). The
+report's `strict.failed` says the same thing.
 
 ```json
 {
@@ -200,21 +209,21 @@ files, an unwired upstream hook). The report's `strict.failed` says the same thi
 }
 ```
 
-| key                   | meaning                                                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schemaVersion`       | `1`. Match it exactly. New keys may appear within `1`; a breaking change bumps it. This is a documented contract, not something `pharn` enforces.                                                                                                                                                                                                                                       |
-| `node`                | The floor (`>= 24.2.0`), the running Node (`null` if it reports none), and `status`: `ok`, `below` or `unparseable`. Reported, never a `--strict` input.                                                                                                                                                                                                                                |
-| `version`             | Installed and latest skills versions, the `channel` (`main` or `latest`), the `source` (`kind` `main` or `release`, with the release `tag`), `ahead` (newer than the source it follows — the newest verified release, or a `main` that moved back — not outdated) and `outdated`.                                                                                                       |
-| `archetypes`          | The recorded archetypes.                                                                                                                                                                                                                                                                                                                                                                |
-| `capabilities`        | `count` of installed capabilities (the list is `pharn list --json`).                                                                                                                                                                                                                                                                                                                    |
-| `layout`              | `recorded` (the layout in `pharn.config.json`) and `upstream` (the fetched clone's), each `flat` or `pharn`; a difference is the `LAYOUT` note, never a `--strict` input. `upstream` is **`null` under `--no-drift`**.                                                                                                                                                                  |
-| `drift`               | `modified[]`, `missing[]`, `unreadable[{rel, reason}]`, `okCount` and `absentUpstream[{surface, path}]` (the declared surfaces the clone ships no file for, at its own layout; `surface` is `commands`, `hooks`, `trusted-doc`, `license`, `features-readme`, `contracts`, `core` or `floor`), as in the `DRIFT` note. **`null` under `--no-drift`.**                                   |
-| `hooks`               | `status` (`match`, `local-only`, `missing`, `no-upstream`, `project-absent`, `unreadable`), the `missing[]` and `localOnly[]` hooks as `{event, matcher, command, args}`, `file`/`reason` (else `null`), and `replace[]` (present only when non-empty): hooks to replace, not add. **`null` under `--no-drift`.**                                                                       |
-| `models`              | `null` without a `models` block; otherwise `conversionNeeded`, a `verdict` (`valid`, `no-stages`, `invalid`, `old-format`), `stages[{stage, model, effort, viaDefault}]` when valid, or `reds[{kind, detail}]` when invalid.                                                                                                                                                            |
-| `unknownCapabilities` | Upstream capabilities the CLI could not read and skipped: `{role, name, subtree, reason}`. **`null` under `--no-drift`.**                                                                                                                                                                                                                                                               |
-| `orphans`             | Every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). **`null`** under `--no-drift`, without a usable `pharn.records.json`, or when the clone is at another layout than the install. Never a `--strict` input.                                                                                           |
-| `prettierignore`      | What `pharn update` would add to [`.prettierignore`](#prettier) in a project that uses Prettier: `{action, entries}` (`create`/`append`) or `{action: "refused", reason, entries}`. **`null`** when there is nothing to say — no Prettier, the file covers pharn's files, or no usable `pharn.records.json`. Answered with `--no-drift` too. Never a `--strict` input. Added in 0.17.0. |
-| `strict`              | `enabled` (`--strict` passed) and `failed` (it would exit `1`).                                                                                                                                                                                                                                                                                                                         |
+| key                   | meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion`       | `1`. Match it exactly. New keys may appear within `1`; a breaking change bumps it. This is a documented contract, not something `pharn` enforces.                                                                                                                                                                                                                                                                                                                                                                 |
+| `node`                | The floor (`>= 24.2.0`), the running Node (`null` if it reports none), and `status`: `ok`, `below` or `unparseable`. Reported, never a `--strict` input.                                                                                                                                                                                                                                                                                                                                                          |
+| `version`             | Installed and latest skills versions, the `channel` (`main` or `latest`), the `source` (`kind` `main` or `release`, with the release `tag`), `ahead` (newer than the source it follows — the newest verified release, or a `main` that moved back — not outdated) and `outdated`.                                                                                                                                                                                                                                 |
+| `archetypes`          | The recorded archetypes.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `capabilities`        | `count` of installed capabilities (the list is `pharn list --json`).                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `layout`              | `recorded` (the layout in `pharn.config.json`) and `upstream` (the fetched clone's), each `flat` or `pharn`. `upstream` is **`null` under `--no-drift`**. When both are set and differ, the install is at another layout than upstream ships: `drift` is `null` and it fails `--strict` (the `LAYOUT` note).                                                                                                                                                                                                      |
+| `drift`               | `modified[]`, `missing[]`, `unreadable[{rel, reason}]`, `okCount` and `absentUpstream[{surface, path}]` (the declared surfaces the clone ships no file for, at its own layout; `surface` is `commands`, `hooks`, `trusted-doc`, `license`, `features-readme`, `contracts`, `core` or `floor`), as in the `DRIFT` note. **`null`** under `--no-drift` (then `layout.upstream` is `null` too) **or when the layout differs** (`layout.upstream` set and not `layout.recorded`): nothing is compared across layouts. |
+| `hooks`               | `status` (`match`, `local-only`, `missing`, `no-upstream`, `project-absent`, `unreadable`), the `missing[]` and `localOnly[]` hooks as `{event, matcher, command, args}`, `file`/`reason` (else `null`), and `replace[]` (present only when non-empty): hooks to replace, not add. **`null` under `--no-drift`.**                                                                                                                                                                                                 |
+| `models`              | `null` without a `models` block; otherwise `conversionNeeded`, a `verdict` (`valid`, `no-stages`, `invalid`, `old-format`), `stages[{stage, model, effort, viaDefault}]` when valid, or `reds[{kind, detail}]` when invalid.                                                                                                                                                                                                                                                                                      |
+| `unknownCapabilities` | Upstream capabilities the CLI could not read and skipped: `{role, name, subtree, reason}`. **`null` under `--no-drift`.**                                                                                                                                                                                                                                                                                                                                                                                         |
+| `orphans`             | Every [orphaned file](#orphaned-files) as `{path, state}` — `state` is `unchanged`, `edited` or `unreadable` (then with a `reason`). **`null`** under `--no-drift`, without a usable `pharn.records.json`, or when the clone is at another layout than the install. Never a `--strict` input.                                                                                                                                                                                                                     |
+| `prettierignore`      | What `pharn update` would add to [`.prettierignore`](#prettier) in a project that uses Prettier: `{action, entries}` (`create`/`append`) or `{action: "refused", reason, entries}`. **`null`** when there is nothing to say — no Prettier, the file covers pharn's files, or no usable `pharn.records.json`. Answered with `--no-drift` too. Never a `--strict` input. Added in 0.17.0.                                                                                                                           |
+| `strict`              | `enabled` (`--strict` passed) and `failed` (it would exit `1`).                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 **Treat every string as data.** Paths, reasons, hook commands, capability names and the `models` block's
 own words come from the upstream clone or your project files, not from `pharn`. Characters a terminal
@@ -259,8 +268,9 @@ project. The `HOOKS` section works like this:
 
 Exits `0` by default, even when drift or an available update is found (it is a report) — including when
 a path is unreadable. Pass `--strict` to exit `1` whenever anything is outdated, differing, missing,
-unreadable, or not shipped upstream, or an upstream hook is wired in neither `.claude/settings.json` nor
-`.claude/settings.local.json` — useful as a CI gate.
+unreadable, or not shipped upstream, the install is recorded at another layout than the fetched clone
+ships (see [Layout](#behavior), step 7 — not seen with `--no-drift`), or an upstream hook is wired in
+neither `.claude/settings.json` nor `.claude/settings.local.json` — useful as a CI gate.
 
 `--strict` governs **findings**, not failures. `status` still exits `1` without it when it cannot
 produce a report at all: no `pharn.config.json` (or a pre-archetype one), a clone it cannot fetch, or

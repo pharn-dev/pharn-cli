@@ -65,10 +65,13 @@ export interface StatusReport {
   archetypes: string[];
   capabilities: { count: number };
   // The layout the install is recorded at, and the one the fetched clone ships
-  // (null under `--no-drift`: nothing was fetched). A difference is advisory —
-  // `pharn update` moves the install — and NOT a `--strict` input.
+  // (null under `--no-drift`: nothing was fetched). A difference means the
+  // install is not where this source puts it: `drift` is then null (nothing is
+  // compared across layouts) and it fails `--strict` (CORE-167).
   layout: { recorded: Layout; upstream: Layout | null };
-  // null when the drift check was skipped (`--no-drift`): not computed.
+  // null when not computed: the drift check was skipped (`--no-drift`, then
+  // `layout.upstream` is null too), or the clone is at another layout than the
+  // install (`layout.upstream` set and different from `layout.recorded`).
   drift: {
     modified: string[];
     missing: string[];
@@ -119,19 +122,38 @@ export interface StatusReportInput {
   // What the channel offers; under `--no-drift` on `latest`, built from one
   // request and so without the tag's commit (lib/release.ts).
   source: SourceSummary;
-  drift: {
-    diff: InstallDiff;
-    hooks: HookWiringDiff;
-    unknown: readonly UnknownCapability[];
-    // null when they could not be determined (see StatusReport.orphans).
-    orphans: readonly Orphan[] | null;
-    // absentInstallSurfaces at the clone's layout, and that layout.
-    absentUpstream: readonly AbsentSurface[];
-    upstreamLayout: Layout;
-  } | null;
+  drift:
+    | ({
+        hooks: HookWiringDiff;
+        unknown: readonly UnknownCapability[];
+        // null when they could not be determined (see StatusReport.orphans).
+        orphans: readonly Orphan[] | null;
+        upstreamLayout: Layout;
+      } & (
+        | {
+            diff: InstallDiff;
+            // absentInstallSurfaces at the clone's layout.
+            absentUpstream: readonly AbsentSurface[];
+          }
+        // Not computed: the clone is at another layout than the install.
+        | { diff: null; absentUpstream: null }
+      ))
+    | null;
   // null without a usable record store (see StatusReport.prettierignore).
   prettierignore: PrettierignorePlan | null;
   strict: boolean;
+}
+
+/**
+ * Is the install recorded at another layout than the fetched clone ships? THE
+ * one comparison the text path, the JSON path and the report use. `upstream`
+ * null (`--no-drift`: nothing fetched) is never a mismatch — nothing is known.
+ */
+export function layoutMismatch(
+  recorded: Layout,
+  upstream: Layout | null,
+): boolean {
+  return upstream !== null && recorded !== upstream;
 }
 
 /**
@@ -144,12 +166,16 @@ export function strictFails(input: {
   diff?: InstallDiff;
   hooks?: HookWiringDiff;
   // A declared surface upstream ships no file for: the install cannot be
-  // complete. (A recorded layout that differs from upstream's is NOT an input.)
+  // complete.
   absentUpstream?: readonly AbsentSurface[];
+  // The install is recorded at another layout than upstream ships: it is not
+  // what upstream ships, and its files were not compared (CORE-167).
+  layoutMismatch?: boolean;
 }): boolean {
   const { outdated, diff, hooks, absentUpstream } = input;
   return (
     outdated ||
+    input.layoutMismatch === true ||
     (absentUpstream !== undefined && absentUpstream.length > 0) ||
     (diff !== undefined &&
       (diff.modified.length > 0 ||
@@ -201,6 +227,13 @@ function modelsReport(models: unknown): StatusReport['models'] {
 
 export function buildStatusReport(input: StatusReportInput): StatusReport {
   const { node, config, drift } = input;
+  const recorded = configLayout(config);
+  const upstream = drift === null ? null : drift.upstreamLayout;
+  const mismatch = layoutMismatch(recorded, upstream);
+  // A diff taken across layouts compares the wrong paths, so it is never
+  // reported, whatever a caller passed.
+  const files =
+    drift === null || drift.diff === null || mismatch ? null : drift;
   const { ahead, outdated } = versionStatus({
     installed: config.skillsVersion,
     latest: input.latest,
@@ -230,19 +263,16 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
     },
     archetypes: config.archetypes ?? [],
     capabilities: { count: (config.capabilities ?? []).length },
-    layout: {
-      recorded: configLayout(config),
-      upstream: drift === null ? null : drift.upstreamLayout,
-    },
+    layout: { recorded, upstream },
     drift:
-      drift === null
+      files === null
         ? null
         : {
-            modified: drift.diff.modified,
-            missing: drift.diff.missing,
-            unreadable: drift.diff.unreadable,
-            okCount: drift.diff.okCount,
-            absentUpstream: drift.absentUpstream.map((a) => ({
+            modified: files.diff.modified,
+            missing: files.diff.missing,
+            unreadable: files.diff.unreadable,
+            okCount: files.diff.okCount,
+            absentUpstream: files.absentUpstream.map((a) => ({
               surface: a.surface,
               path: cap(a.path, MAX_UNKNOWN_FIELD),
             })),
@@ -290,9 +320,10 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
         input.strict &&
         strictFails({
           outdated,
-          diff: drift?.diff,
+          diff: files?.diff,
           hooks: drift?.hooks,
-          absentUpstream: drift?.absentUpstream,
+          absentUpstream: files?.absentUpstream,
+          layoutMismatch: mismatch,
         }),
     },
   };
