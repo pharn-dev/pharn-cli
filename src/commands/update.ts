@@ -290,9 +290,10 @@ async function runArchetypeUpdate(
   //   latest` before the release at its version was cut;
   // - the `main` channel: pharn-oss main moved BACK (a revert of its
   //   SKILLS_VERSION).
-  // A `pendingSkillsVersion` counts as well: every file but the user's kept
-  // edits is at it, so stepping those files back to an older upstream is the
-  // same downgrade even when the recorded `skillsVersion` is older.
+  // A `pendingSkillsVersion` counts as well: every file outside the user's kept
+  // edits and an executable unit they held back is at it, so stepping those
+  // files back to an older upstream is the same downgrade even when the
+  // recorded `skillsVersion` is older.
   // This runs BEFORE the same-version early return and everything that
   // re-opens it (a frozen-capability re-check, an old-format models block, a
   // `--ref` switch), so none of them can carry the downgrade in. Not ahead (or a
@@ -316,7 +317,7 @@ async function runArchetypeUpdate(
     const held =
       aheadOf === config.skillsVersion
         ? `skills v${terminalSafe(config.skillsVersion)}`
-        : `skills v${terminalSafe(config.skillsVersion)}, every file you did not edit at v${terminalSafe(aheadOf)}`;
+        : `skills v${terminalSafe(config.skillsVersion)}, partly upgraded to v${terminalSafe(aheadOf)}`;
     outro(
       source.kind === 'release'
         ? `Your install (${held}) is ahead of the latest verified release (${source.tag}) — it came from pharn-oss main. Nothing changed. \`pharn update --ref main\` switches back to main; \`pharn update --force\` goes back to ${source.tag}.`

@@ -547,7 +547,9 @@ describe('runUpdate --dry-run --json', () => {
         label: 'held',
         rels: ['.claude/commands/pharn-plan.md', '.dev/floor/new-cli.mjs'],
       });
-      expect(json.version).toMatchObject({ withheld: true, pending: null });
+      // CORE-159 inverts the 0.18.0 `pending: null`: the hold's only blocker
+      // is the user's edit, so the applied version is pending.
+      expect(json.version).toMatchObject({ withheld: true, pending: '1.1.0' });
     });
 
     it('omits plan.executableUnit when nothing is held', async () => {

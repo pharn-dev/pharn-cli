@@ -91,10 +91,18 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
 // throw still reach the finally that cleans the clone up (P0: cleanup before exit).
 //
 // A `pendingSkillsVersion` (types.ts) also passes: `update` records it only when
-// the bump was withheld SOLELY by the user's kept edits, so every other file is
-// at that version. Without it, one kept edit dead-ended `add` for good — `update`
-// could never finish while the edit stayed, and this message sent the user back
-// to `update` in a loop.
+// the bump was withheld SOLELY by the user's kept edits — directly, or through
+// the executable-unit hold they caused (CORE-159) — so every file outside those
+// edits and the unit is at that version. `add` writes capability directories
+// only, which are outside the unit, so it is safe at it. Without it, one kept
+// edit dead-ended `add` for good — `update` could never finish while the edit
+// stayed, and this message sent the user back to `update` in a loop.
+//
+// When nothing is pending, `add` cannot tell "update was not run yet" from
+// "update cannot finish" (a blocker that is not a user edit — `unverifiable`
+// with no usable record store, `unreadable` — records nothing), and it has no
+// plan to name the blockers. So the refusal names `pharn update`, how to see
+// what blocks it (`--dry-run`) and the two ways out.
 //
 // One case gets its own wording: an install AHEAD of the source it follows
 // (lib/version-status.ts) — of the newest verified release (made from `main`, as
@@ -116,17 +124,19 @@ function versionGate(
       ? `Your install (skills v${config.skillsVersion}) is ahead of the latest verified ${REPO_URL} release (${source.tag}) — it came from pharn-oss main, and \`pharn add\` installs only at the version your project is already on. Run \`pharn update --ref main\` to follow main (\`pharn add\` then fetches from it too), or wait for a release at v${config.skillsVersion}.`
       : `Your install (skills v${config.skillsVersion}) is newer than ${REPO_URL} main (v${fetched}) — pharn-oss main has moved back to an older version, and \`pharn add\` installs only at the version your project is already on. Wait for main to reach v${config.skillsVersion} again, or run \`pharn update --force\` to downgrade to v${fetched} first (it backs up the files you edited to pharn/.backup/), then re-run \`pharn add\`.`;
   }
-  const base = `Skills version mismatch: pharn.config.json records v${config.skillsVersion}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on`;
-  return config.pendingSkillsVersion === undefined
-    ? `${base} — run \`pharn update\` first, then re-run \`pharn add\`.`
-    : `${base} (v${config.pendingSkillsVersion} apart from files you edited). Run \`pharn update\` first; if it keeps skipping your edited files, either revert those edits or run \`pharn update --force\` (it backs them up to pharn/.backup/ first), then re-run \`pharn add\`.`;
+  const partly =
+    config.pendingSkillsVersion === undefined
+      ? ''
+      : ` (partly at v${config.pendingSkillsVersion})`;
+  return `Skills version mismatch: pharn.config.json records v${config.skillsVersion}${partly}, but the fetched ${REPO_URL} is at v${fetched}. \`pharn add\` installs only at the version your project is already on. Run \`pharn update\` to move it to v${fetched}; if update cannot finish (\`pharn update --dry-run\` shows which files block it), revert those files or run \`pharn update --force\` (it backs them up to pharn/.backup/ first), then re-run \`pharn add\`.`;
 }
 
 // The (skillsVersion, commit) pair `add` writes to the config and stamps the
 // records with. Normally the clone's — equal to the recorded version by the gate.
 // At a PENDING version the pair must stay the config's own: the records store is
 // stamped with it, and writing the newer version would claim a complete upgrade
-// the kept edits never received (`update` would early-return "up to date").
+// the kept edits — and an executable unit they held back — never received
+// (`update` would early-return "up to date").
 function addStamp(
   config: PharnConfig,
   version: string,

@@ -728,7 +728,8 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
   // 0.18.0, the measured mixed-version failure: a NEW floor file beside an
   // EDITED one. The executable unit (floor + hooks + pharn-* commands) is
   // written all or none, so nothing in it lands; everything else still
-  // upgrades, the bump is withheld with nothing pending, and the run exits 0.
+  // upgrades, the bump is withheld, the version it applied is recorded as
+  // pending (the only blocker is the user's edit, CORE-159), and the run exits 0.
   it('update --yes holds the whole executable unit when one floor file is edited', async () => {
     await init();
     const OLD = 'pharn/floor/validate.mjs';
@@ -768,10 +769,12 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(rec.files[PLAN_COMMAND]).toBe(before.records.files[PLAN_COMMAND]);
     expect(NEW in rec.files).toBe(false);
 
-    // The version is withheld and nothing is pending: the unit is not at 2.0.0.
+    // The version is withheld. CORE-159 inverts the 0.18.0 "nothing pending":
+    // the hold's only blocker is the user's edit, so 2.0.0 is recorded as
+    // pending and `pharn add` keeps working.
     const cfg = config();
     expect(cfg.skillsVersion).toBe('1.0.0');
-    expect(cfg.pendingSkillsVersion).toBeUndefined();
+    expect(cfg.pendingSkillsVersion).toBe('2.0.0');
 
     // Named before the apply (future tense) and in the report after it.
     const unitNotes = vi
@@ -804,6 +807,82 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(
       readFileSync(join(at('pharn/.backup'), backups[0]!, OLD), 'utf8'),
     ).toBe('export const mine = 1;\n');
+  });
+
+  // CORE-159: a hold caused only by the user's own edit no longer locks out
+  // `pharn add`. Edit a command and delete a hook, move upstream: the unit is
+  // held (the hook stays missing, named), 2.0.0 is pending, and `add` installs
+  // at it without touching the unit or the stamp. Reverting the edit lets the
+  // next update finish: the hook comes back and the pending version clears.
+  it('update --yes over a held unit records the pending version; add works; a revert finishes the upgrade', async () => {
+    await init();
+    const HOOK = '.claude/hooks/guard.cjs';
+    const FLOOR = 'pharn/floor/validate.mjs';
+    const original = read(PLAN_COMMAND);
+    writeFileSync(at(PLAN_COMMAND), 'my own plan\n');
+    rmSync(at(HOOK));
+
+    serveTip(SHA_V2, '2.0.0');
+    tip.tree[FLOOR] = 'export const v = 2;\n';
+    tip.tree[HOOK] = 'module.exports = { v: 2 };\n';
+    vi.mocked(clack.note).mockClear();
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+
+    // Held: the edit is kept, the hook is not restored, the floor stays v1.
+    expect(read(PLAN_COMMAND)).toBe('my own plan\n');
+    expect(existsSync(at(HOOK))).toBe(false);
+    expect(read(FLOOR)).toBe('export {};\n');
+    expect(read(SECURITY)).toContain('security 2.0.0');
+    const unitNotes = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'EXECUTABLE UNIT')
+      .map(([body]) => String(body));
+    expect(unitNotes).toHaveLength(2);
+    expect(unitNotes[0]).toContain('would stay missing until the hold ends');
+    expect(unitNotes[1]).toContain('stay missing until the hold ends');
+    for (const body of unitNotes) {
+      expect(body).toContain(`modified     ${PLAN_COMMAND}`);
+      expect(body).toContain(`  ${HOOK}`);
+    }
+    let cfg = config();
+    expect(cfg.skillsVersion).toBe('1.0.0');
+    expect(cfg.commit).toBe(SHA_V1);
+    expect(cfg.pendingSkillsVersion).toBe('2.0.0');
+
+    // `add` installs at the pending version, keeping the config's own stamp
+    // and leaving the held unit exactly as it was.
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    expect(read(A11Y)).toContain('a11y');
+    cfg = config();
+    expect(cfg.capabilities).toContainEqual({
+      name: 'a11y',
+      role: 'griller',
+      source: 'manual',
+    });
+    expect(cfg).toMatchObject({
+      skillsVersion: '1.0.0',
+      commit: SHA_V1,
+      pendingSkillsVersion: '2.0.0',
+    });
+    expect(records()).toMatchObject({ skillsVersion: '1.0.0', commit: SHA_V1 });
+    expect(records().files[A11Y]).toBe(sha256(A11Y));
+    expect(read(PLAN_COMMAND)).toBe('my own plan\n');
+    expect(existsSync(at(HOOK))).toBe(false);
+    expect(read(FLOOR)).toBe('export {};\n');
+
+    // Revert the edit: the next update completes and clears the pending version.
+    writeFileSync(at(PLAN_COMMAND), original);
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read(HOOK)).toBe('module.exports = { v: 2 };\n');
+    expect(read(FLOOR)).toBe('export const v = 2;\n');
+    expect(read(A11Y)).toContain('a11y');
+    cfg = config();
+    expect(cfg.skillsVersion).toBe('2.0.0');
+    expect(cfg.commit).toBe(SHA_V2);
+    expect(cfg.pendingSkillsVersion).toBeUndefined();
+    expect(records()).toMatchObject({ skillsVersion: '2.0.0', commit: SHA_V2 });
   });
 
   it('remove <name> deletes that capability, its config entry and its records', async () => {

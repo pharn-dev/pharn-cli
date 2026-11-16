@@ -609,6 +609,23 @@ describe('runAdd (archetype)', () => {
     expect(cleanup).toHaveBeenCalled();
   });
 
+  // CORE-159: `add` cannot tell "update not run yet" from "update cannot
+  // finish" (an unverifiable or unreadable blocker records no pending version),
+  // so the refusal names how to see the blockers and both ways out.
+  it('names update --dry-run and both ways out when nothing is pending', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue(archConfig());
+    mockClone();
+    readSkillsVersion.mockReturnValue('2.0.0');
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    expect(lastError()).toContain('Run `pharn update` to move it to v2.0.0');
+    expect(lastError()).toContain('`pharn update --dry-run`');
+    expect(lastError()).toContain('revert those files');
+    expect(lastError()).toContain('`pharn update --force`');
+    expect(lastError()).toContain('then re-run `pharn add`');
+  });
+
   // --- fatal-error reporting (FABLE 4.6 + 5.2) -------------------------------
   //
   // `add`'s `{kind:'error'}` outcome carries BOTH caught exceptions and curated
@@ -957,6 +974,21 @@ describe('runAdd — pharn.records.json', () => {
     expect(msg).toContain('pharn update --force');
     expect(msg).toContain('revert');
     expect(writePharnConfig).not.toHaveBeenCalled();
+  });
+
+  it('names the pending version as partial and update --dry-run at a third version', async () => {
+    loadArchetypeConfigOrExit.mockReturnValue({
+      ...config(),
+      pendingSkillsVersion: '1.1.0',
+    });
+    readSkillsVersion.mockReturnValue('1.2.0');
+
+    await expect(runAdd('a11y')).rejects.toMatchObject(new ProcessExit(1));
+
+    const msg = vi.mocked(prompts.log.error).mock.calls.at(-1)![0] as string;
+    expect(msg).toContain('(partly at v1.1.0)');
+    expect(msg).toContain('`pharn update --dry-run`');
+    expect(msg).not.toContain('apart from files you edited');
   });
 
   it('re-stamps the store to match the config written beside it', async () => {

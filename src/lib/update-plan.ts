@@ -317,14 +317,23 @@ export function buildUpdatePlan(input: {
     ? config.skillsVersion
     : installedVersion;
   const nextCommit = versionWithheld ? config.commit : sha;
-  // Withheld ONLY by the user's own kept edits → every other file IS at
-  // `installedVersion`, so record that as pending and let `add` install at it.
+  // Withheld ONLY by the user's own kept edits — directly, or through an
+  // executable-unit hold they caused — → every file outside those edits and the
+  // unit IS at `installedVersion`, so record that as pending and let `add`
+  // install at it. `add` writes capability directories only: outside the unit,
+  // and written at the new version even under a hold (CORE-159).
+  // `held` is NOT a user edit and is not in USER_EDIT_SKIPS: it is accepted here
+  // only because a hold always has a blocker, and every blocker's own label is
+  // a group of `plan.skipped` too — so an `unverifiable` / `unreadable` blocker
+  // fails this test and nothing is recorded.
   // Exact label membership, not "forceable" (P5). A pending version equal to the
   // withheld one tells `add` nothing it does not already accept.
   const pendingSkillsVersion =
     versionWithheld &&
     installedVersion !== nextSkillsVersion &&
-    plan.skipped.every((g) => USER_EDIT_SKIPS.has(g.label))
+    plan.skipped.every(
+      (g) => USER_EDIT_SKIPS.has(g.label) || g.label === 'held',
+    )
       ? installedVersion
       : null;
 

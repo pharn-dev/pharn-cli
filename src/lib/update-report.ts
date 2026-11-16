@@ -142,10 +142,13 @@ export interface UpdateReport {
     // the floor, hooks and pharn-* commands are written all or none. Present
     // ONLY when a hold happens (then `held` is also a `label` in `files` and
     // `skipped`), so a report without one keeps its earlier bytes; additive
-    // within schemaVersion 1. Added in 0.18.0.
+    // within schemaVersion 1. Added in 0.18.0. `missing` (CORE-159): the held
+    // files that are not on disk and stay missing until the hold ends, present
+    // ONLY when non-empty.
     executableUnit?: {
       blocking: { rel: string; label: SkipLabel }[];
       held: string[];
+      missing?: string[];
     };
     models: {
       outcome: ModelsOutcome;
@@ -303,6 +306,9 @@ function planReport(
               label: b.label,
             })),
             held: [...p.executableUnit.held],
+            ...((p.executableUnit.missing ?? []).length > 0
+              ? { missing: [...p.executableUnit.missing!] }
+              : {}),
           },
         }
       : {}),

@@ -81,6 +81,41 @@ describe('executableUnitLines — the EXECUTABLE UNIT note', () => {
     expect(text).not.toContain(ESC);
   });
 
+  // CORE-159: a held unit file that is not on disk stays missing until the
+  // hold ends (a deleted hook stays off) — the note names it.
+  it('names the held files that are not on disk, in both tenses', () => {
+    const withMissing = { ...hold, missing: ['.claude/hooks/guard.cjs'] };
+    const text = executableUnitLines(withMissing, false)!.join('\n');
+    expect(text).toContain(
+      'Of those, these are not on disk, so they stay missing until the hold ends:',
+    );
+    expect(text).toContain('  .claude/hooks/guard.cjs');
+    const preview = executableUnitLines(withMissing, true)!.join('\n');
+    expect(preview).toContain(
+      'Of those, these are not on disk, so they would stay missing until the hold ends:',
+    );
+  });
+
+  it('prints no missing block without missing files (the 0.18.0 lines)', () => {
+    const text = executableUnitLines(hold, false)!.join('\n');
+    expect(text).not.toContain('not on disk');
+  });
+
+  it('caps the missing list and strips control characters from it', () => {
+    const lines = executableUnitLines(
+      {
+        ...hold,
+        missing: [
+          `.claude/hooks/${ESC}[31mx.cjs`,
+          ...Array.from({ length: 21 }, (_, i) => `.claude/hooks/m${i}.cjs`),
+        ],
+      },
+      false,
+    )!;
+    expect(lines.join('\n')).not.toContain(ESC);
+    expect(lines).toContain('  … and 2 more');
+  });
+
   it('prints one titled note on a hold and nothing without one', () => {
     reportExecutableUnit(null, false);
     expect(prompts.note).not.toHaveBeenCalled();
