@@ -223,17 +223,18 @@ describe('confirmWriteTargets', () => {
   });
 
   it('a cancelled prompt (Ctrl+C) RETURNS `cancel` — it must not exit', async () => {
-    // The whole point of the three-state return. Exiting from here terminates
-    // the process from inside init's suspended `try`, so the
-    // `finally { repo.cleanup() }` never runs and the multi-megabyte temp clone
-    // is orphaned — Node does not run `finally` on process.exit. The caller
-    // owns the exit, and it takes it AFTER the finally.
+    // The whole point of the three-state return. Exiting from here would end
+    // the process inside init's suspended `try`, so the
+    // `finally { repo.cleanup() }` would never run and the multi-megabyte temp
+    // clone would be orphaned. The stage returns a value; init decides, and
+    // throws its cancel inside that try.
     const { repo, proj } = dirs(scaffoldRepo);
     write(join(proj, 'pharn.config.json'), '{}');
     vi.mocked(prompts.confirm).mockResolvedValue(CANCEL as never);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
       'cancel',
     );
+    expect(process.exit).not.toHaveBeenCalled();
   });
 
   it(`caps the list at ${MAX_LISTED} with "…and N more"`, async () => {

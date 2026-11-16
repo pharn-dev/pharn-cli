@@ -1,6 +1,6 @@
 import { groupMultiselect, isCancel, log } from '@clack/prompts';
 import pc from '../lib/color.js';
-import { logError } from '../lib/report-error.js';
+import { logError, type FatalCause } from '../lib/report-error.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
@@ -21,9 +21,8 @@ export type AddResult =
       stamp: { skillsVersion: string; commit: string | null };
     }
   | { kind: 'noop'; name: string }
-  // A curated refusal (unknown, ambiguous, a symlinked dir). An exception is
-  // thrown instead, and the command turns it into a failure.
-  | { kind: 'error'; message: string };
+  // See PickerAddOutcome: `cause` present ⇔ this came from an exception.
+  | { kind: 'error'; message: string; cause?: FatalCause };
 
 // The command's per-name install path (`resolveArchetypeAdd`).
 export type AddOne = (
@@ -42,7 +41,10 @@ export type PickerAddOutcome =
   | { kind: 'installed'; added: string[]; failed: string[] }
   | { kind: 'all-installed' }
   | { kind: 'none' }
-  | { kind: 'cancelled' };
+  | { kind: 'cancelled' }
+  // `cause` is present ONLY when this outcome came from a caught exception,
+  // which keeps the PHARN_DEBUG hint off a curated gate refusal.
+  | { kind: 'error'; message: string; cause?: FatalCause };
 
 // Build the menu (available = index − installed), multi-select, then install
 // each pick via `addOne`, threading the growing config forward so the FINAL

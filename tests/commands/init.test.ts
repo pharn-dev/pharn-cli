@@ -83,6 +83,8 @@ import { runRemove } from '../../src/commands/remove.js';
 import { runStatus } from '../../src/commands/status.js';
 import { runUninstall } from '../../src/commands/uninstall.js';
 import { displayHook } from '../../src/lib/hook-wiring.js';
+import { CliError } from '../../src/lib/cli-error.js';
+import { reportCliError } from '../../src/lib/report-error.js';
 import {
   MODELS_RECORD_KEY,
   modelsRecordHash,
@@ -1725,5 +1727,42 @@ describe('init and .claude/settings.json — the HOOKS note', () => {
     ]);
     expect(informed()).not.toContain('preserved');
     expect(JSON.parse(read(SETTINGS))).toEqual(UPSTREAM_SETTINGS);
+  });
+});
+
+// THE ONE EXIT POINT: init never exits and never prints its own ending. A
+// refusal and a cancel reject with a CliError carrying the exit code, and the
+// line the user sees comes out once, from the top-level reporter.
+describe('pharn init ends through a CliError', () => {
+  const thrown = (p: Promise<void>): Promise<unknown> =>
+    p.then(
+      () => null,
+      (err: unknown) => err,
+    );
+
+  it('a refusal (off a TTY): CliError exit 1, its one error line printed by reportCliError', async () => {
+    const err = await thrown(runInit());
+    expect(err).toBeInstanceOf(CliError);
+    expect(err).toMatchObject({ exitCode: 1 });
+    expect(logs('error')).toEqual([]);
+    expect(reportCliError(err)).toBe(1);
+    const lines = logs('error');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('pharn init is interactive');
+    expect(stdout()).toEqual([]);
+  });
+
+  it('a cancel (the summary answered Cancel): CliError exit 0, one "Cancelled" line', async () => {
+    ssrProject();
+    interactive({ select: ['cancel'] });
+    const err = await thrown(runInit());
+    expect(err).toBeInstanceOf(CliError);
+    expect(err).toMatchObject({ exitCode: 0 });
+    const cancelled = (): string[] =>
+      logs('info').filter((l) => l.includes('Cancelled. Nothing was changed.'));
+    expect(cancelled()).toEqual([]);
+    expect(reportCliError(err)).toBe(0);
+    expect(cancelled()).toHaveLength(1);
+    expect(logs('error')).toEqual([]);
   });
 });

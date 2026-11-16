@@ -19,6 +19,7 @@ const {
   reportForcedOverwrites,
   reportOutcome,
   reportDryRun,
+  reportBackup,
   withheldVersionLine,
 } = await import('../src/lib/update-render.js');
 
@@ -399,5 +400,37 @@ describe('withheldVersionLine', () => {
       '2 file(s) were skipped; your install is already at skills v1.1.0, so there is no upgrade to finish — resolve them by hand.',
     );
     expect(line).not.toContain('--force');
+  });
+});
+
+// The last lines of an update that failed after its backup: the command prints
+// the fatal line, then this, then throws an already-reported CliError, so the
+// pointer is never lost behind the exit.
+describe('reportBackup — an aborted run names its backup on stderr', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('says the run stopped part-way and points at the backup, all on stderr', () => {
+    reportBackup(
+      {
+        dir: 'pharn/.backup/2026-11-16T00-00-00Z',
+        count: 2,
+        action: 'overwriting and removing',
+        gitignored: true,
+      },
+      { aborted: true },
+    );
+    expect(vi.mocked(prompts.log.warn).mock.calls).toEqual([
+      [
+        'The update stopped part-way — some originals may already have been overwritten or removed.',
+        { output: process.stderr },
+      ],
+    ]);
+    const infos = vi.mocked(prompts.log.info).mock.calls;
+    expect(infos.length).toBeGreaterThan(0);
+    for (const [, opts] of infos)
+      expect(opts).toEqual({ output: process.stderr });
+    expect(infos.map(([line]) => String(line)).join('\n')).toContain(
+      'pharn/.backup/2026-11-16T00-00-00Z',
+    );
   });
 });
