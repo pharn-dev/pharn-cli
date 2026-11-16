@@ -407,11 +407,10 @@ async function resolveArchetypeAdd(
   // unreadable source, so installCapabilityDirs' pre-flight message still wins.
   const scan = scanDest({ repoDir, projectRoot: cwd, rels: cloneRels });
 
-  // REFUSE a symlinked component under the capability dir: cpSync writes
-  // THROUGH a symlinked intermediate directory (pinned by
-  // tests/commands/add.test.ts, "refuses rather than copy through a symlinked
-  // directory, naming it"), and such a path
-  // cannot be backed up either.
+  // REFUSE a symlinked component under the capability dir before any write:
+  // the writer would refuse it only after the files before it landed (pinned
+  // by tests/commands/add.test.ts, "refuses rather than copy through a
+  // symlinked directory, naming it"), and such a path cannot be backed up.
   if (scan.unsafe.length > 0) {
     const first = scan.unsafe[0]!;
     const more =
@@ -436,7 +435,11 @@ async function resolveArchetypeAdd(
     });
   }
 
-  installCapabilityDirs(repoDir, cwd, [{ name: cap.name, role: cap.role }]);
+  // `scan.seen`: a file edited since the scan is backed up before it is
+  // overwritten. A part-way failure throws past the records and config writes
+  // below, naming the files that landed.
+  const caps = [{ name: cap.name, role: cap.role }];
+  installCapabilityDirs(repoDir, cwd, caps, scan.seen);
   const version = readSkillsVersion(repoDir);
   // The pinned SHA (null when the branch was floated — LIMITS.md §3b), unless
   // the clone is at a pending version (see addStamp).

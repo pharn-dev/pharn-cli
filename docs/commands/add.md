@@ -210,18 +210,26 @@ in your project:
   directory (or move it aside), then re-run `pharn add a11y`.
 ```
 
-The copy is a recursive `cpSync` that guards only its **source**. On the destination side a symlinked
-intermediate directory is followed, so the copy would overwrite whatever it points at — and a backup
+`add` writes the capability file by file, and each write refuses a path through a symlink. Checking
+every path first means a refusal writes nothing at all, instead of stopping part-way — and a backup
 cannot help, because saving a symlink's contents means saving its _target_, not the link. Refusing is
 the only outcome that leaves your files as they were. Replace the symlink with a real directory and
 re-run. ([`update`](update.md) reaches the same answer by a different route: it classifies such a path
 `unreadable` and skips it.)
 
-**Known limit.** This is a check made just before the copy, not a lock held across it. A directory
-that becomes a symlink in the moment between the two is not caught — the copy itself guards only its
-source. What the check covers is the case that actually happens: a symlink already in your project
-when you run `add`. A concurrent local process racing the install is not something `pharn` defends
-against today.
+Each file is written by replacement: the new bytes go to a temporary file beside the destination,
+which is then renamed into place. A hard link — a second name for the same file — keeps its other
+name's contents. A file you edit between the drift scan and its write is backed up first, like the
+drifted files.
+
+**Known limit.** Each check runs just before its write, not under a lock held across it. A directory
+that becomes a symlink between a file's check and its write is not caught. A concurrent local process
+racing the install is not something `pharn` defends against today.
+
+If a write fails part-way (a read-only directory, a full disk), `add` names the files it had already
+written (the first ten, then a count) and writes neither `pharn.records.json` nor `pharn.config.json`.
+Those files are then unrecorded: the next `add` backs up any that differ from upstream before it
+overwrites them.
 
 > **This is a copy, not a merge.** `add` still overwrites the destination with upstream's version —
 > it simply no longer does so irreversibly. Restoring is your call: the backup directory is printed

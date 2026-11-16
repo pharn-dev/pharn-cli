@@ -479,8 +479,9 @@ again just before its first write. If one of them exists in your project as the 
 (a directory where pharn writes a file, or a file where it needs a directory), `init` stops and names
 each one (up to five, then a count). That includes a **directory** named `pharn.config.json` or
 `pharn.records.json`, the two files `init` writes beside the copy. Your project is left exactly as it
-was — no backup directory either. Move or rename the named entries and re-run `pharn init`. The
-optional `features/README.md` is the one exception: a collision there is skipped rather than refused.
+was — no backup directory either. Move or rename the named entries and re-run `pharn init`. This
+includes `features/README.md` (or `pharn/features/README.md`): a file named `features` in your project
+is in the way when the fetched pharn-oss ships that README there.
 
 ```text
 Refusing to install: pharn-review is a symbolic link inside the project, so writing through it would

@@ -559,6 +559,16 @@ cannot find them; PHARN still runs them. Delete them by hand.
 | Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                                             |
 | Update `.prettierignore`   | Only when the project uses Prettier: appends the lines that keep its check off the files pharn installs and rewrites ([below](#prettierignore))                                                                                                                               |
 
+**How each file is written.** `init` writes the files one at a time, each by replacement: the new bytes
+go to a temporary file beside the destination, which is then renamed into place, so a hard link (a
+second name for the same file) keeps its other name's contents. Each write first refuses a path through
+a symbolic link. `.claude/settings.json` is created only if it does not exist, in one step that never
+opens an existing file. A file you edit after the backup scan and before its write is backed up first.
+If a write fails part-way (a read-only directory, a full disk), `init` names the files it had already
+written (the first ten, then a count) and writes neither `pharn.records.json` nor `pharn.config.json`.
+Those files are then unrecorded: the next `init` backs up any that differ from upstream before it
+overwrites them.
+
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
 the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
 that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and

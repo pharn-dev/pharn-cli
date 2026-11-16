@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { copyFileAtomicSync } from './atomic-write.js';
 import { contentHash } from './hash.js';
 import { findSymlinkComponent } from './symlink-guard.js';
+import { terminalSafe } from './terminal-safe.js';
 import { ManifestValidationError, safeJoin, toPosix } from './validate.js';
 import type { DiskState } from './update-decision.js';
 
@@ -17,6 +18,10 @@ import type { DiskState } from './update-decision.js';
 // On the first failure this throws an ApplyError CARRYING the paths already
 // written, so the caller can still record them: an unrecorded pharn write
 // would be read as the user's edit by every later run.
+//
+// It is the one writer for `init`, `add` and `update`. A caller that planned
+// against the destination passes what it saw (`seen`): a file edited since is
+// not written but returned in `changed`, for the caller to back up or skip.
 // ---------------------------------------------------------------------------
 
 export class ApplyError extends Error {
@@ -74,15 +79,23 @@ export function readDiskState(projectRoot: string, rel: string): DiskState {
  * Copy each planned write from the clone into the project, creating parent
  * directories (a restore whose whole directory was deleted needs them).
  * Returns the paths written, in order.
+ *
+ * `seen` maps a rel to the destination's hash at plan time (`null`: absent).
+ * Such a file is re-read just before its write and lands in `changed`, not
+ * written, when it is now a regular file with another hash (edited, or
+ * appeared). One that vanished is written (nothing to lose); one now
+ * unreadable (a symlink, a directory) is left to the write's own refusal.
  */
 export function applyWrites(params: {
   projectRoot: string;
   // rel → absolute source path in the fetched clone (the install manifest).
-  expected: Map<string, string>;
-  writes: string[];
-}): string[] {
-  const { projectRoot, expected, writes } = params;
+  expected: ReadonlyMap<string, string>;
+  writes: readonly string[];
+  seen?: ReadonlyMap<string, string | null>;
+}): { written: string[]; changed: string[] } {
+  const { projectRoot, expected, writes, seen } = params;
   const written: string[] = [];
+  const changed: string[] = [];
   for (const rel of writes) {
     const from = expected.get(rel);
     if (from === undefined) {
@@ -90,6 +103,13 @@ export function applyWrites(params: {
         `Internal: no source for planned write ${rel}.`,
         written,
       );
+    }
+    if (seen?.has(rel) === true) {
+      const now = readDiskState(projectRoot, rel);
+      if (now.kind === 'file' && now.hash !== seen.get(rel)) {
+        changed.push(rel);
+        continue;
+      }
     }
     try {
       const to = safeJoin(projectRoot, rel);
@@ -116,5 +136,26 @@ export function applyWrites(params: {
       );
     }
   }
-  return written;
+  return { written, changed };
+}
+
+const MAX_WRITTEN_SHOWN = 10;
+
+/**
+ * The warning for a write that failed part-way: how many files landed before
+ * it and which (the first ten, then a count). They have no record, so the next
+ * run treats them as the user's and backs up any that differ.
+ */
+export function writtenBeforeFailureLines(
+  written: readonly string[],
+): string[] {
+  const shown = written
+    .slice(0, MAX_WRITTEN_SHOWN)
+    .map((rel) => `  ${terminalSafe(rel)}`);
+  const more = written.length - shown.length;
+  return [
+    `${written.length} file${written.length === 1 ? ' was' : 's were'} written before the failure; no records or config were written:`,
+    ...shown,
+    ...(more > 0 ? [`  and ${more} more`] : []),
+  ];
 }

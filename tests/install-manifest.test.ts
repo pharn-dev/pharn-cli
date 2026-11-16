@@ -469,8 +469,8 @@ describe('collectExpectedInstallPaths — the mapped LICENSE entry', () => {
   });
 });
 
-// Mirror-consistency: collectExpectedInstallPaths MIRRORS installCapabilities, so
-// pin it against a REAL install — the two must not silently drift. The manifest
+// Mirror-consistency: installCapabilities writes collectExpectedInstallPaths, so
+// a REAL install's written set must equal the manifest exactly. The manifest
 // intentionally excludes the user-owned .claude/settings.json, which install DOES
 // write, so the real-write set equals the manifest keys PLUS that one file.
 describe('collectExpectedInstallPaths ⟷ installCapabilities (mirror)', () => {
@@ -653,9 +653,8 @@ describe('capabilityCloneFiles', () => {
   // The MIRROR pin, the same one collectExpectedInstallPaths carries against a
   // real installCapabilities run. capabilityCloneFiles drives a DESTRUCTIVE
   // decision (which files `add` backs up) and a DURABLE one (which it records),
-  // so its agreement with what the copy actually writes must be tested, not
-  // argued: the two traversals are independent (walkFiles vs cpSync's own
-  // recursion) and could drift apart silently.
+  // so its agreement with what the copy actually writes is tested against the
+  // real disk, not argued from the code.
   it('MIRROR: equals exactly what a real installCapabilityDirs copy writes', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -690,12 +689,10 @@ describe('capabilityCloneFiles', () => {
 });
 
 // The manifest is the SOURCE side of every `pharn update` write, and the
-// installer copies the SAME two surfaces through copyFilteredDir — which holds
-// each kept basename to COPY_FILENAME_RE + no-`..` and HARD-FAILS on a miss
-// (src/lib/install-capabilities.ts). Before this floor existed the two write
-// paths disagreed on one clone: `init` refused it, `update` copied the file in.
-// These cases pin that they now refuse together, and that the floor is scoped to
-// exactly those two surfaces.
+// installer writes the SAME map (src/lib/install-capabilities.ts), so each kept
+// basename is held to COPY_FILENAME_RE + no-`..` and HARD-FAILS on a miss for
+// both. These cases pin that `init` and `update` refuse together, and that the
+// floor is scoped to exactly those two surfaces.
 describe('collectExpectedInstallPaths — command/hook filename floor (P2)', () => {
   const tmp = useTmpDir();
 
@@ -773,8 +770,7 @@ describe('collectExpectedInstallPaths — command/hook filename floor (P2)', () 
 
   // The nested case is what actually pins keep-before-validate: the basename is
   // adversarial, but `keep`'s `!rel.includes('/')` rejects it first, so the
-  // validator never sees it — matching copyFilteredDir, which only ever reads
-  // top-level entries.
+  // validator never sees it: only top-level entries are install candidates.
   it('a nested adversarial name under the commands dir throws nothing', () => {
     const repo = repoWith((r) =>
       write(join(r, '.claude/commands/sub/pharn-Weird_Name.md')),
@@ -784,9 +780,8 @@ describe('collectExpectedInstallPaths — command/hook filename floor (P2)', () 
     expect(keys).toContain('.claude/commands/pharn-plan.md');
   });
 
-  // Scope proof: the verbatim-copied surfaces are copied by recursive cpSync
-  // with NO name check, so validating them here would break the mirror and
-  // reject legitimate evals fixtures.
+  // Scope proof: the verbatim-copied surfaces carry NO name check, so
+  // validating them here would reject legitimate evals fixtures.
   it('capability, contract and floor names outside COPY_FILENAME_RE are still enumerated', () => {
     const repo = repoWith((r) => {
       write(join(r, 'pharn-pipeline/grillers/a11y/evals/cases/Case_One.TXT'));

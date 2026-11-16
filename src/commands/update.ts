@@ -741,7 +741,11 @@ async function applyPlannedUpdate(
 
   let written: string[];
   try {
-    written = applyWrites({ projectRoot: cwd, expected, writes: plan.writes });
+    ({ written } = applyWrites({
+      projectRoot: cwd,
+      expected,
+      writes: plan.writes,
+    }));
   } catch (err) {
     // Files pharn just wrote MUST be recorded even on a partial failure, or the
     // next run reads them as the user's edits. Stamped with the config's

@@ -31,6 +31,7 @@ const REASONS = {
   reportError: 'Report failures through src/lib/report-error.ts',
   reportEscape: 'escapes through serializeJsonReport',
   cloneProducer: 'only producer of a clone tree',
+  noCpSync: 'Write install files through applyWrites',
 } as const;
 type Reason = keyof typeof REASONS;
 
@@ -223,6 +224,14 @@ const CASES: [string, string, string, Reason[]][] = [
     'src/lib/repo.ts',
     "fs.mkdtempSync('/tmp/x');",
     [],
+  ],
+  ['cpSync', PROBE, "import { cpSync } from 'node:fs';", ['noCpSync']],
+  ['fs.cpSync', PROBE, 'fs.cpSync(a, b, { recursive: true });', ['noCpSync']],
+  [
+    'promises cp',
+    PROBE,
+    "import { cp } from 'node:fs/promises';",
+    ['noCpSync'],
   ],
   [
     'outside src/',

@@ -88,20 +88,27 @@ target and label computation the prompt uses. It skips the TTY gate, both prompt
 
 ## The copy (`lib/install-capabilities.ts`)
 
-- `installCapabilityDirs` (used by `add`) pre-flights every selected source before any write, then copies each
-  griller/lens dir.
-- `installCapabilities` (used by `init`) also copies the fixed surfaces: product `pharn-*` commands and agents (never
-  `pharn-dev-*`), `.cjs`/`.mjs` hooks (never `*.test.*`), the trusted docs, upstream's `LICENSE` (to a pharn-owned
-  name), the product-loop boundary contract, `pharn-contracts/`, `pharn-core`, and `.dev/floor/` minus its tests and
-  test fixtures.
-- `.claude/settings.json` is never overwritten or merged. When none exists, upstream's is copied and its hash recorded,
-  so `uninstall` can remove it unchanged. A `HOOKS` note lists what it wires.
+- Every file is written by `update`'s per-file writer, `applyWrites` (`lib/apply-update.ts`): a symlink walk of the
+  destination, then `copyFileAtomicSync` (an exclusive temp, then `rename`), so a hard-linked destination's other name
+  keeps its bytes.
+- `installCapabilityDirs` (used by `add`) pre-flights every selected source before any write, then writes each
+  griller/lens dir's clone file list (`capabilityCloneFiles`).
+- `installCapabilities` (used by `init`) writes exactly the install manifest (`collectExpectedInstallPaths`): the
+  capability dirs and the fixed surfaces, which are product `pharn-*` commands and agents (never `pharn-dev-*`),
+  `.cjs`/`.mjs` hooks (never `*.test.*`), the trusted docs, upstream's `LICENSE` (to a pharn-owned name), the
+  product-loop boundary contract, `pharn-contracts/`, `pharn-core`, and `.dev/floor/` minus its tests and test fixtures.
+- Both hand the writer the destination hashes `scanDest` saw. A file edited between that scan and its write is backed
+  up (one `createBackup`) and then written.
+- A write that fails part-way names the files already written (the first ten, then a count) and writes no records and
+  no config. The next run treats those files as unrecorded.
+- `.claude/settings.json` is never overwritten or merged. When none exists, upstream's is created with
+  `COPYFILE_EXCL` and its hash recorded, so `uninstall` can remove it unchanged. A `HOOKS` note lists what it wires.
 - Every declared surface the clone does not ship is reported (`absentInstallSurfaces`): by `init` as a warning, by
   `update` as `NOT SHIPPED`, and by `status` as drift that fails `--strict`.
 - The destination is guarded by `prepareInstall`, which runs before the prompt, again before the backup, and again
-  before the copy. It refuses a path through a symlinked directory or file, and a directory where
-  `pharn.config.json`/`pharn.records.json` belong. A live `.claude/settings.json` link is allowed, since it is never
-  written.
+  before the copy. It refuses a path through a symlinked directory or file, any manifest path whose type is in the way
+  (the features README included), and a directory where `pharn.config.json`/`pharn.records.json` belong. A live
+  `.claude/settings.json` link is allowed, since it is never written.
 
 The install mirrors the clone's layout: `pharn` (everything under `pharn/`) or legacy `flat` (`lib/layout.ts`).
 
@@ -128,8 +135,8 @@ The install mirrors the clone's layout: `pharn` (everything under `pharn/`) or l
   `configLayout(config)`.
 - `add` never stamps `skillsVersion` or `layout`, because it writes one capability, not the tree.
 - Before the copy, `scanDest` backs up destination files whose content differs from the clone's. It refuses the whole
-  install if a destination path crosses a symlinked component, because `cpSync` writes through a symlinked intermediate
-  directory.
+  install if a destination path crosses a symlinked component: the writer would refuse it only after the files before
+  it landed, and such a path cannot be backed up.
 - Records are merged keyed by the clone's file list, never a walk of the destination.
 
 ## `remove` (`commands/remove.ts`)

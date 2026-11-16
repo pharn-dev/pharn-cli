@@ -34,6 +34,7 @@ import {
   editRecords,
   exists,
   failures,
+  FLOOR,
   fetched,
   fetchStub,
   flatTree,
@@ -75,6 +76,7 @@ import {
   write,
 } from '../support/harness.js';
 import { runInit } from '../../src/commands/init.js';
+import { runInstallArchetype } from '../../src/steps/install-archetype.js';
 import { runAdd } from '../../src/commands/add.js';
 import { runUpdate } from '../../src/commands/update.js';
 import { runRemove } from '../../src/commands/remove.js';
@@ -960,6 +962,84 @@ describe('init refuses a project it cannot install into', () => {
     expect(exists('pharn/.backup')).toBe(false);
     expect(read(PLAN_COMMAND)).toBe('MY EDIT');
     expect(config().commit).toBe(SHA_V1);
+  });
+
+  // A write that fails part-way names the files that landed and writes no
+  // records and no config. The failure is real and root-proof: once the first
+  // file is being written (after every pre-flight), a non-empty DIRECTORY
+  // appears where the floor checker goes, so its atomic rename fails. The next
+  // run treats the landed files as unrecorded: one that differs from upstream
+  // is backed up before it is overwritten.
+  it('a write failing part-way names what landed and writes no records or config', async () => {
+    let planted = false;
+    fsHooks.open = (path, flags) => {
+      if (!planted && flags === 'wx' && path.endsWith('.tmp')) {
+        planted = true;
+        mkdirSync(at(`${FLOOR}/in-the-way`), { recursive: true });
+      }
+    };
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    fsHooks.open = null;
+
+    expect(planted).toBe(true);
+    expect(errors()).toMatch(
+      /\d+ files were written before the failure; no records or config were written:\n {2}pharn\/pharn-pipeline\/grillers\/security\/security\.md\n/,
+    );
+    expect(errors()).toMatch(/\n {2}and \d+ more$/m);
+    expect(errors()).toContain(`Failed to write ${FLOOR}`);
+    expect(exists(SECURITY)).toBe(true);
+    expect(exists(`${FLOOR}/in-the-way`)).toBe(true);
+    expect(exists('pharn.config.json')).toBe(false);
+    expect(exists('pharn.records.json')).toBe(false);
+
+    rmSync(at(FLOOR), { recursive: true });
+    write(SECURITY, 'EDITED AFTER THE FAILED RUN\n');
+    expect(await rerun()).toBeNull();
+    expect(backupFiles()).toContain(SECURITY);
+    expect(read(FLOOR)).toBe('export {};\n');
+    expect(Object.keys(records().files)).toContain(FLOOR);
+  });
+
+  // The install step hands the writer what its scan saw (`scan.seen`): a file
+  // that appears between that scan and its own write is backed up, then
+  // written, and recorded at the bytes that landed. Run on the step itself,
+  // over a clone written from the served tree.
+  it('runInstallArchetype backs up, then writes, a file that changed since its scan', async () => {
+    const clone = join(proj(), '..', 'step-clone');
+    for (const [rel, body] of Object.entries(upstream.tree)) {
+      mkdirSync(join(clone, rel, '..'), { recursive: true });
+      writeFileSync(join(clone, rel), body);
+    }
+    let planted = false;
+    fsHooks.open = (path, flags) => {
+      if (!planted && flags === 'wx' && path.endsWith('.tmp')) {
+        planted = true;
+        write(FLOOR, 'APPEARED DURING THE INSTALL\n');
+      }
+    };
+
+    const selection = {
+      selected: [
+        {
+          name: 'security',
+          role: 'griller' as const,
+          matched: 'universal' as const,
+        },
+      ],
+      skipped: [],
+    };
+    await runInstallArchetype(clone, proj(), ['lib'], selection, SHA_V1);
+    fsHooks.open = null;
+
+    expect(planted).toBe(true);
+    expect(backupFiles()).toEqual([FLOOR]);
+    expect(informed()).toContain('Backed up 1 file(s) to pharn/.backup/');
+    const [dir] = readdirSync(at('pharn/.backup'));
+    expect(read(`pharn/.backup/${dir!}/${FLOOR}`)).toBe(
+      'APPEARED DURING THE INSTALL\n',
+    );
+    expect(read(FLOOR)).toBe('export {};\n');
+    expect(records().files[FLOOR]).toBe(sha256(FLOOR));
   });
 
   // PHARN-03's re-check: the config fingerprint is taken before the prompts,

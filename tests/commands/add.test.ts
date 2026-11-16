@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { CANCEL } from '../helpers.js';
 import {
@@ -41,11 +41,29 @@ import {
 import { runAdd } from '../../src/commands/add.js';
 import { runStatus } from '../../src/commands/status.js';
 
+// A pass-through `node:fs` with one hook on `openSync`, so a case can change
+// the project at the instant the writer creates its first temp file — after
+// every pre-flight — the way a concurrent process would.
+const fsHooks = vi.hoisted(() => ({
+  open: null as null | ((path: string, flags: unknown) => void),
+}));
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs')>();
+  const openSync = ((path: string, flags: unknown, ...rest: unknown[]) => {
+    fsHooks.open?.(String(path), flags);
+    return (real.openSync as (...a: unknown[]) => number)(path, flags, ...rest);
+  }) as typeof real.openSync;
+  return { ...real, default: { ...real, openSync }, openSync };
+});
+
 vi.mock('@clack/prompts', async () =>
   (await import('../support/clack-stub.js')).clackStub(),
 );
 
 useHarness();
+afterEach(() => {
+  fsHooks.open = null;
+});
 
 // Every case seeds a real install (`init --yes`: `lib`, so only the universal
 // griller `security` is selected; layout `pharn`; channel `latest`; a records
@@ -514,6 +532,35 @@ describe('pharn add <name>: the user’s bytes in the capability directory', () 
     expect(read('pharn.config.json')).toBe(cfg);
     expect(read('pharn.records.json')).toBe(rec);
     expect(read('elsewhere.md')).toBe('x\n');
+  });
+
+  // A write failing part-way names the files that landed and writes no records
+  // and no config, so the next run treats them as unrecorded.
+  // Root-proof: once the first file is being written, a non-empty DIRECTORY
+  // appears at the eval's path, so that file's atomic rename fails.
+  it('a write failing part-way names what landed; config and records unchanged', async () => {
+    shipA11yEval();
+    await installFresh();
+    const cfg = read('pharn.config.json');
+    const rec = read('pharn.records.json');
+    let planted = false;
+    fsHooks.open = (path, flags) => {
+      if (!planted && flags === 'wx' && path.endsWith('.tmp')) {
+        planted = true;
+        mkdirSync(at(`${A11Y_EVAL}/in-the-way`), { recursive: true });
+      }
+    };
+
+    expect(await run(() => runAdd('a11y'))).toBe(1);
+    fsHooks.open = null;
+
+    expect(planted).toBe(true);
+    expect(errors()).toContain(
+      `1 file was written before the failure; no records or config were written:\n  ${A11Y}`,
+    );
+    expect(errors()).toContain(`Failed to write ${A11Y_EVAL}`);
+    expect(read('pharn.config.json')).toBe(cfg);
+    expect(read('pharn.records.json')).toBe(rec);
   });
 });
 
