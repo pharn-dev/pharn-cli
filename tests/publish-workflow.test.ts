@@ -22,8 +22,9 @@ const code = WORKFLOW.split('\n')
 function runBlock(name: string): string {
   const lines = WORKFLOW.split('\n');
   const step = lines.findIndex((l) => l.trim() === `- name: ${name}`);
-  const run = lines.findIndex((l, i) => i > step && /^\s*run: \|\s*$/.test(l));
   expect(step, `step "${name}"`).toBeGreaterThanOrEqual(0);
+  const run = lines.findIndex((l, i) => i > step && /^\s*run: \|\s*$/.test(l));
+  expect(run, `step "${name}" has a run: | block`).toBeGreaterThan(step);
   const keyIndent = lines[run]!.search(/\S/);
   const body: string[] = [];
   for (const l of lines.slice(run + 1)) {

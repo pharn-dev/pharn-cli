@@ -1,0 +1,56 @@
+{
+  "base": "a4bbcb93335b85969f24b18de8f27e13aeb14d59",
+  "inside": [
+    "docs/RELEASING.md",
+    "docs/contributing.md",
+    "eslint.config.mjs",
+    "tests/check-composition.test.ts",
+    "tests/ci-workflow.test.ts",
+    "tests/color.test.ts",
+    "tests/dependency-overrides.test.ts",
+    "tests/dev-script.test.ts",
+    "tests/diff.test.ts",
+    "tests/docs-install-tables.test.ts",
+    "tests/docs-models-claims.test.ts",
+    "tests/engines.test.ts",
+    "tests/executable-unit.test.ts",
+    "tests/hash.test.ts",
+    "tests/init.test.ts",
+    "tests/json-report.test.ts",
+    "tests/lint-gate.test.ts",
+    "tests/lint-rules.test.ts",
+    "tests/publish-workflow.test.ts",
+    "tests/remove.test.ts",
+    "tests/report-error.test.ts",
+    "tests/root-migration.test.ts",
+    "tests/symlink-guard.test.ts",
+    "tests/tar-extract.test.ts",
+    "tests/terminal-safe.test.ts",
+    "tests/update.test.ts"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
