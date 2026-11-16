@@ -4,20 +4,14 @@ import { writeFileAtomic } from './atomic-write.js';
 import { safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
-// The mechanics pharn shares for the root ignore files it appends to
-// (`.gitignore` — lib/gitignore.ts; `.prettierignore` — lib/prettierignore.ts).
-// One axis (P3): reading, parsing and appending to a gitignore-syntax file.
-// WHICH entries a file must hold, and when one counts as covered, stay with
-// each caller — this module never decides coverage.
+// Reading, parsing and appending to a root gitignore-syntax file (`.gitignore`,
+// `.prettierignore`). WHICH entries a file must hold, and coverage, stay with
+// each caller. APPEND-ONLY: the old bytes are always the prefix, never
+// re-encoded or reordered.
 //
-// APPEND-ONLY. The new bytes are the old bytes followed by pharn's block —
-// never a decode/re-encode, never a reorder, never a removed line.
-//
-// Trust (P2): an ignore file is project content and may be hostile. It is read
-// bounded (lib/bounded-read.ts) and only compared against fixed or validated
-// strings; its text never reaches a terminal and never drives a path. The only
-// write target is the fixed root file, replaced atomically — never written
-// through a symlink or into a hard-linked inode (lib/atomic-write.ts).
+// Trust: project content, read bounded and only compared against fixed or
+// validated strings; its text never reaches a terminal or drives a path. The
+// fixed root file is replaced atomically (lib/atomic-write.ts).
 // ---------------------------------------------------------------------------
 
 /** One ignore-file line reduced to what decides whether it names a path. */
@@ -34,11 +28,8 @@ export interface IgnorePattern {
 }
 
 /**
- * One line → its pattern, or null for a blank line or a comment. Git (and
- * Prettier, which follows it) strips unescaped TRAILING spaces but keeps
- * leading ones, so only the end is trimmed; one trailing CR is a CRLF file's
- * line ending. Then one leading `/` (anchored) or `**\/` (any depth), and one
- * trailing `/`, `/*` or `/**`.
+ * One line → its pattern, or null for a blank line or a comment. Only the end
+ * is trimmed (git keeps leading spaces; a trailing CR is a CRLF line ending).
  */
 export function parseIgnorePattern(raw: string): IgnorePattern | null {
   const line = (raw.endsWith('\r') ? raw.slice(0, -1) : raw).replace(
@@ -69,9 +60,8 @@ export function parseIgnorePattern(raw: string): IgnorePattern | null {
   return { negated, core: p, floating, suffix };
 }
 
-// A UTF-8 byte-order mark, as latin1 decodes it. Git strips one at the start
-// of an ignore file, so the first line is read without it too — detection
-// only: the file's bytes are never changed.
+// A UTF-8 BOM as latin1 decodes it: git strips one, so detection does too
+// (the bytes are never changed).
 const UTF8_BOM = 'ï»¿';
 
 /** The file's lines, BOM-aware. latin1 is a 1:1 byte decode (never re-encoded). */
@@ -91,12 +81,8 @@ export function ignorePatterns(bytes: Buffer): IgnorePattern[] {
 
 /**
  * The bytes to APPEND to `old` (null = no file yet) so that it holds
- * `entries`, under `comment`. Empty when `entries` is empty.
- *
- * Line endings follow the file: CRLF when its first line ending is `\r\n`,
- * else LF (and LF for a new file). A non-empty file that does not end in a line
- * ending gets one first, so the block starts on a line of its own. The comment
- * is written only when the file does not already hold it.
+ * `entries`, under `comment` (written once per file). Line endings follow the
+ * file's first one; a missing final newline is added first.
  */
 export function ignoreAddition(
   old: Buffer | null,
@@ -128,8 +114,8 @@ export type IgnoreFileRead =
   | { kind: 'ok'; bytes: Buffer };
 
 /**
- * Read the root ignore file `name`: absent, refused (a symlink — never written
- * through, nor replaced, it is the user's; not a regular file; unreadable or
+ * Read the root ignore file `name`: absent, refused (a symlink — the user's,
+ * never written through or replaced; not a regular file; unreadable or
  * oversize), or its bytes.
  */
 export function readIgnoreFile(

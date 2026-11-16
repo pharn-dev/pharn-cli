@@ -13,42 +13,22 @@ import { chmod, lstat, open, rename, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 
 // ---------------------------------------------------------------------------
-// Atomic replacement of a CLI-owned JSON file — `pharn.config.json` and
-// `pharn.records.json` (lib/pharn-config.ts, lib/install-records.ts). One axis
-// (P3): write a whole file or leave the old one, nothing in between.
+// Atomic replacement of a file pharn writes in the project: the target is
+// replaced whole or left alone — a torn config would read as "not installed"
+// and invite a destructive re-init.
 //
-// Both files were written with a plain `writeFile`, so a write torn by power
-// loss or SIGKILL left truncated JSON on disk. For the records store that fails
-// closed (`invalid` → every update decision degrades to `unverifiable`). For the
-// config it is worse: `readPharnConfig` collapses malformed JSON to `null` and
-// every command then says "No pharn.config.json found. Run `pharn init` first."
-// — and that re-init resets a hand-edited `models` block to pharn-oss's and
-// stamps every capability `source: 'auto'`, destroying manual-add provenance.
-// The file exists; the message says it does not.
+// NOT guaranteed: no PAIR of files is atomic (records then config), there is no
+// mutual exclusion (that is lib/project-lock.ts), and there is no `fsync` —
+// "never observe a torn file" is the claim, not durability against power loss.
 //
-// What this DOES guarantee: the target is replaced or left alone. What it does
-// NOT: it makes no PAIR of files atomic (a crash between the records write and
-// the config write still leaves the store stamped for a state the config never
-// reached — harmless, since the stamp never gates the baseline), it provides NO mutual exclusion between two
-// concurrent `pharn` processes (there is no lock here), and it does not `fsync`
-// — durability against a power cut at the block layer is a different claim from
-// never observing a torn file, and only the second is made (P0).
-//
-// `copyFileAtomicSync` is the same temp-then-rename replacement for a COPIED
-// file, used by `pharn update`'s per-file writer (lib/apply-update.ts, F-19). A
-// plain `copyFileSync` onto an existing destination opens it `O_TRUNC` and
-// writes INTO its inode, so a destination that is a HARD LINK — a second name
-// for a file outside the project, which no symlink walk can see — had the
-// outside file overwritten. The rename swaps a new inode in under the
-// destination's name; every other name for the old inode keeps its bytes.
+// Every write goes to a fresh inode and is renamed in, never written in place,
+// so a HARD-LINKED destination's other names keep their bytes
+// (`copyFileAtomicSync` replaces `copyFileSync`, which wrote into the inode).
 // ---------------------------------------------------------------------------
 
 /**
- * How many candidate temp names `writeJsonAtomic` tries before giving up. Each
- * candidate carries a fresh {@link TMP_NONCE_BYTES}-byte random nonce, so an
- * `EEXIST` on an honest run is practically unreachable; the bound exists so a
- * broken random source (or a test stubbing one) fails with a named error
- * instead of looping forever.
+ * How many candidate temp names are tried before giving up — a bound so a
+ * broken random source fails with a named error instead of looping.
  */
 export const TMP_CREATE_ATTEMPTS = 8;
 
@@ -56,27 +36,12 @@ export const TMP_CREATE_ATTEMPTS = 8;
 export const TMP_NONCE_BYTES = 16;
 
 /**
- * The temp path `writeJsonAtomic` writes before renaming: a SIBLING of the
- * target, in the same directory, named `<target>.<pid>.<nonce>.tmp`.
- *
- * The sibling placement is a precondition, not a style choice — `rename(2)` is
- * atomic only WITHIN a filesystem, and a cross-device rename fails `EXDEV`
- * rather than degrading to a copy. Keeping the temp beside the target is what
- * makes that unreachable, and it is also what keeps Node's `rename` able to
- * replace an existing destination on win32.
- *
- * The NONCE is what makes the name unpredictable. The target sits in the
- * user's checkout, which may be hostile: a predictable temp name
- * (`<target>.<pid>.tmp` until this was fixed) could be committed in advance as a
- * SYMLINK, and a plain `writeFile` would follow it — truncating whatever file
- * outside the project it pointed at — before the `rename` installed the link
- * over the config. The nonce is defence in depth; the actual floor is the
- * exclusive create in `writeJsonAtomic`, which refuses ANY pre-existing entry
- * at the name, a symlink included, without following it.
- *
- * The pid keeps two concurrent `pharn` processes' temps apart even if a nonce
- * repeated. That is a COLLISION property only — it is NOT mutual exclusion over
- * the target, which nothing here provides.
+ * The temp path written before renaming: `<target>.<pid>.<nonce>.tmp`, a
+ * SIBLING of the target because `rename(2)` is atomic only within a filesystem.
+ * The nonce makes the name unpredictable in a possibly hostile checkout; the
+ * real floor is the exclusive create, which refuses any pre-existing entry
+ * (a planted symlink included) without following it. The pid only separates
+ * concurrent processes' temps — it is not mutual exclusion.
  */
 export function tmpPathFor(target: string, nonce: string): string {
   return `${target}.${process.pid}.${nonce}.tmp`;
@@ -88,14 +53,10 @@ function freshNonce(): string {
 }
 
 /**
- * Create a temp sibling of `target` EXCLUSIVELY and return its path and handle.
- *
- * `wx` is `O_CREAT | O_EXCL`: the open fails `EEXIST` when ANYTHING already sits
- * at the name — a regular file, a directory, a dangling or live symlink — and
- * it never follows a symlink in the last component (POSIX). That, not the
- * nonce, is what keeps a planted link from redirecting the write. On `EEXIST`
- * the next candidate gets a fresh nonce; the pre-existing entry is left exactly
- * as found (it is not ours to delete). Any other open error is thrown as is.
+ * Create a temp sibling of `target` EXCLUSIVELY (`wx` = `O_CREAT | O_EXCL`:
+ * fails on anything at the name and never follows a final symlink). On
+ * `EEXIST` the next candidate gets a fresh nonce; the existing entry is left
+ * as found.
  */
 async function createExclusiveTemp(
   target: string,
@@ -134,27 +95,12 @@ function createExclusiveTempSync(target: string): { tmp: string; fd: number } {
 }
 
 /**
- * Copy `from` to `target` by replacement, never in place: read the source,
- * write it to an exclusively created temp sibling (`createExclusiveTempSync` —
- * the same unpredictable `<target>.<pid>.<nonce>.tmp` name and `wx` create as
- * `writeJsonAtomic`, so a link planted at a temp name is never followed), give
- * it the SOURCE's permission bits, then `rename` it over `target`.
- *
- * Bytes and mode are what `copyFileSync` produced (it, too, sets the
- * destination's mode to the source's), so no caller's assertion changes. What
- * changes is the inode: `copyFileSync` truncated and rewrote the destination's
- * own inode, so a destination hard-linked to a file outside the project
- * overwrote that file (F-19). After this, the destination's NAME points at a
- * new inode and every other link keeps the old bytes. A symlinked target is
- * replaced by a regular file, never followed — callers that must refuse a
- * symlinked destination (lib/apply-update.ts) still check before calling.
- *
- * Reads the whole source into memory: every caller copies a file from a clone
- * whose extraction is already byte-capped (lib/tar-extract.ts).
- *
- * On any failure after the temp was created it is unlinked best-effort and the
- * original error rethrown; `target` is then exactly as it was. The `chmod` is
- * best-effort for the same reason `writeJsonAtomic`'s is.
+ * Copy `from` to `target` by replacement, never in place: write an exclusive
+ * temp sibling with the SOURCE's permission bits, then `rename` it over
+ * `target`. A symlinked target is replaced, never followed (callers that must
+ * refuse one check first). Reads the whole source into memory — callers copy
+ * from a byte-capped clone. On failure the temp is unlinked best-effort and
+ * `target` is unchanged.
  */
 export function copyFileAtomicSync(from: string, target: string): void {
   const bytes = readFileSync(from);
@@ -189,33 +135,8 @@ export function copyFileAtomicSync(from: string, target: string): void {
 }
 
 /**
- * Serialize `value` to `target` atomically: create a sibling temp exclusively,
- * write it, then rename it over the target. Bytes are exactly what a plain
- * `writeFile` produced — `JSON.stringify(value, null, 2)` plus a trailing
- * newline, utf8 — so no caller's byte assertions change.
- *
- * `rename` swaps in a NEW inode, so the previous file's permission bits would
- * otherwise be discarded and replaced by whatever the umask gives (a `0600`
- * config silently becoming `0644`). When the target is an existing REGULAR file
- * its mode is copied onto the temp first. Best-effort: a `chmod` that fails
- * (win32, an exotic filesystem) must not turn a working write into a failure,
- * so the write proceeds — losing the mode is bad, losing the write is worse.
- *
- * A target that is a SYMLINK is deliberately NOT mode-preserved, and is
- * REPLACED by a regular file rather than written through. That differs from the
- * plain `writeFile` this replaced, which followed the link. It is the same
- * posture the rest of the CLI takes toward symlinks (never followed), and it
- * keeps the write inside the project root — named here rather than left to be
- * discovered. The TEMP is never followed either (see `createExclusiveTemp`).
- *
- * On any failure AFTER the temp was created, it is unlinked BEST-EFFORT and the
- * original error is rethrown. Only a temp THIS call created is ever unlinked —
- * an entry that was already at a candidate name (another process's temp, a
- * planted link) is never touched. The unlink's own error is deliberately
- * swallowed: a cleanup failure must never mask the cause. Best-effort is the
- * honest word — a SIGKILL between the create and the unlink can still leave a
- * temp behind. The guarantee is about the TARGET (replaced or untouched), not
- * about litter.
+ * Serialize `value` to `target` atomically as `JSON.stringify(value, null, 2)`
+ * plus a trailing newline (see `writeFileAtomic`).
  */
 export async function writeJsonAtomic(
   target: string,
@@ -225,16 +146,12 @@ export async function writeJsonAtomic(
 }
 
 /**
- * `writeJsonAtomic`'s replacement for arbitrary content: a string is written as
- * utf8, a Buffer byte for byte (lib/gitignore.ts appends to the user's
- * `.gitignore` this way, so its bytes are never re-encoded). Every property
- * documented on `writeJsonAtomic` is this function's: the exclusive temp, the
- * copied mode of an existing regular file, a symlinked target replaced rather
- * than followed, a hard-linked target's other names left with the old bytes.
- *
- * A NEW target gets the mode an ordinary `writeFile` gives it (0o666 masked by
- * the umask): the async temp is opened with the default mode, unlike
- * `copyFileAtomicSync`'s 0o600 temp, which always takes the source's mode.
+ * Write `data` to `target` atomically (a string as utf8, a Buffer byte for
+ * byte): exclusive temp, then `rename`. An existing REGULAR file's mode is
+ * copied onto the temp (best-effort — losing the mode beats losing the write);
+ * a NEW target gets the umask's mode. A symlinked target is replaced by a
+ * regular file, never written through. On failure only a temp THIS call
+ * created is unlinked, best-effort (a SIGKILL can still leave one behind).
  */
 export async function writeFileAtomic(
   target: string,

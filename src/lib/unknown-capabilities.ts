@@ -2,40 +2,29 @@ import { terminalSafe } from './terminal-safe.js';
 import type { UnknownCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// The ONE renderer for `index.unknown` — the "no silent skips" surface (P5).
+// The ONE renderer for `index.unknown`, so every fetching command NAMES a
+// capability the fetch boundary refused, with its reason. Zero unknowns render
+// nothing (`null`).
 //
-// Every fetching command (init, add ×2, update, status) calls this immediately
-// after its parse, so a capability the fetch boundary refused is NAMED with its
-// reason at every call site. Zero unknowns render NOTHING (`null`), which is what
-// keeps a healthy clone exactly as quiet as it was before this feature existed.
-//
-// Trust (P2): all three rendered fields are UNTRUSTED upstream text. `name` may
-// be the very directory name that failed CAPABILITY_NAME_RE, and `reason` is a
-// validation message that interpolates it raw — so collecting them into a list
-// makes a hostile clone a repeatable terminal-control-sequence vector. This
-// module is the containment: control characters are stripped and each field is
-// length-capped BEFORE it reaches the terminal. Centralising it here (rather than
-// formatting the list at four call sites) is what makes that guarantee hold by
-// construction.
+// Every rendered field is UNTRUSTED upstream text (`name` may be the very name
+// that failed CAPABILITY_NAME_RE), so this module is the containment: unsafe
+// characters stripped and each field capped before it reaches the terminal.
 // ---------------------------------------------------------------------------
 
-// Long enough that a real validation message survives intact (the longest one
-// this repo produces is ~120 chars), short enough that a hostile 5MB dir name
+// Long enough for a real validation message, short enough that a hostile name
 // cannot flood a terminal.
 const MAX_FIELD = 200;
 // A hard cap on how many are listed; the count line always states the true total.
 const MAX_LISTED = 10;
 
-// Control AND Unicode format characters (U+202E, U+200B, …) are stripped — the
-// shared display sanitizer (lib/terminal-safe.ts).
+// The shared display sanitizer (lib/terminal-safe.ts).
 function safe(value: string): string {
   return terminalSafe(value, { max: MAX_FIELD });
 }
 
 /**
  * Render the skipped-capability warning, or `null` when nothing was skipped.
- * Deterministic (P5): the list order is the parse's own sorted enumeration order,
- * and the same input always renders the same string.
+ * List order is the parse's sorted enumeration order.
  */
 export function unknownCapabilitiesWarning(
   unknown: readonly UnknownCapability[],
@@ -54,9 +43,7 @@ export function unknownCapabilitiesWarning(
   if (unknown.length > listed.length) {
     lines.push(`  …and ${unknown.length - listed.length} more.`);
   }
-  // Deliberately context-neutral: the SAME renderer serves init, add, update and
-  // status, and status installs nothing — a closing clause about what "installed
-  // normally" would be wrong in a quarter of its uses.
+  // Context-neutral: the same renderer serves status, which installs nothing.
   lines.push(
     'This usually means pharn-oss changed something your pharn version does not understand yet. Upgrade with `npm install -g @pharn-dev/pharn@latest`.',
   );

@@ -5,23 +5,15 @@ import {
 } from './model-config.js';
 
 // ---------------------------------------------------------------------------
-// Showing the `models` block — the rows `pharn status`, `pharn init` and
-// `pharn update` print, and the one label they all print under them.
+// Showing the `models` block — the rows `status`, `init` and `update` print,
+// and the one label under them, which says what reads the block: /pharn-ship
+// and /pharn-loop request a stage's MODEL for the stages they route (effort is
+// never routed); a direct `/pharn-<stage>` uses its own frontmatter, which
+// nothing checks against the block automatically. A request is never proof of
+// what ran, so the rows are a declaration, not a record.
 //
-// The label is the point. It says what reads the block and what does not.
-// Orchestrated runs read it: /pharn-ship and /pharn-loop pick the MODEL they
-// request for each stage they route to a subagent (pharn-oss's routing policy;
-// a stage it keeps inline, an `inherit` or a `claude-*` id runs on the
-// session's model). EFFORT is never routed. A stage a person invokes directly
-// uses that command's own static `model:` / `effort:` frontmatter, which the
-// block is HELD TO by pharn-oss's checker (its `agreement` mode) — and nothing
-// runs that check automatically. A request is never proof of what a stage ran
-// on, so the rows are a declaration, never a record of what happened.
-//
-// Pure: no color, no clack — callers add their own chrome. Every token in a
-// row is a product stage (this CLI's pinned list) or a value pharn-oss's rules
-// accepted (an alias, a `claude-*` id, an effort level), so a row carries no
-// untrusted free text. One axis (P3): presenting the models block.
+// Pure (callers add chrome). Every row token is a pinned stage or a value
+// pharn-oss's rules accepted, so no untrusted free text.
 // ---------------------------------------------------------------------------
 
 /** The command that runs pharn-oss's checker in a project, in one mode. */
@@ -42,10 +34,9 @@ export interface StageRow {
 }
 
 /**
- * One row per product stage, resolved as pharn-oss resolves it, after the
- * `default` row: a stage without its own entry shows the `default` it falls
- * back to. The stage order is pharn-oss's. The structured form behind both the
- * note's text rows and `status --json`.
+ * The `default` row, then one row per product stage in pharn-oss's order,
+ * resolved as pharn-oss resolves it (a stage without an entry shows `default`'s).
+ * Behind both the text rows and `status --json`.
  */
 export function resolveStageRows(stages: ModelsStages): StageRow[] {
   const rows: StageRow[] = [

@@ -28,69 +28,32 @@ import type {
 import type { Archetype } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Archetype detection — I/O boundary (project root → ArchetypeDetection). This
-// is the ONLY archetype file that touches disk; the pure classification rules —
-// packageSignals AND the file-entry classifyEntry (imported below) — stay next
-// door in archetype.ts (P3 — one axis of change per file: this file changes if
-// the READING STRATEGY changes, archetype.ts if the classification rules do).
-// Detection merges TWO fact sources, then applies the archetype rule once
-// (ARCHITECTURE.md §5, "detected deterministically"):
+// Archetype detection — I/O boundary (project root → ArchetypeDetection). The
+// ONLY archetype file that touches disk; the pure classification rules
+// (packageFacts, classifyEntry) live in archetype.ts. Detection merges
+// package.json dependency NAMES with file-tree structural signals, then applies
+// the archetype rule once.
 //
-//   1. package.json dependency NAMES  (readPackageSignals, below)
-//   2. file-tree structural signals   (scanFileTreeSignals, below)
-//
-// Both are local project input (P2). We test NAMES only — dependency key names
-// and file/dir names — for membership against fixed in-code allowlists /
-// patterns; we never execute, interpolate or forward a value, and the tree walk
-// never reads a discovered file's BODY (only package.json is read, as before).
-// The output is a closed `Archetype[]` enum, a boolean, and one piece of
-// EVIDENCE per archetype for the install summary: a dependency name that is an
-// allowlist LITERAL (never the manifest's key bytes), or a project-relative
-// path built from the user's own directory entries. Those paths are display
-// data only — never written to the config, joined into a path, or compared —
-// and every render site passes them through `terminalSafe`.
-//
-// NOTE (human-owned reconciliation, surfaced per P6): ARCHITECTURE.md §5 still
-// phrases detection as "membership over package.json", predating the file-tree
-// extension. §5 is trusted + hook-protected — the agent cannot amend it; its
-// wording is a human call. The mechanism stays deterministic either way (P5).
+// Only NAMES are tested against fixed allowlists; nothing is executed, and the
+// walk never reads a discovered file's body (only package.json is read).
+// Evidence paths are built from the user's own entry names: display data only,
+// never written, joined or compared, and rendered through `terminalSafe`.
 // ---------------------------------------------------------------------------
 
-// The boundary's result: the detected archetypes, with their evidence. Whether
-// a usable package.json was read is `readPackageFacts`' answer (below) — it
-// feeds the walk as `jsProject` and is not part of this result: no caller acts
-// on it, and with file-tree scanning a missing manifest no longer implies
-// `['lib']` (a manifest-less project with a `.tsx` file is `['spa']`).
+// The boundary's result: the detected archetypes, with their evidence.
 export interface ArchetypeDetection {
   archetypes: Archetype[];
   // One entry per archetype, in the same order (see `evidenceFor`).
   evidence: ArchetypeEvidence[];
-  // The bounded walk stopped (WALK_LIMITS) while the result could still change,
-  // so part of the tree was never examined (see `TreeScan.truncated`).
+  // The bounded walk stopped (WALK_LIMITS) while the result could still change.
   truncated: boolean;
 }
 
-// Directories never recursed into and never classified — heavy or irrelevant
-// trees (build output, VCS, deps, framework build/deploy caches). Compared
-// case-insensitively (below).
-//
-// A skipped dir `continue`s BEFORE the `budget -= 1` decrement, so a skip-listed
-// subtree costs ZERO entries. That is what keeps a fat framework cache from
-// exhausting WALK_LIMITS.maxEntries and truncating the walk before it reaches the
-// project's real source — the failure this list's framework-cache members exist
-// to prevent (a `.next/` of 55k files made a `src/App.tsx` project detect as
-// frameworkless `lib` instead of `spa`, identically on every machine, because the
-// walk is sorted and `.next` sorts before `src`).
-//
-// The failure DIRECTION of this list is a LOST signal, never a false one: a
-// hand-authored dir that happens to be named here (e.g. `out/` holding real
-// source) goes dark, and package.json dependency names are what normally backstop
-// it. That tradeoff is accepted deliberately — recorded here so it is not
-// rediscovered as a bug.
-//
-// Exported read-only so tests can pin every member's skip behavior and its
-// classification neutrality against the shipped set, without being able to mutate
-// it.
+// Directories never recursed into and never classified (build output, VCS,
+// deps, framework caches), compared case-insensitively. A skip costs ZERO
+// budget, so a fat cache cannot exhaust WALK_LIMITS.maxEntries before the walk
+// reaches real source. The accepted cost: a hand-authored dir with one of these
+// names (e.g. `out/`) goes dark — a lost signal, never a false one.
 export const SKIP_DIRS: ReadonlySet<string> = new Set([
   'node_modules',
   '.git',
@@ -107,9 +70,8 @@ export const SKIP_DIRS: ReadonlySet<string> = new Set([
   '.cache', // generic tool cache (Parcel, Gatsby, …)
   '.parcel-cache', // Parcel cache
   'storybook-static', // Storybook static build
-  // Non-JS trees that are never hand-authored JS source, whatever sits beside
-  // them. The ones that ARE ordinary folder names elsewhere (`target`, `vendor`,
-  // `venv`) are in ECOSYSTEM_DIRS below instead.
+  // Non-JS trees never holding JS source; ordinary-looking names (`target`,
+  // `vendor`, `venv`) are in ECOSYSTEM_DIRS instead.
   '__pycache__', // Python bytecode cache
   '.yarn', // Yarn Berry cache / PnP store
 ]);
@@ -121,22 +83,13 @@ export type EcosystemMarker =
   // A regular file with this exact name inside the directory.
   | { inside: string };
 
-// Non-JS dependency/build trees that share a repo with a JS app — skipped, at
-// zero budget, like SKIP_DIRS, but ONLY where they are that ecosystem's tree.
-// Their names are ordinary folder names in a JS project too, and the backend
-// signal is STRUCTURAL (`app/**/route.ts`), so no package.json dependency
-// backstops it: skipping every `target/` sent a Next.js route at
-// app/target/route.ts dark, and `[ssr, backend]` detected as `[ssr]`.
-//
-// The test is a membership check over the parent's already-read entries (the
-// sibling build file), or one `lstat` (a virtualenv's pyvenv.cfg), so a real
-// 50k-file tree still costs one check and zero budget — the protection PHARN-15
-// added, kept at any depth (a nested Maven module, a PHP `vendor/`). The dir
-// name matches case-insensitively, as SKIP_DIRS does; each marker matches
-// exactly as its tool writes it, and only as a regular file.
-//
-// Exported read-only for the same reason as SKIP_DIRS: the tests pin every
-// member's behavior and its classification neutrality against this map.
+// Non-JS dependency/build trees — skipped at zero budget like SKIP_DIRS, but
+// ONLY where they are that ecosystem's tree: their names are ordinary folder
+// names in a JS project too, and a structural backend signal
+// (`app/target/route.ts`) has no package.json backstop. The test is a lookup in
+// the parent's already-read entries or one `lstat`, so a huge tree still costs
+// one check. Dir names match case-insensitively; markers exactly, as regular
+// files only.
 export const ECOSYSTEM_DIRS: ReadonlyMap<string, EcosystemMarker> = new Map<
   string,
   EcosystemMarker
@@ -168,16 +121,11 @@ function isEcosystemTree(
   );
 }
 
-// Bounded walk. These caps are a DEFENSIVE bound on a pathological tree, NOT a
-// perf-only knob: a signal that lies past a cap is UNDETECTED (a completeness
-// tradeoff — determinism is preserved, but a real signal could be missed). They
-// are therefore chosen GENEROUSLY, far beyond any realistic project depth/size;
-// combined with the settled short-circuit, a normal project finishes long
-// before either cap bites. When one does bite before the result is settled, the
-// walk says so (`truncated`, F-25) and `init` tells the user — the miss is no
-// longer silent. `maxDepth`: directories below the scan root whose entries are
-// still classified; `maxEntries`: entries classified in all. Exported read-only
-// so tests pin the shipped values; `scanFileTree` takes others for tests only.
+// Bounded walk: a DEFENSIVE bound on a pathological tree, chosen generously. A
+// signal past a cap is undetected, so a cap that bites before the result is
+// settled sets `truncated` and `init` says so. `maxDepth`: directories below the
+// root whose entries are still classified; `maxEntries`: entries classified in
+// all. `scanFileTree` takes other limits for tests only.
 export interface WalkLimits {
   readonly maxDepth: number;
   readonly maxEntries: number;
@@ -210,19 +158,14 @@ const NO_SIGNALS: ArchetypeSignals = {
 
 /**
  * The walk's result: the merged tree signals, each signal's first trigger, and
- * whether a cap stopped the walk before the result was settled.
- *
- * Once settled (merged with `RootFacts.packageSignals`: ssr AND backend), the
- * walk stops, so a signal that can no longer change the result — `clientUi`,
- * whose `spa` the ssr signal suppresses — may be left unset here. Neither the
- * archetypes nor their evidence can differ from a full walk's: evidence is only
- * ever emitted for an archetype IN the result.
+ * whether a cap stopped the walk before the result was settled. A settled walk
+ * may leave `clientUi` unset (ssr suppresses spa); the archetypes and evidence
+ * still equal a full walk's.
  */
 export interface TreeScan {
   signals: ArchetypeSignals;
   evidence: SignalEvidence;
-  // A cap (WALK_LIMITS) stopped the walk at an entry it would have classified,
-  // while the result was not yet settled. Never true for a settled walk.
+  // Never true for a settled walk.
   truncated: boolean;
 }
 
@@ -234,37 +177,20 @@ const SIGNAL_KEYS: ReadonlyArray<keyof ArchetypeSignals> = [
 
 /**
  * Walk the project tree once and collect the merged file-tree signals, plus the
- * project-relative path of the FIRST entry that raised each one (evidence). The
- * per-entry classification rule is the pure `classifyEntry` (archetype.ts); this
- * function owns only the READING STRATEGY — the bounded, sorted, symlink-safe
- * walk that produces each entry's ancestor `segments` and surroundings (`ctx`).
+ * project-relative path of the FIRST entry that raised each one (evidence).
+ * Classification is the pure `classifyEntry`; this owns the bounded, sorted,
+ * symlink-safe walk.
  *
- * Bases: when the walk lists a directory that is a BASE (`isBaseDir` — the root,
- * `apps/<x>`, `packages/<x>`) it decides that base's Next evidence from the
- * regular-file names it has just read (a `next.config.*`; for the root also the
- * `next` dependency), BEFORE any of its entries is classified, and threads it to
- * the whole subtree. No extra I/O.
+ * A BASE directory's (`isBaseDir`) Next evidence is decided from the file names
+ * just read, before any of its entries is classified, and threaded to its
+ * subtree. Entries are sorted, so even a truncated walk is deterministic. The
+ * walk stops once ssr AND backend hold (merged with `facts.packageSignals`):
+ * the result is then `[ssr, backend]` whatever else the tree holds.
  *
- * Deterministic (P5): signals are booleans (OR-merge is order-independent) and
- * per-directory entries are sorted by name before traversal, so even a
- * cap-truncated walk visits the same set — and records the same first trigger —
- * on any filesystem. SETTLED short-circuit: it stops as soon as ssr AND backend
- * hold over the tree's signals merged with `facts.packageSignals` — the
- * archetype rule then yields `[ssr, backend]` whatever else the tree holds (spa
- * is suppressed by ssr), and both archetypes' evidence is already fixed. The
- * signals are the GATED ones, so a short-circuit never rests on one that did
- * not count.
- *
- * TRUNCATION (F-25): the caps are checked AFTER every skip filter, at an entry
- * the walk would have classified — the entry budget stops the whole walk, the
- * depth cap only that directory — and either sets `truncated`. A settled result
- * is final, so a walk that settles is never `truncated`, even if a cap bit
- * earlier in it.
- *
- * Symlinks are never followed or classified (recursion/classification is gated
- * on real files/dirs), so the walk cannot escape `root` via a symlink. A
- * per-directory read error is narrowly caught and that subtree contributes no
- * signal — a deterministic default, not a guess.
+ * The caps are checked after every skip filter, at an entry the walk would
+ * classify (budget → whole walk, depth → that directory); a settled walk is
+ * never `truncated`. Symlinks are never followed or classified; an unreadable
+ * directory contributes no signal.
  */
 export function scanFileTree(
   root: string,
@@ -295,8 +221,7 @@ export function scanFileTree(
     names: readonly string[],
     inherited: ClassifyContext,
   ): void => {
-    // A spent budget has already been reported (`truncated`): nothing more can
-    // be classified anywhere.
+    // A spent, reported budget: nothing more can be classified anywhere.
     if ((budget <= 0 && truncated) || settled()) return;
     const entries = readEntries(dir).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -316,18 +241,16 @@ export function scanFileTree(
     for (const entry of entries) {
       if (settled()) return;
       const name = entry.name;
-      // Never follow or classify a symlink → no escape past `root` (P2).
+      // Never follow or classify a symlink → no escape past `root`.
       if (entry.isSymbolicLink()) continue;
       const isDir = entry.isDirectory();
       if (isDir && SKIP_DIRS.has(name.toLowerCase())) continue;
       if (isDir && isEcosystemTree(dir, name, siblingFiles)) continue;
-      // `.env*` files are never classified and, skipped BEFORE `budget -= 1`,
-      // never spend the walk's budget: a secrets file is not a signal (not
-      // even a `.env.tsx` / `.env.sql`), and pinned by the budget tests.
+      // A secrets file is never a signal and spends no budget.
       if (!isDir && name.toLowerCase().startsWith('.env')) continue;
       if (!isDir && !entry.isFile()) continue; // sockets/fifos/etc.: not signals
       // An entry the walk WOULD classify, past a cap: the result may be
-      // incomplete. Too deep → this directory only; budget spent → everywhere.
+      // incomplete.
       if (depth > limits.maxDepth || budget <= 0) {
         truncated = true;
         return;
@@ -340,10 +263,8 @@ export function scanFileTree(
         }
       }
       acc = mergeSignals(acc, sig);
-      // Recurse with this dir appended to the (lowercased) ancestor chain, so a
-      // child sees its full path context; `names` keeps the original spelling
-      // for evidence. Determinism is preserved: both derive from the same
-      // sorted, bounded walk (P5).
+      // `segments` is the lowercased ancestor chain for classification; `names`
+      // keeps the original spelling for evidence.
       if (isDir) {
         walk(
           join(dir, name),
@@ -372,23 +293,17 @@ export function scanFileTreeSignals(
   return scanFileTree(root, facts).signals;
 }
 
-// A package.json larger than this is not one pharn will read (real manifests
-// are a few KB; the largest public ones are well under 1 MiB). Past it the file
-// is "not usable", exactly like a parse error.
+// A larger package.json is "not usable", exactly like a parse error.
 export const MAX_PACKAGE_JSON_BYTES = 4 * 1024 * 1024;
 
-// O_NONBLOCK keeps the open of a FIFO from blocking forever (the descriptor's
-// type is then refused below). POSIX-only; absent on win32, where the flag is
-// simply not set. A symlinked package.json is deliberately still FOLLOWED — it
-// is the user's own project — and bounded by the regular-file check + the cap.
+// O_NONBLOCK keeps the open of a FIFO from blocking (absent on win32). A
+// symlinked package.json is still followed — it is the user's own project.
 const PKG_OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
 
 /**
  * Read `<cwd>/package.json`'s text, or `null` when it is absent or unusable.
- * ONE descriptor, opened once: its type is checked with `fstat` and the bytes
- * are read from the same descriptor into a fixed buffer, so a FIFO, a device
- * (a symlink to `/dev/zero`) or a huge file can neither hang nor exhaust memory.
- * Never throws — detection must still proceed on file-tree signals.
+ * One descriptor, `fstat`-checked and read into a fixed buffer, so a FIFO, a
+ * device or a huge file can neither hang nor exhaust memory. Never throws.
  */
 function readPackageJsonText(pkgPath: string): string | null {
   let fd: number;
@@ -407,8 +322,7 @@ function readPackageJsonText(pkgPath: string): string | null {
       total += n;
     }
     if (total > MAX_PACKAGE_JSON_BYTES) return null;
-    // A leading UTF-8 BOM (some Windows editors write one) is not JSON;
-    // `JSON.parse` would reject the whole manifest and misdetect the project.
+    // A leading UTF-8 BOM would make `JSON.parse` reject the manifest.
     return buf
       .subarray(0, total)
       .toString('utf8')
@@ -421,12 +335,8 @@ function readPackageJsonText(pkgPath: string): string | null {
 }
 
 /**
- * Read `<cwd>/package.json` and reduce it to its PackageFacts (signals, their
- * dependency evidence, the `next` dependency), reporting whether a usable
- * manifest was found. Missing file, unusable file (not a regular file, over
- * MAX_PACKAGE_JSON_BYTES), parse error, or a non-object top-level value all
- * yield the empty facts with `packageJsonFound: false`; a found, parseable
- * object yields its facts with `true`.
+ * Read `<cwd>/package.json` and reduce it to its PackageFacts. Anything but a
+ * readable JSON object yields the empty facts with `packageJsonFound: false`.
  */
 export function readPackageFacts(cwd: string): {
   pkg: PackageFacts;
@@ -456,16 +366,8 @@ export function readPackageFacts(cwd: string): {
 /**
  * Detect a project's archetype set from disk: read its package.json, walk its
  * file tree with what the manifest says (a JS project? a `next` dependency?),
- * merge the two signal sets, then apply the archetype rule once.
- *
- * Deterministic (P5): the same project directory always yields the same result,
- * evidence included. Whether a usable package.json was read
- * (`readPackageFacts`' `packageJsonFound`) is the JS-ecosystem evidence the
- * walk's language-agnostic backend signals need; the archetype set reflects
- * BOTH sources — so a project with no manifest but a `.tsx` file is
- * `{ archetypes: ['spa'], ... }`, and a wholly signal-less
- * project is `{ archetypes: ['lib'], ... }` (the frameworkless base,
- * ARCHITECTURE.md §4). These are defined, deterministic outcomes, not guesses.
+ * merge the two signal sets, then apply the archetype rule once. Deterministic;
+ * a wholly signal-less project is `['lib']`.
  */
 export function detectArchetypesFromProject(cwd: string): ArchetypeDetection {
   const { pkg, packageJsonFound } = readPackageFacts(cwd);

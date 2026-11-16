@@ -19,82 +19,40 @@ import { findSymlinkComponent } from './symlink-guard.js';
 import { safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
-// The advisory single-writer lock.
+// The advisory single-writer lock for the commands that write project state.
 //
-// Nothing serialized the four commands that write project state, and the damage
-// is subtler than a torn file. Two runs in one project interleave like this: A
-// backs up and overwrites F; B — which planned against the pre-A snapshot —
-// overwrites F again from its own clone and persists records claiming F's hash;
-// A then persists ITS records and config last, recording a hash for F that B's
-// copy replaced. The store now disagrees with disk UNDER A MATCHING STAMP.
+// Why: two interleaved runs can each persist records claiming a hash for a file
+// the other one replaced, leaving `pharn.records.json` silently wrong under a
+// matching stamp — and `update` then misreads user edits as pharn's bytes (or
+// the reverse). No crash, no warning; only serializing the writers prevents it.
 //
-// Nothing else catches it: the stamp is diagnostics only (it never gates the
-// baseline, lib/install-records.ts), and even read as a check it would only
-// show an interleave that SPLITS one process's records/config pair. Skipped and unchanged files carry plan-time
-// hashes straight through to persist with no re-read of disk, so when one pair
-// lands last and intact the result is a silently-wrong drift baseline — no
-// crash, no warning, and `update`'s entire ability to tell "pharn wrote this"
-// from "the user edited this" quietly compromised.
+// Contract: FAIL FAST with a named refusal — no retry loop, no backoff.
 //
-// The contract is FAIL FAST with a named refusal, never wait: no retry loop, no
-// backoff. A second pharn process should tell you what is running, not queue
-// behind it.
+// A STALE lock is broken (so a SIGKILLed holder cannot wedge the project), but
+// only on evidence: malformed (or `startedAt` more than FUTURE_SKEW_MS ahead)
+// and older than MALFORMED_GRACE_MS; from ANOTHER host and older than STALE_MS;
+// or from THIS host with a provably dead pid or a `startedAt` before the last
+// boot. Age never breaks a live holder on this host — a prompt held under the
+// lock may sit as long as a human takes.
 //
-// Two hazards pull in opposite directions, and both are handled:
+// Named residuals:
+//   - PID RECYCLING: a dead run's pid reused by another process reads as live
+//     until the next reboot or a manual delete of `pharn/.lock`. Errs toward
+//     refusing, never stealing.
+//   - CLOCK STEPS: a large forward step after boot can make a live lock look
+//     pre-boot (broken); a backward step of more than FUTURE_SKEW_MS makes it
+//     look future-dated (broken after MALFORMED_GRACE_MS).
+//   - HOSTNAME CHANGE: a hostname that changes mid-run makes the holder's own
+//     lock look foreign — breakable by STALE_MS, and left in place by `release`.
 //
-//   - Wedging. A holder that is SIGKILLed or loses power never releases, and a
-//     lock that outlives its owner forever would make the project unusable. So a
-//     STALE lock is broken.
-//   - Stealing. Break too eagerly and the lock is decorative. So a lock is only
-//     broken on evidence: it is malformed (a `startedAt` more than
-//     FUTURE_SKEW_MS in the future counts) and past MALFORMED_GRACE_MS; it
-//     comes from ANOTHER host and is older than STALE_MS; or it comes from THIS
-//     host and its pid is provably dead, or it started before this host last
-//     booted. Age never breaks a live holder on this host (CORE-171): a prompt
-//     held under the lock may sit for as long as a human takes.
-//
-// PID RECYCLING, named (P0): "provably dead" means the existence probe says
-// ESRCH. When a SIGKILLed run's pid has since been reused by an unrelated
-// process, the probe finds that process alive, and the dead run's lock reads as
-// LIVE — until this host reboots (the boot check retires it) or someone deletes
-// `pharn/.lock` by hand, the documented escape. The worst case is a committed
-// or hand-edited lock naming pid 1 (always alive) with a `startedAt` after the
-// last boot. A refusal, never a steal, so it errs the safe way.
-//
-// CLOCK CORRECTION, named (P0): the boot check compares `startedAt` with
-// `Date.now() - os.uptime()`. It assumes the wall clock was right when the lock
-// was written and that `os.uptime()` counts time spent suspended (libuv reads
-// /proc/uptime or CLOCK_BOOTTIME on Linux and kern.boottime on macOS; both do).
-// A host with no battery-backed clock, or one whose clock is stepped forward a
-// long way by NTP after boot, can make a LIVE lock look as if it started before
-// boot, and it is then broken. The FUTURE_SKEW_MS margin absorbs small steps
-// and only ever errs toward refusing. The opposite step has its own hole: a
-// clock stepped BACKWARD by more than FUTURE_SKEW_MS after a lock was written
-// makes that lock's `startedAt` read as future-dated, and it is judged like a
-// malformed one — broken once the file is older than MALFORMED_GRACE_MS, while
-// its owner may still be running. Where /proc/uptime is namespaced
-// (LXCFS), "boot" is the container's start, which is the right answer for a
-// restarted container: its pids start again from 1.
-//
-// HOSTNAME CHANGE, named (P0): "this host" means `os.hostname()` equals the
-// lock's `host`. A machine whose hostname changes while a run holds the lock
-// (macOS can rename itself when the network changes) sees its own lock as one
-// from another host: another run breaks it by the STALE_MS age rule, and the
-// holder's own `release` leaves it in place, so it then refuses for up to
-// STALE_MS. "Age never breaks a live holder" holds only while the name holds.
-//
-// Zero-cost for readers by construction: `list` and `status` never call this, so
-// `status --strict` stays runnable in CI while an update holds the lock.
-//
-// One axis (P3): serializing project writes. Sidecar file, never a config field
-// (P7). Node stdlib only.
+// Readers (`list`, `status`) never take it, so `status --strict` stays runnable
+// while an update holds the lock. Sidecar file, never a config field.
 // ---------------------------------------------------------------------------
 
 /**
- * The directory the lock lives in — the same `pharn/` the pharn layout installs
- * into, for EVERY layout, so there is exactly one place a pharn writer looks for
- * the lock whatever the project records (a flat-layout project gets a `pharn/`
- * directory only while it holds something; see `withProjectLock`).
+ * The directory the lock lives in — `pharn/` for EVERY layout, so there is one
+ * place a writer looks (a flat-layout project gets `pharn/` only while it holds
+ * something; see `withProjectLock`).
  */
 export const LOCK_DIR = 'pharn';
 /** The lock file, project-relative. */
@@ -102,39 +60,25 @@ export const LOCK_FILE = `${LOCK_DIR}/.lock`;
 const LOCK_NAME = '.lock';
 
 /**
- * The lock file pharn 0.13.0 and older take at the project ROOT. Kept for ONE
- * release so a run of an old CLI and a run of this one still exclude each other
- * in the one direction this CLI controls: a LIVE root lock refuses this run,
- * exactly as it did, and a STALE one (a crashed 0.13.0 run) is broken by the
- * same rules instead of wedging the project. Remove with LEGACY_CORPSE_RE once
- * no supported CLI writes it.
+ * The root lock file pharn 0.13.0 and older take. Kept for ONE release: a LIVE
+ * one refuses this run, a STALE one is broken by the same rules. Remove with
+ * LEGACY_CORPSE_RE once no supported CLI writes it.
  */
 export const LEGACY_LOCK_FILE = '.pharn.lock';
 
 /**
- * A broken lock's corpse: `.lock.<pid>.<8 hex>` beside the lock in `pharn/`, the
- * name `breakStaleLock` renames a stale lock to before it verifies and replaces
- * it.
- *
- * The random half matters. A name fixed per pid would collide across hosts on a
- * shared filesystem (pids are only unique per machine), and a colliding corpse is
- * one breaker overwriting the bytes another is about to verify — reintroducing at
- * the corpse exactly the unchecked overwrite this whole file exists to remove.
- *
- * The regex is the sweep's allowlist, and it is deliberately tighter than the
- * prefix: `readdirSync` returns the user's own filenames, and the only names this
- * file may ever unlink are ones it can prove it wrote.
+ * A broken lock's corpse name, `.lock.<pid>.<8 hex>` (see `breakStaleLock`).
+ * The random half keeps corpses from colliding across hosts on a shared
+ * filesystem. The regex is the sweep's allowlist: the only names this file may
+ * unlink are ones it can prove it wrote.
  */
 const CORPSE_RE = /^\.lock\.[0-9]+\.[0-9a-f]{8}$/;
-// The legacy root lock's corpses (`.pharn.lock.<pid>.<8 hex>`), swept only when
-// a stale legacy lock is broken — one-release compatibility, see LEGACY_LOCK_FILE.
+// The legacy root lock's corpses, swept only when a stale legacy lock is broken.
 const LEGACY_CORPSE_RE = /^\.pharn\.lock\.[0-9]+\.[0-9a-f]{8}$/;
 
 /**
- * Where a lock lives: the directory, the file name, the corpse allowlist for
- * that directory, and the project-relative path messages name. Two sites exist —
- * the current one and the legacy root one — and every function below takes the
- * site rather than a project root, so the two are judged by ONE set of rules.
+ * Where a lock lives. Two sites exist — current and legacy root — and every
+ * function below takes the site, so both are judged by ONE set of rules.
  */
 interface LockSite {
   dir: string;
@@ -163,53 +107,25 @@ function legacySite(cwd: string): LockSite {
 
 /**
  * How long a lock FROM ANOTHER HOST may sit before age alone justifies breaking
- * it.
- *
- * A pid means nothing across machines, so liveness cannot answer for a lock
- * another host wrote into a shared project directory; age is the only evidence.
- * A lock from THIS host is never broken by age — liveness and the boot check
- * decide it (`isStale`). It is deliberately generous because not every held
- * window is bounded: bare `pharn add` holds the lock across its multi-select,
- * so a lock a few minutes old may well be a human still reading. (`pharn init`
- * does NOT hold it across its prompts — it acquires after both; see
- * `withProjectLock` for where each command acquires, and why.) Six hours is far
- * past any plausible prompt and still far short of "forever". Breaking a live
- * lock is the worse error, so when the two hazards trade off, age errs toward
- * waiting.
- *
- * The corpse sweep also ages corpse FILES by it (`sweepCorpses`) — a separate
- * use about leftovers, not live holders.
+ * it — a pid means nothing across machines, so age is the only evidence.
+ * Generous because bare `pharn add` holds the lock across its multi-select;
+ * breaking a live lock is the worse error. Also the corpse sweep's age rule.
  */
 export const STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 /**
- * How long a lock file that exists but does not parse is presumed LIVE.
- *
- * `tryCreate` creates the file (O_EXCL) and writes its payload in a second
- * syscall, so for an instant a live lock is EMPTY. Reading that as stale let a
- * concurrent acquire break a lock whose owner was mid-write, and 8 processes
- * started together measured 2–5 simultaneous holders in 15 of 150 rounds. An
- * unparseable lock is therefore stale only once its mtime is older than this;
- * a genuinely corrupt one still cannot wedge the project for longer.
+ * How long an unparseable lock file is presumed LIVE: `tryCreate` writes its
+ * payload after the O_EXCL create, so a live lock is briefly empty. Older than
+ * this, a corrupt lock is stale, so it cannot wedge the project.
  */
 export const MALFORMED_GRACE_MS = 10 * 1000;
 
 /**
- * How far in the future a lock's `startedAt` may be before it is treated as
- * malformed.
- *
- * The age rule is `now - startedAt > STALE_MS`, so a FUTURE `startedAt` made
- * the age negative and the lock could never age out; with a pid that happens
- * to be live (recycled, or pid 1 in a hand-edited or committed lock) it was
- * never stale at all — a wedge, the hazard this file exists to rule out. A
- * startedAt this far ahead is not something `tryCreate` writes, so it is judged
- * like any unparseable lock: stale once the FILE is older than
- * MALFORMED_GRACE_MS.
- *
- * The allowance is for clocks, not for payloads: two hosts sharing a project
- * directory can disagree by seconds. RESIDUAL, named (P0): a host whose clock
- * runs MORE than this far ahead of yours writes locks yours may break after
- * the grace window, while its run is still live.
+ * How far in the future a lock's `startedAt` may be before it is judged like a
+ * malformed lock. Without it a future `startedAt` could never age out and, with
+ * a live (e.g. recycled) pid, would wedge the project. The allowance is for
+ * clock disagreement between hosts. Residual: a host whose clock runs more than
+ * this far ahead writes locks that may be broken while its run is still live.
  */
 export const FUTURE_SKEW_MS = 5 * 60 * 1000;
 
@@ -223,9 +139,8 @@ export class ProjectLockedError extends Error {
 
 /**
  * Raised under the lock when the project state a command planned against has
- * changed since it was read — another writer landed while this command was
- * prompting or fetching. A subclass so every existing `ProjectLockedError`
- * catch site reports it the same way: a named refusal, exit 1, nothing written.
+ * changed since it was read. A subclass so every `ProjectLockedError` catch
+ * site reports it the same way: a named refusal, exit 1, nothing written.
  */
 export class ProjectChangedError extends ProjectLockedError {
   constructor(message: string) {
@@ -247,15 +162,9 @@ function lockPath(site: LockSite): string {
 
 /**
  * Parse a lock file's contents, or `null` when it is not a well-formed payload.
- *
- * The lock file is LOCAL but user-editable — untrusted input (P2), read the way
- * `readRecords` reads its store: every failure mode collapses to "not a usable
- * payload" and none of them throws. `null` means STALE, so a corrupt lock can
- * never wedge a project.
- *
- * `pid` is shape-checked here, BEFORE it can reach `process.kill` — a
- * hand-edited lock must not be able to turn `pharn` into a primitive for
- * signalling an arbitrary process.
+ * The file is user-editable, so nothing here throws. `pid` is shape-checked
+ * BEFORE it can reach `process.kill`, so a hand-edited lock cannot make pharn
+ * signal an arbitrary process.
  */
 function parsePayload(raw: string): LockPayload | null {
   let parsed: unknown;
@@ -280,16 +189,11 @@ function parsePayload(raw: string): LockPayload | null {
 }
 
 /**
- * A file's raw bytes, or `null` when they cannot be read.
- *
- * Separate from `readPayload` because the break path needs the BYTES, not the
- * parsed object: what it has to prove is that the file it moved is the file it
- * judged, and only the raw text can carry that. Collapsing every read failure to
- * `null` is the same never-wedge rule `parsePayload` follows.
+ * A file's raw bytes, or `null` when they cannot be read. The break path needs
+ * the BYTES to prove the file it moved is the file it judged.
  */
 function readRawAt(path: string): string | null {
-  // Bounded and non-blocking (lib/bounded-read.ts): a FIFO at the lock path
-  // reads as unreadable — presumed live, then broken, like any malformed lock —
+  // Bounded and non-blocking: a FIFO at the lock path reads as unreadable
   // instead of hanging every writer in open(2).
   const read = readBoundedFile(path);
   return read.kind === 'ok' ? read.bytes.toString('utf8') : null;
@@ -302,16 +206,9 @@ function readPayload(site: LockSite): LockPayload | null {
 }
 
 /**
- * Is the process named by `held` provably gone?
- *
- * Only answerable for a lock taken on THIS host: a pid means nothing across
- * machines, so a foreign-host lock is never broken on liveness grounds — only
- * age (STALE_MS) can retire it. `kill(pid, 0)` sends no signal; it tests
- * existence. `EPERM` means the process exists but belongs to another user,
- * which is very much alive.
- *
- * `isStale` only calls this for a same-host lock; the host check is kept so the
- * function stays safe on its own (a foreign pid must never be probed here).
+ * Is the process named by `held` provably gone? Only answerable for a lock
+ * taken on THIS host (the host check keeps a foreign pid from ever being
+ * probed). `kill(pid, 0)` tests existence; `EPERM` means alive, another user's.
  */
 function isDead(held: LockPayload): boolean {
   if (held.host !== hostname()) return false;
@@ -333,14 +230,10 @@ function lockAgeMs(site: LockSite): number | null {
 }
 
 /**
- * When this host last booted, in epoch ms — or `null` when `os.uptime()` gives
- * no usable answer.
- *
- * The guard is the point: with an uptime of 0 the boot time would be NOW, every
- * lock would read as started before boot, and a live one would be broken. So
- * anything but a finite number above 0 (0, NaN, Infinity, a throw) yields
- * `null`, and the boot check is skipped — the caller falls through to liveness,
- * the refusing side.
+ * When this host last booted, in epoch ms — or `null` unless `os.uptime()` is a
+ * finite number above 0. With an uptime of 0 every lock would read as pre-boot
+ * and a live one would be broken; `null` skips the boot check (the refusing
+ * side).
  */
 function bootMs(): number | null {
   let up: number;
@@ -353,41 +246,28 @@ function bootMs(): number | null {
 }
 
 function isStale(held: LockPayload | null, ageMs: number | null): boolean {
-  // Malformed or unreadable — or started in the future (FUTURE_SKEW_MS), which
-  // no age or boot rule can retire. Young → presumed a holder mid-tryCreate
-  // (see MALFORMED_GRACE_MS); old, or not stat-able → stale, so it never wedges.
-  //
-  // The future check lives in this function, not in parsePayload, and that is
-  // also what keeps release() safe. release() unlinks only a payload it can
-  // parse AND prove is its own; were a future startedAt rejected at parse time,
-  // our own lock would read as null after a backward clock step and release()
-  // would strand it, and the refusal could no longer name the holder.
+  // Malformed, unreadable or future-dated: young → presumed a holder
+  // mid-tryCreate; old or not stat-able → stale. The future check lives here,
+  // not in parsePayload, so release() can still recognise its own lock after a
+  // backward clock step.
   const started = held === null ? 0 : Date.parse(held.startedAt);
   if (held === null || started - Date.now() > FUTURE_SKEW_MS)
     return ageMs === null || ageMs >= MALFORMED_GRACE_MS;
-  // Another host: a pid means nothing here, so age is the only evidence.
+  // Another host: age is the only evidence.
   if (held.host !== hostname()) return Date.now() - started > STALE_MS;
   // This host: a lock started before the last boot cannot be held by a running
-  // process, whatever its pid now names (the recycled-pid case). The margin
-  // absorbs small clock steps after boot and only errs toward refusing; see
-  // CLOCK CORRECTION in the header.
+  // process, whatever its pid now names. The margin errs toward refusing.
   const boot = bootMs();
   if (boot !== null && started < boot - FUTURE_SKEW_MS) return true;
-  // Otherwise liveness alone decides, whatever the age (CORE-171): a live
-  // holder may be a human still answering a prompt.
+  // Otherwise liveness alone decides, whatever the age.
   return isDead(held);
 }
 
 /**
  * The refusal for a directory at the lock path, or null when there is none
- * (anything else at the path — a file, a FIFO, a symlink — is judged by the
- * payload rules).
- *
- * pharn never creates a directory there, so one is the user's: it used to be
- * renamed aside to a corpse name — moving their directory and its contents
- * without a word — and is now refused by name instead (F-39). lstat, so a
- * symlink to a directory is not followed: moving the LINK aside moves only the
- * link, which the break already does safely.
+ * (anything else there is judged by the payload rules). pharn never creates a
+ * directory there, so one is the user's and must not be moved aside. lstat, so
+ * a symlink to a directory is not followed (the break moves only the link).
  */
 function directoryRefusal(site: LockSite): string | null {
   try {
@@ -416,8 +296,7 @@ function refusal(held: LockPayload | null, site: LockSite): string {
 function tryCreate(site: LockSite, command: string): boolean {
   let fd: number;
   try {
-    // 'wx' is O_CREAT | O_EXCL | O_WRONLY — atomic create-or-fail on every POSIX
-    // filesystem and on Windows. The atomicity IS the lock.
+    // 'wx' = O_CREAT | O_EXCL: atomic create-or-fail. The atomicity IS the lock.
     fd = openSync(lockPath(site), 'wx');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
@@ -438,38 +317,16 @@ function tryCreate(site: LockSite, command: string): boolean {
 }
 
 /**
- * Reap corpses a killed run left behind.
+ * Reap corpses a killed run left behind (a SIGKILL between `breakStaleLock`'s
+ * rename and its `finally`). ADVISORY: runs only on the break path, and a
+ * project can hold a stranded corpse until a later break runs.
  *
- * `breakStaleLock`'s `finally` covers every in-process exit, so the only way to
- * strand a corpse is a SIGKILL or a power cut in the two syscalls between the
- * rename and the tidy. Rare — but "rare" accumulates, and a growing pile of
- * `.lock.*` files in someone's `pharn/` is a bad way to pay for a lock
- * they never see. So a successful break also sweeps.
- *
- * ADVISORY, not a guarantee, and the distinction is not pedantic: this runs only
- * on the break path, only past STALE_MS, and swallows every failure it meets, so
- * a project CAN hold a stranded corpse indefinitely if no later break ever runs.
- * What is structural is the `finally` below — that covers every in-process path.
- * This only reaps what a killed process left.
- *
- * Three bounds, because this is the one place this file DELETES something it did
- * not just create:
- *
- *   - Only names matching the site's corpse pattern (CORPSE_RE, or
- *     LEGACY_CORPSE_RE at the legacy root site). `readdirSync` hands back the user's own
- *     filenames, so the regex is an allowlist, not a filter — a file the user
- *     happens to have named `.lock.<digits>.<8 hex>` WOULD be removed, and
- *     that is the deliberate (and remote) cost of sweeping at all.
- *   - Only past STALE_MS. A corpse seconds old may belong to a breaker racing us
- *     right now, mid-verify. STALE_MS is already this file's longest age rule
- *     (the one for a lock from another host).
- *   - Only on the break path. The uncontended acquire stays two syscalls; nobody
- *     pays a directory listing for a lock that was never contended.
- *
- * `statSync` follows symlinks, so a corpse-named symlink is aged by its target —
- * but `rmSync` then removes only the LINK, never what it points at. Every step
- * swallows its own failure: tidying may not replace the outcome of the acquire
- * it runs inside.
+ * Bounded, since this deletes what it did not just create: only names matching
+ * the site's corpse regex (a user file named like a corpse WOULD go — the
+ * accepted cost), only past STALE_MS (a young corpse may be a racing breaker
+ * mid-verify), only on the break path (the uncontended acquire stays cheap).
+ * `rmSync` removes a corpse-named symlink, never its target. Every failure is
+ * swallowed: tidying may not replace the acquire's outcome.
  */
 function sweepCorpses(site: LockSite): void {
   let names: string[];
@@ -493,43 +350,20 @@ function sweepCorpses(site: LockSite): void {
 /**
  * Break a lock already judged stale, and take it — or throw the refusal.
  *
- * The old shape was `rmSync(lock, { force: true })` then `tryCreate`, and the
- * delete never re-checked what it was deleting. Two processes could each judge
- * the same corpse stale, and the second one's delete would land on the FIRST
- * one's freshly-created, live lock:
+ * Three ordered steps, so a breaker can never delete another breaker's fresh,
+ * live lock:
+ *   1. `rename(lock → corpse)` — atomic, so of two breakers exactly one moves
+ *      the file. This elects who breaks; it confers no ownership.
+ *   2. Re-verify the moved bytes against the bytes judged stale — the winner of
+ *      step 1 may have moved a lock another breaker had just created.
+ *   3. `tryCreate` — O_EXCL is the only thing that confers the lock, which is
+ *      why a loser refuses instead of retrying.
  *
- *     B: rm → B: create (B holds) → C: rm (B's LIVE lock) → C: create (C holds too)
- *
- * Two holders, from the one path in this file that did not verify. So the break
- * is now three ordered steps, and it matters which of them linearizes what:
- *
- *   1. `rename(lock → corpse)`. `rename(2)` unlinks the source and links the
- *      destination in ONE step, so of two processes renaming the same source
- *      exactly one succeeds and the other gets ENOENT. This is the linearization
- *      point OF THE BREAK — who gets to take this particular file out of the
- *      canonical name. It confers nothing else.
- *   2. Re-verify. The rename hands the file to one process but does NOT promise
- *      it is the file that was judged: a breaker that won step 1 an instant
- *      earlier may already have created its own LIVE lock, and that is what this
- *      rename moved. Byte-equality against the bytes read before the judgement is
- *      what turns "I moved a file" into "I moved the file I judged".
- *   3. `tryCreate`. Unchanged, and still the linearization point OF OWNERSHIP —
- *      O_EXCL is the only thing in this file that confers the lock. The rename
- *      does not; that separation is why a loser refuses instead of retrying.
- *
- * Four residuals, named rather than implied (P0). Two are properties of step 2
- * and are listed here; the other two sit at the calls they are about — the
- * rename's clobbering destination, and the restoring `link` that can lose:
- *
- *   - Step 2 rests on two live payloads never being byte-identical. On one host
- *     that is exact (distinct pids); across hosts it rests on distinct hostnames.
- *     Two containers sharing a volume AND a hostname AND a pid AND a millisecond
- *     would defeat it. ADVISORY, not floor — vanishingly narrow, not impossible.
- *   - `null === null` also passes step 2, so an unreadable lock replaced in the
- *     gap by another unreadable lock would slip through. Kept deliberately: the
- *     alternative — refusing to break what cannot be read — reinstates the wedge,
- *     which is the worse of the two hazards. A `tryCreate` writes a readable
- *     file, so reaching this needs a second failure that is not this code's.
+ * Residuals of step 2: it assumes two live payloads are never byte-identical
+ * (same host, pid and millisecond across containers would defeat it), and
+ * `null === null` passes, so an unreadable lock replaced by another unreadable
+ * one slips through — kept, since refusing to break what cannot be read would
+ * reinstate the wedge.
  */
 function breakStaleLock(
   site: LockSite,
@@ -542,71 +376,37 @@ function breakStaleLock(
     `${site.name}.${process.pid}.${randomBytes(4).toString('hex')}`,
   );
   try {
-    // RESIDUAL (one of the four above): `rename` REPLACES its destination
-    // silently — the very fact the restore below uses `link` to dodge. So if
-    // something already sits at the corpse name, this destroys it, and none of
-    // `sweepCorpses`' three bounds covers that. The age gate in particular does
-    // not: a corpse-shaped file created a minute ago is exposed here though the
-    // sweep would spare it. Stated because it is a distinct hole, not a rounding
-    // of the one already named there.
-    //
-    // Left open, deliberately. The name carries OUR pid and 32 bits drawn this
-    // call, so even a file already shaped like a corpse AND already carrying our
-    // pid is hit about once in 4.3e9 breaks — whereas the sweep deletes ANY
-    // corpse-shaped file past STALE_MS with probability ~1. This is a strict
-    // subset of an exposure the file already accepts, smaller by nine orders of
-    // magnitude; closing it while the sweep stands would be theatre. If this
-    // class of collision ever matters, the lever is the SWEEP, not the rename.
-    // Narrower still: only file-over-file clobbers. A directory at the corpse
-    // name gives EISDIR and lands in the refusal below (measured, node
-    // v24.13.1). A directory AT the lock path never reaches this rename:
-    // withProjectLock refuses it by name first (directoryRefusal, F-39), since
-    // moving it aside would move the user's directory.
-    //
-    // THE TRAP, for whoever revisits this: do NOT make the destination
-    // create-or-fail (`link`, or `O_EXCL` + redraw) and treat THAT as the
-    // single-winner step. Two racers draw DIFFERENT names, so both reservations
-    // succeed and both would believe they had won. `rename`'s source-unlink is
-    // what elects one winner; nothing that leaves the source in place can
-    // replace it. A reservation could sit harmlessly BEFORE the rename, but it
-    // buys 2^-32 for a redraw loop in the one file whose contract is "no retry
-    // loop, no backoff".
+    // Residual: `rename` silently replaces a FILE already at the corpse name
+    // (our pid + 32 random bits, so ~1 in 4.3e9) — a strict subset of what the
+    // sweep already accepts. Do NOT make the destination create-or-fail and
+    // treat THAT as the single-winner step: racers draw different names, so
+    // both would win. Only `rename`'s source-unlink elects one winner.
     renameSync(lockPath(site), corpse);
   } catch {
-    // ENOENT — another breaker moved it first and is creating its own lock right
-    // now. Any other errno — we simply cannot move it. The errno is not
-    // classified because it does not change the answer: we do not hold the lock,
-    // so we refuse. Never loop; that is this file's contract.
+    // Another breaker moved it first, or we cannot move it: either way we do
+    // not hold the lock, so refuse. Never loop.
     throw new ProjectLockedError(refusal(readPayload(site), site));
   }
   try {
     if (readRawAt(corpse) !== observedRaw) {
-      // We moved a lock we had no right to move. Put it back under its canonical
-      // name: `link(2)` is create-or-fail (EEXIST when the destination exists),
-      // so the restore can never clobber a lock a third process took in the gap.
-      // Then refuse as though we had simply found it live — which, but for our
-      // own rename, is what happened.
+      // We moved a lock we had no right to move: put it back. `link(2)` is
+      // create-or-fail, so the restore never clobbers a lock taken in the gap.
       try {
         linkSync(corpse, lockPath(site));
       } catch {
-        // The name is already occupied, or the filesystem has no hard links
-        // (FAT/exFAT). The corpse is dropped below and its owner keeps believing
-        // it holds a lock whose file is gone — a two-writer window this fix
-        // narrows but does not close. Named, not hidden.
+        // Residual: name occupied, or no hard links (FAT/exFAT). The corpse is
+        // dropped below while its owner believes it still holds the lock.
       }
       throw new ProjectLockedError(refusal(readPayload(site), site));
     }
-    // The legacy root lock is only ever BROKEN, never taken: this CLI holds
-    // its lock in pharn/ (see checkLegacyLock).
+    // The legacy root lock is only ever broken, never taken.
     if (take && !tryCreate(site, command))
       throw new ProjectLockedError(refusal(readPayload(site), site));
     sweepCorpses(site);
   } finally {
-    // Every in-process path drops our corpse. On the restore path `linkSync` has
-    // already given the inode a second name, so unlinking this one leaves the
-    // file at the lock path. Best-effort, and never recursive: a directory
-    // created at the lock path between directoryRefusal and the rename (a race,
-    // not a state) would be moved aside and left there, never deleted.
+    // Drop our corpse on every in-process path (after a restore, the inode
+    // still has the lock-path name). Never recursive: a directory raced in at
+    // the lock path is moved aside, never deleted.
     try {
       rmSync(corpse, { force: true });
     } catch {
@@ -616,17 +416,11 @@ function breakStaleLock(
 }
 
 /**
- * Release our own lock. Idempotent, never throws, and re-reads before unlinking
- * so it can never delete a lock ANOTHER process took after ours was broken or
- * vanished: it unlinks only a payload that parses AND names this pid on this
- * host.
- *
- * An unparseable or unreadable file is left in place (CORE-171). Our own lock
- * always parses once `tryCreate` has returned, so such a file can only be
- * another run's — one caught between its O_EXCL create and its payload write.
- * A genuinely corrupt file left this way is broken by the next run once it is
- * older than MALFORMED_GRACE_MS. RESIDUAL, named (P0): the read and the unlink
- * are two syscalls; a lock broken and re-taken in that gap is still deleted.
+ * Release our own lock. Idempotent, never throws; unlinks only a payload that
+ * parses AND names this pid on this host, so it never deletes another run's
+ * lock. An unparseable file can only be another run's (between its create and
+ * its write), so it is left for the grace rule. Residual: a lock broken and
+ * re-taken between the read and the unlink is still deleted.
  */
 function release(site: LockSite): void {
   try {
@@ -640,37 +434,14 @@ function release(site: LockSite): void {
 }
 
 /**
- * Hold the project lock for the duration of `fn`.
- *
- * Acquire, run, release in a `finally`, re-throwing whatever `fn` threw. On a
- * live lock this throws `ProjectLockedError` WITHOUT running `fn` and without
+ * Hold the project lock for the duration of `fn`; release in a `finally`. On a
+ * live lock this throws `ProjectLockedError` without running `fn` and without
  * touching the existing lock file.
  *
- * Where the four commands acquire, and why they differ — all of them release in
- * the same `finally` that disposes of the clone:
- *
- *   - `add` (named) and `update` — BEFORE the fetch, so a run that is going to be
- *     refused pays for no tarball. `update`'s is still AFTER its confirm, which is
- *     the half that is not negotiable; the named `add` has no prompt at all.
- *   - `add` (picker) — also before the fetch, and it DOES hold across
- *     `groupMultiselect`: one lock spans the whole selection loop, because that
- *     loop persists config and records on every pick and a per-pick lock would
- *     leave a gap to interleave into.
- *   - `remove` — no network at all, so there is nothing to sit in front of. The
- *     named path has no prompt; the picker acquires after its one destructive
- *     confirm.
- *   - `init` — after BOTH prompts, which means after the fetch too. Both of its
- *     prompts sit between the fetch and the install, so the only slot ahead of the
- *     fetch is also ahead of them. It never holds the lock across a prompt.
- *
- * The rule the list obeys: bounded work may be held across, unbounded work may
- * not. A fetch is capped by construction (repo.ts: 8s resolve, 60s download); a
- * prompt is capped only by human attention, and holding one would block an agent
- * hook for as long as a human takes to answer. `add`'s picker is the deliberate
- * exception. It is safe to hold because age never breaks a live holder on this
- * host — however long the human takes, the lock stays theirs (see `isStale`).
- * STALE_MS is a generous six hours for the one case where age still decides: a
- * picker held open on ANOTHER host sharing the directory.
+ * Rule for callers: bounded work (a fetch) may be held across, a prompt may not
+ * — it would block other writers for as long as a human takes. `add`'s picker
+ * is the deliberate exception: its loop persists on every pick, so one lock
+ * spans the selection (safe, since age never breaks a live same-host holder).
  */
 export async function withProjectLock<T>(
   cwd: string,
@@ -678,9 +449,7 @@ export async function withProjectLock<T>(
   fn: () => T | Promise<T>,
 ): Promise<T> {
   const site = currentSite(cwd);
-  // The lock lives in pharn/, which a fresh `init` (or any run on a flat-layout
-  // project) has not created yet. Remembered so the release below removes a
-  // directory THIS call made when nothing else ended up in it.
+  // Remembered so release removes a pharn/ THIS call created, if still empty.
   let created = ensureLockDir(cwd);
   const tidy = (): void => {
     release(site);
@@ -690,10 +459,8 @@ export async function withProjectLock<T>(
     try {
       acquire(site, command);
     } catch (err) {
-      // Another run that had CREATED pharn/ removed it, empty, between our
-      // check and our create (ENOENT on the lock's parent). Not contention —
-      // the directory is simply gone — so make it once more and take the lock
-      // once more; a second failure is reported as it is.
+      // Another run removed its empty pharn/ between our check and our create.
+      // Not contention: make it once more and retry once.
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       created = ensureLockDir(cwd) || created;
       acquire(site, command);
@@ -708,19 +475,10 @@ export async function withProjectLock<T>(
     tidy();
     throw err;
   }
-  // While the lock is held, an `exit` listener is the only code that runs on a
-  // `process.exit` — `finally` does not. The one exit(0) that reaches here is
-  // @clack/core's block(): during a spinner, stdin is raw and Ctrl-C arrives as a
-  // KEYPRESS, on which clack calls process.exit(0) (see lib/repo.ts). That used
-  // to report success over a half-written project and strand this lock. So:
-  // release synchronously, and turn a 0 into 130 with one honest line.
-  //
-  // PREMISE, stated so the next edit sees it: no lock callback shows a prompt
-  // whose graceful cancel exits 0 — `update`'s and the `remove` picker's
-  // confirms run before the lock, and the `add` picker returns `cancelled` and
-  // exits after it. A new prompt inside a lock must keep that shape. The
-  // premise is about exit codes only: how long a prompt stays open does not
-  // matter to the lock, since age never breaks a live holder on this host.
+  // `finally` does not run on `process.exit`; an `exit` listener does. The
+  // exit(0) that reaches here is clack's Ctrl-C during a spinner (raw stdin),
+  // so release synchronously and turn the 0 into 130 with one honest line.
+  // Premise: no prompt inside a lock may exit 0 on a graceful cancel.
   const onExit = (code: number): void => {
     tidy();
     if (code === 0) {
@@ -729,11 +487,8 @@ export async function withProjectLock<T>(
     }
   };
   process.on('exit', onExit);
-  // A REAL signal (SIGINT with stdin not raw, SIGTERM from `timeout` or
-  // `docker stop`) ends the process by its default action, which emits no
-  // `exit` — so neither the listener above nor the `finally` below runs on one.
-  // fatal-signal.ts runs this first, then re-raises; the status (130 / 143)
-  // already says the run did not finish. (SIGHUP is not handled — see there.)
+  // A real signal (SIGINT, SIGTERM) emits no `exit`, so neither the listener
+  // nor the `finally` runs; fatal-signal.ts runs this first, then re-raises.
   const offSignal = onFatalSignal(() => {
     tidy();
     sayInterrupted(command);
@@ -750,13 +505,10 @@ export async function withProjectLock<T>(
 /** Take the lock at `site`, breaking a stale one — or throw the refusal. */
 function acquire(site: LockSite, command: string): void {
   if (tryCreate(site, command)) return;
-  // A directory at the lock path is the user's, never a lock: refuse by name
-  // rather than judge it stale and move it aside (F-39).
   const dirRefusal = directoryRefusal(site);
   if (dirRefusal !== null) throw new ProjectLockedError(dirRefusal);
-  // Read the bytes ONCE and carry them into the break: the staleness judgement
-  // here and the re-verify there must be about the SAME payload, or the break
-  // is exactly the unchecked delete it replaced.
+  // Read the bytes ONCE: the staleness judgement and the break's re-verify
+  // must be about the SAME payload.
   const observedRaw = readRawAt(lockPath(site));
   const held = observedRaw === null ? null : parsePayload(observedRaw);
   if (!isStale(held, lockAgeMs(site)))
@@ -765,15 +517,10 @@ function acquire(site: LockSite, command: string): void {
 }
 
 /**
- * Make sure `pharn/` is a real directory the lock can be created in. Returns
- * true when this call created it.
- *
- * Refused, by name, when `pharn` is a symbolic link (the lock — and every
- * backup and install write after it — would land wherever the link points) or
- * anything but a directory. The symlink test is lib/symlink-guard.ts's
- * component walk, the one every other write path uses. `mkdirSync` is
- * non-recursive: the project root exists, and EEXIST — another pharn run
- * creating it in the same instant — is success once the directory checks out.
+ * Make sure `pharn/` is a real directory; true when this call created it.
+ * Refused when `pharn` is a symlink (every later write would land wherever it
+ * points) or not a directory. EEXIST from a concurrent creator is success once
+ * the directory checks out.
  */
 function ensureLockDir(cwd: string): boolean {
   const check = (): boolean => {
@@ -804,11 +551,8 @@ function ensureLockDir(cwd: string): boolean {
 }
 
 /**
- * Remove `pharn/` when it is empty — the cleanup for a directory
- * `ensureLockDir` created. `rmdirSync` is non-recursive, so the kernel refuses
- * a directory that holds anything (another run's lock, a backup, an install):
- * ENOTEMPTY and ENOENT are the expected answers, and nothing here may replace
- * the real outcome of the run.
+ * Remove `pharn/` when empty (non-recursive `rmdirSync`: the kernel refuses a
+ * directory that holds anything). Never replaces the run's real outcome.
  */
 function removeLockDirIfEmpty(cwd: string): void {
   try {
@@ -819,21 +563,10 @@ function removeLockDirIfEmpty(cwd: string): void {
 }
 
 /**
- * The one-release compatibility check for the ROOT lock pharn 0.13.0 and older
- * take (LEGACY_LOCK_FILE). Runs while this run already holds `pharn/.lock`, so
- * only one current run at a time ever judges or breaks the legacy file.
- *
- *   - absent, or a directory (not a lock any pharn wrote — an old CLI refuses
- *     it on its own) → nothing to do;
- *   - LIVE by the same `isStale` rules → refuse with the old wording, which
- *     names the root file; the caller releases our lock;
- *   - STALE (a crashed old run) → broken exactly as a current stale lock is —
- *     rename to a corpse, byte-verify, then sweep — but never re-created: this
- *     CLI does not hold the root lock.
- *
- * RESIDUAL, named (P0): an OLD CLI does not know `pharn/.lock`, so one started
- * while this run holds it is not refused by it. Only the direction this CLI
- * controls is covered.
+ * The one-release check of the legacy ROOT lock, run while holding
+ * `pharn/.lock`: absent or a directory → nothing; LIVE → refuse; STALE →
+ * broken like a current lock, never re-created. Residual: an old CLI does not
+ * know `pharn/.lock`, so it is not refused by this run's lock.
  */
 function checkLegacyLock(cwd: string): void {
   const legacy = legacySite(cwd);
