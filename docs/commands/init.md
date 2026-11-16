@@ -531,6 +531,7 @@ cannot find them; PHARN still runs them. Delete them by hand.
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                     |
 | Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files, `test-fixtures/` and `fixtures/`)    |
+| Copy agents                | `pharn-*.md` subagents in `.claude/agents/` (not `pharn-dev-*`), at that path in both layouts; a pharn-oss older than 6.64.0 ships none, and that is not reported                                                                                                  |
 | Write or preserve settings | An existing `.claude/settings.json` is **never** overwritten or merged ([below](#an-existing-claudesettingsjson)); with none, pharn-oss's is copied and a `HOOKS` note lists what it wires ([below](#a-fresh-claudesettingsjson))                                  |
 | Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
@@ -598,14 +599,14 @@ in a workspace package of a monorepo is not detected; add the lines yourself.
 The lines are **derived from the files pharn records writing**, never a fixed list. Each file becomes
 the install directory it sits in, or itself:
 
-| What pharn wrote                                                                                     | Line                                                                 |
-| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Anything under a capability tree, `pharn-contracts`, `pharn-core` or the floor                       | That directory, e.g. `/pharn/pharn-review/`, `/pharn/floor/`         |
-| `pharn/features/README.md` (pharn layout)                                                            | `/pharn/features/` — the whole directory ([why](#why-pharnfeatures)) |
-| A product command, a hook, a trusted doc, the `LICENSE` copy, the flat layout's `features/README.md` | The file, e.g. `/.claude/commands/pharn-ship.md`                     |
-| Always, beside them                                                                                  | `/pharn.config.json` and `/pharn.records.json`                       |
+| What pharn wrote                                                                                               | Line                                                                 |
+| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Anything under a capability tree, `pharn-contracts`, `pharn-core` or the floor                                 | That directory, e.g. `/pharn/pharn-review/`, `/pharn/floor/`         |
+| `pharn/features/README.md` (pharn layout)                                                                      | `/pharn/features/` — the whole directory ([why](#why-pharnfeatures)) |
+| A product command, an agent, a hook, a trusted doc, the `LICENSE` copy, the flat layout's `features/README.md` | The file, e.g. `/.claude/commands/pharn-ship.md`                     |
+| Always, beside them                                                                                            | `/pharn.config.json` and `/pharn.records.json`                       |
 
-Every line starts with `/`, so it matches only at the project root. One line per command and hook keeps
+Every line starts with `/`, so it matches only at the project root. One line per command, agent and hook keeps
 your own commands and hooks under your check; it also means a command pharn-oss later drops leaves a
 line behind, which is harmless.
 

@@ -57,6 +57,8 @@ describe('isInstallRootPath', () => {
     '.claude/hooks/old-hook.cjs',
     // An ESM hook is an install path too (F-10): the install copies `.mjs` hooks.
     '.claude/hooks/old-hook.mjs',
+    // The review lens agent, same path in both layouts (CORE-272).
+    '.claude/agents/pharn-review-lens.md',
   ])('%s is a path an install can write', (rel) => {
     expect(isInstallRootPath(rel)).toBe(true);
   });
@@ -79,6 +81,10 @@ describe('isInstallRootPath', () => {
     '.claude/hooks/x.test.cjs',
     '.claude/hooks/x.test.mjs',
     '.claude/hooks/sub/x.mjs',
+    '.claude/agents/pharn-dev-reviewer.md',
+    '.claude/agents/my-agent.md',
+    '.claude/agents/sub/pharn-x.md',
+    'pharn/.claude/agents/pharn-review-lens.md',
     // directly under a capability subtree, not inside a capability dir
     'pharn-review/README.md',
     'pharn/pharn-pipeline/grillers/notes.md',
@@ -122,6 +128,15 @@ describe('findOrphans', () => {
     ]);
     // Its record is carried with the PREVIOUS hash.
     expect(scan.records).toEqual({ '.claude/commands/pharn-old.md': hash });
+  });
+
+  it('a recorded agent upstream stopped shipping is an orphan (CORE-272)', () => {
+    const rel = '.claude/agents/pharn-old-agent.md';
+    write(tmp.path(), rel, 'agent');
+    const hash = contentHash(join(tmp.path(), rel));
+    expect(run({ [rel]: hash }).orphans).toEqual([
+      { path: rel, state: 'unchanged' },
+    ]);
   });
 
   it('a CRLF copy of a recorded orphan is still unchanged (F-16: line endings are not an edit)', () => {

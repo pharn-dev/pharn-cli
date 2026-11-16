@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  CLAUDE_AGENTS_DIR,
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   DEV_COMMAND_PREFIX,
@@ -71,6 +72,15 @@ export function isProductCommandFile(name: string): boolean {
 }
 
 /**
+ * A product agent definition under `.claude/agents/`: the command name rule
+ * (top-level `pharn-*.md`, not `pharn-dev-*`), so a dev-loop agent upstream may
+ * add later stays out of a product install like a dev-loop command does.
+ */
+export function isProductAgentFile(name: string): boolean {
+  return isProductCommandFile(name);
+}
+
+/**
  * A hook script: a top-level `.cjs` OR `.mjs` file that is not a test
  * (`*.test.cjs` / `*.test.mjs`). Both module flavours, because upstream may
  * ship either — an `.mjs` hook was silently left out before, while the wiring
@@ -129,7 +139,7 @@ function* walkFiles(dir: string, prefix = ''): Generator<string> {
 /**
  * The exact project-root-relative paths an archetype install writes, mapped to
  * their source path in `repoDir` — the selected capability dirs + the fixed
- * product surfaces (product `pharn-*` commands, `.cjs`/`.mjs` hooks, trusted docs, the
+ * product surfaces (product `pharn-*` commands and agents, `.cjs`/`.mjs` hooks, trusted docs, the
  * root `features/README.md`, `pharn-contracts/`, `pharn-core/`, `.dev/floor/`
  * minus test files and its `test-fixtures/` + `fixtures/` subtrees), at `layout`. `.claude/settings.json`
  * is user-owned (preserved at install) and is NOT included. Mirrors
@@ -214,10 +224,10 @@ function collectInstallManifest(params: {
     return added;
   };
 
-  // The filename floor copyFilteredDir applies to the same two surfaces. Both
+  // The filename floor copyFilteredDir applies to the same three surfaces. Both
   // keep predicates require `!rel.includes('/')`, so `rel` here IS the basename —
-  // the same input install-capabilities.ts validates. Scoped to commands + hooks
-  // ONLY: capability dirs, pharn-contracts/, pharn-core/, .dev/floor/ and the
+  // the same input install-capabilities.ts validates. Scoped to commands, hooks
+  // and agents ONLY: capability dirs, pharn-contracts/, pharn-core/, .dev/floor/ and the
   // trusted docs are copied verbatim by recursive cpSync with no name check, so
   // validating them here would BREAK the mirror (and reject legitimate evals/
   // fixtures, uppercase names, and non-md/cjs/mjs/json extensions).
@@ -252,6 +262,16 @@ function collectInstallManifest(params: {
       isInstalledHookFile,
       copyNameFloor(CLAUDE_HOOKS_DIR),
     ),
+  );
+  // Agent definitions: top-level non-dev pharn-*.md. Deliberately NOT
+  // accounted: the surface is optional (pharn-oss before 6.64.0 ships none,
+  // and `/pharn-review` then falls back to a general-purpose agent), so a
+  // clone without it is not "not shipped" — reporting it would turn `status
+  // --strict` red for every older clone.
+  addDir(
+    CLAUDE_AGENTS_DIR,
+    isProductAgentFile,
+    copyNameFloor(CLAUDE_AGENTS_DIR),
   );
   // Trusted docs, at the path THIS clone keeps each one (resolveTrustedDocs:
   // flat keeps all four at the root; the pharn layout keeps them under pharn/,

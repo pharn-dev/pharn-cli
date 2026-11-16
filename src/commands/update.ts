@@ -79,6 +79,7 @@ import {
   type RefChoice,
 } from '../lib/release.js';
 import { findMissingInstalled } from '../lib/missing-installed.js';
+import { agentSurfaceMissing } from '../lib/agent-surface.js';
 import { deleteRootDocs, pendingRootMigration } from '../lib/root-migration.js';
 import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
@@ -357,6 +358,14 @@ async function runArchetypeUpdate(
     current && !force
       ? findMissingInstalled(cwd, config, baselineRecords)
       : null;
+  // An install at pharn-oss 6.64.0 or later with no `.claude/agents/pharn-*.md`
+  // re-opens the gate too (lib/agent-surface.ts): older CLIs never
+  // installed that surface and their records do not name it, so `missing`
+  // cannot see the gap while `status --strict` reports it. Local and
+  // read-only, and bounded like `missing`: the opened run restores the file.
+  // Residual: an upstream that stops shipping any agent re-opens every run.
+  const agentMissing =
+    current && !force && agentSurfaceMissing(cwd, config.skillsVersion);
   // The old root footprint an older CLI left on an install already at SKILLS 7
   // re-opens the gate too (lib/root-migration.ts): a record-equal root doc
   // whose pharn/ copy was never written. User data still at the root does NOT
@@ -397,6 +406,7 @@ async function runArchetypeUpdate(
     !convertModels &&
     !switchChannel &&
     missing === null &&
+    !agentMissing &&
     rootDoc === null &&
     !gitignoreMissing &&
     !prettierignoreMissing
@@ -449,6 +459,13 @@ async function runArchetypeUpdate(
                 // is a recorded path that is gone too; this run drops its record
                 // instead of restoring it, and the next run early-returns.
                 `  ${terminalSafe(missing)} is missing — this run re-applies the install, restoring it if upstream still ships it.`,
+              ),
+            ]
+          : []),
+        ...(agentMissing
+          ? [
+              pc.dim(
+                '  .claude/agents/ has no PHARN agent definition — this run re-applies the install, adding it if upstream ships one.',
               ),
             ]
           : []),

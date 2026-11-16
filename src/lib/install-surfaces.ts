@@ -1,6 +1,11 @@
-import { CLAUDE_COMMANDS_DIR, CLAUDE_HOOKS_DIR } from './constants.js';
+import {
+  CLAUDE_AGENTS_DIR,
+  CLAUDE_COMMANDS_DIR,
+  CLAUDE_HOOKS_DIR,
+} from './constants.js';
 import {
   isInstalledHookFile,
+  isProductAgentFile,
   isProductCommandFile,
 } from './install-manifest.js';
 import { MODELS_RECORD_KEY } from './install-records.js';
@@ -67,7 +72,7 @@ export function capabilityOf(rel: string): string | null {
  * Could ANY install (flat or pharn layout) have written `rel`? Mirrors the
  * surfaces lib/install-manifest.ts enumerates — capability dirs, contracts,
  * pharn-core, the floor, the trusted docs, the LICENSE dest, the features
- * README, product `pharn-*.md` commands and `.cjs`/`.mjs` hooks — derived from
+ * README, product `pharn-*.md` commands and agents and `.cjs`/`.mjs` hooks — derived from
  * `layoutPaths` so it follows the layout contract. A membership test (P5).
  */
 export function isInstallRootPath(rel: string): boolean {
@@ -76,10 +81,12 @@ export function isInstallRootPath(rel: string): boolean {
   if (SURFACE_DIRS.some((dir) => rel.startsWith(`${dir}/`))) return true;
   if (capabilityOf(rel) !== null) return true;
   // The install's own name filters (lib/install-manifest.ts), so this bound
-  // takes exactly the command and hook names an install copies — `.mjs` hooks
-  // included — and cannot drift from them.
+  // takes exactly the command, agent and hook names an install copies — `.mjs`
+  // hooks included — and cannot drift from them.
   const command = directChild(rel, CLAUDE_COMMANDS_DIR);
   if (command !== null) return isProductCommandFile(command);
+  const agent = directChild(rel, CLAUDE_AGENTS_DIR);
+  if (agent !== null) return isProductAgentFile(agent);
   const hook = directChild(rel, CLAUDE_HOOKS_DIR);
   if (hook !== null) return isInstalledHookFile(hook);
   return false;

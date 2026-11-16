@@ -14,6 +14,7 @@ import {
   absentInstallSurfaces,
   conflictingWriteTargets,
   isInstalledHookFile,
+  isProductAgentFile,
   isProductCommandFile,
   PHARN_CONFIG_FILE,
 } from '../src/lib/install-manifest.js';
@@ -64,6 +65,11 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, '.claude/hooks/require-loop-record.mjs'));
   write(join(repo, '.claude/hooks/require-loop-record.test.mjs'));
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
+  // The review lens agent (pharn-oss >= 6.64.0), a dev-loop agent the install
+  // must leave out, and a non-pharn file (CORE-272).
+  write(join(repo, '.claude/agents/pharn-review-lens.md'));
+  write(join(repo, '.claude/agents/pharn-dev-reviewer.md'));
+  write(join(repo, '.claude/agents/README.md'));
   write(join(repo, 'CONSTITUTION.md'));
   write(join(repo, 'ARCHITECTURE.md'));
   write(join(repo, 'THREAT-MODEL.md'));
@@ -100,6 +106,11 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, '.claude/hooks/require-loop-record.mjs'));
   write(join(repo, '.claude/hooks/require-loop-record.test.mjs'));
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
+  // The review lens agent (pharn-oss >= 6.64.0), a dev-loop agent the install
+  // must leave out, and a non-pharn file (CORE-272).
+  write(join(repo, '.claude/agents/pharn-review-lens.md'));
+  write(join(repo, '.claude/agents/pharn-dev-reviewer.md'));
+  write(join(repo, '.claude/agents/README.md'));
   // The docs, at the paths pharn-oss ACTUALLY ships them in a pharn-layout tree:
   // the relocation moved CONSTITUTION + ARCHITECTURE under pharn/ and left
   // THREAT-MODEL + LIMITS at the repo ROOT. `pharn/THREAT-MODEL.md` and
@@ -174,6 +185,7 @@ describe('collectExpectedInstallPaths (flat)', () => {
       '.claude/commands/pharn-ship.md',
       '.claude/hooks/set-writes-scope.cjs',
       '.claude/hooks/require-loop-record.mjs',
+      '.claude/agents/pharn-review-lens.md',
       'CONSTITUTION.md',
       'ARCHITECTURE.md',
       'THREAT-MODEL.md',
@@ -193,6 +205,8 @@ describe('collectExpectedInstallPaths (flat)', () => {
       '.claude/settings.json',
       '.claude/commands/pharn-dev-plan.md',
       '.claude/commands/README.md',
+      '.claude/agents/pharn-dev-reviewer.md',
+      '.claude/agents/README.md',
       '.claude/hooks/set-writes-scope.test.cjs',
       '.claude/hooks/require-loop-record.test.mjs',
       '.dev/floor/validate.test.mjs',
@@ -251,6 +265,10 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).not.toContain('pharn/floor/validate.test.mjs');
     // .claude/* stays layout-invariant (at root, not under pharn/).
     expect(k).toContain('.claude/commands/pharn-plan.md');
+    expect(k).toContain('.claude/agents/pharn-review-lens.md');
+    expect(k).not.toContain('pharn/.claude/agents/pharn-review-lens.md');
+    expect(k).not.toContain('.claude/agents/pharn-dev-reviewer.md');
+    expect(k).not.toContain('.claude/agents/README.md');
   });
 });
 
@@ -951,6 +969,29 @@ describe('absentInstallSurfaces', () => {
     ).toEqual(['commands', 'hooks']);
   });
 
+  it('a clone without .claude/agents/ is NOT reported: the surface is optional (CORE-272)', () => {
+    // pharn-oss before 6.64.0 ships no agent; naming it would turn `status
+    // --strict` red for every older clone.
+    for (const [scaffold, layout] of [
+      [scaffoldRepo, 'flat'],
+      [scaffoldRepoPharn, 'pharn'],
+    ] as const) {
+      rmSync(join(tmp.path(), 'repo'), { recursive: true, force: true });
+      const repo = repoOf(scaffold);
+      rmSync(join(repo, '.claude/agents'), { recursive: true, force: true });
+      expect(absentInstallSurfaces({ repoDir: repo, layout })).toEqual([]);
+      expect(
+        [
+          ...collectExpectedInstallPaths({
+            repoDir: repo,
+            capabilities: [],
+            layout,
+          }).keys(),
+        ].some((k) => k.startsWith('.claude/agents/')),
+      ).toBe(false);
+    }
+  });
+
   it('the features README at the ROOT fallback counts as shipped on the pharn layout', () => {
     const repo = repoOf(scaffoldRepoPharn);
     rmSync(join(repo, 'pharn/features'), { recursive: true, force: true });
@@ -971,6 +1012,13 @@ describe('hook and command name predicates (shared by the copy and the manifest)
     expect(isInstalledHookFile('guard.test.mjs')).toBe(false);
     expect(isInstalledHookFile('guard.js')).toBe(false);
     expect(isInstalledHookFile('nested/guard.cjs')).toBe(false);
+  });
+
+  it('takes top-level non-dev pharn-*.md agents only — the command rule', () => {
+    expect(isProductAgentFile('pharn-review-lens.md')).toBe(true);
+    expect(isProductAgentFile('pharn-dev-reviewer.md')).toBe(false);
+    expect(isProductAgentFile('reviewer.md')).toBe(false);
+    expect(isProductAgentFile('sub/pharn-review-lens.md')).toBe(false);
   });
 
   it('takes top-level non-dev pharn-*.md commands only', () => {

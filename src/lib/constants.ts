@@ -139,8 +139,18 @@ export const FEATURES_README = 'features/README.md';
 export const PHARN_FEATURES_README = 'pharn/features/README.md';
 export const CLAUDE_COMMANDS_DIR = '.claude/commands';
 export const CLAUDE_HOOKS_DIR = '.claude/hooks';
+// Claude Code subagent definitions. pharn-oss ships `pharn-review-lens.md` here
+// from SKILLS_VERSION 6.64.0 on: `/pharn-review` asks for that subagent type,
+// and without the file every lens runs as a general-purpose agent with more
+// tools. Same name rule as the commands (`pharn-*.md`, not `pharn-dev-*`),
+// same path in both layouts. OPTIONAL: an older clone ships none, so it is
+// never reported as not shipped (lib/install-manifest.ts).
+export const CLAUDE_AGENTS_DIR = '.claude/agents';
+// The first pharn-oss SKILLS_VERSION that ships an agent there — what makes an
+// install at or above it, with none on disk, incomplete (lib/agent-surface.ts).
+export const AGENTS_FROM_SKILLS_VERSION = '6.64.0';
 export const CLAUDE_SETTINGS_FILE = '.claude/settings.json';
-// Product commands are `pharn-*.md`; the dev-loop commands `pharn-dev-*.md` are
-// excluded from a product install.
+// Product commands (and agents) are `pharn-*.md`; the dev-loop ones
+// `pharn-dev-*.md` are excluded from a product install.
 export const PRODUCT_COMMAND_PREFIX = 'pharn-';
 export const DEV_COMMAND_PREFIX = 'pharn-dev-';

@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { CLAUDE_COMMANDS_DIR, CLAUDE_HOOKS_DIR } from '../src/lib/constants.js';
+import {
+  CLAUDE_AGENTS_DIR,
+  CLAUDE_COMMANDS_DIR,
+  CLAUDE_HOOKS_DIR,
+} from '../src/lib/constants.js';
 import { PHARN_CONFIG_FILE } from '../src/lib/install-manifest.js';
 import { RECORDS_FILE } from '../src/lib/install-records.js';
 import { layoutPaths } from '../src/lib/layout.js';
@@ -14,7 +18,7 @@ import { layoutPaths } from '../src/lib/layout.js';
 // no current install produces — while omitting `features/README.md` entirely.
 //
 // This pins the ONE thing a deterministic gate can own here: the SET OF PATHS.
-// The required set is DERIVED from layoutPaths('pharn') plus the two
+// The required set is DERIVED from layoutPaths('pharn') plus the three
 // layout-invariant `.claude` constants, so renaming PHARN_FLOOR_DIR (say) fails
 // this test until both docs follow. It deliberately does NOT judge the prose: a
 // description can still be wrong, and a row for something never installed is not
@@ -41,6 +45,7 @@ const REQUIRED = [
   ...pharn.docs,
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
+  CLAUDE_AGENTS_DIR,
   pharn.featuresReadme,
   PHARN_CONFIG_FILE,
   RECORDS_FILE,
