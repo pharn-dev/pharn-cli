@@ -1350,6 +1350,47 @@ describe('root-footprint migration, end to end', () => {
     expect(existsSync(at('pharn/memory-bank'))).toBe(false);
   });
 
+  it('a plan whose only root-migration content is a user-data hint changes nothing: no write, the hint printed', async () => {
+    serveTip7(SHA_V1, '7.0.0');
+    await init();
+    mkdirSync(at('memory-bank'));
+    writeFileSync(at('memory-bank/canon.md'), 'canon\n');
+    // `--force` skips the same-version early return, so the run plans; with
+    // every file at upstream, the hint is all the root migration has.
+    stdout = [];
+    expect(
+      await run(() => runUpdate({ dryRun: true, json: true, force: true })),
+    ).toBeNull();
+    expect(
+      (JSON.parse(stdout[0] ?? '') as MigrationJson).plan?.rootMigration,
+    ).toEqual({
+      docs: [
+        { rel: 'THREAT-MODEL.md', action: 'absent' },
+        { rel: 'LIMITS.md', action: 'absent' },
+      ],
+      moves: [],
+      scratchNotice: false,
+      gitignoreHints: [],
+    });
+    const configBefore = read('pharn.config.json');
+    const recordsBefore = read('pharn.records.json');
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runUpdate({ yes: true, force: true }))).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+    // changesNothing: neither state file is rewritten (no `updatedAt`).
+    expect(read('pharn.config.json')).toBe(configBefore);
+    expect(read('pharn.records.json')).toBe(recordsBefore);
+    expect(read('memory-bank/canon.md')).toBe('canon\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
+    expect(
+      vi
+        .mocked(clack.note)
+        .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
+        .map(([body]) => String(body))
+        .join('\n'),
+    ).toContain('git mv memory-bank pharn/memory-bank');
+  });
+
   it('a first init prints no ROOT MIGRATION note, even with memory-bank/ at the root', async () => {
     serveTip7(SHA_V1, '7.0.0');
     mkdirSync(at('memory-bank'));
