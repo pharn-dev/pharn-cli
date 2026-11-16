@@ -982,6 +982,40 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(process.exitCode).toBe(1);
   });
 
+  // CORE-164: a config with no `modules` key used to read as NO config —
+  // every command said "Run `pharn init` first", and the re-run init it
+  // prescribed dropped the manual capabilities. Now it loads everywhere.
+  it('a config without `modules` loads in every command, and a re-run init carries its manual entry', async () => {
+    await init();
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    const raw = JSON.parse(read('pharn.config.json')) as Record<
+      string,
+      unknown
+    >;
+    delete raw.modules;
+    writeFileSync(at('pharn.config.json'), JSON.stringify(raw, null, 2));
+
+    stdout = [];
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    const report = JSON.parse(stdout.at(-1) ?? '') as StatusJson;
+    expect(report.capabilities.count).toBe(2);
+    expect(await run(() => runAdd('n-plus-one'))).toBeNull();
+    expect(config().capabilities).toContainEqual({
+      name: 'n-plus-one',
+      role: 'lens',
+      source: 'manual',
+    });
+    expect(await run(() => runRemove('n-plus-one'))).toBeNull();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+
+    stdout = [];
+    expect(await run(() => runInit({ dryRun: true, json: true }))).toBeNull();
+    const plan = JSON.parse(stdout.at(-1) ?? '') as {
+      capabilities: { carried: { manual: string[] } };
+    };
+    expect(plan.capabilities.carried.manual).toEqual(['griller:a11y']);
+  });
+
   it('uninstall --yes deletes what the records prove — the settings.json init wrote included — and keeps edits', async () => {
     await init();
     writeFileSync(at(CONSTITUTION), `my own constitution\n`);

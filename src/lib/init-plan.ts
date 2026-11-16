@@ -54,7 +54,8 @@ import {
 import { resolveCapabilities } from './resolve-capabilities.js';
 import { readSkillsVersion } from './skills-version.js';
 import { readUpstreamModels } from './upstream-models.js';
-import { terminalSafe } from './terminal-safe.js';
+import { escapeUnsafe, terminalSafe } from './terminal-safe.js';
+import { errorMessage } from './report-error.js';
 import { versionStatus } from './version-status.js';
 import { isPlainObject, safeJoin } from './validate.js';
 import type { DriftLabel } from './dest-drift.js';
@@ -141,24 +142,105 @@ export function capabilityKey(cap: { name: string; role: string }): string {
 export interface PreviousConfig {
   fingerprint: string;
   config: PharnConfig | null;
+  // Why a pharn.config.json that EXISTS could not be read as a config — display
+  // text for the summary (`previousConfigLines`), escaped and capped; `null`
+  // when the file is absent or was read. Never a branch input.
+  unreadable: string | null;
 }
+
+// The longest reason the summary prints, so its line stays one readable line.
+const UNREADABLE_REASON_MAX = 200;
 
 /**
  * The config a re-run init is about to replace, read TOLERANTLY: init is the
  * command every other one points at for recovery, so an absent, unreadable,
  * invalid or pre-archetype config simply means "nothing to carry over" — never
- * a refusal. The fingerprint is taken FIRST, so a write that lands between the
- * two reads fails the under-lock check (closed) instead of being blessed by it.
+ * a refusal. But a config that EXISTS and could not be read is NAMED, with the
+ * reason (`unreadable`), because carrying nothing over drops the user's manual
+ * capabilities (CORE-164). The fingerprint is taken FIRST, so a write that lands
+ * between the reads fails the under-lock check (closed) instead of being
+ * blessed by it.
  */
 export function readPreviousConfig(cwd: string): PreviousConfig {
   const fingerprint = configFingerprint(cwd);
-  let config: PharnConfig | null;
   try {
-    config = readPharnConfig(cwd);
-  } catch {
-    config = null;
+    const config = readPharnConfig(cwd);
+    const unreadable =
+      config === null && fingerprint !== 'absent'
+        ? describeUnreadConfig(cwd)
+        : null;
+    return { fingerprint, config, unreadable };
+  } catch (err) {
+    // A named validation error. Only its FIRST sentence is the defect; the rest
+    // is repair advice written for the other commands ("do NOT run `pharn init`
+    // to clear it"), which would contradict the line init prints while running.
+    const reason = escapeUnsafe(firstSentence(errorMessage(err)));
+    return {
+      fingerprint,
+      config: null,
+      unreadable: terminalSafe(reason, { max: UNREADABLE_REASON_MAX }),
+    };
   }
-  return { fingerprint, config };
+}
+
+/**
+ * `text` up to (not including) its first `.` that sits outside a double-quoted
+ * span (the validation errors JSON-quote their offenders, so a `.` inside one
+ * never cuts) and is followed by whitespace or the end; the whole text when
+ * there is none. The period is dropped because the reason is printed inside
+ * parentheses. Display only: an odd path in `ConfigParseError`'s message (a
+ * directory named `a. b`) merely shortens the reason.
+ */
+function firstSentence(text: string): string {
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\') {
+      i++;
+    } else if (ch === '"') {
+      quoted = !quoted;
+    } else if (
+      ch === '.' &&
+      !quoted &&
+      (i + 1 === text.length || /\s/.test(text[i + 1]!))
+    ) {
+      return text.slice(0, i);
+    }
+  }
+  return text;
+}
+
+/**
+ * Why `readPharnConfig` returned `null` for a file that exists — fixed text
+ * only, never file content (P2). Every branch is a membership test (P5); a
+ * file that changed between the reads says so (the under-lock fingerprint
+ * check refuses that run anyway).
+ */
+function describeUnreadConfig(cwd: string): string {
+  const read = readJsonBounded(configPath(cwd));
+  if (read.kind === 'unusable') return `it ${read.reason}`;
+  if (read.kind !== 'ok') return 'it changed while init was reading it';
+  const raw = read.value;
+  if (!isPlainObject(raw)) return 'it is not a JSON object';
+  if (typeof raw.skillsVersion !== 'string') {
+    return 'it has no "skillsVersion" string';
+  }
+  return 'it has neither a "capabilities" key nor a "modules" array';
+}
+
+/**
+ * The summary line a re-run init prints when the config it replaces exists but
+ * could not be read (`PreviousConfig.unreadable`): nothing is carried over, so
+ * the manual capabilities it recorded are dropped. Empty otherwise. Printed by
+ * the real run, `--yes` and the text dry run, before any prompt.
+ */
+export function previousConfigLines(
+  previous: Pick<PreviousConfig, 'unreadable'>,
+): string[] {
+  if (previous.unreadable === null) return [];
+  return [
+    `    the previous pharn.config.json could not be read (${previous.unreadable}); nothing is carried over, so manual capabilities will be dropped`,
+  ];
 }
 
 /**
@@ -368,9 +450,10 @@ export function initRecordedPaths(params: {
  * "nothing to carry over", never a refusal.
  *
  * Deliberately NOT readPharnConfig, whose verdict is about the keys pharn OWNS:
- * it returns null for a config with no `modules` array — which every other
- * command answers with "Run `pharn init` first" — and throws on a bad `seam`
- * hand-edit. Neither says anything about the user's own keys, and reading
+ * it returns null for a config with no string `skillsVersion` (or with neither
+ * a `modules` array nor a `capabilities` key) — which every other command
+ * answers with "Run `pharn init` first" — and throws on a value it rejects
+ * (an invalid `capabilities` entry, `archetypes` or stamp). Neither says anything about the user's own keys, and reading
  * through it would drop `testResults` on exactly the recovery path pharn
  * prescribes. So the one requirement is a JSON object at top level. Exported
  * for init alone (the install's write and the dry run's preview): a total-catch
@@ -406,6 +489,9 @@ export interface InitPlanReport {
   previousArchetypes: Archetype[] | null;
   // The summary's "previously followed: main" lines (`previousChannelLines`).
   channelLines: string[];
+  // The summary's "could not be read" line (`previousConfigLines`). Text only:
+  // not projected into `--dry-run --json`.
+  previousConfigLines: string[];
   channel: RefChoice;
   source: InstallSource;
   commit: string | null;
@@ -616,6 +702,7 @@ export function buildInitPlan(params: {
       explicit: params.refExplicit ?? false,
       source,
     }),
+    previousConfigLines: previousConfigLines(chosen.previous),
     channel,
     source,
     commit: sha,

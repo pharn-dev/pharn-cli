@@ -1174,15 +1174,17 @@ describe('re-running init keeps the config keys pharn does not own', () => {
     });
   });
 
-  // The recovery path pharn itself prescribes: a config with no `modules` array
-  // is answered by every other command with "No pharn.config.json found. Run
-  // `pharn init` first." Taking that advice must not cost the user their keys —
-  // nor may a bad hand-edit of a block pharn owns.
+  // The recovery path pharn itself prescribes: a config with no string
+  // `skillsVersion` is answered by every other command with "No
+  // pharn.config.json found. Run `pharn init` first." Taking that advice must
+  // not cost the user their keys — nor may a bad hand-edit of a block pharn
+  // owns. (A config with no `modules` array used to be the example; it loads
+  // since CORE-164, when it has a `capabilities` key.)
   it.each<[string, (config: Record<string, unknown>) => void]>([
     [
-      'has no `modules` array ("run `pharn init`")',
+      'has no `skillsVersion` string ("run `pharn init`")',
       (c) => {
-        delete c.modules;
+        delete c.skillsVersion;
       },
     ],
     [
@@ -1882,6 +1884,165 @@ describe('`pharn init` re-run over a capability it drops', () => {
     expect(existsSync(join(proj, 'pharn-review/retired'))).toBe(false);
     expect(backedUp(proj)).toContain('pharn-review/retired/retired.md');
     expect(warnings()).toContain('upstream no longer ships: lens:retired');
+  });
+
+  // CORE-164: a config with no `modules` key used to read as NO config, so a
+  // re-run carried nothing over — manual entries silently dropped, dropped
+  // directories left running. And a config that exists but could not be read
+  // at all dropped them without a word.
+  describe('over a config with no `modules`, or one it cannot read (CORE-164)', () => {
+    const configFile = (proj: string): string =>
+      join(proj, 'pharn.config.json');
+    const rawConfig = (proj: string): Record<string, unknown> =>
+      JSON.parse(readFileSync(configFile(proj), 'utf8')) as Record<
+        string,
+        unknown
+      >;
+    // A raw JSON edit, so the key is really gone on disk.
+    const handEdit = (
+      proj: string,
+      edit: (raw: Record<string, unknown>) => void,
+    ): void => {
+      const raw = rawConfig(proj);
+      edit(raw);
+      writeFileSync(configFile(proj), JSON.stringify(raw, null, 2));
+    };
+    const markManual = (raw: Record<string, unknown>): void => {
+      raw.capabilities = (raw.capabilities as { name: string }[]).map((c) =>
+        c.name === 'n-plus-one' ? { ...c, source: 'manual' } : c,
+      );
+    };
+    const summaryCall = (): number => {
+      const calls = vi.mocked(prompts.note).mock.calls;
+      const at = calls.findIndex((c) =>
+        String(c[0]).includes('PHARN Install Summary'),
+      );
+      expect(at).toBeGreaterThanOrEqual(0);
+      return at;
+    };
+    const summary = (): string =>
+      String(vi.mocked(prompts.note).mock.calls[summaryCall()]![0]);
+    const LINE = (reason: string): string =>
+      `the previous pharn.config.json could not be read (${reason}); nothing is carried over, so manual capabilities will be dropped`;
+
+    // The second run's prompts only: called between the two inits.
+    const forgetFirstRun = (): void => {
+      vi.mocked(prompts.note).mockClear();
+      vi.mocked(prompts.select).mockClear();
+      vi.mocked(prompts.confirm).mockClear();
+      vi.mocked(prompts.log.warn).mockClear();
+    };
+
+    it('keeps a manual capability from a config with no `modules` key', async () => {
+      const { repo, proj } = fixture();
+      await init(repo, proj, SHA_C);
+      handEdit(proj, (raw) => {
+        delete raw.modules;
+        markManual(raw);
+      });
+      narrowLens(repo);
+      forgetFirstRun();
+
+      await init(repo, proj, SHA_D);
+
+      expect(readPharnConfig(proj)!.capabilities).toContainEqual({
+        name: 'n-plus-one',
+        role: 'lens',
+        source: 'manual',
+      });
+      expect(existsSync(join(proj, `${LENS_DIR}/n-plus-one.md`))).toBe(true);
+      expect(summary()).not.toContain('could not be read');
+    });
+
+    it('names and deletes a dropped capability from such a config, and writes `modules: []` again', async () => {
+      const { repo, proj } = fixture();
+      await init(repo, proj, SHA_C);
+      handEdit(proj, (raw) => {
+        delete raw.modules;
+      });
+      narrowLens(repo);
+      forgetFirstRun();
+
+      await init(repo, proj, SHA_D);
+
+      expect(warnings()).toContain(
+        'your archetypes no longer select: lens:n-plus-one',
+      );
+      expect(warnings()).toContain('will be DELETED');
+      expect(existsSync(join(proj, LENS_DIR))).toBe(false);
+      expect(rawConfig(proj).modules).toEqual([]);
+    });
+
+    it('names a config it cannot read, with the reason, in the summary before either prompt', async () => {
+      const { repo, proj } = fixture();
+      await init(repo, proj, SHA_C);
+      handEdit(proj, (raw) => {
+        raw.archetypes = 'ssr';
+        markManual(raw);
+      });
+      forgetFirstRun();
+
+      await init(repo, proj, SHA_D);
+
+      const line = LINE(
+        'pharn.config.json: archetypes must be an array of "ssr", "backend", "spa", "lib" (found "ssr")',
+      );
+      expect(summary()).toContain(line);
+      expect(summary()).not.toContain('pharn init');
+      const noteOrder = vi.mocked(prompts.note).mock.invocationCallOrder[
+        summaryCall()
+      ]!;
+      expect(noteOrder).toBeLessThan(
+        vi.mocked(prompts.select).mock.invocationCallOrder[0]!,
+      );
+      // The overwrite prompt still lists the config it rewrites, after the line.
+      expect(noteOrder).toBeLessThan(
+        vi.mocked(prompts.confirm).mock.invocationCallOrder[0]!,
+      );
+      expect(warnings()).toContain('pharn.config.json');
+      // As the line says: nothing was carried over.
+      expect(readPharnConfig(proj)!.capabilities).toContainEqual(
+        expect.objectContaining({ name: 'n-plus-one', source: 'auto' }),
+      );
+    });
+
+    it('prints the same line under `--yes`, before refusing the existing config', async () => {
+      const { repo, proj } = fixture();
+      await init(repo, proj, SHA_C);
+      handEdit(proj, (raw) => {
+        raw.archetypes = 'ssr';
+      });
+      forgetFirstRun();
+      fetchRepo.mockResolvedValue({ dir: repo, sha: SHA_D, cleanup: vi.fn() });
+      const cwd = vi.spyOn(process, 'cwd').mockReturnValue(proj);
+      try {
+        await expect(runInit({ yes: true })).rejects.toMatchObject(
+          new ProcessExit(1),
+        );
+      } finally {
+        cwd.mockRestore();
+      }
+
+      expect(summary()).toContain(
+        'the previous pharn.config.json could not be read',
+      );
+      expect(prompts.select).not.toHaveBeenCalled();
+      expect(prompts.confirm).not.toHaveBeenCalled();
+      expect(rawConfig(proj).archetypes).toBe('ssr');
+    });
+
+    it('names a config with no `skillsVersion` string by that reason', async () => {
+      const { repo, proj } = fixture();
+      await init(repo, proj, SHA_C);
+      handEdit(proj, (raw) => {
+        delete raw.skillsVersion;
+      });
+      forgetFirstRun();
+
+      await init(repo, proj, SHA_D);
+
+      expect(summary()).toContain(LINE('it has no "skillsVersion" string'));
+    });
   });
 
   it('declining the prompt deletes nothing and writes nothing', async () => {

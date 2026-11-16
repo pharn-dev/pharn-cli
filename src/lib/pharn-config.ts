@@ -435,11 +435,18 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   }
   const raw = read.value;
   if (!isPlainObject(raw)) return null;
-  // Light shape guard so a hand-edited config fails fast here (→ "run init").
-  // `modules` is no longer read, but the guard keeps it: `init` still writes
-  // `modules: []` because every released CLI applies this same guard (see
-  // `PharnConfig.modules`), so the key is what an older CLI needs to see.
-  if (typeof raw.skillsVersion !== 'string' || !Array.isArray(raw.modules)) {
+  // Light shape guard so a hand-edited config fails fast here (→ "run init"):
+  // a string `skillsVersion`, and EITHER a `modules` array (what a pre-archetype
+  // config is recognised by, so it still reaches LEGACY_CONFIG_MESSAGE) OR a
+  // `capabilities` key (an archetype config — any value, so a non-array one
+  // reaches validateCapabilityEntries' named error, F-30). `capabilities` alone
+  // used to read as NO config, and a re-run init then dropped its manual
+  // entries (CORE-164). `init` still WRITES `modules: []`: every released CLI
+  // up to 0.19.x requires it (see `PharnConfig.modules`).
+  if (
+    typeof raw.skillsVersion !== 'string' ||
+    (!Array.isArray(raw.modules) && raw.capabilities === undefined)
+  ) {
     return null;
   }
   // Present-but-invalid → the validator THROWS (named) and the error propagates.

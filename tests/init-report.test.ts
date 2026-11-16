@@ -24,6 +24,7 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     },
     previousArchetypes: null,
     channelLines: [],
+    previousConfigLines: [],
     channel: 'main',
     source: { kind: 'main' },
     commit: 'a'.repeat(40),
@@ -185,6 +186,7 @@ describe('buildInitReport', () => {
     expect(Object.keys(r)).not.toContain('previousArchetypes');
     // The summary's channel prose is text-mode only, never a report key.
     expect(Object.keys(r)).not.toContain('channelLines');
+    expect(Object.keys(r)).not.toContain('previousConfigLines');
   });
 
   it('--archetype: archetypeSource "flag", with the unused detection and its evidence', () => {

@@ -45,6 +45,7 @@ import {
   initRootMigration,
   planInitRemovals,
   previousChannelLines,
+  previousConfigLines,
   resolveInitSelection,
   type InitCarry,
   type InitPlanReport,
@@ -311,12 +312,18 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       // earlier `--archetype` never disappears silently.
       const recorded = recordedArchetypes(previous.config?.archetypes);
       // And, likewise, when the new default moves an install off `main`.
-      const channelLines = previousChannelLines({
-        previous: previous.config,
-        channel,
-        explicit: refExplicit,
-        source: repo.source,
-      });
+      // A config that exists but could not be read carries nothing over: the
+      // summary names it, with the reason, BEFORE any prompt (CORE-164). Then
+      // the move off `main`, when the new default makes one.
+      const rerunLines = [
+        ...previousConfigLines(previous),
+        ...previousChannelLines({
+          previous: previous.config,
+          channel,
+          explicit: refExplicit,
+          source: repo.source,
+        }),
+      ];
 
       // `--yes` answers the summary's question ("install?") and nothing else:
       // the summary is still printed, so a CI log says what was installed.
@@ -328,7 +335,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
             selection,
             origin,
             recorded,
-            channelLines,
+            rerunLines,
           ).join('\n'),
         );
         action = 'install';
@@ -338,7 +345,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
           selection,
           origin,
           recorded,
-          channelLines,
+          rerunLines,
         );
       }
       // Both prompts return a VALUE and neither exits, so `outcome` stays
@@ -622,7 +629,7 @@ function reportInitDryRun(r: InitPlanReport): void {
       r.selection,
       r.archetypeOrigin,
       r.previousArchetypes,
-      r.channelLines,
+      [...r.previousConfigLines, ...r.channelLines],
     ).join('\n'),
   );
 
