@@ -4,13 +4,27 @@ import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 
-// The real classifier, wrapped so a test can prove which paths were READ.
-vi.mock('../src/lib/apply-update.js', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('../src/lib/apply-update.js')>();
-  return { ...actual, readDiskState: vi.fn(actual.readDiskState) };
+// A pass-through `node:fs` that logs every path the classifier hands to the
+// filesystem (lstat for the component walk, readFileSync for the hash), so a
+// test can prove which record keys were ever READ.
+const fsReads = vi.hoisted(() => [] as string[]);
+vi.mock('node:fs', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs')>();
+  const lstatSync = ((path: string, ...rest: unknown[]) => {
+    fsReads.push(String(path));
+    return (real.lstatSync as (...a: unknown[]) => unknown)(path, ...rest);
+  }) as typeof real.lstatSync;
+  const readFileSync = ((path: string, ...rest: unknown[]) => {
+    fsReads.push(String(path));
+    return (real.readFileSync as (...a: unknown[]) => unknown)(path, ...rest);
+  }) as typeof real.readFileSync;
+  return {
+    ...real,
+    default: { ...real, lstatSync, readFileSync },
+    lstatSync,
+    readFileSync,
+  };
 });
-const { readDiskState } = await import('../src/lib/apply-update.js');
 
 import {
   findOrphans,
@@ -201,21 +215,31 @@ describe('findOrphans', () => {
   });
 
   it('never reads a key outside the install roots, even when the file exists', () => {
-    vi.mocked(readDiskState).mockClear();
     write(tmp.path(), 'src/auth.ts', 'secret');
     write(tmp.path(), 'README.md', 'readme');
+    write(tmp.path(), '.claude/settings.json', '{}');
     const hash = contentHash(join(tmp.path(), 'src/auth.ts'));
+    fsReads.length = 0;
     const scan = run({
       'src/auth.ts': hash,
       'README.md': 'a'.repeat(64),
       '.claude/settings.json': 'a'.repeat(64),
-      // One install path, so the spy is shown to be live.
+      // One install path, so the read log is shown to be live.
       '.claude/hooks/gone.cjs': 'a'.repeat(64),
     });
     expect(scan).toEqual({ orphans: [], records: {} });
-    // Only the install path was ever handed to the filesystem read.
-    const read = vi.mocked(readDiskState).mock.calls.map((c) => c[1]);
-    expect(read).toEqual(['.claude/hooks/gone.cjs']);
+    // Only the install path was ever handed to the filesystem.
+    const touched = fsReads.map((p) =>
+      p.startsWith(tmp.path()) ? p.slice(tmp.path().length + 1) : p,
+    );
+    expect(touched.length).toBeGreaterThan(0);
+    for (const p of touched)
+      expect(
+        p === '.claude' ||
+          p === '.claude/hooks' ||
+          p === '.claude/hooks/gone.cjs',
+        p,
+      ).toBe(true);
   });
 
   it('a file of an installed capability upstream stopped shipping is an orphan (both layouts)', () => {
