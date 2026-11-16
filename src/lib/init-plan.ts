@@ -453,9 +453,9 @@ export function initRecordedPaths(params: {
  * it returns null for a config with no string `skillsVersion` (or with neither
  * a `modules` array nor a `capabilities` key) — which every other command
  * answers with "Run `pharn init` first" — and throws on a value it rejects
- * (an invalid `capabilities` entry, `archetypes` or stamp). Neither says anything about the user's own keys, and reading
- * through it would drop `testResults` on exactly the recovery path pharn
- * prescribes. So the one requirement is a JSON object at top level. Exported
+ * (an invalid `capabilities` entry, `archetypes` or stamp). Neither says
+ * anything about the user's own keys, and reading through it would drop
+ * `testResults` on exactly the recovery path pharn prescribes. So the one requirement is a JSON object at top level. Exported
  * for init alone (the install's write and the dry run's preview): a total-catch
  * reader is right for carrying keys across and wrong for anything that must
  * refuse a config it failed to understand.
