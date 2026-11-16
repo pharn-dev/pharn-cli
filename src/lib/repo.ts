@@ -68,8 +68,8 @@ function installCleanupHandlers(): void {
 export interface FetchedRepo {
   // THE CLONE INVARIANT: the tree holds only regular files and directories,
   // created by this process in a private `mkdtemp` dir (tar-extract.ts's
-  // typeflag allowlist; this module is the only producer, pinned by
-  // tests/tar-extract.test.ts). Clone-side readers therefore skip symlink/FIFO
+  // typeflag allowlist; this module is the only producer, enforced by the
+  // clone-producer rule in eslint.config.mjs). Clone-side readers skip symlink/FIFO
   // checks but keep type checks. Every DESTINATION guard is separate and stays.
   dir: string;
   // The commit recorded as `commit`: the COMMIT_RE-validated SHA the tarball

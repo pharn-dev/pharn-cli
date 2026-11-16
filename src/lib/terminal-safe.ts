@@ -10,8 +10,8 @@
 // pharn's own colour codes use ESC.
 // ---------------------------------------------------------------------------
 
-// THE unsafe-character set — the one definition in src/
-// (tests/terminal-safe.test.ts fails on a second one):
+// THE unsafe-character set — the one definition in src/ (the unsafe-character
+// rule in eslint.config.mjs fails on a second one):
 //   - C0 controls, DEL and C1 controls (U+0000–U+001F, U+007F–U+009F);
 //   - every Unicode format character (`\p{Cf}`): bidi overrides, zero-width
 //     characters, the byte-order mark;

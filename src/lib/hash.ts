@@ -12,8 +12,8 @@ import { readFileSync } from 'node:fs';
 // only a CR immediately followed by an LF is dropped. Cost: a change that ONLY
 // swaps line endings in a text file is not a change to pharn.
 //
-// `sha256File` is the RAW byte hash, for true byte pins only
-// (tests/hash.test.ts pins that no other src/ file calls it).
+// `sha256File` is the RAW byte hash, for true byte pins only (an import ban in
+// eslint.config.mjs keeps every other src/ file from calling it).
 // ---------------------------------------------------------------------------
 
 /**

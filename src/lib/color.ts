@@ -3,7 +3,8 @@ import picocolors from 'picocolors';
 
 // ---------------------------------------------------------------------------
 // The ONE colour rule: every coloured string pharn prints goes through the
-// instance below, and no other src/ file imports picocolors.
+// instance below, and no other src/ file imports picocolors (an import ban in
+// eslint.config.mjs).
 //
 // Not picocolors' default export, which colours for `CI` or any non-empty
 // FORCE_COLOR (`0` included) whatever stdout is, while @clack/prompts colours
