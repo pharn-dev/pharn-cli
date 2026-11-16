@@ -71,7 +71,8 @@ they load the config:
 - `skillsVersion` must be a version such as `"3.0.2"` (a prerelease suffix such as `"3.0.2-rc.1"` is
   allowed) — the shape `pharn` reads from pharn-oss's `SKILLS_VERSION`.
 - `commit` must be a full 40-character lowercase hex commit SHA, or `null` (what `pharn` writes when
-  it could not resolve the SHA). An absent `commit` is accepted.
+  it could not resolve the SHA). An absent `commit` is accepted and read as `null`, so it matches a
+  `pharn.records.json` stamped `"commit": null`, and the next write records `"commit": null`.
 
 Anything else — `"1.0"`, `"v3.0.2"`, a short SHA such as `"abc123"`, a number — is a hand-edit
 error. `pharn` names the field and the value it found and exits 1 before any download, the same way

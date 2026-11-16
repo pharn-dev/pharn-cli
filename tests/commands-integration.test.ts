@@ -514,6 +514,74 @@ describe('commands end to end, against a real project (no src/ mocks)', () => {
     expect(existsSync(at('pharn/.backup'))).toBe(false);
   });
 
+  // CORE-160: a config with no `commit` key used to load as `commit: undefined`,
+  // which never equals the store's `null`, so the store was ignored and every
+  // differing file read `unverifiable`; a withheld run then stamped the store
+  // with `undefined`, JSON.stringify dropped the key, and the store read invalid.
+  describe('a config without commit keeps the records store usable (CORE-160)', () => {
+    const dropConfigCommit = (): void => {
+      const cfg = config() as Partial<Config>;
+      delete cfg.commit;
+      writeFileSync(at('pharn.config.json'), JSON.stringify(cfg, null, 2));
+    };
+    const restampStore = (edit: (r: Partial<Records>) => void): void => {
+      const rec = records() as Partial<Records>;
+      edit(rec);
+      writeFileSync(at('pharn.records.json'), JSON.stringify(rec, null, 2));
+    };
+
+    it('update uses a store stamped commit null: clean files upgrade, the withheld store keeps commit null', async () => {
+      await init();
+      dropConfigCommit();
+      restampStore((r) => {
+        r.commit = null;
+      });
+      writeFileSync(at(CONSTITUTION), `my own constitution\n`);
+
+      serveTip(SHA_V2, '2.0.0');
+      expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+
+      // The store was used: the clean file is an upgrade, not `unverifiable`.
+      expect(read(SECURITY)).toContain('security 2.0.0');
+      expect(read(CONSTITUTION)).toBe(`my own constitution\n`);
+      const cfg = config();
+      expect(cfg.skillsVersion).toBe('1.0.0');
+      expect(cfg.pendingSkillsVersion).toBe('2.0.0');
+      // The withheld run stamps both files with an explicit `null`, so the
+      // store still reads back valid and usable next run.
+      expect(cfg).toHaveProperty('commit', null);
+      const rec = records();
+      expect(rec).toHaveProperty('commit', null);
+      expect(rec.skillsVersion).toBe('1.0.0');
+      expect(rec.files[SECURITY]).toBe(sha256(SECURITY));
+      expect(existsSync(at('pharn/.backup'))).toBe(false);
+    });
+
+    it('update reads a store an earlier CLI wrote with no commit key as usable', async () => {
+      await init();
+      dropConfigCommit();
+      restampStore((r) => {
+        delete r.commit;
+      });
+
+      serveTip(SHA_V2, '2.0.0');
+      expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+
+      // Every clean file upgraded, so the bump lands and nothing was skipped.
+      expect(read(SECURITY)).toContain('security 2.0.0');
+      expect(config()).toMatchObject({
+        skillsVersion: '2.0.0',
+        commit: SHA_V2,
+      });
+      expect(config().pendingSkillsVersion).toBeUndefined();
+      expect(records()).toMatchObject({
+        skillsVersion: '2.0.0',
+        commit: SHA_V2,
+      });
+      expect(existsSync(at('pharn/.backup'))).toBe(false);
+    });
+  });
+
   // 0.18.0, the measured mixed-version failure: a NEW floor file beside an
   // EDITED one. The executable unit (floor + hooks + pharn-* commands) is
   // written all or none, so nothing in it lands; everything else still

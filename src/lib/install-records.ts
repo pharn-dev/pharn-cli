@@ -187,7 +187,10 @@ export function readRecords(cwd: string): ReadRecordsResult {
       message: `${RECORDS_FILE} has an invalid skillsVersion stamp`,
     };
   }
-  if (raw.commit !== null && typeof raw.commit !== 'string') {
+  // An ABSENT commit reads as `null` (CORE-160): an earlier CLI stamped the store
+  // from a config with no `commit`, and JSON.stringify dropped the key.
+  const commit = raw.commit === undefined ? null : raw.commit;
+  if (commit !== null && typeof commit !== 'string') {
     return {
       kind: 'invalid',
       message: `${RECORDS_FILE} has an invalid commit stamp`,
@@ -222,7 +225,7 @@ export function readRecords(cwd: string): ReadRecordsResult {
     store: {
       schemaVersion: RECORDS_SCHEMA_VERSION,
       skillsVersion: raw.skillsVersion,
-      commit: raw.commit,
+      commit,
       files,
     },
   };
