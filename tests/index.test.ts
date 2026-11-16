@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProcessExit, stubProcessExit } from './helpers.js';
+// Importing the module does not auto-run main(): under vitest, argv[1] is the
+// test runner, not this module, so the isEntryPoint() guard is false. Nor does
+// it load a command: main() imports the one it dispatches to.
+import { main } from '../src/index.js';
 
 const runInit = vi.fn(
   async (_opts?: {
@@ -25,18 +29,29 @@ const runList = vi.fn(async (_opts?: { json?: boolean }) => undefined);
 const runStatus = vi.fn(
   async (_opts?: { strict?: boolean; drift?: boolean }) => undefined,
 );
-vi.mock('../src/commands/init.js', () => ({ runInit }));
-vi.mock('../src/commands/add.js', () => ({ runAdd }));
-vi.mock('../src/commands/remove.js', () => ({ runRemove }));
-vi.mock('../src/commands/update.js', () => ({ runUpdate }));
-vi.mock('../src/commands/list.js', () => ({ runList }));
-vi.mock('../src/commands/status.js', () => ({ runStatus }));
 const runUninstall = vi.fn(async (_opts?: { yes?: boolean }) => undefined);
-vi.mock('../src/commands/uninstall.js', () => ({ runUninstall }));
-
-// Importing the module does not auto-run main(): under vitest, argv[1] is the
-// test runner, not this module, so the isEntryPoint() guard is false.
-const { main } = await import('../src/index.js');
+// Each command module's factory runs when, and only when, main() imports it:
+// `loaded` names the command modules loaded since it was last emptied.
+const loaded = vi.hoisted((): string[] => []);
+vi.mock('../src/commands/init.js', () => (loaded.push('init'), { runInit }));
+vi.mock('../src/commands/add.js', () => (loaded.push('add'), { runAdd }));
+vi.mock(
+  '../src/commands/remove.js',
+  () => (loaded.push('remove'), { runRemove }),
+);
+vi.mock(
+  '../src/commands/update.js',
+  () => (loaded.push('update'), { runUpdate }),
+);
+vi.mock('../src/commands/list.js', () => (loaded.push('list'), { runList }));
+vi.mock(
+  '../src/commands/status.js',
+  () => (loaded.push('status'), { runStatus }),
+);
+vi.mock(
+  '../src/commands/uninstall.js',
+  () => (loaded.push('uninstall'), { runUninstall }),
+);
 
 function setArgv(...args: string[]): void {
   process.argv = ['node', '/path/to/index.js', ...args];
@@ -56,6 +71,28 @@ describe('main (argv dispatch)', () => {
     process.argv = realArgv;
     vi.clearAllMocks();
     vi.restoreAllMocks();
+  });
+
+  it('loads no command for --version, --help or a refusal, and only the one it dispatches to', async () => {
+    // A fresh registry, so a module an earlier case loaded loads again here.
+    vi.resetModules();
+    loaded.length = 0;
+    setArgv('--version');
+    await main();
+    setArgv('status', '--help');
+    await main();
+    setArgv('status', '--force');
+    await expect(main()).rejects.toBeInstanceOf(ProcessExit);
+    expect(loaded).toEqual([]);
+
+    setArgv('list');
+    await main();
+    expect(loaded).toEqual(['list']);
+    expect(runList).toHaveBeenCalledTimes(1);
+    setArgv('rm', 'lens:x');
+    await main();
+    expect(loaded).toEqual(['list', 'remove']);
+    expect(runRemove).toHaveBeenCalledWith('lens:x');
   });
 
   it('defaults to init when no command is given', async () => {

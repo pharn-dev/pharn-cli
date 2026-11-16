@@ -1,4 +1,3 @@
-import { withDeadline } from './deadline.js';
 import {
   closeSync,
   existsSync,
@@ -12,6 +11,7 @@ import {
   REPO_BRANCH,
   SKILLS_VERSION_FILE,
 } from './constants.js';
+import { FetchCappedError, fetchCapped } from './fetch-capped.js';
 import {
   assertSafeString,
   ManifestValidationError,
@@ -126,120 +126,33 @@ function unusableMinCli(err: unknown): string {
 }
 
 /**
- * Build the "the network did not get us there" rethrower for one URL, applied
- * to the connect and the body read only. Offline, undici rejects with a bare
- * `TypeError: fetch failed` (the diagnosis hides in `err.cause`) and the abort
- * with `This operation was aborted` — neither names a host or a next step, and
- * both consumers print `err.message`. `{ cause: err }` keeps the original for
- * `PHARN_DEBUG=1`.
- */
-function rethrowUnreachable(url: string): (err: unknown) => never {
-  return (err) => {
-    const message = err instanceof Error ? err.message : String(err);
-    const inner = err instanceof Error ? err.cause : undefined;
-    const cause =
-      inner === undefined
-        ? null
-        : inner instanceof Error
-          ? inner.message
-          : String(inner);
-    throw new Error(
-      `Could not reach ${url}: ${message}${cause ? ` (${cause})` : ''}`,
-      { cause: err },
-    );
-  };
-}
-
-/**
  * Fetch the latest `SKILLS_VERSION` from `@main` without cloning — the `main`
- * channel's currency check. Guarded by `redirect: 'error'`, an 8s deadline over
- * fetch AND body, and a 256KB cap counted on the wire; the result is validated.
- * Every failure THROWS: both consumers print the message and exit(1).
+ * channel's currency check, through `fetchCapped` (an 8s deadline over fetch
+ * AND body, a 256KB cap counted on the wire); the result is validated. Every
+ * failure THROWS: both consumers print the message and exit(1). A transport
+ * failure or the deadline already reads `Could not reach <url>: …`; the
+ * deliberate refusals (status, cap, value) keep their own wording.
  */
 export async function fetchRemoteSkillsVersion(): Promise<string> {
   const url = `${RAW}/${REPO}/${REPO_BRANCH}/${SKILLS_VERSION_FILE}`;
-  const unreachable = rethrowUnreachable(url);
-  // ONE deadline around the fetch AND the body read: `fetch()` resolves at the
-  // headers, so a timer stopped earlier is disarmed exactly where needed.
-  // withDeadline also rejects on its own (lib/deadline.ts). Only the SHAPE is
-  // shared with `fetchCommitSha`, which swallows failures to `null`; this
-  // function must keep throwing.
-  return withDeadline(
-    FETCH_TIMEOUT_MS,
-    () =>
-      new Error(
-        `Could not reach ${url}: This operation was aborted (timed out after ${FETCH_TIMEOUT_MS / 1000}s)`,
-      ),
-    async (signal) => {
-      // `.catch` on the EXPRESSION, not a `try` around the block, so the
-      // deliberate throws below are not re-labelled as transport failures.
-      const res = await fetch(url, { redirect: 'error', signal }).catch(
-        unreachable,
+  const got = await fetchCapped(url, {
+    maxBytes: MAX_BODY_BYTES,
+    ms: FETCH_TIMEOUT_MS,
+  }).catch((err: unknown) => {
+    if (err instanceof FetchCappedError && err.kind === 'too-large') {
+      throw new Error(
+        `SKILLS_VERSION too large (over ${MAX_BODY_BYTES} bytes) from ${url}`,
       );
-      if (!res.ok) {
-        throw new Error(
-          `SKILLS_VERSION fetch failed (${res.status}) from ${url}`,
-        );
-      }
-      // ADVISORY, backstopped below: `content-length` is the remote's own claim
-      // (absent when chunked, free to lie). It only refuses an honestly declared
-      // oversize before a byte is read.
-      const declared = Number(res.headers.get('content-length'));
-      if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-        throw new Error(
-          `SKILLS_VERSION too large (${declared} bytes) from ${url}`,
-        );
-      }
-      const text = await readCappedBody(res, url, unreachable, signal);
-      return assertSafeString(text.trim(), SKILLS_VERSION_FILE, VERSION_RE);
-    },
-  );
-}
-
-/**
- * Read a response body under a hard byte cap, counted on the wire as it
- * streams — not `res.text()` + a length check, which buffers everything first
- * and counts UTF-16 units. The read stops the first time the total exceeds
- * MAX_BODY_BYTES, so at most one runtime-sized chunk beyond the cap is held:
- * it bounds accumulation, not peak allocation.
- */
-async function readCappedBody(
-  res: Response,
-  url: string,
-  unreachable: (err: unknown) => never,
-  signal: AbortSignal,
-): Promise<string> {
-  // A bodyless response reads as empty text and then fails VERSION_RE.
-  if (!res.body) return '';
-  const reader = res.body.getReader();
-  // Our own listener on our own signal: at the deadline the stream is cancelled
-  // (socket released) even when undici does not forward the abort.
-  signal.addEventListener('abort', () => {
-    reader.cancel().catch(() => undefined);
-  });
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  // The wrap covers this read: the abort surfaces HERE, not out of
-  // `await fetch(...)`. The reader is cancelled on the cap refusal only; an
-  // abort or transport error mid-body leaves it un-cancelled, benign only
-  // because both callers exit(1) on the throw — a non-exiting caller needs a
-  // cancel on those paths too.
-  for (;;) {
-    const { done, value } = await reader.read().catch(unreachable);
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_BODY_BYTES) {
-      // Release the socket; a cancel failure must never mask the refusal.
-      await reader.cancel().catch(() => undefined);
-      throw new Error(`SKILLS_VERSION too large (${total} bytes) from ${url}`);
     }
-    chunks.push(value);
+    throw err;
+  });
+  if (!got.ok) {
+    throw new Error(`SKILLS_VERSION fetch failed (${got.status}) from ${url}`);
   }
-  const merged = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(merged);
+  // A bodyless response reads as empty text and then fails VERSION_RE.
+  return assertSafeString(
+    got.body.toString('utf8').trim(),
+    SKILLS_VERSION_FILE,
+    VERSION_RE,
+  );
 }

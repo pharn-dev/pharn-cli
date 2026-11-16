@@ -5,11 +5,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 // Executes the SHIPPED artifact — the esbuild bundle — inside the required
@@ -19,9 +21,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // depth below the package root; a name `scripts/build.mjs` leaves `external`
 // that no longer resolves; the `isEntryPoint` auto-run) stayed green here.
 //
-// The bundle is built by `scripts/build.mjs` ITSELF, given a temp outfile — the
+// The bundle is built by `scripts/build.mjs` ITSELF, given a temp outdir — the
 // same options `npm run build` uses, not a copy of them. It is placed where the
-// published package puts it: `<pkg>/dist/index.js` beside a copy of
+// published package puts it: `<pkg>/dist/index.js` and its chunks beside a copy of
 // `package.json`, with the externals resolvable from a `node_modules` above it
 // (here a link to this repo's). Nothing is written inside the repo, and the
 // child processes are invisible to coverage, which instruments `src/` in this
@@ -47,10 +49,11 @@ beforeAll(() => {
   // The published bin path, not a literal: a renamed `bin.pharn` moves the
   // bundle here too, and `version.ts`'s relative lookup must still hold.
   bin = join(pkgDir, PKG.bin.pharn);
-  const built = spawnSync(process.execPath, ['scripts/build.mjs', bin], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  });
+  const built = spawnSync(
+    process.execPath,
+    ['scripts/build.mjs', dirname(bin)],
+    { cwd: ROOT, encoding: 'utf8' },
+  );
   if (built.status !== 0) {
     throw new Error(
       `scripts/build.mjs failed (exit ${built.status}):\n${built.stderr}`,
@@ -67,7 +70,10 @@ afterAll(() => {
   if (tmp) rmSync(tmp, { recursive: true, force: true });
 });
 
-function pharn(args: string[]): {
+function pharn(
+  args: string[],
+  nodeArgs: string[] = [],
+): {
   status: number | null;
   stdout: string;
   stderr: string;
@@ -75,7 +81,7 @@ function pharn(args: string[]): {
   const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
   // Full error output would print a stack on purpose; the default must not.
   delete env.PHARN_DEBUG;
-  const r = spawnSync(process.execPath, [bin, ...args], {
+  const r = spawnSync(process.execPath, [...nodeArgs, bin, ...args], {
     cwd: project,
     encoding: 'utf8',
     timeout: 30_000,
@@ -86,6 +92,21 @@ function pharn(args: string[]): {
 
 // A stack frame line (`    at fn (file:1:2)`) — what an uncaught throw prints.
 const STACK_FRAME = /^\s+at .+/m;
+
+// Every module URL the child resolves, one `LOADED <url>` line each on stderr,
+// through a synchronous resolve hook preloaded with `--import`.
+const TRACE_MODULES = [
+  '--import',
+  'data:text/javascript,import{registerHooks}from"node:module";registerHooks({resolve(s,c,n){const r=n(s,c);process.stderr.write("LOADED "+r.url+"\\n");return r;}});',
+];
+
+function loadedModules(stderr: string): string[] {
+  return [...stderr.matchAll(/^LOADED (.+)$/gm)].map((m) => m[1]!);
+}
+
+// A command's chunk is named after its source file (`status-<hash>.js`).
+const COMMAND_CHUNK =
+  /\/dist\/(init|add|remove|update|list|status|uninstall)-[A-Z0-9]+\.js$/;
 
 // Each test spawns a fresh node process; the per-test budget is the spawn's.
 describe('the built bundle (dist/index.js)', { timeout: 30_000 }, () => {
@@ -98,6 +119,30 @@ describe('the built bundle (dist/index.js)', { timeout: 30_000 }, () => {
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe(PKG.version);
     expect(r.stderr).toBe('');
+  });
+
+  it('--version loads neither @clack/prompts nor any command module', () => {
+    const r = pharn(['--version'], TRACE_MODULES);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe(PKG.version);
+    const loaded = loadedModules(r.stderr);
+    expect(loaded).toContain(pathToFileURL(realpathSync(bin)).href);
+    expect(loaded.filter((u) => u.includes('@clack/prompts'))).toEqual([]);
+    expect(loaded.filter((u) => COMMAND_CHUNK.test(u))).toEqual([]);
+  });
+
+  // The control for the case above: the trace sees a command chunk and clack
+  // when a command does run, so their absence there is not a blind spot.
+  it('a command loads its own chunk (and only that command)', () => {
+    const r = pharn(['status'], TRACE_MODULES);
+    expect(r.status).toBe(1);
+    const commands = loadedModules(r.stderr).filter((u) =>
+      COMMAND_CHUNK.test(u),
+    );
+    expect(commands.map((u) => COMMAND_CHUNK.exec(u)![1])).toEqual(['status']);
+    expect(
+      loadedModules(r.stderr).some((u) => u.includes('@clack/prompts')),
+    ).toBe(true);
   });
 
   it('--help exits 0 and lists every command', () => {

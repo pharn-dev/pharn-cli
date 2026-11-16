@@ -201,6 +201,47 @@ describe('pharn status, end to end', () => {
     expect(lastOutro()).toContain('Read-only — nothing changed.');
   });
 
+  // Text and --json are two renderings of ONE report: every list and count the
+  // text prints is the report's, and the text exit is `report.strict.failed`.
+  it('text renders the --json report: same drift, orphans and counts, and --strict exits on report.strict.failed', async () => {
+    await installWithOrphan();
+    writeFileSync(at(PLAN_COMMAND), `edited\n`);
+    rmSync(at('LIMITS.md'));
+
+    const { report, exitCode } = await statusJson({ strict: true });
+    expect(report.strict).toEqual({ enabled: true, failed: true });
+    expect(exitCode).toBe(1);
+    expect(report.drift).toMatchObject({
+      modified: [PLAN_COMMAND],
+      missing: ['LIMITS.md'],
+    });
+    expect(report.orphans?.map((o) => o.path)).toEqual([OLD_COMMAND]);
+
+    expect(await status({ strict: true })).toBe(
+      report.strict.failed ? 1 : null,
+    );
+    const drift = note('DRIFT');
+    for (const path of [...report.drift!.modified, ...report.drift!.missing]) {
+      expect(drift).toContain(`  ${path}`);
+    }
+    expect(drift).toContain(`${report.drift!.okCount} file(s) match`);
+    for (const { path } of report.orphans!) {
+      expect(note('ORPHANED')).toContain(path);
+    }
+    const version = note('VERSION');
+    expect(version).toContain(`v${report.version.installed}`);
+    expect(version).toMatch(
+      new RegExp(`Capabilities\\s+${report.capabilities.count}`),
+    );
+    expect(version).toMatch(
+      new RegExp(`Archetypes\\s+${report.archetypes.join(', ')}`),
+    );
+
+    // Without --strict neither fails, from the same report.
+    expect((await statusJson()).report.strict.failed).toBe(false);
+    expect(await status()).toBeNull();
+  });
+
   // --- the channel ----------------------------------------------------------
 
   describe('the channel the config records', () => {

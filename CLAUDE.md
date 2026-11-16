@@ -112,7 +112,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - `src/index.ts`: argv parsing, `ALLOWED_FLAGS`/`REQUIRED_WITH`, per-command help, dispatch (`init` is the default).
 - `commands/`: one verb each (`init`, `add`, `remove`/`rm`, `update`, `list`, `status`, `uninstall`).
 - `steps/`: init stages (`node-prereq`, `prereqs`, `archetype-summary`, `overwrite-check`, `install-archetype`), `add-picker`.
-- Fetch boundary: `release` (which commit), `repo` + `tar-extract` (download, extract), `skills-version`,
+- Fetch boundary: `fetch-capped` (the one bounded GET), `release` (which commit), `repo` + `tar-extract`, `skills-version`,
   `min-cli-gate`, `capability-index` (untrusted frontmatter → typed index), `upstream-models`.
 - Selection: `detect-archetype` + `archetype` (detection), `resolve-capabilities`, `merge-capabilities`,
   `capability-address`, `capability-groups`/`capability-picker`.
