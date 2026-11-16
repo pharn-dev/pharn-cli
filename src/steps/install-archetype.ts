@@ -180,11 +180,14 @@ export async function runInstallArchetype(
   s.stop('Capabilities installed');
 
   // The old root docs, deleted only now that their pharn/ copies have landed
-  // and only while record-equal. A failure keeps the file and its record.
+  // and only while still record-equal, re-hashed at the delete: one edited
+  // while a prompt was open is kept, with its record, and the install goes on
+  // (it deletes nothing of the user's, so nothing needs a backup). A failure
+  // keeps the file and its record.
   const docResult =
     migration === null
       ? { deleted: [], kept: [] }
-      : deleteRootDocs(cwd, repoDir, migration.docs);
+      : deleteRootDocs(cwd, repoDir, migration.docs, baseline);
   const retired = new Set(docResult.deleted);
 
   // `.claude/settings.json` is user-owned: an existing one is preserved, and

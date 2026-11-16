@@ -1038,6 +1038,62 @@ describe('pharn update, end to end', () => {
     expect(lastOutro()).toContain('Up to date.');
   });
 
+  // A root doc the plan would delete needs its record's proof at the delete:
+  // one edited while the confirm is open stops the run before any write, like
+  // every other file the confirmed plan acts on (C5.2's write-time check).
+  it.each([
+    ['moving to 7.0.0', false],
+    ['at the same 7.x version an older CLI left', true],
+  ])(
+    'a root doc edited while the confirm is open is never deleted (%s)',
+    async (_l, sameVersion) => {
+      serveTip(SHA_V1, '6.9.0');
+      await installFresh();
+      if (sameVersion) {
+        const stamp = { skillsVersion: '7.0.0', commit: SHA_V2 };
+        writeFileSync(
+          at('pharn.config.json'),
+          JSON.stringify({ ...config(), ...stamp }, null, 2),
+        );
+        writeFileSync(
+          at('pharn.records.json'),
+          JSON.stringify({ ...records(), ...stamp }, null, 2),
+        );
+      }
+      serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+      const cfg = read('pharn.config.json');
+      const rec = read('pharn.records.json');
+      setTTY(true, true);
+      clearOutput();
+      vi.mocked(clack.confirm).mockImplementationOnce(async () => {
+        writeFileSync(at('LIMITS.md'), 'my limits, edited at the prompt\n');
+        return true;
+      });
+      expect(await run(() => runUpdate())).toBe(1);
+      expect(read('LIMITS.md')).toBe('my limits, edited at the prompt\n');
+      expect(read('THREAT-MODEL.md')).toBe('threat model\n');
+      expect(exists('pharn/LIMITS.md')).toBe(false);
+      expect(read('pharn.config.json')).toBe(cfg);
+      expect(read('pharn.records.json')).toBe(rec);
+      expect(exists('pharn/.backup')).toBe(false);
+      const said = printed();
+      expect(said).toContain(
+        'A file changed while `pharn update` was waiting for your answer:',
+      );
+      expect(said).toContain('  LIMITS.md');
+      expect(said).toContain('Nothing was written, and your edit is kept.');
+
+      // The re-run plans the doc as the user's: kept (with its record), while
+      // the untouched one is retired.
+      setTTY(false, false);
+      expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+      expect(read('LIMITS.md')).toBe('my limits, edited at the prompt\n');
+      expect(records().files['LIMITS.md']).toBeDefined();
+      expect(exists('THREAT-MODEL.md')).toBe(false);
+      expect(read('pharn/LIMITS.md')).toBe('limits\n');
+    },
+  );
+
   it('keeps an edited root doc as an orphan; with memory-bank/ at both places it says merge by hand and exits 0', async () => {
     await oldInstallWithUserData();
     writeFileSync(at('LIMITS.md'), 'my limits\n');

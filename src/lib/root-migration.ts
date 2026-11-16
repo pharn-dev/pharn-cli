@@ -228,22 +228,51 @@ function gitignoreHints(projectRoot: string): string[] {
 }
 
 /**
+ * The planned `delete` docs that are no longer provably pharn's — their bytes
+ * no longer equal their record (edited, replaced or gone while a prompt was
+ * open) — re-read now through the classifier the plan used. `update` refuses
+ * on any before its first write; `deleteRootDocs` keeps them anyway.
+ */
+export function rootDocsChangedSincePlan(
+  projectRoot: string,
+  docs: readonly RootDocStep[],
+  records: FileRecords | null,
+): string[] {
+  return docs
+    .filter(
+      (d) =>
+        d.action === 'delete' &&
+        classifyRootDoc(projectRoot, d.rel, records) !== 'delete',
+    )
+    .map((d) => d.rel);
+}
+
+/**
  * Delete each `delete` doc whose pharn/ copy LANDED (a regular file, no
- * symlinked component, contentHash equal to the clone's). A failed unlink keeps
- * the file and is reported, never thrown — the run's earlier writes must still
- * be recorded.
+ * symlinked component, contentHash equal to the clone's) and whose own bytes
+ * STILL equal its record, re-hashed now: the plan was made before a prompt,
+ * and a delete needs the record's proof at the moment it happens, so a doc
+ * edited meanwhile is kept, with its record. A failed unlink keeps the file
+ * and is reported, never thrown — the run's earlier writes must still be
+ * recorded.
  */
 export function deleteRootDocs(
   projectRoot: string,
   repoDir: string,
   docs: readonly RootDocStep[],
+  records: FileRecords | null,
 ): { deleted: string[]; kept: string[] } {
   const deleted: string[] = [];
   const kept: string[] = [];
+  const changed = new Set(rootDocsChangedSincePlan(projectRoot, docs, records));
   for (const { rel, action } of docs) {
     if (action !== 'delete') continue;
     const pharnRel = pharnCounterpart(rel);
-    if (pharnRel === null || !landed(projectRoot, repoDir, pharnRel)) {
+    if (
+      changed.has(rel) ||
+      pharnRel === null ||
+      !landed(projectRoot, repoDir, pharnRel)
+    ) {
       kept.push(rel);
       continue;
     }

@@ -64,7 +64,10 @@ import {
   type InstallSource,
   type RefChoice,
 } from '../lib/release.js';
-import { deleteRootDocs } from '../lib/root-migration.js';
+import {
+  deleteRootDocs,
+  rootDocsChangedSincePlan,
+} from '../lib/root-migration.js';
 import { versionStatus } from '../lib/version-status.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
@@ -459,8 +462,9 @@ function changedWhileWaiting(changed: readonly string[]): string {
 
 // The writes of the plan the user confirmed, still under the lock taken before
 // the plan. First the write-time checks for what may have changed while the
-// confirm was open: pharn.config.json (its fingerprint) and every file the
-// plan writes (its hash at plan time). Either refuses with nothing written.
+// confirm was open: pharn.config.json (its fingerprint), every file the plan
+// writes (its hash at plan time) and every root doc it deletes (its record,
+// the proof a delete needs). Any of them refuses with nothing written.
 async function applyConfirmed(
   planned: PlannedUpdate,
   ctx: {
@@ -474,12 +478,19 @@ async function applyConfirmed(
   const { config, cwd, channel, repoDir, fingerprint } = ctx;
   // Before the spinner, so a refused run never renders a frame.
   assertConfigFingerprintUnchanged(cwd, fingerprint, 'update');
-  const changed = changedSince(
-    cwd,
-    planned.apply.seen,
-    planned.report.writes,
-    planned.apply.expected,
-  );
+  const changed = [
+    ...changedSince(
+      cwd,
+      planned.apply.seen,
+      planned.report.writes,
+      planned.apply.expected,
+    ),
+    ...rootDocsChangedSincePlan(
+      cwd,
+      planned.report.rootMigration?.docs ?? [],
+      planned.apply.records,
+    ),
+  ];
   if (changed.length > 0) throw CliError.refusal(changedWhileWaiting(changed));
   let s = spinner();
   s.start('Updating');
@@ -614,7 +625,7 @@ async function applyPlannedUpdate(
   const docResult =
     migration === null
       ? { deleted: [], kept: [] }
-      : deleteRootDocs(cwd, repoDir, migration.docs);
+      : deleteRootDocs(cwd, repoDir, migration.docs, records);
   const retired = new Set(docResult.deleted);
 
   // Records first, then the config: if the config write fails, the records

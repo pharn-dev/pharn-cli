@@ -100,7 +100,10 @@ write, `update` compares every file it is about to write with what it saw when i
   ```
 
 - a file you put back with exactly upstream's bytes is not an edit, and the run goes on;
-- a hand-edit of `pharn.config.json` stops the run the same way.
+- a hand-edit of `pharn.config.json` stops the run the same way;
+- so does an edit to a root `THREAT-MODEL.md` or `LIMITS.md` the run would retire (see
+  [The root-footprint migration](#the-root-footprint-migration)): a root doc is deleted only while it still equals its record,
+  re-checked at the delete, and the re-run keeps your edited copy.
 
 The run stops instead of skipping the file because the rest of the plan — the version it records, the
 [executable unit](#the-executable-unit-is-upgraded-all-or-none), the root migration — was decided
