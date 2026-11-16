@@ -850,15 +850,15 @@ describe('runRemove (archetype)', () => {
       expect(storeBytes()).toBe('not json{');
     });
 
-    it('leaves a stale-stamped store byte-identical while the removal itself completes', async () => {
-      // The two concerns are independent: a store this run may not touch must not
-      // stop the removal, and a completed removal must not bless the store. A test
-      // asserting only the first half would pass on a `remove` that had silently
-      // stopped removing.
+    // CORE-161: the stamp does not gate, so a store stamped for another install
+    // state (a torn run) is still pharn's store to prune — re-stamped with the
+    // config's pair, which `remove` does not move.
+    it('prunes a stale-stamped store too, re-stamped with the config pair, while the removal completes', async () => {
       loadArchetypeConfigOrExit.mockReturnValue(
         archConfig([{ name: 'a11y', role: 'griller', source: 'auto' }]),
       );
       await seedStore([A11Y, DOC]);
+      const docHash = contentHash(join(proj, DOC));
       // Hand-skew the stamp — the store now describes another install state.
       const skewed = JSON.parse(storeBytes()) as { skillsVersion: string };
       skewed.skillsVersion = '9.9.9';
@@ -866,11 +866,11 @@ describe('runRemove (archetype)', () => {
         join(proj, RECORDS_FILE),
         `${JSON.stringify(skewed, null, 2)}\n`,
       );
-      const before = storeBytes();
 
       await runRemove('a11y');
 
-      expect(storeBytes()).toBe(before);
+      expect(store()?.files).toEqual({ [DOC]: docHash });
+      expect(store()?.skillsVersion).toBe('1.0.0');
       expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y'))).toBe(
         false,
       );
@@ -1144,7 +1144,8 @@ describe('runRemove (archetype)', () => {
       expect(infoLines()).toContain('Backed up 2 file(s)');
     });
 
-    it('a store stamped for another install state proves nothing → every file is backed up', async () => {
+    // CORE-161: a recorded hash proves authorship whatever the store's stamp.
+    it('a store stamped for another install state still proves authorship → no unchanged file is backed up', async () => {
       lensConfig();
       await seedRecorded([PERSONA, CASE]);
       const raw = JSON.parse(
@@ -1155,7 +1156,8 @@ describe('runRemove (archetype)', () => {
 
       await runRemove('a11y');
 
-      expect(backedUp()).toEqual([PERSONA, CASE]);
+      expect(backupDirs()).toEqual([]);
+      expect(infoLines()).not.toMatch(/Backed up/);
     });
 
     it.each([

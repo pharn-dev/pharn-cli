@@ -66,8 +66,6 @@ import {
   MODELS_RECORD_KEY,
   readRecords,
   recordsBaseline,
-  recordsStampStale,
-  RECORDS_FILE,
   writeRecords,
 } from '../lib/install-records.js';
 import { modelsMigrationPending } from '../lib/models-update.js';
@@ -336,13 +334,8 @@ async function runArchetypeUpdate(
   // repeat and its bytes would stay stale after a pharn upgrade that can parse it.
   const current = config.skillsVersion === latest;
   const recheckFrozen = (config.frozenCapabilities ?? []).length > 0;
-  // The stamped records baseline, read ONCE for the local checks below.
-  const recordsRead = readRecords(cwd);
-  const recordsStamp = {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  };
-  const baselineRecords = recordsBaseline(recordsRead, recordsStamp).records;
+  // The records baseline, read ONCE for the local checks below.
+  const baselineRecords = recordsBaseline(readRecords(cwd)).records;
   // A `models` block still in the format pharn wrote before 0.7.0 re-opens the
   // gate as well: converting it is this CLI's job, not upstream's, so it has to
   // reach an install that is already current. Bounded: a run converts the block
@@ -368,17 +361,6 @@ async function runArchetypeUpdate(
     current && !force
       ? findMissingInstalled(cwd, config, baselineRecords)
       : null;
-  // A record store stamped for ANOTHER install state re-opens the gate too
-  // (F-22): `add` and `update` write the store before the config, so a torn run
-  // leaves a store the baseline above ignores, and the next version bump would
-  // read every differing file as `unverifiable`. The opened run re-records the
-  // install: a complete OR withheld run writes the store stamped with the SAME
-  // skillsVersion and commit it writes to the config, so the next run's stamp
-  // agrees and it early-returns again, bounded like `missing`. Only a store
-  // that PARSED counts (recordsStampStale): an absent or corrupt one does not
-  // re-open, so `update` never overwrites a store the user could still repair.
-  const staleRecords =
-    current && !force && recordsStampStale(recordsRead, recordsStamp);
   // The old root footprint an older CLI left on an install already at SKILLS 7
   // re-opens the gate too (lib/root-migration.ts): a record-equal root doc
   // whose pharn/ copy was never written, or user data still at the root with
@@ -419,7 +401,6 @@ async function runArchetypeUpdate(
     !convertModels &&
     !switchChannel &&
     missing === null &&
-    !staleRecords &&
     rootDoc === null &&
     !gitignoreMissing &&
     !prettierignoreMissing
@@ -493,13 +474,6 @@ async function runArchetypeUpdate(
           ? [
               pc.dim(
                 '  .prettierignore does not yet cover the files pharn installs and rewrites — this run re-applies the install and adds them.',
-              ),
-            ]
-          : []),
-        ...(staleRecords
-          ? [
-              pc.dim(
-                `  ${RECORDS_FILE} is stamped for a different install state than pharn.config.json (an interrupted run?) — this run re-applies the install and records it again.`,
               ),
             ]
           : []),
@@ -993,8 +967,8 @@ async function applyPlannedUpdate(
   const retired = new Set(docResult.deleted);
 
   // Records first, then the config: if the config write fails, the records still
-  // describe the bytes on disk, and the stamp mismatch makes them safely ignored
-  // rather than wrongly authoritative.
+  // describe the bytes on disk, and the next run uses them as they are — a
+  // recorded hash proves authorship whatever the stamp (lib/install-records.ts).
   //
   // Every hash is re-read from the DEST after the copy — never carried over from
   // the clone source. The two are equal whenever the copy behaved, which is

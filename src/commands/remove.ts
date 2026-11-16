@@ -181,17 +181,11 @@ function backupBeforeDelete(
   }
 }
 
-// The usable record baseline, or null (absent / corrupt / stamped for another
-// install state). Read ONCE per run, inside the lock, and shared by the backup
-// decision and the prune, so both judge the same store.
-function readRecordsBaseline(
-  cwd: string,
-  config: PharnConfig,
-): FileRecords | null {
-  return recordsBaseline(readRecords(cwd), {
-    skillsVersion: config.skillsVersion,
-    commit: config.commit,
-  }).records;
+// The usable record baseline, or null (absent / corrupt — a store stamped for
+// another install state is still usable). Read ONCE per run, inside the lock,
+// and shared by the backup decision and the prune, so both judge the same store.
+function readRecordsBaseline(cwd: string): FileRecords | null {
+  return recordsBaseline(readRecords(cwd)).records;
 }
 
 // Refuse (exit 1, nothing deleted) when any target's directory path crosses a
@@ -245,8 +239,8 @@ function refuseSymlinkedTargets(
 // store is the only place the answer still exists.
 //
 // Only an already-READABLE store is edited: `recordsBaseline` returns null for
-// absent, corrupt, AND stamped-for-another-state, and each of those means the
-// same thing here — this is not our store to rewrite (the `add` precedent,
+// absent and corrupt, and each of those means the same thing here — this is
+// not our store to rewrite (the `add` precedent,
 // commands/add.ts). Minting one would claim knowledge of files we never hashed.
 //
 // The baseline `note` is deliberately NOT surfaced, matching `add`: `remove` is a
@@ -263,7 +257,7 @@ async function pruneCapabilityRecords(
   // this touches no record, so it is still the store on disk).
   records: FileRecords | null,
 ): Promise<void> {
-  if (records === null) return; // absent/corrupt/stale → leave it alone
+  if (records === null) return; // absent/corrupt → leave it alone
 
   // The trailing slash is load-bearing: without it `lenses/a11y` would also eat
   // every key belonging to `lenses/a11y-extended`.
@@ -280,8 +274,9 @@ async function pruneCapabilityRecords(
 
   // The stamp does not move: `remove` changes neither `skillsVersion` nor
   // `commit`, so the store is re-written against the same pair the config holds
-  // (and still holds after the config write, which touches only `capabilities`). A moved stamp would make the very next `update` read this
-  // store as written for another state and ignore it wholesale.
+  // (and still holds after the config write, which touches only
+  // `capabilities`). The stamp is diagnostics only — it never gates the
+  // baseline (lib/install-records.ts, THE STAMP).
   await writeRecords(cwd, {
     skillsVersion: config.skillsVersion,
     commit: config.commit,
@@ -368,7 +363,7 @@ async function removeNamed(
     assertConfigUnchanged(cwd, config, 'remove');
     // Again under the lock (F-20): the walk above is only the early answer.
     refuseSymlinkedTargets(cwd, paths, [target]);
-    const records = readRecordsBaseline(cwd, config);
+    const records = readRecordsBaseline(cwd);
     backupBeforeDelete(cwd, paths, [target], records);
     const existed = deleteCapabilityDir(cwd, paths, target);
 
@@ -484,7 +479,7 @@ async function runRemovePicker(
     refuseSymlinkedTargets(cwd, paths, targets);
     // ONE backup for the whole selection, after the confirm and before the
     // first delete — a failure here deletes none of the picks.
-    const records = readRecordsBaseline(cwd, config);
+    const records = readRecordsBaseline(cwd);
     backupBeforeDelete(cwd, paths, targets, records);
     for (const target of targets) deleteCapabilityDir(cwd, paths, target);
 

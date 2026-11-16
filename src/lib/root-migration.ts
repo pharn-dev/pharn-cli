@@ -112,7 +112,7 @@ export function versionMajor(version: string): number | null {
  * clone or the recorded install is not the pharn layout, or the clone is below
  * SKILLS 7 and ships neither doc under pharn/.
  *
- * `records` is the USABLE (stamp-checked) baseline or null. `skillsVersion` is
+ * `records` is the USABLE baseline (`recordsBaseline`) or null. `skillsVersion` is
  * the clone's, already validated by readSkillsVersion.
  */
 export function planRootMigration(input: {

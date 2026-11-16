@@ -34,8 +34,8 @@ export interface FileDecisionInput {
   latestHash: string;
   // sha256 pharn recorded writing there, or null when there is no entry.
   recordedHash: string | null;
-  // False for a pre-record install, or a store that failed validation / its
-  // stamp check — the fail-closed state.
+  // False for a pre-record install, or a store that failed validation — the
+  // fail-closed state. (The store's stamp never gates it: CORE-161.)
   recordsAvailable: boolean;
   force: boolean;
 }

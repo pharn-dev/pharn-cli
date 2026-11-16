@@ -127,8 +127,8 @@ ships but that are still in your project — the same `ORPHANED` note, grouped `
 means and what is never listed). `pharn update` never deletes them; delete the ones you no longer need
 by hand.
 
-It needs a usable [`pharn.records.json`](../reference/pharn-records.md) — present, valid, and stamped
-for the `skillsVersion`/`commit` in your config. Without one, nothing is listed. Nothing is listed
+It needs a usable [`pharn.records.json`](../reference/pharn-records.md) — present and valid (its
+`skillsVersion`/`commit` stamp does not matter). Without one, nothing is listed. Nothing is listed
 either when the clone is at a different layout than your install (mid-way through a layout migration):
 every recorded path would then look orphaned. `pharn update` migrates the layout and names what it
 leaves behind.

@@ -98,9 +98,11 @@ reaches a removed script another way (a wrapper script, a differently spelled pa
 
 Each of these exits 1 and removes nothing:
 
-- **No usable `pharn.records.json`** — missing, corrupt, or written for a different install state than
-  `pharn.config.json`. Nothing can be proven to be `pharn`'s, so nothing is deleted. Follow
-  [Removing PHARN by hand](../troubleshooting.md#removing-pharn-by-hand).
+- **No usable `pharn.records.json`** — missing or corrupt. Nothing can be proven to be `pharn`'s, so
+  nothing is deleted. Follow [Removing PHARN by hand](../troubleshooting.md#removing-pharn-by-hand). A
+  store written for a different `skillsVersion`/`commit` than `pharn.config.json` (an interrupted `add`
+  or `update`) is still usable: only a file whose bytes match its record is deleted, whatever the
+  stamp — see [The stamp is not a gate](../reference/pharn-records.md#the-stamp-is-not-a-gate).
 - **A directory on the way to a recorded file is a symbolic link** — deleting through it would delete a
   file outside the project.
 - **`pharn.config.json` cannot be backed up** (for example `pharn/.backup` is a symbolic link).

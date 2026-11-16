@@ -34,12 +34,18 @@ import type { InstalledCapability } from '../types.js';
 // lib/pharn-config.ts encodes for `seam`).
 //
 // THE STAMP: the store carries the `skillsVersion` + `commit` that
-// `pharn.config.json` holds after the operation that wrote it. Every pharn
-// operation writes both files, so a stamp that DISAGREES with the config means
-// something changed one without the other — an older CLI that rewrote the tree
-// while ignoring this file, or a hand edit. That is treated as records-
-// unavailable (fail closed) rather than trusting hashes that may describe bytes
-// nobody wrote (P5/P7).
+// `pharn.config.json` holds after the operation that wrote it. It is written
+// for diagnostics and NEVER gates the baseline (CORE-161): a path whose current
+// hash equals its recorded hash holds bytes pharn wrote, whichever version the
+// store was stamped with — the only property the update table needs. Gating on
+// it turned a torn run (`add`/`update` write this file BEFORE the config)
+// followed by an upstream release into a wall of `unverifiable` skips, then
+// `unrecorded` ones forever, that only `--force` could clear. Every consumer
+// still requires hash equality before it overwrites, deletes or skips a backup.
+// Two stated edge cases: a store left by an older CLI that rewrote the tree
+// while ignoring this file labels upstream bytes `modified` instead of
+// `unverifiable` (still skipped), and a file the user deliberately reverted to
+// bytes such a store recorded is upgraded.
 //
 // ONE KEY IS NOT A FILE: `MODELS_RECORD_KEY` records the `models` block pharn
 // wrote INSIDE pharn.config.json, so `pharn update` can tell pharn's block from
@@ -128,7 +134,8 @@ export type FileRecords = Record<string, string>;
 
 export interface RecordStore {
   schemaVersion: number;
-  // The config values this store is stamped against (see THE STAMP above).
+  // The config values this store was written with (see THE STAMP above) —
+  // diagnostics only, never a gate.
   skillsVersion: string;
   commit: string | null;
   files: FileRecords;
@@ -232,114 +239,18 @@ export function readRecords(cwd: string): ReadRecordsResult {
 }
 
 /**
- * Are these records usable as an update baseline? Only when the store parsed AND
- * its stamp matches the config it sits beside — see THE STAMP. Anything else is
- * records-unavailable, with a named reason for the report.
+ * Are these records usable as an update baseline? Whenever the store PARSED —
+ * whatever its stamp (see THE STAMP). An absent store is records-unavailable
+ * with no note; an `invalid` one is records-unavailable with its named reason
+ * for the report.
  */
-export function recordsBaseline(
-  read: ReadRecordsResult,
-  config: { skillsVersion: string; commit: string | null },
-): { records: FileRecords | null; note: string | null } {
+export function recordsBaseline(read: ReadRecordsResult): {
+  records: FileRecords | null;
+  note: string | null;
+} {
   if (read.kind === 'absent') return { records: null, note: null };
   if (read.kind === 'invalid') return { records: null, note: read.message };
-  const { store } = read;
-  // The REJECTION is derived from the same list the MESSAGE is rendered from, so
-  // the two cannot drift: a stamp field added to `stampMismatches` starts being
-  // both compared and named in one edit, and an empty list is by construction the
-  // "the stamp agrees" path rather than a note with empty parentheses.
-  const mismatches = stampMismatches(store, config);
-  if (mismatches.length > 0) {
-    const side = (pick: (m: StampMismatch) => string): string =>
-      mismatches.map((m) => `${m.field} ${pick(m)}`).join(', ');
-    return {
-      records: null,
-      note: `${RECORDS_FILE} was written for a different install state (${side((m) => m.store)}) than pharn.config.json (${side((m) => m.config)}); ignoring it, so every file that differs from upstream is \`unverifiable\` instead of a clean upgrade`,
-    };
-  }
-  return { records: store.files, note: null };
-}
-
-/**
- * True when the store PARSED but is stamped for a different install state than
- * the config beside it — the one unusable-store case a re-run can repair.
- *
- * `pharn update` uses it to re-open its same-version early return (F-22). The
- * typical cause is a torn write: `add` and `update` write this file BEFORE
- * pharn.config.json, so a failure between the two leaves a store stamped for a
- * state the config never reached. Without a re-open, "Already up to date"
- * stood over it and the next version bump read every differing file as
- * `unverifiable`.
- *
- * Deliberately NOT true for an `absent` or `invalid` store. Absent has nothing
- * torn to repair (an install made before records existed, or a store the user
- * deleted), and an invalid one — bad JSON, an unknown schemaVersion from a newer
- * CLI — is the user's to fix: a re-run would overwrite it and discard hashes
- * they could still recover. Both are still named by `recordsBaseline`'s note
- * the next time a run plans.
- */
-export function recordsStampStale(
-  read: ReadRecordsResult,
-  config: { skillsVersion: string; commit: string | null },
-): boolean {
-  return read.kind === 'ok' && stampMismatches(read.store, config).length > 0;
-}
-
-interface StampMismatch {
-  field: 'skillsVersion' | 'commit';
-  // Both sides pre-rendered, so the two halves of the note cannot list different
-  // fields — they are two projections of ONE list.
-  store: string;
-  config: string;
-}
-
-/**
- * The stamp fields that DISAGREE, in a fixed source order (P5 — never map
- * iteration order, so the note is byte-stable for a given pair).
- *
- * Only the differing fields, because this note's whole job is to say what is
- * wrong: it used to interpolate `skillsVersion` on both sides while the check
- * fired on EITHER field, so a commit-only mismatch — a torn `add`/`update` that
- * wrote the store but not the config, a hand edit, an older CLI — told the user
- * that "skills v3.0.1" differed from "skills v3.0.1", and dropped the records for
- * a reason that reads as a contradiction.
- *
- * Values go through JSON.stringify like this file's other untrusted-value
- * messages: both stamp fields are deliberately TYPE-checked, not format-checked
- * (see the reader above), so either side may hold an empty string or control
- * characters from a hand edit. Quoting makes `""` visible instead of blank and
- * renders a null commit as `null` (the legal floated-branch case) rather than
- * as nothing. It is NOT a sanitizer: JSON.stringify escapes C0 controls but
- * leaves DEL, C1 (the 8-bit CSI U+009B), bidi overrides and the line
- * separators raw. This note — like every `invalid` message above — is DATA
- * until printed, and each print site escapes it with `escapeUnsafe`
- * (update-render.ts, uninstall.ts); the `--json` report carries it raw for its
- * serializer to escape (CORE-170).
- *
- * The commit is printed in FULL. It is not COMMIT_RE-checked here, so no prefix
- * length is guaranteed to identify it — and two distinct SHAs sharing a short
- * prefix would render as an identical pair, recreating the exact defect this
- * function stopped emitting.
- */
-function stampMismatches(
-  store: { skillsVersion: string; commit: string | null },
-  config: { skillsVersion: string; commit: string | null },
-): StampMismatch[] {
-  const out: StampMismatch[] = [];
-  if (store.skillsVersion !== config.skillsVersion) {
-    out.push({
-      field: 'skillsVersion',
-      store: JSON.stringify(store.skillsVersion),
-      config: JSON.stringify(config.skillsVersion),
-    });
-  }
-  if (store.commit !== config.commit) {
-    out.push({
-      field: 'commit',
-      store: JSON.stringify(store.commit),
-      config: JSON.stringify(config.commit),
-    });
-  }
-  return out;
+  return { records: read.store.files, note: null };
 }
 
 /** Serialize the store. Stamped with the config values written alongside it. */

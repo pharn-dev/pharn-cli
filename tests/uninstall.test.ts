@@ -387,6 +387,24 @@ describe('runUninstall', () => {
     expect(backups()).toHaveLength(2);
   });
 
+  // CORE-161: a recorded hash proves authorship whatever the store's stamp,
+  // so a store stamped for another install state (a torn run) still proves
+  // which files pharn wrote — uninstall proceeds instead of refusing.
+  it('uninstalls when the store is stamped for another install state', async () => {
+    await install(FLAT_FILES);
+    await writePharnConfig(proj, config({ skillsVersion: '6.51.0' }));
+
+    await runUninstall({ yes: true });
+
+    for (const rel of FLAT_FILES)
+      expect(existsSync(join(proj, rel))).toBe(false);
+    expect(existsSync(join(proj, 'pharn.config.json'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn.records.json'))).toBe(false);
+    expect(vi.mocked(prompts.outro).mock.calls.at(-1)![0]).toContain(
+      'PHARN was uninstalled.',
+    );
+  });
+
   it('is a benign no-op when PHARN is not installed (exit 0)', async () => {
     write('README.md', 'a project');
     const before = snapshotTree(proj);
@@ -431,12 +449,6 @@ describe('runUninstall', () => {
       await install(FLAT_FILES);
       write('pharn.records.json', '{ not json');
       await expectRefusal(/pharn\.records\.json is not valid JSON/);
-    });
-
-    it('when the store is stamped for another install state', async () => {
-      await install(FLAT_FILES);
-      await writePharnConfig(proj, config({ skillsVersion: '6.51.0' }));
-      await expectRefusal(/written for a different install state/);
     });
 
     it('when a directory on the way is a symbolic link', async () => {

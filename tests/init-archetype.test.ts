@@ -957,21 +957,30 @@ describe('re-running init over an existing install (PHARN-11)', () => {
       expect(read.store.files[PERF_FILE]).toBe(perfHash);
     });
 
-    it('carries NO record from a store stamped for a different install state', async () => {
+    // CORE-161: the store's stamp does not gate — a recorded hash proves
+    // authorship, so a store stamped for another install state still carries.
+    it('carries its record from a store stamped for a different install state', async () => {
       const repo = join(tmp.path(), 'repo');
       const proj = join(tmp.path(), 'proj');
       const { archetypes, selection } = await withPerfInstalled(repo, proj);
+      const perfHash = contentHash(join(proj, PERF_FILE));
+      const stale = readRecords(proj);
+      if (stale.kind !== 'ok') throw new Error('fixture: records unreadable');
+      await writeRecords(proj, {
+        ...stale.store,
+        skillsVersion: '0.9.0',
+        commit: 'older',
+      });
 
       await runInstallArchetype(repo, proj, archetypes, selection, SHA_D, {
         manualKeys: new Set(),
         kept,
-        previousStamp: { skillsVersion: '0.9.0', commit: 'older' },
+        previousStamp: { skillsVersion: '1.0.0', commit: SHA_C },
       });
 
       const read = readRecords(proj);
       if (read.kind !== 'ok') throw new Error('records unreadable');
-      expect(read.store.files).not.toHaveProperty([PERF_FILE]);
-      // The entry itself is still kept — only the unverifiable record is not.
+      expect(read.store.files[PERF_FILE]).toBe(perfHash);
       expect(readPharnConfig(proj)!.frozenCapabilities).toEqual([
         'griller:legacy',
         'lens:perf',
@@ -1420,13 +1429,6 @@ describe('re-running init after an upstream bump — the records decide what is 
 
   it.each<[string, { skillsVersion: string; commit: string | null } | null]>([
     ['there is no previous config', null],
-    [
-      'the store was stamped for another install state',
-      {
-        skillsVersion: '0.9.0',
-        commit: 'other',
-      },
-    ],
   ])(
     'backs up EVERY differing file when %s — conservative, never a guess',
     async (_label, stamp) => {
@@ -1449,6 +1451,35 @@ describe('re-running init after an upstream bump — the records decide what is 
       ]);
     },
   );
+
+  // CORE-161: the store's stamp does not gate. A store stamped for another
+  // install state (a torn run) still proves which bytes pharn wrote, so an
+  // upstream bump alone backs up no installed file.
+  it('backs up no installed file when the store was stamped for another install state', async () => {
+    const { repo, proj, archetypes, selection } = await installed();
+    const read = readRecords(proj);
+    if (read.kind !== 'ok') throw new Error('fixture: no records');
+    await writeRecords(proj, {
+      ...read.store,
+      skillsVersion: '0.9.0',
+      commit: 'other',
+    });
+    bumpUpstream(repo);
+
+    await runInstallArchetype(
+      repo,
+      proj,
+      archetypes,
+      selection,
+      SHA_D,
+      carry(STAMP),
+    );
+
+    expect(backedUp(proj)).toEqual(['pharn.config.json']);
+    expect(
+      readFileSync(join(proj, '.claude/commands/pharn-plan.md'), 'utf8'),
+    ).toBe('plan v2');
+  });
 
   it("backs up an edited PHARN-LICENSE, compared with upstream's LICENSE (flat layout)", async () => {
     const { repo, proj, archetypes, selection } = await installed();

@@ -65,8 +65,10 @@ delete against [`pharn.records.json`](../reference/pharn-records.md):
   text files are ignored, so a file that only changed from LF to CRLF (or back) is deleted without a
   copy too — see [Line endings](../troubleshooting.md#line-endings-windows-coreautocrlf).
 - **Every other file is copied first**: a file you added, a recorded file you edited, and — when the
-  store is absent, unreadable, or stamped for a different install state — every file in the directory,
-  because then nothing can be proven.
+  store is absent or unreadable — every file in the directory, because then nothing can be proven. A
+  store written for another `skillsVersion`/`commit` (an interrupted `add` or `update`) still proves
+  which files are `pharn`'s — see
+  [The stamp is not a gate](../reference/pharn-records.md#the-stamp-is-not-a-gate).
 
 The copies go to `pharn/.backup/<timestamp>/` at your project root — the same backup directory
 [`pharn update --force`](update.md) and [`pharn add`](add.md) write — preserving each file's
@@ -113,10 +115,10 @@ your project. See
 
 Removing a capability also drops its entries from [`pharn.records.json`](../reference/pharn-records.md)
 — the sidecar recording a hash per file `pharn` wrote — so nothing in it describes bytes that no longer
-exist. Every other entry, and the store's `skillsVersion`/`commit` stamp, is left exactly as it was:
-`remove` changes neither version nor commit. If the store is absent, unreadable, or stamped for a
-different install state, `remove` leaves the file untouched rather than minting or rewriting one it
-cannot verify — the same rule [`add`](add.md) follows. The removal itself proceeds either way.
+exist. Every other entry is left exactly as it was, and the store's `skillsVersion`/`commit` stamp is
+written with the values in `pharn.config.json`: `remove` changes neither version nor commit. If the
+store is absent or unreadable, `remove` leaves the file untouched rather than minting or rewriting one
+it cannot verify — the same rule [`add`](add.md) follows. The removal itself proceeds either way.
 
 ## Removing an auto-selected capability
 

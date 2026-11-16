@@ -89,8 +89,9 @@ expected files are still restored). It prints each skipped file under one of fou
 
 - **`modified`** — you edited it after `pharn` wrote it.
 - **`unrecorded`** — `pharn` has no record of writing that path.
-- **`unverifiable`** — there is no usable `pharn.records.json` (absent, malformed, stamp-mismatched,
-  or from a newer schema), so present differences cannot be proven. Every install created before
+- **`unverifiable`** — there is no usable `pharn.records.json` (absent, malformed, or from a newer
+  schema), so present differences cannot be proven. A store whose `skillsVersion`/`commit` stamp
+  disagrees with the config is still usable ([why](reference/pharn-records.md#the-stamp-is-not-a-gate)). Every install created before
   `pharn` 0.4.0 hits this once for differing files; **missing** files are still restored.
 - **`unreadable`** — something that is not a regular readable file sits at the expected path (a
   symlink, a directory, an unreadable file, or a path under a symlinked parent). This is the one
@@ -614,9 +615,8 @@ Exit code 1, and **nothing is written**.
 This exists because two concurrent runs do not merely race on a file — they corrupt the drift
 baseline. Process A overwrites a file; process B, which planned against the pre-A snapshot,
 overwrites it again and records its own hash; A then persists its records and config last, recording
-a hash for bytes B replaced. `pharn.records.json` then disagrees with disk **under a matching stamp**,
-which is exactly the state the stamp check exists to catch — so `update` loses its ability to tell
-"pharn wrote this" from "you edited this".
+a hash for bytes B replaced. `pharn.records.json` then disagrees with disk, and nothing in it shows
+that — so `update` loses its ability to tell "pharn wrote this" from "you edited this".
 
 **`list` and `status` are never blocked and never take the lock**, so `pharn status --strict` stays
 runnable in CI while an update is in flight.
@@ -884,8 +884,7 @@ a `list` option) and still prints human-readable output — pass the bare `--jso
 ## Removing PHARN by hand
 
 [`pharn uninstall`](commands/uninstall.md) removes PHARN for you whenever `pharn.records.json` is usable.
-When it refuses because the store is missing, corrupt, or written for a different install state, nothing
-can be proven to be `pharn`'s, so the removal is yours to do. The steps below remove what an install
+When it refuses because the store is missing or corrupt, nothing can be proven to be `pharn`'s, so the removal is yours to do. The steps below remove what an install
 writes; **review each path before deleting it** — anything you wrote yourself is yours to keep.
 
 1. **Find what the install added.** If you committed the install, `git log --diff-filter=A -- pharn.config.json`
