@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, vi, type Mock } from 'vitest';
 import * as clack from '@clack/prompts';
 import {
   ProcessExit,
+  restoreNodeVersion,
   restoreTTY,
   setTTY,
   snapshotTree,
@@ -276,6 +277,7 @@ export function clearOutput(): void {
   stdoutLines = [];
   stderrLines = [];
   for (const fn of clackOutputs()) fn.mockClear();
+  vi.mocked(clack.spinner).mockClear();
 }
 
 function clackOutputs(): Mock[] {
@@ -320,6 +322,7 @@ export function useHarness(): void {
   });
   afterEach(() => {
     restoreTTY();
+    restoreNodeVersion();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
@@ -437,8 +440,9 @@ export const noteTitles = (): string[] =>
   vi.mocked(clack.note).mock.calls.map(([, t]) => String(t));
 /** What went to one clack log level, one entry per call, colour stripped. */
 export function logs(level: 'info' | 'warn' | 'error' | 'success'): string[] {
+  // The message only: a second argument is clack's options (`{ output }`).
   return (clack.log[level] as unknown as Mock).mock.calls.map((args) =>
-    text(args as unknown[]),
+    text([(args as unknown[])[0]]),
   );
 }
 /** The last outro, colour stripped. */
