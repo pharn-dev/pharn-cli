@@ -24,3 +24,5 @@ Ended at: GATE 2 (the human decision).
 - `/pharn-dev-verify`: `verify-report.json` `.verdict` = **`PASS`** (`failing_gates: []`).
 
 The chain ran, and the named floor verdicts are as shown. This is NOT a judgment that the increment is good or wise; that is the human's call at the post-review gate.
+
+Rebased onto origin/main eba709d (CORE-160/161/162) on 2026-11-16; added the held-run × changesNothing test and its update.md sentence.
