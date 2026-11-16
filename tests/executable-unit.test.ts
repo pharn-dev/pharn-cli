@@ -40,6 +40,10 @@ describe('isExecutableUnitPath — membership by path only', () => {
     ['.claude/hooks/x.test.cjs', pharn],
     ['.claude/hooks/nested/x.cjs', pharn],
     ['.claude/commands/nested/pharn-x.md', pharn],
+    // An agent definition is read by Claude Code, not run by the floor, so it
+    // upgrades per file like any other surface (CORE-272).
+    ['.claude/agents/pharn-review-lens.md', pharn],
+    ['.claude/agents/pharn-review-lens.md', flat],
   ])('%s is not a member', (rel, paths) => {
     expect(isExecutableUnitPath(rel, paths)).toBe(false);
   });

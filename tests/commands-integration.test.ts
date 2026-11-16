@@ -122,6 +122,8 @@ const A11Y = 'pharn/pharn-pipeline/grillers/a11y/a11y.md';
 const N_PLUS_ONE = 'pharn/pharn-review/n-plus-one/n-plus-one.md';
 const CONSTITUTION = 'pharn/CONSTITUTION.md';
 const PLAN_COMMAND = '.claude/commands/pharn-plan.md';
+// The review lens agent pharn-oss ships from 6.64.0 on (CORE-272).
+const AGENT = '.claude/agents/pharn-review-lens.md';
 
 /**
  * pharn-oss at `version`, in the `pharn/` layout it ships today, with every
@@ -147,6 +149,8 @@ function upstreamTree(version: string): Record<string, string> {
     [N_PLUS_ONE]: capability('lens', '["backend"]', 'n-plus-one'),
     [PLAN_COMMAND]: 'plan\n',
     '.claude/commands/pharn-dev-plan.md': 'dev only\n',
+    [AGENT]: `review lens agent ${version}\n`,
+    '.claude/agents/pharn-dev-reviewer.md': 'dev only\n',
     '.claude/hooks/guard.cjs': 'module.exports = {};\n',
     '.claude/settings.json': HOOK_SETTINGS,
   };
@@ -307,6 +311,7 @@ interface StatusJson {
 
 /** The files of the init in the first case, minus the two state files. */
 const INSTALLED = [
+  AGENT,
   '.claude/commands/pharn-plan.md',
   '.claude/hooks/guard.cjs',
   '.claude/settings.json',
@@ -1132,6 +1137,104 @@ describe('the settings.json record, end to end (CORE-166)', () => {
     expect(read('pharn.records.json')).toBe(settledRecords);
     expect(read('pharn.config.json')).toBe(settledConfig);
     expect(existsSync(at(SETTINGS))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CORE-272: `.claude/agents/pharn-review-lens.md`, the subagent `/pharn-review`
+// runs its lenses in. An install surface like any other — installed, recorded,
+// drift-checked, restored, uninstalled — plus one re-open of update's
+// same-version early return for an install an older CLI made without it.
+// ---------------------------------------------------------------------------
+
+describe('the review lens agent (.claude/agents)', () => {
+  const tarballFetches = (): number =>
+    fetchStub.mock.calls.filter(([u]) => String(u) === tarballUrl(tip.sha))
+      .length;
+
+  /** What an older CLI left: the install, minus the agent and its record. */
+  const dropAgentAsAnOlderCliWould = (): void => {
+    rmSync(at('.claude/agents'), { recursive: true });
+    const r = records();
+    delete r.files[AGENT];
+    writeFileSync(at('pharn.records.json'), JSON.stringify(r, null, 2));
+  };
+
+  const strictStatus = async (): Promise<StatusJson> => {
+    stdout = [];
+    expect(await run(() => runStatus({ json: true, strict: true }))).toBeNull();
+    return JSON.parse(stdout[0] ?? '') as StatusJson;
+  };
+
+  it('init --yes installs and records it, never a pharn-dev-* agent', async () => {
+    await init();
+    expect(read(AGENT)).toBe('review lens agent 1.0.0\n');
+    expect(records().files[AGENT]).toBe(sha256(AGENT));
+    expect(existsSync(at('.claude/agents/pharn-dev-reviewer.md'))).toBe(false);
+  });
+
+  it('a deleted agent fails status --strict, and plain update --yes restores it', async () => {
+    await init();
+    rmSync(at(AGENT));
+    const drifted = await strictStatus();
+    expect(drifted.drift?.missing).toEqual([AGENT]);
+    expect(drifted.strict.failed).toBe(true);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = undefined;
+
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read(AGENT)).toBe('review lens agent 1.0.0\n');
+    const clean = await strictStatus();
+    expect(clean.drift?.missing).toEqual([]);
+    expect(clean.strict.failed).toBe(false);
+  });
+
+  it('an install at 6.64.0+ an older CLI made without it: plain update --yes adds it, then early-returns', async () => {
+    serveTip(SHA_V1, '6.64.0');
+    await init();
+    dropAgentAsAnOlderCliWould();
+    expect((await strictStatus()).drift?.missing).toEqual([AGENT]);
+    process.exitCode = undefined;
+
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    const header = vi
+      .mocked(clack.note)
+      .mock.calls.map(([body]) => String(body))
+      .join('\n');
+    expect(header).toContain('.claude/agents/ has no PHARN agent definition');
+    expect(read(AGENT)).toBe('review lens agent 6.64.0\n');
+    expect(records().files[AGENT]).toBe(sha256(AGENT));
+    expect((await strictStatus()).strict.failed).toBe(false);
+
+    // Bounded: the next run finds the agent and early-returns, no download.
+    const before = tarballFetches();
+    vi.mocked(clack.outro).mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(tarballFetches()).toBe(before);
+    expect(String(vi.mocked(clack.outro).mock.calls.at(-1)?.[0])).toContain(
+      'Already up to date',
+    );
+  });
+
+  it('below 6.64.0 a missing, unrecorded agent does not re-open update', async () => {
+    await init();
+    dropAgentAsAnOlderCliWould();
+    const before = tarballFetches();
+    vi.mocked(clack.outro).mockClear();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(tarballFetches()).toBe(before);
+    expect(String(vi.mocked(clack.outro).mock.calls.at(-1)?.[0])).toContain(
+      'Already up to date',
+    );
+    expect(existsSync(at(AGENT))).toBe(false);
+  });
+
+  it('uninstall --yes deletes an unchanged agent and keeps an edited one', async () => {
+    await init();
+    writeFileSync(at(AGENT), 'my own lens agent\n');
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+    expect(read(AGENT)).toBe('my own lens agent\n');
   });
 });
 

@@ -149,6 +149,7 @@ still understood through the recorded `layout` field.
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline grillers and review lenses selected for your project archetype(s).                |
 | `.claude/commands/`, `.claude/hooks/`                                 | The installed `/pharn-*` Claude Code slash commands and deterministic `.cjs`/`.mjs` hooks. |
+| `.claude/agents/`                                                     | The `pharn-review-lens` subagent each `/pharn-review` lens runs in (pharn-oss 6.64.0+).    |
 | `pharn/pharn-contracts/`, `pharn/floor/`                              | Schemas shared across PHARN stages and floor checkers invoked by the workflow.             |
 | `pharn/pharn-core/`                                                   | Agent-readable mechanism skills, including the seam resolver.                              |
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Trusted PHARN docs copied from upstream in the current layout.                             |

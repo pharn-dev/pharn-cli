@@ -77,7 +77,7 @@ npx @pharn-dev/pharn init
    If the fetched version declares a `MIN_CLI` newer than your CLI, the run
    stops here with a named error and writes nothing.
 3. **Confirm + install.** After a summary (selected + skipped), it copies the selected capabilities plus
-   the fixed product surfaces (commands, hooks, contracts, `pharn-core`, floor checkers, the four trusted
+   the fixed product surfaces (commands, agents, hooks, contracts, `pharn-core`, floor checkers, the four trusted
    docs, upstream's `LICENSE` copy, and `pharn/features/README.md`) into the mirrored layout, then
    writes `pharn.records.json` and `pharn.config.json`.
 
@@ -93,6 +93,7 @@ surfaces:
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | The installed grillers + lenses, each with its `evals/`                                                                           |
 | `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs`/`.mjs` floor hooks                                                |
+| `.claude/agents/`                                                     | The `pharn-*` subagents (`pharn-review-lens` runs each `/pharn-review` lens); none from a pharn-oss older than 6.64.0             |
 | `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files, `test-fixtures/` and `fixtures/`) |
 | `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                   |
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim — see the layout note below                                                    |
@@ -102,7 +103,7 @@ surfaces:
 | `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                                          |
 | `pharn.records.json`                                                  | Per-file sha256 — skips unproven present edits, restores missing; `--force` overwrites all but `unreadable`                       |
 
-`.claude/*` is **layout-invariant** — commands, hooks and `settings.json` sit at those paths either
+`.claude/*` is **layout-invariant** — commands, agents, hooks and `settings.json` sit at those paths either
 way, and an existing `.claude/settings.json` is never overwritten (a fresh one is copied, and `init`
 lists the hooks it wires). Everything else follows the fetched
 version: the CLI **mirrors** whichever layout `pharn-dev/pharn-oss` ships and never rewrites a copied

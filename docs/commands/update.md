@@ -887,7 +887,9 @@ Two things this check cannot see, because nothing in your project records them:
 
 - a capability you removed with [`pharn remove`](remove.md) — it drops both the config entry and its
   records, so see [Removing an auto-selected capability](remove.md#removing-an-auto-selected-capability);
-- a surface a newer `pharn` release installs that your install never had — see the next section.
+- a surface a newer `pharn` release installs that your install never had — see
+  [A surface added by a newer CLI](#a-surface-added-by-a-newer-cli-at-the-same-skills-version).
+  One such surface is checked anyway: [the review lens agent](#the-review-lens-agent-claudeagents).
 
 ## A records store from an interrupted run
 
@@ -933,6 +935,23 @@ Two ways through:
 
 Nothing is silently wrong in the meantime: the files are absent, `status` says so, and the commands that
 cite them are the ones affected.
+
+### The review lens agent (`.claude/agents/`)
+
+pharn-oss ships `.claude/agents/pharn-review-lens.md` from skills version 6.64.0 on: the subagent
+`/pharn-review` runs each lens in (without it, each lens runs as a general-purpose agent with more
+tools). Earlier `pharn` releases did not install it, so this one surface does **not** wait for the next
+version bump. When your `skillsVersion` is 6.64.0 or newer and `.claude/agents/` holds no `pharn-*.md`
+agent (a `pharn-dev-*` file does not count), `update` goes past "Already up to date" — the header says
+`.claude/agents/ has no PHARN agent definition — this run re-applies the install, adding it if upstream
+ships one.` — and the per-file table restores the agent, with no `--force`. The run records it, so the
+next `update` answers "Already up to date" again, and a later deletion is caught by
+[the missing-files check](#missing-files-at-the-same-skills-version) like any recorded file.
+
+The check is local (no download) and counts only what the run can write: an edited agent, anything else
+at `.claude/agents/pharn-*.md` (a directory, say), and a `.claude/agents` that is a symbolic link or a
+file never re-open the run. One residual: if a pharn-oss at 6.64.0 or newer stopped shipping any agent,
+every `update` would download and re-plan, changing nothing.
 
 ## Layout migrations
 

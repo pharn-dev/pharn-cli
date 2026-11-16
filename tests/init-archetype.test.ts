@@ -664,6 +664,38 @@ describe('archetype install (fixture e2e)', () => {
     expect(outro).not.toContain('commands + hooks');
   });
 
+  // CORE-272: the review lens agent is named only when it landed, and an older
+  // clone without `.claude/agents/` keeps the outro exactly as before.
+  it('names agents in the outro only when an agent landed', async () => {
+    const repo = join(tmp.path(), 'agent-repo');
+    const proj = join(tmp.path(), 'agent-proj');
+    scaffoldRepo(repo);
+    write(join(repo, '.claude/agents/pharn-review-lens.md'), 'agent');
+    project(proj);
+
+    await install(repo, proj);
+
+    expect(existsSync(join(proj, '.claude/agents/pharn-review-lens.md'))).toBe(
+      true,
+    );
+    expect(outroBody()).toContain('PHARN commands + hooks + agents written');
+  });
+
+  it('keeps "commands + hooks" when the clone ships no agent, or only a pharn-dev-* one', async () => {
+    const repo = join(tmp.path(), 'old-repo');
+    const proj = join(tmp.path(), 'old-proj');
+    scaffoldRepo(repo);
+    write(join(repo, '.claude/agents/pharn-dev-reviewer.md'), 'DEV');
+    project(proj);
+
+    await install(repo, proj);
+
+    expect(existsSync(join(proj, '.claude/agents'))).toBe(false);
+    const outro = outroBody();
+    expect(outro).toContain('PHARN commands + hooks written');
+    expect(outro).not.toContain('agents');
+  });
+
   it('never renders "commands + hooks written" when the clone shipped neither', async () => {
     const repo = join(tmp.path(), 'bare-repo');
     const proj = join(tmp.path(), 'bare-proj');

@@ -9,6 +9,7 @@ import {
   toPosix,
 } from './validate.js';
 import {
+  CLAUDE_AGENTS_DIR,
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
   CLAUDE_SETTINGS_FILE,
@@ -25,6 +26,7 @@ import {
   collectExpectedInstallPaths,
   isFloorTestFixturePath,
   isInstalledHookFile,
+  isProductAgentFile,
   isProductCommandFile,
   PHARN_CONFIG_FILE,
 } from './install-manifest.js';
@@ -49,7 +51,8 @@ import type { InstalledCapability, Layout, Selection } from '../types.js';
 // Claude Code runs them later — the same posture as the module install).
 //
 // Dev-only exclusion is STRUCTURAL, not a scan: only these source subtrees are
-// ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands,
+// ever copied — selected grillers/lenses, `pharn-*` (non-`pharn-dev-*`) commands
+// and agents,
 // `.cjs`/`.mjs` hooks, settings.json, the trusted docs, the root features/README.md,
 // pharn-contracts/, pharn-core/, and `.dev/floor/` minus test FILES and its
 // `test-fixtures/` + `fixtures/` subtrees. `pharn-dev-*` commands, `.dev/features/`,
@@ -247,6 +250,10 @@ export function installCapabilities(
 
   // --- hooks: *.cjs / *.mjs, excluding *.test.cjs / *.test.mjs ---------------
   copyFilteredDir(repoDir, projectRoot, CLAUDE_HOOKS_DIR, isInstalledHookFile);
+
+  // --- agents: pharn-*.md, excluding pharn-dev-*.md ---------------------------
+  // Optional (pharn-oss < 6.64.0 ships none): an absent dir is a silent no-op.
+  copyFilteredDir(repoDir, projectRoot, CLAUDE_AGENTS_DIR, isProductAgentFile);
 
   // --- settings.json: NEVER overwrite the user's existing one (grill F1) -----
   // `existsSync` FOLLOWS a symlink, so a live link here counts as existing and
