@@ -106,6 +106,21 @@ describe('buildUpdatePlan', () => {
     expect([snapshotTree(proj), snapshotTree(repo)]).toEqual(before);
   });
 
+  // C5.2: what the writer compares each file with before writing it — the
+  // destination's hash when this plan read it, or null for an absent one.
+  it('records what each planned write found on disk (`apply.seen`), and only the writes', async () => {
+    await fixture();
+    rmSync(join(proj, DOC));
+    const { report, apply } = plan(config());
+    expect(report.writes.sort()).toEqual([CAP_FILE, DOC].sort());
+    expect(apply.seen).toEqual(
+      new Map<string, string | null>([
+        [CAP_FILE, contentHash(join(proj, CAP_FILE))],
+        [DOC, null],
+      ]),
+    );
+  });
+
   it('has a JSON-safe report (survives a round trip unchanged)', async () => {
     await fixture();
     const { report } = plan(config());

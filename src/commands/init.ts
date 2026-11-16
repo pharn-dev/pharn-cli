@@ -35,8 +35,6 @@ import { BACKUP_DIR, legacyBackupNotice } from '../lib/backup.js';
 import {
   buildInitPlan,
   capabilityKey,
-  initRootMigration,
-  planInitRemovals,
   previousChannelLines,
   previousConfigLines,
   resolveInitSelection,
@@ -45,9 +43,9 @@ import {
 } from '../lib/init-plan.js';
 import { buildInitReport } from '../lib/init-report.js';
 import {
-  assertNoExistingTargets,
   existingConfigRefusal,
   OverwriteRefusedError,
+  refuseExistingTargets,
   removalLines,
   targetLines,
 } from '../lib/write-targets.js';
@@ -59,13 +57,7 @@ import {
   archetypeSummaryLines,
   runArchetypeSummary,
 } from '../steps/archetype-summary.js';
-import {
-  installManifest,
-  preflightInstall,
-  reinstallBaseline,
-  runInstallArchetype,
-} from '../steps/install-archetype.js';
-import { assertConfigFingerprintUnchanged } from '../lib/pharn-config.js';
+import { runInstallArchetype } from '../steps/install-archetype.js';
 import { absentSurfaceLines } from '../lib/absent-surfaces.js';
 import type { Archetype } from '../types.js';
 
@@ -132,17 +124,32 @@ export async function runInit(opts: InitOptions = {}): Promise<void> {
 
   // The archetype-driven install, the only init flow: detect the project's
   // archetype(s) and install the applicable capabilities.
-  await runInitArchetype({
-    // A NEW install takes the newest verified release unless `--ref main`;
-    // `refExplicit` lets a re-run's summary say when the default moved it off
-    // `main`.
-    channel: opts.ref ?? DEFAULT_INIT_REF,
-    refExplicit: opts.ref !== undefined,
-    override: opts.archetypes,
-    yes,
-    dryRun,
-    json,
-  });
+  const run = (): Promise<void> =>
+    runInitArchetype({
+      // A NEW install takes the newest verified release unless `--ref main`;
+      // `refExplicit` lets a re-run's summary say when the default moved it
+      // off `main`.
+      channel: opts.ref ?? DEFAULT_INIT_REF,
+      refExplicit: opts.ref !== undefined,
+      override: opts.archetypes,
+      yes,
+      dryRun,
+      json,
+    });
+  if (dryRun) {
+    // The preview writes nothing, so it takes no lock.
+    await run();
+    return;
+  }
+  // THE SINGLE-WRITER LOCK, taken before the fetch and the config read and
+  // held across both prompts to the last write: the run plans once, and a
+  // second pharn writer is refused (naming this one) while a prompt is open.
+  try {
+    await withProjectLock(process.cwd(), 'init', run);
+  } catch (err) {
+    if (err instanceof ProjectLockedError) throw CliError.refusal(err.message);
+    throw err;
+  }
 }
 
 // A spinner that draws nothing, for `--json`: stdout stays the one report.
@@ -240,11 +247,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       if (unknownWarning) log.warn(unknownWarning);
       // The archetypes' selection plus what a re-run carries over — the dry
       // run's computation (lib/init-plan.ts).
-      const { previous, carry, selection } = resolveInitSelection({
-        cwd,
-        archetypes,
-        index,
-      });
+      const chosen = resolveInitSelection({ cwd, archetypes, index });
+      const { previous, carry, selection } = chosen;
       reportCarry(carry);
       // What the replaced config recorded, for display only, so an earlier
       // `--archetype` never disappears silently.
@@ -286,105 +290,62 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       }
       // Both prompts return a VALUE; the one cancel is thrown below, inside
       // the try whose finally disposes of the clone.
-      //
-      // The install manifest (dest → source) is computed ONCE and handed to the
-      // pre-flight, the prompt and the install: it depends only on the clone,
-      // the selection and the layout. Only the HASHING is repeated: the install
-      // re-scans under the lock, so an edit made while the prompt was open is
-      // still backed up.
-      const manifest =
-        action === 'install' ? installManifest(repo.dir, selection) : null;
-      // The destination pre-flight, BEFORE the overwrite prompt, so a project
-      // the install cannot finish in is refused before the user answers yes.
-      // The early answer only: the same checks run again under the lock, and
-      // those are authoritative.
-      if (manifest !== null) {
-        preflightInstall(repo.dir, cwd, selection, manifest);
-      }
-      // `--yes` never answers the overwrite question: any existing write target
-      // refuses (OverwriteRefusedError); otherwise there is no question.
-      let overwrite: Awaited<ReturnType<typeof confirmWriteTargets>> = 'cancel';
-      if (manifest !== null) {
-        const records = reinstallBaseline(cwd, carry);
-        // The dropped capability directories this install would delete: listed
-        // in the prompt, and refused here when one sits behind a symlink or
-        // holds an unreadable file. Planned again under the lock.
-        const removals = planInitRemovals(cwd, carry);
-        if (yes) {
-          // `--yes` never deletes either: a removal comes only from a replaced
-          // pharn.config.json, which refused `--yes` before the fetch, and one
-          // that appeared since is itself a conflict here.
-          assertNoExistingTargets({
-            repoDir: repo.dir,
-            projectRoot: cwd,
-            capabilities: selection.selected,
-            manifest,
-            records,
-          });
-          overwrite = 'proceed';
-        } else {
-          // What a re-run would retire from the project root, named BEFORE the
-          // question; planned again under the lock.
-          const migration = initRootMigration(repo.dir, cwd, carry);
-          const migrationLines =
-            migration === null ? null : rootMigrationNoteLines(migration, null);
-          if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
-          overwrite = await confirmWriteTargets(repo.dir, cwd, selection, {
-            manifest,
-            records,
-            removals,
-          });
-        }
-      }
-      if (manifest !== null && overwrite === 'proceed') {
-        // Reuse the SHA the tree was pinned to (null when the branch was
-        // floated — LIMITS.md §3b); no separate fetch (TOCTOU).
-        const commit = repo.sha;
-        // The single-writer lock, taken after BOTH prompts and released in the
-        // finally that disposes of the clone. Deliberately NOT before the fetch
-        // as in `add`/`update`: both prompts sit between the fetch and the
-        // install (each needs the clone), so taking it earlier would hold it
-        // across prompts — capped only by human attention — and a live holder
-        // on the same host is never broken by age (project-lock.ts). Stated
-        // cost: a second writer racing `pharn init` pays the full download
-        // before being refused.
-        await withProjectLock(cwd, 'init', () => {
-          // The carry-over was computed before both prompts; a run that wrote
-          // the config since (a concurrent `pharn add`) would be silently
-          // overwritten. Refuse instead, before the first write.
-          assertConfigFingerprintUnchanged(cwd, previous.fingerprint, 'init');
-          // The authoritative `--yes` check: a target that appeared since the
-          // check above refuses here, before the first write.
-          if (yes) {
-            assertNoExistingTargets({
-              repoDir: repo.dir,
-              projectRoot: cwd,
-              capabilities: selection.selected,
-              manifest,
-              records: reinstallBaseline(cwd, carry),
-            });
-          }
-          return runInstallArchetype(
-            repo.dir,
-            cwd,
-            archetypes,
-            selection,
-            commit,
-            channel === 'latest' ? { ...carry, ref: 'latest' } : carry,
-            manifest,
-          );
-        });
+      if (action !== 'install') throw CliError.cancel();
+      // THE PLAN, built once — after the summary, so a cancelled summary
+      // builds no manifest — and consumed by the overwrite prompt and the
+      // install alike (lib/init-plan.ts). Its destination pre-flight runs
+      // here, so a project the install cannot finish in is refused before the
+      // user is asked to overwrite anything.
+      const planned = buildInitPlan({
+        repoDir: repo.dir,
+        cwd,
+        sha: repo.sha,
+        source: repo.source,
+        channel,
+        archetypes,
+        origin,
+        index,
+        chosen,
+        refExplicit,
+      });
+      const targets = planned.apply.targets;
+      if (yes) {
+        // `--yes` never answers the overwrite question: any existing write
+        // target refuses (OverwriteRefusedError). It never deletes either: a
+        // removal comes only from a replaced pharn.config.json, which refused
+        // `--yes` before the fetch, and one that appeared since is itself a
+        // conflict here. No prompt follows, so this one check suffices.
+        refuseExistingTargets(targets);
       } else {
-        // The summary or the overwrite question was answered no (or cancelled).
-        throw CliError.cancel();
+        // What a re-run would retire from the project root, named BEFORE the
+        // question.
+        const migration = planned.apply.rootMigration;
+        const migrationLines =
+          migration === null ? null : rootMigrationNoteLines(migration, null);
+        if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
+        const overwrite = await confirmWriteTargets(repo.dir, cwd, selection, {
+          targets,
+        });
+        // The overwrite question was answered no (or cancelled).
+        if (overwrite !== 'proceed') throw CliError.cancel();
       }
+      // Reuse the SHA the tree was pinned to (null when the branch was
+      // floated — LIMITS.md §3b); no separate fetch (TOCTOU).
+      await runInstallArchetype(
+        repo.dir,
+        cwd,
+        archetypes,
+        selection,
+        repo.sha,
+        channel === 'latest' ? { ...carry, ref: 'latest' } : carry,
+        planned.apply,
+      );
     }
   } catch (err) {
-    // A held lock, a `--yes` run that met an existing file, or an unsafe
-    // removal is a policy refusal: named, no PHARN_DEBUG hint. A CliError
-    // thrown above passes through; anything else is a failure.
+    // A `--yes` run that met an existing file, or an unsafe removal, is a
+    // policy refusal: named, no PHARN_DEBUG hint. A CliError thrown above
+    // passes through; anything else is a failure.
     if (
-      err instanceof ProjectLockedError ||
       err instanceof OverwriteRefusedError ||
       err instanceof CapabilityRemovalError
     )
@@ -464,7 +425,7 @@ async function runInitDryRun(
       index,
       chosen,
       refExplicit,
-    });
+    }).report;
   } catch (err) {
     // A directory the real run would refuse to delete: the same named refusal.
     if (err instanceof CapabilityRemovalError)

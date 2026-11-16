@@ -133,7 +133,7 @@ A project the install could not finish in, a `MIN_CLI` newer than your pharn, a 
 resolved and a failed fetch all **exit 1**, as in a real run.
 
 The plan is a **snapshot**, not a promise: a real `init` fetches again (a newer release may have
-been cut, or the tip of `main` moved) and checks everything again under the project lock.
+been cut, or the tip of `main` moved) and plans again under the project lock.
 
 ### JSON output
 
@@ -283,12 +283,11 @@ already has `pharn.config.json`. To refresh an existing install without prompts,
 
 To ask first, run `pharn init --dry-run --json` and read `yesWouldProceed`.
 
-The check runs twice: before the project lock, and again under it, immediately before the install (after
-the [config check](#concurrency) and the destination check). A file that appears in between is still
-refused. What remains is narrower and is named here rather than hidden: a file another process creates
-**after** that last check and before the copy reaches it — a window of milliseconds, by a writer that
-does not take pharn's lock — would be overwritten. The interactive run has the same window after its
-own last check.
+The check runs once, under the project lock, right after the plan and before the install: `--yes`
+asks nothing, so nothing waits in between. What remains is named here rather than hidden: a file
+another process creates **after** that check and before the copy reaches it — a window of
+milliseconds, by a writer that does not take pharn's lock — is backed up, then overwritten, as an
+edit made during the interactive run's prompts is.
 
 ## Flow
 
@@ -307,13 +306,14 @@ sequenceDiagram
   User->>CLI: pharn init [--dry-run | --yes]
   CLI->>Prereqs: git (.git present)
   Prereqs-->>CLI: ok or exit
+  CLI->>CLI: take pharn/.lock (not --dry-run), held to the end
   CLI->>Detect: package.json + file-tree signals
   Detect-->>CLI: archetypes (shown in the summary)
   CLI->>Fetch: download pharn-dev/pharn-oss tarball (codeload)
   CLI->>Resolve: capability index vs detected archetypes
   CLI->>Summary: capabilities selected + skipped (with reason)
   Summary-->>User: install / cancel (--yes: install; --dry-run: print the plan and stop)
-  CLI->>Conflict: which write targets already exist?
+  CLI->>Conflict: the plan, once: which write targets already exist?
   Conflict-->>User: overwrite warning (only if any) · default No (--yes: refuse if any)
   CLI->>Install: copy capabilities + product surfaces, write config
   Install-->>User: next steps
@@ -353,6 +353,9 @@ yours, `init` refuses before any prompt or write, cleans up the clone, and exits
   nested repository (see [troubleshooting](../troubleshooting.md#git-not-found)).
 - **An interactive terminal** — for a plain `init` only (not `--yes` or `--dry-run`); see [`init` is interactive by default](#init-is-interactive-by-default).
 - **No `pharn.config.json`, under `--yes`** (not `--dry-run`) — see [`--yes`](#install-without-prompts---yes).
+- **The project lock** (`pharn/.lock`) — taken next, before anything below runs, and held to the end
+  (not under `--dry-run`); another `pharn` command running in this project refuses the run — see
+  [Concurrency](#concurrency).
 
 ### 2. Banner and intro
 
@@ -475,9 +478,9 @@ previous install did not write — for example your own file at a path a newer p
 has no record and is backed up, marked `(no pharn record)`. A change of layout (flat → `pharn/`)
 installs to new paths and leaves the old copies where they are (`init` never deletes), so it backs up
 nothing extra. pharn's own `LICENSE` copy (`PHARN-LICENSE` / `pharn/LICENSE`) is compared with
-upstream's `LICENSE`, like every other file with its source. The marks are a preview: `init` checks again just before it copies,
-under the project lock, and that check decides what is backed up — so an edit you make while the prompt
-is open is still saved.
+upstream's `LICENSE`, like every other file with its source. Each file is also compared, just before
+it is written, with what the plan saw — so an edit you make while the prompt is open is still backed up
+before it is overwritten.
 Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.config.json`) are **kept**:
 `init` installs them again and records them as `manual` — also when your archetypes now select them
 too — as long as upstream still ships them. The summary lists them as "added by hand". One that upstream
@@ -500,7 +503,8 @@ print, cut at 200 characters. To keep your manual capabilities, cancel, fix the 
 commands name the problem), and re-run. Otherwise the overwrite prompt that follows lists
 `pharn.config.json` and defaults to No. `init --yes` refuses any existing config before it downloads
 anything, so it never gets as far as the summary. If `pharn.config.json` changes while `init` waits at
-its prompts (another `pharn` command wrote it), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+its prompts (edited by hand or by another program — no other `pharn` command can write it while `init`
+holds the lock), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 **When `init` refuses to install.** After you choose **install**, and before it asks to overwrite
 anything, `init` checks every path it is about to write and stops, naming each problem, if the copy
@@ -508,9 +512,9 @@ could not finish: a symbolic link on the way (writing through a linked directory
 outside your project, and a linked file would be replaced by pharn's copy), or an entry of the wrong
 kind (a directory where pharn writes a file, or a file where it needs a directory — `pharn.config.json`
 and `pharn.records.json` included). So you are never asked **Continue and overwrite?** for an install
-that could not finish. The same check runs again under the project lock, before anything is written —
-the backup included — so a problem that appears while the prompt is open is still refused. A refused
-install writes nothing: no files, no config, no records and no `pharn/.backup/`. A symbolic link at
+that could not finish. The check runs once, as part of the run's one plan; while the prompt is open
+no other `pharn` command can change the project (the lock is held), and each file's own write still
+refuses to go through a symbolic link that appeared meanwhile. A refused install writes nothing: no files, no config, no records and no `pharn/.backup/`. A symbolic link at
 `.claude/settings.json` is fine while it points at an existing file — `init` never writes an existing
 settings file — and is refused only when its target does not exist. See
 [Something in your project is in the way](../troubleshooting.md#something-in-your-project-is-in-the-way).
@@ -537,8 +541,9 @@ disk, not what the config lists, so `init` also **deletes that directory** — t
   (exit 1, nothing written).
 - **`--yes` never deletes**: a re-install has a `pharn.config.json`, so `--yes` refuses it before
   downloading anything.
-- **Before the copy**, under the project lock, after the destination check and the backup — and planned
-  again there, so the prompt's list is a preview and that plan is the one acted on.
+- **Before the copy**, after the backup — the directories the prompt listed, no others. Which of their
+  files are backed up is read again at the delete, so a file you add or edit there while the prompt is
+  open is saved too, and a directory whose path became a symbolic link meanwhile is not deleted.
 
 Directories an older `pharn` left behind when it dropped a capability have no config entry, so `init`
 cannot find them; PHARN still runs them. Delete them by hand.
@@ -740,16 +745,18 @@ On success, the CLI reports the capability count, prints the `models` block it c
 
 ## Concurrency
 
-`init` takes the project lock (`pharn/.lock`) **after** both of its prompts and holds it across the
-write, releasing it in the same step that disposes of the temp clone. A second `pharn` writer refuses
-with a named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never
-blocked by it.
+`init` takes the project lock (`pharn/.lock`) right after its prerequisites — before it detects,
+fetches or reads `pharn.config.json` — and holds it across both prompts to its last write. It
+plans once: the overwrite prompt and the install use the same plan. A second `pharn` writer refuses
+with a named message and exit 1 rather than queueing — while `init` waits at a prompt, the message says
+it may be waiting for input in another terminal. `pharn list` and `pharn status` are never blocked by
+it. `--dry-run` takes no lock.
 
-Two consequences are deliberate. Because the lock is taken late, a second writer racing `pharn init`
-still pays for the full download before being refused — accepted, because the alternative is holding
-the lock across an unanswered human prompt. And because the lock is taken only after both prompts, a
-walked-away `init` holds nothing: other writers are not blocked while its prompts wait. See
-[Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
+What may change while a prompt is open is checked before the first write instead: a hand-edited
+`pharn.config.json` refuses the run, a file edited since the plan is backed up before it is
+overwritten, and every write and delete walks its own path for a symbolic link. A walked-away `init`
+blocks other `pharn` writers in that project until you answer or press Ctrl-C (which releases the
+lock). See [Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).
 
 ## Legacy configs
 

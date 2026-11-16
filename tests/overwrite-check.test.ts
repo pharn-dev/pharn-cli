@@ -116,6 +116,28 @@ describe('confirmWriteTargets', () => {
       backups: ['pharn-review/old/NOTES.md'],
     };
 
+    // init's one plan hands its targets over (C5.2): rendered as given, the
+    // project is not scanned again — here it holds nothing at all.
+    it('renders the targets init already planned, without scanning the project', async () => {
+      const { repo, proj } = dirs(scaffoldRepo);
+      vi.mocked(prompts.confirm).mockResolvedValue(true);
+      await expect(
+        confirmWriteTargets(repo, proj, selection(), {
+          targets: {
+            conflicts: ['CONSTITUTION.md'],
+            labels: new Map([['CONSTITUTION.md', 'modified' as const]]),
+            configBackedUp: false,
+            removals: [removal],
+          },
+        }),
+      ).resolves.toBe('proceed');
+      expect(lastWarning()).toContain('CONSTITUTION.md (edited)');
+      expect(lastWarning()).toContain('pharn-review/old/');
+      expect(prompts.confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Continue, overwrite and delete?' }),
+      );
+    });
+
     it('asks before deleting even with zero conflicts, default No', async () => {
       const { repo, proj } = dirs(scaffoldRepo);
       vi.mocked(prompts.confirm).mockResolvedValue(false);

@@ -112,3 +112,34 @@ export function removalBackups(
 ): string[] {
   return [...new Set(removals.flatMap((r) => r.backups))];
 }
+
+/**
+ * The removals' backup set read again at DELETE time, unioned with the plan's:
+ * the plan was made before the prompt, and a file edited (or added) in a
+ * dropped directory while it was open is no longer provably pharn's. The same
+ * rule (lib/removal-backup.ts) against the same baseline. Throws
+ * CapabilityRemovalError — before any backup or delete — for a file that can
+ * no longer be checked.
+ */
+export function removalBackupsNow(params: {
+  cwd: string;
+  removals: readonly CapabilityRemoval[];
+  records: FileRecords | null;
+  command: 'update' | 'init';
+}): string[] {
+  const { cwd, removals, records, command } = params;
+  const present = removals.filter((r) => r.present);
+  let now: string[];
+  try {
+    now = removalBackupSet(
+      cwd,
+      present.map((r) => r.dir),
+      records,
+    );
+  } catch (err) {
+    throw new CapabilityRemovalError(
+      `Could not check the files in ${present.map((r) => `${r.dir}/`).join(', ')} before \`pharn ${command}\` deletes them: ${errorMessage(err).replace(/\.$/, '')}. Nothing was changed.`,
+    );
+  }
+  return [...new Set([...removalBackups(removals), ...now])];
+}

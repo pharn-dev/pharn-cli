@@ -11,6 +11,7 @@ import {
   planWriteTargets,
   removalLines,
   targetLines,
+  type WriteTargetsPlan,
 } from '../lib/write-targets.js';
 import type { CapabilityRemoval } from '../lib/capability-removal.js';
 import { BACKUP_DIR } from '../lib/backup.js';
@@ -85,6 +86,9 @@ export interface WriteTargetsContext {
   // The dropped capability directories this install would delete, listed in
   // the same prompt; any deletion shows the prompt even with no overwrite.
   removals?: readonly CapabilityRemoval[];
+  // The targets init's one plan already computed (lib/init-plan.ts): rendered
+  // as they are, nothing re-scanned. The fields above are then unused.
+  targets?: WriteTargetsPlan;
 }
 
 // 'proceed' when there is nothing to overwrite or the user confirmed;
@@ -95,27 +99,29 @@ export async function confirmWriteTargets(
   selection: Selection,
   context: WriteTargetsContext = {},
 ): Promise<WriteTargetsAction> {
-  const manifest =
-    context.manifest ??
-    collectExpectedInstallPaths({
-      repoDir,
-      capabilities: selection.selected,
-      layout: detectLayout(repoDir),
-    });
   // Which targets exist, which will be backed up (the files `update` would
   // have SKIPPED), and their order — one computation shared with `init
-  // --dry-run` and `init --yes` (lib/write-targets.ts). ADVISORY: the install
-  // re-scans under the lock right before the copy. An existing
-  // `pharn.config.json` is always backed up and ranked right after the
-  // labelled files, so the MAX_LISTED cap cannot hide it.
-  const { conflicts, labels, configBackedUp, removals } = planWriteTargets({
-    repoDir,
-    projectRoot: cwd,
-    capabilities: selection.selected,
-    manifest,
-    records: context.records ?? null,
-    removals: context.removals,
-  });
+  // --dry-run` and `init --yes` (lib/write-targets.ts). A file edited while
+  // this prompt is open is still backed up: the writer compares each file with
+  // the hash the plan saw. An existing `pharn.config.json` is always backed up
+  // and ranked right after the labelled files, so the MAX_LISTED cap cannot
+  // hide it.
+  const { conflicts, labels, configBackedUp, removals } =
+    context.targets ??
+    planWriteTargets({
+      repoDir,
+      projectRoot: cwd,
+      capabilities: selection.selected,
+      manifest:
+        context.manifest ??
+        collectExpectedInstallPaths({
+          repoDir,
+          capabilities: selection.selected,
+          layout: detectLayout(repoDir),
+        }),
+      records: context.records ?? null,
+      removals: context.removals,
+    });
   const deletes = removalLines(removals);
   // Nothing to overwrite and nothing to delete → no prompt. A deletion always
   // asks.

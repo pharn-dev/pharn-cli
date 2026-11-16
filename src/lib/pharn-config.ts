@@ -13,7 +13,6 @@ import {
   ROLE_VALUES,
   VERSION_RE,
 } from './validate.js';
-import { ProjectChangedError } from './project-lock.js';
 import type { PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
@@ -389,7 +388,7 @@ function isFrozenKeyList(value: unknown): value is string[] {
  * clack chrome), so a JSON reader on stdout stays clean. Any other error is a
  * bug and is rethrown.
  */
-export function loadConfigOrExit(
+export function loadConfig(
   cwd: string,
   opts: { json?: boolean } = {},
 ): PharnConfig {
@@ -408,43 +407,11 @@ export function loadConfigOrExit(
 }
 
 /**
- * Refuse, under the project lock, when `pharn.config.json` no longer matches the
- * `snapshot` this command planned against before taking the lock. A confirm
- * prompt or a fetch sits in that window, and a concurrent run's write would
- * otherwise be overwritten from a stale snapshot; the lock alone cannot see it.
- *
- * Compares two parses through `readPharnConfig`; must run before `snapshot` is
- * mutated. Absent / unparseable / invalid counts as changed. Throws
- * `ProjectChangedError`, reported as a named refusal with nothing written.
- */
-export function assertConfigUnchanged(
-  cwd: string,
-  snapshot: PharnConfig,
-  command: string,
-): void {
-  let current: PharnConfig | null;
-  try {
-    current = readPharnConfig(cwd);
-  } catch {
-    current = null;
-  }
-  if (current !== null && JSON.stringify(current) === JSON.stringify(snapshot))
-    return;
-  throw configChangedError(command);
-}
-
-function configChangedError(command: string): ProjectChangedError {
-  return new ProjectChangedError(
-    `${CONFIG_FILENAME} changed while \`pharn ${command}\` was running — another pharn process (or an edit) wrote it after this command read it. Nothing was written. Re-run \`pharn ${command}\` to act on the current state.`,
-  );
-}
-
-/**
  * What `pharn.config.json` is on disk right now: `absent`,
  * `unreadable:<errno code>`, or `sha256:<hex>` of the raw bytes. Never throws.
- * For `init`, which reads the config it replaces tolerantly, so every state it
- * may have read (absent, corrupt, unreadable) must be comparable. Raw bytes on
- * purpose: any byte change means a concurrent write.
+ * Every state a command may have read (absent, corrupt, unreadable — `init`
+ * reads the config it replaces tolerantly) is comparable. Raw bytes on
+ * purpose: any byte change means someone else wrote it.
  */
 export function configFingerprint(cwd: string): string {
   const read = readBoundedFile(configPath(cwd));
@@ -454,21 +421,28 @@ export function configFingerprint(cwd: string): string {
 }
 
 /**
- * `init`'s under-the-lock re-check against `configFingerprint`, taken BEFORE
- * the tolerant parse, so a change between the two reads fails closed.
+ * The one check every writer makes after its last prompt and before its first
+ * write: `pharn.config.json` still has the bytes it had when the command read
+ * it under the lock. The lock keeps other pharn writers out, so a change here
+ * is a hand-edit or another program; writing the command's config over it
+ * would lose that edit. Take `fingerprint` BEFORE the read it guards, so a
+ * change between the two fails closed. Throws a CliError refusal.
  */
 export function assertConfigFingerprintUnchanged(
   cwd: string,
   fingerprint: string,
   command: string,
 ): void {
-  if (configFingerprint(cwd) !== fingerprint) throw configChangedError(command);
+  if (configFingerprint(cwd) === fingerprint) return;
+  throw CliError.refusal(
+    `${CONFIG_FILENAME} changed while \`pharn ${command}\` was running — it was edited by hand or by another program while the command waited for your answer. Nothing was written. Re-run \`pharn ${command}\` to act on the current state.`,
+  );
 }
 
 /**
  * Is `err` a present-but-invalid-config error (one the user must fix by hand)
  * rather than a programming bug? `models` and `seam` never produce one. The one
- * definition, shared by `loadConfigOrExit` and `list`'s `--json` path.
+ * definition, shared by `loadConfig` and `list`'s `--json` path.
  */
 export function isConfigValidationError(
   err: unknown,
@@ -515,14 +489,14 @@ export const LEGACY_CONFIG_MESSAGE =
 
 /**
  * Load pharn.config.json and require an archetype install, or throw a CliError
- * (exit 1) with `LEGACY_CONFIG_MESSAGE` — or `loadConfigOrExit`'s own.
+ * (exit 1) with `LEGACY_CONFIG_MESSAGE` — or `loadConfig`'s own.
  * `opts.json` keeps every error a plain stderr line.
  */
-export function loadArchetypeConfigOrExit(
+export function loadArchetypeConfig(
   cwd: string,
   opts: { json?: boolean } = {},
 ): PharnConfig {
-  const config = loadConfigOrExit(cwd, opts);
+  const config = loadConfig(cwd, opts);
   if (!isArchetypeConfig(config)) {
     throw CliError.error(LEGACY_CONFIG_MESSAGE, opts);
   }

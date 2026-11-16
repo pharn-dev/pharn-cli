@@ -1,6 +1,6 @@
 import { groupMultiselect, isCancel, log } from '@clack/prompts';
 import pc from '../lib/color.js';
-import { logError, type FatalCause } from '../lib/report-error.js';
+import { logError } from '../lib/report-error.js';
 import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
@@ -9,9 +9,10 @@ import type { CapabilityIndex, PharnConfig } from '../types.js';
 
 // The prompt behind bare `pharn add`: the grouped multi-select over the
 // not-yet-installed capabilities, and the loop that installs each pick. The
-// TTY gate, lock, fetch and version/layout gates run in the command BEFORE
-// this, so a refused add never renders the multi-select; the per-name install
-// path comes in as `addOne`, so this file never imports the command.
+// lock, TTY gate, fetch and version/layout gates run in the command BEFORE
+// this, so a refused add never renders the multi-select, and the lock is held
+// across it; the per-name install path comes in as `addOne`, so this file
+// never imports the command.
 
 export type AddResult =
   | {
@@ -21,8 +22,8 @@ export type AddResult =
       stamp: { skillsVersion: string; commit: string | null };
     }
   | { kind: 'noop'; name: string }
-  // See PickerAddOutcome: `cause` present ⇔ this came from an exception.
-  | { kind: 'error'; message: string; cause?: FatalCause };
+  // A curated refusal (unknown, ambiguous, a symlinked dir); a failure throws.
+  | { kind: 'error'; message: string };
 
 // The command's per-name install path (`resolveArchetypeAdd`).
 export type AddOne = (
@@ -41,20 +42,20 @@ export type PickerAddOutcome =
   | { kind: 'installed'; added: string[]; failed: string[] }
   | { kind: 'all-installed' }
   | { kind: 'none' }
-  | { kind: 'cancelled' }
-  // `cause` is present ONLY when this outcome came from a caught exception,
-  // which keeps the PHARN_DEBUG hint off a curated gate refusal.
-  | { kind: 'error'; message: string; cause?: FatalCause };
+  | { kind: 'cancelled' };
 
 // Build the menu (available = index − installed), multi-select, then install
 // each pick via `addOne`, threading the growing config forward so the FINAL
-// pharn.config.json holds every pick, not just the last. Never exits.
+// pharn.config.json holds every pick, not just the last. `beforeWrite` runs
+// once between the multi-select and the first pick (the command's write-time
+// check); it throws to refuse. Never exits.
 export async function resolveAddPicker(
   repoDir: string,
   sha: string | null,
   config: PharnConfig,
   cwd: string,
   addOne: AddOne,
+  beforeWrite: () => void = () => undefined,
 ): Promise<PickerAddOutcome> {
   const index = parseCapabilityIndex(repoDir);
   // Named right after the parse, before both the `all-installed` outro and the
@@ -80,6 +81,7 @@ export async function resolveAddPicker(
   if (isCancel(picked)) return { kind: 'cancelled' };
   const values = picked as string[];
   if (values.length === 0) return { kind: 'none' };
+  beforeWrite();
 
   // Each pick writes pharn.config.json off the `cfg` passed in, so cfg must
   // accumulate every prior pick or the writes clobber down to the last one.

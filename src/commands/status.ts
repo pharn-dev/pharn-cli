@@ -46,7 +46,7 @@ import {
 import { needsModelsConversion } from '../lib/models-update.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { nodeFloorLines, nodeFloorStatus } from '../lib/node-floor.js';
-import { loadArchetypeConfigOrExit } from '../lib/pharn-config.js';
+import { loadArchetypeConfig } from '../lib/pharn-config.js';
 import { CliError } from '../lib/cli-error.js';
 import { logErrorPlain } from '../lib/report-error.js';
 import {
@@ -78,7 +78,7 @@ export async function runStatus(
   if (!json) intro('pharn status');
 
   const cwd = process.cwd();
-  const config = loadArchetypeConfigOrExit(cwd, { json });
+  const config = loadArchetypeConfig(cwd, { json });
   const node = nodeFloorStatus(process.versions.node);
 
   // NODE note: local, so it prints first and survives a failed fetch. A

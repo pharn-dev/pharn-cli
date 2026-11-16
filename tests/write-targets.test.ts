@@ -10,6 +10,7 @@ import {
   MAX_LISTED,
   OverwriteRefusedError,
   planWriteTargets,
+  refuseExistingTargets,
   removalLines,
   targetLines,
 } from '../src/lib/write-targets.js';
@@ -238,6 +239,70 @@ describe('assertNoExistingTargets (init --yes)', () => {
     expect(message).toContain(`pharn.config.json ${CONFIG_MARKER}`);
     expect(message).toContain('pharn update');
     expect(message).toContain('pharn init --dry-run');
+  });
+
+  // init's one plan already holds the targets (C5.2): the same gate over them,
+  // nothing re-scanned.
+  it('refuseExistingTargets judges a plan the caller already made, with the same message', () => {
+    const { repo, proj, manifest } = fixture(tmp.path());
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'mine');
+    const params = {
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: CAPS,
+      manifest,
+      records: null,
+    };
+    const plan = planWriteTargets(params);
+    const message = (fn: () => void): string => {
+      try {
+        fn();
+      } catch (err) {
+        expect(err).toBeInstanceOf(OverwriteRefusedError);
+        return (err as Error).message;
+      }
+      throw new Error('expected a refusal');
+    };
+    expect(message(() => refuseExistingTargets(plan))).toBe(
+      message(() => assertNoExistingTargets(params)),
+    );
+    expect(() =>
+      refuseExistingTargets({
+        conflicts: [],
+        labels: new Map(),
+        configBackedUp: false,
+      }),
+    ).not.toThrow();
+  });
+});
+
+// init's plan scans every manifest destination once and hands planWriteTargets
+// its labels (C5.2), so the targets are not scanned a second time.
+describe('planWriteTargets — given labels', () => {
+  const tmp = useTmpDir();
+
+  it('uses the labels it is given instead of scanning', () => {
+    const { repo, proj, manifest } = fixture(tmp.path());
+    write(join(proj, '.claude/commands/pharn-plan.md'), 'mine');
+    write(join(proj, 'CONSTITUTION.md'), 'C');
+    const params = {
+      repoDir: repo,
+      projectRoot: proj,
+      capabilities: CAPS,
+      manifest,
+      records: null,
+    };
+    // Scanned: the differing file is labelled, the identical one is not.
+    expect([...planWriteTargets(params).labels]).toEqual([
+      ['.claude/commands/pharn-plan.md', 'unverifiable'],
+    ]);
+    // Given: exactly those labels, which also decide the order.
+    const given = planWriteTargets({
+      ...params,
+      labels: new Map([['CONSTITUTION.md', 'modified' as const]]),
+    });
+    expect([...given.labels]).toEqual([['CONSTITUTION.md', 'modified']]);
+    expect(given.conflicts[0]).toBe('CONSTITUTION.md');
   });
 });
 

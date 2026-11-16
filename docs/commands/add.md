@@ -12,12 +12,13 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
 
 ## Behavior
 
-1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
+1. Takes the project lock (`pharn/.lock`) — before it reads anything or downloads — and holds it to
+   the end of the run. Then reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
    a hint to run `pharn init` first. A config that exists but is **invalid** (an out-of-enum
    `capabilities[].source`, an unknown archetype, unparseable JSON) is reported by its own named error
    and exits 1 — deliberately not the "run `pharn init`" hint, which would tell you to overwrite it.
-2. Takes the project lock (`pharn/.lock`) — **before** any download, so a run that will be refused pays
-   for no network — warns if a proxy is configured, then clones `pharn-dev/pharn-oss` (SHA-pinned).
+2. Warns if a proxy is configured, then clones `pharn-dev/pharn-oss` (SHA-pinned). A run refused by
+   the lock has paid for no network.
 3. **Checks the CLI floor.** If the clone declares a `MIN_CLI` newer than your CLI, `add` refuses here.
 4. **Checks the version.** If the clone's `SKILLS_VERSION` does not match the `skillsVersion` recorded
    in your `pharn.config.json`, `add` **refuses** — see [Version mismatch](#version-mismatch) below.
@@ -222,9 +223,10 @@ which is then renamed into place. A hard link — a second name for the same fil
 name's contents. A file you edit between the drift scan and its write is backed up first, like the
 drifted files.
 
-**Known limit.** Each check runs just before its write, not under a lock held across it. A directory
-that becomes a symlink between a file's check and its write is not caught. A concurrent local process
-racing the install is not something `pharn` defends against today.
+**Known limit.** The project lock keeps other `pharn` commands out for the whole run, not other
+programs. Each check runs just before its write; a directory that becomes a symlink between a file's
+check and its write is not caught. A concurrent local process racing the install is not something
+`pharn` defends against today.
 
 If a write fails part-way (a read-only directory, a full disk), `add` names the files it had already
 written (the first ten, then a count) and writes neither `pharn.records.json` nor `pharn.config.json`.
@@ -269,9 +271,12 @@ everywhere.
 
 ## Concurrency
 
-`add` takes the project lock (`pharn/.lock`) before it downloads anything, and holds it across the
-copy — and, on the bare picker path, across your multi-select. A second `pharn` writer refuses with a
-named message and exit 1 rather than queueing; `pharn list` and `pharn status` are never blocked. One
+`add` takes the project lock (`pharn/.lock`) before it reads `pharn.config.json` or downloads anything,
+and holds it across the copy — and, on the bare picker path, across your multi-select. A second
+`pharn` writer refuses with a named message and exit 1 rather than queueing (while the picker is open,
+the message says `add` may be waiting for input in another terminal); `pharn list` and `pharn status`
+are never blocked. If `pharn.config.json` is edited by hand while the multi-select is open, `add`
+refuses before the first pick and writes nothing. One
 consequence worth knowing: under a held lock, even `pharn add bogus` reports the lock rather than
 listing the valid `role:name` addresses, because that list lives in the clone it never fetched. See
 [Another pharn process is running](../troubleshooting.md#another-pharn-process-is-running).

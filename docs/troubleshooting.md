@@ -615,16 +615,20 @@ The directory is shared with any other tool that uses `degit`, so if you use one
 
 ## Another pharn process is running
 
-`init`, `add`, `remove`, `update` and `uninstall` take a single-writer lock on the project before
-they write anything, and refuse rather than queue:
+`init`, `add`, `remove`, `update` and `uninstall` take a single-writer lock on the project first —
+before they read `pharn.config.json` or touch the network — and hold it to their last write, across
+their prompts. A second writer refuses rather than queues:
 
 ```text
 ■  Another pharn process is writing to this project: pharn update (pid 4821 on my-laptop,
-   since 2026-09-08T20:14:03.117Z).
+   since 2026-09-08T20:14:03.117Z). It may be waiting for input in another terminal.
    Wait for it to finish, or delete pharn/.lock if you are sure no pharn process is running.
 ```
 
-Exit code 1, and **nothing is written**.
+Exit code 1, and **nothing is read, fetched or written**. "It may be waiting for input" is always
+printed: the lock does not record whether its holder sits at a prompt. Look for a `pharn` command
+waiting for an answer in another terminal, and answer or cancel it (Ctrl-C releases the lock).
+`--dry-run` takes no lock, so a preview runs even then.
 
 This exists because two concurrent runs do not merely race on a file — they corrupt the drift
 baseline. Process A overwrites a file; process B, which planned against the pre-A snapshot,
@@ -637,11 +641,13 @@ runnable in CI while an update is in flight.
 
 ### If the lock outlives its owner
 
-Bare `pharn add` is the one command that holds the lock across a prompt on purpose: its picker
-persists every pick, so one lock spans the whole multi-select, and a walked-away picker can block
-other writers in that project until the six-hour staleness window expires. `init`, `update` and the
-`remove` picker all take the lock **after** their prompts, so an unanswered prompt there holds
-nothing.
+Every writing command holds the lock across its prompts, so a walked-away prompt — `init`'s summary
+or overwrite question, `update`'s or `uninstall`'s confirmation, the `add` or `remove` picker — blocks
+other writers in that project until it is answered or cancelled. That is deliberate (git holds its
+index lock the same way): the command plans once, and what you confirm is what it writes. An edit you
+make while a prompt is open is never lost: `init` backs the file up before it overwrites it, and
+`update` stops before writing anything (see
+[update: edits made while it waits](commands/update.md#edits-made-while-update-waits-for-your-answer)).
 
 An interrupted run releases the lock on its way out. That covers Ctrl-C, and a `timeout` or
 `docker stop`, which arrive as `SIGINT` and `SIGTERM`. The run still exits 130 or 143 and prints
@@ -663,7 +669,7 @@ would then stop mid-write. `pharn` breaks such a lock by itself when any of thes
 - it comes from **this** host and started before this host last booted.
 
 A lock from **this** host is never broken by age: while its pid is running, `pharn` refuses, however
-long ago it started (a `pharn add` picker left open over lunch keeps the project). A lock from
+long ago it started (a prompt left open over lunch keeps the project). A lock from
 **another host** is only retired by age — a pid means nothing across machines. If you are certain
 nothing is running, deleting `pharn/.lock` is safe and is the documented escape.
 

@@ -26,8 +26,9 @@ import {
 } from '../lib/capability-picker.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
-  assertConfigUnchanged,
-  loadArchetypeConfigOrExit,
+  assertConfigFingerprintUnchanged,
+  configFingerprint,
+  loadArchetypeConfig,
   writePharnConfig,
 } from '../lib/pharn-config.js';
 import {
@@ -50,13 +51,22 @@ import type { InstalledCapability, PharnConfig } from '../types.js';
 // first: every regular file not at its recorded hash in a usable
 // `pharn.records.json` is copied to `pharn/.backup/<ts>/` BEFORE the first
 // delete, and a failed backup refuses the removal with nothing deleted.
+//
+// THE SINGLE-WRITER LOCK is taken FIRST — before the config is read — and held
+// across the picker's prompts to the config write; the backup → delete →
+// prune → config sequence is not atomic, and a second pharn writer is refused
+// meanwhile.
 export async function runRemove(arg: string | undefined): Promise<void> {
   intro('pharn remove');
 
   const cwd = process.cwd();
-  const config = loadArchetypeConfigOrExit(cwd);
   try {
-    await removeCapability(cwd, config, arg);
+    await withProjectLock(cwd, 'remove', async () => {
+      // Taken BEFORE the read: checked again before the first write.
+      const fingerprint = configFingerprint(cwd);
+      const config = loadArchetypeConfig(cwd);
+      await removeCapability(cwd, config, arg, fingerprint);
+    });
   } catch (err) {
     // A held lock is a policy refusal, not a crash: no stack trace. A failed
     // backup fired BEFORE the first delete, so "Nothing was removed" is true.
@@ -97,14 +107,15 @@ async function removeCapability(
   cwd: string,
   config: PharnConfig,
   arg: string | undefined,
+  fingerprint: string,
 ): Promise<void> {
   const installed = config.capabilities ?? [];
 
   if (arg === undefined) {
-    await runRemovePicker(cwd, config, installed);
+    await runRemovePicker(cwd, config, installed, fingerprint);
     return;
   }
-  await removeNamed(cwd, config, installed, arg);
+  await removeNamed(cwd, config, installed, arg, fingerprint);
 }
 
 // The delete (deleteCapabilityDir), its strict-child addressing (capabilityDir)
@@ -159,10 +170,11 @@ function readRecordsBaseline(cwd: string): FileRecords | null {
 
 // Refuse when any target's path crosses a symlinked component: `rmSync`
 // resolves ancestors, so with `pharn -> ../shared` it would delete outside the
-// project, and `safeJoin` is lexical. Run TWICE: before the lock (and the
-// picker's confirm) as the cheap early answer, and again INSIDE the lock, right
-// before the backup scan — the authoritative one, since a parent may be swapped
-// to a link in between. Not atomic with `rmSync` (no userland walk can be). It
+// project, and `safeJoin` is lexical. Run right before the backup scan, so a
+// refusal saves and deletes nothing — on the picker path also before its
+// confirm, so a refused selection is never asked about (a parent may be
+// swapped to a link while the confirm is open). deleteCapabilityDir walks
+// again at the delete. Not atomic with `rmSync` (no userland walk can be). It
 // THROWS so the lock is released before runRemove's exit. ENOTDIR is not a
 // link: that dir does not exist.
 function refuseSymlinkedTargets(
@@ -246,6 +258,7 @@ async function removeNamed(
   config: PharnConfig,
   installed: InstalledCapability[],
   address: string,
+  fingerprint: string,
 ): Promise<void> {
   const parsed = parseCapabilityArg(address);
   if (parsed.error) throw CliError.error(parsed.error);
@@ -275,35 +288,31 @@ async function removeNamed(
 
   const target = matches[0]!;
   const paths = layoutPaths(configLayout(config));
+  // Under runRemove's lock: backup → delete → prune → config, each write
+  // atomic but the sequence not. No prompt and no network on this path.
   refuseSymlinkedTargets(cwd, paths, [target]);
-  // The lock spans backup → delete → prune → config: each write is atomic but
-  // the sequence is not. No prompt and no network on this path.
-  const note = await withProjectLock(cwd, 'remove', async () => {
-    assertConfigUnchanged(cwd, config, 'remove');
-    // Again under the lock: the walk above is only the early answer.
-    refuseSymlinkedTargets(cwd, paths, [target]);
-    const records = readRecordsBaseline(cwd);
-    backupBeforeDelete(cwd, paths, [target], records);
-    const existed = deleteCapabilityDir(cwd, paths, target);
+  assertConfigFingerprintUnchanged(cwd, fingerprint, 'remove');
+  const records = readRecordsBaseline(cwd);
+  backupBeforeDelete(cwd, paths, [target], records);
+  const existed = deleteCapabilityDir(cwd, paths, target);
 
-    // Order: backup → delete → prune → config (records before config, as in
-    // `add`). The PAIR is not a transaction, only benign on failure: a failed
-    // prune leaves stale entries the next `update` prunes; a failed config
-    // write leaves the entry listed with its files absent, which the next
-    // `update` restores. `existed` does not gate the prune: on the "already
-    // gone" path the records are what is left to clean up.
-    await pruneCapabilityRecords(cwd, config, paths, [target], records);
+  // Order: backup → delete → prune → config (records before config, as in
+  // `add`). The PAIR is not a transaction, only benign on failure: a failed
+  // prune leaves stale entries the next `update` prunes; a failed config
+  // write leaves the entry listed with its files absent, which the next
+  // `update` restores. `existed` does not gate the prune: on the "already
+  // gone" path the records are what is left to clean up.
+  await pruneCapabilityRecords(cwd, config, paths, [target], records);
 
-    // Survivors are the ORIGINAL objects, so their `source` is carried through.
-    await writePharnConfig(cwd, {
-      ...config,
-      capabilities: installed.filter(
-        (c) => !(c.name === target.name && c.role === target.role),
-      ),
-      // `installedAt` rides the spread: a remove is a partial edit.
-    });
-    return existed ? '' : pc.dim(' (its files were already gone)');
+  // Survivors are the ORIGINAL objects, so their `source` is carried through.
+  await writePharnConfig(cwd, {
+    ...config,
+    capabilities: installed.filter(
+      (c) => !(c.name === target.name && c.role === target.role),
+    ),
+    // `installedAt` rides the spread: a remove is a partial edit.
   });
+  const note = existed ? '' : pc.dim(' (its files were already gone)');
 
   warnIfAutoSelected([target]);
 
@@ -321,6 +330,7 @@ async function runRemovePicker(
   cwd: string,
   config: PharnConfig,
   installed: InstalledCapability[],
+  fingerprint: string,
 ): Promise<void> {
   if (installed.length === 0) {
     outro('No capabilities are installed.');
@@ -375,29 +385,25 @@ async function runRemovePicker(
   });
   if (isCancel(ok) || ok !== true) throw CliError.cancel();
 
-  // Taken AFTER the confirm (an unanswered destructive prompt must not hold the
-  // lock) and spanning the whole selection.
-  await withProjectLock(cwd, 'remove', async () => {
-    assertConfigUnchanged(cwd, config, 'remove');
-    // Again under the lock: the confirm was open since the early walk.
-    refuseSymlinkedTargets(cwd, paths, targets);
-    // ONE backup for the whole selection — a failure deletes none of the picks.
-    const records = readRecordsBaseline(cwd);
-    backupBeforeDelete(cwd, paths, targets, records);
-    for (const target of targets) deleteCapabilityDir(cwd, paths, target);
+  // Still under runRemove's lock, spanning the whole selection. The write-time
+  // checks for what may have changed while the prompts were open: a parent
+  // swapped to a link, a hand-edited config.
+  refuseSymlinkedTargets(cwd, paths, targets);
+  assertConfigFingerprintUnchanged(cwd, fingerprint, 'remove');
+  // ONE backup for the whole selection — a failure deletes none of the picks.
+  const records = readRecordsBaseline(cwd);
+  backupBeforeDelete(cwd, paths, targets, records);
+  for (const target of targets) deleteCapabilityDir(cwd, paths, target);
 
-    // One prune for the whole selection, one store write to match the one
-    // config write.
-    await pruneCapabilityRecords(cwd, config, paths, targets, records);
+  // One prune for the whole selection, one store write to match the one
+  // config write.
+  await pruneCapabilityRecords(cwd, config, paths, targets, records);
 
-    // Survivors are the original objects, as in removeNamed.
-    const removed = new Set(targets.map((t) => `${t.role}:${t.name}`));
-    await writePharnConfig(cwd, {
-      ...config,
-      capabilities: installed.filter(
-        (c) => !removed.has(`${c.role}:${c.name}`),
-      ),
-    });
+  // Survivors are the original objects, as in removeNamed.
+  const removed = new Set(targets.map((t) => `${t.role}:${t.name}`));
+  await writePharnConfig(cwd, {
+    ...config,
+    capabilities: installed.filter((c) => !removed.has(`${c.role}:${c.name}`)),
   });
 
   warnIfAutoSelected(targets);

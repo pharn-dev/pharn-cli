@@ -36,8 +36,9 @@ import { safeJoin } from './validate.js';
 // The `models` record key is not a file and is skipped. Record keys are local,
 // user-editable text: this is the one place a key is DELETED by, and only after
 // the bound above, through safeJoin, after a symlink walk of its parents, on a
-// matching hash. NOT a lock: the caller re-plans under the project lock, which
-// keeps other pharn writers out but not an unrelated local process.
+// matching hash. NOT a lock: the caller plans under the project lock, which
+// keeps other pharn writers out but not an unrelated local process, and
+// re-classifies the `delete` bucket after its confirm (reclassifyDeletes).
 // ---------------------------------------------------------------------------
 
 export interface UninstallPlan {
@@ -73,6 +74,32 @@ export function planUninstall(
     else plan[verdict].push(rel);
   }
   return plan;
+}
+
+/**
+ * `plan` with its `delete` bucket classified again, by the same rule, at
+ * delete time: the plan was made before a confirm that may have sat open, so a
+ * file edited since moves to `edited` (kept), one gone to `absent`, and a
+ * parent swapped to a link to `unsafe` (the caller refuses the run). The other
+ * buckets stand: a file is only ever moved away from `delete`. Reads only.
+ */
+export function reclassifyDeletes(
+  projectRoot: string,
+  records: FileRecords,
+  plan: UninstallPlan,
+): UninstallPlan {
+  const subset: FileRecords = {};
+  for (const rel of plan.delete) subset[rel] = records[rel]!;
+  const now = planUninstall(projectRoot, subset);
+  const merged = (a: string[], b: string[]): string[] => [...a, ...b].sort();
+  return {
+    delete: now.delete,
+    edited: merged(plan.edited, now.edited),
+    unverifiable: merged(plan.unverifiable, now.unverifiable),
+    absent: merged(plan.absent, now.absent),
+    outside: plan.outside,
+    unsafe: [...plan.unsafe, ...now.unsafe],
+  };
 }
 
 type Verdict =

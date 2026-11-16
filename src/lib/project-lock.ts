@@ -108,8 +108,8 @@ function legacySite(cwd: string): LockSite {
 /**
  * How long a lock FROM ANOTHER HOST may sit before age alone justifies breaking
  * it — a pid means nothing across machines, so age is the only evidence.
- * Generous because bare `pharn add` holds the lock across its multi-select;
- * breaking a live lock is the worse error. Also the corpse sweep's age rule.
+ * Generous because every writer holds the lock across its prompts; breaking a
+ * live lock is the worse error. Also the corpse sweep's age rule.
  */
 export const STALE_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -134,18 +134,6 @@ export class ProjectLockedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ProjectLockedError';
-  }
-}
-
-/**
- * Raised under the lock when the project state a command planned against has
- * changed since it was read. A subclass so every `ProjectLockedError` catch
- * site reports it the same way: a named refusal, exit 1, nothing written.
- */
-export class ProjectChangedError extends ProjectLockedError {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ProjectChangedError';
   }
 }
 
@@ -286,8 +274,10 @@ function refusal(held: LockPayload | null, site: LockSite): string {
     held === null
       ? 'another pharn process'
       : `pharn ${held.command} (pid ${held.pid} on ${held.host}, since ${held.startedAt})`;
+  // Every writer holds the lock across its prompts, so the holder may be idle
+  // at one. Static wording: the payload records no prompt state.
   return (
-    `Another pharn process is writing to this project: ${who}.\n` +
+    `Another pharn process is writing to this project: ${who}. It may be waiting for input in another terminal.\n` +
     `Wait for it to finish, or delete ${site.display} if you are sure no pharn process is running.`
   );
 }
@@ -438,10 +428,11 @@ function release(site: LockSite): void {
  * live lock this throws `ProjectLockedError` without running `fn` and without
  * touching the existing lock file.
  *
- * Rule for callers: bounded work (a fetch) may be held across, a prompt may not
- * — it would block other writers for as long as a human takes. `add`'s picker
- * is the deliberate exception: its loop persists on every pick, so one lock
- * spans the selection (safe, since age never breaks a live same-host holder).
+ * Rule for callers: take it FIRST — before the config is read or the network
+ * touched — and hold it across the fetch, the plan, every prompt and the
+ * writes, as git holds its index lock. A prompt may sit as long as a human
+ * takes: age never breaks a live same-host holder, and a second writer is
+ * refused with the holder's command and pid.
  */
 export async function withProjectLock<T>(
   cwd: string,

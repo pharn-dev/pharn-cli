@@ -1,4 +1,10 @@
-import { mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as clack from '@clack/prompts';
@@ -39,6 +45,7 @@ import {
   write,
 } from '../support/harness.js';
 import { runAdd } from '../../src/commands/add.js';
+import { resolveAddPicker, type AddOne } from '../../src/steps/add-picker.js';
 import { runStatus } from '../../src/commands/status.js';
 
 // A pass-through `node:fs` with one hook on `openSync`, so a case can change
@@ -565,6 +572,54 @@ describe('pharn add <name>: the user’s bytes in the capability directory', () 
 });
 
 describe('pharn add (no argument): the picker', () => {
+  // The step itself, over a clone written from the served tree: the command's
+  // write-time check (`beforeWrite`) runs once, after the multi-select and
+  // before the first pick writes — and only when something was picked.
+  it('resolveAddPicker runs beforeWrite between the multi-select and the first pick', async () => {
+    const clone = join(at('..'), 'picker-clone');
+    for (const [rel, body] of Object.entries(upstream.tree)) {
+      mkdirSync(join(clone, rel, '..'), { recursive: true });
+      writeFileSync(join(clone, rel), body);
+    }
+    const order: string[] = [];
+    const addOne: AddOne = async (_r, _s, _c, _w, parsed) => {
+      order.push(`add ${parsed.name}`);
+      return { kind: 'noop', name: parsed.name };
+    };
+    const cfg = { skillsVersion: '1.0.0', commit: null, capabilities: [] };
+    vi.mocked(clack.groupMultiselect).mockImplementationOnce(async () => {
+      order.push('picked');
+      return ['griller:a11y', 'lens:n-plus-one'];
+    });
+    await expect(
+      resolveAddPicker(clone, null, cfg as never, at(''), addOne, () => {
+        order.push('beforeWrite');
+      }),
+    ).resolves.toEqual({ kind: 'installed', added: [], failed: [] });
+    expect(order).toEqual([
+      'picked',
+      'beforeWrite',
+      'add a11y',
+      'add n-plus-one',
+    ]);
+
+    // A refusal from beforeWrite aborts before any pick; nothing picked → no call.
+    order.length = 0;
+    vi.mocked(clack.groupMultiselect).mockResolvedValueOnce(['griller:a11y']);
+    await expect(
+      resolveAddPicker(clone, null, cfg as never, at(''), addOne, () => {
+        throw new Error('refused');
+      }),
+    ).rejects.toThrow('refused');
+    vi.mocked(clack.groupMultiselect).mockResolvedValueOnce([]);
+    const never = vi.fn();
+    await expect(
+      resolveAddPicker(clone, null, cfg as never, at(''), addOne, never),
+    ).resolves.toEqual({ kind: 'none' });
+    expect(never).not.toHaveBeenCalled();
+    expect(order).toEqual([]);
+  });
+
   it('off a TTY refuses before any network call and never prompts', async () => {
     await installFresh();
     fetchStub.mockClear();

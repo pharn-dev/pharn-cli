@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
@@ -6,6 +6,7 @@ import {
   CapabilityRemovalError,
   planCapabilityRemovals,
   removalBackups,
+  removalBackupsNow,
 } from '../src/lib/capability-removal.js';
 import { contentHash } from '../src/lib/hash.js';
 import { layoutPaths } from '../src/lib/layout.js';
@@ -79,5 +80,79 @@ describe('planCapabilityRemovals', () => {
       });
     expect(plan).toThrow(CapabilityRemovalError);
     expect(plan).toThrow(/Refusing to init: .*`pharn init` again/);
+  });
+});
+
+// The backup set read again at delete time (C5.2): the plan was made before a
+// prompt that may have sat open.
+describe('removalBackupsNow', () => {
+  const tmp = useTmpDir();
+  let proj = '';
+  beforeEach(() => {
+    proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+  });
+
+  const plan = (records: Record<string, string> | null) =>
+    planCapabilityRemovals({
+      cwd: proj,
+      paths: layoutPaths('flat'),
+      drops: [{ cap: STALE, reason: 'dropped-unselected' }],
+      records,
+      command: 'update',
+    });
+
+  it('adds a file edited or added since the plan to the plan’s own set', () => {
+    write(join(proj, 'pharn-review/stale/stale.md'), 'pharn bytes');
+    write(join(proj, 'pharn-review/stale/MINE.md'), 'mine');
+    const records = {
+      'pharn-review/stale/stale.md': contentHash(
+        join(proj, 'pharn-review/stale/stale.md'),
+      ),
+    };
+    const removals = plan(records);
+    expect(removalBackups(removals)).toEqual(['pharn-review/stale/MINE.md']);
+    // While the prompt is open: pharn's file is edited, a new one appears.
+    write(join(proj, 'pharn-review/stale/stale.md'), 'edited');
+    write(join(proj, 'pharn-review/stale/NEW.md'), 'new');
+
+    expect(
+      removalBackupsNow({ cwd: proj, removals, records, command: 'update' }),
+    ).toEqual([
+      'pharn-review/stale/MINE.md',
+      'pharn-review/stale/NEW.md',
+      'pharn-review/stale/stale.md',
+    ]);
+  });
+
+  it('reads nothing for a removal with nothing on disk', () => {
+    expect(
+      removalBackupsNow({
+        cwd: proj,
+        removals: plan(null),
+        records: null,
+        command: 'init',
+      }),
+    ).toEqual([]);
+  });
+
+  it('refuses, naming the command, when the directory can no longer be listed', () => {
+    write(join(proj, 'pharn-review/stale/stale.md'), 'x');
+    const removals = plan(null);
+    // A regular file where the directory's parent was: listing it fails
+    // (ENOTDIR), which is never "pharn's, safe to delete".
+    rmSync(join(proj, 'pharn-review'), { recursive: true });
+    writeFileSync(join(proj, 'pharn-review'), 'a file now');
+    const now = () =>
+      removalBackupsNow({
+        cwd: proj,
+        removals,
+        records: null,
+        command: 'update',
+      });
+    expect(now).toThrow(CapabilityRemovalError);
+    expect(now).toThrow(
+      /^Could not check the files in pharn-review\/stale\/ before `pharn update` deletes them: .*Nothing was changed\.$/,
+    );
   });
 });

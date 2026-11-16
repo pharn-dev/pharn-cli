@@ -28,7 +28,9 @@ export interface NextRecordStore {
 /**
  * The record store a run writes. `written` is the dest hashes of the files the
  * run wrote (empty before any write), `retired` the root docs it deleted —
- * their records go with them.
+ * their records go with them. `unwritten` names planned writes the writer left
+ * alone because the file changed after the plan read it: each keeps its
+ * previous record (or none), never the upstream hash the plan expected.
  */
 export function nextRecordStore(
   apply: Pick<
@@ -40,32 +42,43 @@ export function nextRecordStore(
     | 'models'
     | 'nextSkillsVersion'
     | 'nextCommit'
-  >,
-  extra: { written: FileRecords; retired: ReadonlySet<string> },
+  > &
+    Partial<Pick<UpdateApplyInputs, 'records'>>,
+  extra: {
+    written: FileRecords;
+    retired: ReadonlySet<string>;
+    unwritten?: readonly string[];
+  },
 ): NextRecordStore {
   const orphanRecords = Object.fromEntries(
     Object.entries(apply.orphanRecords).filter(
       ([rel]) => !extra.retired.has(rel),
     ),
   );
+  const files: FileRecords = {
+    ...apply.frozenRecords,
+    // Orphans keep their record while their file exists; a retired root
+    // doc's record goes with it.
+    ...orphanRecords,
+    // The settings.json init wrote: outside the manifest, carried only while
+    // the file is there.
+    ...apply.settingsRecords,
+    ...apply.plan.nextRecords,
+    ...extra.written,
+    // The manifest holds no models block, so its record is added here.
+    ...(apply.models.nextRecord !== null
+      ? { [MODELS_RECORD_KEY]: apply.models.nextRecord }
+      : {}),
+  };
+  for (const rel of extra.unwritten ?? []) {
+    const previous = apply.records?.[rel];
+    if (previous !== undefined) files[rel] = previous;
+    else delete files[rel];
+  }
   return {
     skillsVersion: apply.nextSkillsVersion,
     commit: apply.nextCommit,
-    files: {
-      ...apply.frozenRecords,
-      // Orphans keep their record while their file exists; a retired root
-      // doc's record goes with it.
-      ...orphanRecords,
-      // The settings.json init wrote: outside the manifest, carried only while
-      // the file is there.
-      ...apply.settingsRecords,
-      ...apply.plan.nextRecords,
-      ...extra.written,
-      // The manifest holds no models block, so its record is added here.
-      ...(apply.models.nextRecord !== null
-        ? { [MODELS_RECORD_KEY]: apply.models.nextRecord }
-        : {}),
-    },
+    files,
   };
 }
 

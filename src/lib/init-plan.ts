@@ -17,7 +17,9 @@ import {
 import {
   prepareInstall,
   upstreamSettingsCopyable,
+  type PreparedInstall,
 } from './install-capabilities.js';
+import { manifestSources, scanDest } from './dest-drift.js';
 import {
   absentInstallSurfaces,
   collectExpectedInstallPaths,
@@ -59,7 +61,7 @@ import { errorMessage } from './report-error.js';
 import { versionStatus } from './version-status.js';
 import { isPlainObject, safeJoin } from './validate.js';
 import type { DriftLabel } from './dest-drift.js';
-import { planWriteTargets } from './write-targets.js';
+import { planWriteTargets, type WriteTargetsPlan } from './write-targets.js';
 import type {
   Archetype,
   CapabilityIndex,
@@ -78,11 +80,13 @@ import type {
 //    `--dry-run` share it, so the carry rules have one copy.
 // 2. buildInitPlan — what installing it would do to THIS project (manifest,
 //    destination pre-flight, existing targets, backups, settings/hooks/models).
-//    Only `--dry-run` calls it: the real run computes the same things between
-//    its prompts, so a cancelled summary builds no manifest.
+//    `--dry-run` prints it; the real run builds it ONCE, under the project
+//    lock, after the summary is answered (so a cancelled summary builds no
+//    manifest), and the overwrite prompt and the install consume it.
 //
-// The plan is an advisory SNAPSHOT: a real run re-checks everything under its
-// lock.
+// What may change while a prompt is open is checked at write time instead of
+// re-planned: each file against the hash the plan saw, each delete's backup
+// set and symlink walk, and pharn.config.json against its fingerprint.
 // ---------------------------------------------------------------------------
 
 /** What a re-run `init` carries over from the config it replaces; empty for a first install. */
@@ -145,7 +149,7 @@ const UNREADABLE_REASON_MAX = 200;
  * never a refusal. A config that EXISTS but could not be read is NAMED
  * (`unreadable`), because carrying nothing drops the user's manual
  * capabilities. The fingerprint is taken FIRST, so a write landing between the
- * reads fails the under-lock check instead of being blessed by it.
+ * reads fails the check before the first write instead of being blessed by it.
  */
 export function readPreviousConfig(cwd: string): PreviousConfig {
   const fingerprint = configFingerprint(cwd);
@@ -294,13 +298,15 @@ export function carryOver(
 
 /**
  * The directories this re-install deletes (one per dropped capability, at the
- * replaced config's layout) and the files it saves first. Reads only; throws
- * CapabilityRemovalError for a symlinked component or an unreadable file. The
- * real run plans it again under the lock, where it is authoritative.
+ * replaced config's layout) and the files it saves first, against `records`
+ * (the reinstall baseline). Reads only; throws CapabilityRemovalError for a
+ * symlinked component or an unreadable file. Planned once; the install re-reads
+ * the backup set at delete time (removalBackupsNow).
  */
-export function planInitRemovals(
+function planInitRemovals(
   cwd: string,
   carry: InstallCarry,
+  records: FileRecords | null,
 ): CapabilityRemoval[] {
   const drops = carry.dropped ?? [];
   if (drops.length === 0) return [];
@@ -308,7 +314,7 @@ export function planInitRemovals(
     cwd,
     paths: layoutPaths(carry.previousLayout ?? 'flat'),
     drops,
-    records: reinstallBaseline(cwd, carry),
+    records,
     command: 'init',
   });
 }
@@ -379,15 +385,15 @@ export function reinstallBaseline(
  * composition runInstallArchetype writes. Feeds the dry run's
  * `.prettierignore` preview.
  */
-export function initRecordedPaths(params: {
+function initRecordedPaths(params: {
   cwd: string;
   manifest: ReadonlyMap<string, string>;
   carry: InstallCarry;
   capabilities: readonly InstalledCapability[];
   layout: Layout;
+  baseline: FileRecords | null;
 }): string[] {
-  const { cwd, manifest, carry, capabilities, layout } = params;
-  const baseline = reinstallBaseline(cwd, carry);
+  const { cwd, manifest, carry, capabilities, layout, baseline } = params;
   const kept =
     carry.kept.length === 0 || baseline === null
       ? {}
@@ -486,13 +492,14 @@ export interface InitPlanReport {
 
 /**
  * The root migration a re-run init makes (lib/root-migration.ts), or null for
- * a first install, whose root holds nothing pharn wrote. Shared by the dry run
- * and the real install.
+ * a first install, whose root holds nothing pharn wrote. Part of the one plan
+ * the dry run and the real install share.
  */
-export function initRootMigration(
+function initRootMigration(
   repoDir: string,
   cwd: string,
   carry: InstallCarry,
+  records: FileRecords | null,
 ): RootMigration | null {
   if (carry.previousStamp === null) return null;
   // Tolerant of a clone without a valid SKILLS_VERSION: the hints are then
@@ -509,7 +516,7 @@ export function initRootMigration(
     layout: detectLayout(repoDir),
     installedLayout: carry.previousLayout ?? 'flat',
     skillsVersion,
-    records: reinstallBaseline(cwd, carry),
+    records,
   });
 }
 
@@ -545,8 +552,39 @@ export function previousChannelLines(params: {
 }
 
 /**
- * Phase 2: what installing `chosen.selection` from `repoDir` would do to `cwd`.
- * Read-only; throws what a real run throws at the same step.
+ * What only the real install needs from the plan — never printed. Every value
+ * was computed ONCE, by `buildInitPlan`, before the overwrite prompt; the
+ * install consumes it under the same lock instead of recomputing it.
+ */
+export interface InitApplyInputs {
+  // The checked destination: layout paths + the manifest (dest → source).
+  prepared: PreparedInstall;
+  // Existing manifest files the install backs up first (update's SKIP rows).
+  drifted: string[];
+  // What each manifest destination held when planned (hash, or null): a file
+  // edited while a prompt was open is backed up before it is overwritten.
+  seen: ReadonlyMap<string, string | null>;
+  // The replaced install's records baseline, or null.
+  baseline: FileRecords | null;
+  removals: CapabilityRemoval[];
+  rootMigration: RootMigration | null;
+  // The prompt's (and `--yes`'s) view of the existing targets.
+  targets: WriteTargetsPlan;
+  // pharn.config.json's bytes when the carry-over read it, taken before that
+  // read: checked again before the first write.
+  fingerprint: string;
+}
+
+export interface PlannedInit {
+  report: InitPlanReport;
+  apply: InitApplyInputs;
+}
+
+/**
+ * Phase 2: what installing `chosen.selection` from `repoDir` would do to `cwd`
+ * — the one plan of a run, shared by `--dry-run` (which prints `report`) and
+ * the real install (which consumes both halves). Read-only; throws what a real
+ * run throws at the same step.
  */
 export function buildInitPlan(params: {
   repoDir: string;
@@ -561,7 +599,7 @@ export function buildInitPlan(params: {
   chosen: InitSelection;
   // Whether `--ref` was passed: then the summary names no channel change.
   refExplicit?: boolean;
-}): InitPlanReport {
+}): PlannedInit {
   const { repoDir, cwd, sha, source, channel, archetypes, index, chosen } =
     params;
   const origin: ArchetypeOrigin = params.origin ?? {
@@ -576,18 +614,33 @@ export function buildInitPlan(params: {
     capabilities: selection.selected,
     layout,
   });
-  // The real run's destination pre-flight: refused here too.
-  prepareInstall(repoDir, cwd, selection.selected, manifest);
-  // The dropped capabilities' directories, refused as a real run refuses them.
-  const removals = planInitRemovals(cwd, carry);
-
-  const { conflicts, labels, configBackedUp } = planWriteTargets({
+  // The destination pre-flight, once per run: a refused project is refused
+  // before any prompt and before anything is written.
+  const prepared = prepareInstall(repoDir, cwd, selection.selected, manifest);
+  // The replaced install's records, read once.
+  const baseline = reinstallBaseline(cwd, carry);
+  // The dropped capabilities' directories, refused here when unsafe.
+  const removals = planInitRemovals(cwd, carry, baseline);
+  // ONE scan of every manifest destination: what the install backs up
+  // (`drifted`, by update's own table), what the writer compares against
+  // (`seen`), and the prompt's labels.
+  const scan = scanDest({
+    repoDir,
+    projectRoot: cwd,
+    rels: [...manifest.keys()],
+    sources: manifestSources(repoDir, manifest),
+    records: baseline,
+  });
+  const writeTargets = planWriteTargets({
     repoDir,
     projectRoot: cwd,
     capabilities: selection.selected,
     manifest,
-    records: reinstallBaseline(cwd, carry),
+    records: baseline,
+    removals,
+    labels: scan.labels,
   });
+  const { conflicts, labels, configBackedUp } = writeTargets;
   const existing = new Set(conflicts);
   const targets: InitTarget[] = [
     ...new Set([...manifest.keys(), PHARN_CONFIG_FILE]),
@@ -602,8 +655,8 @@ export function buildInitPlan(params: {
           ? ('rewritten' as const)
           : null),
     }));
-  const rootMigration = initRootMigration(repoDir, cwd, carry);
-  // What runInstallArchetype backs up under the lock.
+  const rootMigration = initRootMigration(repoDir, cwd, carry, baseline);
+  // What runInstallArchetype backs up (plus a removal file edited since).
   const backups = [
     ...new Set([
       ...[...labels.keys()].sort(),
@@ -616,7 +669,7 @@ export function buildInitPlan(params: {
   const settingsPreserved = existsSync(safeJoin(cwd, CLAUDE_SETTINGS_FILE));
   const upstreamModels = readUpstreamModels(repoDir);
 
-  return {
+  const report: InitPlanReport = {
     archetypes,
     archetypeOrigin: origin,
     previousArchetypes: recordedArchetypes(chosen.previous.config?.archetypes),
@@ -674,7 +727,21 @@ export function buildInitPlan(params: {
         carry,
         capabilities: selection.selected,
         layout,
+        baseline,
       }),
     ),
+  };
+  return {
+    report,
+    apply: {
+      prepared,
+      drifted: scan.drifted,
+      seen: scan.seen,
+      baseline,
+      removals,
+      rootMigration,
+      targets: writeTargets,
+      fingerprint: chosen.previous.fingerprint,
+    },
   };
 }

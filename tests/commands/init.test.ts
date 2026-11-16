@@ -77,6 +77,11 @@ import {
 } from '../support/harness.js';
 import { runInit } from '../../src/commands/init.js';
 import { runInstallArchetype } from '../../src/steps/install-archetype.js';
+import { parseCapabilityIndex } from '../../src/lib/capability-index.js';
+// Spied on (never mocked) to count planner calls per run.
+import * as initPlanModule from '../../src/lib/init-plan.js';
+
+const { buildInitPlan, resolveInitSelection } = initPlanModule;
 import { runAdd } from '../../src/commands/add.js';
 import { runUpdate } from '../../src/commands/update.js';
 import { runRemove } from '../../src/commands/remove.js';
@@ -1002,16 +1007,32 @@ describe('init refuses a project it cannot install into', () => {
     expect(Object.keys(records().files)).toContain(FLOOR);
   });
 
-  // The install step hands the writer what its scan saw (`scan.seen`): a file
-  // that appears between that scan and its own write is backed up, then
+  // The install step hands the writer what the plan's scan saw (`seen`): a
+  // file that appears between that scan and its own write is backed up, then
   // written, and recorded at the bytes that landed. Run on the step itself,
-  // over a clone written from the served tree.
+  // over a clone written from the served tree and the run's one plan.
   it('runInstallArchetype backs up, then writes, a file that changed since its scan', async () => {
     const clone = join(proj(), '..', 'step-clone');
     for (const [rel, body] of Object.entries(upstream.tree)) {
       mkdirSync(join(clone, rel, '..'), { recursive: true });
       writeFileSync(join(clone, rel), body);
     }
+    const index = parseCapabilityIndex(clone);
+    const chosen = resolveInitSelection({
+      cwd: proj(),
+      archetypes: ['lib'],
+      index,
+    });
+    const planned = buildInitPlan({
+      repoDir: clone,
+      cwd: proj(),
+      sha: SHA_V1,
+      source: { kind: 'main' },
+      channel: 'main',
+      archetypes: ['lib'],
+      index,
+      chosen,
+    });
     let planted = false;
     fsHooks.open = (path, flags) => {
       if (!planted && flags === 'wx' && path.endsWith('.tmp')) {
@@ -1020,17 +1041,15 @@ describe('init refuses a project it cannot install into', () => {
       }
     };
 
-    const selection = {
-      selected: [
-        {
-          name: 'security',
-          role: 'griller' as const,
-          matched: 'universal' as const,
-        },
-      ],
-      skipped: [],
-    };
-    await runInstallArchetype(clone, proj(), ['lib'], selection, SHA_V1);
+    await runInstallArchetype(
+      clone,
+      proj(),
+      ['lib'],
+      chosen.selection,
+      SHA_V1,
+      chosen.carry,
+      planned.apply,
+    );
     fsHooks.open = null;
 
     expect(planted).toBe(true);
@@ -1079,6 +1098,41 @@ describe('init refuses a project it cannot install into', () => {
 // ---------------------------------------------------------------------------
 
 describe('re-running init over an install', () => {
+  // C5.2: init takes the lock before its fetch and holds it across both
+  // prompts, so the overwrite prompt and the install consume ONE plan.
+  it.each([
+    ['a re-install answered at both prompts', true],
+    ['a first install under --yes', false],
+  ])('plans exactly once per run (%s)', async (_l, reinstall) => {
+    if (reinstall) await installFresh();
+    const planner = vi.spyOn(initPlanModule, 'buildInitPlan');
+    if (reinstall) expect(await rerun()).toBeNull();
+    else await installFresh();
+    expect(planner).toHaveBeenCalledTimes(1);
+    expect(config().skillsVersion).toBe('1.0.0');
+  });
+
+  it('a file edited while the overwrite prompt is open is backed up, then overwritten', async () => {
+    await installFresh();
+    interactive({ select: ['install'] });
+    vi.mocked(clack.confirm).mockImplementationOnce(async () => {
+      write(CONSTITUTION, 'edited while the prompt was open\n');
+      return true;
+    });
+    clearOutput();
+    expect(await run(() => runInit())).toBeNull();
+    // The prompt did not mark it (it was pharn's bytes then); the writer saw
+    // the change against the plan's hash and saved it first, in a backup of
+    // its own beside the planned one (the replaced config).
+    const saved = readdirSync(at('pharn/.backup'))
+      .map((d) => `pharn/.backup/${d}/${CONSTITUTION}`)
+      .filter((rel) => exists(rel));
+    expect(saved).toHaveLength(1);
+    expect(read(saved[0]!)).toBe('edited while the prompt was open\n');
+    expect(read(CONSTITUTION)).toBe('constitution 1.0.0\n');
+    expect(records().files[CONSTITUTION]).toBe(sha256(CONSTITUTION));
+  });
+
   it('after an upstream bump alone: no installed file marked or backed up — only the config', async () => {
     await installFresh();
     const planRecord = records().files[PLAN_COMMAND];

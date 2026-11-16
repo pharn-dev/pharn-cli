@@ -100,9 +100,11 @@ Uninstall PHARN — delete 412 file(s), pharn.records.json and pharn.config.json
 `uninstall` refuses with exit 1 instead of prompting into a stream nobody reads. Declining, or
 cancelling with Ctrl-C at the prompt, exits 0 with nothing changed.
 
-The plan is a preview. After you confirm, `uninstall` takes the project lock and checks everything
-again; a file you edited while the prompt was open is kept, and the final summary reports what actually
-happened.
+`uninstall` takes the project lock (`pharn/.lock`) before it reads anything and holds it across the
+plan, the confirmation and the deletes, so no other `pharn` command changes the project meanwhile (one
+started while the prompt is open is refused, naming `uninstall`). After you confirm, it checks again
+each file the plan would delete: a file you edited while the prompt was open is kept, and the final
+summary reports what actually happened.
 
 ## Hooks
 
@@ -126,8 +128,8 @@ Each of these exits 1 and removes nothing:
 - **A directory on the way to a recorded file is a symbolic link** — deleting through it would delete a
   file outside the project.
 - **`pharn.config.json` cannot be backed up** (for example `pharn/.backup` is a symbolic link).
-- **Another `pharn` command holds the project lock**, or `pharn.config.json` changed while the prompt
-  was open.
+- **Another `pharn` command holds the project lock**, `pharn.config.json` was edited while the prompt
+  was open, or `pharn.records.json` is gone or broken by then.
 - **A pre-archetype (module) config** — the shared config check rejects it, as every command does.
 
 When there is **no `pharn.config.json` at all**, `uninstall` prints

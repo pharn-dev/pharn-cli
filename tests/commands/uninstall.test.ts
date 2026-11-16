@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -570,29 +571,58 @@ describe('pharn uninstall over a hand-seeded install', () => {
 
     it('when a directory on the way is a symbolic link', async () => {
       const shared = join(outside(), 'shared');
-      mkdirSync(join(shared, 'pharn-pipeline/grillers/a11y'), {
-        recursive: true,
-      });
-      await install(['CONSTITUTION.md'], seedConfig({ layout: 'pharn' }), {});
-      // Record a file reached THROUGH a symlinked `pharn/`.
-      writeFileSync(
-        join(shared, 'pharn-pipeline/grillers/a11y/a11y.md'),
-        'outside',
-      );
-      symlinkSync(shared, at('pharn'));
+      mkdirSync(join(shared, 'commands'), { recursive: true });
+      await install(['CONSTITUTION.md'], seedConfig(), {});
+      // Record a file reached THROUGH a symlinked `.claude/`. (A symlinked
+      // `pharn/` is refused earlier still, by the lock, which lives in it.)
+      writeFileSync(join(shared, 'commands/pharn-plan.md'), 'outside');
+      rmSync(at('.claude'), { recursive: true, force: true });
+      symlinkSync(shared, at('.claude'));
       await writeRecords(proj(), {
         skillsVersion: '6.50.0',
         commit: 'c'.repeat(40),
         files: {
-          'pharn/pharn-pipeline/grillers/a11y/a11y.md': contentHash(
-            join(shared, 'pharn-pipeline/grillers/a11y/a11y.md'),
+          '.claude/commands/pharn-plan.md': contentHash(
+            join(shared, 'commands/pharn-plan.md'),
           ),
         },
       });
-      await expectRefusal(/pharn is a symbolic link.*OUTSIDE the project/);
-      expect(
-        existsSync(join(shared, 'pharn-pipeline/grillers/a11y/a11y.md')),
-      ).toBe(true);
+      await expectRefusal(/\.claude is a symbolic link.*OUTSIDE the project/);
+      expect(existsSync(join(shared, 'commands/pharn-plan.md'))).toBe(true);
+    });
+
+    it('when pharn/ itself is a symbolic link (the lock lives there)', async () => {
+      const shared = join(outside(), 'shared-pharn');
+      mkdirSync(shared, { recursive: true });
+      await install(['CONSTITUTION.md'], seedConfig({ layout: 'pharn' }), {});
+      symlinkSync(shared, at('pharn'));
+      await expectRefusal(/pharn is a symbolic link\. pharn keeps its lock/);
+      expect(existsSync(at('CONSTITUTION.md'))).toBe(true);
+      expect(readdirSync(shared)).toEqual([]);
+    });
+
+    it('when a parent is swapped to a symbolic link while the confirm is open', async () => {
+      await install(FLAT_FILES);
+      const shared = join(outside(), 'swapped');
+      mkdirSync(shared, { recursive: true });
+      cpSync(at('pharn-contracts'), shared, { recursive: true });
+      const before = readdirSync(shared).sort();
+      setTTY(true, true);
+      vi.mocked(prompts.confirm).mockImplementationOnce(async () => {
+        rmSync(at('pharn-contracts'), { recursive: true });
+        symlinkSync(shared, at('pharn-contracts'));
+        return true;
+      });
+      expect(await run(() => runUninstall())).toBe(1);
+      expect(errorText()).toMatch(
+        /pharn-contracts is a symbolic link.*Nothing was removed/,
+      );
+      expect(readdirSync(shared).sort()).toEqual(before);
+      expect(existsSync(at('pharn.config.json'))).toBe(true);
+      for (const rel of FLAT_FILES.filter(
+        (r) => !r.startsWith('pharn-contracts/'),
+      ))
+        expect(existsSync(at(rel))).toBe(true);
     });
 
     it('when the config cannot be backed up (pharn/.backup is a symlink)', async () => {

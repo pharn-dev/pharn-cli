@@ -15,10 +15,11 @@ import {
   type FileRecords,
 } from '../lib/install-records.js';
 import {
-  assertConfigUnchanged,
+  assertConfigFingerprintUnchanged,
   CONFIG_FILENAME,
+  configFingerprint,
   configPath,
-  loadArchetypeConfigOrExit,
+  loadArchetypeConfig,
 } from '../lib/pharn-config.js';
 import {
   LOCK_DIR,
@@ -29,9 +30,12 @@ import { errorMessage } from '../lib/report-error.js';
 import { CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS_FILE } from '../lib/constants.js';
 import { escapeUnsafe } from '../lib/terminal-safe.js';
 import { isInstallRootPath } from '../lib/orphans.js';
-import { planUninstall, type UninstallPlan } from '../lib/uninstall-plan.js';
+import {
+  planUninstall,
+  reclassifyDeletes,
+  type UninstallPlan,
+} from '../lib/uninstall-plan.js';
 import { safeJoin } from '../lib/validate.js';
-import type { PharnConfig } from '../types.js';
 
 // `pharn uninstall` — remove PHARN from a project, deleting only what pharn can
 // PROVE it wrote and nobody changed (lib/uninstall-plan.ts): a file recorded in
@@ -41,14 +45,16 @@ import type { PharnConfig } from '../types.js';
 // listed. Offline: without a usable store it refuses rather than guesses
 // (manual procedure: docs/troubleshooting.md).
 //
-// Order, inside the lock: re-check the config → re-plan (the pre-prompt plan
-// is advisory) → back up pharn.config.json → delete the provable files →
-// remove emptied directories → delete pharn.records.json → delete
-// pharn.config.json LAST. The config is the "installed" marker, so a failure
-// before it leaves a state a re-run finishes (an ordering, not a transaction).
+// The whole run holds the project lock, taken FIRST (before the config is
+// read): plan → confirm → re-check the config's bytes and re-classify each
+// file the plan would delete (a file edited while the confirm was open is
+// kept) → back up pharn.config.json → delete the provable files → remove
+// emptied directories → delete pharn.records.json → delete pharn.config.json
+// LAST. The config is the "installed" marker, so a failure before it leaves a
+// state a re-run finishes (an ordering, not a transaction).
 //
-// The confirm runs BEFORE the lock; `--yes` skips it, and off a TTY without
-// `--yes` the command refuses rather than prompting into a dead stream.
+// `--yes` skips the confirm, and off a TTY without `--yes` the command refuses
+// rather than prompting into a dead stream.
 
 /** Most paths any one list in the notes shows before "…and N more". */
 const MAX_LISTED = 10;
@@ -79,15 +85,42 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
   intro('pharn uninstall');
   const cwd = process.cwd();
 
+  let result: UninstallResult | null;
+  try {
+    result = await withProjectLock(cwd, 'uninstall', () =>
+      uninstallProject(cwd, opts),
+    );
+  } catch (err) {
+    // Refusals with a complete message, not crashes; the unwinding released the
+    // lock.
+    if (err instanceof ProjectLockedError || err instanceof UninstallError) {
+      throw CliError.error(err.message);
+    }
+    throw err;
+  }
+  if (result === null) return;
+
+  reportResult(cwd, result, finishPharnDir(cwd));
+  outro(`${pc.green('✔')} PHARN was uninstalled.`);
+}
+
+// Everything under the lock: the plan, the confirm and the deletes. `null` when
+// PHARN is not installed here.
+async function uninstallProject(
+  cwd: string,
+  opts: UninstallOptions,
+): Promise<UninstallResult | null> {
   // Nothing there is the one benign case (a second run lands here). A config
   // that EXISTS but is unreadable or legacy still exits 1 via the loader.
   if (lstatSync(configPath(cwd), { throwIfNoEntry: false }) === undefined) {
     outro(
       `PHARN is not installed here (no ${CONFIG_FILENAME}). Nothing was removed.`,
     );
-    return;
+    return null;
   }
-  const config = loadArchetypeConfigOrExit(cwd);
+  // Taken BEFORE the read: checked again before the first delete.
+  const fingerprint = configFingerprint(cwd);
+  loadArchetypeConfig(cwd);
 
   const records = usableRecords(cwd);
   if (typeof records === 'string') throw CliError.error(records);
@@ -113,22 +146,7 @@ export async function runUninstall(opts: UninstallOptions = {}): Promise<void> {
     if (isCancel(ok) || ok !== true) throw CliError.cancel();
   }
 
-  let result: UninstallResult;
-  try {
-    result = await withProjectLock(cwd, 'uninstall', () =>
-      applyUninstall(cwd, config),
-    );
-  } catch (err) {
-    // Refusals with a complete message, not crashes; the unwinding released the
-    // lock.
-    if (err instanceof ProjectLockedError || err instanceof UninstallError) {
-      throw CliError.error(err.message);
-    }
-    throw err;
-  }
-
-  reportResult(cwd, result, finishPharnDir(cwd));
-  outro(`${pc.green('✔')} PHARN was uninstalled.`);
+  return applyUninstall(cwd, records, preview, fingerprint);
 }
 
 // The validated record store, or the refusal naming why there is none. Absent
@@ -151,16 +169,23 @@ function unsafeMessage(plan: UninstallPlan): string {
   return `Refusing to uninstall: ${escapeUnsafe(first.component)} is a symbolic link, so deleting ${escapeUnsafe(first.rel)} through it would delete a file OUTSIDE the project. Nothing was removed.`;
 }
 
-// The write half. Runs inside the project lock.
+// The write half. Runs inside the project lock, after the confirm.
 async function applyUninstall(
   cwd: string,
-  config: PharnConfig,
+  records: FileRecords,
+  planned: UninstallPlan,
+  fingerprint: string,
 ): Promise<UninstallResult> {
-  assertConfigUnchanged(cwd, config, 'uninstall');
-  // Re-plan under the lock: the tree may have changed while the prompt was open.
-  const records = usableRecords(cwd);
-  if (typeof records === 'string') throw new UninstallError(records);
-  const plan = planUninstall(cwd, records);
+  // What may have changed while the confirm was open, checked before the first
+  // write: the config's bytes, and each file the plan would delete — re-
+  // classified by the same rule, so one edited since is kept and a parent
+  // swapped to a link refuses the whole run.
+  assertConfigFingerprintUnchanged(cwd, fingerprint, 'uninstall');
+  // The store is the only proof; one gone or broken since the plan stops the
+  // run (the hashes below are still judged against the store the plan read).
+  const proof = usableRecords(cwd);
+  if (typeof proof === 'string') throw new UninstallError(proof);
+  const plan = reclassifyDeletes(cwd, records, planned);
   if (plan.unsafe.length > 0) throw new UninstallError(unsafeMessage(plan));
 
   // Before anything is deleted: a config that cannot be saved stops the run.

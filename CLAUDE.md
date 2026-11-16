@@ -96,9 +96,9 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   be resolved or is malformed. It never floats to the tip of `main`.
 - **Network bounds.** `redirect: 'error'`, a per-request deadline and a body cap on every fetch. The tarball has its
   own archive, extracted-size and entry caps.
-- **The project lock.** `init`/`add`/`update`/`remove`/`uninstall` write under `pharn/.lock`, and first re-check
-  inside it that the config they loaded is unchanged. No prompt is ever held under the lock. Readers (`list`,
-  `status`) never take it.
+- **The project lock.** `init`/`add`/`update`/`remove`/`uninstall` take `pharn/.lock` before reading the config, hold
+  it across every prompt and plan once; edits made meanwhile are caught at write time (hash, fingerprint, walk). Dry
+  runs and readers (`list`, `status`) never take it.
 - **Bounded local reads.** pharn.config.json, pharn.records.json and the lock are read through `readBoundedFile`
   (regular file, size cap, `O_NONBLOCK`), so a FIFO or a huge file never hangs or floods a command.
 - **Config schema is additive** (P7): legacy fields still load, and new keys are optional. The CLI owns every key
