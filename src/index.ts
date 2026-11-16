@@ -2,13 +2,9 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import minimist from 'minimist';
-import { runInit } from './commands/init.js';
-import { runAdd } from './commands/add.js';
-import { runRemove } from './commands/remove.js';
-import { runUpdate } from './commands/update.js';
-import { runList } from './commands/list.js';
-import { runStatus } from './commands/status.js';
-import { runUninstall } from './commands/uninstall.js';
+// No command is imported here: the dispatch below `await import()`s the one it
+// runs, so `--version`, `--help` and a refused option load neither a command
+// nor @clack/prompts (scripts/build.mjs splits the bundle to keep it so).
 import { REF_CHOICES, type RefChoice } from './lib/release.js';
 import { parseArchetypeList } from './lib/archetype.js';
 import type { Archetype } from './types.js';
@@ -512,7 +508,8 @@ export async function main(): Promise<void> {
   }
 
   switch (cmd) {
-    case 'init':
+    case 'init': {
+      const { runInit } = await import('./commands/init.js');
       await runInit({
         ref,
         archetypes,
@@ -521,16 +518,22 @@ export async function main(): Promise<void> {
         json: Boolean(argv.json),
       });
       return;
-    case 'add':
+    }
+    case 'add': {
+      const { runAdd } = await import('./commands/add.js');
       await runAdd(argv._[1]);
       return;
+    }
     case 'remove':
-    case 'rm':
+    case 'rm': {
       // No `--yes`: the named path never confirms, and the picker's one
       // confirm is the destructive gate nothing may skip.
+      const { runRemove } = await import('./commands/remove.js');
       await runRemove(argv._[1]);
       return;
-    case 'update':
+    }
+    case 'update': {
+      const { runUpdate } = await import('./commands/update.js');
       await runUpdate({
         force: Boolean(argv.force),
         yes: Boolean(argv.yes),
@@ -540,19 +543,26 @@ export async function main(): Promise<void> {
         ref,
       });
       return;
-    case 'list':
+    }
+    case 'list': {
+      const { runList } = await import('./commands/list.js');
       await runList({ json: Boolean(argv.json) });
       return;
-    case 'status':
+    }
+    case 'status': {
+      const { runStatus } = await import('./commands/status.js');
       await runStatus({
         strict: Boolean(argv.strict),
         drift: argv.drift !== false,
         json: Boolean(argv.json),
       });
       return;
-    case 'uninstall':
+    }
+    case 'uninstall': {
+      const { runUninstall } = await import('./commands/uninstall.js');
       await runUninstall({ yes: Boolean(argv.yes) });
       return;
+    }
     default:
       console.error(`Unknown command: ${cmd}`);
       console.error(USAGE_POINTER);
