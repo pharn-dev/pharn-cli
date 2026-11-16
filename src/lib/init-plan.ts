@@ -189,9 +189,9 @@ export function readPreviousConfig(cwd: string): PreviousConfig {
  * never cuts) and is followed by whitespace or the end; the whole text when
  * there is none. The period is dropped because the reason is printed inside
  * parentheses. Display only: an odd path in `ConfigParseError`'s message (a
- * directory named `a. b`) merely shortens the reason.
+ * directory named `a. b`) merely shortens the reason. Exported for its tests.
  */
-function firstSentence(text: string): string {
+export function firstSentence(text: string): string {
   let quoted = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];

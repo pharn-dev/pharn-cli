@@ -373,8 +373,28 @@ describe('previousChannelLines (re-run init, lib/init-plan.ts)', () => {
 // CORE-164: a re-run init over a config that EXISTS but cannot be read carries
 // nothing over — and the summary now says so, with the reason, instead of
 // dropping the manual capabilities silently.
-const { previousConfigLines, readPreviousConfig } =
+const { firstSentence, previousConfigLines, readPreviousConfig } =
   await import('../src/lib/init-plan.js');
+
+describe('firstSentence (the reason a thrown config error gives)', () => {
+  it.each([
+    ['cuts before the first sentence break', 'One. Two.', 'One'],
+    ['drops a final period', 'Only one.', 'Only one'],
+    ['keeps a text with no period whole', 'no period here', 'no period here'],
+    [
+      'never cuts inside a quoted span, escaped quotes included',
+      'found "a \\". b". Rest',
+      'found "a \\". b"',
+    ],
+    [
+      'never cuts at a period inside a word',
+      'pharn.config.json bad. x',
+      'pharn.config.json bad',
+    ],
+  ])('%s', (_, text, expected) => {
+    expect(firstSentence(text)).toBe(expected);
+  });
+});
 
 describe('previousConfigLines (re-run init, lib/init-plan.ts)', () => {
   it('is silent when the previous config was read, or there is none', () => {
