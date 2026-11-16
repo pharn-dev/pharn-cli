@@ -1,7 +1,5 @@
 import {
-  applyRootMoves,
   deleteRootDocs,
-  rootMigrationFailed,
   rootMigrationNoteLines,
 } from '../lib/root-migration.js';
 import { log, note, outro, spinner } from '@clack/prompts';
@@ -190,7 +188,6 @@ export async function runInstallArchetype(
   // The old root footprint a re-run retires (lib/root-migration.ts), planned
   // here, under the lock, against the same baseline. Null on a first install.
   const migration = initRootMigration(repoDir, cwd, carry);
-  const moveBackups = migration?.backups ?? [];
   // The config this install replaces is rewritten below (`seam` and `models`
   // reset), so an existing one is always saved too — in the SAME backup, even
   // alone (lib/backup.ts → replacedConfigBackup). None on a fresh install. The
@@ -198,11 +195,7 @@ export async function runInstallArchetype(
   // the same one backup.
   const overwriteBackups = [...scan.drifted, ...replacedConfigBackup(cwd)];
   const toBackUp = [
-    ...new Set([
-      ...overwriteBackups,
-      ...removalBackups(removals),
-      ...moveBackups,
-    ]),
+    ...new Set([...overwriteBackups, ...removalBackups(removals)]),
   ];
   // `unsafe` is empty after a passing pre-flight; non-empty means a link
   // appeared since, and installCapabilities' own pre-flight refuses the run —
@@ -214,7 +207,6 @@ export async function runInstallArchetype(
       const action = backupAction(
         overwriteBackups.length > 0,
         deletes.length > 0,
-        moveBackups.length > 0,
       );
       // Named at creation, so the pointer survives anything that fails after it.
       printBackupNotice({
@@ -274,7 +266,7 @@ export async function runInstallArchetype(
   const docResult =
     migration === null
       ? { deleted: [], kept: [] }
-      : deleteRootDocs(cwd, repoDir, migration.report.docs);
+      : deleteRootDocs(cwd, repoDir, migration.docs);
   const retired = new Set(docResult.deleted);
 
   // `.claude/settings.json` is user-owned: an existing one is preserved, never
@@ -452,17 +444,12 @@ export async function runInstallArchetype(
   const prettierignoreReport = prettierignoreLines(prettierignore);
   if (prettierignoreReport?.warn) log.warn(prettierignoreReport.text);
 
-  // The user-data moves, LAST — after every pharn-owned write — and the note
-  // that says what happened (the wording `update` prints too). A move that
-  // could not be made fails the run with exit 1 once the outro is out.
+  // The note that says what the migration did (the wording `update` prints
+  // too), after every pharn-owned write. The user data at the root is never
+  // moved — the note only hints at it (lib/root-migration.ts, CORE-158).
   if (migration !== null) {
-    const result = {
-      ...docResult,
-      ...applyRootMoves(cwd, migration.report.moves),
-    };
-    const lines = rootMigrationNoteLines(migration.report, result);
+    const lines = rootMigrationNoteLines(migration, docResult);
     if (lines) note(lines.join('\n'), 'ROOT MIGRATION');
-    if (rootMigrationFailed(migration.report, result)) process.exitCode = 1;
   }
 
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);

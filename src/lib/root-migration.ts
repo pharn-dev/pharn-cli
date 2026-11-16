@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, renameSync, unlinkSync } from 'node:fs';
+import { lstatSync, readdirSync, unlinkSync } from 'node:fs';
 import { readBoundedFile } from './bounded-read.js';
 import { PHARN_ROOT_FALLBACK_DOCS } from './constants.js';
 import { contentHash } from './hash.js';
@@ -6,7 +6,6 @@ import type { FileRecords } from './install-records.js';
 import { configLayout, resolveTrustedDocs } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { planUninstall } from './uninstall-plan.js';
-import { terminalSafe } from './terminal-safe.js';
 import { safeJoin } from './validate.js';
 import type { Layout, PharnConfig } from '../types.js';
 
@@ -25,19 +24,21 @@ import type { Layout, PharnConfig } from '../types.js';
 //             Anything else (edited, unrecorded, a symlink, unreadable, absent)
 //             is left alone. Exactly the two-entry PHARN_ROOT_FALLBACK_DOCS
 //             list: no record key ever becomes a delete path here.
-//   moves     `memory-bank/` and `pharn.spec-template.md`, the USER's data
-//             (pharn-oss's canon and the project's SPEC template). Moved —
-//             never merged — to pharn/, backed up first, only when the clone is
-//             SKILLS 7 or newer (the version that reads them there). Below 7
-//             this whole half is inert, which is what lets this CLI ship
-//             before pharn-oss moves.
+//   user data `memory-bank/` and `pharn.spec-template.md` at the root. PHARN
+//             7 reads them under pharn/, but nothing proves a root copy is
+//             PHARN's: `memory-bank/` is also Cline's Memory Bank directory,
+//             and a path's type is no proof of who wrote it. So they are NEVER
+//             moved, copied or deleted (CORE-158) — the note only HINTS at the
+//             command (`git mv`, or "merge by hand" when the pharn/ copy
+//             exists), when the clone is SKILLS 7 or newer.
 //   scratch   `.pharn/`, pharn-oss's runtime scratch. Never moved or deleted;
 //             only noticed (its `ci.yml` belongs to pharn-ci and stays).
 //   gitignore The user's `.gitignore`, read and never written: an entry for an
 //             old path gets its replacement printed.
 //
-// Planning reads; nothing here writes except `deleteRootDocs` and
-// `applyRootMoves`, which the caller runs under the project lock.
+// Below SKILLS 7 the hints and both notices are inert, which is what let this
+// CLI ship before pharn-oss moved. Planning reads; nothing here writes except
+// `deleteRootDocs`, which the caller runs under the project lock.
 //
 // One axis (P3): retiring the old root footprint of a pharn install.
 // ---------------------------------------------------------------------------
@@ -45,42 +46,38 @@ import type { Layout, PharnConfig } from '../types.js';
 /** What a run does with one old root doc. */
 export type RootDocAction =
   'delete' | 'keep-edited' | 'absent' | 'unverifiable';
-/** What a run does with one old root user-data path. */
-export type RootMoveAction =
-  'move' | 'conflict' | 'refused-symlink' | 'unreadable' | 'absent';
-
 export interface RootDocStep {
   rel: string;
   action: RootDocAction;
 }
 
-export interface RootMove {
+/**
+ * One old root user-data path that is still there, and the hint the note
+ * prints for it. `destination` says whether the pharn/ path already exists:
+ * `free` → a `git mv` hint; `exists` → "merge by hand" (a `git mv` would nest
+ * the folder inside the existing one). Never acted on.
+ */
+export interface RootUserDataHint {
   // Project-relative; a directory ends in `/`.
   from: string;
   to: string;
-  action: RootMoveAction;
+  destination: 'free' | 'exists';
 }
 
 /** The JSON-safe facts a preview shows and a real run acts on. */
 export interface RootMigration {
   docs: RootDocStep[];
-  moves: RootMove[];
+  userData: RootUserDataHint[];
   scratchNotice: boolean;
   gitignoreHints: string[];
 }
 
-/** The plan plus what only the writer needs. */
-export interface RootMigrationPlan {
-  report: RootMigration;
-  // Regular files the moves would back up first (project-relative).
-  backups: string[];
-}
+// The SKILLS_VERSION major from which pharn-oss reads the pharn/ paths: the
+// user-data hints, both notices and pendingRootMigration apply from it.
+export const ROOT_MIGRATION_FROM_MAJOR = 7;
 
-// The SKILLS_VERSION major from which the user-data moves apply.
-export const ROOT_MOVES_FROM_MAJOR = 7;
-
-// The user-data paths that move, in report order. Fixed literals (P5).
-const USER_DATA_MOVES: readonly { from: string; to: string; dir: boolean }[] = [
+// The old user-data paths, in report order. Fixed literals (P5).
+const USER_DATA_PATHS: readonly { from: string; to: string; dir: boolean }[] = [
   { from: 'memory-bank', to: 'pharn/memory-bank', dir: true },
   { from: 'pharn.spec-template.md', to: 'pharn/spec-template.md', dir: false },
 ];
@@ -126,22 +123,18 @@ export function planRootMigration(input: {
   installedLayout: Layout;
   skillsVersion: string;
   records: FileRecords | null;
-}): RootMigrationPlan | null {
+}): RootMigration | null {
   const { projectRoot, repoDir, layout, skillsVersion, records } = input;
   if (layout !== 'pharn' || input.installedLayout !== 'pharn') return null;
   const docs = planRootDocs(projectRoot, repoDir, records);
   const major = versionMajor(skillsVersion);
-  const movesApply = major !== null && major >= ROOT_MOVES_FROM_MAJOR;
-  if (!movesApply && docs.length === 0) return null;
-  const moves = movesApply ? planMoves(projectRoot) : [];
+  const sevenApplies = major !== null && major >= ROOT_MIGRATION_FROM_MAJOR;
+  if (!sevenApplies && docs.length === 0) return null;
   return {
-    report: {
-      docs,
-      moves: moves.map((m) => m.move),
-      scratchNotice: movesApply && scratchNotice(projectRoot),
-      gitignoreHints: movesApply ? gitignoreHints(projectRoot) : [],
-    },
-    backups: moves.flatMap((m) => m.backups),
+    docs,
+    userData: sevenApplies ? userDataHints(projectRoot) : [],
+    scratchNotice: sevenApplies && scratchNotice(projectRoot),
+    gitignoreHints: sevenApplies ? gitignoreHints(projectRoot) : [],
   };
 }
 
@@ -192,73 +185,33 @@ function classifyRootDoc(
   return 'unverifiable';
 }
 
-function planMoves(
-  projectRoot: string,
-): { move: RootMove; backups: string[] }[] {
-  return USER_DATA_MOVES.map(({ from, to, dir }) => {
+// One hint per old user-data path still at the root — any entry (lstat), for
+// pharn proves nothing about what it is; a path it cannot even lstat is left
+// out. `destination` is `exists` when the pharn/ path has an entry OR cannot be
+// checked (ENOTDIR, EACCES): the fail-safe answer, so the note never prints a
+// `git mv` that would nest the folder or fail. Reads only; nothing is moved.
+function userDataHints(projectRoot: string): RootUserDataHint[] {
+  const present = (rel: string): boolean | null => {
+    try {
+      return (
+        lstatSync(safeJoin(projectRoot, rel), { throwIfNoEntry: false }) !==
+        undefined
+      );
+    } catch {
+      return null;
+    }
+  };
+  const hints: RootUserDataHint[] = [];
+  for (const { from, to, dir } of USER_DATA_PATHS) {
+    if (present(from) !== true) continue;
     const shown = (rel: string): string => (dir ? `${rel}/` : rel);
-    const move = (action: RootMoveAction): RootMove => ({
+    hints.push({
       from: shown(from),
       to: shown(to),
-      action,
+      destination: present(to) === false ? 'free' : 'exists',
     });
-    let source;
-    try {
-      source = lstatSync(safeJoin(projectRoot, from), {
-        throwIfNoEntry: false,
-      });
-    } catch {
-      return { move: move('refused-symlink'), backups: [] };
-    }
-    if (source === undefined) return { move: move('absent'), backups: [] };
-    if (source.isSymbolicLink())
-      return { move: move('refused-symlink'), backups: [] };
-    // Only the expected type moves: a directory at memory-bank/, a regular
-    // file at the template. Anything else (a FIFO, a device, a directory named
-    // like the template) is not something pharn-oss wrote, and copying it for
-    // the backup could block or fail — refused, named, never moved.
-    if (dir ? !source.isDirectory() : !source.isFile())
-      return { move: move('unreadable'), backups: [] };
-    // The destination's parent chain (`pharn/`) may not be a link either.
-    let destLink: string | null;
-    let dest;
-    try {
-      destLink = findSymlinkComponent(projectRoot, to);
-      dest = lstatSync(safeJoin(projectRoot, to), { throwIfNoEntry: false });
-    } catch {
-      return { move: move('refused-symlink'), backups: [] };
-    }
-    if (destLink !== null)
-      return { move: move('refused-symlink'), backups: [] };
-    if (dest !== undefined) return { move: move('conflict'), backups: [] };
-    if (!dir) return { move: move('move'), backups: [from] };
-    // A move that cannot be backed up does not run — and must not fail the
-    // whole update either: an unreadable directory is this move's refusal.
-    try {
-      return {
-        move: move('move'),
-        backups: regularFilesUnder(projectRoot, from),
-      };
-    } catch {
-      return { move: move('unreadable'), backups: [] };
-    }
-  });
-}
-
-// Every REGULAR file under `rel`, depth-first, sorted; symlinks are neither
-// followed nor listed (the rename moves them as they are), and FIFOs, sockets
-// and devices are skipped (opening a FIFO blocks). Throws on an unreadable
-// directory; the caller turns that into the move's `unreadable` refusal.
-function regularFilesUnder(projectRoot: string, rel: string): string[] {
-  const out: string[] = [];
-  const names = readdirSync(safeJoin(projectRoot, rel)).sort();
-  for (const name of names) {
-    const child = `${rel}/${name}`;
-    const stat = lstatSync(safeJoin(projectRoot, child));
-    if (stat.isDirectory()) out.push(...regularFilesUnder(projectRoot, child));
-    else if (stat.isFile()) out.push(child);
   }
-  return out;
+  return hints;
 }
 
 // True when `.pharn/` is a real directory holding anything but pharn-ci's
@@ -353,78 +306,27 @@ function landed(projectRoot: string, repoDir: string, rel: string): boolean {
   }
 }
 
-/** One move the writer attempted and could not make, with why. */
-export interface RootMoveFailure {
-  move: RootMove;
-  reason: string;
-}
-
-/**
- * Make the planned `move`s: re-check, under the lock, that the source is still
- * a non-link and the destination still absent, then `renameSync` (atomic on one
- * filesystem; EXDEV and every other error leave the source where it was). The
- * caller backed the sources up first.
- */
-export function applyRootMoves(
-  projectRoot: string,
-  moves: readonly RootMove[],
-): { moved: RootMove[]; failed: RootMoveFailure[] } {
-  const moved: RootMove[] = [];
-  const failed: RootMoveFailure[] = [];
-  for (const move of moves) {
-    if (move.action !== 'move') continue;
-    const from = move.from.replace(/\/$/, '');
-    const to = move.to.replace(/\/$/, '');
-    try {
-      const source = lstatSync(safeJoin(projectRoot, from));
-      if (source.isSymbolicLink()) throw new Error('it is now a symbolic link');
-      if (findSymlinkComponent(projectRoot, to) !== null)
-        throw new Error(`a component of ${to} is a symbolic link`);
-      if (lstatSync(safeJoin(projectRoot, to), { throwIfNoEntry: false }))
-        throw new Error(`${to} now exists`);
-      renameSync(safeJoin(projectRoot, from), safeJoin(projectRoot, to));
-      moved.push(move);
-    } catch (err) {
-      failed.push({
-        move,
-        reason: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-  return { moved, failed };
-}
-
-/** True when a move step leaves the run failed (exit 1). */
-export function moveBlocks(action: RootMoveAction): boolean {
-  return (
-    action === 'conflict' ||
-    action === 'refused-symlink' ||
-    action === 'unreadable'
-  );
-}
-
 /**
  * The old root path a same-version `update` must re-open for, or null — the
  * local, read-only signal that keeps an install already at SKILLS 7 (updated
  * by an older CLI, which never ran this migration) from keeping its old root
- * footprint forever behind the early return. Two facts count, both only for a
- * pharn-layout install at SKILLS major ≥ 7:
+ * footprint forever behind the early return. One fact counts, only for a
+ * pharn-layout install at SKILLS major ≥ 7: a root doc the usable baseline
+ * records, still record-equal on disk, whose pharn/ counterpart is neither
+ * recorded NOR present on disk — the older CLI never copied it.
  *
- *   1. a root doc the usable baseline records, still record-equal on disk,
- *      whose pharn/ counterpart is neither recorded NOR present on disk — the
- *      older CLI never copied it;
- *   2. a user-data path (`memory-bank/`, the SPEC template) still at the root,
- *      of the expected type and not a link, whose destination is absent.
+ * User data at the root (`memory-bank/`, the SPEC template) never counts: the
+ * run would only print a hint for it (CORE-158), so re-opening for it would be
+ * a download that changes nothing.
  *
  * BOUNDED, and that is the contract: the opened run records the pharn/ doc and
- * deletes the root one, and moves the user data — after which neither fact
- * holds. Anything the opened run could NOT finish never counts: an edited root
- * doc, a pharn/ copy that is already there (recorded or not — the run skips an
- * unrecorded one rather than land it), a move onto existing data (`conflict`),
- * or a link. RESIDUAL, named: a SKILLS ≥ 7 pharn-oss that still shipped a doc
- * only at the root would make fact 1 fire on every run (each re-fetches, never
- * "Already up to date") — 7.0.0 is the version that moves them, so this rests
- * on that premise.
+ * deletes the root one — after which the fact no longer holds. Anything the
+ * opened run could NOT finish never counts: an edited root doc, a pharn/ copy
+ * that is already there (recorded or not — the run skips an unrecorded one
+ * rather than land it), or a link. RESIDUAL, named: a SKILLS ≥ 7 pharn-oss that
+ * still shipped a doc only at the root would make the fact fire on every run
+ * (each re-fetches, never "Already up to date") — 7.0.0 is the version that
+ * moves them, so this rests on that premise.
  */
 export function pendingRootMigration(
   projectRoot: string,
@@ -433,7 +335,7 @@ export function pendingRootMigration(
 ): string | null {
   if (configLayout(config) !== 'pharn') return null;
   const major = versionMajor(config.skillsVersion);
-  if (major === null || major < ROOT_MOVES_FROM_MAJOR) return null;
+  if (major === null || major < ROOT_MIGRATION_FROM_MAJOR) return null;
   if (records !== null) {
     for (const [pharnRel, rootRel] of Object.entries(
       PHARN_ROOT_FALLBACK_DOCS,
@@ -448,8 +350,6 @@ export function pendingRootMigration(
         return rootRel;
     }
   }
-  for (const m of planMoves(projectRoot))
-    if (m.move.action === 'move') return m.move.from;
   return null;
 }
 
@@ -470,8 +370,6 @@ function provablyAbsent(projectRoot: string, rel: string): boolean {
 export interface RootMigrationResult {
   deleted: string[];
   kept: string[];
-  moved: RootMove[];
-  failed: RootMoveFailure[];
 }
 
 /**
@@ -508,31 +406,18 @@ export function rootMigrationNoteLines(
       );
     }
   }
-  for (const move of m.moves) {
-    const { from, to, action } = move;
-    if (action === 'move') {
-      if (preview) lines.push(`  WOULD MOVE ${from} → ${to} (backed up first)`);
-      else {
-        const failure = result.failed.find((f) => f.move === move);
-        lines.push(
-          failure === undefined
-            ? `  moved ${from} → ${to}`
-            : `  NOT MOVED ${from}: ${terminalSafe(failure.reason)}. Nothing was moved; move it by hand.`,
-        );
-      }
-    } else if (action === 'conflict') {
+  // The user data is never moved (CORE-158): the same hint in the preview and
+  // after the run. Paths are fixed literals, never read from disk text.
+  for (const { from, to, destination } of m.userData) {
+    const bare = (rel: string): string => rel.replace(/\/$/, '');
+    if (destination === 'free')
       lines.push(
-        `  NOT MOVED ${from} — ${to} already exists. pharn never merges them: merge them by hand, then delete ${from}.`,
+        `  ${from} is at the project root; PHARN 7 reads ${to}. pharn does not move it. If it is PHARN's, move it: git mv ${bare(from)} ${bare(to)} (or mv, if git does not track it).`,
       );
-    } else if (action === 'refused-symlink') {
+    else
       lines.push(
-        `  NOT MOVED ${from} — it, or the way to ${to}, is a symbolic link. Move it by hand.`,
+        `  ${from} is at the project root, and ${to} already exists (or cannot be checked); PHARN 7 reads ${to}. pharn does not move or merge them. If the root copy is PHARN's, merge it into ${to} by hand, then delete ${from}.`,
       );
-    } else if (action === 'unreadable') {
-      lines.push(
-        `  NOT MOVED ${from} — it cannot be read, or it is not ${from.endsWith('/') ? 'a directory' : 'a regular file'}. Move it by hand.`,
-      );
-    }
   }
   if (m.scratchNotice)
     lines.push(
@@ -543,16 +428,4 @@ export function rootMigrationNoteLines(
       `  .gitignore names pharn's old paths. Replace them with: ${m.gitignoreHints.join(', ')} (pharn only appends its own entries; it never rewrites yours).`,
     );
   return lines.length > 0 ? lines : null;
-}
-
-/** True when the run must exit 1 for a move it could not make. */
-export function rootMigrationFailed(
-  m: RootMigration | null,
-  result: RootMigrationResult | null,
-): boolean {
-  if (m === null) return false;
-  return (
-    m.moves.some((move) => moveBlocks(move.action)) ||
-    (result?.failed.length ?? 0) > 0
-  );
 }

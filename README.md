@@ -184,8 +184,9 @@ Everything PHARN keeps in your project lives under `.claude/` and `pharn/`, plus
 the two JSON files at the root. An install made from a pharn-oss older than 7.0.0
 also has `THREAT-MODEL.md` and `LIMITS.md` at the root, and may have
 `memory-bank/` and `pharn.spec-template.md` there: the first `pharn update` to
-7.0.0 or later deletes the two docs if you never edited them and moves the other
-two under `pharn/` (backed up first, never merged) — see
+7.0.0 or later deletes the two docs if you never edited them. It never moves the
+other two (nothing proves they are PHARN's); it prints the `git mv` command, or
+says to merge by hand when the `pharn/` copy already exists — see
 [update](docs/commands/update.md#the-root-footprint-migration).
 
 **Two version numbers, on purpose.** The npm package `@pharn-dev/pharn` carries

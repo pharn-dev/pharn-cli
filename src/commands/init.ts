@@ -382,9 +382,7 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
           // under the lock; this is the preview.
           const migration = initRootMigration(repo.dir, cwd, carry);
           const migrationLines =
-            migration === null
-              ? null
-              : rootMigrationNoteLines(migration.report, null);
+            migration === null ? null : rootMigrationNoteLines(migration, null);
           if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
           overwrite = await confirmWriteTargets(repo.dir, cwd, selection, {
             manifest,

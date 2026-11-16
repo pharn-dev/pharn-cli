@@ -1123,39 +1123,30 @@ describe('root-footprint migration, end to end', () => {
     writeFileSync(at('.gitignore'), 'node_modules\n.pharn/\n.pharn-backup\n');
   }
 
-  it('previews, then retires the root footprint, and status is clean right after', async () => {
+  it('previews, then retires the root docs, leaves the user data with a hint, and status is clean right after', async () => {
     await oldInstallWithUserData();
     serveTip7(SHA_V2, '7.0.0');
 
     stdout = [];
     expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
     const preview = JSON.parse(stdout[0] ?? '') as MigrationJson;
+    // `moves` stays in the report (schemaVersion 1) and is always empty: the
+    // user data is never moved (CORE-158); the hint is text-only.
     expect(preview.plan?.rootMigration).toEqual({
       docs: [
         { rel: 'THREAT-MODEL.md', action: 'delete' },
         { rel: 'LIMITS.md', action: 'delete' },
       ],
-      moves: [
-        { from: 'memory-bank/', to: 'pharn/memory-bank/', action: 'move' },
-        {
-          from: 'pharn.spec-template.md',
-          to: 'pharn/spec-template.md',
-          action: 'move',
-        },
-      ],
+      moves: [],
       scratchNotice: true,
       gitignoreHints: ['pharn/.run/', 'pharn/.backup/'],
     });
-    // The preview counts what the moves back up, as the real run will.
-    expect(
-      (JSON.parse(stdout[0] ?? '') as { plan: { backups: string[] } }).plan
-        .backups,
-    ).toEqual(
-      expect.arrayContaining([
-        'memory-bank/lessons-learned.md',
-        'pharn.spec-template.md',
-      ]),
-    );
+    // Nothing of the user's data is backed up: nothing of it is touched.
+    const previewBackups = (
+      JSON.parse(stdout[0] ?? '') as { plan: { backups: string[] } }
+    ).plan.backups;
+    expect(previewBackups).not.toContain('memory-bank/lessons-learned.md');
+    expect(previewBackups).not.toContain('pharn.spec-template.md');
     // The preview wrote nothing.
     expect(existsSync(at('THREAT-MODEL.md'))).toBe(true);
     expect(existsSync(at('memory-bank'))).toBe(true);
@@ -1165,15 +1156,23 @@ describe('root-footprint migration, end to end', () => {
     expect(process.exitCode).toBeUndefined();
 
     // Named BEFORE it is applied (the confirm's note, printed under --yes too),
-    // then reported after.
+    // then reported after. Both carry the hint, never a move.
     const migrationNotes = vi
       .mocked(clack.note)
       .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
       .map(([body]) => String(body));
     expect(migrationNotes).toHaveLength(2);
     expect(migrationNotes[0]).toContain('WOULD DELETE THREAT-MODEL.md');
-    expect(migrationNotes[0]).toContain('WOULD MOVE memory-bank/');
     expect(migrationNotes[1]).toContain('deleted THREAT-MODEL.md');
+    for (const body of migrationNotes) {
+      expect(body).not.toContain('MOVE');
+      expect(body).toContain(
+        "If it is PHARN's, move it: git mv memory-bank pharn/memory-bank (or mv, if git does not track it).",
+      );
+      expect(body).toContain(
+        'git mv pharn.spec-template.md pharn/spec-template.md',
+      );
+    }
 
     // The docs: gone from the root, at pharn/, and recorded there only.
     expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
@@ -1189,15 +1188,15 @@ describe('root-footprint migration, end to end', () => {
     expect(files['pharn/LIMITS.md']).toBe(sha256('pharn/LIMITS.md'));
     expect(config().skillsVersion).toBe('7.0.0');
 
-    // The user's data: moved, never merged, and backed up first.
-    expect(existsSync(at('memory-bank'))).toBe(false);
-    expect(read('pharn/memory-bank/lessons-learned.md')).toBe('lesson\n');
-    expect(existsSync(at('pharn.spec-template.md'))).toBe(false);
-    expect(read('pharn/spec-template.md')).toBe('template\n');
-    const backed = projectFiles().filter((f) => f.startsWith('pharn/.backup/'));
+    // The user's data: left exactly where and as it was (CORE-158) — not
+    // moved, not copied, not backed up.
+    expect(read('memory-bank/lessons-learned.md')).toBe('lesson\n');
+    expect(read('pharn.spec-template.md')).toBe('template\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
+    expect(existsSync(at('pharn/spec-template.md'))).toBe(false);
     expect(
-      backed.map((f) => f.replace(/^pharn\/\.backup\/[^/]+\//, '')),
-    ).toEqual(['memory-bank/lessons-learned.md', 'pharn.spec-template.md']);
+      projectFiles().filter((f) => f.startsWith('pharn/.backup/')),
+    ).toEqual([]);
     // The scratch dir is only noticed. The user's .gitignore lines are kept
     // byte for byte (the old names are hinted at, never rewritten) and pharn's
     // block is appended after them (lib/gitignore.ts).
@@ -1207,14 +1206,17 @@ describe('root-footprint migration, end to end', () => {
     );
 
     // Nothing of pharn's at the root but .claude/, pharn/ and the JSON files;
-    // `.gitignore` and `.pharn/` are the user's and pharn-oss's.
+    // `.gitignore` and `.pharn/` are the user's and pharn-oss's, and
+    // `memory-bank/` and the template are the user's to place.
     expect(rootEntries()).toEqual([
       '.claude',
       '.gitignore',
       '.pharn',
+      'memory-bank',
       'pharn',
       'pharn.config.json',
       'pharn.records.json',
+      'pharn.spec-template.md',
     ]);
 
     // status is clean immediately after: no drift, no orphans, --strict passes.
@@ -1240,25 +1242,55 @@ describe('root-footprint migration, end to end', () => {
     ).toBe(false);
   });
 
-  it('keeps an edited root doc as an orphan, refuses a move onto existing data, and exits 1', async () => {
+  it('keeps an edited root doc as an orphan; with memory-bank/ at both places it says merge by hand and exits 0', async () => {
     await oldInstallWithUserData();
     writeFileSync(at('LIMITS.md'), 'my limits\n');
     mkdirSync(at('pharn/memory-bank'));
     writeFileSync(at('pharn/memory-bank/other.md'), 'other\n');
     serveTip7(SHA_V2, '7.0.0');
 
+    vi.mocked(clack.note).mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    expect(process.exitCode).toBe(1);
+    // Both copies present is not a failure any more (CORE-158).
+    expect(process.exitCode).toBeUndefined();
 
     expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
     expect(read('LIMITS.md')).toBe('my limits\n');
     // Kept docs keep their record: still a listed orphan.
     expect(records().files['LIMITS.md']).toBeDefined();
-    // Never merged: both trees untouched.
+    // Never merged: both trees untouched. The template is not moved either,
+    // although its destination is free.
     expect(read('memory-bank/lessons-learned.md')).toBe('lesson\n');
     expect(readdirSync(at('pharn/memory-bank'))).toEqual(['other.md']);
-    // The template's destination was free, so that move still happened.
-    expect(read('pharn/spec-template.md')).toBe('template\n');
+    expect(read('pharn.spec-template.md')).toBe('template\n');
+    expect(existsSync(at('pharn/spec-template.md'))).toBe(false);
+
+    const notes = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
+      .map(([body]) => String(body))
+      .join('\n');
+    expect(notes).toContain(
+      'merge it into pharn/memory-bank/ by hand, then delete memory-bank/.',
+    );
+    // Never a `git mv` that would nest memory-bank/ inside the existing copy.
+    expect(notes).not.toContain('git mv memory-bank');
+    expect(notes).toContain(
+      'git mv pharn.spec-template.md pharn/spec-template.md',
+    );
+  });
+
+  it('update --force leaves the user data where it is too', async () => {
+    await oldInstallWithUserData();
+    serveTip7(SHA_V2, '7.0.0');
+    expect(await run(() => runUpdate({ yes: true, force: true }))).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+    expect(read('memory-bank/lessons-learned.md')).toBe('lesson\n');
+    expect(read('pharn.spec-template.md')).toBe('template\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
+    expect(existsSync(at('pharn/spec-template.md'))).toBe(false);
+    // The record-proved root docs are still retired.
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
   });
 
   it('is inert against a pre-7.0 tree: nothing moves, and the report says null', async () => {
@@ -1298,14 +1330,129 @@ describe('root-footprint migration, end to end', () => {
     expect(records().files['pharn/LIMITS.md']).toBeDefined();
   });
 
-  it('re-opens the same-version return for user data still at the root of a 7.x install', async () => {
+  it('does NOT re-open the same-version return for user data at the root of a 7.x install', async () => {
     serveTip7(SHA_V1, '7.0.0');
     await init();
     mkdirSync(at('memory-bank'));
     writeFileSync(at('memory-bank/canon.md'), 'canon\n');
+    const before = read('pharn.records.json');
+    fetchStub.mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    expect(read('pharn/memory-bank/canon.md')).toBe('canon\n');
-    expect(existsSync(at('memory-bank'))).toBe(false);
+    expect(process.exitCode).toBeUndefined();
+    // "Already up to date": no download, nothing rewritten, nothing moved.
+    expect(
+      fetchStub.mock.calls.some(([u]) =>
+        String(u).startsWith('https://codeload'),
+      ),
+    ).toBe(false);
+    expect(read('pharn.records.json')).toBe(before);
+    expect(read('memory-bank/canon.md')).toBe('canon\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
+  });
+
+  it('a plan whose only root-migration content is a user-data hint changes nothing: no write, the hint printed', async () => {
+    serveTip7(SHA_V1, '7.0.0');
+    await init();
+    mkdirSync(at('memory-bank'));
+    writeFileSync(at('memory-bank/canon.md'), 'canon\n');
+    // `--force` skips the same-version early return, so the run plans; with
+    // every file at upstream, the hint is all the root migration has.
+    stdout = [];
+    expect(
+      await run(() => runUpdate({ dryRun: true, json: true, force: true })),
+    ).toBeNull();
+    expect(
+      (JSON.parse(stdout[0] ?? '') as MigrationJson).plan?.rootMigration,
+    ).toEqual({
+      docs: [
+        { rel: 'THREAT-MODEL.md', action: 'absent' },
+        { rel: 'LIMITS.md', action: 'absent' },
+      ],
+      moves: [],
+      scratchNotice: false,
+      gitignoreHints: [],
+    });
+    const configBefore = read('pharn.config.json');
+    const recordsBefore = read('pharn.records.json');
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runUpdate({ yes: true, force: true }))).toBeNull();
+    expect(process.exitCode).toBeUndefined();
+    // changesNothing: neither state file is rewritten (no `updatedAt`).
+    expect(read('pharn.config.json')).toBe(configBefore);
+    expect(read('pharn.records.json')).toBe(recordsBefore);
+    expect(read('memory-bank/canon.md')).toBe('canon\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
+    expect(
+      vi
+        .mocked(clack.note)
+        .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
+        .map(([body]) => String(body))
+        .join('\n'),
+    ).toContain('git mv memory-bank pharn/memory-bank');
+  });
+
+  it('a first init prints no ROOT MIGRATION note, even with memory-bank/ at the root', async () => {
+    serveTip7(SHA_V1, '7.0.0');
+    mkdirSync(at('memory-bank'));
+    writeFileSync(at('memory-bank/canon.md'), 'canon\n');
+    vi.mocked(clack.note).mockClear();
+    await init();
+    expect(
+      vi
+        .mocked(clack.note)
+        .mock.calls.some(([, title]) => title === 'ROOT MIGRATION'),
+    ).toBe(false);
+    expect(read('memory-bank/canon.md')).toBe('canon\n');
+  });
+
+  it('a re-run init hints at memory-bank/ and never moves it (dry run and real run)', async () => {
+    serveTip7(SHA_V1, '7.0.0');
+    await init();
+    mkdirSync(at('memory-bank'));
+    writeFileSync(at('memory-bank/canon.md'), 'canon\n');
+    const migrationNotes = (): string[] =>
+      vi
+        .mocked(clack.note)
+        .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
+        .map(([body]) => String(body));
+    const HINT = 'git mv memory-bank pharn/memory-bank';
+
+    vi.mocked(clack.note).mockClear();
+    expect(await run(() => runInit({ dryRun: true }))).toBeNull();
+    expect(migrationNotes().join('\n')).toContain(HINT);
+
+    // `init --yes` refuses every re-install, so the real re-run is the
+    // interactive one: a terminal, the summary answered "install" and the
+    // overwrite prompt "yes" — for this one case only.
+    const tty = (stream: NodeJS.ReadStream | NodeJS.WriteStream): void => {
+      Object.defineProperty(stream, 'isTTY', {
+        value: true,
+        configurable: true,
+      });
+    };
+    const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    tty(process.stdin);
+    tty(process.stdout);
+    vi.mocked(clack.select).mockResolvedValueOnce('install');
+    vi.mocked(clack.confirm).mockResolvedValueOnce(true);
+    vi.mocked(clack.note).mockClear();
+    try {
+      expect(await run(() => runInit({}))).toBeNull();
+    } finally {
+      for (const [stream, desc] of [
+        [process.stdin, stdinTTY],
+        [process.stdout, stdoutTTY],
+      ] as const) {
+        if (desc) Object.defineProperty(stream, 'isTTY', desc);
+        else delete (stream as { isTTY?: boolean }).isTTY;
+      }
+    }
+    expect(process.exitCode).toBeUndefined();
+    expect(vi.mocked(clack.select)).toHaveBeenCalled();
+    expect(migrationNotes().join('\n')).toContain(HINT);
+    expect(read('memory-bank/canon.md')).toBe('canon\n');
+    expect(existsSync(at('pharn/memory-bank'))).toBe(false);
   });
 
   it('points at an old root .pharn-backup/ and leaves it alone', async () => {

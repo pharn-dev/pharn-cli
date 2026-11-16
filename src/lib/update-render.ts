@@ -472,13 +472,9 @@ export function reportDryRun(
       'WOULD DELETE — directories of capabilities dropped from your config',
     rels: deletes.map((removal) => `${removal.dir}/`),
   });
-  // The one backup directory a real run makes holds all three sets.
+  // The one backup directory a real run makes holds both sets.
   const backupRels = [
-    ...new Set([
-      ...r.backups,
-      ...r.removals.flatMap((x) => x.backups),
-      ...r.rootMoveBackups,
-    ]),
+    ...new Set([...r.backups, ...r.removals.flatMap((x) => x.backups)]),
   ];
   const lines: string[] = [];
   for (const { heading, rels } of sections) {
@@ -608,10 +604,6 @@ const ABORTED_PHRASE: Record<BackupAction, string> = {
   overwriting: 'overwritten',
   removing: 'removed',
   'overwriting and removing': 'overwritten or removed',
-  moving: 'moved',
-  'overwriting and moving': 'overwritten or moved',
-  'removing and moving': 'removed or moved',
-  'overwriting, removing and moving': 'overwritten, removed or moved',
 };
 
 // The order change groups are reported in — additions first, then departures,

@@ -1,4 +1,4 @@
-import type { RootDocAction, RootMoveAction } from './root-migration.js';
+import type { RootDocAction } from './root-migration.js';
 import type {
   HookEntry,
   HookReplacement,
@@ -93,12 +93,14 @@ export interface UpdateReport {
     featuresReadmeRelocation: boolean;
     // The old ROOT footprint of a pharn-layout install this run would retire
     // (lib/root-migration.ts): root THREAT-MODEL.md / LIMITS.md deleted or kept,
-    // `memory-bank/` and the SPEC template moved under pharn/, and two notices.
-    // ALWAYS present (added within 1); `null` when nothing applies — a flat
-    // clone, or one below SKILLS 7 that still keeps both docs at the root.
+    // and two notices. ALWAYS present (added within 1); `null` when nothing
+    // applies — a flat clone, or one below SKILLS 7 that still keeps both docs
+    // at the root. `moves` is ALWAYS `[]` (CORE-158): the user data is never
+    // moved, its hint is text-only, and dropping the key would not be additive
+    // under schemaVersion 1.
     rootMigration: {
       docs: { rel: string; action: RootDocAction }[];
-      moves: { from: string; to: string; action: RootMoveAction }[];
+      moves: [];
       scratchNotice: boolean;
       gitignoreHints: string[];
     } | null;
@@ -241,11 +243,7 @@ function planReport(
               rel: d.rel,
               action: d.action,
             })),
-            moves: p.rootMigration.moves.map((m) => ({
-              from: m.from,
-              to: m.to,
-              action: m.action,
-            })),
+            moves: [],
             scratchNotice: p.rootMigration.scratchNotice,
             gitignoreHints: [...p.rootMigration.gitignoreHints],
           },
@@ -286,10 +284,9 @@ function planReport(
         }
       : {}),
     writes: [...p.writes],
-    // The `--force` casualties (and the config), plus the files the root
-    // migration's moves back up — every file the one backup directory holds
-    // except a dropped capability's, which its removal lists.
-    backups: [...new Set([...p.backups, ...p.rootMoveBackups])],
+    // The `--force` casualties (and the config) — every file the one backup
+    // directory holds except a dropped capability's, which its removal lists.
+    backups: [...new Set(p.backups)],
     skipped: p.skipped.map((g) => ({ label: g.label, rels: [...g.rels] })),
     counts: {
       updated: p.counts.updated,

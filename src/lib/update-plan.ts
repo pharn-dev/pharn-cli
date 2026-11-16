@@ -144,10 +144,6 @@ export interface UpdatePlanReport {
   // when nothing applies (a flat clone, or one below SKILLS 7 that still keeps
   // both docs at the root).
   rootMigration: RootMigration | null;
-  // The files the user-data moves copy to `pharn/.backup/` first — the same
-  // list `apply.rootMoveBackups` hands the writer, so the preview cannot
-  // under-report the real run's backup.
-  rootMoveBackups: string[];
   // What this run adds to the project's `.gitignore` (lib/gitignore.ts):
   // `none` when it already covers pharn's entries. Re-planned under the lock
   // by the writer, like every other read-only answer here.
@@ -186,8 +182,6 @@ export interface UpdateApplyInputs {
   frozenKeys: string[];
   // The paths the removals are addressed at (the config's recorded layout).
   removalPaths: LayoutPaths;
-  // Regular files the user-data moves back up first (lib/root-migration.ts).
-  rootMoveBackups: string[];
   // The paths `.prettierignore` must cover (report.prettierignore's input).
   prettierignorePaths: string[];
 }
@@ -370,8 +364,8 @@ export function buildUpdatePlan(input: {
   // usable baseline. A root doc it deletes leaves the orphan list and the
   // carried records: it is retired by this run, not left behind. A doc it KEEPS
   // (edited, unverifiable) stays an orphan — listed, its record carried.
-  // Held while the executable unit is held: the migration moves and deletes
-  // paths the OLD floor still reads, so it waits for the run that upgrades the
+  // Held while the executable unit is held: the migration deletes paths the
+  // OLD floor still reads, so it waits for the run that upgrades the
   // unit (pendingRootMigration re-opens it then).
   const rootMigration =
     plan.held !== null
@@ -385,7 +379,7 @@ export function buildUpdatePlan(input: {
           records,
         });
   const retired = new Set(
-    (rootMigration?.report.docs ?? [])
+    (rootMigration?.docs ?? [])
       .filter((d) => d.action === 'delete')
       .map((d) => d.rel),
   );
@@ -463,8 +457,7 @@ export function buildUpdatePlan(input: {
     unknownWarning,
     unknownCapabilities: index.unknown,
     orphans,
-    rootMigration: rootMigration?.report ?? null,
-    rootMoveBackups: rootMigration?.backups ?? [],
+    rootMigration,
     gitignore: planGitignore(cwd),
     prettierignore: planPrettierignore(cwd, prettierignorePaths),
   };
@@ -481,7 +474,6 @@ export function buildUpdatePlan(input: {
     nextCommit,
     frozenKeys,
     removalPaths,
-    rootMoveBackups: rootMigration?.backups ?? [],
     prettierignorePaths,
   };
   const stateChanges = planStateChanges({

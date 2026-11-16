@@ -202,8 +202,9 @@ export function planStateChanges(input: {
 
 /**
  * Everything but the two state files: the run writes no file, deletes no
- * capability directory and no root doc, moves no user data, and adds nothing
- * to `.gitignore` or `.prettierignore`. The dry run also reads it alone, to
+ * capability directory and no root doc, and adds nothing to `.gitignore` or
+ * `.prettierignore`. A user-data hint (lib/root-migration.ts) changes nothing:
+ * pharn never moves user data (CORE-158). The dry run also reads it alone, to
  * say when the state files are ALL a run would change.
  */
 export function changesNoFiles(
@@ -216,9 +217,6 @@ export function changesNoFiles(
     report.writes.length === 0 &&
     !report.removals.some((r) => r.present) &&
     !(report.rootMigration?.docs ?? []).some((d) => d.action === 'delete') &&
-    // User-data moves (lib/root-migration.ts) — one clause, so it goes in one
-    // deletion when the migration stops moving data.
-    !(report.rootMigration?.moves ?? []).some((m) => m.action === 'move') &&
     !gitignorePending(report.gitignore) &&
     !prettierignorePending(report.prettierignore)
   );

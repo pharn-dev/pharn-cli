@@ -168,30 +168,17 @@ export function legacyBackupNotice(projectRoot: string): string | null {
 
 /** What a backup was made ahead of — the notice's closing phrase. */
 export type BackupAction =
-  | 'overwriting'
-  | 'removing'
-  | 'overwriting and removing'
-  | 'moving'
-  | 'overwriting and moving'
-  | 'removing and moving'
-  | 'overwriting, removing and moving';
+  'overwriting' | 'removing' | 'overwriting and removing';
 
-// What a backup was made ahead of: overwrites (`--force` casualties), directory
-// deletes and/or user-data moves (lib/root-migration.ts). With none, no backup
-// exists (a backup always has a reason, so `overwriting` is the honest default).
+// What a backup was made ahead of: overwrites (`--force` casualties) and/or
+// directory deletes. With neither, no backup exists (a backup always has a
+// reason, so `overwriting` is the honest default).
 export function backupAction(
   overwrites: boolean,
   removals: boolean,
-  moves = false,
 ): BackupAction {
-  const parts = [
-    ...(overwrites ? ['overwriting'] : []),
-    ...(removals ? ['removing'] : []),
-    ...(moves ? ['moving'] : []),
-  ];
-  if (parts.length === 0) return 'overwriting';
-  if (parts.length === 1) return parts[0] as BackupAction;
-  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` as BackupAction;
+  if (overwrites && removals) return 'overwriting and removing';
+  return removals ? 'removing' : 'overwriting';
 }
 
 /** The facts a backup notice states, for every command that makes a backup. */
