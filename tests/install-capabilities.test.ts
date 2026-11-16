@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   linkSync,
   lstatSync,
@@ -20,6 +21,7 @@ import {
 } from '../src/lib/install-capabilities.js';
 import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
+import { ApplyError } from '../src/lib/apply-update.js';
 import type { InstalledCapability, Selection } from '../src/types.js';
 
 function write(path: string, content = 'x'): void {
@@ -119,13 +121,10 @@ describe('installCapabilities', () => {
     return { repo, proj, result };
   }
 
-  // F-19 pin. A hard link is invisible to every symlink walk, so the copy itself
-  // must replace a destination by name rather than write into its inode.
-  // Measured on Node 24.13.1: a single-file `cpSync(…, {force: true})` and a
-  // recursive `cpSync` WITH a `filter` unlink the destination first (Node's JS
-  // path), while a recursive `cpSync` WITHOUT a filter (Node's native path)
-  // writes through the link. Every recursive copy here passes a filter; this
-  // fails if one stops doing so, or a Node upgrade moves the filtered path.
+  // F-19 pin. A hard link is invisible to every symlink walk, so the write itself
+  // must replace a destination by name rather than write into its inode. Every
+  // install file goes through applyWrites → copyFileAtomicSync (exclusive temp,
+  // then rename); one destination per surface proves no surface bypasses it.
   it('never writes through a HARD-LINKED destination (outside bytes survive)', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -288,6 +287,121 @@ describe('installCapabilities', () => {
     );
   });
 
+  // The exclusive create never opens an existing name, so a HARD-LINKED
+  // settings.json keeps its bytes under both names.
+  it('never writes a HARD-LINKED existing .claude/settings.json', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    const outside = join(tmp.path(), 'outside-settings.json');
+    scaffoldRepo(repo);
+    writeFileSync(outside, '{"outside":true}');
+    mkdirSync(join(proj, '.claude'), { recursive: true });
+    linkSync(outside, join(proj, '.claude/settings.json'));
+
+    const result = installCapabilities(repo, proj, selection());
+
+    expect(result.settingsPreserved).toBe(true);
+    expect(readFileSync(outside, 'utf8')).toBe('{"outside":true}');
+    expect(readFileSync(join(proj, '.claude/settings.json'), 'utf8')).toBe(
+      '{"outside":true}',
+    );
+  });
+
+  // The changed-since-plan compare (C5.2): a file whose bytes differ from what
+  // the caller's scan saw is backed up — one announced backup — then written.
+  it('backs up, then overwrites, a file edited since the scan (`seen`)', () => {
+    const repo = join(tmp.path(), 'repo');
+    const proj = join(tmp.path(), 'proj');
+    scaffoldRepo(repo);
+    write(join(proj, 'CONSTITUTION.md'), 'edited after the scan');
+
+    const result = installCapabilities(
+      repo,
+      proj,
+      selection(),
+      undefined,
+      new Map([['CONSTITUTION.md', null]]),
+    );
+
+    expect(result.docs).toContain('CONSTITUTION.md');
+    expect(readFileSync(join(proj, 'CONSTITUTION.md'), 'utf8')).toBe('C');
+    const backups = readdirSync(join(proj, 'pharn/.backup'));
+    expect(backups).toHaveLength(1);
+    expect(
+      readFileSync(
+        join(proj, 'pharn/.backup', backups[0]!, 'CONSTITUTION.md'),
+        'utf8',
+      ),
+    ).toBe('edited after the scan');
+  });
+
+  // A write that fails part-way throws an ApplyError carrying what landed, so
+  // init/add can name those files; the caller writes no records or config.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'a write failing part-way throws an ApplyError naming what was written',
+    () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      scaffoldRepo(repo);
+      mkdirSync(join(proj, '.dev/floor'), { recursive: true });
+      chmodSync(join(proj, '.dev/floor'), 0o555);
+      try {
+        let caught: unknown;
+        try {
+          installCapabilities(repo, proj, selection());
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(ApplyError);
+        const { written, message } = caught as ApplyError;
+        expect(message).toMatch(/^Failed to write \.dev\/floor\//);
+        expect(written).toContain('CONSTITUTION.md');
+        expect(written.some((rel) => rel.startsWith('.dev/floor/'))).toBe(
+          false,
+        );
+        expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false);
+      } finally {
+        chmodSync(join(proj, '.dev/floor'), 0o755);
+      }
+    },
+  );
+
+  // The second pass of the changed-file path keeps the first pass's paths.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'a failure while writing the changed files still carries every written path',
+    () => {
+      const repo = join(tmp.path(), 'repo');
+      const proj = join(tmp.path(), 'proj');
+      scaffoldRepo(repo);
+      // The only manifest file in its directory, so only the second pass fails.
+      const rel = 'pharn-contracts/finding-shape.md';
+      write(join(proj, rel), 'edited after the scan');
+      chmodSync(join(proj, 'pharn-contracts'), 0o555);
+      try {
+        let caught: unknown;
+        try {
+          installCapabilities(
+            repo,
+            proj,
+            selection(),
+            undefined,
+            new Map([[rel, null]]),
+          );
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(ApplyError);
+        const { written, message } = caught as ApplyError;
+        expect(message).toMatch(/^Failed to write pharn-contracts\//);
+        expect(written).toContain('CONSTITUTION.md');
+        expect(written).toContain('.dev/floor/validate.mjs');
+        expect(written).not.toContain(rel);
+      } finally {
+        chmodSync(join(proj, 'pharn-contracts'), 0o755);
+      }
+    },
+  );
+
   it('rejects a selected capability whose name escapes the base (P2 safeJoin)', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -319,11 +433,6 @@ describe('installCapabilities', () => {
       false,
     );
   });
-
-  // --- symlink rejection (P2): the fetched repo is untrusted; a recursive cpSync
-  // copies symlinks verbatim by default, so a malicious clone could plant one
-  // into the user's tree. Sources below point at REAL files so existsSync passes
-  // and the isSymlink/filter guards (not the missing-source path) are exercised.
 
   it('installs features/README.md at the project root (flat layout)', () => {
     const { proj } = run();
@@ -396,18 +505,21 @@ describe('installCapabilities', () => {
     expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
   });
 
-  // Same shape with the source PRESENT: cpSync would throw ENOTDIR on that tree
-  // anyway, so one optional surface is skipped rather than failing the install.
-  it('skips the copy (does not throw) when the project has a FILE named features', () => {
+  // Same shape with the source PRESENT: the README is a manifest entry like any
+  // other, so a FILE where its directory belongs is refused by the pre-flight
+  // before anything is written — the writer would otherwise fail part-way.
+  it('refuses, writing nothing, when the project has a FILE named features', () => {
     const repo = join(tmp.path(), 'filefeat-repo');
     const proj = join(tmp.path(), 'filefeat-proj');
     mkdirSync(proj, { recursive: true });
     scaffoldRepo(repo);
     write(join(proj, 'features'), 'a regular file');
 
-    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /Refusing to install: features is in the way.*Move or rename it/,
+    );
     expect(readFileSync(join(proj, 'features'), 'utf8')).toBe('a regular file');
-    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+    expect(readdirSync(proj)).toEqual(['features']);
   });
 
   // The floor ships the deterministic checkers the installed product commands
@@ -457,10 +569,10 @@ describe('installCapabilities', () => {
     ).toBe('KEEP ME');
   });
 
-  // THE ANCHOR CASE. cpSync hands the filter an ABSOLUTE path and calls it for
-  // the source ROOT too, so an unanchored segment test would match an ANCESTOR
-  // directory named `test-fixtures`, return false for the root, and copy NOTHING
-  // — silently shipping no floor at all. The failure is invisible without this.
+  // THE ANCHOR CASE. The floor filter must test the FLOOR-relative path: one
+  // that matched a segment of the absolute path would hit an ANCESTOR directory
+  // named `test-fixtures` and drop every floor file — silently shipping no
+  // floor at all. The failure is invisible without this.
   it('installs the whole floor even when an ANCESTOR dir is named test-fixtures', () => {
     const repo = join(tmp.path(), 'test-fixtures', 'repo');
     const proj = join(tmp.path(), 'test-fixtures', 'proj');
@@ -502,9 +614,8 @@ describe('installCapabilities', () => {
     );
   });
 
-  // THE DATA-LOSS REGRESSION. An identity-mapped `LICENSE` entry would cpSync
-  // upstream's text over the user's own root LICENSE with `{ force: true }` and
-  // no prompt. The two files carry DIFFERENT bytes on purpose — with identical
+  // THE DATA-LOSS REGRESSION. An identity-mapped `LICENSE` entry would write
+  // upstream's text over the user's own root LICENSE with no prompt. The two files carry DIFFERENT bytes on purpose — with identical
   // content this assertion would pass no matter which file won.
   it("never touches the project's own root LICENSE", () => {
     const repo = join(tmp.path(), 'lic-repo');
@@ -845,9 +956,8 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
 });
 
 // PHARN-02: every install destination crossing a symlinked project directory is
-// refused BEFORE the first write — `safeJoin` is lexical and `cpSync` follows a
-// link, so without this a symlinked `.claude/commands` or `pharn/` received the
-// install outside the project.
+// refused BEFORE the first write — `safeJoin` is lexical, and the writer's own
+// per-file walk would refuse only after the files before it landed.
 describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', () => {
   const tmp = useTmpDir();
 
@@ -896,10 +1006,9 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     },
   );
 
-  // A DANGLING link does not exist to `existsSync`, so the install would write
-  // upstream's settings there. Measured on Node 20.13, 22 and 24: cpSync then
-  // REPLACES the link with a regular file (nothing lands outside the project),
-  // so the user's link would be lost without a word. Refused, link untouched.
+  // A DANGLING link does not exist to `existsSync`. The exclusive create would
+  // leave it alone, but then the install has no settings and says nothing, so
+  // it is refused up front with the reason; the link is untouched.
   it('refuses a DANGLING .claude/settings.json link, leaving the link as it was', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -1053,9 +1162,9 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
 });
 
 // PHARN-16: a TYPE collision (a directory where the install writes a file, or a
-// file where it needs a directory) used to surface from cpSync part-way,
-// leaving ~300 new files with no config and no records. It is now refused
-// before the first write, and the whole tree is left byte-identical.
+// file where it needs a directory) would surface from the writer part-way,
+// leaving ~300 new files with no config and no records. It is refused before
+// the first write, and the whole tree is left byte-identical.
 describe('installCapabilities — destination type pre-flight (PHARN-16)', () => {
   const tmp = useTmpDir();
 
@@ -1143,17 +1252,21 @@ describe('installCapabilities — destination type pre-flight (PHARN-16)', () =>
     expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
   });
 
-  it('skips (does not refuse) a directory at the optional features/README.md', () => {
+  // The features README is a manifest entry like any other: a directory where
+  // it belongs is refused, before anything is written.
+  it('refuses a directory at features/README.md, writing nothing', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
     write(join(proj, 'features/README.md/keep.txt'), 'USER');
 
-    expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      'Refusing to install: features/README.md is in the way',
+    );
     expect(
       readFileSync(join(proj, 'features/README.md/keep.txt'), 'utf8'),
     ).toBe('USER');
-    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
   });
 });
 
@@ -1172,7 +1285,7 @@ describe('prepareInstall', () => {
 
     expect(readdirSync(proj)).toEqual([]);
     expect(prepared.paths.layout).toBe('flat');
-    expect(prepared.featuresRel).toBe('features/README.md');
+    expect(prepared.manifest.has('features/README.md')).toBe(true);
     expect([...prepared.manifest.keys()].sort()).toEqual(
       [
         ...collectExpectedInstallPaths({

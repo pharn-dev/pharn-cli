@@ -80,6 +80,8 @@ const MSG = {
     'A --json report escapes through serializeJsonReport (src/lib/json-report.ts), never its own escapeUnsafe call: one serializer, one escape.',
   cloneProducer:
     'fetchRepo (src/lib/repo.ts) is the only producer of a clone tree: clone-side readers skip symlink checks because of that invariant (CORE-173).',
+  noCpSync:
+    "Write install files through applyWrites (src/lib/apply-update.ts), never fs.cp/cpSync: a recursive copy follows a symlinked destination directory and, unfiltered, writes into a hard-linked file's inode.",
 };
 
 const reportModules = readdirSync(new URL('./src/lib/', import.meta.url))
@@ -239,6 +241,15 @@ const INVARIANTS = [
     },
     except: ['src/lib/repo.ts', 'src/lib/tar-extract.ts'],
   },
+  {
+    rule: 'no-restricted-syntax',
+    kind: 'syntax',
+    entry: {
+      selector:
+        "Identifier[name='cpSync'], ImportSpecifier[imported.name='cp']",
+      message: MSG.noCpSync,
+    },
+  },
 ];
 
 /** The entries that apply to `file` (null = an ordinary src file). */
@@ -253,7 +264,8 @@ function ruleSetting(rule, file) {
     (e) => e.rule === rule && appliesTo(e, file),
   );
   if (entries.length === 0) return 'off';
-  const of = (kind) => entries.filter((e) => e.kind === kind).map((e) => e.entry);
+  const of = (kind) =>
+    entries.filter((e) => e.kind === kind).map((e) => e.entry);
   if (rule === 'no-restricted-imports')
     return ['error', { paths: of('paths'), patterns: of('patterns') }];
   return ['error', ...entries.map((e) => e.entry)];
@@ -262,7 +274,9 @@ function ruleSetting(rule, file) {
 function invariantConfigs() {
   const rules = [...new Set(INVARIANTS.map((e) => e.rule))];
   const special = [
-    ...new Set(INVARIANTS.flatMap((e) => [...(e.only ?? []), ...(e.except ?? [])])),
+    ...new Set(
+      INVARIANTS.flatMap((e) => [...(e.only ?? []), ...(e.except ?? [])]),
+    ),
   ].sort();
   const forFile = (file) =>
     Object.fromEntries(rules.map((rule) => [rule, ruleSetting(rule, file)]));

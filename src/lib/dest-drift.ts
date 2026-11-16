@@ -8,11 +8,13 @@ import { safeJoin, toPosix } from './validate.js';
 
 // ---------------------------------------------------------------------------
 // The destination scan — what a capability copy (`add`, a re-run `init`) is
-// about to destroy. One walk, two answers:
+// about to destroy. One walk, three answers:
 //
 //   drifted[] — dest regular files `update` would have SKIPPED; the caller backs
 //               exactly these up before its first write. `labels` says why.
 //   unsafe[]  — dest paths crossing a SYMLINKED component; `add` refuses.
+//   seen      — each classified rel's dest hash (`null`: absent), for the
+//               writer's changed-since-plan compare (lib/apply-update.ts).
 //
 // "Drifted" is update's definition (decideFileAction with `force: true` → its
 // `backup` bit): `modified` / `unrecorded` with a usable baseline, every
@@ -20,11 +22,10 @@ import { safeJoin, toPosix } from './validate.js';
 // is a clean upgrade, and identical content (CRLF≡LF) is no drift at all.
 // Each rel is compared with its REAL source (`sources`: the mapped LICENSE).
 //
-// `unsafe` is a REFUSAL, not a skip: with a symlinked INTERMEDIATE directory,
-// `cpSync` writes straight through it, outside the project included (pinned by
-// tests/dest-drift.test.ts and tests/commands/add.test.ts). A skip would let the copy
-// write through while the backup omitted the file, and a backup is impossible
-// (`createBackup` refuses symlinked components).
+// `unsafe` is a REFUSAL, not a skip: the writer refuses each such path on its
+// own, but only after the files before it landed, and a backup is impossible
+// (`createBackup` refuses symlinked components). Refusing up front writes
+// nothing (pinned by tests/commands/add.test.ts).
 //
 // Both `safeJoin`s run before either walk, so an escaping path from the
 // untrusted clone throws loudly instead of being buried by a catch.
@@ -51,6 +52,8 @@ export interface DestScan {
   labels: ReadonlyMap<string, DriftLabel>;
   /** Paths the copy would write through a symlink — refuse the install. */
   unsafe: UnsafeDest[];
+  /** Each classified rel's dest hash, `null` when absent; skipped rels have none. */
+  seen: ReadonlyMap<string, string | null>;
 }
 
 /**
@@ -71,6 +74,7 @@ export function scanDest(params: {
   const drifted: string[] = [];
   const labels = new Map<string, DriftLabel>();
   const unsafe: UnsafeDest[] = [];
+  const seen = new Map<string, string | null>();
 
   for (const rel of rels) {
     const srcRel = sources?.get(rel) ?? rel;
@@ -84,7 +88,12 @@ export function scanDest(params: {
       unsafe.push({ rel, link: destLink });
       continue;
     }
-    if (!lstatSync(dest, { throwIfNoEntry: false })?.isFile()) continue;
+    const stat = lstatSync(dest, { throwIfNoEntry: false });
+    if (stat === undefined) {
+      seen.set(rel, null);
+      continue;
+    }
+    if (!stat.isFile()) continue;
 
     // The clone needs no link walk (lib/repo.ts), but a non-file there is a skip.
     if (!isRegularFile(src)) continue;
@@ -92,9 +101,11 @@ export function scanDest(params: {
     // contentHash's EACCES deliberately PROPAGATES, aborting before any write:
     // "no drift" would clobber an unreadable file. `force: true` because both
     // callers overwrite regardless; the question is only the `backup` bit.
+    const diskHash = contentHash(dest);
+    seen.set(rel, diskHash);
     const label = driftLabel(
       decideFileAction({
-        diskHash: contentHash(dest),
+        diskHash,
         latestHash: contentHash(src),
         recordedHash:
           records !== null && Object.hasOwn(records, rel)
@@ -114,6 +125,7 @@ export function scanDest(params: {
     drifted: drifted.sort(),
     labels,
     unsafe: unsafe.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0)),
+    seen,
   };
 }
 
@@ -146,8 +158,8 @@ function driftLabel(decision: FileDecision): DriftLabel | null {
 
 /**
  * The symlink walk's third outcome for `scanDest`: the walk threw (ENOTDIR — a
- * component below a regular file). Deliberately a skip, not `unsafe`: `cpSync`
- * fails loudly on that tree by itself, there is nothing at `rel` to lose, and
+ * component below a regular file). Deliberately a skip, not `unsafe`: the
+ * install's pre-flight refuses that tree, there is nothing at `rel` to lose, and
  * it keeps a non-directory component out of the `drifted` set `createBackup`
  * consumes unwrapped. Containment was checked before the walk, so this cannot
  * swallow an escape.

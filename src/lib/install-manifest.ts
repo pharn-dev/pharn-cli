@@ -29,11 +29,11 @@ import type { InstalledCapability, Layout } from '../types.js';
 // fetched clone and never writes. Consumed by lib/diff.ts (`status`), the
 // overwrite prompt, and — via capabilityCloneFiles — `add`.
 //
-// It MIRRORS installCapabilities (lib/install-capabilities.ts);
-// tests/install-manifest.test.ts pins the mirror against a REAL install run.
-// The mirror covers NAMES too: commands, hooks and agents are held to the same
-// COPY_FILENAME_RE as the copy, so one clone cannot be refused by `init` and
-// copied by `update` (`status` hard-fails on such a name, as `init` does).
+// It IS the copy list: installCapabilities (lib/install-capabilities.ts)
+// writes exactly these files; tests/install-manifest.test.ts compares a REAL
+// install run with it. Names are held here too: commands, hooks and agents
+// must pass COPY_FILENAME_RE, so `init` and `update` refuse the same clone
+// (`status` hard-fails on such a name, as `init` does).
 //
 // The clone is untrusted: names are only safeJoin-contained for existence
 // checks and returned as data; contents are never read or executed here.
@@ -44,9 +44,9 @@ import type { InstalledCapability, Layout } from '../types.js';
 // conflict set below.
 export const PHARN_CONFIG_FILE = 'pharn.config.json';
 
-// The filename filters the install applies to its flat surfaces, shared by the
-// copy and this mirror. `name` is relative to the surface dir: anything nested
-// is never taken.
+// The filename filters the install applies to its flat surfaces, shared with
+// every reader that classifies an installed path. `name` is relative to the
+// surface dir: anything nested is never taken.
 
 /** A product command: a top-level `pharn-*.md` that is not a `pharn-dev-*` one. */
 export function isProductCommandFile(name: string): boolean {
@@ -172,9 +172,8 @@ function collectInstallManifest(params: {
   };
   // Enumerate one source dir's files (optionally filtered) into the expected
   // map. A root that is not a directory contributes nothing. `validate` runs
-  // AFTER `keep` and BEFORE `add` — copyFilteredDir's order — so a
-  // non-candidate name never throws while a candidate is held to the same
-  // allowlist on both write paths; it throws, never silently skips.
+  // AFTER `keep` and BEFORE `add`, so a non-candidate name never throws while
+  // a candidate is held to the allowlist; it throws, never silently skips.
   const addDir = (
     relDir: string,
     keep?: (rel: string) => boolean,
@@ -192,10 +191,9 @@ function collectInstallManifest(params: {
     return added;
   };
 
-  // The filename floor copyFilteredDir applies to commands, hooks and agents
-  // ONLY (`rel` is the basename there). Everything else is copied verbatim by
-  // recursive cpSync with no name check, so validating it here would break the
-  // mirror.
+  // The filename floor for commands, hooks and agents ONLY (`rel` is the
+  // basename there). Everything else is copied verbatim with no name check
+  // (safeJoin-contained only), as it always has been.
   const copyNameFloor =
     (dir: string) =>
     (rel: string): void => {
@@ -276,8 +274,7 @@ function collectInstallManifest(params: {
   account('contracts', paths.contracts, addDir(paths.contracts));
   const coreFiles = addDir(paths.core);
   if (layout === 'pharn') account('core', paths.core, coreFiles);
-  // The floor filter tests the same floor-relative string as the writer's, and
-  // is exactly as wide: excluding more would leave permanent `missing` entries.
+  // The floor minus its test files and its root test-apparatus dirs.
   const floorFiles = addDir(
     paths.floor,
     (rel) => !/\.test\.(mjs|cjs)$/.test(rel) && !isFloorTestFixturePath(rel),
@@ -290,10 +287,9 @@ function collectInstallManifest(params: {
 /**
  * Is this floor-RELATIVE posix path one of the floor's test-apparatus dirs
  * (`FLOOR_TEST_FIXTURES_DIRS`) or inside one? Anchored at the floor root, so a
- * nested `lib/fixtures/x` is kept and `''` never matches. The ONE predicate the
- * writer and this manifest share.
+ * nested `lib/fixtures/x` is kept and `''` never matches.
  */
-export function isFloorTestFixturePath(rel: string): boolean {
+function isFloorTestFixturePath(rel: string): boolean {
   return FLOOR_TEST_FIXTURES_DIRS.some(
     (dir) => rel === dir || rel.startsWith(`${dir}/`),
   );

@@ -16,6 +16,7 @@ import {
   applyWrites,
   ApplyError,
   readDiskState,
+  writtenBeforeFailureLines,
 } from '../src/lib/apply-update.js';
 import { contentHash } from '../src/lib/hash.js';
 
@@ -161,7 +162,7 @@ describe('applyWrites', () => {
 
   it('copies the planned writes verbatim and returns them in order', () => {
     const { repo, proj } = fixture();
-    const written = applyWrites({
+    const { written } = applyWrites({
       projectRoot: proj,
       expected: expected(repo),
       writes: ['a.md', 'deep/nested/b.md'],
@@ -271,7 +272,7 @@ describe('applyWrites', () => {
     write(outside, 'outside bytes');
     linkSync(outside, join(proj, 'a.md'));
 
-    const written = applyWrites({
+    const { written } = applyWrites({
       projectRoot: proj,
       expected: expected(repo),
       writes: ['a.md'],
@@ -310,5 +311,117 @@ describe('applyWrites', () => {
         writes: ['unknown.md'],
       }),
     ).toThrow(/no source/i);
+  });
+
+  // The changed-since-plan compare: `seen` is what the caller's plan saw.
+  describe('seen', () => {
+    it('writes a file still at the hash it had at plan time', () => {
+      const { repo, proj } = fixture();
+      write(join(proj, 'a.md'), 'user a');
+      const seenHash = contentHash(join(proj, 'a.md'));
+
+      const result = applyWrites({
+        projectRoot: proj,
+        expected: expected(repo),
+        writes: ['a.md'],
+        seen: new Map([['a.md', seenHash]]),
+      });
+
+      expect(result).toEqual({ written: ['a.md'], changed: [] });
+      expect(readFileSync(join(proj, 'a.md'), 'utf8')).toBe('upstream a');
+    });
+
+    it('does NOT write a file edited since the plan; it is returned in `changed`', () => {
+      const { repo, proj } = fixture();
+      write(join(proj, 'a.md'), 'seen bytes');
+      const seenHash = contentHash(join(proj, 'a.md'));
+      write(join(proj, 'a.md'), 'edited while the prompt was open');
+
+      const result = applyWrites({
+        projectRoot: proj,
+        expected: expected(repo),
+        writes: ['a.md', 'deep/nested/b.md'],
+        seen: new Map([['a.md', seenHash]]),
+      });
+
+      expect(result).toEqual({
+        written: ['deep/nested/b.md'],
+        changed: ['a.md'],
+      });
+      expect(readFileSync(join(proj, 'a.md'), 'utf8')).toBe(
+        'edited while the prompt was open',
+      );
+    });
+
+    it('a file that APPEARED where the plan saw none is changed', () => {
+      const { repo, proj } = fixture();
+      write(join(proj, 'a.md'), 'created since the plan');
+
+      const result = applyWrites({
+        projectRoot: proj,
+        expected: expected(repo),
+        writes: ['a.md'],
+        seen: new Map([['a.md', null]]),
+      });
+
+      expect(result).toEqual({ written: [], changed: ['a.md'] });
+      expect(readFileSync(join(proj, 'a.md'), 'utf8')).toBe(
+        'created since the plan',
+      );
+    });
+
+    it('a file that VANISHED since the plan is written (nothing to lose)', () => {
+      const { repo, proj } = fixture();
+
+      const result = applyWrites({
+        projectRoot: proj,
+        expected: expected(repo),
+        writes: ['a.md'],
+        seen: new Map([['a.md', 'a hash of bytes that are gone']]),
+      });
+
+      expect(result).toEqual({ written: ['a.md'], changed: [] });
+      expect(readFileSync(join(proj, 'a.md'), 'utf8')).toBe('upstream a');
+    });
+
+    it('a path now UNREADABLE is not `changed`: the write itself refuses it', () => {
+      const { repo, proj } = fixture();
+      const outside = join(tmp.path(), 'outside.md');
+      write(outside, 'outside');
+      symlinkSync(outside, join(proj, 'a.md'));
+
+      expect(() =>
+        applyWrites({
+          projectRoot: proj,
+          expected: expected(repo),
+          writes: ['a.md'],
+          seen: new Map([['a.md', null]]),
+        }),
+      ).toThrow(ApplyError);
+      expect(readFileSync(outside, 'utf8')).toBe('outside');
+    });
+  });
+});
+
+describe('writtenBeforeFailureLines', () => {
+  it('names one file in the singular', () => {
+    expect(writtenBeforeFailureLines(['a.md'])).toEqual([
+      '1 file was written before the failure; no records or config were written:',
+      '  a.md',
+    ]);
+  });
+
+  it('shows the first ten paths, then "and N more"', () => {
+    const rels = Array.from({ length: 13 }, (_, i) => `f${i}.md`);
+    const lines = writtenBeforeFailureLines(rels);
+    expect(lines[0]).toBe(
+      '13 files were written before the failure; no records or config were written:',
+    );
+    expect(lines.slice(1, 11)).toEqual(rels.slice(0, 10).map((r) => `  ${r}`));
+    expect(lines.slice(11)).toEqual(['  and 3 more']);
+  });
+
+  it('strips unsafe characters from a clone-derived path', () => {
+    expect(writtenBeforeFailureLines(['a\u001b[31m.md'])[1]).toBe('  a[31m.md');
   });
 });

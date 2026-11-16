@@ -214,11 +214,13 @@ export async function runInstallArchetype(
   let layout: Layout;
   let docsWritten: string[];
   try {
+    // `scan.seen`: a file edited since the scan is backed up, then overwritten.
     const result = installCapabilities(
       repoDir,
       cwd,
       selection,
       prepared.manifest,
+      scan.seen,
     );
     capabilities = result.capabilities;
     settingsPreserved = result.settingsPreserved;
@@ -228,6 +230,8 @@ export async function runInstallArchetype(
     skillsVersion = readSkillsVersion(repoDir);
   } catch (err) {
     // Propagate: the orchestrator cleans up the clone, then reports and exits.
+    // Nothing below runs, so no records and no config are written; a part-way
+    // failure's message names the files that landed.
     s.stop('Failed to install capabilities');
     throw err;
   }

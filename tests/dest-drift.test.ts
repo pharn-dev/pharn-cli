@@ -42,6 +42,28 @@ describe('scanDest', () => {
     ).toEqual([REL]);
   });
 
+  // `seen` feeds the writer's changed-since-plan compare: the hash of every
+  // dest file it hashed, `null` for an absent dest, nothing for a skipped rel.
+  it('returns `seen`: the dest hash, null when absent, no entry when skipped', () => {
+    const { repo, proj } = trees();
+    write(join(repo, REL), 'upstream');
+    write(join(proj, REL), 'MY EDIT');
+    write(join(repo, NESTED), 'upstream nested');
+    write(join(repo, 'x/dir-in-the-way.md'), 'upstream');
+    mkdirSync(join(proj, 'x/dir-in-the-way.md'), { recursive: true });
+
+    const { seen } = scanDest({
+      repoDir: repo,
+      projectRoot: proj,
+      rels: [REL, NESTED, 'x/dir-in-the-way.md'],
+    });
+
+    expect([...seen]).toEqual([
+      [REL, contentHash(join(proj, REL))],
+      [NESTED, null],
+    ]);
+  });
+
   it('does NOT report byte-identical bytes — identical is not drift', () => {
     // The drop-then-re-add of untouched files. Backing these up would fill
     // pharn/.backup/ with copies of bytes nobody ever lost, and would make the
@@ -240,6 +262,7 @@ describe('scanDest', () => {
       drifted: [],
       labels: new Map(),
       unsafe: [],
+      seen: new Map(),
     });
   });
 

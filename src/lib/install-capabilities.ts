@@ -1,36 +1,38 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs';
-import { relative } from 'node:path';
+import {
+  constants,
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+} from 'node:fs';
 import {
   assertSafeString,
   CAPABILITY_NAME_RE,
-  COPY_FILENAME_RE,
   ManifestValidationError,
   safeJoin,
-  toPosix,
 } from './validate.js';
-import {
-  CLAUDE_AGENTS_DIR,
-  CLAUDE_COMMANDS_DIR,
-  CLAUDE_HOOKS_DIR,
-  CLAUDE_SETTINGS_FILE,
-} from './constants.js';
+import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import {
   capabilitySubtree,
   detectLayout,
   layoutPaths,
-  resolveFeaturesReadme,
   resolveTrustedDocs,
   type LayoutPaths,
 } from './layout.js';
 import {
+  capabilityCloneFiles,
   collectExpectedInstallPaths,
-  isFloorTestFixturePath,
-  isInstalledHookFile,
-  isProductAgentFile,
-  isProductCommandFile,
   PHARN_CONFIG_FILE,
 } from './install-manifest.js';
 import { RECORDS_FILE } from './install-records.js';
+import {
+  applyWrites,
+  ApplyError,
+  writtenBeforeFailureLines,
+} from './apply-update.js';
+import { errorMessage } from './report-error.js';
+import { createBackup, printBackupNotice } from './backup.js';
+import { backupDirIgnored } from './gitignore.js';
 import {
   findSymlinkComponent,
   findSymlinkComponentOr,
@@ -39,19 +41,26 @@ import {
 import type { InstalledCapability, Layout, Selection } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Capability copy routine (archetype install). Copies the RESOLVED capabilities
-// + the FIXED product surfaces from a fetched pharn-oss clone into the user's
+// Capability install (archetype install). Writes the RESOLVED capabilities +
+// the FIXED product surfaces from a fetched pharn-oss clone into the user's
 // project, mirroring pharn-oss's relative paths so the copied product commands'
 // own project-root-relative references resolve after install.
 //
-// Trust: every name read from the untrusted clone is allowlist-validated before
-// any path-join, and every read/write is safeJoin-guarded. File CONTENTS are
-// copied verbatim, never executed or parsed.
+// The install manifest (lib/install-manifest.ts) is the copy list: every file
+// is written by `update`'s per-file writer (lib/apply-update.ts → applyWrites),
+// which walks each destination for symlinks and replaces the file by name, so
+// a hard-linked destination's other name keeps its bytes. `add` writes one
+// capability's clone file list the same way. `.claude/settings.json`, the one
+// file outside the manifest, is written only when absent (COPYFILE_EXCL).
 //
-// Dev-only exclusion is STRUCTURAL: only the listed source subtrees are ever
-// copied, so `pharn-dev-*` commands, `.dev/features/`, `.dev/memory-bank/` and
-// `*.test.*` never are. A declared surface the clone does not ship is skipped
-// here and named by install-manifest.ts → absentInstallSurfaces.
+// Trust: every name read from the untrusted clone is allowlist-validated or
+// safeJoin-contained before any path-join. File CONTENTS are copied verbatim,
+// never executed or parsed.
+//
+// Dev-only exclusion is STRUCTURAL: the manifest lists only the declared source
+// subtrees, so `pharn-dev-*` commands, `.dev/features/`, `.dev/memory-bank/`
+// and `*.test.*` are never written. A declared surface the clone does not ship
+// is named by install-manifest.ts → absentInstallSurfaces.
 // ---------------------------------------------------------------------------
 
 export interface InstallCapabilitiesResult {
@@ -64,70 +73,59 @@ export interface InstallCapabilitiesResult {
   settingsWritten: boolean;
   // The layout mirrored from the fetched clone, recorded in pharn.config.json.
   layout: Layout;
-  // The trusted docs actually COPIED (project-relative, paths.docs order) —
-  // collected inside the copy branch, so the caller reports what landed, never
-  // the expected list.
+  // The trusted docs written (project-relative, paths.docs order): the ones the
+  // manifest holds, so the caller reports what landed, never the expected list.
   docs: string[];
 }
 
-const isTestFile = (p: string): boolean => /\.test\.(mjs|cjs)$/.test(p);
-
-// Is this absolute source path one of the floor's test-apparatus dirs, or
-// inside one? ANCHORED at the floor root: cpSync also calls the filter for the
-// source root, so an absolute-path segment test would match an ancestor named
-// `fixtures` and copy nothing. Same test as the manifest's.
-const inFloorFixtures = (floorFrom: string, src: string): boolean =>
-  isFloorTestFixturePath(toPosix(relative(floorFrom, src)));
-
-// The clone holds only regular files and directories (lib/repo.ts), so only
-// the DESTINATION is guarded for links (prepareInstall, destAcceptsWrite).
-//
-// Every recursive cpSync passes a filter, and this one exists for that alone: a
-// recursive copy with a filter unlinks each destination first, one without
-// writes into a hard-linked destination's inode. Pinned by
-// tests/install-capabilities.test.ts ("HARD-LINKED destination").
-const unlinkFirst = (): boolean => true;
+/**
+ * Refuse a selected capability whose name fails the allowlist or whose source
+ * dir is missing in the clone — before any write.
+ */
+function assertCapabilitySources(
+  repoDir: string,
+  capabilities: InstalledCapability[],
+  paths: LayoutPaths,
+): void {
+  for (const cap of capabilities) {
+    assertSafeString(cap.name, `capability "${cap.name}"`, CAPABILITY_NAME_RE);
+    const subtree = capabilitySubtree(paths, cap.role);
+    if (!existsSync(safeJoin(repoDir, `${subtree}/${cap.name}`))) {
+      throw new ManifestValidationError(
+        `Capability "${cap.name}" (${cap.role}) is missing at ${subtree}/${cap.name} in the fetched repo.`,
+      );
+    }
+  }
+}
 
 /**
- * Copy just the given capability dirs (whole dir, incl. evals/) into the mirrored
- * project-root paths — WITHOUT the fixed product surfaces. Pre-flights every
- * source before any write, so a bad name or missing source writes nothing.
+ * Write just the given capability dirs (every file, incl. evals/) at the
+ * mirrored project-root paths — WITHOUT the fixed product surfaces. Every
+ * source is checked before any write, so a bad name or missing source writes
+ * nothing. `seen`: the destination hashes the caller's scan saw.
  */
 export function installCapabilityDirs(
   repoDir: string,
   projectRoot: string,
   capabilities: InstalledCapability[],
-  // Defaults to the clone's own layout; `installCapabilities` passes the one it
-  // detected so every surface uses the same layout.
-  paths: LayoutPaths = layoutPaths(detectLayout(repoDir)),
+  seen?: ReadonlyMap<string, string | null>,
 ): InstalledCapability[] {
-  const planned = capabilities.map((cap) => {
-    assertSafeString(cap.name, `capability "${cap.name}"`, CAPABILITY_NAME_RE);
-    const subtree = capabilitySubtree(paths, cap.role);
-    const from = safeJoin(repoDir, `${subtree}/${cap.name}`);
-    if (!existsSync(from)) {
-      throw new ManifestValidationError(
-        `Capability "${cap.name}" (${cap.role}) is missing at ${subtree}/${cap.name} in the fetched repo.`,
-      );
-    }
-    return { name: cap.name, role: cap.role, subtree, from };
-  });
-
-  const installed: InstalledCapability[] = [];
-  for (const cap of planned) {
-    const to = safeJoin(projectRoot, `${cap.subtree}/${cap.name}`);
-    cpSync(cap.from, to, { recursive: true, force: true, filter: unlinkFirst });
-    installed.push({ name: cap.name, role: cap.role });
+  const paths = layoutPaths(detectLayout(repoDir));
+  assertCapabilitySources(repoDir, capabilities, paths);
+  const expected = new Map<string, string>();
+  for (const cap of capabilities) {
+    // The layout is mirrored, so each path addresses source and destination.
+    for (const rel of capabilityCloneFiles(repoDir, paths, cap))
+      expected.set(rel, safeJoin(repoDir, rel));
   }
-  return installed;
+  writeInstallFiles(projectRoot, expected, seen);
+  return capabilities.map(({ name, role }) => ({ name, role }));
 }
 
 /** What the destination pre-flight checked, for the copy that follows it. */
 export interface PreparedInstall {
   // The layout mirrored from the clone (flat OR pharn/).
   paths: LayoutPaths;
-  // Where this clone keeps the optional features README (resolveFeaturesReadme).
-  featuresRel: string;
   // Every file the install writes, dest → source (collectExpectedInstallPaths).
   manifest: ReadonlyMap<string, string>;
 }
@@ -149,7 +147,6 @@ export function prepareInstall(
 ): PreparedInstall {
   // The resolved relative paths are the clone SOURCE and the project DEST at once.
   const paths = layoutPaths(detectLayout(repoDir));
-  const featuresRel = resolveFeaturesReadme(repoDir, paths.layout);
   const expected =
     manifest ??
     collectExpectedInstallPaths({
@@ -159,9 +156,9 @@ export function prepareInstall(
     });
 
   assertDestinationsInProject(projectRoot, expected);
-  assertDestinationTypes(projectRoot, expected, featuresRel);
+  assertDestinationTypes(projectRoot, expected);
 
-  return { paths, featuresRel, manifest: expected };
+  return { paths, manifest: expected };
 }
 
 export function installCapabilities(
@@ -170,125 +167,100 @@ export function installCapabilities(
   selection: Selection,
   // The pre-flight runs here either way, before the first write.
   manifest?: ReadonlyMap<string, string>,
+  // The destination hashes the caller's scan saw (lib/dest-drift.ts).
+  seen?: ReadonlyMap<string, string | null>,
 ): InstallCapabilitiesResult {
-  const { paths, featuresRel } = prepareInstall(
+  const prepared = prepareInstall(
     repoDir,
     projectRoot,
     selection.selected,
     manifest,
   );
+  assertCapabilitySources(repoDir, selection.selected, prepared.paths);
 
-  const capabilities = installCapabilityDirs(
-    repoDir,
-    projectRoot,
-    selection.selected,
-    paths,
-  );
-
-  // --- product commands: pharn-*.md, excluding pharn-dev-*.md ----------------
-  // The name filters are the manifest's own, so copy and mirror agree.
-  copyFilteredDir(
-    repoDir,
-    projectRoot,
-    CLAUDE_COMMANDS_DIR,
-    isProductCommandFile,
-  );
-
-  // --- hooks: *.cjs / *.mjs, excluding *.test.cjs / *.test.mjs ---------------
-  copyFilteredDir(repoDir, projectRoot, CLAUDE_HOOKS_DIR, isInstalledHookFile);
-
-  // --- agents: pharn-*.md, excluding pharn-dev-*.md ---------------------------
-  // Optional (pharn-oss < 6.64.0 ships none): an absent dir is a silent no-op.
-  copyFilteredDir(repoDir, projectRoot, CLAUDE_AGENTS_DIR, isProductAgentFile);
+  writeInstallFiles(projectRoot, prepared.manifest, seen);
 
   // --- settings.json: NEVER overwrite the user's existing one ----------------
-  // `existsSync` follows a symlink, so a live link is never written; a dangling
-  // one was refused by the pre-flight.
-  const settingsFrom = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
-  const settingsTo = safeJoin(projectRoot, CLAUDE_SETTINGS_FILE);
-  const settingsPreserved = existsSync(settingsTo);
+  // Exclusive create, so an existing file (or a link, live or dangling) is
+  // never opened for writing: no exists-then-copy race.
   const settingsWritten =
-    !settingsPreserved && upstreamSettingsCopyable(repoDir);
-  if (settingsWritten) {
-    mkdirSync(safeJoin(projectRoot, '.claude'), { recursive: true });
-    cpSync(settingsFrom, settingsTo, { force: true });
-  }
-
-  // --- trusted docs (where the clone keeps each: resolveTrustedDocs) ---------
-  const written: string[] = [];
-  for (const doc of resolveTrustedDocs(repoDir, paths.layout)) {
-    const from = safeJoin(repoDir, doc);
-    if (existsSync(from)) {
-      cpSync(from, safeJoin(projectRoot, doc), { force: true });
-      written.push(doc);
-    }
-  }
-
-  // --- upstream's Apache-2.0 LICENSE, at a MAPPED destination ---------------
-  // Apache-2.0 §4(a): redistributors must pass on the license. The dest is
-  // pharn's own (`pharn/LICENSE` / `PHARN-LICENSE`) so a root `LICENSE` — the
-  // user's — is never overwritten.
-  const licenseFrom = safeJoin(repoDir, paths.license.from);
-  if (existsSync(licenseFrom)) {
-    cpSync(licenseFrom, safeJoin(projectRoot, paths.license.to), {
-      force: true,
-    });
-  }
-
-  // --- features/README.md (layout-dependent; see resolveFeaturesReadme) ------
-  // The product-loop boundary contract the product commands cite. Not a
-  // trusted doc: the installed hook does not write-protect it.
-  //
-  // Its DESTINATION has an intermediate directory, so it is walked: a symlinked
-  // `features/` would take the copy outside the project. The SOURCE check comes
-  // first, so an optional file the clone lacks never reaches the walk.
-  const featuresFrom = safeJoin(repoDir, featuresRel);
-  if (existsSync(featuresFrom) && destAcceptsWrite(projectRoot, featuresRel)) {
-    cpSync(featuresFrom, safeJoin(projectRoot, featuresRel), {
-      force: true,
-    });
-  }
-
-  // --- contracts (whole dir; mirrored at the layout's path) ------------------
-  const contractsFrom = safeJoin(repoDir, paths.contracts);
-  if (existsSync(contractsFrom)) {
-    cpSync(contractsFrom, safeJoin(projectRoot, paths.contracts), {
-      recursive: true,
-      force: true,
-      filter: unlinkFirst,
-    });
-  }
-
-  // --- pharn-core (whole dir; mirrored at the layout's path) -----------------
-  // The mechanism layer the product commands cite by path. Whole and verbatim,
-  // no test-file filter (its evals are content); never parsed, so its
-  // `role: skill` never reaches the capability index. No-op for a flat clone.
-  const coreFrom = safeJoin(repoDir, paths.core);
-  if (existsSync(coreFrom)) {
-    cpSync(coreFrom, safeJoin(projectRoot, paths.core), {
-      recursive: true,
-      force: true,
-      filter: unlinkFirst,
-    });
-  }
-
-  // --- floor checkers (whole dir minus test files + test-fixture dirs) -------
-  const floorFrom = safeJoin(repoDir, paths.floor);
-  if (existsSync(floorFrom)) {
-    cpSync(floorFrom, safeJoin(projectRoot, paths.floor), {
-      recursive: true,
-      force: true,
-      filter: (src) => !isTestFile(src) && !inFloorFixtures(floorFrom, src),
-    });
-  }
+    upstreamSettingsCopyable(repoDir) &&
+    copySettingsIfAbsent(repoDir, projectRoot);
+  const settingsPreserved =
+    !settingsWritten && existsSync(safeJoin(projectRoot, CLAUDE_SETTINGS_FILE));
 
   return {
-    capabilities,
+    capabilities: selection.selected.map(({ name, role }) => ({ name, role })),
     settingsPreserved,
     settingsWritten,
-    layout: paths.layout,
-    docs: written,
+    layout: prepared.paths.layout,
+    docs: resolveTrustedDocs(repoDir, prepared.paths.layout).filter((doc) =>
+      prepared.manifest.has(doc),
+    ),
   };
+}
+
+/**
+ * Write every `expected` file through the one writer. A file edited since the
+ * caller's scan (`seen`) is backed up — one backup, announced — and then
+ * written. A failure after any write throws an ApplyError whose message names
+ * the files that landed: the caller writes no records or config after it.
+ */
+function writeInstallFiles(
+  projectRoot: string,
+  expected: ReadonlyMap<string, string>,
+  seen: ReadonlyMap<string, string | null> | undefined,
+): void {
+  let written: string[] = [];
+  try {
+    const first = applyWrites({
+      projectRoot,
+      expected,
+      writes: [...expected.keys()],
+      seen,
+    });
+    written = first.written;
+    if (first.changed.length === 0) return;
+    printBackupNotice({
+      dir: createBackup(projectRoot, first.changed),
+      saved: first.changed.length,
+      action: 'overwriting',
+      gitignored: backupDirIgnored(projectRoot),
+    });
+    applyWrites({ projectRoot, expected, writes: first.changed });
+  } catch (err) {
+    const landed =
+      err instanceof ApplyError ? [...written, ...err.written] : written;
+    if (landed.length === 0) throw err;
+    const lines = [errorMessage(err), ...writtenBeforeFailureLines(landed)];
+    throw new ApplyError(lines.join('\n'), landed);
+  }
+}
+
+/**
+ * Copy upstream's `.claude/settings.json` when the project has none. False when
+ * one exists (EEXIST). The `.claude` component is walked first: an exclusive
+ * create still follows a symlinked parent.
+ */
+function copySettingsIfAbsent(repoDir: string, projectRoot: string): boolean {
+  const link = findSymlinkComponent(projectRoot, '.claude');
+  if (link !== null) {
+    throw new ManifestValidationError(
+      `${link} is a symlink; refusing to write through it.`,
+    );
+  }
+  mkdirSync(safeJoin(projectRoot, '.claude'), { recursive: true });
+  try {
+    copyFileSync(
+      safeJoin(repoDir, CLAUDE_SETTINGS_FILE),
+      safeJoin(projectRoot, CLAUDE_SETTINGS_FILE),
+      constants.COPYFILE_EXCL,
+    );
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw err;
+  }
 }
 
 /**
@@ -303,16 +275,17 @@ export function upstreamSettingsCopyable(repoDir: string): boolean {
 /**
  * Refuse the whole install when any path it would write (the manifest plus
  * `.claude/settings.json`) crosses a symlinked component below `projectRoot`.
- * `safeJoin` is lexical, and `cpSync` follows a symlinked directory out of the
- * project.
+ * `safeJoin` is lexical; the writer refuses each such path too, but only after
+ * the files before it landed.
  *
- * A symlinked LEAF is refused too: `cpSync` REPLACES the link with a regular
+ * A symlinked LEAF is refused too: the writer REPLACES the link with a regular
  * file, so the user's link is lost. Pinned by tests/install-capabilities.test.ts.
  * `.claude/settings.json` is exempt while its link is LIVE (an existing settings
  * file is never written); a dangling one is refused.
  *
  * ENOTDIR from the walk is left to assertDestinationTypes. Residual: a link
- * created between this walk and the copy is not covered.
+ * created between this walk and the copy is caught by the writer's own walk,
+ * part-way.
  */
 function assertDestinationsInProject(
   projectRoot: string,
@@ -373,24 +346,21 @@ function shownList(items: ReadonlySet<string>): string {
 
 /**
  * Refuse the whole install when any path it would write collides by TYPE with
- * the project (a non-directory component on the way, or a non-file leaf):
- * `cpSync` would otherwise fail part-way, leaving files but no config and no
+ * the project (a non-directory component on the way, or a non-file leaf): the
+ * writer would otherwise fail part-way, leaving files but no config and no
  * records. Runs after assertDestinationsInProject, so a symlink is reported as
- * a symlink.
+ * a symlink. Every manifest entry is held to it, the features README included.
  *
  * A DIRECTORY at `pharn.config.json` / `pharn.records.json` is refused too —
  * the only type that makes their atomic `rename` fail. Out of the walk:
- * `.claude/settings.json` (never overwritten) and the optional features README
- * (`destAcceptsWrite` skips it).
+ * `.claude/settings.json` (never overwritten).
  */
 function assertDestinationTypes(
   projectRoot: string,
   manifest: ReadonlyMap<string, string>,
-  featuresRel: string,
 ): void {
   const colliding = new Set<string>();
   for (const rel of manifest.keys()) {
-    if (rel === featuresRel) continue;
     const hit = findTypeCollision(projectRoot, rel);
     if (hit !== null) colliding.add(hit);
   }
@@ -405,52 +375,4 @@ function assertDestinationTypes(
   throw new ManifestValidationError(
     `Refusing to install: ${shownList(colliding)} ${one ? 'is in the way' : 'are in the way'} — pharn needs a file where you have a directory, or a directory where you have a file. Nothing was written. Move or rename ${one ? 'it' : 'them'} and re-run \`pharn init\`.`,
   );
-}
-
-/**
- * May the install write the OPTIONAL `rel` under `projectRoot`? False on a
- * symlinked component or a type collision. Any throw of the walk (ENOTDIR) is
- * a skip, not a failure: one optional surface must not fail the whole install.
- */
-function destAcceptsWrite(projectRoot: string, rel: string): boolean {
-  try {
-    return (
-      findSymlinkComponent(projectRoot, rel) === null &&
-      findTypeCollision(projectRoot, rel) === null
-    );
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Copy the files of one source dir whose basenames pass `keep` into the mirrored
- * project-root dir. A kept name failing COPY_FILENAME_RE hard-fails, never
- * silently skipped. A missing source dir is a no-op.
- */
-function copyFilteredDir(
-  repoDir: string,
-  projectRoot: string,
-  relDir: string,
-  keep: (fileName: string) => boolean,
-): void {
-  const fromDir = safeJoin(repoDir, relDir);
-  if (!existsSync(fromDir)) return;
-  const entries = readdirSync(fromDir, { withFileTypes: true });
-  let ensured = false;
-  for (const entry of entries) {
-    // A directory can sit here; nothing else can (the clone invariant).
-    if (!entry.isFile()) continue;
-    if (!keep(entry.name)) continue;
-    assertSafeString(entry.name, `${relDir}/${entry.name}`, COPY_FILENAME_RE);
-    if (!ensured) {
-      mkdirSync(safeJoin(projectRoot, relDir), { recursive: true });
-      ensured = true;
-    }
-    cpSync(
-      safeJoin(fromDir, entry.name),
-      safeJoin(projectRoot, `${relDir}/${entry.name}`),
-      { force: true },
-    );
-  }
 }

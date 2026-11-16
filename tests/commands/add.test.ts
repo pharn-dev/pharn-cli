@@ -1,4 +1,10 @@
-import { mkdirSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import * as clack from '@clack/prompts';
@@ -515,6 +521,32 @@ describe('pharn add <name>: the user’s bytes in the capability directory', () 
     expect(read('pharn.records.json')).toBe(rec);
     expect(read('elsewhere.md')).toBe('x\n');
   });
+
+  // A write failing part-way names the files that landed and writes no records
+  // and no config, so the next run treats them as unrecorded.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'a write failing part-way names what landed; config and records unchanged',
+    async () => {
+      shipA11yEval();
+      await installFresh();
+      mkdirSync(at(`${A11Y_DIR}/evals`), { recursive: true });
+      chmodSync(at(`${A11Y_DIR}/evals`), 0o555);
+      const cfg = read('pharn.config.json');
+      const rec = read('pharn.records.json');
+      try {
+        expect(await run(() => runAdd('a11y'))).toBe(1);
+      } finally {
+        chmodSync(at(`${A11Y_DIR}/evals`), 0o755);
+      }
+
+      expect(errors()).toContain(
+        `1 file was written before the failure; no records or config were written:\n  ${A11Y}`,
+      );
+      expect(errors()).toContain(`Failed to write ${A11Y_EVAL}`);
+      expect(read('pharn.config.json')).toBe(cfg);
+      expect(read('pharn.records.json')).toBe(rec);
+    },
+  );
 });
 
 describe('pharn add (no argument): the picker', () => {

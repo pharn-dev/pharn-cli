@@ -34,6 +34,7 @@ import {
   editRecords,
   exists,
   failures,
+  FLOOR,
   fetched,
   fetchStub,
   flatTree,
@@ -961,6 +962,39 @@ describe('init refuses a project it cannot install into', () => {
     expect(read(PLAN_COMMAND)).toBe('MY EDIT');
     expect(config().commit).toBe(SHA_V1);
   });
+
+  // A write that fails part-way (here: a read-only floor directory, which the
+  // type pre-flight cannot see) names the files that landed and writes no
+  // records and no config. The next run treats them as unrecorded: one that
+  // differs from upstream is backed up before it is overwritten.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'a write failing part-way names what landed and writes no records or config',
+    async () => {
+      mkdirSync(at('pharn/floor'), { recursive: true });
+      chmodSync(at('pharn/floor'), 0o555);
+      try {
+        expect(await run(() => runInit({ yes: true }))).toBe(1);
+      } finally {
+        chmodSync(at('pharn/floor'), 0o755);
+      }
+
+      expect(errors()).toMatch(
+        /\d+ files were written before the failure; no records or config were written:\n {2}pharn\/pharn-pipeline\/grillers\/security\/security\.md\n/,
+      );
+      expect(errors()).toMatch(/\n {2}and \d+ more$/m);
+      expect(errors()).toContain(`Failed to write ${FLOOR}`);
+      expect(exists(SECURITY)).toBe(true);
+      expect(exists(FLOOR)).toBe(false);
+      expect(exists('pharn.config.json')).toBe(false);
+      expect(exists('pharn.records.json')).toBe(false);
+
+      write(SECURITY, 'EDITED AFTER THE FAILED RUN\n');
+      expect(await rerun()).toBeNull();
+      expect(backupFiles()).toContain(SECURITY);
+      expect(read(FLOOR)).toBe('export {};\n');
+      expect(Object.keys(records().files)).toContain(FLOOR);
+    },
+  );
 
   // PHARN-03's re-check: the config fingerprint is taken before the prompts,
   // so a pharn run that writes the config while they are open is not

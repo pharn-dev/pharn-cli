@@ -59,7 +59,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - Code invariants are eslint rules in `eslint.config.mjs`, each message naming its reason, and
   `tests/lint-rules.test.ts` proves that each fires. They cover: no `child_process`; `picocolors` only via
   `color.ts`; `sha256File` only in `hash.ts`; `isTTY` only inside `interactiveAllowed()`; the `process.exit`
-  allowlist; and the per-module bans.
+  allowlist; no `cpSync`/`cp`; and the per-module bans.
 - Options are per command: `parseCliArgs` (`lib/cli-args.ts`, pure) runs one `util.parseArgs` and checks its tokens
   against `OPTIONS[].uses`, the table `--help` renders. It refuses an unknown or another command's option, a value on
   an on/off option, a repeated `--ref`/`--archetype`: one stderr line, exit 1, above `--help`/`--version`.
@@ -76,9 +76,9 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **Containment.** Every fs access derived from untrusted input goes through `safeJoin` (lexical, `lib/validate.ts`).
   A recursive delete goes through `safeChildJoin`, which returns exactly one segment below the base.
 - **Destination symlink walks.** Before any write or delete, `findSymlinkComponent` (`lib/symlink-guard.ts`) refuses a
-  path that crosses a symlinked component, because `safeJoin` is lexical and `cpSync`/`rmSync` follow links.
-- **Hard-link-safe writes.** Writes replace the file (`lib/atomic-write.ts`: an exclusive temp, then `rename`), and
-  every recursive `cpSync` passes a filter, so a hard-linked destination's other name is never written through.
+  path that crosses a symlinked component, because `safeJoin` is lexical and copies/`rmSync` follow links.
+- **Hard-link-safe writes.** Writes replace the file (`lib/atomic-write.ts`: exclusive temp, then `rename`), one by one
+  via `applyWrites`; a new `settings.json` uses `COPYFILE_EXCL`. A hard link's other name is never written through.
 - **The clone is data.** `lib/tar-extract.ts` admits only regular files and directories, and `lib/repo.ts` is the only
   producer of a clone. Nothing downloaded is ever executed: pharn-oss's rules exist here as pinned copies
   (`lib/model-config.ts`, `lib/capability-index.ts`), held to vendored sha256-pinned originals by differential tests.
