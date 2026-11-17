@@ -21,7 +21,7 @@ Conflating "the code we install" with "the code we run" is the most common mista
   user's machine. Whether that methodology is itself correct or safe is pharn-oss's concern
   and the user's review, not pharn's runtime. **Not the subject of this document.**
 - **Surface B — pharn _itself_ consuming hostile remote input.** A compromised, forked, or
-  MITM'd `pharn-dev/pharn-oss` serving a poisoned tree (capability frontmatter,
+  MITM'd `pharn-dev/pharn-oss` serving a poisoned tree (its `pharn-install.json`,
   directory names, symlinks). This is **architecture** — where the trust boundaries sit — and
   cannot be bolted on later. **This document is B.**
 - **Surface B′ — the dev-loop _building_ pharn**, an agent reading hostile context (an issue, a
@@ -37,21 +37,20 @@ the floor (`ARCHITECTURE.md §2`).
 ## 2. B's attack surface (name it explicitly)
 
 pharn downloads the whole pharn-oss repo as a tarball (`src/lib/repo.ts` → `fetchRepo`), takes the
-install set, the capability index and the `models` defaults from the tree's `pharn-install.json` when
-it carries one (pharn-oss 7.21.0 on; `src/lib/upstream-manifest.ts`), else derives the capability
-index from the clone's directory tree + markdown frontmatter
-(`src/lib/capability-index.ts` → `parseCapabilityIndex`), then copies the resolved capabilities
+install set, the capability index and the `models` defaults from the tree's `pharn-install.json`
+(pharn-oss 7.21.0 on; `src/lib/upstream-manifest.ts`; a tree without one is refused in `fetchRepo`,
+and nothing is derived from the tree's own layout or frontmatter), then copies the resolved capabilities
 and fixed product surfaces into the user's project (`src/lib/install-capabilities.ts`). There is
 **no** `manifest.json`, **no** per-module `module.json`, and **no** wizard block. The concrete
 surface:
 
-1. **Malicious capability / product path** — a poisoned capability directory name, frontmatter
-   field, or product command/hook filename containing `..`, an absolute path, or control chars →
+1. **Malicious capability / product path** — a poisoned capability name, manifest `path`/`dest`,
+   or product command/hook filename containing `..`, an absolute path, or control chars →
    a write **outside the intended subtree** (arbitrary file overwrite in the user's repo). Symlinks
    planted in the archive are a variant — refused by the extractor's typeflag allowlist, so the
    clone never holds one (the clone invariant, §2). The highest-value target.
-2. **Malformed capability frontmatter** — broken `role`/`applies` values, or a capability in the
-   wrong subtree, to crash the install or mis-drive selection into an unintended capability set.
+2. **Malformed capability declarations** — broken `role`/`applies` values in `pharn-install.json`, or a
+   capability `dir` in the wrong subtree, to crash the install or mis-drive selection into an unintended capability set.
 3. **Oversized / slow response** — a huge clone or a hanging fetch → DoS the install. Every pharn
    fetch now carries a timeout and a body cap, the clone included: a streamed-byte cap on the
    download and a second cap on the decompressed size (see the fetch boundary below).
@@ -167,8 +166,8 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 
 | Surface | Structural answer | Floor primitive (current file/function) |
 | --- | --- | --- |
-| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `parseCapabilityIndex`, `installCapabilityDirs`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar`'s typeflag allowlist) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
-| malformed capability frontmatter | `parseCapabilityIndex` hard-fails naming the offending capability on missing subtree/markdown, unknown `role` (`assertRole`), unknown `applies` token (`assertAppliesToken`), or subtree/role mismatch — never a silent skip | shape check |
+| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `readUpstreamManifest`, `installCapabilityDirs`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar`'s typeflag allowlist) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
+| malformed capability declarations | `readUpstreamManifest` refuses the whole manifest, naming the entry, on a name outside `CAPABILITY_NAME_RE`, an unknown `role` (`assertRole`), a `dir` outside its role's subtree, a duplicate name or a capability with no files; an unknown `applies` token (`assertAppliesToken`) makes that one capability `unknown` in `manifestCapabilityIndex` — named, never installed, never a silent skip | enum + regex shape check |
 | oversized / slow `SKILLS_VERSION` fetch | 256 KB body cap + 8s timeout + `redirect: 'error'` | `fetchRemoteSkillsVersion` (`src/lib/skills-version.ts`) |
 | oversized / slow commit-SHA resolve | 8s timeout + `redirect: 'error'` + `MAX_SHA_BYTES` (1 KiB) body cap | `fetchCommitSha` (`src/lib/repo.ts`) |
 | oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + a separate cap on the **decompressed** size + `redirect: 'error'`; an entry-count cap in the extractor. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
@@ -194,18 +193,17 @@ remote input. The record mixes local-origin fields (`pharnVersion`, `repo`,
 **each network-derived field is validated at its ingest boundary before it can
 reach this write** (P0/P2): `skillsVersion` against `VERSION_RE`
 (`readSkillsVersion`, `src/lib/skills-version.ts`); every `capabilities[]` name
-against `CAPABILITY_NAME_RE` (`parseCapabilityIndex` / `installCapabilityDirs`,
-`src/lib/capability-index.ts` + `src/lib/install-capabilities.ts`); the `commit`
+against `CAPABILITY_NAME_RE` (`readUpstreamManifest` / `installCapabilityDirs`,
+`src/lib/upstream-manifest.ts` + `src/lib/install-capabilities.ts`); the `commit`
 SHA against `COMMIT_RE` — a full 40-hex sha — at the fetch boundary in `fetchRepo`
 (`src/lib/repo.ts`), with `null` the documented degraded mode of the `main` channel only (§4,
 `LIMITS.md §3b`); the release `tag_name` against `RELEASE_TAG_RE` and the tag's commit — resolved through the full
 tag ref `commits/refs/tags/<tag>`, never a bare name a same-named branch could answer — against
 `COMMIT_RE` (`src/lib/release.ts`), with the fetched tree's `SKILLS_VERSION` required to equal the tag;
-and the `models` block, copied from `pharn-install.json`'s `models.defaults` (or, for a tree
-without one, pharn-oss's root `pharn.config.json`), against
+and the `models` block, copied from `pharn-install.json`'s `models.defaults`, against
 pharn-oss's own rules — `checkModelsBlock` (`src/lib/model-config.ts`, a copy pinned
 to pharn-oss's checker) applied by `readUpstreamModels`
-(`src/lib/upstream-models.ts`), which bounds the read to 1 MiB and refuses a block
+(`src/lib/upstream-models.ts`), after the manifest's bounded (4 MiB) read, and refuses a block
 it cannot serialize. A block that fails is not written; keys the checker does not
 read are carried verbatim and nothing reads them. `JSON.stringify` neutralizes
 structural injection into the file, and the four boundary validators keep
@@ -279,7 +277,7 @@ not a "the source repo is ours" assumption (P0).
 
 ## 5. The one residual (named, bounded, not zeroed)
 
-pharn validates the **structure** of what it installs — paths contained, frontmatter enums known,
+pharn validates the **structure** of what it installs — paths contained, manifest enums known,
 lightweight fetches bounded — but it does not, and cannot, validate the **semantic safety** of the
 PHARN methodology content it copies verbatim into the project. **"It installed cleanly" means "it
 landed where it should without escaping," NOT "the installed methodology is correct or safe to
