@@ -4,7 +4,6 @@ import type { HookWiringDiff } from '../src/lib/hook-wiring.js';
 import type { InstallSource } from '../src/lib/release.js';
 import {
   buildStatusReport,
-  layoutMismatch,
   serializeStatusReport,
   strictFails,
   type StatusReportInput,
@@ -19,9 +18,9 @@ const CLEAN: InstallDiff = {
 };
 const HOOKS_OK: HookWiringDiff = { status: 'match', missing: [] };
 const MAIN: InstallSource = { kind: 'main' };
-// The drift input's surface accounting: nothing absent, clone at the recorded
-// (flat) layout.
-const SURFACES = { absentUpstream: [], upstreamLayout: 'flat' as const };
+// The drift input's surface accounting: nothing absent. Config and clone are
+// at the one layout, `pharn` (the flat layout was removed in v0.21.0).
+const SURFACES = { absentUpstream: [] };
 
 function config(extra: Partial<PharnConfig> = {}): PharnConfig {
   return {
@@ -32,6 +31,7 @@ function config(extra: Partial<PharnConfig> = {}): PharnConfig {
     installedAt: '2026-06-11T00:00:00.000Z',
     archetypes: ['ssr'],
     capabilities: [{ name: 'a11y', role: 'griller' }],
+    layout: 'pharn',
     ...extra,
   };
 }
@@ -58,6 +58,8 @@ function input(extra: Partial<StatusReportInput> = {}): StatusReportInput {
 
 describe('buildStatusReport', () => {
   it('reports a clean drift-path install', () => {
+    // v0.21.0: config and clone are at the one layout, `pharn`.
+    expect(input().config.layout).toBe('pharn');
     expect(buildStatusReport(input())).toEqual({
       schemaVersion: 1,
       node: { floor: '24.2.0', running: '24.5.0', status: 'ok' },
@@ -71,7 +73,7 @@ describe('buildStatusReport', () => {
       },
       archetypes: ['ssr'],
       capabilities: { count: 1 },
-      layout: { recorded: 'flat', upstream: 'flat' },
+      layout: { recorded: 'pharn', upstream: 'pharn' },
       drift: {
         modified: [],
         missing: [],
@@ -102,7 +104,8 @@ describe('buildStatusReport', () => {
     expect(r.orphans).toBeNull();
     expect(r.version.latest).toBe('1.0.0');
     // No clone, so no upstream layout — the recorded one is still reported.
-    expect(r.layout).toEqual({ recorded: 'flat', upstream: null });
+    expect(r.layout.upstream).toBeNull();
+    expect(r.layout).toEqual({ recorded: 'pharn', upstream: null });
   });
 
   // F-10: a declared surface the clone ships no file for, and the layout pair.
@@ -119,7 +122,6 @@ describe('buildStatusReport', () => {
             { surface: 'hooks', path: '.claude/hooks' },
             { surface: 'floor', path: 'f'.repeat(300) },
           ],
-          upstreamLayout: 'pharn',
         },
       }),
     );
@@ -131,46 +133,34 @@ describe('buildStatusReport', () => {
     expect(r.layout).toEqual({ recorded: 'pharn', upstream: 'pharn' });
   });
 
-  // CORE-167: a diff taken at the recorded layout against a clone at the other
-  // one compares the wrong paths, so the report never carries it — whatever a
-  // caller passes — while the layout pair says why.
+  // CORE-167 nulled a diff taken across layouts. v0.21.0: there is one layout
+  // (a flat config or clone is refused before the report), so the diff the
+  // command passes is always reported.
   it('nulls drift when the clone is at another layout than the install', () => {
     const r = buildStatusReport(
       input({
-        config: config({ layout: 'flat' }),
         drift: {
           diff: { ...CLEAN, modified: ['x'] },
           hooks: HOOKS_OK,
           unknown: [],
           orphans: null,
           absentUpstream: [{ surface: 'floor', path: 'pharn/floor' }],
-          upstreamLayout: 'pharn',
         },
       }),
     );
-    expect(r.drift).toBeNull();
-    expect(r.layout).toEqual({ recorded: 'flat', upstream: 'pharn' });
-    // What does not depend on the layout is still reported.
+    expect(r.drift).not.toBeNull();
+    expect(r.drift!.modified).toEqual(['x']);
+    expect(r.layout).toEqual({ recorded: 'pharn', upstream: 'pharn' });
+    // What does not depend on the layout is reported as before.
     expect(r.hooks).not.toBeNull();
     expect(r.unknownCapabilities).toEqual([]);
   });
 
   it('nulls drift when the command passed no diff (layout mismatch)', () => {
-    const r = buildStatusReport(
-      input({
-        config: config({ layout: 'flat' }),
-        drift: {
-          diff: null,
-          absentUpstream: null,
-          hooks: HOOKS_OK,
-          unknown: [],
-          orphans: null,
-          upstreamLayout: 'pharn',
-        },
-      }),
-    );
+    // v0.21.0: drift is null only when nothing was compared (--no-drift).
+    const r = buildStatusReport(input({ drift: null }));
     expect(r.drift).toBeNull();
-    expect(r.layout).toEqual({ recorded: 'flat', upstream: 'pharn' });
+    expect(r.layout).toEqual({ recorded: 'pharn', upstream: null });
   });
 
   it('lists the orphans, null when they could not be determined', () => {
@@ -440,8 +430,8 @@ describe('buildStatusReport', () => {
       expect(buildStatusReport(input({ strict: true })).strict.failed).toBe(
         false,
       );
-      // F-10: an absent surface alone fails it; CORE-167: so does a layout
-      // mismatch alone (the install is not what upstream ships).
+      // F-10: an absent surface alone fails it. v0.21.0: a clean drift at the
+      // one layout never does (no layout mismatch exists).
       const absent = {
         ...SURFACES,
         diff: CLEAN,
@@ -461,11 +451,10 @@ describe('buildStatusReport', () => {
         hooks: HOOKS_OK,
         unknown: [],
         orphans: [],
-        upstreamLayout: 'pharn' as const,
       };
       expect(
         buildStatusReport(input({ drift: moved, strict: true })).strict.failed,
-      ).toBe(true);
+      ).toBe(false);
       expect(
         buildStatusReport(input({ drift: moved, strict: false })).strict,
       ).toEqual({ enabled: false, failed: false });
@@ -529,8 +518,11 @@ describe('strictFails', () => {
     expect(strictFails({ ...base, absentUpstream: [] })).toBe(false);
   });
   it('fails on a layout mismatch', () => {
-    expect(strictFails({ outdated: false, layoutMismatch: true })).toBe(true);
-    expect(strictFails({ ...base, layoutMismatch: false })).toBe(false);
+    // v0.21.0: there is no layout mismatch input any more; a stale one passed
+    // by an old caller is ignored, and only real drift fails.
+    const stale = { outdated: false, layoutMismatch: true };
+    expect(strictFails(stale as Parameters<typeof strictFails>[0])).toBe(false);
+    expect(strictFails({ ...base, outdated: true })).toBe(true);
   });
   it('does not fail on local-only hooks', () => {
     expect(
@@ -615,14 +607,16 @@ describe('serializeStatusReport', () => {
   });
 });
 
+// `layoutMismatch` is gone with the flat layout (v0.21.0): the layout pair is
+// `pharn` on both sides whenever a clone was read.
 describe('layoutMismatch', () => {
   it('is true only when the clone was read and its layout differs', () => {
-    expect(layoutMismatch('flat', 'flat')).toBe(false);
-    expect(layoutMismatch('pharn', 'pharn')).toBe(false);
-    expect(layoutMismatch('flat', 'pharn')).toBe(true);
-    expect(layoutMismatch('pharn', 'flat')).toBe(true);
+    const read = buildStatusReport(input());
+    expect(read.layout.recorded).toBe(read.layout.upstream);
+    expect(read.layout).toEqual({ recorded: 'pharn', upstream: 'pharn' });
     // --no-drift: nothing was fetched, so nothing can be said.
-    expect(layoutMismatch('flat', null)).toBe(false);
-    expect(layoutMismatch('pharn', null)).toBe(false);
+    const unread = buildStatusReport(input({ drift: null }));
+    expect(unread.layout.upstream).toBeNull();
+    expect(unread.layout.recorded).toBe('pharn');
   });
 });

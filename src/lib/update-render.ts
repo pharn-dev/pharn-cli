@@ -22,15 +22,10 @@ import { modelsLabelLines } from './model-config-format.js';
 import type { ModelsUpdate } from './models-update.js';
 import { escapeUnsafe, terminalSafe } from './terminal-safe.js';
 import { orphanNoteLines, type Orphan } from './orphans.js';
-import {
-  rootMigrationNoteLines,
-  type RootMigration,
-  type RootMigrationResult,
-} from './root-migration.js';
 import type { SkipLabel, UnitHold, UpdatePlan } from './update-decision.js';
 import { channelOf, type RefChoice } from './release.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
-import type { Layout, PharnConfig } from '../types.js';
+import type { PharnConfig } from '../types.js';
 
 // The renderers of `pharn update`: every note, the backup pointer and the
 // closing summary, for the real run and the dry run alike. Nothing here plans,
@@ -80,7 +75,6 @@ export interface UpdateOutcome {
   backup: Backup | null;
   recordsNote: string | null;
   versionWithheld: boolean;
-  abandonedLayout: Layout | null;
   featuresReadmeRelocation: boolean;
   // Upstream hooks the project does not wire (report only). Absent on paths
   // that never saw a clone.
@@ -96,10 +90,6 @@ export interface UpdateOutcome {
   gitignore?: GitignoreOutcome;
   // The same for `.prettierignore`.
   prettierignore?: PrettierignoreOutcome;
-  // The old root footprint this run retired, and what the writer did. Both
-  // null when nothing applied.
-  rootMigration: RootMigration | null;
-  rootMigrationResult: RootMigrationResult | null;
   // True when the plan changed nothing: no confirm, no write, and the report
   // ends with the no-change verdict instead of the counts.
   unchanged?: boolean;
@@ -165,15 +155,6 @@ export function reportForcedOverwrites(
     ),
   );
   note(lines.join('\n'), 'OVERWRITE');
-}
-
-// The ROOT MIGRATION note; nothing when there is nothing to say.
-export function reportRootMigration(
-  m: RootMigration | null,
-  result: RootMigrationResult | null,
-): void {
-  const lines = m === null ? null : rootMigrationNoteLines(m, result);
-  if (lines) note(lines.join('\n'), 'ROOT MIGRATION');
 }
 
 // The skip buckets `--force` actually overrides, mirroring `skipOrForce` in
@@ -276,15 +257,10 @@ export function reportOutcome(outcome: UpdateOutcome, force: boolean): void {
   reportExecutableUnit(plan.held, false);
   const forceable = reportSkipped(plan.skipped, false);
   reportOrphans(outcome.orphans);
-  reportRootMigration(outcome.rootMigration, outcome.rootMigrationResult);
 
   // The backup pointer was printed when the backup was created (onBackup).
 
-  reportLayoutWarnings(
-    outcome.abandonedLayout,
-    outcome.featuresReadmeRelocation,
-    false,
-  );
+  reportLayoutWarnings(outcome.featuresReadmeRelocation, false);
 
   if (versionWithheld) {
     // `--force` is offered only while a bucket it can clear is still skipped.
@@ -398,27 +374,11 @@ function reportOrphans(orphans: readonly Orphan[]): void {
   if (lines) note(lines.join('\n'), 'ORPHANED');
 }
 
-// Both directions are named; `=== 'pharn'` rather than `else`, so a third
-// Layout member prints nothing instead of this message.
+// The product-loop boundary contract's move from the root to pharn/.
 function reportLayoutWarnings(
-  abandonedLayout: Layout | null,
   featuresReadmeRelocation: boolean,
   preview: boolean,
 ): void {
-  if (abandonedLayout === 'flat') {
-    log.warn(
-      preview
-        ? 'Your install would move to the pharn/ layout. The old top-level copies would be left behind and no longer managed by pharn — you would delete them by hand.'
-        : 'Your install moved to the pharn/ layout. The old top-level copies are left behind and are no longer managed by pharn — delete them by hand.',
-    );
-  } else if (abandonedLayout === 'pharn') {
-    log.warn(
-      preview
-        ? 'Your install would move to the flat layout. The old pharn/ tree (contracts, floor scripts, docs, and capabilities) would be left behind and no longer managed by pharn — you would delete it by hand.'
-        : 'Your install moved to the flat layout. The old pharn/ tree (contracts, floor scripts, docs, and capabilities) is left behind and is no longer managed by pharn — delete it by hand.',
-    );
-  }
-
   if (featuresReadmeRelocation) {
     log.warn(
       preview
@@ -515,8 +475,7 @@ export function reportDryRun(
   reportExecutableUnit(r.executableUnit, true);
   const forceable = reportSkipped(r.skipped, true);
   reportOrphans(r.orphans);
-  reportRootMigration(r.rootMigration, null);
-  reportLayoutWarnings(r.abandonedLayout, r.featuresReadmeRelocation, true);
+  reportLayoutWarnings(r.featuresReadmeRelocation, true);
 
   if (r.versionWithheld) {
     log.warn(

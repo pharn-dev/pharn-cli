@@ -2,8 +2,16 @@ import {
   CLAUDE_AGENTS_DIR,
   CLAUDE_COMMANDS_DIR,
   CLAUDE_HOOKS_DIR,
+  CONTRACTS_DIR,
+  CORE_DIR,
   DEV_COMMAND_PREFIX,
+  FEATURES_README,
+  FLAT_LICENSE_DEST,
+  FLOOR_DIR,
+  GRILLERS_DIR,
+  LENSES_DIR,
   PRODUCT_COMMAND_PREFIX,
+  TRUSTED_DOCS,
 } from './constants.js';
 import { MODELS_RECORD_KEY } from './install-records.js';
 import { layoutPaths, type LayoutPaths } from './layout.js';
@@ -11,8 +19,9 @@ import { COPY_FILENAME_RE } from './validate.js';
 import type { InstalledCapability } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// The install-root surfaces of BOTH layouts, derived from `layoutPaths` — the
-// paths some install could have written. Shared by orphan detection,
+// The install-root surfaces of the pharn layout (`layoutPaths`) and of the
+// legacy root (LEGACY_ROOT) — the paths some install, current or older, could
+// have written. Shared by orphan detection,
 // `uninstall` and the `.prettierignore` entries, so none keeps its own list.
 // ---------------------------------------------------------------------------
 
@@ -51,8 +60,29 @@ export function isInstalledHookFile(name: string): boolean {
   );
 }
 
-const BOTH_LAYOUTS: readonly LayoutPaths[] = [
-  layoutPaths('flat'),
+type SurfacePaths = Omit<LayoutPaths, 'layout' | 'license'> & {
+  license: { to: string };
+};
+
+// The root paths the legacy flat layout (removed in v0.21.0) installed to,
+// and with its `docs` the root THREAT-MODEL.md / LIMITS.md a pre-7.0 clone
+// gave a pharn-layout install. Nothing installs there any more: they stay here
+// only so such a RECORD is still an install path — an orphan `status` and
+// `update` name and `uninstall` removes by its hash — instead of being dropped
+// from the store without a word.
+const LEGACY_ROOT: SurfacePaths = {
+  grillers: GRILLERS_DIR,
+  lenses: LENSES_DIR,
+  contracts: CONTRACTS_DIR,
+  core: CORE_DIR,
+  floor: FLOOR_DIR,
+  docs: TRUSTED_DOCS,
+  license: { to: FLAT_LICENSE_DEST },
+  featuresReadme: FEATURES_README,
+};
+
+const BOTH_LAYOUTS: readonly SurfacePaths[] = [
+  LEGACY_ROOT,
   layoutPaths('pharn'),
 ];
 

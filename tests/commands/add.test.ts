@@ -372,15 +372,18 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
       download: true,
     },
     {
-      // Every clone is the pharn layout now; a flat install is the mismatch.
+      // v0.21.0: no layout gate — a flat install is refused at load with
+      // "re-run `pharn init`", before any download.
       name: 'a clone at another layout (flat project, pharn clone)',
       setup: () => legacyInstall('flat'),
       arg: 'a11y',
       error: [
-        'Install layout mismatch: pharn.config.json records the `flat` layout, but the fetched',
-        'uses the `pharn` layout',
+        'This project is installed at the flat layout',
+        'removed in v0.21.0',
+        'Re-run `pharn init`',
       ],
-      download: true,
+      notError: ['Install layout mismatch'],
+      download: false,
     },
     {
       name: 'an absent layout field reads as flat, so a pharn clone is refused',
@@ -389,8 +392,8 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
           delete (c as { layout?: string }).layout;
         }),
       arg: 'a11y',
-      error: ['records the `flat` layout', 'uses the `pharn` layout'],
-      download: true,
+      error: ['This project is installed at the flat layout', 'pharn init'],
+      download: false,
     },
     {
       name: 'version AND layout mismatch: the version refusal wins',
@@ -399,9 +402,10 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
         serveTip(SHA_V2, '2.0.0');
       },
       arg: 'a11y',
-      error: ['Skills version mismatch', 'v1.0.0', 'v2.0.0'],
-      notError: ['Install layout mismatch'],
-      download: true,
+      // v0.21.0: the flat config is refused at load, before the version gate.
+      error: ['This project is installed at the flat layout'],
+      notError: ['Skills version mismatch', 'Install layout mismatch'],
+      download: false,
     },
     {
       name: 'a CLI older than MIN_CLI, which wins over the version gate',
@@ -766,7 +770,8 @@ describe('pharn add (no argument): the picker', () => {
     {
       name: 'the layout gate',
       setup: () => legacyInstall('flat'),
-      error: 'Install layout mismatch',
+      // v0.21.0: refused at load with "re-run `pharn init`".
+      error: 'This project is installed at the flat layout',
       hint: false,
     },
     {

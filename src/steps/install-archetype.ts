@@ -1,7 +1,3 @@
-import {
-  deleteRootDocs,
-  rootMigrationNoteLines,
-} from '../lib/root-migration.js';
 import { log, note, outro, spinner } from '@clack/prompts';
 import pc from '../lib/color.js';
 import {
@@ -90,7 +86,7 @@ export async function runInstallArchetype(
   plan: InitApplyInputs,
 ): Promise<void> {
   const startedAt = Date.now();
-  const { prepared, baseline, removals, rootMigration: migration } = plan;
+  const { prepared, baseline, removals } = plan;
 
   // 1. pharn.config.json still has the bytes the carry-over read: a hand-edit
   // made while a prompt was open is not overwritten. Before anything is
@@ -139,7 +135,7 @@ export async function runInstallArchetype(
   // Deleted BEFORE the copy, after the backup: a failed delete stops the run
   // with the replaced config in place, so the next init drops them again.
   if (deletes.length > 0) {
-    const paths = layoutPaths(carry.previousLayout ?? 'flat');
+    const paths = layoutPaths('pharn');
     for (const removal of deletes) deleteCapabilityDir(cwd, paths, removal.cap);
     log.info(
       `Deleted ${deletes.length} capability director${deletes.length === 1 ? 'y' : 'ies'} no longer installed: ${deletes.map((r) => `${r.dir}/`).join(', ')}.`,
@@ -177,17 +173,6 @@ export async function runInstallArchetype(
     throw err;
   }
   s.stop('Capabilities installed');
-
-  // The old root docs, deleted only now that their pharn/ copies have landed
-  // and only while still record-equal, re-hashed at the delete: one edited
-  // while a prompt was open is kept, with its record, and the install goes on
-  // (it deletes nothing of the user's, so nothing needs a backup). A failure
-  // keeps the file and its record.
-  const docResult =
-    migration === null
-      ? { deleted: [], kept: [] }
-      : deleteRootDocs(cwd, repoDir, migration.docs, baseline);
-  const retired = new Set(docResult.deleted);
 
   // `.claude/settings.json` is user-owned: an existing one is preserved, and
   // only now can its missing PHARN hooks be named — the clone is deleted right
@@ -285,18 +270,15 @@ export async function runInstallArchetype(
   const files = {
     ...keptRecords(baseline, carry, layout),
     // Recorded files upstream no longer ships that are still on disk keep their
-    // record, so `update`/`status` keep naming them (lib/orphans.ts).
-    ...Object.fromEntries(
-      Object.entries(
-        findOrphans({
-          projectRoot: cwd,
-          records: baseline,
-          expected: prepared.manifest,
-          capabilities: [...capabilities, ...carry.kept],
-          frozen: carry.kept,
-        }).records,
-      ).filter(([rel]) => !retired.has(rel)),
-    ),
+    // record, so `update`/`status` keep naming them (lib/orphans.ts) — an
+    // old flat install's top-level copies, or a pre-7.0 root doc, among them.
+    ...findOrphans({
+      projectRoot: cwd,
+      records: baseline,
+      expected: prepared.manifest,
+      capabilities: [...capabilities, ...carry.kept],
+      frozen: carry.kept,
+    }).records,
     // `.claude/settings.json`: a file this run wrote fresh is recorded so
     // `uninstall` can remove it while unchanged. A PRESERVED one is never
     // recorded anew; a re-run only carries a previous fresh install's record
@@ -330,13 +312,6 @@ export async function runInstallArchetype(
   const prettierignore = await applyPrettierignore(cwd, Object.keys(files));
   const prettierignoreReport = prettierignoreLines(prettierignore);
   if (prettierignoreReport?.warn) log.warn(prettierignoreReport.text);
-
-  // What the migration did, after every pharn-owned write. Root user data is
-  // never moved; the note only hints at it.
-  if (migration !== null) {
-    const lines = rootMigrationNoteLines(migration, docResult);
-    if (lines) note(lines.join('\n'), 'ROOT MIGRATION');
-  }
 
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
   const check = pc.green('✔');

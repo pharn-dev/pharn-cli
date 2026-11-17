@@ -4,7 +4,6 @@ import {
   planPrettierignore,
   type PrettierignorePlan,
 } from './prettierignore.js';
-import { planRootMigration, type RootMigration } from './root-migration.js';
 import { existsSync } from 'node:fs';
 import { CLAUDE_SETTINGS_FILE } from './constants.js';
 import { readJsonBounded } from './bounded-read.js';
@@ -32,7 +31,7 @@ import {
   recordsUnderCapabilities,
   type FileRecords,
 } from './install-records.js';
-import { configLayout, detectLayout, layoutPaths } from './layout.js';
+import { detectLayout, layoutPaths } from './layout.js';
 import {
   planCapabilityRemovals,
   removalBackups,
@@ -101,18 +100,16 @@ export interface InstallCarry {
   kept: readonly InstalledCapability[];
   // The replaced config's (skillsVersion, commit), or null on a first install.
   // Non-null is what makes this a RE-install: only then are the replaced
-  // install's records read and its root footprint retired. The records' own
-  // stamp is never compared with it.
+  // install's records read. The records' own stamp is never compared with it.
   previousStamp: { skillsVersion: string; commit: string | null } | null;
   // The channel THIS run installed from, recorded as `ref` — never carried from
   // the old config.
   ref?: 'latest';
-  // Previous entries this install DROPS; their directories are deleted under
-  // the lock after a backup (lib/capability-removal.ts).
+  // Previous entries this install DROPS; their directories (at the pharn/
+  // layout) are deleted under the lock after a backup
+  // (lib/capability-removal.ts). A dropped capability of a flat install keeps
+  // its old root directory: nothing is deleted outside pharn/.
   dropped?: readonly CapabilityDrop[];
-  // The replaced config's layout: where the dropped directories are and how
-  // their records are keyed.
-  previousLayout?: Layout;
 }
 
 export interface InitCarry extends InstallCarry {
@@ -292,13 +289,12 @@ export function carryOver(
     previousStamp: previous
       ? { skillsVersion: previous.skillsVersion, commit: previous.commit }
       : null,
-    ...(previous ? { previousLayout: configLayout(previous) } : {}),
   };
 }
 
 /**
  * The directories this re-install deletes (one per dropped capability, at the
- * replaced config's layout) and the files it saves first, against `records`
+ * pharn layout) and the files it saves first, against `records`
  * (the reinstall baseline). Reads only; throws CapabilityRemovalError for a
  * symlinked component or an unreadable file. Planned once; the install re-reads
  * the backup set at delete time (removalBackupsNow).
@@ -312,7 +308,7 @@ function planInitRemovals(
   if (drops.length === 0) return [];
   return planCapabilityRemovals({
     cwd,
-    paths: layoutPaths(carry.previousLayout ?? 'flat'),
+    paths: layoutPaths('pharn'),
     drops,
     records,
     command: 'init',
@@ -481,43 +477,10 @@ export interface InitPlanReport {
   absentUpstream: AbsentSurface[];
   // The NAMES of the replaced config's unowned keys, never their values.
   carriedConfigKeys: string[];
-  // The old root footprint a RE-RUN would retire; always null for a first
-  // install, which has nothing of pharn's at the root.
-  rootMigration: RootMigration | null;
   // `none` when `.gitignore` already covers pharn's entries.
   gitignore: GitignorePlan;
   // `none` when the project does not use Prettier or is already covered.
   prettierignore: PrettierignorePlan;
-}
-
-/**
- * The root migration a re-run init makes (lib/root-migration.ts), or null for
- * a first install, whose root holds nothing pharn wrote. Part of the one plan
- * the dry run and the real install share.
- */
-function initRootMigration(
-  repoDir: string,
-  cwd: string,
-  carry: InstallCarry,
-  records: FileRecords | null,
-): RootMigration | null {
-  if (carry.previousStamp === null) return null;
-  // Tolerant of a clone without a valid SKILLS_VERSION: the hints are then
-  // inert, and the install's own read reports the packaging bug.
-  let skillsVersion = '';
-  try {
-    skillsVersion = readSkillsVersion(repoDir);
-  } catch {
-    /* inert hints; readSkillsVersion throws again where it is authoritative */
-  }
-  return planRootMigration({
-    projectRoot: cwd,
-    repoDir,
-    layout: detectLayout(repoDir),
-    installedLayout: carry.previousLayout ?? 'flat',
-    skillsVersion,
-    records,
-  });
 }
 
 /**
@@ -567,7 +530,6 @@ export interface InitApplyInputs {
   // The replaced install's records baseline, or null.
   baseline: FileRecords | null;
   removals: CapabilityRemoval[];
-  rootMigration: RootMigration | null;
   // The prompt's (and `--yes`'s) view of the existing targets.
   targets: WriteTargetsPlan;
   // pharn.config.json's bytes when the carry-over read it, taken before that
@@ -654,7 +616,6 @@ export function buildInitPlan(params: {
           ? ('rewritten' as const)
           : null),
     }));
-  const rootMigration = initRootMigration(repoDir, cwd, carry, baseline);
   // What runInstallArchetype backs up (plus a removal file edited since).
   const backups = [
     ...new Set([
@@ -716,7 +677,6 @@ export function buildInitPlan(params: {
           : { outcome: 'rejected', reasons: upstreamModels.reasons },
     absentUpstream: absentInstallSurfaces({ repoDir }),
     carriedConfigKeys: Object.keys(readCarriedEntries(cwd)),
-    rootMigration,
     gitignore: planGitignore(cwd),
     prettierignore: planPrettierignore(
       cwd,
@@ -738,7 +698,6 @@ export function buildInitPlan(params: {
       seen: scan.seen,
       baseline,
       removals,
-      rootMigration,
       targets: writeTargets,
       fingerprint: chosen.previous.fingerprint,
     },

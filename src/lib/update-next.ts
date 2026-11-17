@@ -6,7 +6,6 @@ import {
   type FileRecords,
   type ReadRecordsResult,
 } from './install-records.js';
-import { configLayout } from './layout.js';
 import { prettierignorePending } from './prettierignore.js';
 import { channelOf, type RefChoice } from './release.js';
 import type { UpdateApplyInputs, UpdatePlanReport } from './update-plan.js';
@@ -27,8 +26,7 @@ export interface NextRecordStore {
 
 /**
  * The record store a run writes. `written` is the dest hashes of the files the
- * run wrote (empty before any write), `retired` the root docs it deleted —
- * their records go with them. `unwritten` names planned writes the writer left
+ * run wrote (empty before any write). `unwritten` names planned writes the writer left
  * alone because the file changed after the plan read it: each keeps its
  * previous record (or none), never the upstream hash the plan expected.
  */
@@ -46,20 +44,13 @@ export function nextRecordStore(
     Partial<Pick<UpdateApplyInputs, 'records'>>,
   extra: {
     written: FileRecords;
-    retired: ReadonlySet<string>;
     unwritten?: readonly string[];
   },
 ): NextRecordStore {
-  const orphanRecords = Object.fromEntries(
-    Object.entries(apply.orphanRecords).filter(
-      ([rel]) => !extra.retired.has(rel),
-    ),
-  );
   const files: FileRecords = {
     ...apply.frozenRecords,
-    // Orphans keep their record while their file exists; a retired root
-    // doc's record goes with it.
-    ...orphanRecords,
+    // Orphans keep their record while their file exists.
+    ...apply.orphanRecords,
     // The settings.json init wrote: outside the manifest, carried only while
     // the file is there.
     ...apply.settingsRecords,
@@ -144,22 +135,19 @@ function jsonValue(value: unknown): unknown {
 
 // A config as the READER resolves it, minus the two write-describing fields.
 // Applied to the loaded AND the next config alike, so a difference only
-// load-time resolution produces never counts as a change: `layout` →
-// `configLayout`, `ref` → "latest" or nothing (`channelOf`), `commit` → `null`
-// when absent. A real change (new layout, channel switch, new commit) still
-// differs.
+// load-time resolution produces never counts as a change: `ref` → "latest" or
+// nothing (`channelOf`), `commit` → `null` when absent. A real change (channel
+// switch, new commit) still differs.
 function loadResolved(config: PharnConfig): unknown {
   const {
     updatedAt: _updatedAt,
     pharnVersion: _pharnVersion,
-    layout: _layout,
     ref: _ref,
     commit: _commit,
     ...rest
   } = config;
   return jsonValue({
     ...rest,
-    layout: configLayout(config),
     commit: config.commit ?? null,
     ...(channelOf(config) === 'latest' ? { ref: 'latest' } : {}),
   });
@@ -186,7 +174,7 @@ export function planStateChanges(input: {
   });
   const store = {
     schemaVersion: RECORDS_SCHEMA_VERSION,
-    ...nextRecordStore(apply, { written: {}, retired: new Set() }),
+    ...nextRecordStore(apply, { written: {} }),
   };
   return {
     config: !isDeepStrictEqual(loadResolved(next), loadResolved(config)),
@@ -198,19 +186,18 @@ export function planStateChanges(input: {
 
 /**
  * Everything but the two state files: no file written, no capability directory
- * or root doc deleted, nothing added to `.gitignore` / `.prettierignore` (a
- * user-data hint changes nothing). The dry run also reads it alone.
+ * deleted, nothing added to `.gitignore` / `.prettierignore`. The dry run also
+ * reads it alone.
  */
 export function changesNoFiles(
   report: Pick<
     UpdatePlanReport,
-    'writes' | 'removals' | 'rootMigration' | 'gitignore' | 'prettierignore'
+    'writes' | 'removals' | 'gitignore' | 'prettierignore'
   >,
 ): boolean {
   return (
     report.writes.length === 0 &&
     !report.removals.some((r) => r.present) &&
-    !(report.rootMigration?.docs ?? []).some((d) => d.action === 'delete') &&
     !gitignorePending(report.gitignore) &&
     !prettierignorePending(report.prettierignore)
   );

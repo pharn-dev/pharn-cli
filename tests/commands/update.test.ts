@@ -81,6 +81,7 @@ import {
 } from '../support/harness.js';
 import { runAdd } from '../../src/commands/add.js';
 import { runUpdate } from '../../src/commands/update.js';
+import { FLAT_LAYOUT_MESSAGE } from '../../src/lib/pharn-config.js';
 import { runRemove } from '../../src/commands/remove.js';
 import { runStatus } from '../../src/commands/status.js';
 import { runList } from '../../src/commands/list.js';
@@ -931,23 +932,15 @@ describe('pharn update, end to end', () => {
     await oldInstallWithUserData();
     serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
 
+    // v0.21.0: the preview names no root migration (a constant `null`), and
+    // the run deletes nothing at the root: the old docs stay, recorded, as
+    // orphans; the pharn/ copies are installed beside them.
     clearOutput();
     expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
     const preview = JSON.parse(stdout()[0] ?? '') as MigrationJson;
-    // `moves` stays in the report (schemaVersion 1) and is always empty: the
-    // user data is never moved (CORE-158); the hint is text-only.
-    expect(preview.plan?.rootMigration).toEqual({
-      docs: [
-        { rel: 'THREAT-MODEL.md', action: 'delete' },
-        { rel: 'LIMITS.md', action: 'delete' },
-      ],
-      moves: [],
-      scratchNotice: true,
-      // `.pharn-backup` is no longer hinted (0.20.0): only `.pharn/` is.
-      gitignoreHints: ['pharn/.run/'],
-    });
-    expect(preview.plan?.rootMigration?.gitignoreHints ?? []).not.toContain(
-      'pharn/.backup/',
+    expect(preview.plan?.rootMigration).toBeNull();
+    expect(preview.plan?.rootMigration ?? null).not.toEqual(
+      expect.objectContaining({ gitignoreHints: expect.anything() }),
     );
     // Nothing of the user's data is backed up: nothing of it is touched.
     const previewBackups = (
@@ -963,33 +956,39 @@ describe('pharn update, end to end', () => {
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(process.exitCode).toBeUndefined();
 
-    // Named BEFORE it is applied (the confirm's note, printed under --yes too),
-    // then reported after. Both carry the hint, never a move.
+    // No ROOT MIGRATION note before or after, and no hint about user data.
     const migrationNotes = vi
       .mocked(clack.note)
       .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
       .map(([body]) => String(body));
-    expect(migrationNotes).toHaveLength(2);
-    expect(migrationNotes[0]).toContain('WOULD DELETE THREAT-MODEL.md');
-    expect(migrationNotes[1]).toContain('deleted THREAT-MODEL.md');
-    for (const body of migrationNotes) {
-      expect(body).not.toContain('MOVE');
-      expect(body).toContain(
-        "If it is PHARN's, move it: git mv memory-bank pharn/memory-bank (or mv, if git does not track it).",
-      );
-      expect(body).toContain(
-        'git mv pharn.spec-template.md pharn/spec-template.md',
-      );
-    }
+    expect(migrationNotes).toHaveLength(0);
+    const allNotes = vi
+      .mocked(clack.note)
+      .mock.calls.map(([body]) => String(body))
+      .join('\n');
+    expect(allNotes).not.toContain('WOULD DELETE THREAT-MODEL.md');
+    expect(allNotes).not.toContain('deleted THREAT-MODEL.md');
+    expect(allNotes).not.toContain('git mv memory-bank pharn/memory-bank');
+    expect(allNotes).not.toContain(
+      'git mv pharn.spec-template.md pharn/spec-template.md',
+    );
+    // The old root docs are listed as orphans instead.
+    expect(
+      vi
+        .mocked(clack.note)
+        .mock.calls.filter(([, title]) => title === 'ORPHANED')
+        .map(([body]) => String(body))
+        .join('\n'),
+    ).toContain('THREAT-MODEL.md');
 
-    // The docs: gone from the root, at pharn/, and recorded there only.
-    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
-    expect(existsSync(at('LIMITS.md'))).toBe(false);
+    // The docs: still at the root and recorded there, and now at pharn/ too.
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(true);
+    expect(existsSync(at('LIMITS.md'))).toBe(true);
     expect(read('pharn/THREAT-MODEL.md')).toBe('threat model\n');
     expect(read('pharn/LIMITS.md')).toBe('limits\n');
     const files = records().files;
-    expect(files['THREAT-MODEL.md']).toBeUndefined();
-    expect(files['LIMITS.md']).toBeUndefined();
+    expect(files['THREAT-MODEL.md']).toBe(sha256('THREAT-MODEL.md'));
+    expect(files['LIMITS.md']).toBe(sha256('LIMITS.md'));
     expect(files['pharn/THREAT-MODEL.md']).toBe(
       sha256('pharn/THREAT-MODEL.md'),
     );
@@ -1013,13 +1012,14 @@ describe('pharn update, end to end', () => {
       `node_modules\n.pharn/\n.pharn-backup\n${PHARN_GITIGNORE_BLOCK}`,
     );
 
-    // Nothing of pharn's at the root but .claude/, pharn/ and the JSON files;
-    // `.gitignore` and `.pharn/` are the user's and pharn-oss's, and
-    // `memory-bank/` and the template are the user's to place.
+    // At the root: .claude/, pharn/, the JSON files, the user's data and the
+    // two old docs pharn no longer retires (the user deletes them by hand).
     expect(rootEntries()).toEqual([
       '.claude',
       '.gitignore',
       '.pharn',
+      'LIMITS.md',
+      'THREAT-MODEL.md',
       'memory-bank',
       'pharn',
       'pharn.config.json',
@@ -1027,14 +1027,18 @@ describe('pharn update, end to end', () => {
       'pharn.spec-template.md',
     ]);
 
-    // status is clean immediately after: no drift, no orphans, --strict passes.
+    // status right after: no drift, the two root docs as unchanged orphans
+    // (never a --strict input), --strict passes.
     clearOutput();
     expect(await run(() => runStatus({ json: true, strict: true }))).toBeNull();
     const status = JSON.parse(stdout()[0] ?? '') as StatusJson & {
-      orphans: unknown[] | null;
+      orphans: { path: string; state: string }[] | null;
     };
     expect(status.drift).toMatchObject({ modified: [], missing: [] });
-    expect(status.orphans).toEqual([]);
+    expect(status.orphans).toEqual([
+      { path: 'LIMITS.md', state: 'unchanged' },
+      { path: 'THREAT-MODEL.md', state: 'unchanged' },
+    ]);
     expect(status.strict.failed).toBe(false);
     expect(process.exitCode).toBeUndefined();
 
@@ -1048,9 +1052,9 @@ describe('pharn update, end to end', () => {
     expect(lastOutro()).toContain('Up to date.');
   });
 
-  // A root doc the plan would delete needs its record's proof at the delete:
-  // one edited while the confirm is open stops the run before any write, like
-  // every other file the confirmed plan acts on (C5.2's write-time check).
+  // v0.21.0: the plan never deletes a root doc, so one edited while the
+  // confirm is open is simply not part of it: the confirmed plan applies, the
+  // edit is kept, and the doc stays an orphan with its old record.
   it.each([
     ['moving to 7.0.0', false],
     ['at the same 7.x version an older CLI left', true],
@@ -1072,35 +1076,34 @@ describe('pharn update, end to end', () => {
         );
       }
       serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
-      const cfg = read('pharn.config.json');
-      const rec = read('pharn.records.json');
+      const recordedLimits = records().files['LIMITS.md'];
       setTTY(true, true);
       clearOutput();
       vi.mocked(clack.confirm).mockImplementationOnce(async () => {
         writeFileSync(at('LIMITS.md'), 'my limits, edited at the prompt\n');
         return true;
       });
-      expect(await run(() => runUpdate())).toBe(1);
+      expect(await run(() => runUpdate())).toBeNull();
       expect(read('LIMITS.md')).toBe('my limits, edited at the prompt\n');
       expect(read('THREAT-MODEL.md')).toBe('threat model\n');
-      expect(exists('pharn/LIMITS.md')).toBe(false);
-      expect(read('pharn.config.json')).toBe(cfg);
-      expect(read('pharn.records.json')).toBe(rec);
+      expect(read('pharn/LIMITS.md')).toBe('limits\n');
+      expect(config().skillsVersion).toBe('7.0.0');
+      expect(records().files['LIMITS.md']).toBe(recordedLimits);
       expect(exists('pharn/.backup')).toBe(false);
       const said = printed();
-      expect(said).toContain(
+      expect(said).not.toContain(
         'A file changed while `pharn update` was waiting for your answer:',
       );
-      expect(said).toContain('  LIMITS.md');
-      expect(said).toContain('Nothing was written, and your edit is kept.');
+      expect(said).not.toContain('ROOT MIGRATION');
+      expect(said).toContain('LIMITS.md');
 
-      // The re-run plans the doc as the user's: kept (with its record), while
-      // the untouched one is retired.
+      // The re-run deletes nothing either: both root docs stay, the edited
+      // one an `edited` orphan with its old record.
       setTTY(false, false);
       expect(await run(() => runUpdate({ yes: true }))).toBeNull();
       expect(read('LIMITS.md')).toBe('my limits, edited at the prompt\n');
-      expect(records().files['LIMITS.md']).toBeDefined();
-      expect(exists('THREAT-MODEL.md')).toBe(false);
+      expect(records().files['LIMITS.md']).toBe(recordedLimits);
+      expect(exists('THREAT-MODEL.md')).toBe(true);
       expect(read('pharn/LIMITS.md')).toBe('limits\n');
     },
   );
@@ -1117,7 +1120,8 @@ describe('pharn update, end to end', () => {
     // Both copies present is not a failure any more (CORE-158).
     expect(process.exitCode).toBeUndefined();
 
-    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
+    // v0.21.0: neither root doc is deleted, and no hint is printed at all.
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(true);
     expect(read('LIMITS.md')).toBe('my limits\n');
     // Kept docs keep their record: still a listed orphan.
     expect(records().files['LIMITS.md']).toBeDefined();
@@ -1133,14 +1137,17 @@ describe('pharn update, end to end', () => {
       .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
       .map(([body]) => String(body))
       .join('\n');
-    expect(notes).toContain(
-      'merge it into pharn/memory-bank/ by hand, then delete memory-bank/.',
-    );
-    // Never a `git mv` that would nest memory-bank/ inside the existing copy.
-    expect(notes).not.toContain('git mv memory-bank');
-    expect(notes).toContain(
-      'git mv pharn.spec-template.md pharn/spec-template.md',
-    );
+    expect(notes).toBe('');
+    const orphaned = vi
+      .mocked(clack.note)
+      .mock.calls.filter(([, title]) => title === 'ORPHANED')
+      .map(([body]) => String(body))
+      .join('\n');
+    // The edited doc is an edited orphan; the untouched one an unchanged one.
+    expect(orphaned).toContain('LIMITS.md');
+    expect(orphaned).toContain('THREAT-MODEL.md');
+    expect(orphaned).not.toContain('git mv memory-bank');
+    expect(orphaned).not.toContain('merge it into pharn/memory-bank/');
   });
 
   it('update --force leaves the user data where it is too', async () => {
@@ -1152,8 +1159,9 @@ describe('pharn update, end to end', () => {
     expect(read('pharn.spec-template.md')).toBe('template\n');
     expect(existsSync(at('pharn/memory-bank'))).toBe(false);
     expect(existsSync(at('pharn/spec-template.md'))).toBe(false);
-    // The record-proved root docs are still retired.
-    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
+    // v0.21.0: --force retires no root doc either; it stays, recorded.
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(true);
+    expect(records().files['THREAT-MODEL.md']).toBe(sha256('THREAT-MODEL.md'));
   });
 
   // A pre-7.0 pharn-oss ships no pharn-install.json, so it is refused before
@@ -1179,6 +1187,8 @@ describe('pharn update, end to end', () => {
   it('one plain update retires root docs an older CLI left on a 7.x install; the next run is up to date', async () => {
     // What 0.13.0 leaves after updating to 7.0.0: config and records at 7.0.0,
     // the root docs still recorded (carried as orphans), no pharn/ docs.
+    // v0.21.0: one plain update installs the pharn/ docs and retires nothing —
+    // the root docs stay recorded orphans; the next run is up to date.
     serveTip(SHA_V1, '6.9.0');
     await installFresh();
     legacyInstall('pre7');
@@ -1194,9 +1204,10 @@ describe('pharn update, end to end', () => {
     serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
 
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
-    expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
-    expect(existsSync(at('LIMITS.md'))).toBe(false);
+    expect(existsSync(at('THREAT-MODEL.md'))).toBe(true);
+    expect(existsSync(at('LIMITS.md'))).toBe(true);
     expect(records().files['pharn/LIMITS.md']).toBeDefined();
+    expect(records().files['LIMITS.md']).toBe(sha256('LIMITS.md'));
 
     const settled = snapshot();
     fetchStub.mockClear();
@@ -1224,12 +1235,14 @@ describe('pharn update, end to end', () => {
   });
 
   it('a plan whose only root-migration content is a user-data hint changes nothing: no write, the hint printed', async () => {
+    // v0.21.0: there is no hint any more; the plan changes nothing and prints
+    // no ROOT MIGRATION note.
     serveTip(SHA_V1, '7.0.0', { tree: upstreamTree('7.0.0') });
     await installFresh();
     mkdirSync(at('memory-bank'));
     writeFileSync(at('memory-bank/canon.md'), 'canon\n');
-    // With every file at upstream, the hint is all the root migration has: the
-    // plan changes nothing, so the JSON preview is `up-to-date` (plan null).
+    // With every file at upstream the plan changes nothing, so the JSON
+    // preview is `up-to-date` (plan null).
     clearOutput();
     expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
     expect(JSON.parse(stdout()[0] ?? '') as MigrationJson).toMatchObject({
@@ -1252,7 +1265,8 @@ describe('pharn update, end to end', () => {
         .mock.calls.filter(([, title]) => title === 'ROOT MIGRATION')
         .map(([body]) => String(body))
         .join('\n'),
-    ).toContain('git mv memory-bank pharn/memory-bank');
+    ).toBe('');
+    expect(lastOutro()).toContain('Up to date.');
   });
   // pharn 0.14.1 to 0.19.x pointed at an old root `.pharn-backup/` on every
   // run; from 0.20.0 nothing reads it.
@@ -3436,96 +3450,96 @@ describe('a layout move', () => {
   // A flat install is made from a pharn-oss this pharn can no longer fetch:
   // installed from today's tree, then put in the flat shape (legacyInstall).
   it('flat → pharn/: records the clone’s layout, installs pharn-core, and warns about the abandoned flat tree', async () => {
+    // v0.21.0: refused, nothing written — `pharn init` is the way back.
     await installed();
     legacyInstall('flat');
     expect(config().layout).toBe('flat');
     serveTip(SHA_V2, '2.0.0');
-    expect(await updateYes()).toBeNull();
-    expect(config().layout).toBe('pharn');
-    expect(read(SECURITY)).toContain('security 2.0.0');
+    const before = snapshot();
+    fetchStub.mockClear();
+    expect(await updateYes()).toBe(1);
+    expect(config().layout).toBe('flat');
+    expect(printed()).toContain(FLAT_LAYOUT_MESSAGE);
     const core = 'pharn/pharn-core/seam-resolver/SKILL.md';
-    expect(read(core)).toBe('seam resolver\n');
-    expect(records().files[core]).toBe(sha256(core));
-    expect(logged('warn').join('\n')).toContain('pharn/ layout');
+    expect(exists(core)).toBe(false);
+    expect(records().files[core]).toBeUndefined();
+    expect(logged('warn').join('\n')).not.toContain('pharn/ layout');
     expect(read('pharn-pipeline/grillers/security/security.md')).toContain(
       'security 1.0.0',
     );
+    expect(downloaded()).toBe(false);
+    expect(snapshot()).toEqual(before);
   });
 
   // Every run plans, so a layout move needs no version bump and no --force.
   it('flat → pharn/ at the same skills version: one plain update moves it, and the next run is up to date', async () => {
+    // v0.21.0: at the same version too, every run refuses; nothing moves.
     await installed();
     legacyInstall('flat');
     expect(config().layout).toBe('flat');
     serveTip(SHA_V1, '1.0.0');
-    expect(await updateYes()).toBeNull();
-    expect(config().layout).toBe('pharn');
+    const before = snapshot();
+    expect(await updateYes()).toBe(1);
+    expect(config().layout).toBe('flat');
     expect(config().skillsVersion).toBe('1.0.0');
-    expect(read(SECURITY)).toContain('security 1.0.0');
-    expect(records().files[SECURITY]).toBe(sha256(SECURITY));
+    expect(exists(SECURITY)).toBe(false);
+    expect(records().files[SECURITY]).toBeUndefined();
     expect(exists('pharn/.backup')).toBe(false);
-    // The move keeps the flat tree's root docs (orphans, never deleted by it).
-    expect(read('THREAT-MODEL.md')).toBe('threat model\n');
 
-    // The next run sees a pharn-layout install with record-proved root
-    // THREAT-MODEL.md / LIMITS.md and a clone that ships both under pharn/: the
-    // root-footprint migration retires them. The run after is up to date.
-    expect(await updateYes()).toBeNull();
-    expect(exists('THREAT-MODEL.md')).toBe(false);
-    expect(exists('LIMITS.md')).toBe(false);
-    expect(read('pharn/LIMITS.md')).toBe('limits\n');
-
-    const settled = snapshot();
     fetchStub.mockClear();
-    expect(await updateYes()).toBeNull();
-    expect(tarballFetches()).toBe(1);
-    expect(lastOutro()).toMatch(upToDate());
-    expect(snapshot()).toEqual(settled);
+    expect(await updateYes()).toBe(1);
+    expect(tarballFetches()).toBe(0);
+    expect(printed()).toContain('Re-run `pharn init`');
+    expect(snapshot()).toEqual(before);
   });
 
   // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
   // Every fetched pharn-oss is the pharn layout, so a flat install is never
   // up to date: the next run moves it.
   it('DEPRECATED: a flat install is told once per run (ahead of its source, the run that moves it), and a pharn install never is', async () => {
+    // v0.21.0: no DEPRECATED note on any path — a flat install is refused on
+    // every one (the plain run, ahead of its source, --dry-run, --json).
     const deprecated = (): string[] => notes('DEPRECATED');
     await installed();
     legacyInstall('flat');
 
-    // Ahead of its source: refused before the download, the note still prints.
+    expect(await updateYes()).toBe(1);
+    expect(deprecated()).toHaveLength(0);
+    expect(printed()).toContain(FLAT_LAYOUT_MESSAGE);
+    expect(printed()).toContain('removed in v0.21.0');
+
+    // Ahead of its source: refused all the same, before any network call.
     clearOutput();
     editConfig((c) => {
       c.skillsVersion = '9.0.0';
     });
-    expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toContain('is ahead of');
-    expect(deprecated()).toHaveLength(1);
-    expect(deprecated()[0]).toContain(
-      'The flat layout is deprecated and is removed in pharn v0.22.0.',
-    );
-    expect(deprecated()[0]).toContain(
-      '`pharn update` moves the install to the pharn/ layout',
-    );
+    fetchStub.mockClear();
+    expect(await updateYes()).toBe(1);
+    expect(lastOutro()).not.toContain('is ahead of');
+    expect(deprecated()).toHaveLength(0);
+    expect(fetched()).toEqual([]);
     editConfig((c) => {
       c.skillsVersion = '1.0.0';
     });
 
-    // The run that moves the install: once, above the move's own warning.
+    // --dry-run and --json: refused too; --json keeps stdout empty.
     clearOutput();
-    expect(await updateYes()).toBeNull();
-    expect(config().layout).toBe('pharn');
-    expect(deprecated()).toHaveLength(1);
-    expect(logged('warn').join('\n')).toContain(
+    expect(await run(() => runUpdate({ dryRun: true }))).toBe(1);
+    expect(deprecated()).toHaveLength(0);
+    clearOutput();
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBe(1);
+    expect(stdout()).toEqual([]);
+    expect(stderr().join('\n')).toContain(FLAT_LAYOUT_MESSAGE);
+    expect(logged('warn').join('\n')).not.toContain(
       'Your install moved to the pharn/ layout',
     );
 
-    // Moved: no later run says anything about it (the next one retires the
-    // flat tree's root docs, the one after is up to date).
+    // A pharn install never hears of it.
+    editConfig((c) => {
+      c.layout = 'pharn';
+    });
     clearOutput();
-    expect(await updateYes()).toBeNull();
-    expect(noteTitles()).not.toContain('DEPRECATED');
-    clearOutput();
-    expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toMatch(upToDate());
+    expect(await run(() => runUpdate({ dryRun: true }))).not.toBe(1);
     expect(noteTitles()).not.toContain('DEPRECATED');
   });
 

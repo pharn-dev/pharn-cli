@@ -11,7 +11,7 @@ import {
 import { layoutPaths } from '../src/lib/layout.js';
 import type { InstalledCapability } from '../src/types.js';
 
-const flat = layoutPaths('flat');
+// The one layout since v0.21.0 (the flat layout was removed).
 const pharn = layoutPaths('pharn');
 const A11Y: InstalledCapability = { name: 'a11y', role: 'griller' };
 const N1: InstalledCapability = { name: 'n-plus-one', role: 'lens' };
@@ -25,19 +25,24 @@ describe('capability-dir', () => {
   });
 
   it('addresses a capability at its role subtree, in both layouts', () => {
-    expect(capabilityRelDir(flat, A11Y)).toBe('pharn-pipeline/grillers/a11y');
-    expect(capabilityRelDir(flat, N1)).toBe('pharn-review/n-plus-one');
+    // v0.21.0: one layout; each role addressed under pharn/, never the root.
+    expect(capabilityRelDir(pharn, A11Y)).not.toBe(
+      'pharn-pipeline/grillers/a11y',
+    );
+    expect(capabilityRelDir(pharn, N1)).toBe('pharn/pharn-review/n-plus-one');
     expect(capabilityRelDir(pharn, A11Y)).toBe(
       'pharn/pharn-pipeline/grillers/a11y',
     );
-    expect(capabilityDir(proj, flat, N1)).toBe(
-      join(proj, 'pharn-review/n-plus-one'),
+    expect(capabilityDir(proj, pharn, N1)).toBe(
+      join(proj, 'pharn/pharn-review/n-plus-one'),
     );
   });
 
   it('refuses a name that is not a strict child of the subtree', () => {
     for (const name of ['..', '../..', 'a/b', '']) {
-      expect(() => capabilityDir(proj, flat, { name, role: 'lens' })).toThrow();
+      expect(() =>
+        capabilityDir(proj, pharn, { name, role: 'lens' }),
+      ).toThrow();
     }
   });
 
@@ -66,19 +71,20 @@ describe('capability-dir', () => {
   });
 
   it('treats a component below a regular file as no link (that dir cannot exist)', () => {
-    writeFileSync(join(proj, 'pharn-review'), 'a file, not a dir');
-    expect(linkedComponent(proj, flat, N1)).toBeNull();
+    mkdirSync(join(proj, 'pharn'), { recursive: true });
+    writeFileSync(join(proj, 'pharn/pharn-review'), 'a file, not a dir');
+    expect(linkedComponent(proj, pharn, N1)).toBeNull();
   });
 
   it('deletes the whole directory and reports whether it existed', () => {
-    const dir = join(proj, 'pharn-review/n-plus-one');
+    const dir = join(proj, 'pharn/pharn-review/n-plus-one');
     mkdirSync(join(dir, 'nested'), { recursive: true });
     writeFileSync(join(dir, 'nested/x.md'), 'x');
-    writeFileSync(join(proj, 'pharn-review/sibling.md'), 'keep');
+    writeFileSync(join(proj, 'pharn/pharn-review/sibling.md'), 'keep');
 
-    expect(deleteCapabilityDir(proj, flat, N1)).toBe(true);
+    expect(deleteCapabilityDir(proj, pharn, N1)).toBe(true);
     expect(existsSync(dir)).toBe(false);
-    expect(existsSync(join(proj, 'pharn-review/sibling.md'))).toBe(true);
-    expect(deleteCapabilityDir(proj, flat, N1)).toBe(false);
+    expect(existsSync(join(proj, 'pharn/pharn-review/sibling.md'))).toBe(true);
+    expect(deleteCapabilityDir(proj, pharn, N1)).toBe(false);
   });
 });

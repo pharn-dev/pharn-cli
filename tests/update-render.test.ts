@@ -168,13 +168,10 @@ describe('the records note is escaped at both print sites', () => {
     backup: null,
     recordsNote: hostile,
     versionWithheld: false,
-    abandonedLayout: null,
     featuresReadmeRelocation: false,
     models,
     modelsFloor: 'pharn/floor',
     orphans: [],
-    rootMigration: null,
-    rootMigrationResult: null,
   };
 
   const report: UpdatePlanReport = {
@@ -189,7 +186,6 @@ describe('the records note is escaped at both print sites', () => {
     frozenCapabilities: [],
     capCount: 1,
     layout: 'pharn',
-    abandonedLayout: null,
     featuresReadmeRelocation: false,
     capabilityChanges: [],
     removals: [],
@@ -206,7 +202,6 @@ describe('the records note is escaped at both print sites', () => {
     unknownWarning: null,
     unknownCapabilities: [],
     orphans: [],
-    rootMigration: null,
     stateChanges: { config: false, records: false },
     changesNothing: true,
   };

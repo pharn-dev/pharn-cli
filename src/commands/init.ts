@@ -1,6 +1,5 @@
 import { gitignoreLines } from '../lib/gitignore.js';
 import { prettierignoreLines } from '../lib/prettierignore.js';
-import { rootMigrationNoteLines } from '../lib/root-migration.js';
 import { intro, log, note, outro, spinner } from '@clack/prompts';
 import { showBanner } from '../lib/banner.js';
 import { CliError } from '../lib/cli-error.js';
@@ -322,12 +321,6 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
         // conflict here. No prompt follows, so this one check suffices.
         refuseExistingTargets(targets);
       } else {
-        // What a re-run would retire from the project root, named BEFORE the
-        // question.
-        const migration = planned.apply.rootMigration;
-        const migrationLines =
-          migration === null ? null : rootMigrationNoteLines(migration, null);
-        if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
         const overwrite = await confirmWriteTargets(repo.dir, cwd, selection, {
           targets,
         });
@@ -543,13 +536,6 @@ function reportInitDryRun(r: InitPlanReport): void {
   note(lines.join('\n'), 'PLAN');
   if (gitignore?.warn) log.warn(gitignore.text);
   if (prettierignore?.warn) log.warn(prettierignore.text);
-
-  // The ROOT MIGRATION note a real re-run prints, as a preview.
-  const migrationLines =
-    r.rootMigration === null
-      ? null
-      : rootMigrationNoteLines(r.rootMigration, null);
-  if (migrationLines) note(migrationLines.join('\n'), 'ROOT MIGRATION');
 
   // The note a real run prints over a preserved or freshly written
   // settings.json, from the same functions.

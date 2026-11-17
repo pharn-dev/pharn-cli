@@ -29,7 +29,7 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     source: { kind: 'main' },
     commit: 'a'.repeat(40),
     skillsVersion: '1.0.0',
-    layout: 'flat',
+    layout: 'pharn',
     selection: {
       selected: [
         { name: 'a11y', role: 'griller', matched: ['ssr'] },
@@ -70,7 +70,6 @@ function plan(over: Partial<InitPlanReport> = {}): InitPlanReport {
     models: { outcome: 'copy', reasons: [] },
     absentUpstream: [],
     carriedConfigKeys: ['testResults'],
-    rootMigration: null,
     ...over,
   };
 }

@@ -22,8 +22,9 @@ pharn add                 # no arg, in a terminal: interactive multi-select pick
 3. **Checks the CLI floor.** If the clone declares a `MIN_CLI` newer than your CLI, `add` refuses here.
 4. **Checks the version.** If the clone's `SKILLS_VERSION` does not match the `skillsVersion` recorded
    in your `pharn.config.json`, `add` **refuses** — see [Version mismatch](#version-mismatch) below.
-5. **Checks the layout.** If the clone's install layout does not match the `layout` recorded in your
-   `pharn.config.json`, `add` **refuses** — see [Layout mismatch](#layout-mismatch) below.
+5. **Checks the layout.** A config recorded at the removed flat layout was refused when it loaded,
+   and a flat clone at the fetch (it ships no `pharn-install.json`) — see
+   [Layout mismatch](#layout-mismatch) below.
 6. **Reads the capability index** from the clone — after all three gates, which is why a refusal never
    depends on parsing it, and why a refused run never renders the picker.
 7. Resolves your argument against that index. If it uniquely names a capability you don't already have,
@@ -118,43 +119,18 @@ which `add` can promise anything about the tree it is adding to.
 
 ## Layout mismatch
 
-PHARN ships in one of two install layouts — the legacy **flat** layout (surfaces at your repo root) and
-the **`pharn`** layout (everything under `pharn/`). Your `pharn.config.json` records which one your
-project uses, and that recorded value is what [`remove`](remove.md) and [`status`](status.md) use to
-find your files.
+There is one install layout, `pharn` (everything under `pharn/`), so `add` has no layout gate any more.
+The legacy **flat** layout (surfaces at your repo root) was removed in v0.21.0
+([support policy](../support-policy.md#the-flat-layout-is-removed)):
 
-`add` refuses when the clone's layout is not the one your config records:
+- A `pharn.config.json` recorded at `flat` (or with no `layout` key) is refused when `add` loads it,
+  before anything is downloaded, with one message: re-run `pharn init`, which reinstalls at `pharn/` and
+  keeps the capabilities you added.
+- A fetched pharn-oss in the flat layout predates `pharn-install.json`, so the fetch refuses it, like
+  every tree without that file; run on the latest release (the default) or `--ref main`.
 
-```text
-⚠ Install layout mismatch: pharn.config.json records the `flat` layout, but the fetched
-  github.com/pharn-dev/pharn-oss uses the `pharn` layout. `pharn add` installs only at the layout
-  your project is already recorded at — adding here would put files where `pharn remove` and
-  `pharn status` will never look for them. Run `pharn update --force` first, then re-run `pharn add`.
-```
-
-Without this check, `add` would copy the capability at the **clone's** layout while your config still
-described the other one — so the files would land somewhere nothing else ever looks. `pharn list`
-would still show it — `list` reads only `pharn.config.json` and never touches the filesystem — which is
-what makes the failure so quiet: the inventory says installed while `pharn status` finds nothing at the
-recorded layout, and a later `pharn remove` would report
-_"its files were already gone"_ while dropping only the config entry, leaving the directory orphaned on
-disk permanently.
-
-**Why `add` does not simply record the clone's layout** (which is what [`update`](update.md) does):
-`update` may record it only because it rewrites your **whole** install at the new layout, whereas `add`
-writes a **single** capability — so recording it here would re-point `remove`/`status` at paths where
-none of your other capabilities, docs, or contracts actually live, turning one misplaced directory into
-an install-wide one. Migrating a tree is `update`'s job, so the refusal sends you there.
-
-The refusal happens **before anything in your project is written** and before the interactive picker
-renders, and it exits non-zero. Every clone pharn fetches is the `pharn` layout (a flat pharn-oss
-predates `pharn-install.json` and is refused), so a `flat`-layout project is the one that meets it.
-
-> **At a matching skills version too.** A layout mismatch can occur while your `skillsVersion` already
-> matches upstream (an install migrated by an older CLI, or a hand-edited `layout`). A plain
-> `pharn update` plans at the clone's layout on every run, so it moves the install there; files you
-> edited are kept and listed, and `pharn update --force` overwrites them too, after copying each into
-> `pharn/.backup/<timestamp>/`.
+Either refusal happens **before anything in your project is written** and before the interactive picker
+renders, and it exits non-zero.
 
 Each capability `add` installs is recorded with `"source": "manual"`, which is what makes the override
 stick: [`pharn update`](update.md) preserves manual entries instead of replacing your capability list

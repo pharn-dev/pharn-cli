@@ -12,7 +12,6 @@ import type { RefChoice, SourceSummary } from './release.js';
 import { cap, serializeJsonReport } from './json-report.js';
 import { versionStatus } from './version-status.js';
 import type { AbsentSurface, InstallSurface } from './install-manifest.js';
-import { configLayout } from './layout.js';
 import {
   prettierignoreReport,
   type PrettierignorePlan,
@@ -54,12 +53,12 @@ export interface StatusReport {
   };
   archetypes: string[];
   capabilities: { count: number };
-  // The recorded layout and the clone's (null under `--no-drift`). A
-  // difference nulls `drift` (nothing is compared across layouts) and fails
-  // `--strict`.
+  // The recorded layout and the clone's (null under `--no-drift`). Both are
+  // `pharn` whenever the command gets this far: a flat config, or a flat clone,
+  // is refused first (the flat layout was removed in v0.21.0), so they never
+  // differ. Kept for `schemaVersion` 1.
   layout: { recorded: Layout; upstream: Layout | null };
-  // null when not computed: `--no-drift` (`layout.upstream` null too), or a
-  // layout mismatch.
+  // null when not computed: `--no-drift` (`layout.upstream` null too).
   drift: {
     modified: string[];
     missing: string[];
@@ -92,8 +91,7 @@ export interface StatusReport {
   unknownCapabilities:
     { role: string; name: string; subtree: string; reason: string }[] | null;
   // Recorded files upstream no longer ships, still on disk. null under
-  // `--no-drift`, without a usable store, or on a layout mismatch. Never a
-  // `--strict` input.
+  // `--no-drift`, or without a usable store. Never a `--strict` input.
   orphans: { path: string; state: OrphanState; reason?: string }[] | null;
   // What `pharn update` would add to `.prettierignore`, or a refusal. null
   // when there is nothing to say or no usable store. Never a `--strict` input.
@@ -110,37 +108,18 @@ export interface StatusReportInput {
   // What the channel offers; under `--no-drift` on `latest`, without the tag's
   // commit.
   source: SourceSummary;
-  drift:
-    | ({
-        hooks: HookWiringDiff;
-        unknown: readonly UnknownCapability[];
-        // null when they could not be determined (see StatusReport.orphans).
-        orphans: readonly Orphan[] | null;
-        upstreamLayout: Layout;
-      } & (
-        | {
-            diff: InstallDiff;
-            // absentInstallSurfaces at the clone's layout.
-            absentUpstream: readonly AbsentSurface[];
-          }
-        // Not computed: the clone is at another layout than the install.
-        | { diff: null; absentUpstream: null }
-      ))
-    | null;
+  drift: {
+    hooks: HookWiringDiff;
+    unknown: readonly UnknownCapability[];
+    // null when they could not be determined (see StatusReport.orphans).
+    orphans: readonly Orphan[] | null;
+    diff: InstallDiff;
+    // absentInstallSurfaces.
+    absentUpstream: readonly AbsentSurface[];
+  } | null;
   // null without a usable record store (see StatusReport.prettierignore).
   prettierignore: PrettierignorePlan | null;
   strict: boolean;
-}
-
-/**
- * Is the install recorded at another layout than the clone ships? THE one
- * comparison. `upstream` null (`--no-drift`) is never a mismatch.
- */
-export function layoutMismatch(
-  recorded: Layout,
-  upstream: Layout | null,
-): boolean {
-  return upstream !== null && recorded !== upstream;
 }
 
 /**
@@ -153,14 +132,10 @@ export function strictFails(input: {
   hooks?: HookWiringDiff;
   // A declared surface upstream ships no file for: the install is incomplete.
   absentUpstream?: readonly AbsentSurface[];
-  // A layout mismatch: the install is not what upstream ships, and was not
-  // compared.
-  layoutMismatch?: boolean;
 }): boolean {
   const { outdated, diff, hooks, absentUpstream } = input;
   return (
     outdated ||
-    input.layoutMismatch === true ||
     (absentUpstream !== undefined && absentUpstream.length > 0) ||
     (diff !== undefined &&
       (diff.modified.length > 0 ||
@@ -204,12 +179,12 @@ function modelsReport(models: unknown): StatusReport['models'] {
 
 export function buildStatusReport(input: StatusReportInput): StatusReport {
   const { node, config, drift } = input;
-  const recorded = configLayout(config);
-  const upstream = drift === null ? null : drift.upstreamLayout;
-  const mismatch = layoutMismatch(recorded, upstream);
-  // A diff across layouts compares the wrong paths: never reported.
-  const files =
-    drift === null || drift.diff === null || mismatch ? null : drift;
+  // A loaded config is at the pharn layout (loadArchetypeConfig refuses any
+  // other), and so is a clone that got this far (detectLayout).
+  const layout: StatusReport['layout'] = {
+    recorded: 'pharn',
+    upstream: drift === null ? null : 'pharn',
+  };
   const { ahead, outdated } = versionStatus({
     installed: config.skillsVersion,
     latest: input.latest,
@@ -239,16 +214,16 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
     },
     archetypes: config.archetypes ?? [],
     capabilities: { count: (config.capabilities ?? []).length },
-    layout: { recorded, upstream },
+    layout,
     drift:
-      files === null
+      drift === null
         ? null
         : {
-            modified: files.diff.modified,
-            missing: files.diff.missing,
-            unreadable: files.diff.unreadable,
-            okCount: files.diff.okCount,
-            absentUpstream: files.absentUpstream.map((a) => ({
+            modified: drift.diff.modified,
+            missing: drift.diff.missing,
+            unreadable: drift.diff.unreadable,
+            okCount: drift.diff.okCount,
+            absentUpstream: drift.absentUpstream.map((a) => ({
               surface: a.surface,
               path: cap(a.path, MAX_UNKNOWN_FIELD),
             })),
@@ -296,10 +271,9 @@ export function buildStatusReport(input: StatusReportInput): StatusReport {
         input.strict &&
         strictFails({
           outdated,
-          diff: files?.diff,
+          diff: drift?.diff,
           hooks: drift?.hooks,
-          absentUpstream: files?.absentUpstream,
-          layoutMismatch: mismatch,
+          absentUpstream: drift?.absentUpstream,
         }),
     },
   };

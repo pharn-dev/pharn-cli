@@ -352,9 +352,10 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   if (Array.isArray(raw.capabilities) && raw.commit === undefined) {
     config.commit = null;
   }
-  // `layout`: only 'pharn' / 'flat' survive; anything else is dropped and
-  // resolves to 'flat' downstream (configLayout).
-  if (config.layout !== 'pharn' && config.layout !== 'flat') {
+  // `layout`: only 'pharn' survives. Anything else (the removed 'flat', or
+  // garbage) is dropped, and an archetype config without it is refused by
+  // `loadArchetypeConfig` with FLAT_LAYOUT_MESSAGE.
+  if (config.layout !== 'pharn') {
     delete config.layout;
   }
   // `ref`: only the literal `"latest"` survives; anything else is dropped, so
@@ -511,10 +512,17 @@ export function isArchetypeConfig(config: PharnConfig): boolean {
 export const LEGACY_CONFIG_MESSAGE =
   'This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` to reinstall with the archetype/capability model.';
 
+// Shown when a command runs against an archetype config recorded at the flat
+// layout (`"layout": "flat"`, or no `layout` key), removed in v0.21.0. `init`
+// is the way back: it reads the old config tolerantly and installs at pharn/.
+export const FLAT_LAYOUT_MESSAGE =
+  'This project is installed at the flat layout (PHARN files at the project root), which pharn no longer supports: it was removed in v0.21.0, and 0.20.x is the last pharn that handles it. Re-run `pharn init` to reinstall at the pharn/ layout; it keeps the capabilities you added with `pharn add`. The old top-level copies stay where they are: delete them by hand (`pharn status` lists the ones pharn recorded under ORPHANED).';
+
 /**
- * Load pharn.config.json and require an archetype install, or throw a CliError
- * (exit 1) with `LEGACY_CONFIG_MESSAGE` — or `loadConfig`'s own.
- * `opts.json` keeps every error a plain stderr line.
+ * Load pharn.config.json and require an archetype install at the pharn layout,
+ * or throw a CliError (exit 1) with `LEGACY_CONFIG_MESSAGE` or
+ * `FLAT_LAYOUT_MESSAGE` — or `loadConfig`'s own. `opts.json` keeps every error
+ * a plain stderr line.
  */
 export function loadArchetypeConfig(
   cwd: string,
@@ -523,6 +531,9 @@ export function loadArchetypeConfig(
   const config = loadConfig(cwd, opts);
   if (!isArchetypeConfig(config)) {
     throw CliError.error(LEGACY_CONFIG_MESSAGE, opts);
+  }
+  if (config.layout !== 'pharn') {
+    throw CliError.error(FLAT_LAYOUT_MESSAGE, opts);
   }
   return config;
 }

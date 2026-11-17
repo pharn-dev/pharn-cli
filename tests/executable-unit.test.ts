@@ -3,7 +3,6 @@ import { isExecutableUnitPath } from '../src/lib/executable-unit.js';
 import { layoutPaths } from '../src/lib/layout.js';
 
 const pharn = layoutPaths('pharn');
-const flat = layoutPaths('flat');
 
 describe('isExecutableUnitPath — membership by path only', () => {
   it.each([
@@ -13,11 +12,11 @@ describe('isExecutableUnitPath — membership by path only', () => {
     ['pharn/floor/lens-family-map.json', pharn],
     ['pharn/floor/lib/deep/x.mjs', pharn],
     ['pharn/floor/README.md', pharn],
-    ['.dev/floor/check-spec.mjs', flat],
+    ['pharn/floor/check-spec.mjs', pharn],
     ['.claude/hooks/enforce-writes-scope.cjs', pharn],
-    ['.claude/hooks/new-hook.mjs', flat],
+    ['.claude/hooks/new-hook.mjs', pharn],
     ['.claude/commands/pharn-ship.md', pharn],
-    ['.claude/commands/pharn-loop.md', flat],
+    ['.claude/commands/pharn-loop.md', pharn],
   ])('%s is a member', (rel, paths) => {
     expect(isExecutableUnitPath(rel, paths)).toBe(true);
   });
@@ -26,9 +25,8 @@ describe('isExecutableUnitPath — membership by path only', () => {
     // The trailing slash in the prefix: a sibling dir sharing the name is not in.
     ['pharn/floorplan/x.mjs', pharn],
     ['pharn/floor', pharn],
-    // The OTHER layout's floor is not this layout's unit.
+    // The removed flat layout's root floor is not the unit (v0.21.0).
     ['.dev/floor/check-spec.mjs', pharn],
-    ['pharn/floor/check-spec.mjs', flat],
     ['pharn/pharn-review/lenses/a11y/a11y.md', pharn],
     ['pharn/CONSTITUTION.md', pharn],
     ['pharn/pharn-contracts/finding-shape.md', pharn],
@@ -42,7 +40,6 @@ describe('isExecutableUnitPath — membership by path only', () => {
     // An agent definition is read by Claude Code, not run by the floor, so it
     // upgrades per file like any other surface (CORE-272).
     ['.claude/agents/pharn-review-lens.md', pharn],
-    ['.claude/agents/pharn-review-lens.md', flat],
   ])('%s is not a member', (rel, paths) => {
     expect(isExecutableUnitPath(rel, paths)).toBe(false);
   });

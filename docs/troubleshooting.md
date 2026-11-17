@@ -824,7 +824,7 @@ pharn-oss's rules reject this block:
 The `models` block in `pharn.config.json` is pharn-oss's (see
 [Models](reference/pharn-config.md#models)), so no `pharn` command refuses to run over it. `status`
 lists what pharn-oss's rules reject, and you fix it by hand. The checker installed with PHARN says the
-same: `node pharn/floor/check-model-config.mjs validate` (`.dev/floor/` in the legacy flat layout).
+same: `node pharn/floor/check-model-config.mjs validate`.
 
 - **A block in the format pharn wrote before 0.7.0** (a top-level `default`, ids such as `opus-4-8`)
   — `pharn` no longer converts it, and `pharn update` keeps it as yours. Replace it by hand, or delete
@@ -932,9 +932,10 @@ writes; **review each path before deleting it** — anything you wrote yourself 
 1. **Find what the install added.** If you committed the install, `git log --diff-filter=A -- pharn.config.json`
    names the commit, and `git show --stat <commit>` lists every file it added. `git diff <commit> -- <path>`
    shows whether you changed one since.
-2. **Delete the installed surfaces** (paths for the default `pharn` layout; a `flat` install keeps the
-   same names at the project root — `pharn-review/`, `pharn-pipeline/`, `pharn-contracts/`, `.dev/floor/`,
-   `features/README.md`, `PHARN-LICENSE`, and the four trusted docs):
+2. **Delete the installed surfaces** (paths for the `pharn` layout; an install made by `pharn` 0.20.x or
+   older at the legacy `flat` layout keeps the same names at the project root — `pharn-review/`,
+   `pharn-pipeline/`, `pharn-contracts/`, `.dev/floor/`, `features/README.md`, `PHARN-LICENSE`, and the
+   four trusted docs):
    - `pharn/pharn-pipeline/`, `pharn/pharn-review/`, `pharn/pharn-contracts/`, `pharn/pharn-core/`,
      `pharn/floor/`
    - `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`, `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`

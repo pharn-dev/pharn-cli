@@ -43,6 +43,7 @@ import {
   write,
 } from '../support/harness.js';
 import { runUpdate } from '../../src/commands/update.js';
+import { FLAT_LAYOUT_MESSAGE } from '../../src/lib/pharn-config.js';
 import { runAdd } from '../../src/commands/add.js';
 import {
   MODELS_RECORD_KEY,
@@ -277,15 +278,17 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
       },
     },
     {
-      // Every clone is the pharn layout: a flat install is the one that moves.
+      // v0.21.0: no layout move exists (a flat install is refused at load), so
+      // the preview warns of none, and the lock file is left untouched.
       name: 'a flat → pharn layout migration, with a lock file left untouched',
       setup: () => {
-        legacyInstall('flat');
         v2();
         write('pharn/.lock', '{"pid":1}');
       },
-      expect: () =>
-        expect(warned()).toContain('would move to the pharn/ layout'),
+      expect: () => {
+        expect(warned()).not.toContain('would move to the pharn/ layout');
+        expect(read('pharn/.lock')).toBe('{"pid":1}');
+      },
     },
   ])('$name', async ({ opts, setup, expect: check }) => {
     await installFresh();
@@ -298,13 +301,25 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
   });
 
   it('a flat → pharn migration previews the move and the features README relocation', async () => {
+    // v0.21.0: no move is previewed — a flat clone is refused before the plan,
+    // nothing written. The features README relocation is still previewed for
+    // an install that recorded the root copy.
     await installFresh();
-    legacyInstall('flat');
-    v2();
+    serveTip(SHA_V2, '2.0.0', { seal: false });
     const before = snapshot();
-    expect(await dry()).toBeNull();
+    expect(await dry()).toBe(1);
     expect(snapshot()).toEqual(before);
-    expect(warned()).toContain('would move to the pharn/ layout');
+    expect(warned()).not.toContain('would move to the pharn/ layout');
+    expect(printed()).toContain('ships no pharn-install.json');
+
+    v2();
+    editRecords((r) => {
+      r.files['features/README.md'] = r.files['pharn/features/README.md']!;
+    });
+    write('features/README.md', 'features\n');
+    const recorded = snapshot();
+    expect(await dry()).toBeNull();
+    expect(snapshot()).toEqual(recorded);
     expect(warned()).toContain('features/README.md');
     expect((await dryJson()).plan.featuresReadmeRelocation).toBe(true);
   });
@@ -313,24 +328,32 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
   // Every fetched pharn-oss is the pharn layout, so a flat install's preview
   // is always the move.
   it('DEPRECATED: a flat install is told once in the preview of its move; --json carries nothing of it', async () => {
+    // v0.21.0: no DEPRECATED note — the dry run refuses a flat install (exit
+    // 1, before any download) with the one re-run-init message; --json too.
     await installFresh();
     legacyInstall('flat');
-    expect(await dry()).toBeNull();
-    expect(notes('DEPRECATED')).toHaveLength(1);
-    expect(note('DEPRECATED')).toContain(
-      'The flat layout is deprecated and is removed in pharn v0.22.0.',
-    );
-    expect(note('DEPRECATED')).toContain(
-      '`pharn update` moves the install to the pharn/ layout',
-    );
-    expect(warned()).toContain('would move to the pharn/ layout');
+    const before = snapshot();
+    fetchStub.mockClear();
+    expect(await dry()).toBe(1);
+    expect(notes('DEPRECATED')).toHaveLength(0);
+    expect(printed()).toContain(FLAT_LAYOUT_MESSAGE);
+    expect(printed()).toContain('removed in v0.21.0');
+    expect(downloaded()).toBe(false);
 
-    // --json: one object on stdout, no clack, no stderr, no notice.
-    const json = await dryJson();
-    expect(json.plan).toMatchObject({ abandonedLayout: 'flat' });
-    expect(stdout().join('\n')).not.toMatch(/deprecat|v0\.22\.0/i);
-    expect(stderr()).toEqual([]);
+    // A pharn clone does not change that: the recorded layout is refused.
+    serveTip(SHA_V2, '2.0.0');
+    expect(await dry()).toBe(1);
+    expect(notes('DEPRECATED')).toHaveLength(0);
+    expect(warned()).not.toContain('would move to the pharn/ layout');
+
+    // --json: nothing on stdout, the one plain line on stderr, no clack.
+    fresh();
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBe(1);
+    expect(stdout()).toEqual([]);
+    expect(stdout().join('\n')).not.toMatch(/deprecat/i);
+    expect(stderr().join('\n')).toContain(FLAT_LAYOUT_MESSAGE);
     expectClackSilent();
+    expect(snapshot()).toEqual(before);
   });
 
   it('DEPRECATED is not printed for a pharn install', async () => {
@@ -865,8 +888,7 @@ describe('pharn update --dry-run --json', () => {
     );
     expect(json.plan.counts).toMatchObject({ updated: 3, skipped: 0 });
     // The keys present only when non-empty are absent; rootMigration is
-    // always present. A clone that ships the docs under pharn/ (every one with
-    // pharn-install.json) plans each old root doc, here `absent`.
+    // always present (null when nothing applies).
     for (const key of [
       'orphans',
       'absentUpstream',
@@ -877,15 +899,7 @@ describe('pharn update --dry-run --json', () => {
     ])
       expect(json.plan, key).not.toHaveProperty(key);
     expect(json.plan.capabilities).not.toHaveProperty('removals');
-    expect(json.plan.rootMigration).toEqual({
-      docs: [
-        { rel: 'THREAT-MODEL.md', action: 'absent' },
-        { rel: 'LIMITS.md', action: 'absent' },
-      ],
-      moves: [],
-      scratchNotice: false,
-      gitignoreHints: [],
-    });
+    expect(json.plan.rootMigration).toBeNull();
     expect(json).not.toHaveProperty('compact');
     expect(json.plan).not.toHaveProperty('filesOmitted');
   });
@@ -1007,12 +1021,19 @@ describe('pharn update --dry-run --json', () => {
   });
 
   it('reports a layout migration', async () => {
+    // v0.21.0: there is no layout migration to report. `abandonedLayout` is a
+    // schemaVersion-1 constant, null; a flat clone is refused, stdout empty.
     await installFresh();
-    legacyInstall('flat');
+    serveTip(SHA_V2, '2.0.0', { seal: false });
+    fresh();
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBe(1);
+    expect(stdout()).toEqual([]);
+    expect(stderr().join('\n')).toContain('ships no pharn-install.json');
     v2();
     expect((await dryJson()).plan).toMatchObject({
       layout: 'pharn',
-      abandonedLayout: 'flat',
+      abandonedLayout: null,
+      rootMigration: null,
     });
   });
 

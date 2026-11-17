@@ -1,4 +1,3 @@
-import type { RootDocAction } from './root-migration.js';
 import type {
   HookEntry,
   HookReplacement,
@@ -84,18 +83,13 @@ export interface UpdateReport {
   archetypes: string[];
   plan: {
     layout: Layout;
-    abandonedLayout: Layout | null;
+    // Constants kept for `schemaVersion` 1: pharn no longer moves an install
+    // between layouts (the flat layout was removed in v0.21.0; 0.20.x was the
+    // last CLI that did) nor retires a pre-7.0 install's root footprint, so
+    // both are always `null`. Removed only with a `schemaVersion` bump.
+    abandonedLayout: null;
     featuresReadmeRelocation: boolean;
-    // The old ROOT footprint this run would retire (lib/root-migration.ts).
-    // ALWAYS present, `null` when nothing applies. `moves` is ALWAYS `[]`: user
-    // data is never moved (its hint is text-only), and removing the key would
-    // not be additive under schemaVersion 1.
-    rootMigration: {
-      docs: { rel: string; action: RootDocAction }[];
-      moves: [];
-      scratchNotice: boolean;
-      gitignoreHints: string[];
-    } | null;
+    rootMigration: null;
     capabilities: {
       count: number;
       changes: {
@@ -208,20 +202,9 @@ function planReport(
   const kept = compact ? p.files.filter((f) => f.action !== 'noop') : p.files;
   return {
     layout: p.layout,
-    abandonedLayout: p.abandonedLayout,
+    abandonedLayout: null,
     featuresReadmeRelocation: p.featuresReadmeRelocation,
-    rootMigration:
-      p.rootMigration === null
-        ? null
-        : {
-            docs: p.rootMigration.docs.map((d) => ({
-              rel: d.rel,
-              action: d.action,
-            })),
-            moves: [],
-            scratchNotice: p.rootMigration.scratchNotice,
-            gitignoreHints: [...p.rootMigration.gitignoreHints],
-          },
+    rootMigration: null,
     capabilities: {
       count: p.capCount,
       changes: p.capabilityChanges.map((c) => ({

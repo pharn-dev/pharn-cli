@@ -51,6 +51,7 @@ import {
   logs,
   N_PLUS_ONE,
   notes,
+  printed,
   PLAN_COMMAND,
   proj,
   projectFiles,
@@ -397,15 +398,19 @@ describe('pharn init, end to end', () => {
     serveTip(SHA_V1, '7.0.0', { tree: upstreamTree('7.0.0') });
     await installFresh();
     write('memory-bank/canon.md', 'canon\n');
+    // v0.21.0: the root-footprint migration is removed — no ROOT MIGRATION
+    // note and no `git mv` hint in either run; memory-bank/ is never touched.
     const HINT = 'git mv memory-bank pharn/memory-bank';
 
     clearOutput();
     expect(await run(() => runInit({ dryRun: true }))).toBeNull();
-    expect(notes('ROOT MIGRATION').join('\n')).toContain(HINT);
+    expect(notes('ROOT MIGRATION')).toEqual([]);
+    expect(printed()).not.toContain(HINT);
 
     expect(await rerun()).toBeNull();
     expect(process.exitCode).toBeUndefined();
-    expect(notes('ROOT MIGRATION').join('\n')).toContain(HINT);
+    expect(notes('ROOT MIGRATION')).toEqual([]);
+    expect(printed()).not.toContain(HINT);
     expect(read('memory-bank/canon.md')).toBe('canon\n');
     expect(existsSync(at('pharn/memory-bank'))).toBe(false);
   });
@@ -1205,6 +1210,7 @@ describe('re-running init over an install', () => {
     await installFresh();
     legacyInstall('pre7');
     expect(records().files['LIMITS.md']).toBeDefined();
+    const threat = records().files['THREAT-MODEL.md'];
     serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
     interactive({ select: ['install'] });
     vi.mocked(clack.confirm).mockImplementationOnce(async () => {
@@ -1214,12 +1220,13 @@ describe('re-running init over an install', () => {
     clearOutput();
     expect(await run(() => runInit())).toBeNull();
     expect(process.exitCode).toBeUndefined();
-    // Kept byte for byte, with its record; the untouched doc is retired.
+    // Both kept byte for byte, each with its record.
     expect(read('LIMITS.md')).toBe('my limits, edited at the prompt\n');
     expect(records().files['LIMITS.md']).toBeDefined();
-    expect(exists('THREAT-MODEL.md')).toBe(false);
+    expect(read('THREAT-MODEL.md')).toBe('threat model\n');
+    expect(records().files['THREAT-MODEL.md']).toBe(threat);
     expect(read('pharn/LIMITS.md')).toBe('limits\n');
-    expect(notes('ROOT MIGRATION').join('\n')).toContain('LIMITS.md');
+    expect(notes('ROOT MIGRATION')).toEqual([]);
   });
 
   it('a file edited while the overwrite prompt is open is backed up, then overwritten', async () => {

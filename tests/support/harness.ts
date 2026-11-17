@@ -774,8 +774,9 @@ export function sealRepo(dir: string, edit?: (m: ManifestDoc) => void): string {
 
 // ---------------------------------------------------------------------------
 // An install made from a pharn-oss this pharn can no longer fetch. Such a
-// project still exists, and `pharn update` must carry it to the latest
-// release, so a suite installs from today's tree and then puts the project in
+// project still exists (`pharn update` carries a pre-7.0 one to the latest
+// release; a `flat` one is refused with "re-run `pharn init`"), so a suite
+// installs from today's tree and then puts the project in
 // the shape the old install left: files moved, each record moved with its
 // file (same bytes, so the same contentHash), and for `flat` the recorded
 // layout. pharn-core is dropped from a flat install (flat pharn-oss shipped

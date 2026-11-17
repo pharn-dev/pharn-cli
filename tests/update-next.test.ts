@@ -26,7 +26,7 @@ function config(over: Partial<PharnConfig> = {}): PharnConfig {
     updatedAt: '2026-10-01T00:00:00.000Z',
     archetypes: ['ssr'],
     capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],
-    layout: 'flat',
+    layout: 'pharn',
     pendingSkillsVersion: '1.1.0',
     ...over,
   };
@@ -73,7 +73,7 @@ function apply(over: Record<string, unknown> = {}) {
 
 const report = (over: Record<string, unknown> = {}) => ({
   pendingSkillsVersion: '1.1.0' as string | null,
-  layout: 'flat' as const,
+  layout: 'pharn' as const,
   ...over,
 });
 
@@ -115,14 +115,17 @@ describe('nextRecordStore / nextConfig — what the writer writes', () => {
         settingsRecords: { '.claude/settings.json': H('8') },
         models: models({ nextRecord: H('6') }),
       }),
-      { written: { 'a.md': H('7') }, retired: new Set(['LIMITS.md']) },
+      { written: { 'a.md': H('7') } },
     );
+    // v0.21.0: nothing is retired any more — an old root doc (LIMITS.md) is an
+    // orphan like any other and keeps its record.
     expect(next).toEqual({
       skillsVersion: '1.0.0',
       commit: SHA,
       files: {
         'f.md': H('3'),
         'o.md': H('4'),
+        'LIMITS.md': H('5'),
         // CORE-166: the settings.json record init wrote, carried as given.
         '.claude/settings.json': H('8'),
         'a.md': H('7'),
@@ -143,7 +146,6 @@ describe('nextRecordStore / nextConfig — what the writer writes', () => {
       },
       {
         written: {},
-        retired: new Set(),
         unwritten: ['a.md', 'b.md'],
       },
     );
@@ -152,7 +154,6 @@ describe('nextRecordStore / nextConfig — what the writer writes', () => {
     expect(
       nextRecordStore(apply(), {
         written: {},
-        retired: new Set(),
         unwritten: ['a.md'],
       }).files,
     ).toEqual({ 'b.md': H('2') });
@@ -206,7 +207,9 @@ describe('planStateChanges — against what the run LOADED', () => {
       state({ apply: apply({ models: models({ next: { stages: {} } }) }) })
         .config,
     ).toBe(true);
-    expect(state({ report: report({ layout: 'pharn' }) }).config).toBe(true);
+    // The layout: a loaded config without the key gets `layout: "pharn"`.
+    const { layout: _layout, ...unlaid } = config();
+    expect(state({ config: unlaid as PharnConfig }).config).toBe(true);
     expect(state({ channel: 'latest' }).config).toBe(true);
     expect(state({ apply: apply({ nextCommit: 'b'.repeat(40) }) }).config).toBe(
       true,
@@ -217,8 +220,18 @@ describe('planStateChanges — against what the run LOADED', () => {
   // read the way the reader reads them; a real difference still counts.
   describe('load-time resolution', () => {
     it('an absent layout is the flat layout the clone records', () => {
+      // v0.21.0: an absent layout is no longer read as flat (such a config is
+      // refused at load); compared as is, the next config adds the key.
       const { layout: _l, ...noLayout } = config();
-      expect(state({ config: noLayout as PharnConfig }).config).toBe(false);
+      const next = nextConfig(
+        noLayout as PharnConfig,
+        report(),
+        apply(),
+        'main',
+        { pharnVersion: '', updatedAt: '' },
+      );
+      expect(next.layout).toBe('pharn');
+      expect(state({ config: noLayout as PharnConfig }).config).toBe(true);
     });
 
     it('an absent layout is still a change when the clone is the pharn layout', () => {
@@ -321,10 +334,6 @@ describe('changesNothing — the one predicate', () => {
     removals: [] as {
       present: boolean;
     }[],
-    rootMigration: null as null | {
-      docs: { action: string }[];
-      userData: { destination: string }[];
-    },
     gitignore: { action: 'none' } as { action: string },
     prettierignore: { action: 'none' } as { action: string },
   };
@@ -340,10 +349,6 @@ describe('changesNothing — the one predicate', () => {
   it.each([
     ['a file write', { writes: ['a.md'] }],
     ['a present removal', { removals: [{ present: true }] }],
-    [
-      'a root-doc delete',
-      { rootMigration: { docs: [{ action: 'delete' }], userData: [] } },
-    ],
     ['a .gitignore addition', { gitignore: { action: 'append' } }],
     ['a .prettierignore addition', { prettierignore: { action: 'create' } }],
   ])('is false for %s', (_name, over) => {
@@ -361,10 +366,6 @@ describe('changesNothing — the one predicate', () => {
       changesNothing(
         r({
           removals: [{ present: false }],
-          rootMigration: {
-            docs: [{ action: 'keep-edited' }],
-            userData: [{ destination: 'exists' }],
-          },
           gitignore: { action: 'refused' },
         }),
         same,
@@ -372,9 +373,9 @@ describe('changesNothing — the one predicate', () => {
     ).toBe(true);
   });
 
-  // CORE-158: pharn never moves user data, so a root memory-bank/ hint alone
-  // is not a change (no confirm, no write), while a record-proved root-doc
-  // delete beside it still is.
+  // CORE-158 made a root memory-bank/ hint no change; v0.21.0 removes the
+  // root-footprint migration, so no root-doc delete is planned either: a
+  // stale `rootMigration` field on a report is never read.
   it('a user-data hint alone changes nothing; a root-doc delete beside it does', () => {
     const hint = { destination: 'free' };
     expect(
@@ -383,13 +384,10 @@ describe('changesNothing — the one predicate', () => {
         same,
       ),
     ).toBe(true);
-    expect(
-      changesNothing(
-        r({
-          rootMigration: { docs: [{ action: 'delete' }], userData: [hint] },
-        }),
-        same,
-      ),
-    ).toBe(false);
+    const stale = r({
+      rootMigration: { docs: [{ action: 'delete' }], userData: [hint] },
+    });
+    expect(changesNoFiles(stale)).toBe(true);
+    expect(changesNothing(stale, same)).toBe(true);
   });
 });
