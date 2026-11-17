@@ -26,7 +26,7 @@ import type {
 
 // ---------------------------------------------------------------------------
 // pharn-install.json — the install manifest pharn-oss declares (from SKILLS
-// 7.20.0; schema: pharn-oss docs/install-manifest.md). When a fetched tree
+// 7.21.0; schema: pharn-oss docs/install-manifest.md). When a fetched tree
 // carries one, the install set, the capability index, the settings copy and
 // the `models` defaults come from it instead of the CLI's own derivation.
 //
@@ -48,7 +48,7 @@ import type {
 
 export const MANIFEST_FILE = 'pharn-install.json';
 export const MANIFEST_SCHEMA_VERSION = 1;
-// pharn-oss 7.20.0's file is about 180 KB.
+// pharn-oss 7.21.0's file is about 180 KB.
 export const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
 // The extractor's own entry cap: a tree cannot hold more files than this.
 export const MAX_MANIFEST_FILES = 20_000;

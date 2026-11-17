@@ -410,7 +410,7 @@ unless you are told. Resolves the newest verified release (or, with `--ref main`
 If the fetched version declares a `MIN_CLI` newer than your CLI, `init` stops here with a named error
 and writes nothing.
 
-From pharn-oss 7.20.0 on, the tree carries `pharn-install.json`, pharn-oss's own list of every file an
+From pharn-oss 7.21.0 on, the tree carries `pharn-install.json`, pharn-oss's own list of every file an
 install receives, with its destination and SHA-256. `init` checks it here, before anything else runs:
 every file must match its SHA-256, every destination must be one pharn may write (under `pharn/` or a
 `pharn-*` entry of `.claude/`, never your own files), and its `schemaVersion` must be one this pharn
@@ -418,7 +418,7 @@ reads. Any failure stops the run with exit 1, names what failed, and writes noth
 `schemaVersion` says to upgrade pharn. The install then copies exactly what the manifest declares,
 including a surface this pharn does not know by name (a new `.claude/skills/pharn-*` directory, say),
 and takes the `models` block and the capability list from it. A tree without the manifest (every
-release before 7.20.0) is installed the way it always was, until pharn v0.22.0 drops that path.
+release before 7.21.0) is installed the way it always was, until pharn v0.22.0 drops that path.
 
 ### 5. Resolve capabilities
 

@@ -74,7 +74,7 @@ directory gets its actionable error), under the lock, and before any network cal
    and extracts the codeload tarball into a temp dir that is removed in a `finally`. No command exits mid-run: a
    refusal, a failure or a cancel is thrown as a `CliError` (`lib/cli-error.ts`), so that `finally` (and the project
    lock's) runs first, and `runCli` in `src/index.ts` prints it once and sets `process.exitCode`. When the tree carries
-   `pharn-install.json` (pharn-oss 7.20.0 and later), `fetchRepo` validates it and checks every declared file's raw
+   `pharn-install.json` (pharn-oss 7.21.0 and later), `fetchRepo` validates it and checks every declared file's raw
    sha256 before it returns the tree (see [The install manifest](#the-install-manifest-pharn-installjson)).
 4. **Index and selection.** `parseCapabilityIndex` takes the capabilities from `pharn-install.json`, or, for a tree
    without it, reads each capability's `role`/`applies` frontmatter by pharn-oss's own rules. `resolveCapabilities`
@@ -134,7 +134,7 @@ The install mirrors the clone's layout: `pharn` (everything under `pharn/`) or l
 
 ## The install manifest (`pharn-install.json`)
 
-pharn-oss 7.20.0 and later declare what an install receives in `pharn-install.json` at the root of the tree (its schema
+pharn-oss 7.21.0 and later declare what an install receives in `pharn-install.json` at the root of the tree (its schema
 is pharn-oss's [`docs/install-manifest.md`](https://github.com/pharn-dev/pharn-oss/blob/main/docs/install-manifest.md)).
 `lib/upstream-manifest.ts` is its one reader:
 
@@ -157,7 +157,7 @@ is pharn-oss's [`docs/install-manifest.md`](https://github.com/pharn-dev/pharn-o
   enum makes that capability `unknown`, as the frontmatter path does. `models.defaults` passes the same
   `checkModelsBlock` gate; `models.rules` and `installRoots` are type-checked and drive nothing, and
   `lib/model-config.ts` stays the one validator.
-- **Fallback.** A tree without the file (every release before 7.20.0, the `flat` layout) is installed by the CLI's own
+- **Fallback.** A tree without the file (every release before 7.21.0, the `flat` layout) is installed by the CLI's own
   derivation, unchanged. That fallback is removed in v0.22.0.
 
 ## Release channels (`lib/release.ts`)
