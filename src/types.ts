@@ -56,16 +56,12 @@ export interface PharnConfig {
   // verified pharn-oss release; ABSENT = the tip of `main` (`--ref main`, or an
   // install made before `--ref` existed). Any other value is dropped at load.
   ref?: 'latest';
-  // LEGACY (module era): the chosen constitution variant. Nothing reads it;
-  // typed `unknown` so an old config still loads.
-  constitution?: unknown;
-  // LEGACY (module era): nothing in src/ writes or reads it; declared so an old
-  // config still type-checks. Do not reintroduce a reader without the writer.
-  isMultiTenant?: boolean;
-  // Always `[]` on an archetype install, and still WRITTEN by `init`: every
-  // released CLI (0.3.0–0.19.x) reads a config without a `modules` array as NO
-  // config. This CLI also reads one with `capabilities` and no `modules`, so
-  // the type admits its absence; `add`/`update`/`remove` write it back as found.
+  // SHIM (remove in v0.21.0): always `[]` on an archetype install, and written
+  // for 0.19.x, whose guard needs it (it reads a config without a `modules`
+  // array as NO config); stop writing in v0.21.0 (support policy: current +
+  // previous minor). This CLI also reads one with `capabilities` and no
+  // `modules`, so the type admits its absence; `add`/`update`/`remove` write it
+  // back as found.
   modules?: unknown[];
   // When the install was first made: written by `init` (a re-run included) and
   // carried unchanged by `update`, `add` and `remove`.
@@ -79,9 +75,6 @@ export interface PharnConfig {
   // pharn-oss's block (see above). NOT pharn-owned: never validated or written,
   // carried VERBATIM; the one declared key absent from CLI_OWNED_KEYS.
   seam?: unknown;
-  // LEGACY (wizard) fields: nothing reads them; they still load.
-  stackAnswers?: Record<string, string>;
-  installedSkills?: unknown;
   // Archetype installs: the archetypes and the capabilities copied for them.
   // Absent on legacy module installs.
   archetypes?: Archetype[];
@@ -89,6 +82,22 @@ export interface PharnConfig {
   // The install layout mirrored from the fetched clone (lib/layout.ts): 'pharn'
   // = everything under pharn/, 'flat' = the legacy root layout. Absent → 'flat'.
   layout?: Layout;
+}
+
+// Fields only older (module-era and wizard) CLIs wrote. Not part of the
+// documented `PharnConfig`: nothing in src/ reads or writes them. An old config
+// still loads with them, `add`/`update`/`remove` write them back as found, and
+// a re-run `init` drops them, because CLI_OWNED_KEYS lists them as pharn's.
+// LEGACY: remove in v0.21.0, alongside `PharnConfig.modules`.
+export interface LegacyConfigFields {
+  // The module-era constitution variant (`gdpr-strict`/`standard`/`minimal`).
+  constitution?: unknown;
+  // The module-era multi-tenancy answer.
+  isMultiTenant?: boolean;
+  // The wizard's answers, `questionId → value`.
+  stackAnswers?: Record<string, string>;
+  // The wizard's per-technology skills, each `{ skill, from }`.
+  installedSkills?: unknown;
 }
 
 // The two install layouts (lib/layout.ts). Kept here so PharnConfig can use it

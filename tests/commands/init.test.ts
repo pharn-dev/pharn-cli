@@ -685,6 +685,22 @@ describe('init after the download', () => {
 // ---------------------------------------------------------------------------
 
 describe('a fresh install', () => {
+  // CORE-189: `modules: []` is a shim for 0.19.x (written until v0.21.0); the
+  // fields only older CLIs wrote are never written.
+  it('writes modules: [] for 0.19.x and none of the legacy fields', async () => {
+    await installFresh();
+    const written = config();
+    expect(written.modules).toEqual([]);
+    for (const key of [
+      'constitution',
+      'isMultiTenant',
+      'stackAnswers',
+      'installedSkills',
+    ]) {
+      expect(written).not.toHaveProperty(key);
+    }
+  });
+
   it('detect → summary → install: the ssr selection, no overwrite prompt, the outro', async () => {
     ssrProject();
     // pharn-oss's root config carries keys of its own besides `models`.

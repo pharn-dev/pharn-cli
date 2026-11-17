@@ -38,9 +38,16 @@ import {
   CapabilitySourceError,
   ConfigParseError,
   ConfigStampError,
+  userOwnedConfigEntries,
 } from '../src/lib/pharn-config.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
-import type { PharnConfig } from '../src/types.js';
+import type { LegacyConfigFields, PharnConfig } from '../src/types.js';
+
+// A config as read back, with the fields older CLIs wrote in view: they load
+// (the spread keeps them) but are no longer part of the public `PharnConfig`.
+type LegacyReadConfig = PharnConfig & LegacyConfigFields;
+const readWithLegacy = (dir: string): LegacyReadConfig | null =>
+  readPharnConfig(dir);
 
 // `seam` blocks the CLI used to refuse (CORE-165) — every one of them a block
 // pharn-oss's own checker accepts (extra keys, a repeated step, a threshold with
@@ -82,7 +89,7 @@ function pinTmpPath(target: string): string {
   return tmpPathFor(target, nonce.toString('hex'));
 }
 
-const sample: PharnConfig = {
+const sample: LegacyReadConfig = {
   pharnVersion: '0.2.0',
   skillsVersion: '0.68.0',
   repo: 'pharn-dev/pharn-oss',
@@ -364,7 +371,7 @@ describe('pharn-config', () => {
   });
 
   it('round-trips the schemaVersion 2 additive fields (incl. skip answers)', async () => {
-    const v2: PharnConfig = {
+    const v2: LegacyReadConfig = {
       ...sample,
       skillsVersion: '0.69.0',
       stackAnswers: {
@@ -381,7 +388,7 @@ describe('pharn-config', () => {
       ],
     };
     await writePharnConfig(tmp.path(), v2);
-    const read = readPharnConfig(tmp.path());
+    const read = readWithLegacy(tmp.path());
     expect(read).toEqual(v2);
     expect(read?.stackAnswers?.payments).toBe('skip');
   });
@@ -389,7 +396,7 @@ describe('pharn-config', () => {
   it('still reads a legacy config that predates the archetype fields (P7)', async () => {
     // `sample` is a legacy module install (constitution + modules, no archetypes).
     await writePharnConfig(tmp.path(), sample);
-    const read = readPharnConfig(tmp.path());
+    const read = readWithLegacy(tmp.path());
     expect(read?.constitution).toBe('standard');
     expect(read?.archetypes).toBeUndefined();
     expect(read?.capabilities).toBeUndefined();
@@ -909,7 +916,7 @@ describe('pharn-config', () => {
       vendorSkills: ['supabase'],
     } as PharnConfig & { vendorSkills: string[] };
     await writePharnConfig(tmp.path(), withRemovedField);
-    const read = readPharnConfig(tmp.path());
+    const read = readWithLegacy(tmp.path());
     expect(read?.skillsVersion).toBe(sample.skillsVersion);
     expect(read?.constitution).toBe('standard');
   });
@@ -929,7 +936,7 @@ describe('pharn-config', () => {
       ],
     };
     await writePharnConfig(tmp.path(), archetypeConfig);
-    const read = readPharnConfig(tmp.path());
+    const read = readWithLegacy(tmp.path());
     expect(read).toEqual(archetypeConfig);
     // No constitution variant is recorded for an archetype install.
     expect(read?.constitution).toBeUndefined();
@@ -1102,6 +1109,64 @@ describe('ConfigParseError — a corrupt config is reported as corrupt, not abse
 
   it('joins isConfigValidationError, so both call sites report it loudly', () => {
     expect(isConfigValidationError(new ConfigParseError('x'))).toBe(true);
+  });
+});
+
+// CORE-189: the fields only older CLIs wrote leave the public `PharnConfig`
+// but stay pharn-owned, load, and survive a write-back. `modules` stays public:
+// it is still written for 0.19.x until v0.21.0.
+describe('legacy fields (LegacyConfigFields)', () => {
+  const tmp = useTmpDir();
+  const LEGACY: Required<LegacyConfigFields> = {
+    constitution: 'gdpr-strict',
+    isMultiTenant: true,
+    stackAnswers: { database: 'supabase' },
+    installedSkills: [{ skill: 'drizzle', from: 'pharn-skills-orm' }],
+  };
+
+  it('are not in the public PharnConfig type; modules still is', () => {
+    expectTypeOf<PharnConfig>().not.toHaveProperty('constitution');
+    expectTypeOf<PharnConfig>().not.toHaveProperty('isMultiTenant');
+    expectTypeOf<PharnConfig>().not.toHaveProperty('stackAnswers');
+    expectTypeOf<PharnConfig>().not.toHaveProperty('installedSkills');
+    expectTypeOf<PharnConfig>().toHaveProperty('modules');
+    expectTypeOf<LegacyConfigFields>().toHaveProperty('constitution');
+  });
+
+  it('add no runtime value: src/types.ts still exports types only', async () => {
+    const types: object = await import('../src/types.js');
+    expect(Object.keys(types)).toEqual([]);
+  });
+
+  it('are pharn-owned: userOwnedConfigEntries leaves them (and modules) out', () => {
+    const raw = {
+      ...LEGACY,
+      modules: [],
+      seam: { resolutionOrder: ['ask'] },
+      testResults: { test: 'vitest-json' },
+    };
+    expect(userOwnedConfigEntries(raw)).toEqual({
+      seam: { resolutionOrder: ['ask'] },
+      testResults: { test: 'vitest-json' },
+    });
+  });
+
+  it('load on an archetype config and are written back verbatim', async () => {
+    const withLegacy: LegacyReadConfig = {
+      ...sample,
+      modules: [],
+      archetypes: ['lib'],
+      capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],
+      ...LEGACY,
+    };
+    await writePharnConfig(tmp.path(), withLegacy);
+    const read = loadArchetypeConfig(tmp.path()) as LegacyReadConfig;
+    expect(read.constitution).toBe('gdpr-strict');
+    expect(read.isMultiTenant).toBe(true);
+    expect(read.stackAnswers).toEqual({ database: 'supabase' });
+    expect(read.installedSkills).toEqual(LEGACY.installedSkills);
+    await writePharnConfig(tmp.path(), read);
+    expect(readWithLegacy(tmp.path())).toEqual(withLegacy);
   });
 });
 

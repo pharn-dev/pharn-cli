@@ -146,6 +146,25 @@ describe('pharn add <name>: success', () => {
     expect(report.drift?.missing).toEqual([]);
   });
 
+  // CORE-189: the fields older CLIs wrote are out of the public type, yet an
+  // old config carrying them still loads, and `add` writes them back as found.
+  it('keeps the legacy fields an older CLI wrote, and init still writes modules: []', async () => {
+    await installFresh();
+    // Written for 0.19.x, whose guard needs it, until v0.21.0.
+    expect(config().modules).toEqual([]);
+    const legacy = {
+      constitution: 'minimal',
+      isMultiTenant: false,
+      stackAnswers: { db: 'postgres' },
+      installedSkills: [{ skill: 'x', from: 'y' }],
+    };
+    editConfig((c) => Object.assign(c, legacy));
+
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    expect(config()).toMatchObject({ ...legacy, modules: [] });
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+  });
+
   it('role:name resolves a name upstream ships in both roles; the bare name is refused naming both', async () => {
     shipDupInBothRoles();
     await installFresh();
