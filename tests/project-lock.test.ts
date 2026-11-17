@@ -1054,15 +1054,19 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
       command: 'update',
       startedAt: new Date().toISOString(),
     });
-    const fn = vi.fn();
+    // Never judged: no liveness probe runs, and the error that comes out is
+    // fn's own, thrown under pharn/.lock, not a refusal.
+    const kill = vi.spyOn(process, 'kill');
+    const fn = vi.fn(() => {
+      throw new RangeError(`ran beside ${LEGACY_LOCK_FILE}`);
+    });
     const err = await withProjectLock(dir, 'update', fn).catch((e: Error) => e);
-    expect(err).not.toBeInstanceOf(ProjectLockedError);
-    expect((err as Error | undefined)?.message ?? '').not.toContain(
-      `delete ${LEGACY_LOCK_FILE}`,
-    );
-    expect(fn).toHaveBeenCalled();
+    expect(err).toBeInstanceOf(RangeError);
+    expect((err as Error).message).toContain(`beside ${LEGACY_LOCK_FILE}`);
+    expect(kill).not.toHaveBeenCalled();
     expect(existsSync(legacy(dir))).toBe(true);
     expect(existsSync(join(dir, LOCK_DIR))).toBe(false);
+    kill.mockRestore();
   });
 
   it('a STALE root lock (a crashed old run) and its corpse-named neighbours are left untouched', async () => {
