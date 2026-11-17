@@ -28,274 +28,113 @@ npx @pharn-dev/pharn@latest init
 
 ## Contents
 
-- [What is PHARN?](#what-is-pharn)
-- [Why use it?](#why-use-it)
-- [Quick start](#quick-start)
-- [How it works](#how-it-works)
-- [What gets installed](#what-gets-installed)
-- [After install](#after-install)
-- [Day-to-day workflow](#day-to-day-workflow)
-- [CLI commands](#cli-commands)
-- [Agent skills](#agent-skills)
-- [Safety model](#safety-model)
-- [Current scope](#current-scope)
-- [Documentation](#documentation)
-- [Development](#development)
-- [Security](#security)
-- [License](#license)
+[What is PHARN?](#what-is-pharn) · [Why use it?](#why-use-it) · [Quick start](#quick-start) · [How it works](#how-it-works) · [What gets installed](#what-gets-installed) · [After install](#after-install) · [Day-to-day workflow](#day-to-day-workflow) · [CLI commands](#cli-commands) · [Agent skills](#agent-skills) · [Safety model](#safety-model) · [Current scope](#current-scope) · [Documentation](#documentation) · [Development](#development) · [Security](#security) · [License](#license)
 
 ---
 
 ## What is PHARN?
 
-PHARN is a repo-local methodology for making AI-assisted development easier to
-review, repeat, and maintain. It gives Claude Code a structured path from
-feature intent to implementation review:
+PHARN is a repo-local methodology for making AI-assisted development easier to review, repeat, and
+maintain. It gives Claude Code a structured path from feature intent to implementation review:
 
 ```text
 spec -> plan -> grill -> test -> build -> regress -> verify -> ship
 ```
 
-The npm package, `@pharn-dev/pharn`, is the installer. It does not scaffold your
-app. It detects what kind of project you already have, installs the matching
-PHARN capabilities from [`pharn-dev/pharn-oss`](https://github.com/pharn-dev/pharn-oss),
-and records the install in `pharn.config.json` and `pharn.records.json`.
+The npm package, `@pharn-dev/pharn`, is the installer. It does not scaffold your app. It detects what kind
+of project you already have, installs the matching PHARN capabilities from
+[`pharn-dev/pharn-oss`](https://github.com/pharn-dev/pharn-oss), and records the install in
+`pharn.config.json` and `pharn.records.json`.
 
 ## Why use it?
 
-AI agents can move fast, but a fast diff without durable context is hard to
-trust. PHARN is built around a simple idea: the reasoning behind a change should
-be committed beside the change.
+AI agents can move fast, but a fast diff without durable context is hard to trust. PHARN is built around a
+simple idea: the reasoning behind a change should be committed beside the change.
 
-- **Preserve intent.** Specs, plans, constraints, and review notes live in the
-  repository, not only in an agent transcript.
-- **Make work inspectable.** PHARN installs grillers and lenses: pipeline
-  checks and review perspectives that help interrogate a plan or diff before
-  it ships.
-- **Keep updates safe.** `pharn update` uses per-file hashes to avoid
-  overwriting local edits unless you explicitly choose `--force`.
-- **Stay tool-shaped, not service-shaped.** The CLI fetches open content,
-  copies files into your project, and leaves the state in version-controlled
-  markdown and JSON.
+- **Preserve intent.** Specs, plans, constraints, and review notes live in the repository, not only in an
+  agent transcript.
+- **Make work inspectable.** PHARN installs grillers and lenses: pipeline checks and review perspectives
+  that help interrogate a plan or diff before it ships.
+- **Keep updates safe.** `pharn update` uses per-file hashes to avoid overwriting local edits unless you
+  explicitly choose `--force`.
+- **Stay tool-shaped, not service-shaped.** The CLI fetches open content, copies files into your project,
+  and leaves the state in version-controlled markdown and JSON.
 
 ## Quick start
 
-Run PHARN inside an existing git project:
+Run PHARN inside an existing git project. For a new app, make sure it is a git repository first
+(`create-next-app` already runs `git init` and commits, unless git is missing or you pass `--disable-git`):
 
 ```bash
-npx @pharn-dev/pharn@latest init
-```
-
-For a new app, make sure it is a git repository before installing PHARN.
-`create-next-app` already runs `git init` and makes the first commit (unless git
-is missing or you pass `--disable-git`), so initialize git only when `.git` is
-absent:
-
-```bash
-npx create-next-app@latest my-app
-cd my-app
+npx create-next-app@latest my-app && cd my-app
 [ -d .git ] || { git init && git add -A && git commit -m "init"; }
 npx @pharn-dev/pharn@latest init
 ```
 
-After install, open Claude Code in the project and start with:
+Then open Claude Code and start with `/pharn-spec`, or run the whole chain with
+`/pharn-loop implement password reset with a one-time token`. Either way the run begins at the spec:
+`/pharn-plan` halts unless an **Approved**, un-drifted `SPEC.md` exists ([walkthrough](docs/getting-started.md)).
 
-```text
-/pharn-spec
-```
-
-Or run the whole chain in one command:
-
-```text
-/pharn-loop implement password reset with a one-time token
-```
-
-Either way the run begins at the spec, and it has to: `/pharn-plan` enforces a
-deterministic input gate and halts unless an **Approved**, un-drifted `SPEC.md`
-already exists, so there is no entry point further down the chain. The exact
-command files come from the `pharn-dev/pharn-oss` version installed into your
-repo.
-
-**Your project needs a test runner with per-test results.** The `test` stage
-writes each acceptance criterion's test before any code exists and requires it
-to fail, so it needs a `test` script (plus `test:e2e` or `e2e` for end-to-end
-criteria) whose reporter writes per-test JSON, named under `testResults` in
-`pharn.config.json`. Without one, `/pharn-test` stops and asks, and
-`/pharn-loop` ends with `blocked: no-test-runner`. A fresh app like the
-`create-next-app` one above has no `test` script, so set the runner up first,
-as its own increment (a SPEC with `spec_kind: test-infra`). Setup is in
-upstream's
+**Your project needs a test runner with per-test results.** The `test` stage writes each acceptance
+criterion's test before any code exists and requires it to fail, so it needs a `test` script (plus
+`test:e2e` or `e2e` for end-to-end criteria) whose reporter writes per-test JSON, named under
+`testResults` in `pharn.config.json`. Without one, `/pharn-test` stops and asks, and `/pharn-loop` ends
+with `blocked: no-test-runner`. A fresh `create-next-app` has no `test` script, so set the runner up
+first, as its own increment (a SPEC with `spec_kind: test-infra`); see upstream's
 [Per-test results](https://github.com/pharn-dev/pharn-oss#per-test-results).
 
 ## How it works
 
-`pharn init` is archetype-driven. There is no stack questionnaire and no module
-catalog.
+`pharn init` is archetype-driven. There is no stack questionnaire and no module catalog.
 
-| Step    | What happens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Detect  | Reads `package.json` dependency names and performs a bounded, symlink-safe file-tree scan to classify the project as `ssr`, `backend`, `spa`, `lib`, or a combination.                                                                                                                                                                                                                                                                                                                                                  |
-| Fetch   | Resolves the newest **verified release** of `pharn-dev/pharn-oss` (a tag pharn-oss creates only after its post-merge CI passed) to its commit, downloads that commit's codeload tarball, extracts it into a temp directory, and checks its `SKILLS_VERSION` matches the tag. With no release resolvable it exits 1 and names `--ref main`, never falling back to the tip ([details](docs/troubleshooting.md#no-verified-release-could-be-resolved)). `--ref main` installs the tip of `main` instead, for contributors. |
-| Resolve | Selects capabilities whose `applies` value is `universal` or intersects your detected archetypes. Skipped capabilities are named with the reason.                                                                                                                                                                                                                                                                                                                                                                       |
-| Install | Copies the selected capabilities plus fixed PHARN product surfaces into your repo, mirroring the upstream layout.                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Record  | Writes `pharn.config.json` and `pharn.records.json` so future updates can tell PHARN-owned files from local edits.                                                                                                                                                                                                                                                                                                                                                                                                      |
-
-The install layout places most runtime surfaces under `pharn/` and Claude Code
-integration under `.claude/`. The legacy flat layout (everything at the project
-root) was removed in v0.21.0: a project still recorded at it is asked to re-run
-`pharn init`, which reinstalls at `pharn/` and leaves the old top-level copies
-for you to delete ([support policy](docs/support-policy.md)).
+| Step    | What happens                                                                                                                                                                                                                                                                              |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Detect  | Reads `package.json` dependency names and a bounded, symlink-safe file-tree scan to classify the project as `ssr`, `backend`, `spa`, `lib`, or a combination ([rules](docs/commands/init.md#3-detect-archetypes)).                                                                        |
+| Fetch   | Downloads the newest **verified release** of `pharn-dev/pharn-oss` (a tag created only after its post-merge CI passed). With none resolvable it exits 1 and names `--ref main`, never falling back to the tip ([details](docs/troubleshooting.md#no-verified-release-could-be-resolved)). |
+| Resolve | Selects capabilities whose `applies` value is `universal` or intersects your archetypes. Skipped capabilities are named with the reason.                                                                                                                                                  |
+| Install | Copies the selected capabilities plus the fixed PHARN product surfaces into `.claude/` and `pharn/`.                                                                                                                                                                                      |
+| Record  | Writes `pharn.config.json` and `pharn.records.json` so future updates can tell PHARN-owned files from local edits.                                                                                                                                                                        |
 
 ## What gets installed
 
-| Artifact                                                              | Purpose                                                                                    |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | Pipeline grillers and review lenses selected for your project archetype(s).                |
-| `.claude/commands/`, `.claude/hooks/`                                 | The installed `/pharn-*` Claude Code slash commands and deterministic `.cjs`/`.mjs` hooks. |
-| `.claude/agents/`                                                     | The `pharn-review-lens` subagent each `/pharn-review` lens runs in (pharn-oss 6.64.0+).    |
-| `pharn/pharn-contracts/`, `pharn/floor/`                              | Schemas shared across PHARN stages and floor checkers invoked by the workflow.             |
-| `pharn/pharn-core/`                                                   | Agent-readable mechanism skills, including the seam resolver.                              |
-| `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Trusted PHARN docs copied from upstream in the current layout.                             |
-| `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`                            | The other two trusted docs.                                                                |
-| `pharn/LICENSE`                                                       | PHARN's Apache-2.0 license copy. Your root `LICENSE` is never overwritten.                 |
-| `pharn/features/README.md`                                            | The feature-loop boundary contract referenced by installed commands.                       |
-| `pharn.config.json`                                                   | Installed version, commit, layout, archetypes, capabilities, and defaults.                 |
-| `pharn.records.json`                                                  | Per-file hashes for drift-safe updates. Commit this with the config.                       |
+Everything PHARN keeps in your project lives under `.claude/` (commands, hooks, agents) and `pharn/`
+(capabilities, contracts, core, floor checkers, the trusted docs, a `LICENSE` copy and the features README),
+plus `pharn.config.json` and `pharn.records.json` at the root: commit both. The full table is in
+[Getting started: What you get](docs/getting-started.md#what-you-get). An existing `.claude/settings.json`
+is never overwritten. As you run the workflow, PHARN writes one directory per increment,
+`pharn/features/<name>/`, which is the durable record; commit it. `pharn init` and `pharn update` add
+`pharn/.run/` and `pharn/.backup/` to your `.gitignore` ([how](docs/commands/init.md#gitignore)).
 
-An existing `.claude/settings.json` is preserved. PHARN may create it when
-absent, but it never overwrites your Claude Code settings.
-
-As you run the workflow, PHARN writes one directory per increment —
-`pharn/features/<name>/` — holding that increment's `SPEC.md`, `PLAN.md`,
-`AC-TESTS.md`, `GRILL.md`, `BUILD.md`, `REGRESSION.md`, `VERIFY.md`, then
-`SHIP.md` + `BRIEFING.md` (`/pharn-ship`) or `LOOP.md` (`/pharn-loop`), a
-`RUN-REPORT.md`, and the machine-readable records beside them
-(`AC-TESTS.lock.json`, `cost.json`, the `*-report.json` files). Those are the
-durable record; commit them. `pharn/.run/` (runtime scratch; `.pharn/` before
-pharn-oss 7.0.0) and `pharn/.backup/` (see [Safety model](#safety-model)) are not:
-`pharn init` and `pharn update` append them to your `.gitignore` (creating it if
-needed) unless it already covers them — in any common spelling, such as
-`/pharn/.run`, `pharn/.run/**` or a negation `!pharn/.run/` you wrote on purpose.
-They only ever append: your lines are never reordered or rewritten, CRLF stays
-CRLF, and a second run changes nothing. A symlinked `.gitignore` is never written
-through (you get a warning naming the lines). Lines added to `.gitignore` do not
-untrack files you already committed (`git rm -r --cached pharn/.run` does).
-`pharn/.lock*` is a transient file — add it yourself if you like. A `.pharn/`
-line left from an install older than pharn-oss 7.0.0 is neither rewritten nor
-mentioned; replace it with `pharn/.run/` yourself.
-
-Everything PHARN keeps in your project lives under `.claude/` and `pharn/`, plus
-the two JSON files at the root. An install made from a pharn-oss older than 7.0.0
-also has `THREAT-MODEL.md` and `LIMITS.md` at the root, and may have
-`memory-bank/` and `pharn.spec-template.md` there. pharn-oss 7.x reads none of
-them. `pharn update` installs the `pharn/` copies of the two docs and lists the
-root copies it recorded under `ORPHANED`, for you to delete. It never moves,
-deletes or mentions a root `memory-bank/` or `pharn.spec-template.md` (nothing
-proves they are PHARN's): move them yourself to `pharn/memory-bank/` and
-`pharn/spec-template.md` (`git mv`), or merge by hand when the `pharn/` copy
-already exists — see
-[update](docs/commands/update.md#the-root-footprint-migration) and
-[What PHARN deletes](docs/reference/deletes.md).
-
-**Two version numbers, on purpose.** The npm package `@pharn-dev/pharn` carries
-the installer's version. The content it installs carries its own,
-recorded as `skillsVersion` in `pharn.config.json` and taken from upstream's
-`SKILLS_VERSION`. They move independently, and `pharn status` / `pharn update`
-are keyed to the latter.
+**Two version numbers, on purpose.** The npm package `@pharn-dev/pharn` carries the installer's version.
+The content it installs carries its own, recorded as `skillsVersion` in `pharn.config.json` and taken from
+upstream's `SKILLS_VERSION`. They move independently, and `pharn status` / `pharn update` are keyed to the
+latter.
 
 ## After install
 
-Three things about the installed hooks are worth knowing on day one.
+- **Hooks enforce only once they are registered in `.claude/settings.json`.** If your project already had
+  that file, PHARN kept it and printed a `HOOKS` note listing each hook it does not wire, as paste-ready
+  JSON. Until you copy them across, the guarantees that depend on a `PreToolUse` hook are inactive, and
+  `pharn status --strict` fails.
+- **`/pharn-loop` has a `Stop` guard** (`require-loop-record.cjs`) that also does nothing until it is
+  registered under `Stop`. `pharn init`, `pharn status` and `pharn update` name a missing entry.
+- **`pharn update` never edits `.claude/settings.json`**, so copy new hook entries across by hand. Writes
+  issued through Bash bypass the write guards entirely.
 
-**Hooks enforce only once they are registered in `.claude/settings.json`.** If
-your project already had that file, PHARN preserved it instead of overwriting
-it and printed a `HOOKS` note listing each hook it does not wire, as
-paste-ready JSON — until you copy those entries across, every guarantee that
-depends on a `PreToolUse` hook is inactive, and `pharn status --strict` fails.
-
-**Once wired, the default depends on your tree (pharn-oss 6.24.0+).** With no
-active scope, `enforce-writes-scope.cjs` applies that default.
-
-In an **installed** project (`pharn.config.json` carries a non-empty
-`skillsVersion`), you can edit ordinary application source **outside** an open
-PHARN run. The narrow fail-closed posture — Claude Code's
-Write/Edit/MultiEdit/NotebookEdit tools restricted to `pharn/features/**` and
-`pharn/.run/**` — applies **only while** `/pharn-ship`, `/pharn-loop`, or
-`/pharn-review` has an open marker (`pharn/.run/<command>/<name>/active.json`;
-ship and review via `pharn/floor/run-marker.mjs`, loop via
-`require-loop-record.cjs`). Outside those runs the guard **denies** PHARN's
-installed surface (`pharn/**` except `pharn/features/**` and `pharn/.run/**`,
-`.claude/**`, `pharn.config.json`, and `pharn/.run/writes-scope.json`) and
-**allows** the rest of your project, including app source. While a stage is
-running it still sets explicit scope from the concrete paths your `PLAN.md`
-declared.
-
-In PHARN's own dev repo or an unsignalled tree, the pre-6.24.0 posture
-remains: fail-closed everywhere with no active scope. Clearing the scope
-(`set-writes-scope.cjs --clear`, or deleting `pharn/.run/writes-scope.json`)
-returns to whichever default your tree and open-run state compute; it does not
-by itself re-open source in those postures, or during an open install run.
-
-Writes issued through Bash bypass both write guards entirely.
-
-**`/pharn-loop` has a `Stop` guard too.** `require-loop-record.cjs` is not a
-write guard: while an unattended `/pharn-loop` run has written no `LOOP.md`, it
-refuses to let the turn end, a bounded number of times, and it fails open. It
-also does nothing until registered — under `Stop`, with no matcher. The
-`settings.json` upstream ships has registered it since pharn-oss 6.12.0, but a
-file PHARN preserved, or one created by an earlier install, lacks the entry:
-copy it across by hand. `pharn update` never edits `.claude/settings.json`;
-`pharn init`, `pharn status` and `pharn update` name the missing entry in a
-`HOOKS` note.
-
-The full set of bounds lives in upstream's
-[`LIMITS.md`](https://github.com/pharn-dev/pharn-oss/blob/main/LIMITS.md) and
-[README](https://github.com/pharn-dev/pharn-oss#readme).
+What the write guards allow and deny, and the full set of bounds, are in upstream's
+[README](https://github.com/pharn-dev/pharn-oss#what-gets-installed) and
+[`LIMITS.md`](https://github.com/pharn-dev/pharn-oss/blob/main/LIMITS.md).
 
 ## Day-to-day workflow
 
-Once PHARN is installed, use the slash commands from Claude Code. The pipeline
-is eight typed stages, each reading what the previous one produced:
-
-| Stage   | Command          | Purpose                                                                                                                                         |
-| ------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Spec    | `/pharn-spec`    | Capture feature intent and scope. Stops for your approval.                                                                                      |
-| Plan    | `/pharn-plan`    | Turn the approved spec into an implementation plan, mapping each acceptance criterion to a test (`AC-TESTS.md`).                                |
-| Grill   | `/pharn-grill`   | Challenge the plan before code is written.                                                                                                      |
-| Test    | `/pharn-test`    | Write each acceptance criterion's test before the build, run it, and require it to fail. `/pharn-build` refuses to start without that evidence. |
-| Build   | `/pharn-build`   | Implement an approved increment.                                                                                                                |
-| Regress | `/pharn-regress` | Look for regressions outside the just-built feature.                                                                                            |
-| Verify  | `/pharn-verify`  | Verify behavior and PHARN floor requirements, including that every acceptance criterion's test now passes.                                      |
-| Ship    | `/pharn-ship`    | Run stages 1-7 in order, then stop at the merge/fix/abandon gate.                                                                               |
-
-`/pharn-ship` is itself the eighth stage: it orchestrates the seven before it in
-one pass, so you rarely run them by hand, and it keeps both human gates —
-approve the spec before code is written, decide merge/fix/abandon after
-verification. `/pharn-loop` runs that same chain unattended: the model approves
-the spec, iterates build -> regress -> verify until green, an iteration cap, or
-a terminal failure, commits a green result to a new local branch (never pushed
-or merged), and leaves the merge/fix/abandon decision to you after the run.
-From pharn-oss 7.7.0, a full `/pharn-loop` (not `--quick`) also runs
-`/pharn-triage` after the grill: it gives every grill finding one disposition.
-Since 7.8.0 a `replan` verdict sends the run back to `/pharn-plan` for at most
-two re-plan rounds, and since 7.9.0 a verdict that still escalates goes to
-`/pharn-supervise`, a fresh agent that decides `stop` or `proceed-at-risk` (the
-escalated findings are then named as known risk in the green commit and the run
-report); since 7.10.0 it may instead amend the SPEC once per run (`amend-spec`).
-That decision is one model's judgment, not a check. You can run `/pharn-triage`
-yourself after a full `/pharn-grill`.
-
-`/pharn-spec` fills PHARN's default SPEC template, or your own if you put one at
-`pharn/spec-template.md`. The write guard denies Claude
-Code's edit tools on that path, so edit it yourself; see upstream's
-[Your own SPEC template](https://github.com/pharn-dev/pharn-oss#your-own-spec-template).
-
-Two commands sit outside the pipeline:
-
-| Command                 | Purpose                                                                                                                                |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `/pharn-review`         | Run the review lenses in parallel over any code and merge their findings deterministically. Standalone — no pipeline stage invokes it. |
-| `/pharn-memory-promote` | Promote one lesson into `pharn/memory-bank/` through a gated provenance check.                                                         |
+Once PHARN is installed, use the slash commands from Claude Code. The pipeline is eight typed stages, each
+reading what the previous one produced ([what each does](docs/getting-started.md#after-init)).
+`/pharn-ship` runs the first seven in one pass and keeps both human gates: approve the spec before code is
+written, decide merge/fix/abandon after verification. `/pharn-loop` runs the same chain unattended and
+commits a green result to a new local branch (never pushed or merged), leaving the merge decision to you. Outside the pipeline,
+`/pharn-review` runs the review lenses over any code, and `/pharn-memory-promote` promotes one lesson into
+`pharn/memory-bank/`. `/pharn-spec` uses your own SPEC template if you put one at `pharn/spec-template.md`
+(see upstream's [Your own SPEC template](https://github.com/pharn-dev/pharn-oss#your-own-spec-template)).
 
 ## CLI commands
 
@@ -311,162 +150,75 @@ Two commands sit outside the pipeline:
 | `pharn --help`              | Show every command, option and environment variable. `pharn <command> --help` shows one command and only the options it takes.                                                                                                                                                                                                                  |
 | `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                                                                                 |
 
-`init` also takes `--archetype <list>` (for example `--archetype backend` or
-`--archetype ssr,backend`) to install for those archetypes instead of the
-detected ones — the in-product correction for a misdetected project. The value
-must be a comma-separated list of `ssr`, `backend` and `spa`, or `lib` alone,
-each at most once; anything else exits 1. The choice is recorded, so `update`
-keeps it. The install summary shows what triggered each detected archetype
-(`backend ← src/app/api/`), or that they came from the flag.
+`init` also takes `--archetype <list>` (for example `--archetype ssr,backend`) to install for those
+archetypes instead of the detected ones; the choice is recorded, so `update` keeps it.
 
-Three behaviours matter if you script the CLI:
-
-- **Options are per-command.** Passing one a command does not take prints
-  ``Unsupported option for `status`: "--force"`` to stderr with ``Run `pharn --help` for usage.``
-  and exits **1**; an extra positional is refused the same way. Both previously
-  parsed, were silently dropped, and exited 0.
-- **`init` and `update` prompt.** Off a TTY a plain run exits 1 rather than
-  prompting into a dead stream. `update --yes` is the way through in CI. For
-  `init`, `--yes` skips the summary confirm but never the overwrite one: it
-  installs only into a project where none of its files exists yet, and
-  otherwise exits 1 — so a re-install always refuses it (use `update`). Both
-  commands' `--dry-run` needs no terminal and writes nothing. `uninstall`
-  likewise exits 1 off a TTY unless it is given `--yes`.
-- **One writer at a time.** `init`, `add`, `remove`, `update` and `uninstall`
-  take an advisory lock at `pharn/.lock`; a second run refuses rather than
-  queueing. `add`, `remove`, `update` and `uninstall` also re-read
-  `pharn.config.json` once they hold the lock, and refuse — writing nothing —
-  if another run changed it after they read it (for example while a confirm
-  prompt was open).
-  `list` and `status` never take it and are never blocked by one, so
-  `pharn status --strict` stays runnable in CI while an update is in flight.
+If you script the CLI: an option a command does not take, or an extra positional, exits **1**
+(``Unsupported option for `status`: "--force"``); off a TTY a plain `init`, `update` or `uninstall` exits 1
+(`update --yes` is the CI line; `init --yes` never confirms an overwrite; `--dry-run` needs no terminal);
+and one writer at a time holds `pharn/.lock`, while `list` and `status` never take it, so
+`pharn status --strict` stays runnable in CI. A config changed while a prompt was open refuses the write.
 
 ## Agent skills
 
-If you would rather ask than remember flags, the
-[`pharn-dev/skills`](https://github.com/pharn-dev/skills) repository ships a
-`pharn-cli` skill that operates this CLI for you. Ask your agent "Is PHARN up to
-date in this project?" or "What would an update change?" and it runs the
-read-only checks and a `--dry-run` preview first, applies the update without
-overwriting your edits, and adds or removes grillers and lenses. The same
-repository also carries `phargus` skills for setting up and diagnosing Node.js
-applications with [Phargus](https://github.com/pharn-dev/phargus).
-
-In Claude Code:
-
-```text
-/plugin marketplace add pharn-dev/skills
-/plugin install pharn@pharn-dev
-```
-
-Or with the Skills CLI: `npx skills add pharn-dev/skills --skill pharn-cli`.
-The skills are optional; every command above works without them.
+The [`pharn-dev/skills`](https://github.com/pharn-dev/skills) repository ships a `pharn-cli` skill that
+operates this CLI for you: ask "Is PHARN up to date in this project?" or "What would an update change?" and
+it runs the read-only checks and a `--dry-run` first, applies updates without overwriting your edits, and
+adds or removes grillers and lenses. It also carries `phargus` skills for
+[Phargus](https://github.com/pharn-dev/phargus). In Claude Code, run `/plugin marketplace add pharn-dev/skills`
+then `/plugin install pharn@pharn-dev`, or use `npx skills add pharn-dev/skills --skill pharn-cli`. The skills
+are optional.
 
 ## Safety model
 
 PHARN is intentionally conservative about writes:
 
-- `init` checks for existing install targets and asks before overwriting them,
-  and refuses the whole install — writing nothing — when a destination path
-  crosses a symlinked directory.
-- `update` uses `pharn.records.json` to skip files it cannot prove are
-  untouched. In your project it deletes only the directory of a capability it
-  drops from `pharn.config.json` (PHARN runs whatever capability directories
-  are on disk), after backing up any file in it that `pharn` cannot prove it
-  wrote; it never touches `.claude/settings.json`. A re-run `init` does the
-  same, after listing those directories in its prompt. Every delete, and what
-  is never deleted: [What PHARN deletes](docs/reference/deletes.md).
-- `update --force` backs up overwritten files under `pharn/.backup/<timestamp>/`
-  before writing. `add` does the same for any destination file that differs from
-  upstream, and refuses the whole install — writing nothing — when a destination
-  path crosses a symlinked directory.
+- `init` checks for existing install targets and asks before overwriting them, and refuses the whole
+  install (writing nothing) when a destination path crosses a symlinked directory.
+- `update` uses `pharn.records.json` to skip files it cannot prove are untouched. In your project it deletes
+  only the directory of a capability it drops from `pharn.config.json` (PHARN runs whatever capability
+  directories are on disk), after backing up any file in it that `pharn` cannot prove it wrote; it never
+  touches `.claude/settings.json`. A re-run `init` does the same, after listing those directories in its
+  prompt. Every delete, and what is never deleted: [What PHARN deletes](docs/reference/deletes.md).
+- `update --force` backs up overwritten files under `pharn/.backup/<timestamp>/` before writing. `add` does
+  the same for any destination file that differs from upstream, and refuses the whole install (writing
+  nothing) when a destination path crosses a symlinked directory.
 - `status` and `list` are read-only.
-- `remove` deletes only the selected capability directory and prunes its records,
-  after backing up to `pharn/.backup/<timestamp>/` any file in it that `pharn`
-  cannot prove it wrote unchanged;
-  it never touches `CONSTITUTION.md`, `pharn/memory-bank/`, or your detected
-  archetypes, and refuses when that directory's path crosses a symlink.
-- `uninstall` deletes only files recorded in `pharn.records.json` that still
-  match their recorded hash, inside `pharn`'s install paths; it keeps every file
-  you changed or added and lists the ones it kept, backs up `pharn.config.json`
-  before deleting it, never writes `.claude/settings.json` (it prints the hooks
-  you need to unwire instead), and refuses — deleting nothing — without a usable
-  record store.
+- `remove` deletes only the selected capability directory and prunes its records, after backing up to
+  `pharn/.backup/<timestamp>/` any file in it that `pharn` cannot prove it wrote unchanged; it never touches
+  `CONSTITUTION.md`, `pharn/memory-bank/`, or your detected archetypes, and refuses when that directory's
+  path crosses a symlink.
+- `uninstall` deletes only files recorded in `pharn.records.json` that still match their recorded hash,
+  inside `pharn`'s install paths; it keeps every file you changed or added and lists the ones it kept, backs
+  up `pharn.config.json` before deleting it, never writes `.claude/settings.json` (it prints the hooks you
+  need to unwire instead), and refuses (deleting nothing) without a usable record store.
 
-PHARN can also refuse to install at all: if upstream declares a minimum CLI
-version newer than yours, `init`/`add`/`update` stop with a named error before
-writing anything.
-
-Remote content is treated as untrusted input. Capability names, copyable file
-names, versions, commit SHAs, and paths are validated against strict allowlists;
-path traversal and symlink escapes are rejected; copied file contents are not
+PHARN can also refuse to install at all: if upstream declares a minimum CLI version newer than yours,
+`init`/`add`/`update` stop with a named error before writing anything. Remote content is treated as
+untrusted input. Capability names, copyable file names, versions, commit SHAs, and paths are validated
+against strict allowlists; path traversal and symlink escapes are rejected; copied file contents are not
 executed by the CLI.
 
 ## Current scope
 
-PHARN is intentionally scoped:
-
-- It targets **Claude Code today**. Codex and Cursor support are planned, not
-  shipped.
-- It requires a git-initialized project and **Node >= 24.2.0**, for the CLI
-  (`@pharn-dev/pharn`, `engines.node`) and for the **installed floor**
-  (`pharn/floor/*.mjs`) alike. The floor's checkers gate on `import.meta.main`;
-  on an older Node a guarded tool used to exit 0 without running its checks, so
-  they now refuse to run there (one stderr line, exit 2). `pharn init` and
-  `pharn update` therefore refuse up front on an older Node, with nothing
-  written, and `pharn status` prints the floor beside the Node you are running.
-  CI runs on Node 24, and a smoke job starts the packed CLI on exactly 24.2.0.
-- **Archetype detection is JS/TS-shaped.** The signals are `package.json`
-  dependency names, `.tsx`/`.jsx` files, and — in a Next.js app only —
-  `next.config.*`, `app/` route handlers and `app/api`/`pages/api`. A root
-  `api/`, a `migrations/` directory and `.sql` files in a database directory
-  count only when the project has a root `package.json`. A Python, Go, Rust,
-  Ruby or PHP repo without one produces no signal, resolves to `lib`, and
-  receives the universal capabilities only — a correct outcome, not a failure.
-  One that also has a root `package.json` (a Vite frontend, or tooling only)
-  can resolve `backend` from its migrations; `pharn init --archetype` corrects
-  either way.
-- **Server and database packages count only as runtime dependencies.** A
-  runtime database driver dependency (`pg`, `mongodb`, an ORM) means `backend`,
-  like a server framework; the same package only in `devDependencies` (a mock
-  server, a test database) does not. A backend bundled so that its framework is
-  only a devDependency needs `pharn init --archetype backend`. SSR and UI
-  frameworks count from `devDependencies` too.
-- **Detection is bounded.** The file-tree scan examines at most 50,000 entries,
-  24 directories deep (skipped directories such as `node_modules` do not
-  count). When it stops at a bound before its result is settled, the install
-  summary says `detection stopped early` and `init --dry-run --json` reports
-  `"detectionTruncated": true`; check the archetypes and pass `--archetype` if
-  they are wrong.
-- It does not scaffold your application or install framework packages.
-- It does not replace tests, human review, or release judgment. It gives those
-  activities a structured record and repeatable workflow.
-- `status` reports modified, missing, and unreadable PHARN-owned paths, and
-  the files upstream stopped shipping that are still in your project
-  (orphans). `update` never deletes an orphan; delete it by hand
-  (`pharn uninstall` removes the unchanged ones — see
-  [What PHARN deletes](docs/reference/deletes.md)).
-- **Supported installs: the current minor and the previous one.** v0.20.x
-  works with installs made by 0.19.x or 0.20.x; re-run `pharn init` on an older
-  install, and it keeps the capabilities you added.
-  `--json` reports stay additive within `schemaVersion: 1`
-  ([JSON output](docs/reference/json-output.md)). Compatibility code
-  for older installs is removed on a named version: see the
-  [support policy](docs/support-policy.md).
-
-See the [roadmap](docs/roadmap.md) for shipped versus planned work.
+- It targets **Claude Code today**. Codex and Cursor support are planned, not shipped.
+- It requires a git-initialized project and **Node >= 24.2.0**, for the CLI and for the installed floor
+  checkers (`pharn/floor/*.mjs`), which refuse to run on an older Node. `pharn init` and `pharn update`
+  refuse up front on an older Node, with nothing written.
+- **Archetype detection is JS/TS-shaped and bounded.** A Python, Go, Rust, Ruby or PHP repo without a root
+  `package.json` resolves to `lib` and gets the universal capabilities, a correct outcome; `pharn init
+--archetype` corrects any misdetection. The rules: [Detect archetypes](docs/commands/init.md#3-detect-archetypes).
+- It does not scaffold your app, install framework packages, or replace tests, review or release judgment.
+- **Supported installs: the current minor and the previous one.** Re-run `pharn init` on an older install;
+  it keeps the capabilities you added. `--json` reports stay additive within `schemaVersion: 1`. See the
+  [support policy](docs/support-policy.md) and the [roadmap](docs/roadmap.md).
 
 ## Documentation
 
-Start here: [docs/](docs/README.md)
-
-- [Getting started](docs/getting-started.md)
-- [Command reference](docs/README.md#commands)
-- [pharn.config.json](docs/reference/pharn-config.md)
-- [pharn.records.json](docs/reference/pharn-records.md)
-- [Support policy](docs/support-policy.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Roadmap](docs/roadmap.md)
+Start here: [docs/](docs/README.md). [Getting started](docs/getting-started.md) ·
+[Commands](docs/README.md#commands) · [pharn.config.json](docs/reference/pharn-config.md) ·
+[pharn.records.json](docs/reference/pharn-records.md) · [Support policy](docs/support-policy.md) ·
+[Troubleshooting](docs/troubleshooting.md) · [Roadmap](docs/roadmap.md)
 
 ## Development
 
@@ -474,34 +226,21 @@ Start here: [docs/](docs/README.md)
 npm install
 npm run dev -- init
 npm run build
-npm run test
-npm run check
+npm run check   # format:check, lint, lint:md, typecheck, test
 ```
 
-Useful scripts:
-
-| Script                        | Purpose                                               |
-| ----------------------------- | ----------------------------------------------------- |
-| `npm run typecheck`           | Type-check source and tests.                          |
-| `npm run lint`                | Run ESLint with zero warnings.                        |
-| `npm run lint:md`             | Run markdownlint over docs and root markdown.         |
-| `npm run test:coverage`       | Run the Vitest coverage gate used by CI.              |
-| `npm run build:install-local` | Build and install the local CLI into local test apps. |
-
-Set `PHARN_DEBUG=1` for verbose fetch and install errors; `NO_COLOR` / `FORCE_COLOR`
-control colour (see [Colour](docs/troubleshooting.md#colour)). See
+Other scripts: `npm run test:coverage` (the coverage gate CI runs) and `npm run build:install-local` (build
+and install the local CLI into local test apps). Set `PHARN_DEBUG=1` for verbose fetch and install errors;
+`NO_COLOR` / `FORCE_COLOR` control colour (see [Colour](docs/troubleshooting.md#colour)). See
 [CONTRIBUTING.md](CONTRIBUTING.md) for contributor notes and release discipline.
 
 ## Security
 
-The CLI has a small trust boundary: it downloads PHARN content from GitHub,
-validates and extracts it, then copies selected files into your project. The
-security-sensitive path validation, tar extraction, symlink handling, and update
-decision tables are covered by tests.
-
-Please report vulnerabilities through [SECURITY.md](SECURITY.md), not public
-issues. The detailed model is in [THREAT-MODEL.md](THREAT-MODEL.md) and
-[LIMITS.md](LIMITS.md).
+The CLI has a small trust boundary: it downloads PHARN content from GitHub, validates and extracts it, then
+copies selected files into your project. The security-sensitive path validation, tar extraction, symlink
+handling, and update decision tables are covered by tests. Please report vulnerabilities through
+[SECURITY.md](SECURITY.md), not public issues. The detailed model is in [THREAT-MODEL.md](THREAT-MODEL.md)
+and [LIMITS.md](LIMITS.md).
 
 ## License
 

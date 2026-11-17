@@ -94,7 +94,7 @@ Run [`pharn update`](update.md) to bring your install to the current version, th
 **Kept local edits.** If `pharn update` skipped files **only because you edited them**
 (`modified` / `unrecorded`), it leaves `skillsVersion` at the old value but records the version it
 applied as `pendingSkillsVersion` in `pharn.config.json`. That includes an update that
-[held the executable unit](update.md#the-executable-unit-is-upgraded-all-or-none) because of your
+[held the executable unit](../reference/update-advanced.md#the-executable-unit-is-upgraded-all-or-none) because of your
 edit: the floor, hooks and `pharn-*` commands stay at the old version, and every other file you did not
 edit is at the new one. `add` accepts a clone at that version too, because it writes capability
 directories only, and it still does not advance `skillsVersion` or `commit`. If upstream has moved on

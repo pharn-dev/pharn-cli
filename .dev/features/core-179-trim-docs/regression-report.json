@@ -1,0 +1,41 @@
+{
+  "base": "a844f7a7c8fbbd4dd3eec339c24484bbcbfb38f0",
+  "inside": [
+    ".dev/features/core-179-trim-docs/GRILL.md",
+    ".dev/features/core-179-trim-docs/PLAN.md",
+    "CHANGELOG.md",
+    "README.md",
+    "docs/README.md",
+    "docs/commands/add.md",
+    "docs/commands/init.md",
+    "docs/commands/remove.md",
+    "docs/commands/status.md",
+    "docs/commands/update.md",
+    "docs/getting-started.md",
+    "docs/reference/deletes.md",
+    "docs/reference/json-output.md",
+    "docs/reference/pharn-config.md",
+    "docs/reference/pharn-records.md",
+    "docs/reference/project-lock.md",
+    "docs/reference/update-advanced.md",
+    "docs/support-policy.md",
+    "docs/troubleshooting.md"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    },
+    "vitest": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

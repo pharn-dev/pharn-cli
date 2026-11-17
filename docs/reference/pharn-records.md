@@ -2,15 +2,13 @@
 
 A CLI-owned sidecar written next to [`pharn.config.json`](pharn-config.md) at your project root. Its
 `files` map holds a sha256 per **install-manifest path** — the PHARN-owned surfaces and selected
-capabilities collected by `runInstallArchetype` (`collectExpectedInstallPaths`), not every file `pharn`
-writes. [`pharn update`](../commands/update.md) compares against it to tell pharn's bytes from your
+capabilities an install expects (what the fetched `pharn-install.json` declares, plus your selection), not
+every file `pharn` writes. [`pharn update`](../commands/update.md) compares against it to tell pharn's bytes from your
 edits and refuse to destroy the latter. `pharn.config.json` and this file are excluded from the map.
 Two entries are not install-manifest paths: `pharn.config.json#/models`, which is not a file — it
 records the `models` block `pharn` wrote **inside** `pharn.config.json` (see
 [The `models` block](#the-models-block)) — and `.claude/settings.json`, only when `init` created it (see
 [`.claude/settings.json`](#claudesettingsjson)).
-
-Source: [`install-records.ts`](../../src/lib/install-records.ts).
 
 **Commit it.** It is part of your project's PHARN state, like `pharn.config.json`. Without a usable
 store, `update` skips every **present** file that differs (`unverifiable`) but still **restores**
@@ -92,7 +90,7 @@ whitespace). So re-indenting your config is not an edit, while reordering the bl
 `init` writes it with the block; `update` rewrites it when it writes pharn-oss's block, and carries it
 unchanged when it keeps yours; `add` and `remove` carry it untouched. `update` compares your block
 against it exactly as it compares a file against its record — see
-[update](../commands/update.md#the-models-block). It is only compared, never used as a path, and a
+[update](update-advanced.md#the-models-block). It is only compared, never used as a path, and a
 store without it reads the block as `unrecorded`.
 
 ## When the store is ignored (fail-closed)
@@ -149,7 +147,7 @@ Skipped files keep their previous entry, since it still describes what `pharn` w
 
 **A file upstream stopped shipping that is still in your project keeps its entry**, with its old hash,
 until you delete it. That entry is what lets `update` and `status` keep listing the file as an
-[orphan](../commands/update.md#orphaned-files) — `UNCHANGED` while its bytes still match, `EDITED` once
+[orphan](update-advanced.md#orphaned-files) — `UNCHANGED` while its bytes still match, `EDITED` once
 they do not. Once the file is gone, the next `update` drops the entry. If upstream ships the path
 again, the entry makes it a clean upgrade instead of an `unrecorded` skip. The entries of a capability
 `update` drops from your config are not kept: those files are named by the membership change, not as

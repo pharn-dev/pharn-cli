@@ -1,8 +1,6 @@
 # pharn.config.json
 
 Written to the project root on a successful `pharn init`, and updated by `pharn add`, `pharn remove` and `pharn update`.
-Source: [`pharn-config.ts`](../../src/lib/pharn-config.ts) and
-[`install-archetype.ts`](../../src/steps/install-archetype.ts).
 
 It is the CLI's record of what it installed. PHARN's commands in your project do **not** read
 `capabilities` to decide which grillers and lenses run: they scan the capability directories on disk
@@ -28,7 +26,7 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 | `layout`        | string         | Install layout your files are at: `pharn`. Anything else, or no key, is refused: re-run `pharn init`                   |     |
 | `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                           |     |
 
-`isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
+The presence of a `capabilities` array marks an archetype install.
 A `capabilities` that is present but **not** an array (for example `"capabilities": "x"` or `null`) is a
 hand-edit error, not a legacy install: `pharn` names it and exits 1 instead of telling you to re-run
 `pharn init`, which would overwrite the file. An absent `capabilities` is still the pre-archetype
@@ -261,7 +259,7 @@ not apply such a block from pharn-oss.
   every other key pharn writes.
 - **`pharn update`** treats the block like a file: pharn-oss's block replaces one pharn wrote, and one
   you changed is kept, with what pharn-oss's rules reject in it listed. See
-  [update](../commands/update.md#the-models-block).
+  [update](update-advanced.md#the-models-block).
 - **`pharn status`** prints every product stage beside the model and effort it resolves to — marked
   `(default)` when the stage has no entry of its own — under the label above, and lists by name
   anything pharn-oss's rules reject. See [status](../commands/status.md).
@@ -273,7 +271,7 @@ because it is not `pharn`'s schema. `pharn` checks it where it copies, keeps or 
 copy over a corpus of cases and fails on any difference. If pharn-oss's rules move ahead of the copy in your pharn
 (a new stage, a new alias), `pharn` does not apply the newer block, names what it could not accept, and
 upgrading `pharn` fixes it. pharn-oss can also require the upgrade with `MIN_CLI` (see
-[`pharn is too old for the current pharn-oss`](../commands/update.md#pharn-is-too-old-for-the-current-pharn-oss)).
+[`pharn is too old for the current pharn-oss`](../troubleshooting.md#pharn-is-too-old-for-the-current-pharn-oss)).
 
 ### The format `pharn` wrote before 0.7.0
 
@@ -283,7 +281,7 @@ no longer converts it (0.19.x was the last release that did): it is a block phar
 like any other. `pharn status` lists what they reject, and `pharn update` keeps it unless its record
 proves `pharn` wrote it. To move to pharn-oss's block, replace yours by hand, or delete the `models`
 key so the next `pharn update` writes pharn-oss's; `pharn update --force` also replaces it, but
-overwrites every other file you edited too. See [update](../commands/update.md#the-models-block).
+overwrites every other file you edited too. See [update](update-advanced.md#the-models-block).
 
 ## Seam resolution
 
