@@ -37,6 +37,8 @@ What the latest release does; the [CHANGELOG](../CHANGELOG.md) says which versio
 | Stack scaffolding               | Install npm packages / generate app code for a detected framework                                                                                                       |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only requires a `.git` directory and hard-fails without one; it never inspects history and issues no warning) |
 | Other agents                    | Codex and Cursor in addition to Claude Code                                                                                                                             |
+| Mixed-version warning           | A `pharn` older than the config's recorded `pharnVersion` (major.minor) warns before it writes, without refusing ([support policy](support-policy.md))                  |
+| `flat` deprecation notice       | `pharn status` and `pharn update` say that the `flat` layout is deprecated and removed in v0.22.0 ([support policy](support-policy.md))                                 |
 
 ## Related
 
@@ -49,3 +51,4 @@ What the latest release does; the [CHANGELOG](../CHANGELOG.md) says which versio
 - [status](commands/status.md)
 - [uninstall](commands/uninstall.md)
 - [pharn.config.json](reference/pharn-config.md)
+- [Support policy](support-policy.md)

@@ -102,7 +102,10 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   runs and readers (`list`, `status`) never take it.
 - **Bounded local reads.** pharn.config.json, pharn.records.json and the lock are read through `readBoundedFile`
   (regular file, size cap, `O_NONBLOCK`), so a FIFO or a huge file never hangs or floods a command.
-- **Config schema is additive** (P7): legacy fields still load, and new keys are optional. The CLI owns every key
+- **Config schema is additive within the support window** (P7): new keys are optional, and a legacy field loads
+  while a CLI in the window (the current minor and the previous one) still writes or reads it. Each compatibility shim
+  names its removal version in a code comment and the CHANGELOG, and is removed on that version (the policy and the
+  shim table: `docs/contributing.md`, "Support policy"). The CLI owns every key
   **except `models` and `seam`, which belong to pharn-oss**. They ride the spread verbatim, are never validated at
   load, and `seam` is never written. Never add a model/effort/stage rule the vendored checker does not have.
 - **`--json` reports keep their `schemaVersion: 1` bytes.** A new key is additive and **absent when empty**, so the

@@ -70,6 +70,58 @@ Three more workflows report required checks: `floor` (the deterministic PHARN fl
 - Commit in [Conventional Commits](https://www.conventionalcommits.org/) style, one logical change per commit.
 - Open an issue first for any non-trivial change — PHARN is small-surface on purpose.
 
+## Support policy
+
+Which old installs, configs, outputs and CLI versions the CLI must handle, and for how long. Decided 2026-11-11 (CORE-186); it governs every release from v0.20.0. The user-facing summary is [Support policy](support-policy.md); keep the two in step.
+
+### The supported window: the current minor and the previous one
+
+`update`, `add`, `remove`, `list`, `status` and `uninstall` support an install written by the current minor or the previous one: v0.20.x handles installs from 0.19.x and 0.20.x, v0.21.x those from 0.20.x and 0.21.x. Code that exists only for an install, config shape or project file older than that is a **compatibility shim**, and it is retired on the version it names (see [Shims to retire](#shims-to-retire)).
+
+The window also binds the other way: the previous minor's CLI must still read the config the current one writes, so a field it needs keeps being written until it leaves the window. That is why writing `modules: []` outlives the other legacy fields.
+
+### An older install gets one message: re-run `pharn init`
+
+An install outside the window gets one clear message to re-run `pharn init`, never a silent misbehaviour or a stack of per-shim notes. `init` is the way back in: it reads the previous `pharn.config.json` tolerantly and carries the capabilities added with `pharn add` over as `manual` (`lib/init-plan.ts`). The refusal of a pre-archetype (module) config is the existing example (`lib/pharn-config.ts`).
+
+So retiring a shim has a precondition: the shape it handled must either still work through the general path, or be met by that message. If neither holds, the shim is not ready to go.
+
+### Every shim names its removal version
+
+A compatibility shim names the version that removes it, in a code comment at the shim (`removed in vX.Y.0`) and in the CHANGELOG line of the release that adds it. "Kept for one release" is not a version. Its removal is a `### Removed` line in the CHANGELOG that names the last CLI that handled the path (for example "0.19.x is the last `pharn` that reads a root `.pharn.lock`"). The shim's tests are rewritten to assert the new behaviour, never deleted: the `Test` job's test-integrity check fails a PR that drops a test or a test title.
+
+### `--json` reports: `schemaVersion` 1 stays additive
+
+A new key is optional and **absent when empty**, so the default output stays byte-identical. Removing or renaming a key, or changing its type or meaning, is a breaking change: it bumps `schemaVersion`, with a CHANGELOG line. A JSON report is not a shim, so the window does not apply to it: `schemaVersion` 1's keys stay until a bump.
+
+### The config schema: additive within the window
+
+A new `pharn.config.json` key is optional. Legacy fields load, and are kept on read, while a CLI inside the window still writes or reads them; each leaves on its named version. `models` and `seam` belong to pharn-oss and are outside this rule: `pharn` carries them verbatim and never adds a rule its vendored checker does not have.
+
+### Mixed CLI versions in one team
+
+`pharn.config.json` records `pharnVersion`, the CLI that last wrote it (`init`, and `update` when it writes). A CLI older than the config's `pharnVersion` (major.minor) **warns** before it writes, and does not refuse. **Coming soon** (see the [roadmap](roadmap.md#planned)): today no command compares `pharnVersion` with the running CLI. The warning only protects against CLIs released after it lands; an older CLI has no such check.
+
+### The `flat` layout
+
+The `flat` layout is deprecated in v0.20.0 and removed in v0.22.0. `pharn update` already moves a `flat` install to the `pharn` layout when the fetched pharn-oss ships it ([Layout migrations](commands/update.md#layout-migrations)). The deprecation notice in `pharn status` and `pharn update` is **Coming soon** (see the [roadmap](roadmap.md#planned)).
+
+### Shims to retire
+
+| Remove in | Shim                                                                                             | Where                                                                                                                                                                                                                                    | What it handles                                                                                                                                 | Ticket |
+| --------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| v0.20.0   | The legacy root lock `.pharn.lock`                                                               | `LEGACY_LOCK_FILE`, `LEGACY_CORPSE_RE` and `legacySite` in `src/lib/project-lock.ts`                                                                                                                                                     | A root lock taken by `pharn` 0.13.0 or older                                                                                                    | C6.2   |
+| v0.20.0   | The `.pharn-backup/` notice                                                                      | `LEGACY_BACKUP_DIR` and `legacyBackupNotice` in `src/lib/backup.ts`                                                                                                                                                                      | A root backup directory written by `pharn` 0.13.0 or older (never deleted, only noticed)                                                        | C6.2   |
+| v0.20.0   | The pre-0.7.0 `models` conversion                                                                | `LEGACY_MODEL_ALIASES`, the old defaults and the conversion in `src/lib/models-update.ts`; its notes in `src/lib/update-render.ts` and `src/commands/status.ts`                                                                          | A `models` block in the format `pharn` wrote before 0.7.0                                                                                       | C6.3   |
+| v0.20.0   | The legacy fields `constitution`, `installedSkills`, `stackAnswers`, `isMultiTenant` in the type | `PharnConfig` in `src/types.ts`                                                                                                                                                                                                          | They leave the documented type only; still loaded and kept on read (no behaviour change) until v0.21.0                                          | C6.4   |
+| v0.21.0   | Writing `modules: []`, and the four legacy fields above                                          | The write in `src/steps/install-archetype.ts`; the legacy keys in `src/lib/pharn-config.ts`                                                                                                                                              | 0.19.x reads a config without a `modules` array as no config, and v0.20.0 is the first CLI that does not, so 0.19 must still read 0.20's config | C6.4   |
+| v0.22.0   | The `flat` layout                                                                                | The `flat` branch of `src/lib/layout.ts` (`detectLayout`, `layoutPaths`), the `Layout` type in `src/types.ts`, and its cases in `install-surfaces`, `init-plan`, `update-render` and `pharn-config` (an absent `layout` reads as `flat`) | Installs recorded at, and clones shipping, the legacy root layout (deprecated in v0.20.0)                                                       | —      |
+| v0.22.0   | `PHARN_ROOT_FALLBACK_DOCS`                                                                       | `src/lib/constants.ts`, read by `resolveTrustedDocs` in `src/lib/layout.ts`                                                                                                                                                              | A pharn-oss clone older than 7.0.0 that still ships `THREAT-MODEL.md` and `LIMITS.md` at the root                                               | —      |
+| v0.22.0   | The root-footprint migration                                                                     | `src/lib/root-migration.ts` (the root-doc deletion, the user-data hints, the `.pharn/` notice, the `.gitignore` hints)                                                                                                                   | A `pharn`-layout install made from a pharn-oss older than 7.0.0                                                                                 | —      |
+| v0.22.0   | The derivation fallback for a tree without `pharn-install.json`                                  | The derivation in `src/lib/install-manifest.ts`, the frontmatter index in `src/lib/capability-index.ts`, the root config read in `src/lib/upstream-models.ts`                                                                            | A pharn-oss release older than 7.20.0, which ships no install manifest                                                                          | —      |
+
+The v0.20.0 and v0.21.0 rows are tickets of epic C6 (CORE-155); the v0.22.0 rows have none yet. Some of these shims' code comments predate the rule and do not name their version yet; the change that retires a shim removes its comment with it.
+
 ## Project layout
 
 ```text
@@ -239,6 +291,7 @@ Keep [`docs/`](./README.md) aligned with code when you change:
 | CLI `--help` text                            | [commands/init.md](./commands/init.md), [README.md](../README.md)                                      |
 | Records store, lock, or backup behaviour     | [reference/pharn-records.md](./reference/pharn-records.md), [troubleshooting.md](./troubleshooting.md) |
 | Option allowlist or exit codes               | [troubleshooting.md](./troubleshooting.md), the affected `commands/*.md`                               |
+| Compatibility shim added or retired          | [Shims to retire](#shims-to-retire), [support-policy.md](./support-policy.md), the CHANGELOG           |
 
 Do not document behavior that is not implemented without marking **Coming soon** or referencing [roadmap.md](./roadmap.md).
 
