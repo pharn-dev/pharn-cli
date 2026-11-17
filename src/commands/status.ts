@@ -45,6 +45,7 @@ import {
 } from '../lib/model-config-format.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { nodeFloorLines, nodeFloorStatus } from '../lib/node-floor.js';
+import { warnIfOlderCli } from '../lib/older-cli.js';
 import { loadArchetypeConfig } from '../lib/pharn-config.js';
 import { CliError } from '../lib/cli-error.js';
 import { logErrorPlain } from '../lib/report-error.js';
@@ -78,6 +79,8 @@ export async function runStatus(
 
   const cwd = process.cwd();
   const config = loadArchetypeConfig(cwd, { json });
+  // A reader writes nothing, but the next writer run with this CLI would.
+  warnIfOlderCli(config, { json });
   const node = nodeFloorStatus(process.versions.node);
 
   // NODE note: local, so it prints first and survives a failed fetch. A

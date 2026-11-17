@@ -450,6 +450,27 @@ npm install -g @pharn-dev/pharn@latest
 A `MIN_CLI` file that is absent, unreadable, or malformed imposes **no** constraint — only a
 well-formed version newer than yours refuses.
 
+## `pharn.config.json` was written by a newer `pharn`
+
+Symptoms:
+
+- `pharn.config.json was written by pharn X.Y.Z; this is pharn A.B.C. Upgrade pharn …` on stderr
+- The command carries on and its exit code is unchanged
+
+`pharn.config.json` records `pharnVersion`, the `pharn` that last wrote it. Your `pharn` is older than
+that at major.minor, so a teammate (or CI) runs a newer one. `init`, `add`, `remove`, `update` and
+`uninstall` warn and still write, `status` and the `--dry-run` previews warn too, and a `--json` report
+on stdout is unchanged. An older `pharn` can undo what the newer one did: `update` and a re-run `init`
+install by its older rules and stamp its own version, so the warning stops after that run, not because
+anything was fixed. Upgrade, and pin one version across the team (for example as a `devDependency`):
+
+```bash
+npm install -g @pharn-dev/pharn@latest
+```
+
+A patch or prerelease difference (0.20.1 against 0.20.3) never warns, nor does a missing or malformed
+`pharnVersion`. See the [support policy](support-policy.md#teammates-on-different-pharn-versions).
+
 ## Install failed
 
 Symptoms:

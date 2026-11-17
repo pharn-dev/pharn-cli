@@ -14,6 +14,7 @@ import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
+import { warnIfOlderCli } from '../lib/older-cli.js';
 import { fetchRepo } from '../lib/repo.js';
 import { UpstreamManifestError } from '../lib/upstream-manifest.js';
 import {
@@ -251,6 +252,8 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
       // run's computation (lib/init-plan.ts).
       const chosen = resolveInitSelection({ cwd, archetypes, index });
       const { previous, carry, selection } = chosen;
+      // The config this run replaces, read under the lock: before any prompt.
+      warnIfOlderCli(previous.config);
       reportCarry(carry);
       // What the replaced config recorded, for display only, so an earlier
       // `--archetype` never disappears silently.
@@ -415,6 +418,7 @@ async function runInitDryRun(
     const unknownWarning = unknownCapabilitiesWarning(index.unknown);
     if (unknownWarning) warn(unknownWarning);
     const chosen = resolveInitSelection({ cwd, archetypes, index });
+    warnIfOlderCli(chosen.previous.config, { json });
     carry = chosen.carry;
     plan = buildInitPlan({
       repoDir: repo.dir,

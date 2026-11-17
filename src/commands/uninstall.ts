@@ -30,6 +30,7 @@ import { errorMessage } from '../lib/report-error.js';
 import { CLAUDE_HOOKS_DIR, CLAUDE_SETTINGS_FILE } from '../lib/constants.js';
 import { escapeUnsafe } from '../lib/terminal-safe.js';
 import { isInstallRootPath } from '../lib/orphans.js';
+import { warnIfOlderCli } from '../lib/older-cli.js';
 import {
   planUninstall,
   reclassifyDeletes,
@@ -120,7 +121,7 @@ async function uninstallProject(
   }
   // Taken BEFORE the read: checked again before the first delete.
   const fingerprint = configFingerprint(cwd);
-  loadArchetypeConfig(cwd);
+  warnIfOlderCli(loadArchetypeConfig(cwd));
 
   const records = usableRecords(cwd);
   if (typeof records === 'string') throw CliError.error(records);

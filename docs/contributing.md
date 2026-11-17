@@ -100,7 +100,7 @@ A new `pharn.config.json` key is optional. Legacy fields load, and are kept on r
 
 ### Mixed CLI versions in one team
 
-`pharn.config.json` records `pharnVersion`, the CLI that last wrote it (`init`, and `update` when it writes). A CLI older than the config's `pharnVersion` (major.minor) **warns** before it writes, and does not refuse. **Coming soon** (see the [roadmap](roadmap.md#planned)): today no command compares `pharnVersion` with the running CLI. The warning only protects against CLIs released after it lands; an older CLI has no such check.
+`pharn.config.json` records `pharnVersion`, the CLI that last wrote it (`init`, and `update` when it writes). A CLI older than the config's `pharnVersion` (major.minor) **warns** before it writes, and does not refuse. `src/lib/older-cli.ts` decides it (`olderCliWarning`, pure) and prints it (`warnIfOlderCli`): every writer calls it right after reading the config under the lock, before its first prompt or write (`init` on the config it replaces), and `status` and the dry runs call it at the same point. It is one line on stderr, so a `--json` stdout stays byte-identical. A `pharnVersion` that is absent or not a `VERSION_RE` string never warns. The warning only protects against CLIs released after it lands; 0.19.x and older have no such check.
 
 ### The `flat` layout
 
@@ -130,7 +130,7 @@ pharn-cli/
     index.ts              CLI entry, command routing
     commands/             init, add, remove, update, list, status
     steps/                init stages (prereqs, node-prereq, overwrite-check, archetype-summary, install-archetype), add-picker
-    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, node-floor, release, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, pharn-config, model-config(-format), models-update, upstream-models, install-records, update-decision, update-render, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, cli-error, report-error, hash, validate, constants, banner, format
+    lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, node-floor, release, archetype, layout, repo, tar-extract, diff, skills-version, min-cli-gate, semver, older-cli, pharn-config, model-config(-format), models-update, upstream-models, install-records, update-decision, update-render, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, cli-error, report-error, hash, validate, constants, banner, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
   tests/                  vitest specs
   docs/                   user + maintainer documentation
@@ -256,6 +256,7 @@ Two rules that are easy to get wrong:
 | `index.test.ts`                                                                        | argv dispatch: the per-command option allowlist, the arity gate, and their exit codes                                                                                                          |
 | `project-lock.test.ts` + `-break` / `commands/lock.test.ts`                            | The single-writer lock: acquire/release, stale-break single-winner, and which commands take it                                                                                                 |
 | `min-cli-gate.test.ts` / `semver.test.ts`                                              | The `MIN_CLI` forward-compat gate and its version comparison                                                                                                                                   |
+| `older-cli.test.ts` / `commands/older-cli.test.ts`                                     | The older-CLI warning's major.minor comparison; that each writer, `status` and the dry runs print it on stderr                                                                                 |
 | `node-floor.test.ts` / `node-prereq.test.ts`                                           | The Node floor verdict (fail-closed) and the `init`/`update` preflight                                                                                                                         |
 | `release.test.ts`                                                                      | The verified-release resolver: tag/commit resolution, every fail-closed refusal, the channel                                                                                                   |
 | `fetch-capped.test.ts`                                                                 | The one bounded GET: `redirect: 'error'`, the deadline, the byte cap, released bodies                                                                                                          |

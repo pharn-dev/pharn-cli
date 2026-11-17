@@ -24,6 +24,7 @@ import {
   buildRemoveSelection,
   interactiveAllowed,
 } from '../lib/capability-picker.js';
+import { warnIfOlderCli } from '../lib/older-cli.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import {
   assertConfigFingerprintUnchanged,
@@ -65,6 +66,7 @@ export async function runRemove(arg: string | undefined): Promise<void> {
       // Taken BEFORE the read: checked again before the first write.
       const fingerprint = configFingerprint(cwd);
       const config = loadArchetypeConfig(cwd);
+      warnIfOlderCli(config);
       await removeCapability(cwd, config, arg, fingerprint);
     });
   } catch (err) {
