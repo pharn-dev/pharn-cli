@@ -24,7 +24,8 @@ For the three reports:
   So `pharn status --json | jq .` either parses or receives nothing.
 - **Exit codes.** `init --dry-run --json` and `update --dry-run --json` exit `0` whatever the plan
   contains (there is no `--strict` for a preview). `status --json` exits as text mode does: `--strict`
-  still prints the report and exits `1` on exactly the inputs that fail text mode, and the report's
+  still prints the report and exits `1` on exactly the
+  [strict conditions](../commands/status.md#strict-conditions) that fail text mode, and the report's
   `strict.failed` says the same.
 - **Escaped output.** Characters a terminal would interpret (control characters, Unicode format
   characters, U+2028/U+2029) are written as `\uXXXX` escapes, so a `cat` of the output cannot move or
@@ -372,7 +373,7 @@ The version, drift and hook report, on the default path and under `--no-drift`. 
 | `unknownCapabilities` | `Unknown[]` or `null`                                   | `null` under `--no-drift`.                                                                                                                                                                                                                                    |
 | `orphans`             | `Orphan[]` or `null`                                    | `null` under `--no-drift` or without a usable `pharn.records.json`. Never a `--strict` input.                                                                                                                                                                 |
 | `prettierignore`      | `IgnoreEdit` or `null`                                  | What `pharn update` would do to `.prettierignore`; `null` when there is nothing to say or no usable `pharn.records.json`. Answered under `--no-drift` too. Never a `--strict` input.                                                                          |
-| `strict`              | `{enabled, failed}`                                     | `--strict` passed, and whether it exits `1`.                                                                                                                                                                                                                  |
+| `strict`              | `{enabled, failed}`                                     | `--strict` passed, and whether it exits `1` (the [strict conditions](../commands/status.md#strict-conditions)).                                                                                                                                               |
 
 Unlike the other two reports, `status --json` reports an empty or skipped part as `null` or `[]`
 rather than leaving the key out; only `hooks.replace` is absent when empty.

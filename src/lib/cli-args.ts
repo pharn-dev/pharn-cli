@@ -159,7 +159,11 @@ const OPTIONS: readonly OptionSpec[] = [
     uses: [
       {
         commands: ['status'],
-        text: ['exit 1 on any outdated/modified/missing file'],
+        text: [
+          'exit 1 on an outdated install, a modified, missing or unreadable',
+          'file, a surface upstream no longer ships, or an unwired hook',
+          '(under --no-drift, only outdated is checked)',
+        ],
       },
     ],
   },

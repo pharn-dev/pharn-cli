@@ -60,8 +60,10 @@ import type { InstalledCapability, PharnConfig } from '../types.js';
  * section)? Never writes — fixing is `pharn update` / `pharn add`.
  *
  * Default clones once for both sections; `--no-drift` checks the version only.
- * `--strict` exits 1 on anything outdated, modified or missing, or an unwired
- * upstream hook. The work is done once into ONE
+ * `--strict` exits 1 on an outdated install, a modified, missing or unreadable
+ * file, a declared surface upstream no longer ships, or an unwired upstream
+ * hook — `strictFails` (lib/status-report.ts) is the one predicate, and
+ * docs/commands/status.md lists it. The work is done once into ONE
  * `StatusReport` (lib/status-report.ts): `--json` prints it, the text notes are
  * rendered from it, and both read `--strict`'s verdict off it. `--json` emits
  * ONE object on stdout and nothing else; diagnostics and failures go to
