@@ -278,6 +278,13 @@ Router framework mode's templates list them there — and the summary cites them
 not read. React Router v7 framework mode, TanStack Start, SolidStart, Qwik City, Analog and Vike are
 recognized as `ssr`; React Router in library mode (`react-router` alone) is `spa`.
 
+In a monorepo or workspace, detection runs from the current directory: it reads the `package.json` there,
+never walks up to a workspace root, and does not read the workspace packages' own `package.json` files, so a
+framework only a package's `package.json` names is not seen (pass it with `--archetype`). The tree walk does
+reach `apps/` and `packages/`, as the table above says. Run `pharn init` from the directory that holds both
+`.git` and the app's `package.json`; split layouts (`.git` at the root, the app's `package.json` in
+`apps/web/`) are unsupported.
+
 The tree walk examines at most 50,000 entries, 24 directories deep (the skipped directories above
 cost nothing), in sorted name order, and stops early once an `ssr` and a `backend` signal are both found
 — nothing more could change the result. When it reaches a bound before that, the summary adds
@@ -287,7 +294,7 @@ cost nothing), in sorted name order, and stops early once an `ssr` and a `backen
 
 So an Angular, Vue or RTK Query `src/app/`, or a library's Next.js docs site in `website/`, no longer
 reads as a server, and a Python, Go, Rust, Ruby or PHP project's migrations no longer read as a
-JavaScript backend — those projects have no root `package.json`. One that does (a Laravel or Rails app
+JavaScript backend — those projects have no root `package.json` (the backend capabilities PHARN ships match JavaScript/TypeScript code). One that does (a Laravel or Rails app
 with a Vite frontend, or a `package.json` kept only for tooling) still resolves `backend` from its
 migrations; correct it with `--archetype`. Only names are tested against fixed in-code allowlists — no discovered file body is read (other than `package.json`, which must be a regular file of at most 4 MiB — a leading UTF-8 BOM is ignored; anything else counts as no `package.json`) and no untrusted value is executed, interpolated, or logged.
 
@@ -391,7 +398,7 @@ Capabilities you added by hand with `pharn add` (`source: "manual"` in `pharn.co
 too — as long as upstream still ships them. The summary lists them as "added by hand". One that upstream
 no longer ships is dropped from `pharn.config.json` and named. See
 [Dropped capabilities are deleted](#dropped-capabilities-are-deleted) for what happens to its directory. A capability
-upstream still ships but this pharn [cannot read](update.md#when-pharn-cannot-read-a-capability-upstream)
+upstream still ships but this pharn [cannot read](../reference/update-advanced.md#when-pharn-cannot-read-a-capability-upstream)
 is **left as it is**, however it was added: its config entry, files and records are untouched, and it is
 listed in `frozenCapabilities` so the next [`pharn update`](update.md) re-checks it. Top-level keys in
 `pharn.config.json` that pharn does not own, such as upstream's `testResults` and `ship`, are copied
@@ -409,7 +416,7 @@ commands name the problem), and re-run. Otherwise the overwrite prompt that foll
 `pharn.config.json` and defaults to No. `init --yes` refuses any existing config before it downloads
 anything, so it never gets as far as the summary. If `pharn.config.json` changes while `init` waits at
 its prompts (edited by hand or by another program — no other `pharn` command can write it while `init`
-holds the lock), `init` refuses and writes nothing; re-run it. The target set is the fetched clone's `pharn-install.json` + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+holds the lock), `init` refuses and writes nothing; re-run it. The target set is the fetched clone's `pharn-install.json` plus your resolved selection, so it is exact — not a git-history heuristic.
 
 **When `init` refuses to install.** After you choose **install**, and before it asks to overwrite
 anything, `init` checks every path it is about to write and stops, naming each problem, if the copy

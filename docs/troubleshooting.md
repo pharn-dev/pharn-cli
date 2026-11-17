@@ -2,251 +2,137 @@
 
 ## Exit codes
 
-| Situation                                                                                               | Exit code |
-| ------------------------------------------------------------------------------------------------------- | --------- |
-| Prerequisite failure (no `.git`, or `init` / `update` on a Node older than 24.2.0)                      | 1         |
-| Capability fetch / install failure                                                                      | 1         |
-| No verified pharn-oss release could be resolved (none published, unreachable, rate-limited)             | 1         |
-| `update --ref latest` on an install ahead of the newest verified release (nothing changed)              | 0         |
-| `update` on an install ahead of pharn-oss `main`, after `main` moved back (nothing changed)             | 0         |
-| An invalid `--ref` value                                                                                | 1         |
-| Unknown command                                                                                         | 1         |
-| Unknown option, an option the command does not take, or an unexpected extra argument                    | 1         |
-| A value on an on/off option (`--json=false`), or `--ref` / `--archetype` given twice                    | 1         |
-| `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
-| `status --strict` found a [strict condition](commands/status.md#strict-conditions)                      | 1         |
-| `init` or `update` run without an interactive terminal (and `add`/`remove` with no name)                | 1         |
-| `init --yes` in a project where a file it would write already exists (nothing written)                  | 1         |
-| `init --dry-run` printed its plan (nothing was written)                                                 | 0         |
-| Another `pharn` process holds the project lock (`pharn/.lock`)                                          | 1         |
-| The fetched version declares a `MIN_CLI` newer than the installed CLI                                   | 1         |
-| `add` refused on a skills-version or layout mismatch                                                    | 1         |
-| `update` completed but skipped files it could not verify                                                | 0         |
-| `update --dry-run` printed its plan (whatever it contains; nothing was written)                         | 0         |
-| `update --force` aborted because a backup could not be written                                          | 1         |
-| `uninstall` refused, or stopped part-way (see [`uninstall`](commands/uninstall.md))                     | 1         |
-| `uninstall` with no `pharn.config.json` at all (nothing to uninstall)                                   | 0         |
-| User cancel at summary, or overwrite declined                                                           | 0         |
-| Successful install                                                                                      | 0         |
+| Situation                                                                                               | Exit code  |
+| ------------------------------------------------------------------------------------------------------- | ---------- |
+| Successful run; `init --dry-run` or `update --dry-run` printed its plan (nothing written)               | 0          |
+| User cancel at a prompt, or overwrite declined                                                          | 0          |
+| `update` completed but skipped files it could not verify                                                | 0          |
+| `update` on an install ahead of its source (newest release, or `main` after it moved back)              | 0          |
+| `uninstall` with no `pharn.config.json` at all (nothing to uninstall)                                   | 0          |
+| Prerequisite failure (no `.git`, or `init` / `update` on a Node older than 24.2.0)                      | 1          |
+| Capability fetch / install failure, or no verified pharn-oss release could be resolved                  | 1          |
+| The fetched version declares a `MIN_CLI` newer than the installed CLI                                   | 1          |
+| Unknown command, unknown or unsupported option, unexpected argument, invalid `--ref` value              | 1          |
+| A value on an on/off option (`--json=false`), or `--ref` / `--archetype` given twice                    | 1          |
+| `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1          |
+| `status --strict` found a [strict condition](commands/status.md#strict-conditions)                      | 1          |
+| `init` or `update` without an interactive terminal (and `add`/`remove` with no name)                    | 1          |
+| `init --yes` in a project where a file it would write already exists (nothing written)                  | 1          |
+| Another `pharn` process holds the project lock (`pharn/.lock`)                                          | 1          |
+| `add` refused on a skills-version mismatch                                                              | 1          |
+| `update --force` aborted because a backup could not be written                                          | 1          |
+| `uninstall` refused, or stopped part-way (see [`uninstall`](commands/uninstall.md))                     | 1          |
+| Interrupted by Ctrl-C (`SIGINT`) or `SIGTERM` (a `timeout`, `docker stop`); the project may be partial  | 130 or 143 |
+
+## Common problems
+
+| Symptom                                                    | See                                                                                  |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `update` listed files under `SKIPPED` or `held`            | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                    |
+| `Another pharn process is writing to this project`         | [Another pharn process is running](#another-pharn-process-is-running)                |
+| `No pharn.config.json found. Run pharn init first.`        | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)         |
+| `Could not resolve the latest verified … release`          | [No verified release could be resolved](#no-verified-release-could-be-resolved)      |
+| `Failed to fetch`, a timeout, or a proxy notice            | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)              |
+| The wrong archetypes were detected                         | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)        |
+| `Unknown option` / ``Unsupported option for `<command>` `` | [Unsupported option for this command](#unsupported-option-for-this-command)          |
+| Your Prettier check fails on PHARN's files                 | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files) |
 
 ## Node version
 
-One Node floor applies to the CLI and to what it installs: **Node 24.2.0 or newer**.
-
-- **CLI (`@pharn-dev/pharn`):** `engines.node` is `>=24.2.0`. npm/npx only warns about it by default (`EBADENGINE`), so `pharn init` and `pharn update` check it themselves, first, before the git check, any prompt or any network call. On an older Node (or one whose version string cannot be read) they print the required and the current version, exit **1**, and write nothing. `pharn status` prints the floor and the running Node in a `NODE` note and flags a mismatch; it never fails over one, `--strict` included. `pharn add`, `remove` and `list` do not check.
-- **Installed floor (`pharn/floor/*.mjs`):** pipeline checkers gate on `import.meta.main`. On Node older than 24.2 a guarded tool used to exit **0** without running its checks — a silent false green — so since pharn-oss 6.50.0 they refuse to run there instead (one stderr line, exit **2**).
-
-If a `/pharn-*` stage fails with that refusal, check `node -v` in the environment where Claude Code runs your gates and upgrade to **24.2.0 or newer**. CI smoke-tests the packed CLI on exactly 24.2.0.
+The CLI and what it installs need **Node 24.2.0 or newer**. `pharn init` and `pharn update` check it first
+(npm only warns about `engines.node`), and on an older Node, or one whose version cannot be read, print
+`pharn init requires Node 24.2.0 or newer, and this is Node …` (or `pharn update …`), exit **1** and write nothing. `pharn status`
+shows the floor in a `NODE` note and never fails over it; `add`, `remove` and `list` do not check. The
+installed checkers (`pharn/floor/*.mjs`) refuse to run on an older Node (one stderr line, exit **2**): if a
+`/pharn-*` stage fails that way, check `node -v` where Claude Code runs your gates.
 
 ## Streams
 
-Error-level messages go to **stderr**; normal output (notes, summaries, prompts, spinners, the
-`Cancelled.` line) goes to **stdout**. So the two can be captured separately:
-
-```bash
-pharn update --yes > update.log 2> errors.log
-```
-
-On success, `pharn list --json` writes exactly one inventory object to stdout and nothing else, so
-`pharn list --json | jq .` parses cleanly. On **any** failure — a missing config, a pre-archetype
-config, or an argv refusal such as `pharn list --json --bogus` — stdout is **empty**, the diagnostic
-goes to stderr, and the exit code is 1. So stdout is either one object or nothing; it is never a
-half-written object or an error string. `pharn status --json` keeps the same contract (one report or
-nothing), with one addition: with `--strict`, a finding still prints the report and exits 1 — see
-[`pharn status`](commands/status.md#json-output). So does `pharn update --dry-run --json`, which prints
-the plan (or the `up-to-date` outcome — a plan that changes nothing — or `ahead-of-release` / `ahead-of-main`, as its `status` field, with `plan: null`) and exits 0 — see
-[`pharn update`](commands/update.md#json-output) — and `pharn init --dry-run --json`, which prints the
-install plan and exits 0 — see [`pharn init`](commands/init.md#json-output). For both, `--json` implies
-`--dry-run`, so `pharn update --json` and `pharn init --json` (or a bare `pharn --json`) print the plan too;
-`update --compact` (which leaves the unchanged files out of the plan's file list) implies `--json`.
-
-Cancelling a prompt is a **success** (exit 0), not an error — its message stays on stdout.
-
-That holds for **every** fatal, the prerequisite failure included: it is reported as an error, on
-stderr, with exit 1. (Through `0.3.2` that one message was rendered through the cancel formatter and
-landed on stdout, so a run gated on stderr alone found an empty file.)
+Error-level messages, every fatal included, go to **stderr**; notes, summaries, prompts, spinners and
+`Cancelled.` go to **stdout** (`pharn update --yes > update.log 2> errors.log`). A `--json` command prints
+exactly one object on stdout, or nothing on a failure (exit 1); `status --json --strict` still prints its
+report when it exits 1 (see [JSON output](reference/json-output.md)). Cancelling a prompt exits 0.
 
 ### Colour
 
-`pharn` colours its output only on a terminal, by Node's own rule — the same one its prompts and boxes
-use, so the two never disagree:
-
-- **`FORCE_COLOR` set**: colour is on for `1`, `2`, `3`, `true` or the empty string — even when stdout is
-  piped — and off for `0` or `false`. `NO_COLOR` is then ignored.
-- **`FORCE_COLOR` unset**: colour only on a colour-capable terminal. `NO_COLOR`, `NODE_DISABLE_COLORS`
-  and `TERM=dumb` each turn it off; `CI` by itself turns nothing on.
-
-So a piped CI log stays plain unless you set `FORCE_COLOR=1`. (Before 0.13.0, `pharn`'s own text turned
-colour on whenever `CI` was set or `FORCE_COLOR` held any value, `0` included, so a piped log could carry
-raw `\x1b[…m` sequences.)
+Colour follows Node's own rule, the one `pharn`'s prompts use. With `FORCE_COLOR` set, it is on for `1`,
+`2`, `3`, `true` or empty (even when piped) and off for `0` or `false`, and `NO_COLOR` is ignored. With it
+unset, colour is on only on a colour-capable terminal, and `NO_COLOR`, `NODE_DISABLE_COLORS` or `TERM=dumb`
+turn it off; `CI` alone turns nothing on. A piped CI log stays plain unless you set `FORCE_COLOR=1`.
 
 ## `pharn update` skipped my files
 
-By default, `update` skips **present** PHARN-owned files it cannot prove are untouched (missing
-expected files are still restored). It prints each skipped file under one of four labels (plus `held`, [below](#update-held-the-floor-hooks-and-commands-executable-unit)):
+`update` skips a **present** PHARN-owned file it cannot prove is untouched (a missing one is restored):
 
-- **`modified`** — you edited it after `pharn` wrote it.
-- **`unrecorded`** — `pharn` has no record of writing that path.
-- **`unverifiable`** — there is no usable `pharn.records.json` (absent, malformed, or from a newer
-  schema), so present differences cannot be proven. A store whose `skillsVersion`/`commit` stamp
-  disagrees with the config is still usable ([why](reference/pharn-records.md#the-stamp-is-not-a-gate)). Every install created before
-  `pharn` 0.4.0 hits this once for differing files; **missing** files are still restored.
-- **`unreadable`** — something that is not a regular readable file sits at the expected path (a
-  symlink, a directory, an unreadable file, or a path under a symlinked parent). This is the one
-  bucket `--force` **cannot** clear; the run says so explicitly. Fix the path by hand.
+- **`modified`**: you edited it after `pharn` wrote it.
+- **`unrecorded`**: `pharn` has no record of writing that path.
+- **`unverifiable`**: there is no usable `pharn.records.json` (absent, malformed, or from a newer schema; a
+  stamp that disagrees with the config is fine, [why](reference/pharn-records.md#the-stamp-is-not-a-gate)).
+- **`unreadable`**: a symlink, a directory, an unreadable file or a path under a symlinked parent sits
+  there. `--force` cannot clear it (`--force cannot clear the UNREADABLE paths above.`): fix it by hand.
 
-Exit code is **0** — this is the designed outcome, not a failure. To overwrite them anyway:
-
-```bash
-pharn update --force   # backs up each skipped file to pharn/.backup/<timestamp>/, then overwrites
-```
-
-Files already identical to upstream are left alone (`ok`) — line endings aside, see
-[Line endings](#line-endings-windows-coreautocrlf). `--force` overwrites the `modified`,
-`unrecorded` and `unverifiable` buckets only — `unreadable` paths are refused with
-`--force cannot clear the UNREADABLE paths above.` and must be fixed by hand.
-
-A run with skips deliberately leaves `skillsVersion` at the previous value, so `pharn status` keeps
-showing an update as available and the next `pharn update` still has work to do. See
-[update](commands/update.md) for the full decision table.
+That is the designed outcome: exit **0**, and `skillsVersion` stays where it was, so `pharn status` keeps
+showing an update. `pharn update --force` overwrites the first three, backing each up to
+`pharn/.backup/<timestamp>/` first. See the [decision table](commands/update.md#the-decision-table).
 
 ### `update` held the floor, hooks and commands (`EXECUTABLE UNIT`)
 
-The floor checkers, the hooks and the `pharn-*` commands run together, so an update to a new skills
-version writes them all or none. If one of them is skipped (most often an edited floor checker or a
-command whose `model:` line you changed), the others are listed under **`held`**: they are not written
-either, and stay at the version you had. Before 0.18.0, `update` wrote the new files beside the skipped
-one, and a new checker could fail on import against an old sibling.
-
-The `EXECUTABLE UNIT` note names the files that blocked it. The run exits **0**, and the recorded version
-stays where it was. To finish the upgrade, either revert those files to what `pharn` installed and run
-`pharn update` again, or let `pharn` replace them:
-
-```bash
-pharn update --force   # backs up the blocking files to pharn/.backup/<timestamp>/, then writes the whole set
-```
-
-`pharn update --dry-run` shows the same note without writing anything. See
-[The executable unit](commands/update.md#the-executable-unit-is-upgraded-all-or-none).
+The floor checkers, hooks and `pharn-*` commands run together, so a new skills version writes them all or
+none. If one is skipped (an edited checker, a command whose `model:` line you changed), the rest are
+**`held`** at your version, named in an `EXECUTABLE UNIT` note, exit 0. Revert the blockers and re-run, or
+use `--force`. See [the executable unit](reference/update-advanced.md#the-executable-unit-is-upgraded-all-or-none).
 
 ### `--force` aborted with a backup error
 
-The backup runs to completion before any original is touched, so an abort means **nothing was
-overwritten**. Inspect `pharn/.backup` (and `pharn` itself) in your project:
-
-- **A regular file** named `pharn/.backup` or `pharn` (not a directory) blocks the backup directory
-  from being created — **move or rename** it, then re-run. Do not delete it until you have confirmed
-  it is not something you need.
-- **A symlink** at `pharn/.backup` or `pharn` — `pharn` refuses to write backups through it. Confirm
-  that path is the one named in the error, then remove or replace the symlink and re-run.
-
-A symlink in a source file's path (or one of its parent directories) is also rejected; the error names
-the component.
+The backup completes before any original is touched, so **nothing was overwritten**. A regular file named
+`pharn/.backup` or `pharn` blocks the backup directory: move or rename it (do not delete it before checking you do not need it), then re-run. A symlink at either
+path, or in a source file's path, is refused (the error names it): replace it, then re-run.
 
 ### `add`, `remove`, `update` and `init` write backups too
 
-`pharn/.backup/<timestamp>/` is not only an `update --force` artefact. Before `pharn add` copies a
-capability, it compares each destination file against the clone and copies every one that **differs**
-into the same backup directory — so re-adding a capability whose files you edited never loses those
-edits. Identical files (line endings aside) are not drift and are not backed up. Everything in
-[`--force` aborted with a backup error](#--force-aborted-with-a-backup-error) applies to `add`
-verbatim, including the abort-with-nothing-touched contract.
-
-Before `pharn remove` deletes a capability directory, it copies every file in it that is not recorded in
-`pharn.records.json` at its current hash — files you added, files you edited, and every file when the
-store is absent or unusable — into the same backup directory. A backup failure makes `remove` exit 1
-having deleted nothing. See
-[What is backed up before the delete](commands/remove.md#what-is-backed-up-before-the-delete).
-
-`pharn update` does the same — even without `--force` — before it deletes the directory of a
-capability it drops from `pharn.config.json`, in the same one backup directory as any `--force`
-copies. A backup failure makes `update` exit 1 having deleted and written nothing. See
-[Dropped capabilities are deleted](commands/update.md#dropped-capabilities-are-deleted). A re-run
-`pharn init` does the same for the capabilities it drops, in the one backup it makes before
-overwriting — see [`init`](commands/init.md#dropped-capabilities-are-deleted).
-
-`add` also **refuses outright** — writing nothing, exit 1 — when a destination path crosses a
-symlinked directory, naming the offending component:
-
-```text
-⚠ Refusing to add a11y: `pharn/pharn-pipeline/grillers/a11y/evals` in your project is a symlink.
-```
-
-That is deliberate rather than defensive: the copy would write straight through the link and replace
-bytes outside your project, while the backup could not save them. Replace the symlink with a real
-directory (or move it aside) and re-run.
+`add` backs up every destination file that **differs** from the clone before it copies, and refuses (exit 1,
+nothing written) when a destination crosses a symlinked directory, naming it:
+``⚠ Refusing to add a11y: `pharn/pharn-pipeline/grillers/a11y/evals` in your project is a symlink.``
+(the copy would write through it): replace it with a real directory, or move it aside.
+`remove`, `update` and a re-run `init` back up every file of a capability directory they delete that is not
+recorded at its current hash ([remove](commands/remove.md#what-is-backed-up-before-the-delete),
+[update](commands/update.md#dropped-capabilities-are-deleted), [init](commands/init.md#dropped-capabilities-are-deleted)).
+A failed backup deletes and writes nothing.
 
 ## My Prettier check fails on PHARN's files
 
-pharn copies pharn-oss's files as pharn-oss formats them, which is not necessarily how your Prettier
-config formats them. Since 0.17.0, `pharn init` and `pharn update` add the lines that keep your check
-off those files to `.prettierignore` whenever your project uses Prettier
-([how it works](commands/init.md#prettierignore)); `pharn status` shows a `PRETTIER` note when lines are
-missing.
-
-- **Installed with an older pharn?** Run `pharn update`: every run plans, so it adds the lines at the
-  same skills version too.
-- **No `PRETTIER` note, but the check still fails?** Your Prettier setup may not be visible at the
-  project root (a monorepo package's config, a check run with `--ignore-path` pointing elsewhere or
-  from a subdirectory). Copy the lines from `pharn update --dry-run` (or an existing `.prettierignore`)
-  into the ignore file your check reads.
-- **Already ran `prettier --write` over them?** They now read as changed, so `pharn update` skips them
-  ([above](#pharn-update-skipped-my-files)). Once the lines are in place, `pharn update --force` puts
-  pharn-oss's bytes back, backing up your copies first.
-- **The warning says pharn could not update `.prettierignore`** (a symlink, a directory, no
-  permission)? Add the lines it lists yourself.
+`pharn` copies pharn-oss's files as pharn-oss formats them. In a project that uses Prettier, `init` and
+`update` add the lines that keep your check off them to `.prettierignore`
+([how](commands/init.md#prettierignore)); `pharn status` shows a `PRETTIER` note when lines are missing, and
+any `pharn update` adds them. If the check still fails, your Prettier setup may not be visible at the root
+(a package config, `--ignore-path`): copy the lines from `pharn update --dry-run` into the file your check
+reads. Already ran `prettier --write` over them? Once the lines are in, `pharn update --force` puts
+pharn-oss's bytes back, backing up yours. If `pharn` could not write `.prettierignore`, add the lines it lists.
 
 ## Line endings (Windows, `core.autocrlf`)
 
-If your project is committed and checked out again with `core.autocrlf=true` (the usual Windows
-setting), git rewrites every installed text file with CRLF (`\r\n`) line endings. `pharn` ignores
-that difference. Every command that compares files does so with one content hash
-([`lib/hash.ts`](../src/lib/hash.ts)) that, for a **text** file, turns each `\r\n` into `\n` before
-hashing: `pharn status` drift, the `pharn update` decision, the `pharn add` and `pharn init` backup
-scans, the `pharn remove` backup set, which files `pharn uninstall` may delete, and the hashes written to
-[`pharn.records.json`](reference/pharn-records.md). So a CRLF checkout of untouched files shows no
-drift, `pharn status --strict` passes, and `pharn update` upgrades the files instead of skipping them.
-
-- **Text or binary.** A file is binary when one of its first 8000 bytes is a NUL byte; every other
-  file is text. Binary files are compared byte for byte.
-- **Only `\r\n` is folded.** A lone `\r` (not followed by `\n`) is kept as it is, so it still counts
-  as a change.
-- **What `pharn` writes.** `pharn` copies upstream's bytes unchanged (upstream ships LF). It does not
-  convert a file you already have: a CRLF file that is already up to date stays CRLF.
-- **Old record stores stay valid.** For a file without `\r\n`, which is every file pharn-oss ships
-  today, the new hash is the same as the old one.
-
-**The cost: an edit that only changes line endings is invisible to `pharn`.** If you convert a
-PHARN-owned file between LF and CRLF and change nothing else, `pharn status` reports it as unchanged,
-`pharn update` may replace it with upstream's file, `pharn add` may overwrite it, and `pharn remove`
-and `pharn uninstall` may delete it, each without a backup. Only the line endings can be lost that way; any other change to
-the file is still detected as before.
-
-This is tested by writing CRLF files and by a real `git -c core.autocrlf=true` checkout, on Linux. CI
-does not run on Windows (see [Contributing](contributing.md)).
+With `core.autocrlf=true`, git checks installed text files out with CRLF. Every comparison `pharn` makes
+(`status` drift, the `update` decision, the `add`/`init` backup scans, the `remove` backup set, what
+`uninstall` may delete, the [records](reference/pharn-records.md)) hashes a **text** file with each `\r\n`
+folded to `\n`, so a CRLF checkout of untouched files shows no drift. A file with a NUL byte in its first
+8000 bytes is binary and compared byte for byte; a lone `\r` still counts as a change; `pharn` writes
+upstream's LF bytes and does not convert a CRLF file that is already up to date. **The cost:** an edit that
+only changes line endings is invisible, so `update`, `add`, `remove` or `uninstall` may replace or delete
+such a file without a backup. A record store written before this rule stays valid (a file without `\r\n`
+hashes the same). It is tested with a real `git -c core.autocrlf=true` checkout on Linux; CI does not run
+on Windows ([Contributing](contributing.md)).
 
 ## Prerequisites failed
 
-`pharn init` has two prerequisites — Node >= 24.2.0 and a git repository — and a plain `pharn init` (without `--dry-run` or
-`--yes`) needs a third: an interactive terminal. The Node check comes
-first: on an older Node, `init` (and `update`) exit 1 with `pharn init requires Node 24.2.0 or newer, and this is Node …`
-and write nothing — upgrade Node. A Node whose version string cannot be parsed is refused the same way, because the check
-fails closed. (Before 0.8.0 the floor was Node 20.13.0, and on an older Node 20 even `pharn --version` failed at load time
-with `does not provide an export named 'styleText'`; that is an unsupported Node now too.)
-There is no stack-pack or package prerequisite: archetype detection reads `package.json` names and the
-file tree, and installs whatever capabilities apply.
-
-Off a TTY, a plain `init` or `update` **exits 1** rather than prompting into a dead stream; `update --yes` is
-the supported way through in CI. `init --yes` runs off a TTY too, but only installs into a project where none
-of its files exists yet — it never answers the overwrite confirmation, so wherever it would overwrite
-something it exits 1, lists the files, and points at `pharn init` in a terminal, `pharn init --dry-run` or
-`pharn update`. A re-install always would (`pharn.config.json` exists), so there it refuses before
-downloading anything, naming only `pharn.config.json`. `init --dry-run` and `update --dry-run`
-need no terminal at all: they never prompt and write nothing.
+`pharn init` needs Node >= 24.2.0 ([above](#node-version)), a git repository and, for a plain run, an
+interactive terminal. Off a TTY a plain `init` or `update` **exits 1**; use `update --yes` in CI.
+`init --yes` installs only where none of its files exists yet: wherever it would overwrite it exits 1,
+lists the files and points at `pharn init` in a terminal, `--dry-run` or `pharn update`; on a re-install it
+refuses before downloading, naming only `pharn.config.json`. `init --dry-run` and `update --dry-run` need no terminal.
 
 ### Git not found
 
-The CLI message says "git not found" but the check is for a **`.git` directory**, not the `git` binary:
+The check is for a **`.git` directory** here, not the `git` binary (stderr, exit **1**):
 
 ```text
 ■ git not found.
@@ -254,115 +140,57 @@ The CLI message says "git not found" but the check is for a **`.git` directory**
   Then re-run: npx @pharn-dev/pharn init
 ```
 
-Printed on **stderr**; exits with code **1**.
-
-When the current directory is **inside** a git repository but not at its root (for example a monorepo's
-`apps/web`), `init` does not suggest `git init`, which would create a repository nested inside yours. It
-names the nearest parent directory that has a `.git` instead:
-
-```text
-■ /home/me/mono/apps/web is inside the git repository at /home/me/mono, not at its root.
-  Run `pharn init` from the repository root (/home/me/mono).
-```
-
-That parent is found by its `.git` alone. If it is not your project's repository (a dotfiles repository
-in your home directory, say) and you do want a separate repository here, create one yourself with the
-`git init` command above, then re-run `pharn init`.
+Inside a repository but not at its root (a monorepo's `apps/web`), `init` says
+`/home/me/mono/apps/web is inside the git repository at /home/me/mono, not at its root.` and asks you to run
+it from there. That parent is found by its `.git` alone; if it is not your project's (a dotfiles repository
+in your home directory), create a repository here with the `git init` line above.
 
 ### My Python / Go / Rust project detected as `lib`
 
-That is the correct outcome, not a failure. Archetype detection is **JS/TS-shaped**: the signals are
-`package.json` dependency names, `.tsx`/`.jsx` files, and — in a Next.js app only — `next.config.*`,
-`app/` route handlers and `app/api`/`pages/api`. A root `api/`, a `migrations/` directory and `.sql`
-files in a database directory count only when the project has a root `package.json`, so a Flask, Go,
-Rust, Rails or Laravel project without one produces no signal and resolves to `lib`, which installs the
-**universal** capabilities — the ones that apply to any codebase. (The backend capabilities PHARN ships
-match JavaScript/TypeScript code.) Use [`pharn add`](commands/add.md) to install any others you want,
-or [`--archetype`](#detection-picked-the-wrong-archetype) to install for an archetype anyway.
-
-A non-JS project that **does** have a root `package.json` — a Laravel or Rails app with a Vite
-frontend, or a `package.json` kept only for tooling — counts as a JS project, so its `migrations/` or
-`db/*.sql` resolve `backend`. Correct that the same way.
+That is correct: detection is **JS/TS-shaped**, so a project without a root `package.json` resolves to
+`lib` and gets the **universal** capabilities (one **with** a root `package.json` can resolve `backend` from
+its migrations). Add others with [`pharn add`](commands/add.md) or pass
+[`--archetype`](#detection-picked-the-wrong-archetype). Rules: [Detect archetypes](commands/init.md#3-detect-archetypes).
 
 ### Detection picked the wrong archetype
 
-The install summary shows what triggered each archetype, for example `backend ← src/app/api/` or
-`ssr ← next (package.json)`, so you can see why. To install for the archetypes you want instead, re-run
-`init` with them:
-
-```bash
-pharn init --archetype spa
-pharn init --archetype ssr,backend
-```
-
-`--archetype` replaces detection (the summary still shows what detection found, marked `(not used)`),
-and the archetypes are recorded in `pharn.config.json`, so `pharn update` keeps them. A later re-run of
-`pharn init` detects again unless you pass `--archetype` again; when the result differs from what was
-recorded, the summary prints `previously recorded: … — pass --archetype … to keep them`. See
-[`init`](commands/init.md#choosing-the-archetypes-yourself---archetype) for the accepted values.
-
-To keep a single capability without changing archetypes, use [`pharn add`](commands/add.md) /
-[`pharn remove`](commands/remove.md).
-
-Two `package.json` rules decide most surprises:
-
-- **A server or database package counts only under `dependencies`.** A runtime database driver
-  dependency (`pg`, `mysql2`, `mongodb`, `better-sqlite3`, an ORM such as `prisma` or `typeorm`) means
-  `backend`, like a server framework (`express`, `fastify`, `hono`, …). The same package listed only
-  under `devDependencies` — a mock server, a test database, tooling — does **not** add `backend`. If
-  your backend is bundled so that its framework is only a devDependency, pass
-  `pharn init --archetype backend` (with any other archetypes you want, e.g. `--archetype ssr,backend`).
-- **SSR and UI frameworks count under `devDependencies` too**, because their templates list them there
-  (SvelteKit's `@sveltejs/kit`, React Router framework mode's `@react-router/dev`); the summary then
-  says `ssr ← @sveltejs/kit (package.json devDependencies)`. `peerDependencies` and
-  `optionalDependencies` are never read: a peer dependency names the host a plug-in library runs in,
-  not the project's own framework.
+The summary shows what triggered each archetype (`backend ← src/app/api/`). Re-run with the ones you want,
+`pharn init --archetype spa` or `--archetype ssr,backend`: it replaces detection (shown as `(not used)`) and
+is recorded, so `update` keeps it. A later `init` detects again unless you pass it, and prints
+`previously recorded: … — pass --archetype … to keep them` when the result differs
+([details](commands/init.md#choosing-the-archetypes-yourself---archetype)). The usual surprises: a server or
+database package counts only under `dependencies` (a backend bundled as a devDependency needs
+`--archetype backend`), while SSR frameworks count under `devDependencies` too. Every rule is in
+[Detect archetypes](commands/init.md#3-detect-archetypes); for one capability, use `pharn add` / `pharn remove`.
 
 ### Detection stopped early
 
-The install summary says `detection stopped early: it examines at most 50,000 entries, 24 directories
-deep, so these archetypes may be incomplete — pass --archetype <list> if they are wrong` when the
-file-tree scan hit one of its bounds before its result was settled. Directories it always skips
-(`node_modules`, build output, framework caches, …) do not count toward the 50,000. The scan visits
-names in sorted order, so a large folder that sorts early (for example 50,000 files in `public/`) can
-use the budget before `src/` is reached. The result is still deterministic, but it may miss a signal:
-check the archetypes the summary shows and, if they are wrong, pass them with
-[`--archetype`](#detection-picked-the-wrong-archetype). The scan stops as soon as nothing more can change
-its result (an `ssr` and a `backend` signal both found), so such a project is never reported as stopped
-early. `pharn init --dry-run --json` reports the same thing as `"detectionTruncated": true`.
+`detection stopped early: it examines at most 50,000 entries, 24 directories deep, …` (`--dry-run --json`:
+`"detectionTruncated": true`) means the scan hit a bound before its result settled. It visits names in
+sorted order, so a huge folder that sorts early (`public/`) can use the budget before `src/`. Check the
+archetypes and pass [`--archetype`](#detection-picked-the-wrong-archetype) if they are wrong.
 
 ### Monorepos / workspaces
 
-`pharn init` checks the **current directory** for a `.git` directory, reads the `package.json` there and runs a bounded, symlink-safe file-tree scan from it for archetype detection, then installs into that directory. The scan skips heavy or generated trees (`node_modules`, `dist`, `build`, `.next`, `out`, `coverage`, framework caches, and non-JS trees such as a Python virtualenv, or `vendor`/`target` beside the build file that owns them — a `target/` or `vendor/` folder of your own is scanned), so in a workspace it still sees `apps/` and `packages/`: a `next.config.*` directly in `apps/<name>/` or `packages/<name>/` marks a Next.js app there, and that app's `app/` route handlers and `app/api`/`pages/api` then count too (a `next.config.*` anywhere else, such as a docs site's `website/next.config.js`, does not). It does not walk up to a workspace root or read the workspace packages' own `package.json` files, so a framework that only a package's `package.json` names is not seen — pass it with [`--archetype`](#detection-picked-the-wrong-archetype). In a monorepo, run it from the directory that contains both `.git` and the app's `package.json`. Split layouts (`.git` at the root, the app's `package.json` in `apps/web/`) are unsupported in v1.
+Run `pharn init` from the directory that holds both `.git` and the app's `package.json`. It does not read
+the workspace packages' own `package.json` files, and split layouts (`.git` at the root, the app in
+`apps/web/`) are unsupported. What it sees in `apps/` and `packages/`: [Detect archetypes](commands/init.md#3-detect-archetypes).
 
 ## Overwrite warnings
 
-Not an error. Just before installing, `pharn init` lists which of its actual write targets already
-exist in your project (capability dirs, product commands/hooks, contracts, `pharn-core`, floor
-checkers, all four trusted docs, pharn's `LICENSE` copy, `pharn/features/README.md`, and
-`pharn.config.json`) and asks you to confirm before overwriting. Confirm to continue
-or cancel to exit cleanly (code 0); the default is **no**.
-
-- If **nothing** conflicts, there is no prompt at all.
-- `.claude/settings.json` is never overwritten, so it never triggers the warning.
-- On a re-install the list is long, so it is capped (first 10 shown, then "…and N more"). The files
-  `init` backs up before overwriting are listed first, marked `(edited)`, `(no pharn record)` or
-  `(differs from upstream)` — see [Re-running `init`](commands/init.md#6-summary) for what each
-  means. With a usable `pharn.records.json`, a file pharn wrote that upstream has since changed is
-  not marked: overwriting it loses nothing.
+Not an error. Before installing, `pharn init` lists which of its write targets already exist (the paths in
+[What you get](getting-started.md#what-you-get), except `pharn.records.json`) and asks; the default is **no**,
+and cancelling exits 0. `.claude/settings.json` is never overwritten, so it never appears. A long list is
+capped at 10, with the files `init` backs up first marked `(edited)`, `(no pharn record)` or
+`(differs from upstream)` ([details](commands/init.md#6-summary)).
 
 ## Capabilities could not be fetched
 
-Symptoms:
-
-- Spinner stops with "Failed to fetch PHARN" / "Failed to fetch capabilities"
-- Message references `github.com/pharn-dev/pharn-oss`
-- Exit code 1
-
-`init` / `add` / `update` / `status` download `pharn-dev/pharn-oss` as a tarball from `codeload.github.com` (after resolving the newest verified release — or, on the `main` channel, the branch head — via `api.github.com`; see [No verified release could be resolved](#no-verified-release-could-be-resolved)) — default `status` clones too, and reads `SKILLS_VERSION` out of that clone. On the `main` channel, `update` and `status --no-drift` instead fetch the root `SKILLS_VERSION` from `raw.githubusercontent.com` without cloning; a release names its version in its tag. Check network access to all three hosts and that the repo is reachable. Note that `pharn` does not use a proxy unless you opt in with `NODE_USE_ENV_PROXY=1` — see [Proxy environment variables](#proxy-environment-variables).
-
-A failure to reach the host names it, and includes the underlying diagnosis rather than the runtime's
-bare `fetch failed`:
+Symptoms: "Failed to fetch PHARN" / "Failed to fetch capabilities", naming `github.com/pharn-dev/pharn-oss`,
+exit 1. `pharn` resolves the commit via `api.github.com` and downloads it from `codeload.github.com`; on the
+`main` channel, `update` and `status --no-drift` read `SKILLS_VERSION` from `raw.githubusercontent.com`
+instead. Check access to all three, and note that `pharn` uses a proxy only when you
+[opt in](#proxy-environment-variables). A transport failure names the host and its cause:
 
 ```text
 ⚠ Could not reach https://raw.githubusercontent.com/pharn-dev/pharn-oss/main/SKILLS_VERSION:
@@ -370,120 +198,60 @@ bare `fetch failed`:
 Re-run with PHARN_DEBUG=1 for full error output.
 ```
 
-The two metadata requests (the branch-head resolve and the `SKILLS_VERSION` fetch) abort after 8 seconds; the repo download has its own, longer cap of 60 seconds. An aborted request is reported the same way. Failures that are
-**not** transport failures keep their own wording — an HTTP status (`SKILLS_VERSION fetch failed
-(404) from …`), an oversized body (`SKILLS_VERSION too large (… bytes)`), or an unusable value
-(`SKILLS_VERSION has invalid format`) — so the message tells you which of the four happened.
+Metadata requests abort after 8 seconds, the download after 60, reported the same way. Other failures say what happened: an HTTP
+status (`SKILLS_VERSION fetch failed (404) from …`), an oversized body (`SKILLS_VERSION too large (… bytes)`)
+or a bad value (`SKILLS_VERSION has invalid format`).
 
 ## No verified release could be resolved
 
-Symptoms: `pharn init` without `--ref` (verified releases are the default for a new install), or
-`update`, `add` or `status` on an install that follows releases (`"ref": "latest"`), stops with exit 1
-and
+An install that follows releases (a new `pharn init`, or `"ref": "latest"`) stops with exit 1 and
+`⚠ Could not resolve the latest verified pharn-dev/pharn-oss release: <reason>. …`, naming `--ref main`. It
+installs only the newest pharn-oss **GitHub release**, never the tip of `main`. The reason:
 
-```text
-⚠ Could not resolve the latest verified pharn-dev/pharn-oss release: <reason>. This install follows
-  verified releases (the default for a new install, or `--ref latest`) — tags pharn-oss creates once
-  its post-merge CI has passed. To install the tip of main instead (the contributor channel), run
-  `pharn init --ref main` (or …).
-```
+- **`has published no release yet (HTTP 404 …)`**: use `--ref main`, or wait.
+- **`GitHub refused the request (HTTP 403 …)` / `(HTTP 429 …)`**: the unauthenticated API allows 60 requests
+  an hour per address, shared by your network (CI runners share one too). `pharn` takes no token: retry
+  later, run the step less often, or use `--ref main`, whose commit resolve degrades instead of failing.
+- **`could not reach …`**: a network failure or the 8-second limit ([proxy](#proxy-environment-variables)).
+- **`… is not a plain vX.Y.Z version`**, **`marked draft` / `prerelease`**: not a release `pharn` accepts.
 
-On that channel `pharn` installs the newest pharn-oss **GitHub release**, never the tip of `main`.
-It finds that release with two requests to `api.github.com`, and when either fails it stops rather than
-installing something nobody verified. The reason says which:
-
-- **`has published no release yet (HTTP 404 …)`** — pharn-oss has not cut a release. Use `--ref main`,
-  or wait for one.
-- **`GitHub refused the request (HTTP 403 …)` / `(HTTP 429 …)`** — the unauthenticated GitHub API allows
-  60 requests an hour per address, shared by everything on your network. Wait for the limit to reset,
-  or use `--ref main`, whose own commit resolve degrades instead of failing. CI runners often share an
-  address with many other jobs, so a `pharn status --strict` step on a release install can hit this
-  limit there and fail; `pharn` takes no token, so the ways out are a retry, running the step less
-  often, or an install on `--ref main`.
-- **`could not reach …`** — a network failure, or the 8-second limit. See
-  [Proxy environment variables](#proxy-environment-variables).
-- **`the latest release's tag … is not a plain vX.Y.Z version`**, or **`marked draft` / `prerelease`** —
-  upstream published something pharn does not treat as a verified release.
-
-A release whose tree carries a different `SKILLS_VERSION` than its tag is refused as well
-(`Release vX.Y.Z (…) ships SKILLS_VERSION …`): the tag and the content disagree, so neither is recorded.
-
-The release channel is recorded in `pharn.config.json` (`"ref": "latest"`), so `update`, `add` and
-`status` keep following releases. `pharn update --ref main` switches the install to the tip of `main`
-and removes the key.
+A release whose tree carries another `SKILLS_VERSION` than its tag is refused too
+(`Release vX.Y.Z (…) ships SKILLS_VERSION …`). `pharn update --ref main` moves an install to `main`.
 
 ## An upstream capability was skipped
 
-Symptoms:
-
-- A warning naming one or more capabilities: `… could not be read and … SKIPPED — not installed`
-- `init` / `add` / `update` / `status` otherwise complete normally, exit 0
-
-pharn reads the newest verified release of `pharn-dev/pharn-oss` (the default) or, with `--ref main`, the
-tip of `main`, so upstream can change a capability into a shape
-your installed pharn version does not understand yet. Rather than abort, pharn skips that **one**
-capability, names it with the reason, and carries on — it will not install content it could not
-validate.
-
-- `update` keeps the capability's entry in `pharn.config.json` (reported as `KEPT`) but writes none
-  of its files, and still bumps the skills version so a later `pharn add` is not blocked.
-- `status` leaves it out of the drift comparison, so `--strict` does not fail on it.
-- `add` cannot install it by name — it is not in the addressable set.
-
-Fix: upgrade with `npm install -g @pharn-dev/pharn@latest`, or wait for upstream to finish the
-change. If you no longer want the capability, `pharn remove <name>`.
+`… could not be read and … SKIPPED — not installed`, exit 0: upstream changed a capability into a shape your
+`pharn` does not understand yet, so it skips that **one** and carries on. `update` keeps its entry (`KEPT`)
+and writes none of its files ([details](reference/update-advanced.md#when-pharn-cannot-read-a-capability-upstream)),
+`status` leaves it out of drift, and `add` cannot install it. Upgrade (`npm install -g @pharn-dev/pharn@latest`),
+wait for upstream, or `pharn remove <name>`.
 
 ## `pharn is too old for the current pharn-oss`
 
-Symptoms:
-
-- `⚠ This pharn is too old for the current github.com/pharn-dev/pharn-oss: it requires
-@pharn-dev/pharn vX.Y.Z or newer …`
-- Exit code 1, nothing written, temporary clone cleaned up
-
-pharn-oss ships an optional root `MIN_CLI` file declaring the minimum CLI version its content needs.
-`init` / `add` / `update` check it before doing any work. Upgrade:
-
-```bash
-npm install -g @pharn-dev/pharn@latest
+```text
+⚠ This pharn is too old for the current github.com/pharn-dev/pharn-oss: it requires
+  @pharn-dev/pharn v0.9.0 or newer, and v0.4.0 is installed. Upgrade …, then re-run
+  this command. Nothing was written.
 ```
 
-A `MIN_CLI` file that is absent, unreadable, or malformed imposes **no** constraint — only a
-well-formed version newer than yours refuses.
+pharn-oss can ship a root `MIN_CLI` file naming the minimum CLI its content needs; `init`, `add` and
+`update` refuse below it, before writing anything (exit 1). Upgrade with `npm install -g @pharn-dev/pharn@latest`.
+A `MIN_CLI` that is absent, unreadable or malformed imposes no constraint.
 
 ## `pharn.config.json` was written by a newer `pharn`
 
-Symptoms:
-
-- `pharn.config.json was written by pharn X.Y.Z; this is pharn A.B.C. Upgrade pharn …` on stderr
-- The command carries on and its exit code is unchanged
-
-`pharn.config.json` records `pharnVersion`, the `pharn` that last wrote it. Your `pharn` is older than
-that at major.minor, so a teammate (or CI) runs a newer one. `init`, `add`, `remove`, `update` and
-`uninstall` warn and still write, `status` and the `--dry-run` previews warn too, and a `--json` report
-on stdout is unchanged. An older `pharn` can undo what the newer one did: `update` and a re-run `init`
-install by its older rules and stamp its own version, so the warning stops after that run, not because
-anything was fixed. Upgrade, and pin one version across the team (for example as a `devDependency`):
-
-```bash
-npm install -g @pharn-dev/pharn@latest
-```
-
-A patch or prerelease difference (0.20.1 against 0.20.3) never warns, nor does a missing or malformed
-`pharnVersion`. See the [support policy](support-policy.md#teammates-on-different-pharn-versions).
+`pharn.config.json was written by pharn X.Y.Z; this is pharn A.B.C. Upgrade pharn …` (stderr; the command
+carries on, exit code and `--json` output unchanged) means a teammate or CI runs a newer `pharn` (major.minor).
+An older `update` or `init` installs by its older rules and stamps its own version, so the warning stops
+without anything being fixed. Upgrade, and pin one version for the team (a `devDependency`). A patch
+difference or a missing or malformed `pharnVersion` never warns ([support policy](support-policy.md#teammates-on-different-pharn-versions)).
 
 ## Install failed
 
-Symptoms:
-
-- Spinner stops with "Failed to install capabilities"
-- Exit code 1
-
-Causes include a fetch failure (network/GitHub), an archive `pharn` refused to extract (see `THREAT-MODEL.md` §2 for what the extractor rejects), or a selected capability directory missing at its expected path (`<subtree>/<name>`) in the fetched repo — the pre-flight checks the directory, and reports `Capability "<name>" (<role>) is missing at <subtree>/<name> in the fetched repo.` (A capability whose `<name>.md` is absent is refused earlier, during the index parse, under a different message.) Set `PHARN_DEBUG=1` and re-run for the full stack trace:
-
-```bash
-PHARN_DEBUG=1 npx @pharn-dev/pharn init
-```
+"Failed to install capabilities", exit 1: a fetch failure, an archive `pharn` refused to extract, or a
+selected capability missing in the fetched repo (`Capability "<name>" (<role>) is missing at
+<subtree>/<name> in the fetched repo.`; one whose `<name>.md` is absent is refused earlier, at the index
+parse). What the extractor rejects is in `THREAT-MODEL.md` §2. `PHARN_DEBUG=1 npx @pharn-dev/pharn init` shows the full error.
 
 ### Something in your project is in the way
 
@@ -492,130 +260,50 @@ Refusing to install: .claude/commands/pharn-plan.md is in the way — pharn need
 a directory, or a directory where you have a file. Nothing was written.
 ```
 
-Before it asks to overwrite anything, `init` checks every path it is about to install, and it checks
-again just before its first write. If one of them exists in your project as the wrong kind of entry
-(a directory where pharn writes a file, or a file where it needs a directory), `init` stops and names
-each one (up to five, then a count). That includes a **directory** named `pharn.config.json` or
-`pharn.records.json`, the two files `init` writes beside the copy. Your project is left exactly as it
-was — no backup directory either. Move or rename the named entries and re-run `pharn init`. This
-includes `features/README.md` (or `pharn/features/README.md`): a file named `features` in your project
-is in the way when the fetched pharn-oss ships that README there.
-
-```text
-Refusing to install: pharn-review is a symbolic link inside the project, so writing through it would
-put files OUTSIDE the project. Replace it with a real directory (or remove it). Nothing was written; …
-```
-
-A **symbolic link** on the way is refused the same way, before the overwrite prompt and before
-anything is written:
-
-- A linked **directory** (`.claude/`, `.claude/commands`, `pharn/`, a capability directory, …): the
-  copy would follow it and write outside your project. Replace it with a real directory.
-- A linked **file** that pharn writes (`… is a symbolic link where pharn writes a file`): the copy
-  would replace your link with pharn's file. Replace it with a regular file, or remove it.
-- `.claude/settings.json` as a link is **fine** while it points at an existing file — `init` never
-  writes over an existing settings file, so a settings file kept in a dotfiles repository is left alone.
-  It is refused only when the link points at nothing, because `init` would then create the file in the
-  link's place. Create the target, or remove the link, and re-run.
+`init` checks every path before it asks and again before its first write. An entry of the wrong kind (a
+directory named `pharn.config.json`, or a file named `features` when pharn-oss ships
+`pharn/features/README.md`) stops it, naming up to five, with nothing written: move them and re-run. A
+**symbolic link** on the way is refused the same way (`… is a symbolic link inside the project, so writing
+through it would put files OUTSIDE the project.`, or `… is a symbolic link where pharn writes a file`): replace
+it with a real directory or file. A
+`.claude/settings.json` link is fine while its target exists, since `init` never overwrites that file.
 
 ### When the `PHARN_DEBUG` hint appears
 
-Every fatal error that came from an **exception** ends with
-`Re-run with PHARN_DEBUG=1 for full error output.` — a failed clone, a failed `SKILLS_VERSION`
-fetch, a copy that could not be completed. That includes an unexpected internal error: it prints
-`⚠ <message>` and the hint, not a stack trace, and exits 1. Re-running with the variable set prints
-the original error (including its `cause` and stack) instead of the hint.
-
-A **policy refusal** deliberately prints no hint, because there is no stack behind it: the
-`MIN_CLI` refusal, the `pharn add` version / layout gates, an unknown capability name, and the
-non-interactive-terminal messages all name the one action that resolves them instead.
+A fatal error from an **exception** (a failed download, a copy that could not finish, an internal error)
+prints `⚠ <message>` and `Re-run with PHARN_DEBUG=1 for full error output.` (exit 1); with the variable set
+it prints the error, its `cause` and stack. A **policy refusal** (`MIN_CLI`, the `add` version gate, an
+unknown capability, the no-terminal messages) has no hint: it names the action that resolves it.
 
 ## Overwrite declined
 
-If any install targets already exist and you decline the overwrite prompt, `pharn init` cancels with exit 0 and **nothing is written into your project** (the temporary clone is cleaned up).
-
-Nothing is written outside your project either: the repo fetch runs first, but it downloads into a temporary directory that is removed on every path — success, cancel, and error alike. `pharn` keeps no download cache. (Earlier versions did, through `degit`; see [A leftover cache you may want to delete](#a-leftover-cache-you-may-want-to-delete) if you want to reclaim that space.)
+Declining exits 0 with **nothing written**, in your project or outside it: the download goes to a temporary
+directory removed on every path, and `pharn` keeps no cache.
 
 ## Proxy environment variables
 
-**By default, `pharn` does not use an HTTP proxy.** Every network call it makes — the commit-SHA
-resolve, the repo tarball, and `SKILLS_VERSION` for `update` / `status --no-drift` — goes through
-Node's global `fetch`, which by default reads **no** proxy environment variable: not `https_proxy`, not
-`HTTPS_PROXY`, not `no_proxy`.
+**By default `pharn` uses no HTTP proxy**: its calls go through Node's global `fetch`, which reads no proxy
+variable unless you opt in. On Node 22.21+ and 24.5+, set `NODE_USE_ENV_PROXY=1` (only `1`) or pass
+`--use-env-proxy` (for example in `NODE_OPTIONS`); `fetch` then uses the proxy and honours `NO_PROXY`. The
+flag beats the variable and the last flag wins (`--no-use-env-proxy` turns it off; `-` or `_` both work).
+Node 24.0–24.4 has no flag, but any non-empty `NODE_USE_ENV_PROXY` opts in. Node 20, 21, 22.0–22.20 and 23
+have no opt-in, so behind a mandatory proxy there is no workaround (a named limit, `LIMITS.md` §3a).
 
-**Recent Node versions can opt in.** On Node 22.21+ and 24.5+, run `pharn` with
-`NODE_USE_ENV_PROXY=1` set, or pass `--use-env-proxy` to Node (for example through `NODE_OPTIONS`).
-Node's `fetch` then routes through the proxy and honours `NO_PROXY`. The details, measured on each
-release line:
-
-- **Only `NODE_USE_ENV_PROXY=1` counts** on those versions — `true` or `0` do not.
-- **The flag wins over the variable, and the last flag wins.** `--no-use-env-proxy` turns the opt-in
-  off even when the variable is set; the command line is read after `NODE_OPTIONS`. Either `-` or `_`
-  works in the flag's name.
-- **Node 24.0–24.4 have no flag yet**, but there **any** non-empty `NODE_USE_ENV_PROXY` turns it on.
-- **Node 20, 21, 22.0–22.20 and 23 have no opt-in at all.**
-
-Which variable Node reads, for the https URLs `pharn` fetches:
-
-- **`https_proxy`, then `HTTPS_PROXY`**, and if neither gives a proxy, **`http_proxy`, then
-  `HTTP_PROXY`**. Lowercase wins when both cases are set.
-- **An empty `https_proxy` hides `HTTPS_PROXY`**: Node stops at the first variable that is present
-  at all, and then falls through to the `http_proxy` pair.
-- **Only those four exact spellings are read** (on Linux and macOS). A `Https_Proxy` is never used.
-  On Windows, environment names are case-insensitive, so any spelling works there.
-
-If a proxy variable is set, `pharn` says which case applies **before** it fetches, so a network that
-blocks direct egress produces an explanation rather than an unexplained timeout. Without the
-opt-in, on a Node that supports it:
-
-```text
-⚠ HTTPS_PROXY is set (http://***@proxy.internal:3128), but pharn will not use it:
-  its network calls go through Node's global fetch, which reads no proxy
-  environment variable by default. The download connects DIRECTLY, and fails
-  if direct egress is blocked (LIMITS.md §3a). This Node can route fetch through
-  the proxy — re-run with NODE_USE_ENV_PROXY=1 set.
-```
-
-With the opt-in on, the notice instead says the downloads go through that proxy. After a
-`--no-use-env-proxy`, it names that flag as what turned the proxy off. On a Node without the opt-in,
-it says so and names the Node versions that have one.
-
-Two details in that message are deliberate:
-
-- **It names the variable Node would use**, and a spelling Node never reads (`Https_Proxy`) gets its
-  own notice, saying it is ignored and naming the four spellings that work — rather than silence.
-- **Credentials are redacted.** Any `user:password@` in the value is replaced with `***`. The value is
-  only printed; it is never written to `pharn.config.json`, which lives in your repository and is
-  committed.
-
-If you are behind a mandatory proxy, set `NODE_USE_ENV_PROXY=1` on a Node that supports it (above). On a
-Node without it there is no workaround inside `pharn` — a named limit (`LIMITS.md` §3a), not a bug to
-report.
-
-### This changed in the codeload release
-
-Earlier versions cloned through `degit`, which read `process.env.https_proxy` **itself**. If you had
-set exactly that lowercase spelling, your clone _was_ proxied, and it no longer is. Your
-`pharn update` and `status --no-drift` were already unproxied — those were always plain `fetch` — so
-this makes one boundary consistent rather than newly broken, but it does break a setup that worked.
+Node reads `https_proxy`, then `HTTPS_PROXY`, then `http_proxy`, then `HTTP_PROXY` for `pharn`'s https URLs;
+it stops at the first one present, so an empty `https_proxy` hides `HTTPS_PROXY`. Only those four spellings
+count on Linux and macOS (any spelling on Windows). When one is set, `pharn` says before it fetches whether
+it will use it (`⚠ HTTPS_PROXY is set (http://***@proxy.internal:3128), but pharn will not use it: …`,
+naming `NODE_USE_ENV_PROXY=1` when your Node supports it, or that `--no-use-env-proxy` turned it off; with
+the opt-in on, that downloads go through the proxy; on a Node without one, which versions have it). A spelling
+Node never reads gets its own notice naming the four that work. Credentials are shown as `***` and never written to
+`pharn.config.json`.
 
 ### A leftover cache you may want to delete
 
-`pharn` no longer writes or reads a download cache: each fetch downloads into a fresh temp dir that is
-always removed. But earlier versions cloned through `degit`, which persisted a commit-named `.tar.gz`
-(~2.4 MB) plus `map.json`/`access.json` into a shared, cross-project cache directory on **every**
-fetch — and **nothing ever reclaimed them**.
-
-That is worth stating plainly, because the directory can be much larger than "one leftover download"
-suggests. `degit` does have a deletion path, but it fires only when an existing **ref's** mapped hash
-changes. `pharn` passed the resolved commit SHA _as_ the ref, so every fetch wrote a self-mapped
-`"<sha>": "<sha>"` entry under a **new key** — the previous hash for that key was always `undefined`,
-so the delete branch could never run. One tarball accumulated per distinct upstream commit you ever
-fetched, forever. A CI machine running `pharn status` on each upstream push could reach hundreds of
-megabytes on an image nothing purges, and `pharn` printed nothing about it.
-
-Check what is there, then delete the whole directory — `pharn` will not do it for you, and nothing
-reads it any more:
+`pharn` keeps no download cache, but versions before the codeload download used `degit`, which kept a
+~2.4 MB `.tar.gz` per upstream commit (plus `map.json`/`access.json`) in a shared cache nothing reclaims.
+Nothing reads it now; check its size (`du -sh`) and delete it, or only `degit/github/pharn-dev/pharn-oss`
+inside it if another tool uses `degit`:
 
 | Platform | Path                                           |
 | -------- | ---------------------------------------------- |
@@ -623,19 +311,7 @@ reads it any more:
 | Windows  | `%LOCALAPPDATA%\degit`                         |
 | Other    | `$XDG_CACHE_HOME/degit`, else `~/.cache/degit` |
 
-```bash
-du -sh ~/Library/Caches/degit          # macOS
-du -sh "${XDG_CACHE_HOME:-$HOME/.cache}/degit"   # Linux and other POSIX
-```
-
-The directory is shared with any other tool that uses `degit`, so if you use one, delete only
-`degit/github/pharn-dev/pharn-oss` inside it rather than the whole tree.
-
 ## Another pharn process is running
-
-`init`, `add`, `remove`, `update` and `uninstall` take a single-writer lock on the project first —
-before they read `pharn.config.json` or touch the network — and hold it to their last write, across
-their prompts. A second writer refuses rather than queues:
 
 ```text
 ■  Another pharn process is writing to this project: pharn update (pid 4821 on my-laptop,
@@ -643,94 +319,19 @@ their prompts. A second writer refuses rather than queues:
    Wait for it to finish, or delete pharn/.lock if you are sure no pharn process is running.
 ```
 
-Exit code 1, and **nothing is read, fetched or written**. "It may be waiting for input" is always
-printed: the lock does not record whether its holder sits at a prompt. Look for a `pharn` command
-waiting for an answer in another terminal, and answer or cancel it (Ctrl-C releases the lock).
-`--dry-run` takes no lock, so a preview runs even then.
-
-This exists because two concurrent runs do not merely race on a file — they corrupt the drift
-baseline. Process A overwrites a file; process B, which planned against the pre-A snapshot,
-overwrites it again and records its own hash; A then persists its records and config last, recording
-a hash for bytes B replaced. `pharn.records.json` then disagrees with disk, and nothing in it shows
-that — so `update` loses its ability to tell "pharn wrote this" from "you edited this".
-
-**`list` and `status` are never blocked and never take the lock**, so `pharn status --strict` stays
-runnable in CI while an update is in flight.
+`init`, `add`, `remove`, `update` and `uninstall` hold [the project lock](reference/project-lock.md),
+`pharn/.lock`, from before they read the config to their last write, across their prompts. A second writer
+refuses (exit 1, nothing read, fetched or written). Look for a `pharn` command waiting for an answer in
+another terminal, and answer or cancel it (Ctrl-C releases the lock). `--dry-run`, `list` and `status`
+never take the lock.
 
 ### If the lock outlives its owner
 
-Every writing command holds the lock across its prompts, so a walked-away prompt — `init`'s summary
-or overwrite question, `update`'s or `uninstall`'s confirmation, the `add` or `remove` picker — blocks
-other writers in that project until it is answered or cancelled. That is deliberate (git holds its
-index lock the same way): the command plans once, and what you confirm is what it writes. An edit you
-make while a prompt is open is never lost: `init` backs the file up before it overwrites it, and
-`update` stops before writing anything (see
-[update: edits made while it waits](commands/update.md#edits-made-while-update-waits-for-your-answer)).
-
-An interrupted run releases the lock on its way out. That covers Ctrl-C, and a `timeout` or
-`docker stop`, which arrive as `SIGINT` and `SIGTERM`. The run still exits 130 or 143 and prints
-that the project may be partially updated. Three things cannot release the lock:
-
-- a run that is `SIGKILL`ed;
-- one that loses power;
-- one ended by a hangup (`SIGHUP`, a closed terminal).
-
-The hangup case is deliberate: listening for it would override `nohup`, and a `nohup pharn update`
-would then stop mid-write. `pharn` breaks such a lock by itself when any of these hold:
-
-- the file is missing, unreadable, or not a well-formed lock payload — and has not been modified in
-  the last 10 seconds (a lock is briefly empty while its owner writes it);
-- its start time is more than five minutes in the future (no running `pharn` writes that; it is
-  treated like a malformed payload);
-- it comes from **another host** and is more than six hours old;
-- it names a pid on **this** host that is no longer running;
-- it comes from **this** host and started before this host last booted.
-
-A lock from **this** host is never broken by age: while its pid is running, `pharn` refuses, however
-long ago it started (a prompt left open over lunch keeps the project). A lock from
-**another host** is only retired by age — a pid means nothing across machines. If you are certain
-nothing is running, deleting `pharn/.lock` is safe and is the documented escape.
-
-**A recycled pid keeps a dead run's lock alive until the next reboot.** "No longer running" is checked
-by asking the operating system whether that pid exists. If the run that took the lock was killed and
-its pid has since been reused by an unrelated process, the check finds that process and the lock reads
-as live, so `pharn` keeps refusing until this host reboots (a lock started before the last boot is
-broken). If the refusal names a pid that is not a `pharn` process (check with `ps -p <pid>`), delete
-`pharn/.lock`.
-
-The boot check trusts the clock. On a machine with no battery-backed clock, or one whose clock is
-corrected forward by a long way after it boots, a running `pharn` can look as if it started before
-boot, and another run on the same machine may then break its lock; small corrections (under five
-minutes) are tolerated. A clock set **back** by more than five minutes makes a running lock look as if
-it started in the future, and it is then broken after 10 seconds like a malformed one. "This host"
-means the machine's hostname: if it changes while `pharn` runs (macOS can rename itself when the
-network changes), the lock is treated as one from another host — retired after six hours — and the run
-cannot remove it when it finishes, so delete `pharn/.lock` yourself if no `pharn` is running.
-
-**A directory named `pharn/.lock`** is never a lock — `pharn` does not create one — so it is refused
-with its own message rather than broken:
-
-```text
-pharn/.lock is a directory, not a pharn lock file. pharn will not move or delete it, and cannot take the project lock while it is there.
-Remove it yourself (or rename it) and re-run.
-```
-
-**A file named `pharn/.lock.<pid>.<hex>`** is what is left when a `pharn` run is killed (`kill -9`, a
-power cut) in the instant it breaks a stale lock: it moves the old lock to that name, checks it, and
-deletes it. `pharn` never reads such a file and never deletes a name it did not just create, so it
-stays until you delete it. It is safe to delete when no `pharn` command is running.
-
-**Do not run two `pharn` versions in one project at the same time.** `pharn` 0.13.0 and older lock a
-different file, so neither sees the other's lock.
-
-**`pharn` must be a real directory.** The lock, the backups and the `pharn` layout's install all live
-under `pharn/`, which a writing command creates when it is missing (and removes again if nothing ended
-up in it). A `pharn` that is a symbolic link, or a regular file, is refused before anything is written:
-
-```text
-pharn is a symbolic link. pharn keeps its lock, backups and install under pharn/ and will not write through a link that may point outside the project.
-Replace it with a real directory and re-run.
-```
+A run that is `SIGKILL`ed, loses power or is ended by a hangup cannot release the lock. `pharn` breaks a
+stale one by itself (a dead pid on this host, a lock from before the last boot, one from another host over
+six hours old, a malformed one); the rules and their residuals, and the stray `pharn/.lock` directory or
+`pharn/.lock.<pid>.<hex>` file, are in [If the lock outlives its owner](reference/project-lock.md#if-the-lock-outlives-its-owner).
+If you are certain no `pharn` is running, deleting `pharn/.lock` is safe.
 
 ## `add` / `update` say to run init first
 
@@ -738,29 +339,18 @@ Replace it with a real directory and re-run.
 No pharn.config.json found. Run `pharn init` first.
 ```
 
-All non-`init` commands operate on an already-installed project. Run `pharn init` to create `pharn.config.json`.
-
-This message means the file is **not there**, or is there but cannot be read as a config at all: it
-is not a regular file (a directory, a FIFO), it cannot be opened or is larger than 16 MiB, its JSON
-is not an object, it has no string `skillsVersion`, or it has neither a `capabilities` nor a `modules`
-key. Invalid JSON, and a config that has those keys but an invalid field, get their own named
-errors instead — see [the corrupt-config case](#a-command-rejects-an-invalid-config-does-not-say-run-init)
-below.
-
-If the file **is** there, look at it before you run `pharn init`: init **overwrites** the config, so
-re-running it can cost you your recorded capabilities and manual `pharn add` provenance. A re-run
-`init` over such a file says so in its summary — `the previous pharn.config.json could not be read
-(<reason>); nothing is carried over, so manual capabilities will be dropped` — and its overwrite
-prompt defaults to No. Move the file aside (`mv pharn.config.json pharn.config.json.bak`) if you want
-to keep a copy.
+The file is **not there**, or cannot be read as a config at all (not a regular file, unopenable or over
+16 MiB, not a JSON object, no string `skillsVersion`, neither `capabilities` nor `modules`). Invalid JSON and
+invalid fields get [their own errors](#a-command-rejects-an-invalid-config-does-not-say-run-init). If the
+file **is** there, look at it first: `init` **overwrites** it, dropping your recorded capabilities and manual
+`pharn add` provenance (its summary says `the previous pharn.config.json could not be read (<reason>); …`
+and its prompt defaults to No). Keep a copy with `mv pharn.config.json pharn.config.json.bak`.
 
 ### Legacy (pre-archetype) config
 
-```text
-This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` to reinstall with the archetype/capability model.
-```
-
-If your `pharn.config.json` predates the archetype model (it has `modules` but no `capabilities`), the module/manifest install path it relied on has been removed (live pharn-oss ships no `manifest.json`). Re-run `pharn init` to reinstall using archetype detection.
+``This project uses the legacy module layout (pre-archetype), which is no longer supported. Re-run `pharn init` …``
+means a config with `modules` but no `capabilities`: re-run `pharn init`. A config at the removed `flat`
+layout gets [its own message](reference/update-advanced.md#an-install-recorded-at-the-flat-layout).
 
 ## A command rejects an invalid config (does NOT say "run init")
 
@@ -768,120 +358,42 @@ If your `pharn.config.json` predates the archetype model (it has `modules` but n
 pharn.config.json: capabilities[1].source must be "auto" or "manual" (found "guess"). Fix it by hand, or delete the field — an absent `source` is valid and the next `pharn update` will set it.
 ```
 
-If `pharn.config.json` **exists but was hand-edited into an invalid state**, `add` / `status` /
-`update` / `remove` / `list` print the loud, specific error above (naming the offending field) and
-exit non-zero — they do **not** say to run `pharn init` (the file is there; re-running init would
-offer to clobber your edits). Fix the named field and re-run. The same refusal covers a `capabilities`
-that is not an array or has an invalid entry, an `archetypes` that is not a list of known archetypes,
-and a `skillsVersion` or `commit` that is not a version / a full commit SHA (or `null`) — see
-[`pharn.config.json`](reference/pharn-config.md#skillsversion-and-commit--checked-when-the-config-loads).
-
-The `models` block is **not** checked here: it is pharn-oss's, and no command refuses to run over it.
-See [`pharn status` lists a problem with `models`](#pharn-status-lists-a-problem-with-models). Nor is
-the `seam` block: it is pharn-oss's too, `pharn` carries it unchanged, and pharn-oss's own floor
-checks it (releases up to 0.19.0 refused, in every command, a `seam` block pharn-oss accepts — one
-with an extra key or a repeated step; upgrade `pharn` if one stops yours).
+A hand-edited invalid field (`capabilities` not an array or with a bad entry, unknown `archetypes`, a
+`skillsVersion` or `commit` that is not a version / full SHA / `null`) makes `add`, `status`, `update`,
+`remove` and `list` name it and exit 1 ([fields](reference/pharn-config.md#skillsversion-and-commit--checked-when-the-config-loads)).
+Fix it by hand. The `models` and `seam` blocks are pharn-oss's and never refused
+([`models`](#pharn-status-lists-a-problem-with-models)).
 
 ### The config is not valid JSON
 
-```text
-/path/to/your/project/pharn.config.json is not valid JSON (line 4, column 1). The file exists — fix its syntax by hand. Do NOT run `pharn init` to clear it: init OVERWRITES this config, discarding your recorded capabilities, any manual `pharn add` provenance, and a hand-edited models block. If it is beyond repair, move it aside first (`mv pharn.config.json pharn.config.json.bak`), then run `pharn init`.
-```
-
-A syntax error — most often a trailing comma — is reported with the file's full path and, when the
-JSON parser supplies one, the **line and column** of the offending byte. Open the file at that
-position and fix it; nothing else is needed, and nothing has been written.
-
-**Do not reach for `pharn init` here.** It rewrites `pharn.config.json` wholesale: a hand-edited
-`models` block becomes pharn-oss's again, keys of your own such as `testResults` and the `seam`
-block are not carried over (nothing is, from a file that does not parse), and every capability is re-stamped `source: "auto"`, which discards the record of which
-capabilities you added by hand with `pharn add`. That record
-lives nowhere else, and `pharn update` reads it to keep your manual additions across upgrades.
-
-If the file is genuinely beyond repair, move it out of the way first so you can still read it, then
-re-install:
-
-```bash
-mv pharn.config.json pharn.config.json.bak
-pharn init
-```
-
-You can then copy your `models` / `seam` blocks back out of the `.bak` file, and re-add anything you
-had installed manually with `pharn add <name>`.
-
-Two neighbouring cases are deliberately **not** reported this way, because the file is not readable
-in the first place: a config that is **absent**, or one that exists but cannot be read at all (a
-permissions problem, a directory, a FIFO or a device sitting at that path, or a file over 16 MiB),
-still says
-[`No pharn.config.json found`](#add--update-say-to-run-init-first).
+``… pharn.config.json is not valid JSON (line 4, column 1). The file exists — fix its syntax by hand. Do NOT run `pharn init` …``
+names the line and column (most often a trailing comma). Fix it there. **Do not reach for `pharn init`**: it
+rewrites the file (your `models` edits, `testResults` and `seam` are lost, and every capability becomes
+`source: "auto"`, losing which ones you added by hand). Beyond repair? `mv pharn.config.json pharn.config.json.bak`,
+run `pharn init`, copy your `models` / `seam` blocks back, and re-add manual capabilities with `pharn add`.
 
 ## `pharn status` lists a problem with `models`
 
-```text
-pharn-oss's rules reject this block:
-  stage "plan" model "gpt-4" is not an alias {sonnet, opus, haiku, fable, inherit} nor a claude-* id
-```
-
-The `models` block in `pharn.config.json` is pharn-oss's (see
-[Models](reference/pharn-config.md#models)), so no `pharn` command refuses to run over it. `status`
-lists what pharn-oss's rules reject, and you fix it by hand. The checker installed with PHARN says the
-same: `node pharn/floor/check-model-config.mjs validate`.
-
-- **A block in the format pharn wrote before 0.7.0** (a top-level `default`, ids such as `opus-4-8`)
-  — `pharn` no longer converts it, and `pharn update` keeps it as yours. Replace it by hand, or delete
-  the `models` key from `pharn.config.json` so the next `pharn update` writes pharn-oss's.
-- **A stage, alias or effort pharn-oss added after your `pharn` was released** — upgrade `pharn`: the
-  copy of pharn-oss's rules it checks with predates the change.
-- **Your values differ from the installed commands' frontmatter** — not an error here.
-  `node pharn/floor/check-model-config.mjs agreement` lists each difference; nothing runs it
-  automatically. The two have different reach: `/pharn-ship` and `/pharn-loop` read the block to pick
-  the **model** they request for the stages they route (never the effort), while a `/pharn-<stage>`
-  you run directly uses its own frontmatter. Editing only the block causes no file drift. Editing a
-  command's frontmatter makes that file `modified`, so `pharn update` skips it and withholds the
-  skills-version bump until you restore it or run `pharn update --force` (which backs it up first).
-
-`pharn update` lists the same problems when it keeps your block, and `pharn init` names them when
-pharn-oss's own block fails — it writes none then.
+`pharn-oss's rules reject this block:` followed by the reasons. The block is pharn-oss's
+([Models](reference/pharn-config.md#models)), so nothing refuses over it; fix it by hand
+(`node pharn/floor/check-model-config.mjs validate` says the same). An old-format block (a top-level
+`default`, ids such as `opus-4-8`) is kept by `update`: replace it, or delete the `models` key so the next
+`update` writes pharn-oss's. A stage, alias or effort newer than your `pharn` needs an upgrade. Values that
+differ from the commands' frontmatter are not an error (`… check-model-config.mjs agreement` lists them):
+`/pharn-ship` and `/pharn-loop` read the block's **model** for the stages they route, a `/pharn-<stage>` run
+directly uses its frontmatter, and editing that frontmatter makes the file `modified`
+([details](reference/update-advanced.md#the-models-block)).
 
 ## Unknown command
 
-```text
-Unknown command: ...
-```
-
-Run `pharn --help`. Valid commands: `init`, `add`, `remove` (alias `rm`), `update`, `list`, `status`,
-`uninstall`. `pharn <command> --help` shows one command and only the options it takes.
+`Unknown command: ...`: the commands are `init`, `add`, `remove` (alias `rm`), `update`, `list`, `status`
+and `uninstall`. `pharn <command> --help` shows one command and the options it takes.
 
 ## Unknown option, or an unexpected argument
 
-```text
-Unknown option: "--sctrict"
-Run `pharn --help` for usage.
-```
-
-```text
-Unexpected argument: "extra"
-Run `pharn --help` for usage.
-```
-
-`pharn` refuses argv it does not understand rather than ignoring it, and refuses **before** running
-any command — so nothing is fetched and nothing is written. Both messages go to stderr as one
-line plus a pointer at `pharn --help` — not the whole usage text, which used to scroll the error
-away — and exit **1**.
-
-This matters most in CI: a mistyped `pharn status --sctrict` used to run in the default exit-0 mode,
-so the drift gate was silently disarmed while every run stayed green. `pharn update --froce` used to
-run un-forced, and `pharn add a11y extra` used to drop the third argument.
-
-Two consequences worth knowing:
-
-- A genuine `--help` or `--version` does **not** excuse a bad sibling — neither an unrecognised one
-  nor one this command does not take: `pharn --help --bogus` and `pharn status --help --force` both
-  refuse instead of printing the usage text. `pharn status --help` on its own is unaffected.
-- Options are **scoped to one command**, and passing one to a different command is an error, not a
-  no-op — see the next section.
-
-Run `pharn --help` for the full option list, or `pharn <command> --help` for one command's options.
+`Unknown option: "--sctrict"` or `Unexpected argument: "extra"`, then ``Run `pharn --help` for usage.``, exit
+**1**, before any command runs, so nothing is fetched or written (a mistyped `--strict` in CI fails instead of
+running unarmed). A `--help` or `--version` does not excuse a bad sibling: `pharn --help --bogus` refuses.
 
 ## Unsupported option for this command
 
@@ -890,8 +402,8 @@ Unsupported option for `status`: "--force"
 Run `pharn --help` for usage.
 ```
 
-Each option is taken by the commands listed below (`--json`, `--yes`, `--ref` and `--dry-run` by
-several), and `pharn` refuses the ones a command does not take:
+An option the command does not take exits **1** like an unknown one (labelled differently, so you do not
+hunt for a typo):
 
 | command         | options it accepts                                                                                              |
 | --------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -904,69 +416,33 @@ several), and `pharn` refuses the ones a command does not take:
 | `uninstall`     | `--yes` / `-y`                                                                                                  |
 | _any_           | `--help` / `-h`, `--version` / `-v`                                                                             |
 
-The message goes to stderr with the `pharn --help` pointer and exits **1**, exactly like `Unknown option` — the
-label differs only because the option is one `pharn` _knows_, so "unknown" would send you hunting for
-a typo that is not there.
-
-Before this, such an option was parsed and silently dropped. That was worst in CI: `pharn update
---json | jq` received human-readable output and a **success** exit code, and
-`pharn list --strict` exited 0 no matter what it found (`status --json` is now a real option — see
-[`pharn status`](commands/status.md#json-output) — and so is `update --json`, which implies `--dry-run`). With no command word at all,
-`pharn --force` and `pharn --strict` each ran a **full `init`** while ignoring the option.
-
-Two options imply another, so neither needs a partner. `--json` on `update` or `init` implies `--dry-run`:
-`pharn update --json` is `pharn update --dry-run --json`, and `pharn init --json` — or a bare `pharn --json`,
-since `init` is the default command — is `pharn init --dry-run --json`. `pharn update --compact` implies
-`--json`, and so `--dry-run`. See [`pharn update`](commands/update.md#json-output) and
-[`pharn init`](commands/init.md#json-output).
-
-Option **values** are checked too. An on/off option takes no value, so `pharn list --json=false` is refused
-with `Option takes no value: "--json=false"` rather than read as anything — pass the bare `--json`, or leave
-it out. `--ref` and `--archetype` may each be given once (`Repeated option: "--ref"`), and only `--no-drift`
-is a negated option: `--no-dry-run`, `--no-yes` and `--no-ref` are `Unknown option`.
+`init` is the default command, so a bare `pharn --json` is `pharn init --dry-run --json`. An on/off option
+takes no value (`Option takes no value: "--json=false"`), `--ref` and `--archetype` may each be given once
+(`Repeated option: "--ref"`), and `--no-drift` is the only negated option (`--no-dry-run`, `--no-yes` and `--no-ref` are `Unknown option`).
 
 ## Removing PHARN by hand
 
-[`pharn uninstall`](commands/uninstall.md) removes PHARN for you whenever `pharn.records.json` is usable.
-When it refuses because the store is missing or corrupt, nothing can be proven to be `pharn`'s, so the removal is yours to do. The steps below remove what an install
-writes; **review each path before deleting it** — anything you wrote yourself is yours to keep.
+[`pharn uninstall`](commands/uninstall.md) removes PHARN whenever `pharn.records.json` is usable. Without
+one, nothing can be proven to be `pharn`'s, so **review each path before deleting it**:
 
-1. **Find what the install added.** If you committed the install, `git log --diff-filter=A -- pharn.config.json`
-   names the commit, and `git show --stat <commit>` lists every file it added. `git diff <commit> -- <path>`
-   shows whether you changed one since.
-2. **Delete the installed surfaces** (paths for the `pharn` layout; an install made by `pharn` 0.20.x or
-   older at the legacy `flat` layout keeps the same names at the project root — `pharn-review/`,
-   `pharn-pipeline/`, `pharn-contracts/`, `.dev/floor/`, `features/README.md`, `PHARN-LICENSE`, and the
-   four trusted docs):
-   - `pharn/pharn-pipeline/`, `pharn/pharn-review/`, `pharn/pharn-contracts/`, `pharn/pharn-core/`,
-     `pharn/floor/`
-   - `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`, `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`
-     (an install from pharn-oss older than 7.0.0 has these two at the project root instead),
-     `pharn/LICENSE`, `pharn/features/README.md` — but **not** your own `pharn/features/<feature>/`
-     folders, and not `pharn/memory-bank/` or `pharn/spec-template.md`, which are your data
-   - the `pharn-*.md` files in `.claude/commands/` (not `pharn-dev-*`, and none of your own commands)
-   - the hook scripts PHARN installed in `.claude/hooks/`
-3. **Unwire the hooks.** Remove the entries in `.claude/settings.json` (and `.claude/settings.local.json`)
-   whose command runs one of the scripts you deleted. If `pharn init` created `settings.json` and you never
-   added anything to it, you can delete the file. (`pharn uninstall` does this itself when
-   `pharn.records.json` has a `.claude/settings.json` entry — a fresh `init` records one.)
-4. **Delete pharn's own files:** `pharn.config.json`, `pharn.records.json`, and `pharn/.lock` if it
-   exists and no `pharn` command is running. `pharn/.run/` (or `.pharn/` before pharn-oss 7.0.0) is
-   runtime scratch written while PHARN commands run, and `pharn/.backup/` holds backups `pharn` made —
-   delete them once you no longer need them.
+1. **Find what the install added**: `git log --diff-filter=A -- pharn.config.json`, then
+   `git show --stat <commit>`; `git diff <commit> -- <path>` shows whether you changed a file since.
+2. **Delete the installed surfaces** in [What you get](getting-started.md#what-you-get) (the `pharn-*.md`
+   commands only, not `pharn-dev-*` or your own; the hooks and agents PHARN installed). Keep your
+   `pharn/features/<feature>/` folders, `pharn/memory-bank/` and `pharn/spec-template.md`. A pharn-oss older
+   than 7.0.0 left `THREAT-MODEL.md` and `LIMITS.md` at the root; a former `flat` install the same surfaces
+   at the root (`.dev/floor/`, `features/README.md`, `PHARN-LICENSE`).
+3. **Unwire the hooks** in `.claude/settings.json` (and `.claude/settings.local.json`) that run a deleted
+   script; delete `settings.json` if `pharn init` created it and you never added to it.
+4. **Delete** `pharn.config.json`, `pharn.records.json`, `pharn/.lock` (no `pharn` running), and, when you no
+   longer need them, `pharn/.run/` (`.pharn/` before pharn-oss 7.0.0) and `pharn/.backup/`.
 
 ## Local development issues
 
-| Problem                             | Fix                                             |
-| ----------------------------------- | ----------------------------------------------- |
-| `pharn` not found after editing CLI | `npm run build:install-local` from `pharn-cli/` |
-| Type errors in tests                | `npm run typecheck`                             |
-| Stale dist                          | `npm run build`                                 |
-
-See [Contributing](../CONTRIBUTING.md).
+`pharn` not found after editing the CLI: `npm run build:install-local`. Type errors in tests:
+`npm run typecheck`. Stale dist: `npm run build`. See [Contributing](../CONTRIBUTING.md).
 
 ## Related
 
-- [Getting started](getting-started.md)
-- [init command](commands/init.md)
-- [pharn.config.json](reference/pharn-config.md)
+[Getting started](getting-started.md) · [init](commands/init.md) · [update](commands/update.md) ·
+[update: less common situations](reference/update-advanced.md) · [The project lock](reference/project-lock.md) · [pharn.config.json](reference/pharn-config.md)

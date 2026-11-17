@@ -50,10 +50,7 @@ removed in v0.21.0, is refused with a message to re-run `pharn init`.) Removal i
 `pharn remove --yes` is **refused** (exit 1) rather than accepted and ignored. There is nothing here
 for it to skip: the named form above deletes without asking, and the picker's one confirmation is the
 destructive gate itself — it is always shown, it lists exactly what will be deleted, and it defaults
-to **No**.
-
-> Earlier releases accepted `pharn remove --yes` and silently dropped it. See
-> [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
+to **No**. See [Unsupported option for this command](../troubleshooting.md#unsupported-option-for-this-command).
 
 ## What is backed up before the delete
 

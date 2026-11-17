@@ -26,6 +26,8 @@ The CLI version (`pharn --version`) and the content version it installs (`skills
 - [pharn.records.json](reference/pharn-records.md) — the per-file install hashes `pharn update` compares against
 - [JSON output](reference/json-output.md) — the `--json` reports of `init`, `update`, `status` and `list`: keys, stability rule, real examples
 - [What PHARN deletes](reference/deletes.md) — every path a `pharn` command deletes, the check behind each, and what is never deleted
+- [update: less common situations](reference/update-advanced.md) — the executable unit, orphans, the `models` block, unreadable or missing files, and the other states most `pharn update` runs never meet
+- [The project lock](reference/project-lock.md) — `pharn/.lock`: who takes it, why, and when a stale one is broken
 - [Support policy](support-policy.md) — which installs and `pharn` versions are supported, and what is being retired when
 
 ## Other

@@ -38,7 +38,7 @@ entry from `pharn.config.json`. Details: [`remove`](../commands/remove.md).
 
 - Each file recorded in `pharn.records.json` whose path is one an install writes, that is a regular
   file reached without a symbolic-linked directory, and whose bytes still equal its record. This
-  includes [orphans](../commands/update.md#orphaned-files) and `.claude/settings.json` when a fresh
+  includes [orphans](update-advanced.md#orphaned-files) and `.claude/settings.json` when a fresh
   `pharn init` created it.
 - Then each directory those deletes left empty, deepest first, never the project root (a non-recursive
   delete, so a directory that still holds anything stays).
@@ -63,7 +63,7 @@ the entries under the directory it removed. No file is touched. See
   and only when the lock still names that run. A lock judged stale is moved to
   `pharn/.lock.<pid>.<hex>`, checked and deleted by the run that moved it; a file of that name that a
   killed run left behind is never deleted. See
-  [If the lock outlives its owner](../troubleshooting.md#if-the-lock-outlives-its-owner).
+  [If the lock outlives its owner](project-lock.md#if-the-lock-outlives-its-owner).
 - **An empty `pharn/` the lock created.** When `pharn/` did not exist, the lock creates it and deletes it
   again if it is still empty when the lock is released.
 - **A write's temp file.** A file `pharn` replaces is first written to `<file>.<pid>.<nonce>.tmp` beside

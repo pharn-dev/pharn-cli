@@ -122,7 +122,7 @@ its drift section compares against the older source.
 
 On the drift path, `status` also lists the files `pharn` recorded writing that upstream no longer
 ships but that are still in your project — the same `ORPHANED` note, grouped `UNCHANGED` / `EDITED` /
-`UNREADABLE`, that `pharn update` prints (see [update](update.md#orphaned-files) for what each group
+`UNREADABLE`, that `pharn update` prints (see [update](../reference/update-advanced.md#orphaned-files) for what each group
 means and what is never listed). `pharn update` never deletes them
 ([What PHARN deletes](../reference/deletes.md)); delete the ones you no longer need by hand.
 
@@ -258,7 +258,7 @@ Nothing is written on any of these paths — `status` still never writes, delete
 One case is worth knowing before you wire `--strict` into CI: when a new `pharn` release begins
 installing a surface earlier releases did not, an existing install is genuinely missing those files and
 `--strict` goes red until a plain `pharn update` restores them, at the same skills version too. See
-[a surface added by a newer CLI](update.md#a-surface-added-by-a-newer-cli-at-the-same-skills-version).
+[a surface added by a newer CLI](../reference/update-advanced.md#missing-files-at-the-same-skills-version).
 
 ## Related
 
