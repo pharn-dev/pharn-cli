@@ -146,21 +146,33 @@ from the list. A value that is not a list of
 
 ## Example
 
+Written by `pharn` 0.21.0 from pharn-oss v7.22.0, in a project whose `package.json` has no
+dependencies (so the archetype is `lib`): `pharn init --yes`, then `pharn add n-plus-one`. The
+`models` stages and most capabilities are trimmed to `…`; the key order is the one `pharn` writes.
+
 ```json
 {
-  "pharnVersion": "0.4.0",
-  "skillsVersion": "3.0.2",
+  "pharnVersion": "0.21.0",
+  "skillsVersion": "7.22.0",
   "repo": "pharn-dev/pharn-oss",
-  "commit": "daa06788…",
-  "installedAt": "2026-06-11T00:00:00.000Z",
-  "archetypes": ["ssr", "backend"],
+  "commit": "9422b97f9bcef022d240822024e75a1a49c6e278",
+  "ref": "latest",
+  "installedAt": "2026-11-17T12:15:45.108Z",
+  "models": {
+    "stages": {
+      "default": { "model": "sonnet", "effort": "high" },
+      "spec": { "model": "opus", "effort": "high" },
+      "…": "…"
+    }
+  },
+  "archetypes": ["lib"],
   "capabilities": [
-    { "name": "a11y", "role": "griller", "source": "auto" },
-    { "name": "security", "role": "griller", "source": "auto" },
+    { "name": "architecture", "role": "griller", "source": "auto" },
+    { "name": "…", "role": "…", "source": "auto" },
+    { "name": "trust-fence", "role": "lens", "source": "auto" },
     { "name": "n-plus-one", "role": "lens", "source": "manual" }
   ],
-  "layout": "pharn",
-  "models": { "stages": { "…": "…" } }
+  "layout": "pharn"
 }
 ```
 
@@ -419,7 +431,9 @@ That value is read from your local config only — never fetched — and if the 
 does not carry a plain version string, the clause is omitted and the prompt is otherwise unchanged.
 
 `init` reaches that prompt only in an interactive terminal: off a TTY it exits **1** before fetching
-anything, and it deliberately has no `--yes`.
+anything. `init --yes` never answers it: it skips only the "Ready to install?" question, and with any
+conflicting path it exits **1** having written nothing (an existing `pharn.config.json` refuses before
+the download) — see [`--yes`](../commands/init.md#install-without-prompts---yes).
 
 For the files PHARN installs (as opposed to this config), `update` never overwrites one you have
 edited unless you pass `--force` — see the [update decision table](../commands/update.md#the-decision-table).

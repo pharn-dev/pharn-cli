@@ -40,6 +40,7 @@ What the latest release does; the [CHANGELOG](../CHANGELOG.md) says which versio
 | Framework-specific capabilities | Beyond today's universal + archetype-triggered set                                                                                                                      |
 | Stack scaffolding               | Install npm packages / generate app code for a detected framework                                                                                                       |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only requires a `.git` directory and hard-fails without one; it never inspects history and issues no warning) |
+| Permanent capability exclusion  | Keep a removed capability out of every later `update`, `universal` ones included (today `update` re-adds whatever your archetypes select)                               |
 | Other agents                    | Codex and Cursor in addition to Claude Code                                                                                                                             |
 
 ## Related

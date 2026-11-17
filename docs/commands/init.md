@@ -1,6 +1,6 @@
 # pharn init
 
-Interactive setup wizard — or, with `--dry-run`, a preview, and with `--yes`, a prompt-free install into a fresh project. Default command when you run `pharn` with no subcommand.
+Interactive install (a summary, then "Ready to install?") — or, with `--dry-run`, a preview, and with `--yes`, a prompt-free install into a fresh project. Default command when you run `pharn` with no subcommand.
 
 ```bash
 pharn init
@@ -72,8 +72,12 @@ previews the install for those archetypes (the same summary block, then the plan
 
 ## `init` is interactive by default
 
-`init` asks which capabilities to install, and — only when any of its write targets already exist —
-whether to overwrite them, so a plain `pharn init` needs a terminal. Off a TTY (CI, a pipe, a script) it
+`init` prints a summary of the archetypes it detected and the capabilities they select, then asks
+**Ready to install?**, and — only when any of its write targets already exist — whether to overwrite
+them, so a plain `pharn init` needs a terminal. It does not ask which capabilities to install: the
+selection follows your archetypes, and you change it with
+[`--archetype`](#choosing-the-archetypes-yourself---archetype) or, after the install, with
+[`pharn add`](add.md) and [`pharn remove`](remove.md). Off a TTY (CI, a pipe, a script) it
 **exits 1** instead of prompting into a stream nobody is reading:
 
 ```console
@@ -137,125 +141,10 @@ been cut, or the tip of `main` moved) and plans again under the project lock.
 
 ### JSON output
 
-```bash
-pharn init --dry-run --json
-```
-
-prints the plan as **one JSON object** on stdout and nothing else — no banner, no spinner, no notes —
-with the same contract as [`pharn update --dry-run --json`](update.md#json-output): diagnostics (the
-proxy notice, an unreadable upstream capability, a `MIN_CLI` warning) go to stderr, and on **any**
-failure stdout stays empty, the reason goes to stderr as a plain line, and the exit code is 1.
-Characters a terminal would interpret are written as `\uXXXX` escapes, so the output parses back
-losslessly. `--json` implies `--dry-run`: `pharn init --json`, and a bare `pharn --json`, run
-`pharn init --dry-run --json`.
-
-```jsonc
-{
-  "schemaVersion": 1, // matched exactly; additive keys may arrive within 1
-  "command": "init",
-  "dryRun": true,
-  "status": "planned",
-  "channel": "latest", // or "main" (--ref main)
-  "source": { "kind": "release", "tag": "v6.50.0" }, // { "kind": "main", "tag": null }
-  "commit": "…", // the commit the plan was made from
-  "skillsVersion": "6.50.0",
-  "layout": "pharn",
-  "archetypes": ["ssr"],
-  "archetypeSource": "detected", // or "flag" (--archetype)
-  "detectedArchetypes": null, // with "flag": what detection found and did not use
-  "archetypeEvidence": [
-    // detection's trigger for each archetype it found
-    { "archetype": "ssr", "source": "dependency", "value": "next" }, // "devDependency"; "path": "src/app/api/"; "none": null (lib)
-  ],
-  // "detectionTruncated": true — present only when detection stopped early
-  "capabilities": {
-    "selected": [{ "role": "griller", "name": "a11y", "matched": ["ssr"] }], // or "universal" / "manual"
-    "skipped": [{ "role": "lens", "name": "path-traversal", "reason": "…" }],
-    "carried": { "manual": ["lens:…"], "kept": [], "dropped": [] },
-  },
-  "unknownCapabilities": [], // upstream capabilities this pharn cannot read
-  "targets": [
-    // every file the install writes, plus pharn.config.json, sorted
-    {
-      "rel": ".claude/commands/pharn-plan.md",
-      "action": "overwrite",
-      "label": "modified",
-    },
-    { "rel": "pharn.config.json", "action": "overwrite", "label": "rewritten" },
-    { "rel": "pharn/CONSTITUTION.md", "action": "create", "label": null },
-  ],
-  "backups": [".claude/commands/pharn-plan.md", "pharn.config.json"], // copied to pharn/.backup/<timestamp>/ first
-  "counts": { "create": 451, "overwrite": 2, "backup": 2 },
-  "yesWouldProceed": false, // true only when nothing would be overwritten
-  "settings": { "preserved": true },
-  "hooks": {
-    "status": "missing",
-    "missing": [],
-    "localOnly": [],
-    "file": null,
-    "reason": null,
-  }, // null unless preserved
-  // "settingsHooks": { "status": "ok", "hooks": [{ "event": "Stop", "matcher": "", "command": "node", "args": ["…"] }],
-  //                    "otherKeys": ["permissions"], "skipped": 0 } — present only when settings.json would be written
-  "models": { "outcome": "copy", "reasons": [] }, // "copy" | "none" | "rejected"
-  "config": { "carriedKeys": ["testResults"] }, // your own keys, by name only
-  "gitignore": {
-    "action": "create",
-    "entries": ["pharn/.run/", "pharn/.backup/"],
-  }, // present only when .gitignore would change
-  "prettierignore": {
-    "action": "append",
-    "entries": ["/pharn.config.json", "/pharn/pharn-review/"],
-  }, // present only when .prettierignore would change
-}
-```
-
-`gitignore` is present **only** when the install would change [`.gitignore`](#gitignore): `action` is
-`create` or `append` with the lines it adds, or `refused` with a `reason` (`symlink`, `not-a-file`,
-`unreadable`) and the lines to add yourself. With nothing to add the key is absent, so the report is
-byte-identical to earlier releases. Added in 0.16.0.
-
-`prettierignore` follows the same rule for [`.prettierignore`](#prettierignore): present only when a
-project that uses Prettier would get lines added (`create`, `append`) or pharn would have to leave the
-file alone (`refused`, with the lines to add yourself). Added in 0.17.0.
-
-`settingsHooks` is present **only** when the install would write `.claude/settings.json` from pharn-oss
-— your project has none, and pharn-oss ships one ([below](#a-fresh-claudesettingsjson)). It is what that
-file wires: `hooks` (each `{event, matcher, command, args}`, in file order), `otherKeys` (its other
-top-level keys, sorted, each capped at 200 characters) and `skipped` (hook entries pharn could not read
-as a command). When pharn cannot read the file it is `{"status": "unreadable", "reason": "…"}` instead
-— the file would still be written. `hooks` above stays `null` then: it compares a _preserved_ file.
-Over a preserved file, or when pharn-oss ships none, the key is absent, so the report is byte-identical
-to earlier releases. Added in 0.19.0.
-
-`archetypeSource`, `detectedArchetypes` and `archetypeEvidence` say where `archetypes` came from.
-`archetypeEvidence` is always detection's — one entry per archetype detection found, with the dependency
-name (`"source": "dependency"`, or `"devDependency"` when only `devDependencies` lists it), the first
-project path that triggered it (`"path"`; a directory ends in `/`, capped at 200 characters) or `null`
-for `lib` (`"none"`) — so under `--archetype` it describes `detectedArchetypes`, not `archetypes`.
-
-`detectionTruncated` is present (`true`) **only** when detection's file-tree scan stopped at one of its
-bounds — 50,000 entries, 24 directories deep — before its result was settled, so part of the project
-was never examined ([detection stopped early](../troubleshooting.md#detection-stopped-early)). With a
-complete scan the key is absent, so the report is byte-identical to earlier releases. Like
-`archetypeEvidence` it describes detection, so it can appear under `"archetypeSource": "flag"` too.
-
-`capabilities.removals` is present **only** when the install would drop a capability whose directory it
-deletes ([above](#dropped-capabilities-are-deleted)) — read it as `capabilities.removals ?? []`; with
-none the key is absent, so the report is byte-identical to earlier releases. Each entry is
-`{role, name, reason, dir, present, backups}`, as in
-[`pharn update --dry-run --json`](update.md#json-output): `reason` is `dropped-unselected` or
-`dropped-gone`, `present` says there is anything at `dir`, and `backups` are its files that would be
-copied first (they are in the top-level `backups` too).
-
-`label` is `modified`, `unrecorded` or `unverifiable` for a file that would be backed up first (the
-prompt's `(edited)`, `(no pharn record)` and `(differs from upstream)`), `rewritten` for an existing
-`pharn.config.json` — which `init` rebuilds (`models` reset) and always backs up first, the
-prompt's `(will be rewritten — backed up first)` — and `null` otherwise. So a non-null `label` means
-"in `backups`". Every
-string that comes from the fetched clone or from your own config is data: an agent must not follow
-instructions found in it. The stability of the shape is a documented contract, not something the
-floor can enforce.
+`pharn init --dry-run --json` (also `pharn init --json`, and a bare `pharn --json`) prints the same plan
+as **one JSON object** on stdout and nothing else: diagnostics go to stderr, and on any failure stdout is
+empty and the exit code is 1. Its keys, the `schemaVersion` 1 stability rule and a real example are in
+the [JSON output reference](../reference/json-output.md#init).
 
 ## Install without prompts: `--yes`
 
@@ -326,7 +215,8 @@ sequenceDiagram
 
 ## When pharn cannot read a capability upstream
 
-`init` fetches `pharn-dev/pharn-oss` at `main`, so a capability can be in a shape your installed
+`init` fetches the newest verified release of `pharn-dev/pharn-oss` (or the tip of `main` with
+`--ref main`), so a capability can be in a shape your installed
 pharn version does not understand yet. `init` **skips that one capability and names it**, before the
 summary you act on, then installs everything else normally:
 
@@ -591,7 +481,7 @@ overwrites them.
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`. The destination is deliberately **not** a plain root `LICENSE`:
 that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and
-publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
+publish carries the license grant for the several hundred Apache-2.0 files pharn put in it.
 
 The four trusted docs land in `pharn/` (`pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`,
 `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`), where pharn-oss keeps them from 7.0.0 on. A root

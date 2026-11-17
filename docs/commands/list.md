@@ -51,8 +51,9 @@ Capabilities are grouped by role with a per-role count, one capability per line:
 A capability you installed by hand with [`pharn add`](add.md) is marked `(manual)` — it is preserved
 across [`pharn update`](update.md) rather than re-derived from your archetypes, unless upstream has
 removed the capability from the index (then `update` drops the entry and reports it). Automatically-selected
-capabilities, and entries written before the field existed, render unmarked; those legacy entries are
-inferred as manual on the next `update` and follow the same preserve-or-drop rule. See
+capabilities, and entries written before the field existed, render unmarked. The next `update` infers
+a legacy entry's source: one your archetypes still select becomes `auto`; one they do not select becomes
+`manual` and follows the same preserve-or-drop rule. See
 [`capabilities[].source`](../reference/pharn-config.md#capabilitiessource--selection-provenance).
 
 Nothing is ever written, fetched, or cloned — and `list` never takes the project lock, so it is safe to
@@ -61,26 +62,10 @@ run while an `init`/`add`/`remove`/`update` is in flight. To see what more you c
 
 ## JSON output
 
-`pharn list --json` prints a single JSON object and nothing else (no spinner, intro, or outro), suitable
-for scripting:
-
-```json
-{
-  "mode": "archetype",
-  "skillsVersion": "1.0.0",
-  "archetypes": ["ssr"],
-  "capabilities": [
-    { "name": "a11y", "role": "griller", "source": "auto" },
-    { "name": "n-plus-one", "role": "lens", "source": "manual" }
-  ]
-}
-```
-
-`source` is emitted when the config records it and **omitted** when it does not (an install predating
-the field) — it is never defaulted, because an absent value means the provenance is not yet known.
-
-Diagnostics (a missing config, or a pre-archetype config that is no longer supported) go to **stderr**,
-and the exit code is non-zero on failure — so stdout always parses cleanly.
+`pharn list --json` prints the inventory as **one JSON object** on stdout and nothing else; on failure
+stdout is empty, the reason goes to stderr and the exit code is 1. It is unversioned: it has no
+`schemaVersion`. Its keys and a real example are in the
+[JSON output reference](../reference/json-output.md#list).
 
 ## Related
 

@@ -52,7 +52,7 @@ A `MIN_CLI` that is missing, unreadable, or malformed imposes **no** constraint 
 
 ## Skipped upstream capabilities
 
-`add` clones the tip of upstream `main` (or the newest release, for an install that follows releases), so a
+`add` clones the newest verified release (or the tip of upstream `main`, for an install made with `--ref main`), so a
 capability can exist upstream in a shape your installed pharn version cannot read yet. `add` names each one and continues:
 
 ```text
@@ -66,8 +66,9 @@ Upgrade pharn, or wait for upstream to finish the change.
 
 ## Version mismatch
 
-`add` clones what your install follows — the tip of `pharn-dev/pharn-oss` `main`, or the newest
-verified release for a config that records `"ref": "latest"` (`add` has no `--ref` of its own) — so the clone
+`add` clones what your install follows — the newest verified release for a config that records
+`"ref": "latest"` (what `init` records by default), or the tip of `pharn-dev/pharn-oss` `main` for one
+that records no `ref` (an install made with `--ref main`; `add` has no `--ref` of its own) — so the clone
 can be **newer** than what you installed. Copying one capability from that clone and recording the clone's version would claim your
 whole install had moved to it, when every other file still holds the old version's bytes — and
 [`pharn status`](status.md) would then call a stale install current.
