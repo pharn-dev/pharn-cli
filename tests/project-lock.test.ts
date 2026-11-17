@@ -1036,7 +1036,9 @@ describe('withProjectLock — the pharn/ directory', () => {
 // takes `pharn/.lock` alone and leaves the root file as it found it.
 describe('withProjectLock — the legacy root .pharn.lock', () => {
   const tmp = useTmpDir();
-  const legacy = (dir: string): string => join(dir, '.pharn.lock');
+  // The root lock file pharn 0.13.0 and older take.
+  const LEGACY_LOCK_FILE = '.pharn.lock';
+  const legacy = (dir: string): string => join(dir, LEGACY_LOCK_FILE);
 
   function plantLegacy(dir: string, data: unknown, ageMs = 0): void {
     writeFileSync(legacy(dir), JSON.stringify(data));
@@ -1044,7 +1046,7 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
     utimesSync(legacy(dir), when, when);
   }
 
-  it('a LIVE root lock held by an old CLI is ignored: the run proceeds and leaves it', async () => {
+  it('a LIVE root lock held by an old CLI no longer refuses: it is ignored and left in place', async () => {
     const dir = tmp.path();
     plantLegacy(dir, {
       pid: process.pid,
@@ -1052,13 +1054,15 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
       command: 'update',
       startedAt: new Date().toISOString(),
     });
-    const before = readFileSync(legacy(dir), 'utf8');
     const fn = vi.fn();
-    await withProjectLock(dir, 'update', fn);
-    expect(fn).toHaveBeenCalledOnce();
-    expect(readFileSync(legacy(dir), 'utf8')).toBe(before);
-    expect(existsSync(join(dir, LOCK_DIR))).toBe(false);
+    const err = await withProjectLock(dir, 'update', fn).catch((e: Error) => e);
+    expect(err).not.toBeInstanceOf(ProjectLockedError);
+    expect((err as Error | undefined)?.message ?? '').not.toContain(
+      `delete ${LEGACY_LOCK_FILE}`,
+    );
+    expect(fn).toHaveBeenCalled();
     expect(existsSync(legacy(dir))).toBe(true);
+    expect(existsSync(join(dir, LOCK_DIR))).toBe(false);
   });
 
   it('a STALE root lock (a crashed old run) and its corpse-named neighbours are left untouched', async () => {

@@ -30,6 +30,7 @@
   hint table (the `.pharn` → `pharn/.run/` hint stays until root-migration retires in v0.22.0) — layer core
 - `tests/root-migration.test.ts` — the hint test asserts the two old names are no longer hinted — tests
 - `README.md` — the `.gitignore` sentence names only `.pharn/` (CORE-186's lane; required for P4) — docs
+- `tests/commands/init-dry-run.test.ts` — `init --dry-run` prints no `.pharn-backup/` notice (exercises `src/commands/init.ts`; added after pharn-ci warned TESTS_NOT_EXERCISING_CHANGES) — tests
 - `docs/troubleshooting.md` — drop the `.pharn-backup/` reminder paragraph, the "lock moved in 0.14.0"
   one-release paragraph and the root corpse-directory sentence; say leftovers are no longer read and
   may be deleted; fix the manual-uninstall step — docs
