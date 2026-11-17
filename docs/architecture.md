@@ -283,8 +283,8 @@ Strictly read-only.
   not read the records; only `update` can tell an upgrade from a skip.
 - **Hooks** (`lib/hook-wiring.ts`): upstream's hook entries against the project's `settings.json` ∪
   `settings.local.json`.
-- A recorded layout that differs from the clone's prints a `LAYOUT` note instead of drift.
 - `--no-drift` skips the clone. `--strict` exits 1 on an outdated, modified, missing, unreadable or
-  not-shipped-upstream finding, a layout mismatch, or an unwired hook. Orphans and the `MODELS` and `PRETTIER` notes
+  not-shipped-upstream finding, or an unwired hook (`strictFails`; the user-facing list is
+  [`status`'s Strict conditions](commands/status.md#strict-conditions)). Orphans and the `MODELS` and `PRETTIER` notes
   are advisory.
 - `--json` prints one object (`schemaVersion: 1`) through `serializeStatusReport`.

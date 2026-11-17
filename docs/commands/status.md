@@ -6,7 +6,7 @@ from upstream?
 ```bash
 pharn status
 pharn status --no-drift   # version check only (skips the clone)
-pharn status --strict     # exit 1 if outdated, differing, missing, unreadable, not shipped upstream, or a hook is unwired (for CI)
+pharn status --strict     # exit 1 on any strict condition (for CI): see "Strict conditions" below
 pharn status --json       # one machine-readable report on stdout (for scripts, CI and agents)
 ```
 
@@ -149,8 +149,9 @@ current and intact.
 
 `pharn status --json` prints the same report as **one JSON object** on stdout and nothing else, on the
 default path and under `--no-drift`. Exit codes match text mode: `--strict` still prints the report, and
-its `strict.failed` says whether it exits 1. Its keys, the `schemaVersion` 1 stability rule and a real
-example are in the [JSON output reference](../reference/json-output.md#status).
+its `strict.failed` says whether it exits 1, on exactly the [strict conditions](#strict-conditions). Its
+keys, the `schemaVersion` 1 stability rule and a real example are in the
+[JSON output reference](../reference/json-output.md#status).
 
 ## What is intentionally excluded
 
@@ -162,7 +163,8 @@ project. The `HOOKS` section works like this:
 
 - **Missing.** It names every hook the upstream `settings.json` wires that neither project file does.
   Extra hooks of your own never count, and matching is textual. `--strict` exits `1` while any is
-  missing, or while a project settings file cannot be read.
+  missing, while a project settings file cannot be read, or while neither project settings file
+  exists (see [Strict conditions](#strict-conditions)).
 - **Replace, not add.** If a project file already wires the same `.claude/hooks/` script under the
   same event and matcher in another spelling (say, the relative `node .claude/hooks/x.cjs` where
   upstream anchors it on `${CLAUDE_PROJECT_DIR}`), the hook is listed under `REPLACE`, with your
@@ -185,9 +187,47 @@ project. The `HOOKS` section works like this:
 ## Exit code
 
 Exits `0` by default, even when drift or an available update is found (it is a report) — including when
-a path is unreadable. Pass `--strict` to exit `1` whenever anything is outdated, differing, missing,
-unreadable, or not shipped upstream, or an upstream hook is wired in
-neither `.claude/settings.json` nor `.claude/settings.local.json` — useful as a CI gate.
+a path is unreadable. Pass `--strict` to exit `1` on any of the [strict conditions](#strict-conditions)
+below — useful as a CI gate.
+
+### Strict conditions
+
+This is the one list of what fails `--strict`. `pharn status --help`, the
+[exit-code table](../troubleshooting.md#exit-codes) and the `--json` report's `strict.failed` mean
+exactly this. `--strict` exits `1` when any of these holds:
+
+1. **Outdated.** Your `skillsVersion` differs from the `SKILLS_VERSION` of the source the install
+   follows, and is not ahead of it. An install **ahead** of its source is not outdated (see
+   [Behavior](#behavior)).
+2. **Differs.** A PHARN-owned file on disk whose content differs from upstream's (line endings in text
+   files are ignored).
+3. **Missing.** A file your recorded capabilities or the fixed product surfaces should contribute is not
+   on disk.
+4. **Unreadable.** An expected path that cannot be compared: a symlink, a file under a symlinked parent,
+   a directory or another non-regular file, an unreadable file.
+5. **Not shipped upstream.** A product surface the install declares for which the fetched clone ships
+   no file at all.
+6. **Unwired hook.** The upstream `.claude/settings.json` wires hooks (when it wires none, this
+   condition never holds), and one of:
+   - one of those hooks is wired in neither `.claude/settings.json` nor `.claude/settings.local.json`;
+   - either of those two files cannot be read (it could wire anything, so the answer is unknown);
+   - neither file exists.
+
+Under `--no-drift` only condition 1 is checked: there is no clone to compare conditions 2 to 6 against.
+
+These are reported and **never** fail `--strict`:
+
+- [orphaned files](#orphaned-files), in any group;
+- the [`PRETTIER`](#prettier) note;
+- the `NODE` mismatch (a Node older than the floor, or one whose version cannot be read);
+- the `MODELS` note's REDs (a `models` block pharn-oss's rules reject);
+- a hook wired **only** in `.claude/settings.local.json`, and extra hooks of your own;
+- an install ahead of the source it follows, and the channel or release line;
+- an installed capability this `pharn` cannot read in the fetched clone (an unknown `role` or `applies`,
+  or a name that fails the allowlist): it is warned about as SKIPPED and left out of the comparison;
+- the layout: there is no `LAYOUT` note. An install recorded at the removed `flat` layout is refused
+  before any report (exit `1` with or without `--strict`, [Behavior](#behavior) step 7), a failure and
+  not a finding.
 
 `--strict` governs **findings**, not failures. `status` still exits `1` without it when it cannot
 produce a report at all: no `pharn.config.json` (or a pre-archetype one), a clone it cannot fetch, or

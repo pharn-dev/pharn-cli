@@ -620,8 +620,25 @@ describe('parseCliArgs: --version and --help', () => {
 
   it('describes an option on its command page without the command prefix', () => {
     const page = printed(['status', '--help']);
-    expect(page).toMatch(/--strict +exit 1 on any outdated/);
+    expect(page).toMatch(/--strict +exit 1 on an outdated install/);
     expect(page).not.toMatch(/status: /);
+  });
+
+  it('names every condition `strictFails` checks on the `--strict` line', () => {
+    // strictFails (lib/status-report.ts): outdated, modified/missing/unreadable
+    // files, a surface upstream no longer ships, an unwired hook.
+    const help = printed(['status', '--help']).replace(/\s+/g, ' ');
+    for (const condition of [
+      'outdated',
+      'modified',
+      'missing',
+      'unreadable',
+      'upstream no longer ships',
+      'unwired hook',
+      'under --no-drift, only outdated',
+    ]) {
+      expect(help, condition).toContain(condition);
+    }
   });
 
   it('shows only the use of a shared option that belongs to the command', () => {

@@ -14,7 +14,7 @@
 | Unknown option, an option the command does not take, or an unexpected extra argument                    | 1         |
 | A value on an on/off option (`--json=false`), or `--ref` / `--archetype` given twice                    | 1         |
 | `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1         |
-| `status --strict` found anything outdated, modified, missing or unreadable                              | 1         |
+| `status --strict` found a [strict condition](commands/status.md#strict-conditions)                      | 1         |
 | `init` or `update` run without an interactive terminal (and `add`/`remove` with no name)                | 1         |
 | `init --yes` in a project where a file it would write already exists (nothing written)                  | 1         |
 | `init --dry-run` printed its plan (nothing was written)                                                 | 0         |

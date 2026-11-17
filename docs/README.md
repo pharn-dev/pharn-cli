@@ -18,7 +18,7 @@ The CLI version (`pharn --version`) and the content version it installs (`skills
 - [uninstall](commands/uninstall.md) — remove PHARN, deleting only the files `pharn` wrote and you did not change
 - [update](commands/update.md) — re-fetch installed capabilities at the latest skills version
 - [list](commands/list.md) — list installed archetypes + capabilities
-- [status](commands/status.md) — read-only version + local-drift check; `--strict` exits 1 on any outdated/modified/missing/unreadable file, and neither `status` nor `list` is ever blocked by another `pharn` run's lock
+- [status](commands/status.md) — read-only version + local-drift check; `--strict` exits 1 on an outdated install, a modified, missing or unreadable file, a surface upstream no longer ships, or an unwired hook ([the full list](commands/status.md#strict-conditions)), and neither `status` nor `list` is ever blocked by another `pharn` run's lock
 
 ## Reference
 
