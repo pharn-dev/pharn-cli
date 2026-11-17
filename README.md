@@ -141,7 +141,8 @@ catalog.
 
 The current upstream install layout places most runtime surfaces under `pharn/`
 and Claude Code integration under `.claude/`. Older flat-layout installs are
-still understood through the recorded `layout` field.
+still understood through the recorded `layout` field; that layout is deprecated
+in v0.20.0 and removed in v0.22.0, and a plain `pharn update` moves you off it.
 
 ## What gets installed
 
@@ -435,6 +436,12 @@ PHARN is intentionally scoped:
 - `status` reports modified, missing, and unreadable PHARN-owned paths, and
   the files upstream stopped shipping that are still in your project
   (orphans). Nothing deletes an orphan; that is yours to do by hand.
+- **Supported installs: the current minor and the previous one.** v0.20.x
+  works with installs made by 0.19.x or 0.20.x; re-run `pharn init` on an older
+  install, and it keeps the capabilities you added.
+  `--json` reports stay additive within `schemaVersion: 1`. Compatibility code
+  for older installs is removed on a named version: see the
+  [support policy](docs/support-policy.md).
 
 See the [roadmap](docs/roadmap.md) for shipped versus planned work.
 
@@ -446,6 +453,7 @@ Start here: [docs/](docs/README.md)
 - [Command reference](docs/README.md#commands)
 - [pharn.config.json](docs/reference/pharn-config.md)
 - [pharn.records.json](docs/reference/pharn-records.md)
+- [Support policy](docs/support-policy.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Roadmap](docs/roadmap.md)
 
