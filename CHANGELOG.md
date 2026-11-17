@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-11-17
+
 ### Added
 
 - **A `pharn` older than the one that last wrote `pharn.config.json` now warns, and still goes ahead.** The config records `pharnVersion`; when your `pharn` is older at major.minor (0.19.x against a config written by 0.20.x, say), `init` over an existing install, `add`, `remove`, `update` and `uninstall` print one line on stderr naming both versions and saying to upgrade (`npm install -g @pharn-dev/pharn@latest`) so teammates on different versions don't undo each other's changes, then carry on as before: nothing is refused and exit codes are unchanged. `pharn status` and every `--dry-run` print it too. It is never on stdout, so every `--json` report is byte-identical. A patch or prerelease difference, or a missing or malformed `pharnVersion`, does not warn. Only a `pharn` with this check can warn: 0.19.x and older never do ([support policy](docs/support-policy.md#teammates-on-different-pharn-versions)).
@@ -465,7 +467,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.5...v0.19.0
 [0.18.5]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.4...v0.18.5
 [0.18.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.3...v0.18.4
