@@ -74,8 +74,10 @@ install's channel offers NOW — the newest verified release for an install that
 a config recorded at the `flat` layout, removed in v0.21.0, is refused at load). An upstream
 **rename** lands at two levels: a renamed **capability** surfaces in `update`'s membership report as
 `dropped-gone` / `added` (`mergeCapabilities`, `src/lib/merge-capabilities.ts`), while a renamed **file inside** a
-capability is restored at its new path and the old copy is left on disk — `update` never deletes
-(`src/commands/update.ts:452`).
+capability is restored at its new path and the old copy is left on disk as an orphan — `update`
+deletes only the directory of a capability it drops (`deleteCapabilityDir`,
+`src/lib/capability-dir.ts`), never a file inside one it keeps (every delete:
+`docs/reference/deletes.md`).
 
 - **Struck claim:** "`remove`/`update` always know exactly what the pinned version installed."
 - **True statement:** `update`/`status` reconstruct from the **current** upstream, so a capability
@@ -84,8 +86,8 @@ capability is restored at its new path and the old copy is left on disk — `upd
   (`deleteCapabilityDir`, `src/lib/capability-dir.ts`) and pruning that capability's entries from
   `pharn.records.json` (`pruneCapabilityRecords`, `src/commands/remove.ts`).
 - **Backstop:** every one of those paths is `safeJoin`-contained. Two residuals remain named: a file
-  **orphaned by an upstream rename** — `update` restores the new path, leaves the old one, and reports
-  nothing, bounded to the install subtree and visible to `pharn status`; and `remove`'s delete takes the
+  **orphaned by an upstream rename** — `update` restores the new path, leaves the old one, and names it
+  in its `ORPHANED` note (as `pharn status` does), bounded to the install subtree; and `remove`'s delete takes the
   **whole directory** at that address, including files you added inside it.
 
 ---
