@@ -13,7 +13,7 @@ import {
   ROLE_VALUES,
   VERSION_RE,
 } from './validate.js';
-import type { PharnConfig } from '../types.js';
+import type { LegacyConfigFields, PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
 
@@ -223,7 +223,9 @@ export function configPath(cwd: string): string {
 }
 
 /**
- * Every top-level key this CLI OWNS: exactly the keys `PharnConfig` declares.
+ * Every top-level key this CLI OWNS: exactly the keys `PharnConfig` declares,
+ * plus the `LegacyConfigFields` older CLIs wrote (so a re-run init drops them
+ * rather than carrying them over as the user's).
  * `models` is pharn's to WRITE but pharn-oss's to define, so a re-run init
  * replaces it rather than carrying a stale one. The one declared key NOT here is
  * `seam`: pharn-oss owns it, so it is carried like any user key.
@@ -241,18 +243,22 @@ const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
     repo: true,
     commit: true,
     ref: true,
-    constitution: true,
-    isMultiTenant: true,
     modules: true,
     installedAt: true,
     updatedAt: true,
     models: true,
-    stackAnswers: true,
-    installedSkills: true,
     archetypes: true,
     capabilities: true,
     layout: true,
-  } satisfies Record<Exclude<keyof PharnConfig, 'seam'>, true>),
+    // LEGACY (LegacyConfigFields): remove in v0.21.0, with the type.
+    constitution: true,
+    isMultiTenant: true,
+    stackAnswers: true,
+    installedSkills: true,
+  } satisfies Record<
+    Exclude<keyof PharnConfig, 'seam'> | keyof LegacyConfigFields,
+    true
+  >),
 );
 
 /**
@@ -312,7 +318,8 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // `modules` array (a pre-archetype config, so it still reaches
   // LEGACY_CONFIG_MESSAGE) OR a `capabilities` key of any value (an archetype
   // config; a non-array one reaches validateCapabilityEntries' named error).
-  // `init` still WRITES `modules: []` (see `PharnConfig.modules`).
+  // `init` still WRITES `modules: []` for 0.19.x until v0.21.0 (see
+  // `PharnConfig.modules`).
   if (
     typeof raw.skillsVersion !== 'string' ||
     (!Array.isArray(raw.modules) && raw.capabilities === undefined)

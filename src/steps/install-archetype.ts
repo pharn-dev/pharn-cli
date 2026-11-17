@@ -260,9 +260,9 @@ export async function runInstallArchetype(
     repo: REPO_URL.replace(/^github\.com\//, ''),
     commit,
     ...(carry.ref === 'latest' ? { ref: 'latest' as const } : {}),
-    // The empty `modules` key is still written: every released CLI
-    // (0.3.0–0.19.x) reads a config without a `modules` array as NO config. See
-    // `PharnConfig.modules`.
+    // SHIM: written for 0.19.x, whose guard needs it (it reads a config without
+    // a `modules` array as NO config); stop writing in v0.21.0 (support policy:
+    // current + previous minor). See `PharnConfig.modules`.
     modules: [],
     installedAt: new Date().toISOString(),
     // `undefined` is not written.
