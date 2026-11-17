@@ -6,6 +6,7 @@ import { parseCapabilityArg } from '../lib/capability-address.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
 import { minCliGate } from '../lib/min-cli-gate.js';
+import { warnIfOlderCli } from '../lib/older-cli.js';
 import { PHARN_VERSION } from '../version.js';
 import {
   resolveAddPicker,
@@ -67,6 +68,7 @@ export async function runAdd(capabilityArg: string | undefined): Promise<void> {
       // Taken BEFORE the read: checked again before the first write.
       const fingerprint = configFingerprint(cwd);
       const config = loadArchetypeConfig(cwd);
+      warnIfOlderCli(config);
       return runArchetypeAdd(config, cwd, capabilityArg, fingerprint);
     });
   } catch (err) {

@@ -36,6 +36,7 @@ import {
 } from '../lib/report-error.js';
 import { serializeJsonReport } from '../lib/json-report.js';
 import { buildUpdateReport, type UpdateStatus } from '../lib/update-report.js';
+import { warnIfOlderCli } from '../lib/older-cli.js';
 import { ProjectLockedError, withProjectLock } from '../lib/project-lock.js';
 import { REPO_URL } from '../lib/constants.js';
 import { interactiveAllowed } from '../lib/capability-picker.js';
@@ -154,6 +155,8 @@ async function updateProject(
   // after the confirm and before the first write.
   const fingerprint = configFingerprint(cwd);
   const config = loadArchetypeConfig(cwd, { json });
+  // A dry run (no lock) warns too: it previews what this older CLI would do.
+  warnIfOlderCli(config, { json });
 
   // Non-TTY (CI, a pipe) → hard-fail before any network call, never a prompt
   // into the void: the confirm would cancel on stream end with exit 0, a

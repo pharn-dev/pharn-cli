@@ -127,7 +127,8 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   `update-next` (next state); `update-render` (notes), `update-report` (`--json`), `executable-unit`,
   `orphans`, `root-migration`, `capability-removal`/`capability-dir`.
 - Records and backups: `install-records`, `hash`, `dest-drift`, `backup`, `removal-backup`, `uninstall-plan`.
-- Config: `pharn-config` (read/write/validate), `model-config` (pinned checker copy), `model-config-format`, `models-update`.
+- Config: `pharn-config` (read/write/validate), `model-config` (pinned checker copy), `model-config-format`, `models-update`,
+  `older-cli` (the warning when this CLI is older than the config's `pharnVersion`).
 - Safety: `validate`, `symlink-guard`, `terminal-safe`, `bounded-read`, `atomic-write`, `project-lock`, `deadline`, `fatal-signal`.
 - Reporting: `status-report`, `json-report` (the one serializer), `diff` (drift), `hook-wiring`, `cli-error`, `report-error`, `format`, `color`.
 - Project files: `gitignore`, `prettierignore`, `ignore-file`; proxy: `proxy-env`, `proxy-env-format`.
@@ -135,7 +136,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 ## Testing
 
 - Vitest, node env. Lib tests are `tests/*.test.ts`; command suites are `tests/commands/` (`init`, `init-dry-run`, `add`,
-  `remove`, `update`, `update-dry-run`, `status`, `list`, `uninstall`, `lock`, `clone-cleanup`). Update the test first.
+  `remove`, `update`, `update-dry-run`, `status`, `list`, `uninstall`, `lock`, `clone-cleanup`, `older-cli`). Update the test first.
 - A command suite runs the real `run<Command>()` on a temp project via `tests/support/harness.ts`. Only two boundaries
   are replaced: global `fetch`, which serves a real codeload tarball (`tests/support/tar-fixture.ts`), and
   `@clack/prompts` (`tests/support/clack-stub.ts`), where an unscripted prompt throws.

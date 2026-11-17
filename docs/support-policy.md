@@ -14,7 +14,7 @@ Re-run `pharn init` with the current CLI (`npx @pharn-dev/pharn@latest init`). I
 
 ## Teammates on different `pharn` versions
 
-`pharn.config.json` records `pharnVersion`, the `pharn` that last wrote it. A `pharn` older than that version's major.minor will **warn** before it writes, and still go ahead. **Coming soon** ([roadmap](roadmap.md#planned)): today no command checks it. Until then, and for any `pharn` released before the check, pin the same version across the team, for example as a `devDependency`.
+`pharn.config.json` records `pharnVersion`, the `pharn` that last wrote it. A `pharn` older than that version's major.minor **warns** before it writes, and still goes ahead: `init` over an existing install, `add`, `remove`, `update` and `uninstall` print one line on stderr naming both versions and how to upgrade, and `pharn status` and every `--dry-run` print it too (a `--json` report is unchanged). A patch or prerelease difference does not warn. `pharn` 0.19.x and older do not check it, so if anyone on the team may run one, pin the same version across the team, for example as a `devDependency` ([troubleshooting](troubleshooting.md#pharnconfigjson-was-written-by-a-newer-pharn)).
 
 ## `--json` output
 

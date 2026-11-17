@@ -466,6 +466,22 @@ export function logs(level: 'info' | 'warn' | 'error' | 'success'): string[] {
     text([(args as unknown[])[0]]),
   );
 }
+/**
+ * The older-CLI warnings (lib/older-cli.ts) a run printed on STDERR: clack
+ * warnings sent to stderr, and plain stderr lines. One on stdout never counts.
+ */
+export function olderCliWarnings(): string[] {
+  const viaClack = (clack.log.warn as unknown as Mock).mock.calls
+    .filter((args) => {
+      const options = (args as unknown[])[1] as
+        { output?: unknown } | undefined;
+      return options?.output === process.stderr;
+    })
+    .map((args) => text([(args as unknown[])[0]]));
+  return [...viaClack, ...stderrLines].filter((line) =>
+    line.includes('pharn.config.json was written by pharn '),
+  );
+}
 /** The last outro, colour stripped. */
 export const lastOutro = (): string =>
   text((vi.mocked(clack.outro).mock.calls.at(-1) ?? []) as unknown[]);
