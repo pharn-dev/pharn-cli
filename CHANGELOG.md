@@ -14,6 +14,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 - **`pharn --help` no longer says each option belongs to one command.** `--json`, `--yes`, `--ref` and `--dry-run` are taken by several, as the lines below the header already showed. The header now reads "Options (each names the commands that take it; any other command refuses it):".
 - **`pharn status --help` now names every condition `--strict` fails on.** The `--strict` line said "exit 1 on any outdated/modified/missing file"; it now reads "exit 1 on an outdated install, a modified, missing or unreadable file, a surface upstream no longer ships, or an unwired hook (under --no-drift, only outdated is checked)", on both `pharn --help` and `pharn status --help`. What `--strict` checks is unchanged. The one full list, including what is never a `--strict` input (orphans, the `PRETTIER`, `NODE` and `MODELS` notes, a hook wired only in `settings.local.json`), is the new "Strict conditions" section of `docs/commands/status.md`, and `docs/README.md`, the troubleshooting exit-code table, the `status --json` summary and the JSON output reference link to it.
 
+### Fixed
+
+- **The `ORPHANED` note no longer says "pharn never deletes them".** `pharn uninstall` deletes an orphan that still equals its record, so `pharn update` and `pharn status` now print "`pharn update` never deletes them" instead. Every delete a `pharn` command makes, the check behind each, and what is never deleted are now listed on one page, [What PHARN deletes](docs/reference/deletes.md), which the command pages link to.
+
 ## [0.21.0] — 2026-11-17
 
 ### Changed

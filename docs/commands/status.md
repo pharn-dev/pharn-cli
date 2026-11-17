@@ -123,8 +123,8 @@ its drift section compares against the older source.
 On the drift path, `status` also lists the files `pharn` recorded writing that upstream no longer
 ships but that are still in your project — the same `ORPHANED` note, grouped `UNCHANGED` / `EDITED` /
 `UNREADABLE`, that `pharn update` prints (see [update](update.md#orphaned-files) for what each group
-means and what is never listed). `pharn update` never deletes them; delete the ones you no longer need
-by hand.
+means and what is never listed). `pharn update` never deletes them
+([What PHARN deletes](../reference/deletes.md)); delete the ones you no longer need by hand.
 
 It needs a usable [`pharn.records.json`](../reference/pharn-records.md) — present and valid (its
 `skillsVersion`/`commit` stamp does not matter). Without one, nothing is listed. A root
@@ -132,8 +132,9 @@ It needs a usable [`pharn.records.json`](../reference/pharn-records.md) — pres
 copies of a `flat` install after a re-run `pharn init`, are listed here like any other leftover.
 
 Orphans are **not** a `--strict` input. `--strict` asks whether your install is current and intact. An
-orphan is a leftover file beside it, and no `pharn` command can clear one — `update` never deletes — so
-a red CI would wait on a manual delete for a file that changes nothing about the install.
+orphan is a leftover file beside it that `update` never deletes (see
+[What PHARN deletes](../reference/deletes.md)), so a red CI would wait on a manual delete for a file
+that changes nothing about the install.
 
 ## Prettier
 

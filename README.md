@@ -194,7 +194,8 @@ deletes or mentions a root `memory-bank/` or `pharn.spec-template.md` (nothing
 proves they are PHARN's): move them yourself to `pharn/memory-bank/` and
 `pharn/spec-template.md` (`git mv`), or merge by hand when the `pharn/` copy
 already exists — see
-[update](docs/commands/update.md#the-root-footprint-migration).
+[update](docs/commands/update.md#the-root-footprint-migration) and
+[What PHARN deletes](docs/reference/deletes.md).
 
 **Two version numbers, on purpose.** The npm package `@pharn-dev/pharn` carries
 the installer's version. The content it installs carries its own,
@@ -306,7 +307,7 @@ Two commands sit outside the pipeline:
 | `pharn update`              | Re-fetch and apply the latest PHARN content using drift-safe per-file decisions. `--force` overwrites files you changed; `--yes`/`-y` skips the confirmation prompt; `--dry-run` prints what it would do and writes nothing (add `--json` for the plan as one machine-readable object, and `--compact` to leave the unchanged files out of it). |
 | `pharn list`                | Show installed archetypes and capabilities. Use `--json` for machine-readable output.                                                                                                                                                                                                                                                           |
 | `pharn status`              | Read-only version and drift report. Use `--strict` to make drift fail CI, `--no-drift` to skip byte comparison, or `--json` for one machine-readable report.                                                                                                                                                                                    |
-| `pharn uninstall`           | Remove PHARN: deletes only the files `pharn` recorded and you did not change, then `pharn.records.json` and `pharn.config.json` (backed up first). Never touches `.claude/settings.json` or `pharn/.backup/`. `--yes`/`-y` skips the confirmation prompt.                                                                                       |
+| `pharn uninstall`           | Remove PHARN: deletes only the files `pharn` recorded and you did not change, then `pharn.records.json` and `pharn.config.json` (backed up first). Never touches `pharn/.backup/` or a `.claude/settings.json` it did not create. `--yes`/`-y` skips the confirmation prompt.                                                                   |
 | `pharn --help`              | Show every command, option and environment variable. `pharn <command> --help` shows one command and only the options it takes.                                                                                                                                                                                                                  |
 | `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                                                                                 |
 
@@ -369,11 +370,12 @@ PHARN is intentionally conservative about writes:
   and refuses the whole install — writing nothing — when a destination path
   crosses a symlinked directory.
 - `update` uses `pharn.records.json` to skip files it cannot prove are
-  untouched. The only thing it deletes is the directory of a capability it
+  untouched. In your project it deletes only the directory of a capability it
   drops from `pharn.config.json` (PHARN runs whatever capability directories
   are on disk), after backing up any file in it that `pharn` cannot prove it
   wrote; it never touches `.claude/settings.json`. A re-run `init` does the
-  same, after listing those directories in its prompt.
+  same, after listing those directories in its prompt. Every delete, and what
+  is never deleted: [What PHARN deletes](docs/reference/deletes.md).
 - `update --force` backs up overwritten files under `pharn/.backup/<timestamp>/`
   before writing. `add` does the same for any destination file that differs from
   upstream, and refuses the whole install — writing nothing — when a destination
@@ -441,7 +443,9 @@ PHARN is intentionally scoped:
   activities a structured record and repeatable workflow.
 - `status` reports modified, missing, and unreadable PHARN-owned paths, and
   the files upstream stopped shipping that are still in your project
-  (orphans). Nothing deletes an orphan; that is yours to do by hand.
+  (orphans). `update` never deletes an orphan; delete it by hand
+  (`pharn uninstall` removes the unchanged ones — see
+  [What PHARN deletes](docs/reference/deletes.md)).
 - **Supported installs: the current minor and the previous one.** v0.20.x
   works with installs made by 0.19.x or 0.20.x; re-run `pharn init` on an older
   install, and it keeps the capabilities you added.

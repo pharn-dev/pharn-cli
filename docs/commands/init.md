@@ -431,7 +431,8 @@ not install again: one you added by hand that upstream no longer ships, an autom
 your archetypes no longer select, and a legacy entry (written before `source` existed) they no longer
 select. Each is **named** before the summary. PHARN's commands run every capability **directory** on
 disk, not what the config lists, so `init` also **deletes that directory** — the same treatment
-[`pharn update`](update.md#dropped-capabilities-are-deleted) gives the capabilities it drops:
+[`pharn update`](update.md#dropped-capabilities-are-deleted) gives the capabilities it drops (every
+delete `pharn` makes is listed in [What PHARN deletes](../reference/deletes.md)):
 
 - **Listed first.** The overwrite prompt lists each directory under "will be DELETED", with how many of
   its files would be backed up, and asks (default No) even when nothing would be overwritten. Declining

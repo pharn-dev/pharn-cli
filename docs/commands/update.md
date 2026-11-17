@@ -223,9 +223,10 @@ inside the project lock, the way [`pharn remove`](remove.md) does:
   `pharn update --dry-run` lists the same directories under `WOULD DELETE` (and
   `plan.capabilities.removals` under `--json`) without asking.
 
-This is the **only** thing `update` deletes. It never deletes a file upstream stops shipping inside a
-capability it keeps, a tree left behind by a layout change, or anything else, and it never touches
-`.claude/settings.json`. Directories that an older `pharn` left behind when it dropped a capability
+Apart from its own lock and download, that directory is all `update` deletes: not a file upstream stops
+shipping inside a capability it keeps, not the old top-level copies of a `flat` install, and never
+`.claude/settings.json`. Every delete `pharn` makes, and what it never deletes, is listed in
+[What PHARN deletes](../reference/deletes.md). Directories that an older `pharn` left behind when it dropped a capability
 (it removed only the config entry) have no config entry, so `update` cannot find
 them: `pharn list` does not show them, but PHARN still runs them. Delete them by hand. A re-run
 [`pharn init`](init.md#dropped-capabilities-are-deleted) deletes the directories of the capabilities it
@@ -403,15 +404,15 @@ until you revert the edit or use `--force`.
 ## Orphaned files
 
 When upstream stops shipping a file `pharn` installed — a `pharn-*` command, a hook, a floor checker, a
-trusted doc, or one file inside a capability you still have — `update` leaves it on disk: the only thing
-it deletes is a dropped capability's directory. Such a file is an **orphan**: `pharn.records.json` says `pharn` wrote it, it is no longer
+trusted doc, or one file inside a capability you still have — `update` leaves it on disk (see
+[What PHARN deletes](../reference/deletes.md)). Such a file is an **orphan**: `pharn.records.json` says `pharn` wrote it, it is no longer
 part of your install, and it is still there. A leftover `.claude/commands/pharn-*.md` is still a live
 slash command, and a leftover hook or checker still runs if anything calls it, so `update` names every
 orphan in an `ORPHANED` note:
 
 ```text
-  Upstream no longer ships these files pharn installed. pharn never deletes
-  them, and keeps listing each one until it is gone.
+  Upstream no longer ships these files pharn installed. `pharn update` never
+  deletes them, and keeps listing each one until it is gone.
 
   UNCHANGED — unchanged since pharn wrote it
   .claude/commands/pharn-old.md

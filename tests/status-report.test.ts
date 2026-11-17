@@ -459,7 +459,7 @@ describe('buildStatusReport', () => {
         buildStatusReport(input({ drift: moved, strict: false })).strict,
       ).toEqual({ enabled: false, failed: false });
     });
-    // Orphans are leftovers no pharn command can clear (update never deletes):
+    // Orphans are leftovers `update` never deletes (docs/reference/deletes.md):
     // reported, never a --strict input.
     it('is not failed by orphans', () => {
       const drift = {
