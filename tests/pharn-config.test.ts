@@ -1133,6 +1133,11 @@ describe('legacy fields (LegacyConfigFields)', () => {
     expectTypeOf<LegacyConfigFields>().toHaveProperty('constitution');
   });
 
+  it('add no runtime value: src/types.ts still exports types only', async () => {
+    const types: object = await import('../src/types.js');
+    expect(Object.keys(types)).toEqual([]);
+  });
+
   it('are pharn-owned: userOwnedConfigEntries leaves them (and modules) out', () => {
     const raw = {
       ...LEGACY,

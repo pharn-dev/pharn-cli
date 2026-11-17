@@ -366,8 +366,9 @@ is rewritten too, but the entries you added with `pharn add` are kept as `manual
 
 ## Fields older CLIs wrote
 
-The schema is **additive** (P7): a `pharn.config.json` written by an older, module-based CLI still loads,
-and its now-unused fields are preserved on read. They are still pharn's fields, though, so a re-run
+The schema is **additive within the [support window](../support-policy.md)** (P7): a
+`pharn.config.json` written by an older, module-based CLI still loads, and its now-unused fields are
+preserved on read. They are still pharn's fields, though, so a re-run
 `pharn init` drops them rather than [carrying them over](#keys-pharn-does-not-own). They are not part of
 the archetype config's fields above, and pharn plans to stop handling them in v0.21.0.
 
