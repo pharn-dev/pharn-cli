@@ -32,6 +32,7 @@ import {
   writePharnConfig,
   isArchetypeConfig,
   configPath,
+  LEGACY_CONFIG_KEYS,
   LEGACY_CONFIG_MESSAGE,
   ArchetypesError,
   CapabilityEntryError,
@@ -41,10 +42,18 @@ import {
   userOwnedConfigEntries,
 } from '../src/lib/pharn-config.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
-import type { LegacyConfigFields, PharnConfig } from '../src/types.js';
+import type { PharnConfig } from '../src/types.js';
 
-// A config as read back, with the fields older CLIs wrote in view: they load
-// (the spread keeps them) but are no longer part of the public `PharnConfig`.
+// The fields only older CLIs wrote (`LEGACY_CONFIG_KEYS`). Not part of
+// `PharnConfig`: they load (the spread keeps them), and a write drops them.
+interface LegacyConfigFields {
+  modules?: unknown[];
+  constitution?: unknown;
+  isMultiTenant?: boolean;
+  stackAnswers?: Record<string, string>;
+  installedSkills?: unknown;
+}
+// A config as read back, with those fields in view.
 type LegacyReadConfig = PharnConfig & LegacyConfigFields;
 const readWithLegacy = (dir: string): LegacyReadConfig | null =>
   readPharnConfig(dir);
@@ -99,16 +108,29 @@ const sample: LegacyReadConfig = {
   installedAt: '2026-06-11T00:00:00.000Z',
 };
 
+// An archetype config as this CLI writes it: no legacy keys, so a write and a
+// read give it back unchanged. (`sample` above is a module-era install, whose
+// legacy keys a write drops.)
+const current: PharnConfig = {
+  pharnVersion: '0.21.0',
+  skillsVersion: '0.68.0',
+  repo: 'pharn-dev/pharn-oss',
+  commit: 'abc123'.padEnd(40, '0'),
+  installedAt: '2026-06-11T00:00:00.000Z',
+  archetypes: ['lib'],
+  capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],
+};
+
 describe('pharn-config', () => {
   const tmp = useTmpDir();
 
   it('round-trips a config', async () => {
-    await writePharnConfig(tmp.path(), sample);
-    expect(readPharnConfig(tmp.path())).toEqual(sample);
+    await writePharnConfig(tmp.path(), current);
+    expect(readPharnConfig(tmp.path())).toEqual(current);
   });
 
   it('round-trips the additive layout field (pharn)', async () => {
-    const withLayout: PharnConfig = { ...sample, layout: 'pharn' };
+    const withLayout: PharnConfig = { ...current, layout: 'pharn' };
     await writePharnConfig(tmp.path(), withLayout);
     expect(readPharnConfig(tmp.path())).toEqual(withLayout);
   });
@@ -116,7 +138,7 @@ describe('pharn-config', () => {
   // The additive `ref` (lib/release.ts): only the literal "latest" opts an
   // install into verified releases; anything else is dropped at load.
   it('round-trips ref "latest"', async () => {
-    const withRef: PharnConfig = { ...sample, ref: 'latest' };
+    const withRef: PharnConfig = { ...current, ref: 'latest' };
     await writePharnConfig(tmp.path(), withRef);
     expect(readPharnConfig(tmp.path())).toEqual(withRef);
   });
@@ -253,7 +275,7 @@ describe('pharn-config', () => {
 
   it("round-trips pharn-oss's models block", async () => {
     const withModels: PharnConfig = {
-      ...sample,
+      ...current,
       models: {
         stages: {
           default: { model: 'sonnet', effort: 'high' },
@@ -308,7 +330,7 @@ describe('pharn-config', () => {
 
   it('round-trips a seam block through write + read, key order kept', async () => {
     const seam = { zeta: true, resolutionOrder: ['ask', 'ask'], alpha: 'x' };
-    const withSeam: PharnConfig = { ...sample, seam };
+    const withSeam: PharnConfig = { ...current, seam };
     await writePharnConfig(tmp.path(), withSeam);
     const loaded = readPharnConfig(tmp.path());
     expect(loaded).toEqual(withSeam);
@@ -319,7 +341,7 @@ describe('pharn-config', () => {
   // data now, not as a validated, rebuilt object.
   it('round-trips a config with a valid seam block', async () => {
     const withSeam: PharnConfig = {
-      ...sample,
+      ...current,
       seam: {
         resolutionOrder: [
           'official-skill',
@@ -370,6 +392,8 @@ describe('pharn-config', () => {
     });
   });
 
+  // The wizard's fields round-trip through the LOAD (skip answers included);
+  // since v0.21.0 a write drops them with the other legacy keys.
   it('round-trips the schemaVersion 2 additive fields (incl. skip answers)', async () => {
     const v2: LegacyReadConfig = {
       ...sample,
@@ -387,15 +411,25 @@ describe('pharn-config', () => {
         { skill: 'resend', from: 'pharn-skills-email/skills/resend' },
       ],
     };
-    await writePharnConfig(tmp.path(), v2);
+    writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(v2));
     const read = readWithLegacy(tmp.path());
     expect(read).toEqual(v2);
     expect(read?.stackAnswers?.payments).toBe('skip');
+    await writePharnConfig(tmp.path(), read!);
+    const written = JSON.parse(
+      readFileSync(join(tmp.path(), 'pharn.config.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(written).not.toHaveProperty('stackAnswers');
+    expect(written).not.toHaveProperty('installedSkills');
   });
 
   it('still reads a legacy config that predates the archetype fields (P7)', async () => {
-    // `sample` is a legacy module install (constitution + modules, no archetypes).
-    await writePharnConfig(tmp.path(), sample);
+    // `sample` is a legacy module install (constitution + modules, no archetypes),
+    // as an older CLI wrote it (this one's write would drop both).
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify(sample),
+    );
     const read = readWithLegacy(tmp.path());
     expect(read?.constitution).toBe('standard');
     expect(read?.archetypes).toBeUndefined();
@@ -915,19 +949,21 @@ describe('pharn-config', () => {
       ...sample,
       vendorSkills: ['supabase'],
     } as PharnConfig & { vendorSkills: string[] };
-    await writePharnConfig(tmp.path(), withRemovedField);
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify(withRemovedField),
+    );
     const read = readWithLegacy(tmp.path());
     expect(read?.skillsVersion).toBe(sample.skillsVersion);
     expect(read?.constitution).toBe('standard');
   });
 
-  it('round-trips an archetype install config (no constitution, modules:[], capabilities)', async () => {
+  it('round-trips an archetype install config (no constitution, no modules, capabilities)', async () => {
     const archetypeConfig: PharnConfig = {
       pharnVersion: '0.2.0',
       skillsVersion: '1.0.0',
       repo: 'pharn-dev/pharn-oss',
       commit: 'c'.repeat(40),
-      modules: [],
       installedAt: '2026-07-07T00:00:00.000Z',
       archetypes: ['ssr', 'backend'],
       capabilities: [
@@ -938,8 +974,9 @@ describe('pharn-config', () => {
     await writePharnConfig(tmp.path(), archetypeConfig);
     const read = readWithLegacy(tmp.path());
     expect(read).toEqual(archetypeConfig);
-    // No constitution variant is recorded for an archetype install.
+    // No constitution variant or `modules` is recorded for an archetype install.
     expect(read?.constitution).toBeUndefined();
+    expect(read?.modules).toBeUndefined();
   });
 
   // `updatedAt` is additive: every config written before it existed (and every
@@ -951,7 +988,6 @@ describe('pharn-config', () => {
       skillsVersion: '1.0.0',
       repo: 'pharn-dev/pharn-oss',
       commit: null,
-      modules: [],
       installedAt: '2026-06-11T00:00:00.000Z',
       archetypes: ['ssr'],
       capabilities: [{ name: 'a11y', role: 'griller' }],
@@ -1112,25 +1148,27 @@ describe('ConfigParseError — a corrupt config is reported as corrupt, not abse
   });
 });
 
-// CORE-189: the fields only older CLIs wrote leave the public `PharnConfig`
-// but stay pharn-owned, load, and survive a write-back. `modules` stays public:
-// it is still written for 0.19.x until v0.21.0.
+// CORE-189: the fields only older CLIs wrote (`modules` among them, from
+// v0.21.0) are not in the public `PharnConfig`. They stay pharn-owned and load,
+// and a write drops them.
 describe('legacy fields (LegacyConfigFields)', () => {
   const tmp = useTmpDir();
-  const LEGACY: Required<LegacyConfigFields> = {
+  const LEGACY: Required<Omit<LegacyConfigFields, 'modules'>> = {
     constitution: 'gdpr-strict',
     isMultiTenant: true,
     stackAnswers: { database: 'supabase' },
     installedSkills: [{ skill: 'drizzle', from: 'pharn-skills-orm' }],
   };
 
-  it('are not in the public PharnConfig type; modules still is', () => {
+  it('are not in the public PharnConfig type, modules included', () => {
     expectTypeOf<PharnConfig>().not.toHaveProperty('constitution');
     expectTypeOf<PharnConfig>().not.toHaveProperty('isMultiTenant');
     expectTypeOf<PharnConfig>().not.toHaveProperty('stackAnswers');
     expectTypeOf<PharnConfig>().not.toHaveProperty('installedSkills');
-    expectTypeOf<PharnConfig>().toHaveProperty('modules');
-    expectTypeOf<LegacyConfigFields>().toHaveProperty('constitution');
+    expectTypeOf<PharnConfig>().not.toHaveProperty('modules');
+    expect([...LEGACY_CONFIG_KEYS].sort()).toEqual(
+      Object.keys({ modules: [], ...LEGACY }).sort(),
+    );
   });
 
   it('add no runtime value: src/types.ts still exports types only', async () => {
@@ -1151,7 +1189,7 @@ describe('legacy fields (LegacyConfigFields)', () => {
     });
   });
 
-  it('load on an archetype config and are written back verbatim', async () => {
+  it('load on an archetype config, and a write drops them', async () => {
     const withLegacy: LegacyReadConfig = {
       ...sample,
       modules: [],
@@ -1159,26 +1197,33 @@ describe('legacy fields (LegacyConfigFields)', () => {
       capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],
       ...LEGACY,
     };
-    await writePharnConfig(tmp.path(), withLegacy);
+    // As an older CLI wrote it: raw bytes, since this CLI's write drops them.
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify(withLegacy),
+    );
     const read = loadArchetypeConfig(tmp.path()) as LegacyReadConfig;
+    expect(read.modules).toEqual([]);
     expect(read.constitution).toBe('gdpr-strict');
     expect(read.isMultiTenant).toBe(true);
     expect(read.stackAnswers).toEqual({ database: 'supabase' });
     expect(read.installedSkills).toEqual(LEGACY.installedSkills);
     await writePharnConfig(tmp.path(), read);
-    expect(readWithLegacy(tmp.path())).toEqual(withLegacy);
+    expect(readWithLegacy(tmp.path())).toEqual({
+      ...current,
+      pharnVersion: sample.pharnVersion,
+    });
   });
 });
 
 describe('isArchetypeConfig', () => {
   it('is true for a capabilities-bearing config', () => {
-    expect(
-      isArchetypeConfig({
-        ...sample,
-        modules: [],
-        capabilities: [{ name: 'a11y', role: 'griller' }],
-      }),
-    ).toBe(true);
+    const withCapabilities: LegacyReadConfig = {
+      ...sample,
+      modules: [],
+      capabilities: [{ name: 'a11y', role: 'griller' }],
+    };
+    expect(isArchetypeConfig(withCapabilities)).toBe(true);
   });
 
   it('is false for a legacy module config', () => {
@@ -1187,7 +1232,8 @@ describe('isArchetypeConfig', () => {
 
   it('is false when capabilities is absent, even with empty modules', () => {
     // Empty modules alone is NOT the marker — only a `capabilities` array is.
-    expect(isArchetypeConfig({ ...sample, modules: [] })).toBe(false);
+    const emptyModules: LegacyReadConfig = { ...sample, modules: [] };
+    expect(isArchetypeConfig(emptyModules)).toBe(false);
   });
 });
 
@@ -1351,7 +1397,7 @@ describe('loadArchetypeConfig', () => {
   afterEach(() => vi.mocked(log.error).mockClear());
 
   it('returns an archetype (capability) config unchanged', () => {
-    const archetype: PharnConfig = {
+    const archetype: LegacyReadConfig = {
       ...sample,
       modules: [],
       archetypes: ['ssr'],
@@ -1412,15 +1458,15 @@ describe('writePharnConfig — atomic replacement', () => {
   });
 
   it('writes the same bytes as before: 2-space JSON + trailing newline', async () => {
-    await writePharnConfig(tmp.path(), sample);
+    await writePharnConfig(tmp.path(), current);
     expect(readFileSync(configFile(), 'utf8')).toBe(
-      `${JSON.stringify(sample, null, 2)}\n`,
+      `${JSON.stringify(current, null, 2)}\n`,
     );
   });
 
   it('overwrites an existing config in place, leaving no temp sibling', async () => {
-    await writePharnConfig(tmp.path(), sample);
-    await writePharnConfig(tmp.path(), { ...sample, skillsVersion: '9.9.9' });
+    await writePharnConfig(tmp.path(), current);
+    await writePharnConfig(tmp.path(), { ...current, skillsVersion: '9.9.9' });
     expect(readdirSync(tmp.path())).toEqual(['pharn.config.json']);
     expect(readPharnConfig(tmp.path())?.skillsVersion).toBe('9.9.9');
   });
@@ -1429,11 +1475,11 @@ describe('writePharnConfig — atomic replacement', () => {
   // for ANY user — deterministic, unlike a read-only-directory fixture a root
   // runner writes straight through.
   it('leaves the previous config intact and loadable when the write fails', async () => {
-    await writePharnConfig(tmp.path(), sample);
+    await writePharnConfig(tmp.path(), current);
     mkdirSync(pinTmpPath(configFile()), { recursive: true });
 
     await expect(
-      writePharnConfig(tmp.path(), { ...sample, skillsVersion: '9.9.9' }),
+      writePharnConfig(tmp.path(), { ...current, skillsVersion: '9.9.9' }),
     ).rejects.toThrow();
 
     // The whole point: the old config is still THERE and still parses, so no

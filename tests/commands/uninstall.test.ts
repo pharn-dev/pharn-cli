@@ -164,7 +164,6 @@ function seedConfig(extra: Partial<PharnConfig> = {}): PharnConfig {
     skillsVersion: '6.50.0',
     repo: 'pharn-dev/pharn-oss',
     commit: 'c'.repeat(40),
-    modules: [],
     installedAt: '2026-10-01T00:00:00.000Z',
     archetypes: ['ssr'],
     capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],

@@ -26,7 +26,6 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 | `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype`               |     |
 | `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                                     |     |
 | `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                                                  |     |
-| `modules`       | array          | Always `[]`; written only for 0.19.x until v0.21.0 ([Fields older CLIs wrote](#fields-older-clis-wrote))               |     |
 | `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                           |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
@@ -159,7 +158,6 @@ from the list. A value that is not a list of
     { "name": "n-plus-one", "role": "lens", "source": "manual" }
   ],
   "layout": "pharn",
-  "modules": [],
   "models": { "stages": { "…": "…" } }
 }
 ```
@@ -355,7 +353,7 @@ How each command keeps them:
   ([troubleshooting](../troubleshooting.md#the-config-is-not-valid-json)), then copy your keys back.
 
 `init` **never** carries over a key pharn owns. It writes `pharnVersion`, `skillsVersion`, `repo`,
-`commit`, `installedAt`, `archetypes`, `capabilities`, `layout` and `modules` fresh, and writes no
+`commit`, `installedAt`, `archetypes`, `capabilities` and `layout` fresh, and writes no
 `updatedAt` (a carried one is dropped). `models` becomes
 pharn-oss's block again (or is left out, when pharn-oss ships none), so a hand-edit in it does not
 survive a re-run `init` — unlike `pharn update`, which keeps an edited `models` block. (`seam` is
@@ -367,33 +365,36 @@ is rewritten too, but the entries you added with `pharn add` are kept as `manual
 ## Fields older CLIs wrote
 
 The schema is **additive within the [support window](../support-policy.md)** (P7): a
-`pharn.config.json` written by an older, module-based CLI still loads, and its now-unused fields are
-preserved on read. They are still pharn's fields, though, so a re-run
-`pharn init` drops them rather than [carrying them over](#keys-pharn-does-not-own). They are not part of
-the archetype config's fields above, and pharn plans to stop handling them in v0.21.0.
+`pharn.config.json` written by an older CLI still loads with the fields below, but from v0.21.0
+`pharn` no longer writes them. They are read and then dropped: `init`, `add`, `remove` and `update`
+leave every one of them out of the file they write, so they disappear the first time a command writes
+the config (`list`, `status` and every `--dry-run` write nothing, so they leave them in place). They are
+pharn's fields, so they are never [carried over](#keys-pharn-does-not-own) as yours. They are not part
+of the archetype config's fields above.
 
 `skillsVersion` is nonetheless **load-bearing**: a config without a string `skillsVersion` is treated
 as absent, and every command answers _"No pharn.config.json found. Run `pharn init` first."_ So is a
 config with neither a `modules` array nor a `capabilities` key. A pre-archetype config is recognised by
 its `modules` array; an archetype config loads without one, as long as it has `capabilities`.
 
-`modules` is always `[]` on an archetype install, and `init` keeps writing it until v0.21.0, because
-every released `pharn` from 0.3.0 to 0.19.x reads a config without a `modules` array as absent, and
-0.19.x is still supported (the current minor and the previous one are). `add`, `update` and `remove`
-write the file back as they found it, so if you deleted the key and an older, pinned `pharn` must still
-read the file, add `"modules": []` back.
+`pharn` 0.20.x and older wrote `"modules": []` on every archetype install, because every `pharn` from
+0.3.0 to 0.19.x reads a config without a `modules` array as absent. From v0.21.0 a new config has no
+`modules`, so **`pharn` 0.20.0 is the oldest CLI that can read it**; 0.19.x and older answer _"No
+pharn.config.json found"_, and running `pharn init` there would replace the config. Upgrade every
+teammate's `pharn` to 0.20.0 or later (the [support window](../support-policy.md) is the current minor
+and the previous one).
 
 A re-run `pharn init` over a config it cannot read (not valid JSON, a value pharn rejects, no
 `skillsVersion`) carries no capabilities over, and its summary says so with the reason. See
 [Re-running `init` over an existing install](../commands/init.md#6-summary).
 
-| Field             | Type   | Note                                                                               |
-| ----------------- | ------ | ---------------------------------------------------------------------------------- |
-| `modules`         | array  | Module-era install list; `init` still writes `[]` for 0.19.x and stops in v0.21.0  |
-| `constitution`    | string | Legacy constitution variant (`gdpr-strict`/`standard`/`minimal`); nothing reads it |
-| `installedSkills` | array  | Legacy per-technology skills, each `{ skill, from }`; nothing reads it             |
-| `stackAnswers`    | object | Legacy wizard answers, `questionId → value`; nothing reads it                      |
-| `isMultiTenant`   | bool   | Legacy multi-tenancy answer; nothing writes or reads it today                      |
+| Field             | Type   | Note                                                                                |
+| ----------------- | ------ | ----------------------------------------------------------------------------------- |
+| `modules`         | array  | Module-era install list; `[]` on archetype installs up to 0.20.x; no longer written |
+| `constitution`    | string | Legacy constitution variant (`gdpr-strict`/`standard`/`minimal`); nothing reads it  |
+| `installedSkills` | array  | Legacy per-technology skills, each `{ skill, from }`; nothing reads it              |
+| `stackAnswers`    | object | Legacy wizard answers, `questionId → value`; nothing reads it                       |
+| `isMultiTenant`   | bool   | Legacy multi-tenancy answer; nothing writes or reads it today                       |
 
 The module/manifest install path itself has been **removed**, so `add` / `update` / `remove` / `list` /
 `status` no longer operate on a pre-archetype config — they exit with a message pointing you to re-run

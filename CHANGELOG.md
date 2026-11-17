@@ -9,6 +9,14 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **New configs no longer carry `modules`; pharn 0.20.0 is the oldest CLI that can read them.** `pharn init` wrote `"modules": []` into every archetype `pharn.config.json` only because `pharn` 0.3.0 to 0.19.x reads a config without a `modules` array as no config at all. It no longer does, and every write (`init`, `add`, `remove`, `update`) now also drops the fields only older CLIs wrote (`modules`, `constitution`, `installedSkills`, `stackAnswers`, `isMultiTenant`) when it finds them. A config that still carries them loads in every command as before. If a teammate runs `pharn` 0.19.x or older, upgrade it first: it reports _"No pharn.config.json found"_ for a config 0.21.0 wrote, and running `pharn init` there would replace the file.
+
+### Removed
+
+- **`pharn` no longer writes `"modules": []` or keeps the module-era and wizard fields of `pharn.config.json`; 0.20.x is the last CLI that wrote `modules`.** They still load, and leave the file at its next write. For contributors: `PharnConfig.modules` and `LegacyConfigFields` are gone from `src/types.ts`; `LEGACY_CONFIG_KEYS` in `src/lib/pharn-config.ts` keeps the five names pharn-owned.
+
 ## [0.20.0] — 2026-11-17
 
 ### Added

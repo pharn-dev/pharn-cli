@@ -13,7 +13,7 @@ import {
   ROLE_VALUES,
   VERSION_RE,
 } from './validate.js';
-import type { LegacyConfigFields, PharnConfig } from '../types.js';
+import type { PharnConfig } from '../types.js';
 
 export const CONFIG_FILENAME = 'pharn.config.json';
 
@@ -223,9 +223,28 @@ export function configPath(cwd: string): string {
 }
 
 /**
+ * The top-level keys only older CLIs wrote: `modules` (the module-era install
+ * list, then `[]` on every archetype install up to 0.20.x, for the guards of
+ * 0.3.0 to 0.19.x), the module-era `constitution` and `isMultiTenant`, and the
+ * wizard's `stackAnswers` and `installedSkills`. Nothing in src/ reads them
+ * except the load guard (`modules`). A config that has them still loads in
+ * every command; `writePharnConfig` drops them, and they stay pharn-owned
+ * (`CLI_OWNED_KEYS`), so a re-run init never carries one over as the user's.
+ */
+export const LEGACY_CONFIG_KEYS = [
+  'modules',
+  'constitution',
+  'isMultiTenant',
+  'stackAnswers',
+  'installedSkills',
+] as const;
+
+const LEGACY_KEY_SET: ReadonlySet<string> = new Set(LEGACY_CONFIG_KEYS);
+
+/**
  * Every top-level key this CLI OWNS: exactly the keys `PharnConfig` declares,
- * plus the `LegacyConfigFields` older CLIs wrote (so a re-run init drops them
- * rather than carrying them over as the user's).
+ * plus `LEGACY_CONFIG_KEYS` (so a re-run init drops them rather than carrying
+ * them over as the user's).
  * `models` is pharn's to WRITE but pharn-oss's to define, so a re-run init
  * replaces it rather than carrying a stale one. The one declared key NOT here is
  * `seam`: pharn-oss owns it, so it is carried like any user key.
@@ -234,8 +253,8 @@ export function configPath(cwd: string): string {
  * pharn-owned field can never be read as the user's. A `Set`, never an `in`
  * test: `in` walks the prototype chain (`constructor`, `toString`).
  */
-const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
-  Object.keys({
+const CLI_OWNED_KEYS: ReadonlySet<string> = new Set([
+  ...Object.keys({
     pharnVersion: true,
     skillsVersion: true,
     pendingSkillsVersion: true,
@@ -243,23 +262,15 @@ const CLI_OWNED_KEYS: ReadonlySet<string> = new Set(
     repo: true,
     commit: true,
     ref: true,
-    modules: true,
     installedAt: true,
     updatedAt: true,
     models: true,
     archetypes: true,
     capabilities: true,
     layout: true,
-    // LEGACY (LegacyConfigFields): remove in v0.21.0, with the type.
-    constitution: true,
-    isMultiTenant: true,
-    stackAnswers: true,
-    installedSkills: true,
-  } satisfies Record<
-    Exclude<keyof PharnConfig, 'seam'> | keyof LegacyConfigFields,
-    true
-  >),
-);
+  } satisfies Record<Exclude<keyof PharnConfig, 'seam'>, true>),
+  ...LEGACY_CONFIG_KEYS,
+]);
 
 /**
  * The top-level entries this CLI does NOT own (`CLI_OWNED_KEYS`) — mostly keys
@@ -318,8 +329,8 @@ export function readPharnConfig(cwd: string): PharnConfig | null {
   // `modules` array (a pre-archetype config, so it still reaches
   // LEGACY_CONFIG_MESSAGE) OR a `capabilities` key of any value (an archetype
   // config; a non-array one reaches validateCapabilityEntries' named error).
-  // `init` still WRITES `modules: []` for 0.19.x until v0.21.0 (see
-  // `PharnConfig.modules`).
+  // An archetype config written by 0.20.x or older also carries `modules: []`;
+  // it loads, and the next write drops it (`writePharnConfig`).
   if (
     typeof raw.skillsVersion !== 'string' ||
     (!Array.isArray(raw.modules) && raw.capabilities === undefined)
@@ -470,12 +481,19 @@ export function isConfigValidationError(
 /**
  * Write `pharn.config.json` ATOMICALLY (lib/atomic-write.ts): a torn write
  * would leave truncated JSON on disk.
+ *
+ * Every write drops `LEGACY_CONFIG_KEYS`: a config read from an older CLI's
+ * install carries them through the load spread, and they are pharn's, so
+ * leaving them out is no loss of user data. Every other key keeps its order.
  */
 export async function writePharnConfig(
   cwd: string,
   config: PharnConfig,
 ): Promise<void> {
-  await writeJsonAtomic(configPath(cwd), config);
+  const written = Object.fromEntries(
+    Object.entries(config).filter(([key]) => !LEGACY_KEY_SET.has(key)),
+  );
+  await writeJsonAtomic(configPath(cwd), written);
 }
 
 /**

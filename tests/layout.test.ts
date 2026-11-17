@@ -93,7 +93,6 @@ describe('configLayout', () => {
     skillsVersion: '0',
     repo: 'x',
     commit: null,
-    modules: [],
     installedAt: 'now',
   };
 
