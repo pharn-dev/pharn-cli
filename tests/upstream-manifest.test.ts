@@ -353,6 +353,38 @@ describe('readUpstreamManifest — the one parser', () => {
       expect(refusal(edit)).toMatch(re);
     });
 
+    it.each([
+      ['the parent first', 0],
+      ['the child first', 1],
+    ])(
+      "refuses a dest that is another dest's parent directory (%s)",
+      (_l, order) => {
+        const msg = refusal((m) => {
+          const limits = fileAt(m, 'pharn/LIMITS.md');
+          const pair = [
+            { ...limits, dest: 'pharn/pharn-new/node' },
+            { ...limits, dest: 'pharn/pharn-new/node/child.md' },
+          ];
+          m.files = m.files.filter((f) => f !== limits);
+          m.files.push(...(order === 0 ? pair : pair.reverse()));
+        });
+        expect(msg).toContain(
+          'declares pharn/pharn-new/node as a file and as the directory of pharn/pharn-new/node/child.md',
+        );
+      },
+    );
+
+    it('refuses a fixed-surface file inside a capability directory', () => {
+      expect(
+        refusal((m) => {
+          fileAt(m, 'pharn/LIMITS.md').dest =
+            'pharn/pharn-pipeline/grillers/a11y/extra.md';
+        }),
+      ).toContain(
+        'lies inside a capability directory but is not a capability file',
+      );
+    });
+
     it('refuses more files than the extractor could ever produce', () => {
       const msg = refusal((m) => {
         m.files = Array.from(

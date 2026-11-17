@@ -2,7 +2,7 @@ import { lstatSync } from 'node:fs';
 import { readJsonBounded } from './bounded-read.js';
 import { CLAUDE_SETTINGS_FILE, PHARN_CONTRACTS_DIR } from './constants.js';
 import { matchesRawSha256 } from './hash.js';
-import { isPharnOwnedPath } from './install-surfaces.js';
+import { capabilityOf, isPharnOwnedPath } from './install-surfaces.js';
 import { capabilitySubtree, detectLayout, layoutPaths } from './layout.js';
 import { readSkillsVersion } from './skills-version.js';
 import { escapeUnsafe } from './terminal-safe.js';
@@ -271,9 +271,27 @@ function checkFiles(
       throw refuse(
         `${at} (${dest}) names a capability outside the capability surface`,
       );
+    } else if (capabilityOf(dest) !== null) {
+      // Orphans and removal own a file inside a capability dir by its path, so
+      // a fixed-surface file there would be installed without the capability
+      // and later dropped without being reported.
+      throw refuse(
+        `${at} (${dest}) lies inside a capability directory but is not a capability file`,
+      );
     }
     return file;
   });
+  // Every dest is written as a regular file, so none may be another's parent
+  // directory (`a/b` beside `a/b/c`), whichever is declared first.
+  for (const dest of dests) {
+    for (let i = dest.indexOf('/'); i !== -1; i = dest.indexOf('/', i + 1)) {
+      if (dests.has(dest.slice(0, i))) {
+        throw refuse(
+          `declares ${dest.slice(0, i)} as a file and as the directory of ${dest}`,
+        );
+      }
+    }
+  }
   for (const cap of capabilities) {
     if (!owned.has(cap.name)) {
       throw refuse(`declares capability "${cap.name}" with no files`);
