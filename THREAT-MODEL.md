@@ -58,8 +58,9 @@ surface:
    and release metadata, the tarball) to an off-repo sink. All of them pass `redirect: 'error'`.
 5. **The copied methodology itself (Surface A)** — validated for **placement**, not for semantic
    content.
-6. **Stale / renamed upstream paths** — `status`/`update`/`diff` resolve against the newest verified
-   `@main` HEAD (or release, on the `--ref latest` channel), not the pinned `commit`, so an upstream rename can orphan or re-target a path.
+6. **Stale / renamed upstream paths** — `status`/`update`/`diff` resolve against what the install's
+   channel offers now — the newest verified release by default, or `@main` HEAD on the `main`
+   channel — not the pinned `commit`, so an upstream rename can orphan or re-target a path.
 7. **The archive itself** — entry paths, types, sizes and header fields are attacker-controlled
    bytes, read by pharn's own extractor (see the fetch boundary below).
 8. **The install manifest (`pharn-install.json`)** — untrusted JSON inside the same tarball: a
@@ -69,7 +70,7 @@ surface:
    resolution (C3.1, `src/lib/release.ts`), the same download, no second fetch path — so its
    `sha256` values bind the files to the manifest, never the manifest to pharn-oss (§4a).
 
-**The fetch boundary, in pharn's own code.** The clone is one REST resolve followed by a direct
+**The fetch boundary, in pharn's own code.** The clone is a REST resolve (two requests for a release, one for `main`) followed by a direct
 download of `https://codeload.github.com/pharn-dev/pharn-oss/tar.gz/<sha>`, extracted by
 `src/lib/tar-extract.ts`. There is **no fetch dependency**: pharn imports nothing to obtain, cache,
 or unpack the tree, spawns no `git` binary, and keeps no tarball cache. That matters for this
@@ -78,16 +79,21 @@ had to describe _measured properties of a dependency_, which a version bump coul
 pharn test noticing. Every property below is now pharn's own code, and every one of them is pinned by
 a test.
 
-- **One resolve, one download.** `fetchCommitSha` reads the branch head over the GitHub REST API through its
-  full ref (`commits/refs/heads/main`, so a tag named `main` cannot answer); the
+- **One resolve, one download.** The default channel resolves the newest release's tag, then that
+  tag's commit through its full ref (`commits/refs/tags/<tag>`, so a branch named like the tag cannot
+  answer; `src/lib/release.ts`); the `main` channel's `fetchCommitSha` reads the branch head through
+  its full ref (`commits/refs/heads/main`, so a tag named `main` cannot answer). Either way the
   `COMMIT_RE`-validated result is the last URL segment **and** the recorded `commit`. Nothing
   re-resolves the ref. The previous path resolved it a second time inside the dependency and matched
   the result only against **current ref tips**, so an upstream push landing between the two failed the
   whole command. codeload serves any commit, tip or not, so a mid-fetch push now yields exactly the
   pinned SHA.
-- **The network floor applies to the clone, not just the metadata fetches.** `redirect: 'error'`, an
-  `AbortController` timeout cleared in `finally`, and a body cap — the same three guards
-  `lib/skills-version.ts` carries. The clone's timeout is separately sized (60 s, not 8 s) because it
+- **The network floor applies to the clone, not just the metadata fetches.** Every fetch goes through
+  one bounded GET (`fetchCapped`, `src/lib/fetch-capped.ts`): `redirect: 'error'`, a deadline over the
+  request and the body read, and a body cap. The deadline is `withDeadline` (`src/lib/deadline.ts`):
+  it aborts the request **and** rejects through a `Promise.race`, so the command returns at the
+  deadline even when the runtime never forwards the abort into a body that stops arriving. The
+  clone's deadline is separately sized (60 s, not 8 s) because it
   must cover a ~2.5 MB streamed body rather than a one-line response. codeload sends **no
   `content-length`**, so the cap is enforced by counting bytes as they stream, and a **second** cap
   bounds the _decompressed_ size — a compression bomb is bounded by neither the header nor the
@@ -145,11 +151,11 @@ a test.
   filename. Caches already on disk are inert but **not** removed — pharn deletes nothing outside the
   user's project; `docs/troubleshooting.md` says where they live and how to size them.
 - **No proxy support of pharn's own, stated as a limit.** Node's global `fetch` reads **no** proxy
-  environment variable by default. Node 22.21+ and 24+ read them once the user opts in
-  (`NODE_USE_ENV_PROXY=1`; `--use-env-proxy` on 22.21+ and 24.5+), and then honour `NO_PROXY`; Node
-  20, 21, 22.0–22.20 and 23 have no opt-in. The previous dependency read `process.env.https_proxy`
+  environment variable by default. Every Node at or above pharn's floor (24.2.0, `engines.node`)
+  reads them once the user opts in (`NODE_USE_ENV_PROXY=1`, or `--use-env-proxy` on 24.5+), and then
+  honours `NO_PROXY`. The previous dependency read `process.env.https_proxy`
   itself — only that lowercase spelling, and never `no_proxy`. So a user behind a corporate proxy
-  who succeeded before now fails unless they opt in, and on a Node without the opt-in they cannot;
+  who succeeded before now fails unless they opt in;
   `pharn update` and `status --no-drift` already behaved the same, since those were always plain
   `fetch`. It is a named limit (`LIMITS.md` §3a), and every network-bearing command says which case
   applies before the fetch rather than letting it surface as an unexplained timeout.
@@ -169,9 +175,9 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 | malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `readUpstreamManifest`, `installCapabilityDirs`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar`'s typeflag allowlist) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
 | malformed capability declarations | `readUpstreamManifest` refuses the whole manifest, naming the entry, on a name outside `CAPABILITY_NAME_RE`, an unknown `role` (`assertRole`), a `dir` outside its role's subtree, a duplicate name or a capability with no files; an unknown `applies` token (`assertAppliesToken`) makes that one capability `unknown` in `manifestCapabilityIndex` — named, never installed, never a silent skip | enum + regex shape check |
 | oversized / slow `SKILLS_VERSION` fetch | 256 KB body cap + 8s timeout + `redirect: 'error'` | `fetchRemoteSkillsVersion` (`src/lib/skills-version.ts`) |
-| oversized / slow commit-SHA resolve | 8s timeout + `redirect: 'error'` + `MAX_SHA_BYTES` (1 KiB) body cap | `fetchCommitSha` (`src/lib/repo.ts`) |
+| oversized / slow release or commit-SHA resolve | 8s deadline + `redirect: 'error'` + a 1 MiB cap on the release object and `MAX_SHA_BYTES` (1 KiB) on a commit id | `resolveSource` (`src/lib/release.ts`), `fetchCommitSha` (`src/lib/repo.ts`) |
 | oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + a separate cap on the **decompressed** size + `redirect: 'error'`; an entry-count cap in the extractor. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
-| redirect to attacker host | `redirect: 'error'` on every pharn `fetch()` call, the tarball included | `fetchRemoteSkillsVersion`, `fetchCommitSha`, `downloadArchive` |
+| redirect to attacker host | `redirect: 'error'` on every pharn `fetch()` call, the tarball included | `fetchCapped` (`src/lib/fetch-capped.ts`), the one GET behind `resolveSource`, `fetchRemoteSkillsVersion`, `fetchCommitSha` and `downloadArchive` |
 | malformed / hostile archive entry | typeflag allowlist (files + dirs only; symlinks, hardlinks, devices and fifos **rejected**), `prefix`+`name` reassembly, `..`/absolute/`\`/`:` rejection, single-root check, `safeJoin` on every write, header-checksum verification | `extractTar` (`src/lib/tar-extract.ts`) |
 | hostile / malformed `pharn-install.json` | data, never executed: one parser, a bounded (4 MiB) non-blocking read; `schemaVersion` exact-match (`1`, else refuse, naming the upgrade); every `path`/`dest` through a safe-segment regex + `safeJoin`; unique `dest`s; names, roles and versions against `CAPABILITY_NAME_RE` / `assertRole` / `VERSION_RE` (an unknown `applies` token makes that capability `unknown`, never installed); every `dest` inside the CLI-owned outer bound — below `pharn/` or `.claude/<dir>/` inside a `pharn-*` entry or a fixed pharn root, `.claude/settings.json` only as copy-if-absent — never the manifest's own `installRoots`; each declared file's **raw** sha256 verified in `fetchRepo` before the tree is returned, so a mismatch refuses and nothing is written; `models.defaults` passes `checkModelsBlock` before any config write; `models.rules` drives nothing. Provenance only (§4a): whoever can change the tarball can change the manifest with it | `readUpstreamManifest` / `verifyUpstreamManifest` (`src/lib/upstream-manifest.ts`), `isPharnOwnedPath` (`src/lib/install-surfaces.ts`), `matchesRawSha256` (`src/lib/hash.ts`) |
 | poisoned tarball cache | **not applicable — pharn keeps no cache.** Every fetch downloads into a fresh temp dir | `fetchRepo` (`src/lib/repo.ts`) |
@@ -188,8 +194,9 @@ Beyond the copied methodology (Surface A), pharn writes one structured file of i
 own. `writePharnConfig` (`src/lib/pharn-config.ts`) serializes the config with
 `JSON.stringify` to a **fixed, non-attacker-influenced path** — `configPath(cwd)` =
 `resolve(cwd, 'pharn.config.json')` — so the sink location is never derived from
-remote input. The record mixes local-origin fields (`pharnVersion`, `repo`,
-`installedAt`, `modules`, the `seam` default) with four network-derived ones, and
+remote input. The record mixes local-origin fields (`pharnVersion`, `repo`, `ref`,
+`installedAt`, `updatedAt`, `archetypes`, `layout`; `seam` belongs to pharn-oss and is only carried
+through from the existing file) with four network-derived ones, and
 **each network-derived field is validated at its ingest boundary before it can
 reach this write** (P0/P2): `skillsVersion` against `VERSION_RE`
 (`readSkillsVersion`, `src/lib/skills-version.ts`); every `capabilities[]` name
@@ -244,8 +251,8 @@ not a "the source repo is ours" assumption (P0).
     which is why `fetchRepo` removes the temp dir on the error path rather than returning it.
   - **A named regression, not a hidden one.** Node's global `fetch` reads no proxy environment
     variable by default, so a user behind a corporate proxy who succeeded via the old dependency's
-    own `https_proxy` read now fails unless they opt in (`NODE_USE_ENV_PROXY=1`, Node 22.21+ and
-    24+; no opt-in exists on Node 20, 21, 22.0–22.20 or 23). `LIMITS.md` §3a carries it, and every
+    own `https_proxy` read now fails unless they opt in (`NODE_USE_ENV_PROXY=1`, which every Node
+    at or above the 24.2.0 floor accepts). `LIMITS.md` §3a carries it, and every
     network-bearing command says which case applies before the fetch.
 
 - **4c. The stored content-hashes cover only what pharn wrote.** pharn does keep
@@ -254,13 +261,15 @@ not a "the source repo is ours" assumption (P0).
   recorded hash holds bytes pharn wrote, whatever the stamp — CORE-161) — and `update` gates every file
   on it. The residual is its **coverage**, not its absence. Where the store is absent or unreadable, the two directions
   differ: a file **present** on disk becomes `unrecorded`/`unverifiable` and `update` **skips** it rather
-  than overwrite (`src/lib/update-decision.ts:64-65`), while a file **absent** from disk is **restored**
-  regardless of the store (row 1, `:60`). A file already byte-identical to upstream is never skipped even
-  with no records, and its record is refreshed — so a degraded install partially heals, but never for the
-  differing files an upgrade needs to touch (`:67-71`). `status` is not record-based at all: its drift is
-  a **live comparison against `@main` (or the newest release)** via `readDiskState` (`src/lib/diff.ts:79`, `src/lib/apply-update.ts:44`),
-  which classifies a symlink or non-regular path as `unreadable` rather than hashing it
-  (`apply-update.ts:57-61`). _Backstop:_ drift **is** detected (`pharn status`, live), and bytes pharn
+  than overwrite (rows 5 and 6 of the decision table in `decideFileAction`, `src/lib/update-decision.ts`),
+  while a file **absent** from disk is **restored** regardless of the store (row 1). A file already
+  byte-identical to upstream is never skipped even with no records, and its record is refreshed (row 2)
+  — so a degraded install partially heals, but never for the differing files an upgrade needs to touch.
+  `status` is not record-based at all: its drift is a **live comparison against what the install's
+  channel offers now (the newest verified release by default, or `@main`)** via
+  `diffInstalledCapabilities` (`src/lib/diff.ts`), whose project side, `readDiskState`
+  (`src/lib/apply-update.ts`), classifies a symlinked path or a non-regular file as `unreadable` rather
+  than hashing it. _Backstop:_ drift **is** detected (`pharn status`, live), and bytes pharn
   cannot explain are **skipped, never overwritten** without `--force`.
 - **4d. The single-writer lock does not exclude a pharn older than 0.14.0.** The lock is `pharn/.lock`
   (beside the backups in `pharn/.backup/`, `src/lib/project-lock.ts`). pharn 0.13.0 and older lock a
