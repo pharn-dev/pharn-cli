@@ -21,18 +21,21 @@ a guarantee.
 ### 1a. pharn validates placement, not content
 
 The floor contains **where** fetched files land (`safeJoin`) and validates their **paths + schema**
-— it does **not** vet the **semantic content** of the PHARN methodology it copies. A `module.json`
-with perfectly safe paths can still install methodology whose body is whatever the upstream shipped.
+— it does **not** vet the **semantic content** of the PHARN methodology it copies. A
+`pharn-install.json` with perfectly safe paths and matching sha256s can still install methodology
+whose body is whatever the upstream shipped.
 
 - **Struck claim:** "`pharn init` installed it, so the methodology is safe."
-- **True statement:** pharn guarantees the files landed in `.claude/` without escaping; content
+- **True statement:** pharn guarantees the files landed in `pharn/` and `.claude/` without escaping; content
   trust is **provenance** (`pharn-dev/pharn-oss`) + the **user's review**.
-- **Backstop (floor):** `INSTALL_PATH_RE` + `safeJoin` bound a hostile module to content **inside**
-  `.claude/`, never an arbitrary-path write.
+- **Backstop (floor):** `isPharnOwnedPath` (`src/lib/install-surfaces.ts`) + `safeJoin` + the
+  destination symlink walk bound a hostile manifest to content **inside** `pharn/` and pharn's own
+  `.claude/` entries, never an arbitrary-path write.
 
 ### 1b. Trust in the remote is provenance, not cryptographic
 
-pharn records a `commit` SHA (best-effort via the GitHub API) but fetches from a mutable remote
+pharn records a `commit` SHA (the release tag's commit by default; best-effort on the `main`
+channel) but fetches from a mutable remote
 over HTTPS; it stores **no signature and no upstream-authenticating hash**. The per-file sha256s it
 does store ([`pharn.records.json`](docs/reference/pharn-records.md)) are taken from the **written
 file, never from the upstream source** — dest-side drift baselines, provenance-neutral by
@@ -48,28 +51,29 @@ floor.
 
 ### 1c. `pharn.config.json` is an advisory record, not a live guarantee
 
-`pharnVersion` / `skillsVersion` / `modules[]` / `installedSkills[]` record what a run **intended**
+`pharnVersion` / `skillsVersion` / `archetypes` / `capabilities` record what a run **intended**
 to install. The file is plain JSON the user can edit, and it is not re-verified against the
 filesystem except when `status` runs.
 
-- **Struck claim:** "the config says module X is installed, therefore its exact files are present and
+- **Struck claim:** "the config says capability X is installed, therefore its exact files are present and
   unmodified."
 - **True statement:** the config is a record of **intent**; actual on-disk state is derived **live**
-  by `pharn status` / `diff` (against `@main` — or the newest verified release on that channel — not
-  the pinned `commit`). "installed per config" ≠
+  by `pharn status` / `diff` (against what the install's channel offers now — the newest verified
+  release by default, or `@main` — not the pinned `commit`). "installed per config" ≠
   "these exact bytes present" until `status` is run.
 - **Backstop:** `pharn status` re-derives drift live — that is the guarantee, not the config field.
 
 ### 1d. `update` / `status` resolve against the channel's current source; `remove` resolves offline
 
-There is no manifest. `update`/`status` re-derive the expected set from a fresh clone of what the
+pharn keeps no manifest of the pinned install. `update`/`status` re-derive the expected set from the
+`pharn-install.json` of a fresh clone of what the
 install's channel offers NOW — the newest verified release for an install that records
 `"ref": "latest"` (what `pharn init` writes by default since 0.15.0), or `@main` for one that records no
 `ref` (`--ref main`, or an install made before `--ref` existed) — (not the pinned `commit`), while `remove` resolves against **nothing remote** — it is addressed entirely from
 `pharn.config.json` at the one `pharn` layout (`layoutPaths('pharn')` in `src/commands/remove.ts`;
 a config recorded at the `flat` layout, removed in v0.21.0, is refused at load). An upstream
 **rename** lands at two levels: a renamed **capability** surfaces in `update`'s membership report as
-`dropped-gone` / `added` (`src/lib/merge-capabilities.ts:79`, `:201`), while a renamed **file inside** a
+`dropped-gone` / `added` (`mergeCapabilities`, `src/lib/merge-capabilities.ts`), while a renamed **file inside** a
 capability is restored at its new path and the old copy is left on disk — `update` never deletes
 (`src/commands/update.ts:452`).
 
@@ -77,8 +81,8 @@ capability is restored at its new path and the old copy is left on disk — `upd
 - **True statement:** `update`/`status` reconstruct from the **current** upstream, so a capability
   renamed since the pin is **reported**, never guessed; `remove` reconstructs from the **recorded
   config**, deleting the directory the `pharn` layout addresses for that capability
-  (`src/commands/remove.ts:72`) and pruning that capability's entries from `pharn.records.json`
-  (`:117`).
+  (`deleteCapabilityDir`, `src/lib/capability-dir.ts`) and pruning that capability's entries from
+  `pharn.records.json` (`pruneCapabilityRecords`, `src/commands/remove.ts`).
 - **Backstop:** every one of those paths is `safeJoin`-contained. Two residuals remain named: a file
   **orphaned by an upstream rename** — `update` restores the new path, leaves the old one, and reports
   nothing, bounded to the install subtree and visible to `pharn status`; and `remove`'s delete takes the
@@ -104,17 +108,19 @@ State these honestly; do not pretend they are free.
 ### 3a. Network — and proxy support only through Node's opt-in
 
 `init` / `add` / `update` require a network. They require **no `git` binary at all**: pharn resolves
-the branch head over the GitHub REST API and downloads the repo tarball from `codeload.github.com`,
+the newest verified release (or, on the `main` channel, the branch head) over the GitHub REST API and
+downloads the repo tarball from `codeload.github.com`,
 extracting it itself (`src/lib/tar-extract.ts`). Nothing is spawned. There is no offline or
 air-gapped install path today.
 
 **pharn has no proxy support of its own.** Every network call goes through Node's global `fetch`,
 which by default reads **no** proxy environment variable — not `https_proxy`, not `HTTPS_PROXY`, not
-`no_proxy`. Node 22.21+ and 24+ can opt in with `NODE_USE_ENV_PROXY=1` (22.21+ and 24.5+ also accept
-`--use-env-proxy`, for example through `NODE_OPTIONS`); Node's `fetch` then reads `https_proxy`,
-`HTTPS_PROXY`, `http_proxy`, `HTTP_PROXY`, in that order, and honours `NO_PROXY`. Node 20, 21,
-22.0–22.20 and 23 have no opt-in: there, in a network where direct egress is blocked, `pharn` cannot
-fetch, and setting a proxy variable will not change that. The exact rules are in
+`no_proxy`. Every Node at or above pharn's floor (24.2.0, `engines.node`) can opt in with
+`NODE_USE_ENV_PROXY=1` (24.5+ also accepts `--use-env-proxy`, for example through `NODE_OPTIONS`);
+Node's `fetch` then reads `https_proxy`, `HTTPS_PROXY`, `http_proxy`, `HTTP_PROXY`, in that order,
+and honours `NO_PROXY`. `init` and `update` refuse to run below the floor; `add` and `status` still
+run there, and on Node 20, 21, 22.0–22.20 or 23, which have no opt-in, they cannot fetch where
+direct egress is blocked, whatever proxy variable is set. The exact rules are in
 `docs/troubleshooting.md` → "Proxy environment variables".
 
 This is a **regression for one group of users**, and it is named here rather than left to be
@@ -165,7 +171,7 @@ waits for a verified release, and resolves its commit through the tag ref itself
 capability grammar it parses is closed (`src/lib/validate.ts`, frozen enums), and that is
 deliberate — the fail-closed posture is the security property (P2).
 
-What is **bounded**: a per-capability grammar violation no longer aborts the parse. `parseCapabilityIndex`
+What is **bounded**: an `applies` token this CLI does not know no longer aborts the parse. `parseCapabilityIndex`
 tolerates-and-reports — the offending capability is skipped, named at every call site, kept out of
 `resolveCapabilities`, out of `installCapabilities`, out of the install manifest, and therefore out of
 `update`'s write path; a recorded entry for it is **frozen**, not dropped. So the blast radius of a
@@ -178,8 +184,9 @@ than the installed CLI ever refuses; absent / unreadable / malformed imposes no 
 lever cannot itself become the outage.
 
 What is **NOT closed**: a **structural** break still hard-fails every released CLI until upstream
-reverts or the user upgrades — a relocated or renamed capability subtree throws
-(`Capability subtree "…" is missing in the fetched repo.`), because a clone whose shape the CLI cannot
+reverts or the user upgrades — a `pharn-install.json` this CLI cannot read (a new `schemaVersion` or
+layout, or a capability name, `role` or `dir` outside the grammar) refuses the whole tree
+(`readUpstreamManifest`, `src/lib/upstream-manifest.ts`), because a clone whose shape the CLI cannot
 address at all is not "one unknown capability". There is no version pinning, no mirror, and no
 rollback lever on the consumer side (see §3c). Two coordination steps live **upstream**, not here:
 pharn-oss shipping a `MIN_CLI`, and gating its own merges on the **released** CLI's parser. Named,
