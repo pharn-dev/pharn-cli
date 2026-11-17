@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.21.1] — 2026-11-17
+
 ### Changed
 
 - **`pharn --help` no longer says each option belongs to one command.** `--json`, `--yes`, `--ref` and `--dry-run` are taken by several, as the lines below the header already showed. The header now reads "Options (each names the commands that take it; any other command refuses it):".
@@ -489,7 +491,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.1...HEAD
+[0.21.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.18.5...v0.19.0
