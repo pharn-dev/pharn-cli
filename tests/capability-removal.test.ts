@@ -28,20 +28,20 @@ describe('planCapabilityRemovals', () => {
   });
 
   it('plans one removal per dropped capability, backing up only what pharn cannot prove it wrote, and writes nothing', () => {
-    write(join(proj, 'pharn-review/stale/stale.md'), 'pharn bytes');
-    write(join(proj, 'pharn-review/stale/MINE.md'), 'mine');
+    write(join(proj, 'pharn/pharn-review/stale/stale.md'), 'pharn bytes');
+    write(join(proj, 'pharn/pharn-review/stale/MINE.md'), 'mine');
     const before = snapshotTree(proj);
     const removals = planCapabilityRemovals({
       cwd: proj,
-      paths: layoutPaths('flat'),
+      paths: layoutPaths('pharn'),
       drops: [
         { cap: STALE, reason: 'dropped-unselected' },
         { cap: STALE, reason: 'dropped-unselected' }, // duplicate → once
         { cap: GONE, reason: 'dropped-gone' }, // nothing on disk
       ],
       records: {
-        'pharn-review/stale/stale.md': contentHash(
-          join(proj, 'pharn-review/stale/stale.md'),
+        'pharn/pharn-review/stale/stale.md': contentHash(
+          join(proj, 'pharn/pharn-review/stale/stale.md'),
         ),
       },
       command: 'init',
@@ -50,25 +50,27 @@ describe('planCapabilityRemovals', () => {
       {
         cap: STALE,
         reason: 'dropped-unselected',
-        dir: 'pharn-review/stale',
+        dir: 'pharn/pharn-review/stale',
         present: true,
-        backups: ['pharn-review/stale/MINE.md'],
+        backups: ['pharn/pharn-review/stale/MINE.md'],
       },
       {
         cap: GONE,
         reason: 'dropped-gone',
-        dir: 'pharn-pipeline/grillers/gone',
+        dir: 'pharn/pharn-pipeline/grillers/gone',
         present: false,
         backups: [],
       },
     ]);
-    expect(removalBackups(removals)).toEqual(['pharn-review/stale/MINE.md']);
+    expect(removalBackups(removals)).toEqual([
+      'pharn/pharn-review/stale/MINE.md',
+    ]);
     expect(snapshotTree(proj)).toEqual(before);
   });
 
   it('names the refusing command when a component is a symbolic link', () => {
     const outside = join(tmp.path(), 'outside');
-    write(join(outside, 'pharn-review/stale/x.md'), 'x');
+    write(join(outside, 'pharn/pharn-review/stale/x.md'), 'x');
     symlinkSync(outside, join(proj, 'pharn'));
     const plan = () =>
       planCapabilityRemovals({
@@ -96,32 +98,34 @@ describe('removalBackupsNow', () => {
   const plan = (records: Record<string, string> | null) =>
     planCapabilityRemovals({
       cwd: proj,
-      paths: layoutPaths('flat'),
+      paths: layoutPaths('pharn'),
       drops: [{ cap: STALE, reason: 'dropped-unselected' }],
       records,
       command: 'update',
     });
 
   it('adds a file edited or added since the plan to the plan’s own set', () => {
-    write(join(proj, 'pharn-review/stale/stale.md'), 'pharn bytes');
-    write(join(proj, 'pharn-review/stale/MINE.md'), 'mine');
+    write(join(proj, 'pharn/pharn-review/stale/stale.md'), 'pharn bytes');
+    write(join(proj, 'pharn/pharn-review/stale/MINE.md'), 'mine');
     const records = {
-      'pharn-review/stale/stale.md': contentHash(
-        join(proj, 'pharn-review/stale/stale.md'),
+      'pharn/pharn-review/stale/stale.md': contentHash(
+        join(proj, 'pharn/pharn-review/stale/stale.md'),
       ),
     };
     const removals = plan(records);
-    expect(removalBackups(removals)).toEqual(['pharn-review/stale/MINE.md']);
+    expect(removalBackups(removals)).toEqual([
+      'pharn/pharn-review/stale/MINE.md',
+    ]);
     // While the prompt is open: pharn's file is edited, a new one appears.
-    write(join(proj, 'pharn-review/stale/stale.md'), 'edited');
-    write(join(proj, 'pharn-review/stale/NEW.md'), 'new');
+    write(join(proj, 'pharn/pharn-review/stale/stale.md'), 'edited');
+    write(join(proj, 'pharn/pharn-review/stale/NEW.md'), 'new');
 
     expect(
       removalBackupsNow({ cwd: proj, removals, records, command: 'update' }),
     ).toEqual([
-      'pharn-review/stale/MINE.md',
-      'pharn-review/stale/NEW.md',
-      'pharn-review/stale/stale.md',
+      'pharn/pharn-review/stale/MINE.md',
+      'pharn/pharn-review/stale/NEW.md',
+      'pharn/pharn-review/stale/stale.md',
     ]);
   });
 
@@ -137,12 +141,12 @@ describe('removalBackupsNow', () => {
   });
 
   it('refuses, naming the command, when the directory can no longer be listed', () => {
-    write(join(proj, 'pharn-review/stale/stale.md'), 'x');
+    write(join(proj, 'pharn/pharn-review/stale/stale.md'), 'x');
     const removals = plan(null);
     // A regular file where the directory's parent was: listing it fails
     // (ENOTDIR), which is never "pharn's, safe to delete".
-    rmSync(join(proj, 'pharn-review'), { recursive: true });
-    writeFileSync(join(proj, 'pharn-review'), 'a file now');
+    rmSync(join(proj, 'pharn/pharn-review'), { recursive: true });
+    writeFileSync(join(proj, 'pharn/pharn-review'), 'a file now');
     const now = () =>
       removalBackupsNow({
         cwd: proj,
@@ -152,7 +156,7 @@ describe('removalBackupsNow', () => {
       });
     expect(now).toThrow(CapabilityRemovalError);
     expect(now).toThrow(
-      /^Could not check the files in pharn-review\/stale\/ before `pharn update` deletes them: .*Nothing was changed\.$/,
+      /^Could not check the files in pharn\/pharn-review\/stale\/ before `pharn update` deletes them: .*Nothing was changed\.$/,
     );
   });
 });

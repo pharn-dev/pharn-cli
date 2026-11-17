@@ -126,7 +126,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   `layout`, `absent-surfaces`, `write-targets`, `init-plan`, `init-report`.
 - Update engine: `update-plan` (read-only planner) → `update-decision` (the 6-row table) → `apply-update` →
   `update-next` (next state); `update-render` (notes), `update-report` (`--json`), `executable-unit`,
-  `orphans`, `root-migration`, `capability-removal`/`capability-dir`.
+  `orphans`, `capability-removal`/`capability-dir`.
 - Records and backups: `install-records`, `hash`, `dest-drift`, `backup`, `removal-backup`, `uninstall-plan`.
 - Config: `pharn-config` (read/write/validate), `model-config` (pinned checker copy), `model-config-format`, `models-update`,
   `older-cli` (the warning when this CLI is older than the config's `pharnVersion`).

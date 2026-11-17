@@ -88,7 +88,7 @@ directory gets its actionable error), under the lock, and before any network cal
 6. **Summary, plan, prompt.** The summary prints the archetypes and where they came from. After it is answered,
    `buildInitPlan` (`lib/init-plan.ts`) runs ONCE: the manifest, the destination pre-flight (`prepareInstall`), one
    `scanDest` over every manifest path (drift labels, the backup set and the hashes the writer compares with), the
-   dropped capabilities' removals and the root migration. It returns the dry run's JSON-safe `report` and an `apply`
+   dropped capabilities' removals. It returns the dry run's JSON-safe `report` and an `apply`
    half. `confirmWriteTargets` renders the plan's targets (default No). On a re-install it marks exactly the files
    `update` would skip: `(edited)`, `(no pharn record)`, `(differs from upstream)`. Dropped capabilities are listed
    under "will be DELETED".
@@ -130,8 +130,11 @@ run's prompt and install consume. It skips the TTY gate, both prompts, the lock 
   (the features README included), and a directory where `pharn.config.json`/`pharn.records.json` belong. A live
   `.claude/settings.json` link is allowed, since it is never written.
 
-The install mirrors the clone's layout, which the manifest fixes as `pharn` (everything under `pharn/`). The legacy
-`flat` layout (`lib/layout.ts`) is left only for installs recorded at it, which `update` moves to `pharn`.
+The install mirrors the clone's layout, which the manifest fixes as `pharn` (everything under `pharn/`; `lib/layout.ts`).
+The legacy `flat` layout was removed in v0.21.0: `loadArchetypeConfig` refuses a config not recorded at `pharn` with
+one "re-run `pharn init`" message, and `detectLayout` refuses a tree without `pharn/pharn-contracts`.
+`lib/install-surfaces.ts` still recognises the old root paths as paths an older install wrote, so their records surface
+as orphans.
 
 ## The install manifest (`pharn-install.json`)
 
@@ -240,17 +243,17 @@ prompt was open (a file now byte-identical to upstream is not a change), then ap
 - **Orphans** (`lib/orphans.ts`): a record key outside the new manifest that is still on disk is listed and keeps its
   record. It is never deleted.
 - **Every run plans**: there is no same-version shortcut. `update` downloads and plans at the recorded version too, so
-  a missing file, a pending root migration or ignore-file line, an old `models` block, a channel switch or a frozen
+  a missing file, a pending ignore-file line, an old `models` block, a channel switch or a frozen
   capability is handled by the one planner. "Up to date" is a plan that changes nothing (`changesNothing`); only the
   ahead-of-source guard returns before the download.
 
 ## Root footprint
 
 - The lock is `pharn/.lock` and backups go to `pharn/.backup/<ts>/` in every layout.
-- `lib/root-migration.ts` retires the root copies of `THREAT-MODEL.md`/`LIMITS.md` once the clone ships them under
-  `pharn/`, deleting a root copy only when it is record-equal and its `pharn/` copy landed.
-- User data at the root (`memory-bank/`, `pharn.spec-template.md`) is never moved, copied or deleted. The note only
-  hints at the `git mv`.
+- Nothing at the root is retired. The root-footprint migration (root `THREAT-MODEL.md`/`LIMITS.md` from a pharn-oss
+  before 7.0.0) was removed in v0.21.0: a recorded root doc is an orphan like any other, listed and never deleted by
+  `update`.
+- User data at the root (`memory-bank/`, `pharn.spec-template.md`) is never moved, copied, deleted or mentioned.
 
 ## Ignore files
 

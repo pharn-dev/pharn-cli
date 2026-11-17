@@ -25,7 +25,7 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 | `updatedAt`     | string         | ISO timestamp of the last `pharn update` that rewrote the config; absent until one does, never written by `init`       |     |
 | `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype`               |     |
 | `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                                     |     |
-| `layout`        | string         | Install layout your files are at: `flat` or `pharn` (absent → `flat`)                                                  |     |
+| `layout`        | string         | Install layout your files are at: `pharn`. Anything else, or no key, is refused: re-run `pharn init`                   |     |
 | `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                           |     |
 
 `isArchetypeConfig` treats the presence of a `capabilities` array as the marker of an archetype install.
@@ -37,10 +37,12 @@ config described [below](#fields-older-clis-wrote).
 Any top-level key **not** on this page is yours, and every command keeps it — see
 [Keys pharn does not own](#keys-pharn-does-not-own).
 
-`layout` is written only by `pharn init` and `pharn update`, each recording the layout of the clone it
-actually copied from. `pharn add` never writes the field — it
-[refuses](../commands/add.md#layout-mismatch) a clone whose layout disagrees with the recorded one,
-because it installs a single capability and cannot migrate the rest of your tree.
+`layout` is written only by `pharn init` and `pharn update`, always as `"pharn"` (`pharn` 0.20.x and
+older read a config without it as the legacy `flat` layout, so it keeps being written). The `flat`
+layout was removed in v0.21.0 ([support policy](../support-policy.md#the-flat-layout-is-removed)): a
+config recorded at it, or with no `layout` key, is refused by `add`, `remove`, `update`, `list`,
+`status` and `uninstall` with one message to re-run `pharn init`, and `pharn add`
+[refuses](../commands/add.md#layout-mismatch) a fetched clone in that layout.
 
 ### `archetypes` — checked when the config loads
 
@@ -175,8 +177,7 @@ stage. Two things use it, and they are not the same thing:
   in its `pharn/floor/stage-agent-core.mjs`, and can change.
 - **Direct invocation does not.** A `/pharn-<stage>` you run yourself uses that command's own static
   `model:` / `effort:` frontmatter. The block is the source of truth that frontmatter is **held to**:
-  pharn-oss's checker, `node pharn/floor/check-model-config.mjs agreement` (`.dev/floor/` in the
-  legacy flat layout), lists each difference. Nothing in an installed project runs it automatically.
+  pharn-oss's checker, `node pharn/floor/check-model-config.mjs agreement`, lists each difference. Nothing in an installed project runs it automatically.
 
 What the block does **not** reach: **effort** is never routed (the Agent tool takes none), so a routed
 stage runs at the effort it inherits. A stage the policy keeps inline, a stage whose resolved model is

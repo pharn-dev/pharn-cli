@@ -21,7 +21,6 @@ import { readDiskState } from './apply-update.js';
 import { contentHash } from './hash.js';
 import {
   capabilitySubtree,
-  configLayout,
   detectLayout,
   layoutPaths,
   type LayoutPaths,
@@ -42,7 +41,6 @@ import {
   planPrettierignore,
   type PrettierignorePlan,
 } from './prettierignore.js';
-import { planRootMigration, type RootMigration } from './root-migration.js';
 import {
   planUpdate,
   type DiskState,
@@ -105,7 +103,6 @@ export interface UpdatePlanReport {
   frozenCapabilities: string[];
   capCount: number;
   layout: Layout;
-  abandonedLayout: Layout | null;
   featuresReadmeRelocation: boolean;
   capabilityChanges: CapabilityChange[];
   // The directories this run deletes — one per capability it drops.
@@ -132,11 +129,8 @@ export interface UpdatePlanReport {
   // The structured twin of `unknownWarning`: what the fetch boundary refused.
   unknownCapabilities: UnknownCapability[];
   // Recorded files upstream no longer ships that are still on disk
-  // (lib/orphans.ts). Never written or deleted; a root doc the migration
-  // deletes is not listed.
+  // (lib/orphans.ts). Never written or deleted.
   orphans: Orphan[];
-  // The old root footprint this run retires (lib/root-migration.ts), or null.
-  rootMigration: RootMigration | null;
   // What this run adds to `.gitignore` (lib/gitignore.ts); re-planned under
   // the lock by the writer.
   gitignore: GitignorePlan;
@@ -170,7 +164,7 @@ export interface UpdateApplyInputs {
   nextSkillsVersion: string;
   nextCommit: string | null;
   frozenKeys: string[];
-  // The paths the removals are addressed at (the config's recorded layout).
+  // The paths the removals are addressed at (the pharn layout).
   removalPaths: LayoutPaths;
   // The paths `.prettierignore` must cover (report.prettierignore's input).
   prettierignorePaths: string[];
@@ -225,8 +219,8 @@ export function buildUpdatePlan(input: {
   const installedVersion = readSkillsVersion(repoDir);
 
   // The layout the copy mirrors is the CLONE's, so it is also what is RECORDED.
+  // A flat clone is refused here (detectLayout), a flat config at load.
   const layout = detectLayout(repoDir);
-  const previousLayout = configLayout(config);
 
   const expected = collectExpectedInstallPaths({
     repoDir,
@@ -249,24 +243,23 @@ export function buildUpdatePlan(input: {
   // The unit is held only when this run moves the version. At the same version
   // every file but the user's kept edits is already at it (a version is
   // recorded only by a complete run), so a write puts back same-version bytes
-  // and the floor never mixes two versions. Judged at the CLONE's layout.
-  const unitPaths = layoutPaths(layout);
+  // and the floor never mixes two versions.
+  const paths = layoutPaths(layout);
   const plan = planUpdate({
     latestHashes,
     diskStates,
     records,
     force,
-    unit: (rel) => isExecutableUnitPath(rel, unitPaths),
+    unit: (rel) => isExecutableUnitPath(rel, paths),
     holdUnit: installedVersion !== config.skillsVersion,
   });
 
   // What the drops delete, against the same baseline. The writer re-reads each
   // dropped directory's backup set at delete time, so a file edited while the
   // confirm was open is saved too.
-  const removalPaths = layoutPaths(previousLayout);
   const removals = planCapabilityRemovals({
     cwd,
-    paths: removalPaths,
+    paths,
     drops: merged.changes.flatMap(({ cap, reason }) =>
       isDrop(reason) ? [{ cap, reason }] : [],
     ),
@@ -314,7 +307,6 @@ export function buildUpdatePlan(input: {
 
   // A frozen capability is absent from the manifest, which keys `nextRecords`,
   // so its untouched records are carried here instead of pruned.
-  const paths = layoutPaths(layout);
   const frozenRecords =
     records === null
       ? {}
@@ -328,7 +320,9 @@ export function buildUpdatePlan(input: {
 
   // Orphans: recorded files outside the manifest still on disk. Disjoint from
   // the manifest, so they never reach the decision table; their records are
-  // carried. A capability this run DROPS is excluded.
+  // carried. A capability this run DROPS is excluded. An old root doc (a
+  // pre-7.0 clone's THREAT-MODEL.md / LIMITS.md) is one of them: listed, never
+  // deleted.
   const orphanScan = findOrphans({
     projectRoot: cwd,
     records,
@@ -339,30 +333,8 @@ export function buildUpdatePlan(input: {
     ),
   });
 
-  // The old root footprint, against the same baseline. A root doc it deletes
-  // leaves the orphan list (retired, not left behind); one it KEEPS stays an
-  // orphan. Held while the unit is held: it deletes paths the OLD floor still
-  // reads (a later run, which plans again, retires them).
-  const rootMigration =
-    plan.held !== null
-      ? null
-      : planRootMigration({
-          projectRoot: cwd,
-          repoDir,
-          layout,
-          installedLayout: previousLayout,
-          skillsVersion: installedVersion,
-          records,
-        });
-  const retired = new Set(
-    (rootMigration?.docs ?? [])
-      .filter((d) => d.action === 'delete')
-      .map((d) => d.rel),
-  );
-  const orphans = orphanScan.orphans.filter((o) => !retired.has(o.path));
-  // The paths `.prettierignore` must cover: everything this run may record. A
-  // superset of the store it writes (a retired root doc's delete may fail), so
-  // a path the next store may still hold is never left uncovered.
+  const orphans = orphanScan.orphans;
+  // The paths `.prettierignore` must cover: everything this run may record.
   const prettierignorePaths = [
     ...expected.keys(),
     ...Object.keys(frozenRecords),
@@ -403,12 +375,6 @@ export function buildUpdatePlan(input: {
     frozenCapabilities: frozenKeys,
     capCount: configCapabilities.length,
     layout,
-    // `applyWrites` returns exactly `plan.writes` on success, so the count is
-    // known before anything is written.
-    abandonedLayout:
-      previousLayout !== layout && plan.writes.length > 0
-        ? previousLayout
-        : null,
     // An install that recorded the root features/README.md, updated from a
     // clone that installs it under pharn/.
     featuresReadmeRelocation:
@@ -432,7 +398,6 @@ export function buildUpdatePlan(input: {
     unknownWarning,
     unknownCapabilities: index.unknown,
     orphans,
-    rootMigration,
     gitignore: planGitignore(cwd),
     prettierignore: planPrettierignore(cwd, prettierignorePaths),
   };
@@ -450,7 +415,7 @@ export function buildUpdatePlan(input: {
     nextSkillsVersion,
     nextCommit,
     frozenKeys,
-    removalPaths,
+    removalPaths: paths,
     prettierignorePaths,
     seen: new Map(
       plan.writes.map((rel) => {

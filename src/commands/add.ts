@@ -26,7 +26,6 @@ import {
   recordsBaseline,
   writeRecords,
 } from '../lib/install-records.js';
-import { configLayout, detectLayout } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
   channelOf,
@@ -135,23 +134,6 @@ function addStamp(
     : { skillsVersion: config.skillsVersion, commit: config.commit };
 }
 
-// THE LAYOUT GATE. `add` copies and records at the CLONE's layout, but every
-// reader (remove, status/diff.ts, update) addresses the project through
-// configLayout. On a mismatch the capability lands where nothing looks, and the
-// next `remove` drops the config entry and orphans the directory.
-//
-// So it refuses rather than migrating: recording the clone's layout (what
-// `update` does, because it rewrites the whole tree) would re-address every
-// other file still at the old paths. Compares configLayout(config), never the
-// raw field, so a garbage hand-edited value resolves to `flat` and fails closed.
-// Called inside each path's try, right after versionGate.
-function layoutGate(repoDir: string, config: PharnConfig): string | null {
-  const clone = detectLayout(repoDir);
-  const recorded = configLayout(config);
-  if (clone === recorded) return null;
-  return `Install layout mismatch: pharn.config.json records the \`${recorded}\` layout, but the fetched ${REPO_URL} uses the \`${clone}\` layout. \`pharn add\` installs only at the layout your project is already recorded at — adding here would put files where \`pharn remove\` and \`pharn status\` will never look for them. Run \`pharn update --force\` first, then re-run \`pharn add\`.`;
-}
-
 // Install one capability into an archetype project (a manual override of
 // archetype auto-selection). Appends to `capabilities`, never touches
 // `archetypes`. A refusal or failure is THROWN as a CliError, so the clone's
@@ -200,17 +182,14 @@ async function runArchetypeAdd(
   let result: AddResult;
   try {
     // `??` chain: short-circuit evaluation makes the order of the gates
-    // structural. Version wins over layout when both mismatch, since
-    // `pharn update` fixes both in one pass.
+    // structural. A flat clone has no pharn-install.json and is refused by
+    // the fetch, a flat config at load, so the layouts cannot differ.
     const gate = minCliGate(repo.dir, PHARN_VERSION);
     if (gate.warning) log.warn(gate.warning);
     // MIN_CLI leads: a CLI too old for this content cannot be fixed by
     // `pharn update` (refused for the same reason), so upgrading is the
     // message the user must see.
-    const refusal =
-      gate.refusal ??
-      versionGate(repo.dir, config, repo.source) ??
-      layoutGate(repo.dir, config);
+    const refusal = gate.refusal ?? versionGate(repo.dir, config, repo.source);
     if (refusal) throw CliError.refusal(refusal);
     // No prompt on this path, but the same one check before the first write.
     assertConfigFingerprintUnchanged(cwd, fingerprint, 'add');
@@ -286,10 +265,7 @@ async function runAddPicker(
     // the user is never refused after picking.
     const gate = minCliGate(repo.dir, PHARN_VERSION);
     if (gate.warning) log.warn(gate.warning);
-    const refusal =
-      gate.refusal ??
-      versionGate(repo.dir, config, repo.source) ??
-      layoutGate(repo.dir, config);
+    const refusal = gate.refusal ?? versionGate(repo.dir, config, repo.source);
     if (refusal) throw CliError.refusal(refusal);
     outcome = await resolveAddPicker(
       repo.dir,

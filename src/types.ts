@@ -73,13 +73,16 @@ export interface PharnConfig {
   archetypes?: Archetype[];
   capabilities?: InstalledCapability[];
   // The install layout mirrored from the fetched clone (lib/layout.ts): 'pharn'
-  // = everything under pharn/, 'flat' = the legacy root layout. Absent → 'flat'.
+  // = everything under pharn/. Still written: 0.20.x reads an absent key as
+  // the legacy flat layout. Absent or any other value is refused at load
+  // (loadArchetypeConfig: re-run `pharn init`).
   layout?: Layout;
 }
 
-// The two install layouts (lib/layout.ts). Kept here so PharnConfig can use it
-// without a types↔layout import cycle.
-export type Layout = 'pharn' | 'flat';
+// The install layout (lib/layout.ts). Kept here so PharnConfig can use it
+// without a types↔layout import cycle. Its `flat` member was removed in
+// v0.21.0.
+export type Layout = 'pharn';
 
 // ---------------------------------------------------------------------------
 // Capability resolver — archetype detection + capability selection over

@@ -15,7 +15,10 @@ import {
   write,
 } from '../support/harness.js';
 import type { PharnConfig } from '../../src/types.js';
-import { LEGACY_CONFIG_MESSAGE as LEGACY } from '../../src/lib/pharn-config.js';
+import {
+  FLAT_LAYOUT_MESSAGE as FLAT,
+  LEGACY_CONFIG_MESSAGE as LEGACY,
+} from '../../src/lib/pharn-config.js';
 import { LOCK_FILE } from '../../src/lib/project-lock.js';
 import { runList } from '../../src/commands/list.js';
 
@@ -45,6 +48,7 @@ function archetypeConfig(extra: Partial<PharnConfig> = {}): PharnConfig {
     installedAt: '2026-06-11T00:00:00.000Z',
     archetypes: ['ssr'],
     capabilities: [{ name: 'a11y', role: 'griller' }],
+    layout: 'pharn',
     ...extra,
   };
 }
@@ -62,6 +66,13 @@ const LEGACY_CONFIG = {
 const INVALID_SOURCE = archetypeConfig({
   capabilities: [{ name: 'a11y', role: 'griller', source: 'guess' }],
 } as unknown as Partial<PharnConfig>);
+
+// An archetype config recorded at the flat layout (removed in v0.21.0), and
+// one with no `layout` key, which older CLIs read as flat.
+const FLAT_CONFIG = archetypeConfig({
+  layout: 'flat',
+} as unknown as Partial<PharnConfig>);
+const NO_LAYOUT_CONFIG = archetypeConfig({ layout: undefined });
 
 describe('pharn list', () => {
   // A reader never takes the lock: every writer now holds it across its
@@ -161,6 +172,9 @@ describe('pharn list', () => {
       ['no config', null, /No pharn\.config\.json found/],
       ['a legacy (module) config', LEGACY_CONFIG, LEGACY],
       ['an invalid capabilities[].source', INVALID_SOURCE, /guess/],
+      // v0.21.0: the flat layout is refused with "re-run `pharn init`".
+      ['a config at the flat layout', FLAT_CONFIG, FLAT],
+      ['a config with no layout key', NO_LAYOUT_CONFIG, FLAT],
     ] as const)('%s (text)', async (_label, cfg, message) => {
       if (cfg) writeConfig(cfg);
       expect(await run(() => runList())).toBe(1);
@@ -185,6 +199,8 @@ describe('pharn list', () => {
       ],
       ['a legacy (module) config', LEGACY_CONFIG, LEGACY],
       ['an invalid capabilities[].source', INVALID_SOURCE, /guess/],
+      ['a config at the flat layout', FLAT_CONFIG, FLAT],
+      ['a config with no layout key', NO_LAYOUT_CONFIG, FLAT],
     ] as const)(
       '%s (--json): stdout clean, a plain stderr line',
       async (_label, cfg, message) => {

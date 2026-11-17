@@ -159,7 +159,7 @@ losslessly. `--json` implies `--dry-run`: `pharn init --json`, and a bare `pharn
   "source": { "kind": "release", "tag": "v6.50.0" }, // { "kind": "main", "tag": null }
   "commit": "…", // the commit the plan was made from
   "skillsVersion": "6.50.0",
-  "layout": "pharn", // or "flat"
+  "layout": "pharn",
   "archetypes": ["ssr"],
   "archetypeSource": "detected", // or "flag" (--archetype)
   "detectedArchetypes": null, // with "flag": what detection found and did not use
@@ -486,9 +486,13 @@ stamped with, as for `update` (see
 [the stamp is not a gate](../reference/pharn-records.md#the-stamp-is-not-a-gate)); an absent or
 unreadable store is not used, and every differing file is then marked `(differs from upstream)`. Records are kept by path, so a file of yours at a path the
 previous install did not write — for example your own file at a path a newer pharn now installs to —
-has no record and is backed up, marked `(no pharn record)`. A change of layout (flat → `pharn/`)
-installs to new paths and leaves the old copies where they are (`init` never deletes), so it backs up
-nothing extra. pharn's own `LICENSE` copy (`PHARN-LICENSE` / `pharn/LICENSE`) is compared with
+has no record and is backed up, marked `(no pharn record)`. A re-run over an install recorded at the
+legacy `flat` layout (removed in v0.21.0, so every other command refuses it and points here) installs to
+the `pharn/` paths and leaves the old top-level copies where they are (`init` never deletes them), so it
+backs up nothing extra; the ones the old install recorded stay recorded and are listed under `ORPHANED`
+by `pharn status` and `pharn update` until you delete them. A root `THREAT-MODEL.md` or `LIMITS.md` an
+install from a pharn-oss before 7.0.0 left is kept the same way. pharn's own `LICENSE` copy
+(`pharn/LICENSE`) is compared with
 upstream's `LICENSE`, like every other file with its source. Each file is also compared, just before
 it is written, with what the plan saw — so an edit you make while the prompt is open is still backed up
 before it is overwritten.
@@ -547,8 +551,8 @@ disk, not what the config lists, so `init` also **deletes that directory** — t
   bytes (judged against the records of the install being replaced) is copied into the run's one
   `pharn/.backup/<timestamp>/` directory before anything is deleted
   (`Backed up N file(s) to … before overwriting and removing.`).
-- **Addressed where it was installed**, at the layout the replaced config recorded, by its validated
-  name, never through a symbolic link: a directory whose path crosses one refuses the whole install
+- **Addressed under `pharn/`**, by its validated name (a dropped capability of a `flat` install keeps
+  its old root directory: nothing outside `pharn/` is deleted), never through a symbolic link: a directory whose path crosses one refuses the whole install
   (exit 1, nothing written).
 - **`--yes` never deletes**: a re-install has a `pharn.config.json`, so `--yes` refuses it before
   downloading anything.
@@ -561,19 +565,19 @@ cannot find them; PHARN still runs them. Delete them by hand.
 
 ### 7. Install
 
-| Action                     | Behavior                                                                                                                                                                                                                                                           |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                     |
-| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — as the fetched `pharn-install.json` declares them (no test files)                  |
-| Copy agents                | `pharn-*.md` subagents in `.claude/agents/` (not `pharn-dev-*`), at that path in both layouts; a pharn-oss older than 6.64.0 ships none, and that is not reported                                                                                                  |
-| Write or preserve settings | An existing `.claude/settings.json` is **never** overwritten or merged ([below](#an-existing-claudesettingsjson)); with none, pharn-oss's is copied and a `HOOKS` note lists what it wires ([below](#a-fresh-claudesettingsjson))                                  |
-| Mirror the layout          | The CLI never rewrites copied file contents. The fetched clone's layout is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/`                                               |
-| Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
-| Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `frozenCapabilities` (see above); no `seam` (pharn-oss's)     |
-| Copy the `models` block    | pharn-oss's own, verbatim, from `pharn-install.json`'s `models.defaults`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                    |
-| Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
-| Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                                  |
-| Update `.prettierignore`   | Only when the project uses Prettier: appends the lines that keep its check off the files pharn installs and rewrites ([below](#prettierignore))                                                                                                                    |
+| Action                     | Behavior                                                                                                                                                                                                                                                       |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                 |
+| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — as the fetched `pharn-install.json` declares them (no test files)              |
+| Copy agents                | `pharn-*.md` subagents in `.claude/agents/` (not `pharn-dev-*`); a pharn-oss older than 6.64.0 ships none, and that is not reported                                                                                                                            |
+| Write or preserve settings | An existing `.claude/settings.json` is **never** overwritten or merged ([below](#an-existing-claudesettingsjson)); with none, pharn-oss's is copied and a `HOOKS` note lists what it wires ([below](#a-fresh-claudesettingsjson))                              |
+| Mirror the layout          | The CLI never rewrites copied file contents. The fetched clone's layout is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/` (the legacy flat layout was removed in v0.21.0)                                                                       |
+| Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                            |
+| Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `frozenCapabilities` (see above); no `seam` (pharn-oss's) |
+| Copy the `models` block    | pharn-oss's own, verbatim, from `pharn-install.json`'s `models.defaults`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                |
+| Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                |
+| Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                              |
+| Update `.prettierignore`   | Only when the project uses Prettier: appends the lines that keep its check off the files pharn installs and rewrites ([below](#prettierignore))                                                                                                                |
 
 **How each file is written.** `init` writes the files one at a time, each by replacement: the new bytes
 go to a temporary file beside the destination, which is then renamed into place, so a hard link (a
@@ -585,19 +589,13 @@ written (the first ten, then a count) and writes neither `pharn.records.json` no
 Those files are then unrecorded: the next `init` backs up any that differ from upstream before it
 overwrites them.
 
-The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`, or `PHARN-LICENSE` at
-the root in the legacy flat layout. The destination is deliberately **not** a plain root `LICENSE`:
+The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`. The destination is deliberately **not** a plain root `LICENSE`:
 that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and
 publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
 
-The four trusted docs keep the paths pharn-oss keeps them at, and those are not one prefix. In the
-`pharn` layout `CONSTITUTION.md` and `ARCHITECTURE.md` land in `pharn/`, but **`THREAT-MODEL.md` and
-`LIMITS.md` land at your project root** — where pharn-oss keeps them and where its commands cite them
-(in the flat layout all four are at the root). If your project already has a root `THREAT-MODEL.md` or
-`LIMITS.md` of its own, `init` replaces it: it is listed in the
-[overwrite prompt](#6-summary) (default **No**) and, when it differs from pharn-oss's, copied
-to `pharn/.backup/<timestamp>/` before the copy; `init --yes` refuses instead. Rename yours first if
-you want to keep it where it is.
+The four trusted docs land in `pharn/` (`pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`,
+`pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`), where pharn-oss keeps them from 7.0.0 on. A root
+`THREAT-MODEL.md` or `LIMITS.md` of your own is never touched.
 
 #### `.gitignore`
 
@@ -643,12 +641,12 @@ in a workspace package of a monorepo is not detected; add the lines yourself.
 The lines are **derived from the files pharn records writing**, never a fixed list. Each file becomes
 the install directory it sits in, or itself:
 
-| What pharn wrote                                                                                               | Line                                                                 |
-| -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| Anything under a capability tree, `pharn-contracts`, `pharn-core` or the floor                                 | That directory, e.g. `/pharn/pharn-review/`, `/pharn/floor/`         |
-| `pharn/features/README.md` (pharn layout)                                                                      | `/pharn/features/` — the whole directory ([why](#why-pharnfeatures)) |
-| A product command, an agent, a hook, a trusted doc, the `LICENSE` copy, the flat layout's `features/README.md` | The file, e.g. `/.claude/commands/pharn-ship.md`                     |
-| Always, beside them                                                                                            | `/pharn.config.json` and `/pharn.records.json`                       |
+| What pharn wrote                                                                                                              | Line                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Anything under a capability tree, `pharn-contracts`, `pharn-core` or the floor                                                | That directory, e.g. `/pharn/pharn-review/`, `/pharn/floor/`         |
+| `pharn/features/README.md`                                                                                                    | `/pharn/features/` — the whole directory ([why](#why-pharnfeatures)) |
+| A product command, an agent, a hook, a trusted doc, the `LICENSE` copy, a root `features/README.md` an older install recorded | The file, e.g. `/.claude/commands/pharn-ship.md`                     |
+| Always, beside them                                                                                                           | `/pharn.config.json` and `/pharn.records.json`                       |
 
 Every line starts with `/`, so it matches only at the project root. One line per command, agent and hook keeps
 your own commands and hooks under your check; it also means a command pharn-oss later drops leaves a
@@ -657,9 +655,8 @@ line behind, which is harmless.
 <a id="why-pharnfeatures"></a>**Why `pharn/features/` is covered.** It holds the artifacts PHARN's
 stages write for each feature, several of them pinned by a hash of their content (the approved
 `SPEC.md`, `AC-TESTS.lock.json`). Reformatting one breaks its pin, and an artifact written mid-run in
-pharn-oss's formatting would turn the run's own gate red. In the legacy flat layout `features/` sits at
-your root under a generic name that may be your own code, so there only `features/README.md` is
-covered. `pharn/memory-bank/` is yours and is not covered.
+pharn-oss's formatting would turn the run's own gate red. A root `features/README.md` an older install
+recorded is still covered on its own. `pharn/memory-bank/` is yours and is not covered.
 
 The file is handled exactly like `.gitignore`: **created** with a comment and the lines when absent;
 **appended to** with only the missing lines (your bytes kept, line endings followed); **left alone** for

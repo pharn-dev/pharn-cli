@@ -14,7 +14,6 @@ import {
 } from '../lib/release.js';
 import {
   buildStatusReport,
-  layoutMismatch,
   serializeStatusReport,
   type StatusReport,
   type StatusReportInput,
@@ -24,12 +23,7 @@ import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
-import {
-  configLayout,
-  detectLayout,
-  flatDeprecationLines,
-  layoutPaths,
-} from '../lib/layout.js';
+import { layoutPaths } from '../lib/layout.js';
 import {
   absentInstallSurfaces,
   collectExpectedInstallPaths,
@@ -58,7 +52,7 @@ import {
   fetchRemoteSkillsVersion,
   readSkillsVersion,
 } from '../lib/skills-version.js';
-import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
+import type { InstalledCapability, PharnConfig } from '../types.js';
 
 /**
  * Read-only audit of an archetype install: is it current (version section),
@@ -66,8 +60,8 @@ import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
  * section)? Never writes — fixing is `pharn update` / `pharn add`.
  *
  * Default clones once for both sections; `--no-drift` checks the version only.
- * `--strict` exits 1 on anything outdated, modified or missing, a layout
- * mismatch or an unwired upstream hook. The work is done once into ONE
+ * `--strict` exits 1 on anything outdated, modified or missing, or an unwired
+ * upstream hook. The work is done once into ONE
  * `StatusReport` (lib/status-report.ts): `--json` prints it, the text notes are
  * rendered from it, and both read `--strict`'s verdict off it. `--json` emits
  * ONE object on stdout and nothing else; diagnostics and failures go to
@@ -180,37 +174,25 @@ function cloneInput(
   // and fail `--strict` forever over a transient upstream break.
   const index = parseCapabilityIndex(repo.dir);
   const frozen = new Set(index.unknown.map((u) => `${u.role}:${u.name}`));
-  const recordedLayout = configLayout(config);
-  const upstreamLayout = detectLayout(repo.dir);
-  // Across layouts nothing is compared: the expected set would sit at paths
-  // the clone does not use, and whole capability dirs would drop out
-  // unreported. Otherwise the file diff at the recorded layout, and the
-  // surface scan (declared surfaces upstream ships NO file for) at the CLONE's
-  // layout.
-  const files = layoutMismatch(recordedLayout, upstreamLayout)
-    ? { diff: null, absentUpstream: null }
-    : {
-        diff: diffInstalledCapabilities({
-          repoDir: repo.dir,
-          projectRoot: cwd,
-          capabilities: (config.capabilities ?? []).filter(
-            (cap) => !frozen.has(`${cap.role}:${cap.name}`),
-          ),
-        }),
-        absentUpstream: absentInstallSurfaces({ repoDir: repo.dir }),
-      };
   return {
     ...base,
     latest: readSkillsVersion(repo.dir),
     source: repo.source,
     drift: {
-      ...files,
+      diff: diffInstalledCapabilities({
+        repoDir: repo.dir,
+        projectRoot: cwd,
+        capabilities: (config.capabilities ?? []).filter(
+          (cap) => !frozen.has(`${cap.role}:${cap.name}`),
+        ),
+      }),
+      // Declared surfaces upstream ships NO file for.
+      absentUpstream: absentInstallSurfaces({ repoDir: repo.dir }),
       // settings.json is never compared as a file; what IS checked is whether
       // every upstream hook is wired here.
       hooks: diffHookWiring(repo.dir, cwd),
       unknown: index.unknown,
       orphans: statusOrphans(repo.dir, cwd, config, frozen),
-      upstreamLayout,
     },
     prettierignore: statusPrettierignore(cwd),
   };
@@ -220,22 +202,13 @@ function cloneInput(
 // form is capped for JSON, the input it was built from).
 function renderStatus(report: StatusReport, input: StatusReportInput): void {
   printArchetypeVersion(report, input.source);
-  // DEPRECATED: from the recorded layout, so `--no-drift` prints it too.
-  const deprecation = flatDeprecationLines(report.layout.recorded);
-  if (deprecation) note(deprecation.join('\n'), 'DEPRECATED');
   printModels(input.config);
   printPrettierignore(input.prettierignore);
   const drift = input.drift;
-  if (drift === null) return;
+  if (drift === null || report.drift === null) return;
   const unknownWarning = unknownCapabilitiesWarning(drift.unknown);
   if (unknownWarning) log.warn(unknownWarning);
-  // `drift` is null in the report exactly on a layout mismatch here: the
-  // LAYOUT note says what moves the install; it fails --strict.
-  if (report.drift === null) {
-    printLayoutNote(report.layout.recorded, drift.upstreamLayout);
-  } else {
-    printDriftSection(report.drift, sourceLabel(input.source));
-  }
+  printDriftSection(report.drift, sourceLabel(input.source));
   // ORPHANED: report only — no pharn command can clear one.
   const orphanLines = orphanNoteLines(report.orphans ?? []);
   if (orphanLines) note(orphanLines.join('\n'), 'ORPHANED');
@@ -314,7 +287,7 @@ function printArchetypeVersion(
 // copy of its rules.
 function printModels(config: PharnConfig): void {
   if (config.models === undefined) return;
-  const floor = layoutPaths(configLayout(config)).floor;
+  const floor = layoutPaths('pharn').floor;
   note(modelsNoteLines(config.models, floor).join('\n'), 'MODELS');
 }
 
@@ -360,9 +333,7 @@ function printPrettierignore(plan: PrettierignorePlan | null): void {
 }
 
 // Recorded files the install no longer owns (lib/orphans.ts) — the ONLY reason
-// status reads pharn.records.json. null — not "none" — without a usable store,
-// or when the clone is at another layout than the install, where nearly every
-// recorded file would read as orphaned.
+// status reads pharn.records.json. null — not "none" — without a usable store.
 function statusOrphans(
   repoDir: string,
   cwd: string,
@@ -371,8 +342,6 @@ function statusOrphans(
 ): Orphan[] | null {
   const { records } = recordsBaseline(readRecords(cwd));
   if (records === null) return null;
-  const layout = configLayout(config);
-  if (detectLayout(repoDir) !== layout) return null;
   const all: InstalledCapability[] = config.capabilities ?? [];
   const isFrozen = (cap: InstalledCapability): boolean =>
     frozen.has(`${cap.role}:${cap.name}`);
@@ -387,25 +356,6 @@ function statusOrphans(
     capabilities: all,
     frozen: all.filter(isFrozen),
   }).orphans;
-}
-
-// LAYOUT note, printed in place of DRIFT when the install is recorded at a
-// layout the clone does not ship; it fails --strict. A plain `update` moves it,
-// at any skills version.
-function printLayoutNote(recorded: Layout, upstream: Layout): void {
-  note(
-    [
-      `Recorded at the ${recorded} layout; pharn-oss now ships the ${upstream} layout.`,
-      'Drift is not checked across layouts — your files are not where this',
-      'source puts them, so neither the file comparison nor the NOT SHIPPED',
-      'UPSTREAM check ran.',
-      pc.dim(
-        'Run `pharn update` to move the install; drift is checked after the move.',
-      ),
-      pc.dim('`pharn status --strict` fails until the install is moved.'),
-    ].join('\n'),
-    'LAYOUT',
-  );
 }
 
 // DRIFT note, from the report's `drift` — the same object `--json` prints, so

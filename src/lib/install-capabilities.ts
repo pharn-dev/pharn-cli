@@ -127,7 +127,7 @@ export function installCapabilityDirs(
 
 /** What the destination pre-flight checked, for the copy that follows it. */
 export interface PreparedInstall {
-  // The layout mirrored from the clone (flat OR pharn/).
+  // The layout mirrored from the clone (pharn/).
   paths: LayoutPaths;
   // Every file the install writes, dest → source (collectExpectedInstallPaths).
   manifest: ReadonlyMap<string, string>;

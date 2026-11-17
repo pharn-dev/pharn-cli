@@ -3,7 +3,7 @@ import { readJsonBounded } from './bounded-read.js';
 import { CLAUDE_SETTINGS_FILE, PHARN_CONTRACTS_DIR } from './constants.js';
 import { matchesRawSha256 } from './hash.js';
 import { capabilityOf, isPharnOwnedPath } from './install-surfaces.js';
-import { capabilitySubtree, detectLayout, layoutPaths } from './layout.js';
+import { capabilitySubtree, isPharnLayout, layoutPaths } from './layout.js';
 import { readSkillsVersion } from './skills-version.js';
 import { escapeUnsafe } from './terminal-safe.js';
 import {
@@ -189,7 +189,7 @@ function checkLayout(repoDir: string, layout: unknown): void {
       `pharn-oss's ${MANIFEST_FILE} declares a layout this pharn does not know (${escapeUnsafe(show(layout))}). Upgrade pharn (\`npm install -g @pharn-dev/pharn@latest\`) and re-run. Nothing was written.`,
     );
   }
-  if (detectLayout(repoDir) !== 'pharn') {
+  if (!isPharnLayout(repoDir)) {
     throw refuse(
       `declares the pharn layout, but the tree has no ${PHARN_CONTRACTS_DIR}`,
     );

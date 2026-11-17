@@ -8,7 +8,7 @@ import {
 } from '@clack/prompts';
 import pc from '../lib/color.js';
 import { CliError } from '../lib/cli-error.js';
-import { configLayout, layoutPaths, type LayoutPaths } from '../lib/layout.js';
+import { layoutPaths, type LayoutPaths } from '../lib/layout.js';
 import {
   capabilityDir,
   capabilityRelDir,
@@ -287,7 +287,7 @@ async function removeNamed(
   }
 
   const target = matches[0]!;
-  const paths = layoutPaths(configLayout(config));
+  const paths = layoutPaths('pharn');
   // Under runRemove's lock: backup → delete → prune → config, each write
   // atomic but the sequence not. No prompt and no network on this path.
   refuseSymlinkedTargets(cwd, paths, [target]);
@@ -371,7 +371,7 @@ async function runRemovePicker(
     if (target) targets.push(target);
   }
 
-  const paths = layoutPaths(configLayout(config));
+  const paths = layoutPaths('pharn');
   // Before the confirm: a selection that would be refused must not be asked
   // about first.
   refuseSymlinkedTargets(cwd, paths, targets);

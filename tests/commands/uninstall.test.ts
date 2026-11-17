@@ -39,7 +39,10 @@ import {
 } from '../support/harness.js';
 import type { PharnConfig } from '../../src/types.js';
 import { runUninstall } from '../../src/commands/uninstall.js';
-import { writePharnConfig } from '../../src/lib/pharn-config.js';
+import {
+  FLAT_LAYOUT_MESSAGE,
+  writePharnConfig,
+} from '../../src/lib/pharn-config.js';
 import {
   MODELS_RECORD_KEY,
   writeRecords,
@@ -167,6 +170,7 @@ function seedConfig(extra: Partial<PharnConfig> = {}): PharnConfig {
     installedAt: '2026-10-01T00:00:00.000Z',
     archetypes: ['ssr'],
     capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],
+    layout: 'pharn',
     ...extra,
   };
 }
@@ -546,6 +550,22 @@ describe('pharn uninstall over a hand-seeded install', () => {
     const before = snapshot();
     expect(await run(() => runUninstall({ yes: true }))).toBe(1);
     expect(snapshot()).toEqual(before);
+  });
+
+  // v0.21.0: the flat layout is removed; its config gets the one "re-run
+  // `pharn init`" refusal, and nothing is deleted.
+  it.each([
+    ['recorded at the flat layout', { layout: 'flat' }],
+    ['with no layout key', { layout: undefined }],
+  ])('exits 1 on a config %s, deleting nothing', async (_label, extra) => {
+    await install(FLAT_FILES, {
+      ...seedConfig(),
+      ...(extra as unknown as Partial<PharnConfig>),
+    });
+    const before = snapshot();
+    expect(await run(() => runUninstall({ yes: true }))).toBe(1);
+    expect(snapshot()).toEqual(before);
+    expect(errorText()).toContain(FLAT_LAYOUT_MESSAGE);
   });
 
   describe('refuses with nothing removed', () => {

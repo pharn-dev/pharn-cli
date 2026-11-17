@@ -31,8 +31,10 @@ import {
   useHarness,
   write,
 } from '../support/harness.js';
-import type { PharnConfig } from '../../src/types.js';
-import { LEGACY_CONFIG_MESSAGE } from '../../src/lib/pharn-config.js';
+import {
+  FLAT_LAYOUT_MESSAGE,
+  LEGACY_CONFIG_MESSAGE,
+} from '../../src/lib/pharn-config.js';
 import {
   readRecords,
   RECORDS_FILE,
@@ -77,8 +79,12 @@ type Cap = { name: string; role: 'griller' | 'lens'; source?: string };
 
 const INSTALLED_AT = '2026-07-07T00:00:00.000Z';
 
-/** A real archetype pharn.config.json, as an earlier install left it. */
-function seedConfig(caps: Cap[], extra: Partial<PharnConfig> = {}): void {
+/**
+ * A real archetype pharn.config.json, as an earlier install left it: at the
+ * pharn layout unless `extra` says otherwise (`layout: undefined` drops the
+ * key, as a pre-`pharn/` install's config has none).
+ */
+function seedConfig(caps: Cap[], extra: Record<string, unknown> = {}): void {
   write(
     'pharn.config.json',
     `${JSON.stringify(
@@ -91,6 +97,7 @@ function seedConfig(caps: Cap[], extra: Partial<PharnConfig> = {}): void {
         installedAt: INSTALLED_AT,
         archetypes: ['ssr'],
         capabilities: caps,
+        layout: 'pharn',
         ...extra,
       },
       null,
@@ -123,8 +130,8 @@ const outside = (name: string): string => join(proj(), '..', name);
 /** Every path under a directory outside the project. */
 const tree = (dir: string): string[] => snapshotTree(dir);
 
-const FLAT_A11Y = 'pharn-pipeline/grillers/a11y/a11y.md';
-const FLAT_LENS = 'pharn-review/n-plus-one/n-plus-one.md';
+const A11Y_FILE = 'pharn/pharn-pipeline/grillers/a11y/a11y.md';
+const LENS_FILE = 'pharn/pharn-review/n-plus-one/n-plus-one.md';
 
 describe('pharn remove <name>', () => {
   it('remove <name> deletes that capability, its config entry and its records', async () => {
@@ -150,7 +157,7 @@ describe('pharn remove <name>', () => {
       layout: 'flat' as const,
       arg: 'a11y',
       dir: 'pharn-pipeline/grillers/a11y',
-      kept: FLAT_LENS,
+      kept: 'pharn-review/n-plus-one/n-plus-one.md',
     },
     {
       layout: 'pharn' as const,
@@ -167,10 +174,20 @@ describe('pharn remove <name>', () => {
           { name: 'a11y', role: 'griller' },
           { name: 'n-plus-one', role: 'lens' },
         ],
-        layout === 'pharn' ? { layout } : {},
+        layout === 'pharn' ? { layout } : { layout: undefined },
       );
       write(`${dir}/${gone}.md`, 'X');
       write(kept, 'K');
+
+      if (layout === 'flat') {
+        // v0.21.0: a config recorded at the flat layout (no `layout` key) is
+        // refused with "re-run `pharn init`"; nothing is deleted or written.
+        const before = snapshot();
+        expect(await run(() => runRemove(arg))).toBe(1);
+        expect(snapshot()).toEqual(before);
+        expect(errors()).toContain(FLAT_LAYOUT_MESSAGE);
+        return;
+      }
 
       // The NAMED path never confirms (the stub's confirm would throw).
       expect(await run(() => runRemove(arg))).toBeNull();
@@ -254,8 +271,8 @@ describe('pharn remove <name>', () => {
       },
     ])('$label', async ({ caps, arg, says }) => {
       seedConfig(caps);
-      write(FLAT_A11Y, 'A');
-      await seedStore([FLAT_A11Y]);
+      write(A11Y_FILE, 'A');
+      await seedStore([A11Y_FILE]);
       const before = snapshot();
 
       expect(await run(() => runRemove(arg))).toBe(1);
@@ -274,6 +291,18 @@ describe('pharn remove <name>', () => {
         'a legacy (module) config',
         { skillsVersion: '0.68.0', modules: [{ name: 'pharn-core' }] },
         LEGACY_CONFIG_MESSAGE,
+      ],
+      // v0.21.0: the flat layout is refused with "re-run `pharn init`".
+      [
+        'a config at the flat layout',
+        {
+          skillsVersion: '1.0.0',
+          commit: null,
+          layout: 'flat',
+          archetypes: ['ssr'],
+          capabilities: [{ name: 'a11y', role: 'griller' }],
+        },
+        FLAT_LAYOUT_MESSAGE,
       ],
     ] as const)('%s', async (_label, cfg, says) => {
       if (cfg) write('pharn.config.json', JSON.stringify(cfg));
@@ -355,9 +384,9 @@ describe('pharn remove <name>', () => {
       { name: 'n-plus-one', role: 'lens', source: 'manual' },
       { name: 'legacy', role: 'lens' },
     ]);
-    write(FLAT_A11Y, 'A');
-    write(FLAT_LENS, 'N');
-    write('pharn-review/legacy/legacy.md', 'L');
+    write(A11Y_FILE, 'A');
+    write(LENS_FILE, 'N');
+    write('pharn/pharn-review/legacy/legacy.md', 'L');
 
     expect(await run(() => runRemove('a11y'))).toBeNull();
     // It names when the capability comes back: every update plans, so the
@@ -395,8 +424,8 @@ describe('pharn remove (the picker)', () => {
       ],
       layout ? { layout } : {},
     );
-    write(FLAT_A11Y, 'A');
-    write(FLAT_LENS, 'N');
+    write(A11Y_FILE, 'A');
+    write(LENS_FILE, 'N');
   }
 
   it('multi-selects, confirms once (default No), deletes each pick and writes the config once', async () => {
@@ -408,8 +437,8 @@ describe('pharn remove (the picker)', () => {
 
     expect(await run(() => runRemove(undefined))).toBeNull();
 
-    expect(exists('pharn-pipeline/grillers/a11y')).toBe(false);
-    expect(exists('pharn-review/n-plus-one')).toBe(false);
+    expect(exists('pharn/pharn-pipeline/grillers/a11y')).toBe(false);
+    expect(exists('pharn/pharn-review/n-plus-one')).toBe(false);
     expect(config().capabilities).toEqual([]);
     expect(config().installedAt).toBe(INSTALLED_AT);
     expect(clack.confirm).toHaveBeenCalledTimes(1);
@@ -436,7 +465,7 @@ describe('pharn remove (the picker)', () => {
     '%s: removes nothing and writes nothing',
     async (_label, picks, confirms, code, outro) => {
       seedTwo();
-      await seedStore([FLAT_A11Y, FLAT_LENS]);
+      await seedStore([A11Y_FILE, LENS_FILE]);
       const before = snapshot();
       interactive({
         groupMultiselect: [...picks],
@@ -469,17 +498,17 @@ describe('pharn remove (the picker)', () => {
       { name: 'a11y', role: 'lens' },
       { name: 'a11y', role: 'griller' },
     ]);
-    write(FLAT_A11Y, 'SAFE');
+    write(A11Y_FILE, 'SAFE');
     const shared = outside('shared');
     mkdirSync(join(shared, 'a11y'), { recursive: true });
     writeFileSync(join(shared, 'a11y/NOTES.md'), 'USER NOTES');
-    symlinkSync(shared, at('pharn-review'));
+    symlinkSync(shared, at('pharn/pharn-review'));
     // No confirm is scripted: reaching it would fail the test.
     interactive({ groupMultiselect: [['griller:a11y', 'lens:a11y']] });
 
     expect(await run(() => runRemove(undefined))).toBe(1);
 
-    expect(read(FLAT_A11Y)).toBe('SAFE');
+    expect(read(A11Y_FILE)).toBe('SAFE');
     expect(existsSync(join(shared, 'a11y/NOTES.md'))).toBe(true);
     expect(config().capabilities).toHaveLength(2);
   });
@@ -491,8 +520,8 @@ describe('pharn remove (the picker)', () => {
     writeFileSync(join(shared, 'n-plus-one/NOTES.md'), 'USER NOTES');
     interactive({ groupMultiselect: [['griller:a11y', 'lens:n-plus-one']] });
     vi.mocked(clack.confirm).mockImplementationOnce(async () => {
-      rmSync(at('pharn-review'), { recursive: true });
-      symlinkSync(shared, at('pharn-review'));
+      rmSync(at('pharn/pharn-review'), { recursive: true });
+      symlinkSync(shared, at('pharn/pharn-review'));
       return true;
     });
     const before = tree(shared);
@@ -501,19 +530,20 @@ describe('pharn remove (the picker)', () => {
 
     expect(tree(shared)).toEqual(before);
     // The WHOLE selection is refused: the safe pick is not deleted either.
-    expect(read(FLAT_A11Y)).toBe('A');
+    expect(read(A11Y_FILE)).toBe('A');
     expect(config().capabilities).toHaveLength(2);
     expect(exists(LOCK_FILE)).toBe(false);
-    expect(errors()).toContain('pharn-review is a symbolic link');
+    expect(errors()).toContain('pharn/pharn-review is a symbolic link');
   });
 });
 
 // The prune is a key-PREFIX filter over the store, never a walk of the
 // directory (which is empty before AND after on the "already gone" path).
 describe('pharn remove prunes pharn.records.json', () => {
-  const NESTED = 'pharn-pipeline/grillers/a11y/evals/cases/basic.md';
+  const NESTED = 'pharn/pharn-pipeline/grillers/a11y/evals/cases/basic.md';
   // The prefix neighbour: identical up to the directory separator.
-  const EXTENDED = 'pharn-pipeline/grillers/a11y-extended/a11y-extended.md';
+  const EXTENDED =
+    'pharn/pharn-pipeline/grillers/a11y-extended/a11y-extended.md';
   const DOC = 'CONSTITUTION.md';
 
   function seedCaps(...extra: Cap[]): void {
@@ -525,9 +555,9 @@ describe('pharn remove prunes pharn.records.json', () => {
       { name: 'n-plus-one', role: 'lens' },
       { name: 'a11y-extended', role: 'griller' },
     );
-    await seedStore([FLAT_A11Y, NESTED, FLAT_LENS, EXTENDED, DOC]);
+    await seedStore([A11Y_FILE, NESTED, LENS_FILE, EXTENDED, DOC]);
     const survivors = Object.fromEntries(
-      [FLAT_LENS, EXTENDED, DOC].map((rel) => [rel, contentHash(at(rel))]),
+      [LENS_FILE, EXTENDED, DOC].map((rel) => [rel, contentHash(at(rel))]),
     );
 
     expect(await run(() => runRemove('a11y'))).toBeNull();
@@ -535,7 +565,7 @@ describe('pharn remove prunes pharn.records.json', () => {
     // The trailing slash is load-bearing: a11y-extended keeps its record
     // and its files.
     expect(store()!.files).toEqual(survivors);
-    expect(exists('pharn-pipeline/grillers/a11y-extended')).toBe(true);
+    expect(exists('pharn/pharn-pipeline/grillers/a11y-extended')).toBe(true);
     // `remove` advances neither half of the stamp.
     expect(store()).toMatchObject({
       schemaVersion: 1,
@@ -546,9 +576,9 @@ describe('pharn remove prunes pharn.records.json', () => {
 
   it('prunes the records even when the capability files were already gone', async () => {
     seedCaps();
-    await seedStore([FLAT_A11Y, NESTED, DOC]);
+    await seedStore([A11Y_FILE, NESTED, DOC]);
     const docHash = contentHash(at(DOC));
-    rmSync(at('pharn-pipeline/grillers/a11y'), { recursive: true });
+    rmSync(at('pharn/pharn-pipeline/grillers/a11y'), { recursive: true });
 
     expect(await run(() => runRemove('a11y'))).toBeNull();
 
@@ -561,7 +591,7 @@ describe('pharn remove prunes pharn.records.json', () => {
   // state is still pharn's to prune — re-stamped with the config's pair.
   it('prunes a stale-stamped store, re-stamped with the config pair', async () => {
     seedCaps();
-    await seedStore([FLAT_A11Y, DOC]);
+    await seedStore([A11Y_FILE, DOC]);
     const docHash = contentHash(at(DOC));
     const skewed = JSON.parse(storeBytes()) as { skillsVersion: string };
     skewed.skillsVersion = '9.9.9';
@@ -573,7 +603,7 @@ describe('pharn remove prunes pharn.records.json', () => {
       skillsVersion: '1.0.0',
       files: { [DOC]: docHash },
     });
-    expect(exists('pharn-pipeline/grillers/a11y')).toBe(false);
+    expect(exists('pharn/pharn-pipeline/grillers/a11y')).toBe(false);
     expect(warnings()).toContain('pharn update');
   });
 
@@ -582,7 +612,7 @@ describe('pharn remove prunes pharn.records.json', () => {
     ['a corrupt store is never rewritten', 'not json{'],
   ])('%s', async (_label, bytes) => {
     seedCaps();
-    write(FLAT_A11Y, 'A');
+    write(A11Y_FILE, 'A');
     if (bytes) write(RECORDS_FILE, bytes);
 
     expect(await run(() => runRemove('a11y'))).toBeNull();
@@ -590,13 +620,13 @@ describe('pharn remove prunes pharn.records.json', () => {
     if (bytes) expect(storeBytes()).toBe(bytes);
     else expect(readRecords(proj())).toEqual({ kind: 'absent' });
     // The removal itself still happened.
-    expect(exists('pharn-pipeline/grillers/a11y')).toBe(false);
+    expect(exists('pharn/pharn-pipeline/grillers/a11y')).toBe(false);
   });
 
   it('writes nothing when the capability has no records', async () => {
     seedCaps({ name: 'n-plus-one', role: 'lens' });
-    write(FLAT_A11Y, 'A');
-    write(FLAT_LENS, 'N');
+    write(A11Y_FILE, 'A');
+    write(LENS_FILE, 'N');
     // Seeded COMPACT: any write would re-emit it 2-space indented, so equal
     // bytes prove the write was skipped.
     write(
@@ -605,7 +635,7 @@ describe('pharn remove prunes pharn.records.json', () => {
         schemaVersion: 1,
         skillsVersion: '1.0.0',
         commit: SHA_V1,
-        files: { [FLAT_LENS]: contentHash(at(FLAT_LENS)) },
+        files: { [LENS_FILE]: contentHash(at(LENS_FILE)) },
       }),
     );
     const before = storeBytes();
@@ -620,7 +650,7 @@ describe('pharn remove prunes pharn.records.json', () => {
 
   it('the picker prunes every pick in one store write', async () => {
     seedCaps({ name: 'n-plus-one', role: 'lens' });
-    await seedStore([FLAT_A11Y, NESTED, FLAT_LENS, DOC]);
+    await seedStore([A11Y_FILE, NESTED, LENS_FILE, DOC]);
     const docHash = contentHash(at(DOC));
     interactive({
       groupMultiselect: [['griller:a11y', 'lens:n-plus-one']],

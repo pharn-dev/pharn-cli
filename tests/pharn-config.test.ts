@@ -33,6 +33,7 @@ import {
   isArchetypeConfig,
   configPath,
   LEGACY_CONFIG_KEYS,
+  FLAT_LAYOUT_MESSAGE,
   LEGACY_CONFIG_MESSAGE,
   ArchetypesError,
   CapabilityEntryError,
@@ -171,6 +172,14 @@ describe('pharn-config', () => {
     );
     const loaded = readPharnConfig(tmp.path());
     expect(loaded && 'layout' in loaded).toBe(false);
+    // v0.21.0: 'flat' is dropped the same way (the layout was removed); an
+    // archetype config without the key is then refused at load.
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({ ...sample, layout: 'flat' }),
+    );
+    const flat = readPharnConfig(tmp.path());
+    expect(flat && 'layout' in flat).toBe(false);
   });
 
   it('returns null when no config exists', () => {
@@ -217,6 +226,7 @@ describe('pharn-config', () => {
       );
     };
     const noModules = {
+      layout: 'pharn',
       pharnVersion: '0.19.0',
       skillsVersion: '1.0.0',
       repo: 'pharn-dev/pharn-oss',
@@ -991,6 +1001,7 @@ describe('pharn-config', () => {
       installedAt: '2026-06-11T00:00:00.000Z',
       archetypes: ['ssr'],
       capabilities: [{ name: 'a11y', role: 'griller' }],
+      layout: 'pharn',
     };
 
     it('loads a config with no updatedAt', () => {
@@ -1195,6 +1206,7 @@ describe('legacy fields (LegacyConfigFields)', () => {
       modules: [],
       archetypes: ['lib'],
       capabilities: [{ name: 'a11y', role: 'griller', source: 'auto' }],
+      layout: 'pharn',
       ...LEGACY,
     };
     // As an older CLI wrote it: raw bytes, since this CLI's write drops them.
@@ -1212,6 +1224,7 @@ describe('legacy fields (LegacyConfigFields)', () => {
     expect(readWithLegacy(tmp.path())).toEqual({
       ...current,
       pharnVersion: sample.pharnVersion,
+      layout: 'pharn',
     });
   });
 });
@@ -1336,7 +1349,12 @@ describe('loadConfig', () => {
     });
 
     it('still loads a valid archetype config', () => {
-      const raw = { skillsVersion: '0.1.0', modules: [], capabilities: [] };
+      const raw = {
+        skillsVersion: '0.1.0',
+        modules: [],
+        capabilities: [],
+        layout: 'pharn',
+      };
       writeFileSync(join(tmp.path(), 'pharn.config.json'), JSON.stringify(raw));
       // An absent `commit` is read as `null` (CORE-160).
       expect(loadArchetypeConfig(tmp.path(), { json: true })).toEqual({
@@ -1402,12 +1420,25 @@ describe('loadArchetypeConfig', () => {
       modules: [],
       archetypes: ['ssr'],
       capabilities: [{ name: 'a11y', role: 'griller' }],
+      layout: 'pharn',
     };
     writeFileSync(
       join(tmp.path(), 'pharn.config.json'),
       JSON.stringify(archetype),
     );
     expect(loadArchetypeConfig(tmp.path())).toEqual(archetype);
+    // v0.21.0: the same config recorded at the flat layout is refused.
+    writeFileSync(
+      join(tmp.path(), 'pharn.config.json'),
+      JSON.stringify({ ...archetype, layout: 'flat' }),
+    );
+    expect(exitCodeOf(() => loadArchetypeConfig(tmp.path()))).toBe(1);
+    expect(
+      vi
+        .mocked(log.error)
+        .mock.calls.map((c) => String(c[0]))
+        .join('\n'),
+    ).toBe(FLAT_LAYOUT_MESSAGE);
   });
 
   it('rejects a legacy (module) config with the exact LEGACY_CONFIG_MESSAGE + exit(1)', () => {

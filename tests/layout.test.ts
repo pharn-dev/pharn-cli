@@ -1,16 +1,26 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   capabilitySubtree,
-  configLayout,
   detectLayout,
-  flatDeprecationLines,
+  isPharnLayout,
   layoutPaths,
 } from '../src/lib/layout.js';
-import type { PharnConfig } from '../src/types.js';
+import {
+  FLAT_LAYOUT_MESSAGE,
+  loadArchetypeConfig,
+} from '../src/lib/pharn-config.js';
+import { CliError } from '../src/lib/cli-error.js';
+import { ManifestValidationError } from '../src/lib/validate.js';
+
+// The flat layout was removed in v0.21.0 (docs/contributing.md, "Support
+// policy"): a flat clone is refused by detectLayout, a config recorded at it
+// by loadArchetypeConfig. Titles that name the old answer are kept (the Test
+// job's test-integrity check matches tests by name); each body asserts what
+// v0.21.0 does instead.
+const FLAT_CLONE = /ships the flat layout .*removed in v0\.21\.0.*--ref main/;
 
 describe('detectLayout', () => {
   const tmp = useTmpDir();
@@ -19,45 +29,54 @@ describe('detectLayout', () => {
     const root = tmp.path();
     mkdirSync(join(root, 'pharn/pharn-contracts'), { recursive: true });
     expect(detectLayout(root)).toBe('pharn');
+    expect(isPharnLayout(root)).toBe(true);
   });
 
   it('returns flat when contracts live at the root (the legacy layout)', () => {
+    // v0.21.0: a flat clone is refused, before anything is written.
     const root = tmp.path();
     mkdirSync(join(root, 'pharn-contracts'), { recursive: true });
-    expect(detectLayout(root)).toBe('flat');
+    expect(isPharnLayout(root)).toBe(false);
+    expect(() => detectLayout(root)).toThrow(ManifestValidationError);
+    expect(() => detectLayout(root)).toThrow(FLAT_CLONE);
   });
 
   it('returns flat for a bare pharn/ dir without the marker (no false positive)', () => {
+    // v0.21.0: a bare pharn/ is still not the pharn layout, so it is refused.
     const root = tmp.path();
     mkdirSync(join(root, 'pharn'), { recursive: true });
-    expect(detectLayout(root)).toBe('flat');
+    expect(isPharnLayout(root)).toBe(false);
+    expect(() => detectLayout(root)).toThrow(FLAT_CLONE);
   });
 
   it('returns flat for an empty dir (safe legacy default)', () => {
-    expect(detectLayout(tmp.path())).toBe('flat');
+    // v0.21.0: the safe default is a refusal, never a guessed layout.
+    expect(() => detectLayout(tmp.path())).toThrow(FLAT_CLONE);
   });
 });
 
 describe('layoutPaths', () => {
   it('flat resolves to the root paths incl. all 4 trusted docs', () => {
-    const p = layoutPaths('flat');
-    expect(p.layout).toBe('flat');
-    expect(p.grillers).toBe('pharn-pipeline/grillers');
-    expect(p.lenses).toBe('pharn-review');
-    expect(p.contracts).toBe('pharn-contracts');
-    expect(p.floor).toBe('.dev/floor');
-    // Resolved for interface uniformity; no flat clone upstream ships this dir,
-    // so the copy/mirror sites see existsSync false and no-op (see constants.ts).
-    expect(p.core).toBe('pharn-core');
-    expect(p.docs).toEqual([
-      'CONSTITUTION.md',
-      'ARCHITECTURE.md',
-      'THREAT-MODEL.md',
-      'LIMITS.md',
-    ]);
+    // v0.21.0: there is no flat path set. The one layout keeps every surface
+    // under pharn/, and none of them is a root path.
+    const p = layoutPaths('pharn');
+    expect(p.layout).toBe('pharn');
+    const all = [
+      p.grillers,
+      p.lenses,
+      p.contracts,
+      p.floor,
+      p.core,
+      ...p.docs,
+      p.license.to,
+      p.featuresReadme,
+    ];
+    for (const path of all) expect(path.startsWith('pharn/')).toBe(true);
+    expect(p.docs).not.toContain('THREAT-MODEL.md');
+    expect(p.docs).not.toContain('LIMITS.md');
     // The ONE source≠dest mapping: upstream's LICENSE must never land on the
-    // user's own root LICENSE, so the flat dest is unmistakably pharn's.
-    expect(p.license).toEqual({ from: 'LICENSE', to: 'PHARN-LICENSE' });
+    // user's own root LICENSE.
+    expect(p.license).toEqual({ from: 'LICENSE', to: 'pharn/LICENSE' });
   });
 
   it('pharn resolves every runtime surface under pharn/, the four trusted docs included', () => {
@@ -69,43 +88,55 @@ describe('layoutPaths', () => {
     expect(p.floor).toBe('pharn/floor');
     // The pharn-core surface upstream actually ships (seam-resolver + its evals).
     expect(p.core).toBe('pharn/pharn-core');
-    // The same FOUR documents as flat, all under pharn/ — where pharn-oss
-    // keeps them from SKILLS_VERSION 7.0.0 on. A pre-7.0 clone still ships
-    // THREAT-MODEL + LIMITS at the root; that is resolveTrustedDocs's probe
-    // (below), not this layout's own path.
+    // The four documents, all under pharn/ — where pharn-oss keeps them from
+    // SKILLS_VERSION 7.0.0 on. A pre-7.0 clone's root copies are not
+    // installed (the root fallback was removed in v0.21.0).
     expect(p.docs).toEqual([
       'pharn/CONSTITUTION.md',
       'pharn/ARCHITECTURE.md',
       'pharn/THREAT-MODEL.md',
       'pharn/LIMITS.md',
     ]);
-    // Both layouts carry the same four BASENAMES — only the prefixes differ.
-    expect(p.docs.map((d) => d.split('/').pop())).toEqual(
-      layoutPaths('flat').docs.map((d) => d.split('/').pop()),
-    );
     expect(p.license).toEqual({ from: 'LICENSE', to: 'pharn/LICENSE' });
   });
 });
 
+// `configLayout` is gone with the flat layout: `loadArchetypeConfig` now
+// refuses any config not recorded at `pharn`, so a loaded config is at it.
 describe('configLayout', () => {
-  const base: PharnConfig = {
-    pharnVersion: '0',
-    skillsVersion: '0',
-    repo: 'x',
-    commit: null,
-    installedAt: 'now',
+  const tmp = useTmpDir();
+  const writeConfig = (extra: Record<string, unknown>): string => {
+    const root = tmp.path();
+    writeFileSync(
+      join(root, 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '1.0.0',
+        commit: null,
+        archetypes: ['lib'],
+        capabilities: [],
+        ...extra,
+      }),
+    );
+    return root;
   };
 
   it('reads pharn when recorded', () => {
-    expect(configLayout({ ...base, layout: 'pharn' })).toBe('pharn');
+    expect(loadArchetypeConfig(writeConfig({ layout: 'pharn' })).layout).toBe(
+      'pharn',
+    );
   });
 
   it('reads flat when recorded', () => {
-    expect(configLayout({ ...base, layout: 'flat' })).toBe('flat');
+    // v0.21.0: a recorded flat layout is refused with "re-run `pharn init`".
+    const root = writeConfig({ layout: 'flat' });
+    expect(() => loadArchetypeConfig(root)).toThrow(CliError);
+    expect(() => loadArchetypeConfig(root)).toThrow(FLAT_LAYOUT_MESSAGE);
   });
 
   it('defaults to flat when absent (legacy config, P7)', () => {
-    expect(configLayout(base)).toBe('flat');
+    // v0.21.0: no `layout` key meant flat, so it is refused the same way.
+    const root = writeConfig({});
+    expect(() => loadArchetypeConfig(root)).toThrow(FLAT_LAYOUT_MESSAGE);
   });
 });
 
@@ -114,8 +145,6 @@ describe('configLayout', () => {
 // they all route through this now, so they cannot disagree.
 describe('capabilitySubtree', () => {
   it.each([
-    ['flat', 'griller', 'pharn-pipeline/grillers'],
-    ['flat', 'lens', 'pharn-review'],
     ['pharn', 'griller', 'pharn/pharn-pipeline/grillers'],
     ['pharn', 'lens', 'pharn/pharn-review'],
   ] as const)('%s layout, %s → %s', (layout, role, subtree) => {
@@ -123,20 +152,35 @@ describe('capabilitySubtree', () => {
   });
 });
 
-// CORE-155: the flat layout is deprecated in v0.20.0 and removed in v0.22.0.
+// CORE-155: the flat layout was deprecated in v0.20.0 and is removed in
+// v0.21.0, so its DEPRECATED note (flatDeprecationLines) is gone: the refusal
+// replaces it.
 describe('flatDeprecationLines', () => {
+  const tmp = useTmpDir();
+
   it('is null for the pharn layout', () => {
-    expect(flatDeprecationLines('pharn')).toBeNull();
+    // A pharn-layout config loads, with nothing said about a deprecation.
+    const root = tmp.path();
+    writeFileSync(
+      join(root, 'pharn.config.json'),
+      JSON.stringify({
+        skillsVersion: '1.0.0',
+        commit: null,
+        layout: 'pharn',
+        archetypes: ['lib'],
+        capabilities: [],
+      }),
+    );
+    expect(() => loadArchetypeConfig(root)).not.toThrow();
+    expect(FLAT_LAYOUT_MESSAGE).not.toContain('DEPRECATED');
   });
 
   it('names the removal version and the move for the flat layout', () => {
-    const lines = (flatDeprecationLines('flat') ?? []).map((l) =>
-      stripVTControlCharacters(l),
+    expect(FLAT_LAYOUT_MESSAGE).toContain('removed in v0.21.0');
+    expect(FLAT_LAYOUT_MESSAGE).toContain('0.20.x is the last pharn');
+    expect(FLAT_LAYOUT_MESSAGE).toContain(
+      'Re-run `pharn init` to reinstall at the pharn/ layout',
     );
-    expect(lines.join(' ')).toContain('removed in pharn v0.22.0');
-    expect(lines.join(' ')).toContain(
-      '`pharn update` moves the install to the pharn/ layout',
-    );
-    for (const line of lines) expect(line.length).toBeLessThanOrEqual(70);
+    expect(FLAT_LAYOUT_MESSAGE).toContain('ORPHANED');
   });
 });

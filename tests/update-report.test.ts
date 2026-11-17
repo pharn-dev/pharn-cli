@@ -26,7 +26,6 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
     frozenCapabilities: ['griller:old'],
     capCount: 2,
     layout: 'pharn',
-    abandonedLayout: 'flat',
     featuresReadmeRelocation: true,
     capabilityChanges: [
       {
@@ -92,7 +91,6 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
       },
     ],
     orphans: [],
-    rootMigration: null,
     stateChanges: { config: true, records: true },
     changesNothing: false,
     ...over,
@@ -243,9 +241,11 @@ describe('buildUpdateReport — planned', () => {
   });
 
   it('maps layout, frozen and the structured unknown capabilities (never the prose)', () => {
+    // v0.21.0: `abandonedLayout` is the constant null (no layout move exists).
+    expect(r.plan!.abandonedLayout).toBeNull();
     expect(r.plan).toMatchObject({
       layout: 'pharn',
-      abandonedLayout: 'flat',
+      abandonedLayout: null,
       featuresReadmeRelocation: true,
       frozenCapabilities: ['griller:old'],
       unknownCapabilities: [
@@ -531,30 +531,27 @@ describe('buildUpdateReport — planned', () => {
   // key (removing one is not additive under schemaVersion 1) and the hint is
   // text-only — no hint field reaches the JSON.
   it('projects rootMigration with moves always [] and no hint key', () => {
-    const q = buildUpdateReport(
-      input({
-        plan: planReport({
-          rootMigration: {
-            docs: [{ rel: 'LIMITS.md', action: 'delete' }],
-            userData: [
-              {
-                from: 'memory-bank/',
-                to: 'pharn/memory-bank/',
-                destination: 'exists',
-              },
-            ],
-            scratchNotice: false,
-            gitignoreHints: [],
+    // v0.21.0: the root-footprint migration is removed, so `rootMigration` is
+    // the constant null kept for schemaVersion 1 — whatever a plan carries.
+    const stale = {
+      ...planReport(),
+      rootMigration: {
+        docs: [{ rel: 'LIMITS.md', action: 'delete' }],
+        userData: [
+          {
+            from: 'memory-bank/',
+            to: 'pharn/memory-bank/',
+            destination: 'exists',
           },
-        }),
-      }),
-    );
-    expect(q.plan!.rootMigration).toEqual({
-      docs: [{ rel: 'LIMITS.md', action: 'delete' }],
-      moves: [],
-      scratchNotice: false,
-      gitignoreHints: [],
-    });
+        ],
+        scratchNotice: false,
+        gitignoreHints: [],
+      },
+    } as UpdatePlanReport;
+    const q = buildUpdateReport(input({ plan: stale }));
+    expect(q.plan!.rootMigration).toBeNull();
+    expect(Object.keys(q.plan!)).toContain('rootMigration');
+    expect(JSON.stringify(q)).not.toContain('memory-bank');
     expect(q.plan!.backups).toEqual(r.plan!.backups);
   });
 
@@ -710,7 +707,14 @@ describe('buildUpdateReport — default output is unchanged', () => {
       '      },',
     ].join('\n');
     expect(text).toContain('      "conversion": null,\n');
-    expect(sha(text.replace('"conversion": null,', converted))).toBe(
+    // v0.21.0: `plan.abandonedLayout` is the constant `null` too, where the
+    // fixture carried "flat" when the hash was captured. Put it back as well.
+    expect(text).toContain('    "abandonedLayout": null,\n');
+    const legacy = text.replace(
+      '"abandonedLayout": null,',
+      '"abandonedLayout": "flat",',
+    );
+    expect(sha(legacy.replace('"conversion": null,', converted))).toBe(
       '13a9755b35bf7eb73c52357d17572aedeeb61ce1e737026267c17447169f8615',
     );
     expect(text).not.toContain('"compact"');

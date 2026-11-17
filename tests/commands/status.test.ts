@@ -49,6 +49,7 @@ import { runStatus } from '../../src/commands/status.js';
 import { LOCK_FILE } from '../../src/lib/project-lock.js';
 import { runList } from '../../src/commands/list.js';
 import { runUpdate } from '../../src/commands/update.js';
+import { FLAT_LAYOUT_MESSAGE } from '../../src/lib/pharn-config.js';
 
 vi.mock('@clack/prompts', async () =>
   (await import('../support/clack-stub.js')).clackStub(),
@@ -372,6 +373,8 @@ describe('pharn status, end to end', () => {
     make: () => void | Promise<void>;
     opts?: { drift?: boolean };
     fails: boolean;
+    // Refused before any report: exit 1 with or without --strict.
+    refused?: boolean;
   }
   const strictRows: StrictRow[] = [
     {
@@ -407,9 +410,11 @@ describe('pharn status, end to end', () => {
     },
     {
       name: 'a layout mismatch',
-      // A flat install (recorded `flat`) against the pharn clone.
+      // v0.21.0: a flat install (recorded `flat`) is refused at load with
+      // "re-run `pharn init`" — no report, with or without --strict.
       make: () => legacyInstall('flat'),
       fails: true,
+      refused: true,
     },
     {
       name: 'an unwired upstream hook',
@@ -456,10 +461,22 @@ describe('pharn status, end to end', () => {
 
   it.each(strictRows)(
     '--strict on $name: fails=$fails (text exit and --json exitCode agree)',
-    async ({ name, make, opts = {}, fails }) => {
+    async ({ name, make, opts = {}, fails, refused }) => {
       if (name === 'an orphan') await installWithOrphan();
       else await installFresh();
       await make();
+
+      if (refused) {
+        expect(await status(opts)).toBe(1);
+        expect(await status({ ...opts, strict: true })).toBe(1);
+        clearAll();
+        expect(
+          await run(() => runStatus({ json: true, strict: true, ...opts })),
+        ).toBe(1);
+        expect(stdout()).toEqual([]);
+        expect(stderr().join('\n')).toContain(FLAT_LAYOUT_MESSAGE);
+        return;
+      }
 
       // Without --strict a finding is a report: exit 0.
       expect(await status(opts)).toBeNull();
@@ -546,36 +563,43 @@ describe('pharn status, end to end', () => {
   // A flat install is made from a pharn-oss this pharn can no longer fetch:
   // installed from today's tree, then put in the flat shape (legacyInstall).
   it('a layout mismatch prints LAYOUT instead of DRIFT, compares nothing, and still checks the hooks', async () => {
+    // v0.21.0: there is no layout mismatch to report. A flat clone is refused
+    // (detectLayout) before anything is compared; a pharn clone compares as
+    // usual, both layouts `pharn`.
     await installFresh();
     expect(await status()).toBeNull();
     expect(noteTitles()).not.toContain('LAYOUT');
     expect(note('DRIFT')).toContain('No drift');
 
-    legacyInstall('flat');
+    // A flat pharn-oss predates pharn-install.json: refused at the fetch.
+    serveTip(SHA_V1, '1.0.0', { seal: false });
     write(SETTINGS, '{}\n');
-    expect(await status()).toBeNull();
+    const before = snapshot();
+    expect(await status()).toBe(1);
     expect(noteTitles()).not.toContain('DRIFT');
     expect(noteTitles()).not.toContain('ORPHANED');
-    const layout = note('LAYOUT');
-    expect(layout).toContain(
-      'Recorded at the flat layout; pharn-oss now ships the pharn layout.',
-    );
-    expect(layout).toContain('Drift is not checked across layouts');
-    expect(layout).toContain(
-      'Run `pharn update` to move the install; drift is checked after the move.',
-    );
-    // A plain update moves it at any version: no `--force` fallback.
-    expect(layout).not.toContain('"Already up to date"');
-    expect(layout).not.toContain('--force');
-    expect(layout).toContain('`pharn status --strict` fails');
-    // Layout-independent: the hook wiring is still checked.
-    expect(note('HOOKS')).toContain('node .claude/hooks/guard.cjs');
+    expect(noteTitles()).not.toContain('LAYOUT');
+    expect(noteTitles()).not.toContain('HOOKS');
+    const said = printed();
+    expect(said).toContain('ships no pharn-install.json');
+    expect(said).toContain('7.21.0');
+    expect(said).toContain('--ref main');
+    expect(said).not.toContain('"Already up to date"');
+    expect(said).not.toContain('--force');
+    expect(snapshot()).toEqual(before);
 
+    clearAll();
+    expect(await run(() => runStatus({ json: true }))).toBe(1);
+    expect(stdout()).toEqual([]);
+    expect(stderr().join('\n')).toContain('ships no pharn-install.json');
+
+    // Back on a pharn clone, drift and the hook wiring are checked.
+    serveTip(SHA_V1, '1.0.0');
     const { report } = await statusJson();
     expect(report).toMatchObject({
-      layout: { recorded: 'flat', upstream: 'pharn' },
-      drift: null,
-      orphans: null,
+      layout: { recorded: 'pharn', upstream: 'pharn' },
+      drift: { modified: [], missing: [] },
+      orphans: [],
       hooks: { status: 'missing' },
       unknownCapabilities: [],
       strict: { enabled: false, failed: false },
@@ -584,29 +608,36 @@ describe('pharn status, end to end', () => {
 
   // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
   it('DEPRECATED: a flat install is told the layout goes in v0.22.0 and how to move off it, on both paths, never failing --strict', async () => {
-    // A flat install comes from a pharn-oss this pharn can no longer fetch.
+    // v0.21.0: no DEPRECATED note — status refuses a flat install (exit 1, on
+    // both paths, before any download) with the one re-run-init message.
     await installFresh();
     legacyInstall('flat');
-    // Without a clone there is no layout mismatch to fail --strict on.
-    expect(await status({ strict: true, drift: false })).toBeNull();
-    expect(noteTitles().slice(0, 3)).toEqual(['NODE', 'VERSION', 'DEPRECATED']);
-    const deprecated = note('DEPRECATED');
-    expect(deprecated).toContain('This install is at the flat layout');
-    expect(deprecated).toContain(
-      'The flat layout is deprecated and is removed in pharn v0.22.0.',
-    );
-    expect(deprecated).toContain(
-      '`pharn update` moves the install to the pharn/ layout',
-    );
-    expect(deprecated).toContain('delete the old top-level copies');
-    for (const line of deprecated.split('\n'))
-      expect(line.length).toBeLessThanOrEqual(70);
+    const before = snapshot();
+    fetchStub.mockClear();
+    expect(await status({ strict: true })).toBe(1);
+    expect(noteTitles()).not.toContain('DEPRECATED');
+    expect(noteTitles()).not.toContain('DRIFT');
+    const said = printed();
+    expect(said).toContain('This project is installed at the flat layout');
+    expect(said).toContain('removed in v0.21.0');
+    expect(said).toContain('Re-run `pharn init`');
+    expect(said).toContain('delete them by hand');
+    expect(downloaded()).toBe(false);
 
-    // Read from the recorded layout, so it prints with a clone too: across
-    // layouts, beside LAYOUT, which names the same move.
-    expect(await status()).toBeNull();
-    expect(noteTitles()).toContain('LAYOUT');
-    expect(notes('DEPRECATED')).toHaveLength(1);
+    // The recorded layout is read before any clone, so --no-drift refuses too.
+    expect(await status({ drift: false })).toBe(1);
+    expect(notes('DEPRECATED')).toHaveLength(0);
+    expect(printed()).toContain('This project is installed at the flat layout');
+    expect(snapshot()).toEqual(before);
+
+    // A config with no `layout` key is the flat layout, refused the same way.
+    editConfig((c) => {
+      delete (c as { layout?: string }).layout;
+    });
+    const unkeyed = snapshot();
+    expect(await status()).toBe(1);
+    expect(notes('DEPRECATED')).toHaveLength(0);
+    expect(snapshot()).toEqual(unkeyed);
   });
 
   it('DEPRECATED is not printed for the pharn layout, and --json carries no notice', async () => {
@@ -614,33 +645,18 @@ describe('pharn status, end to end', () => {
     expect(await status()).toBeNull();
     expect(noteTitles()).not.toContain('DEPRECATED');
 
-    // A flat install's --json: the same schemaVersion-1 keys, one object on
-    // stdout, nothing else anywhere (the recorded layout already says flat).
+    // v0.21.0: a flat install's --json is refused — stdout stays empty and the
+    // one message goes to stderr as a plain line, never through clack.
     editConfig((c) => {
       c.layout = 'flat';
     });
     for (const drift of [true, false]) {
-      const { report } = await statusJson({ drift });
-      expect(report.layout.recorded).toBe('flat');
-      expect(Object.keys(report).sort()).toEqual(
-        [
-          'archetypes',
-          'capabilities',
-          'drift',
-          'hooks',
-          'layout',
-          'models',
-          'node',
-          'orphans',
-          'prettierignore',
-          'schemaVersion',
-          'strict',
-          'unknownCapabilities',
-          'version',
-        ].sort(),
-      );
-      expect(stdout().join('\n')).not.toMatch(/deprecat|v0\.22\.0/i);
-      expect(stderr()).toEqual([]);
+      clearAll();
+      expect(await run(() => runStatus({ json: true, drift }))).toBe(1);
+      expect(stdout()).toEqual([]);
+      expect(stdout().join('\n')).not.toMatch(/deprecat/i);
+      expect(stderr().join('\n')).toContain(FLAT_LAYOUT_MESSAGE);
+      expect(stderr()).toHaveLength(1);
       expectNoClack();
     }
   });
@@ -803,12 +819,13 @@ describe('pharn status, end to end', () => {
       hasNot: ['not this block', 'no installed stage reads'],
     },
     {
+      // v0.21.0: a flat install is refused before MODELS (re-run `pharn
+      // init`), so the checker named is always the pharn layout's.
       name: 'a flat install points at the checker under .dev/floor',
-      layout: 'flat',
       models: { stages: { default: { model: 'opus', effort: 'low' } } },
       verdict: 'valid',
-      has: ['node .dev/floor/check-model-config.mjs agreement'],
-      hasNot: [],
+      has: ['node pharn/floor/check-model-config.mjs agreement'],
+      hasNot: ['.dev/floor'],
     },
     {
       // CORE-188: an invalid block like any other, its REDs named.
@@ -855,11 +872,10 @@ describe('pharn status, end to end', () => {
       has: ['Declares no stages'],
       hasNot: [],
     },
-  ])('MODELS: $name', async ({ models, layout, verdict, has, hasNot }) => {
+  ])('MODELS: $name', async ({ models, verdict, has, hasNot }) => {
     await installFresh();
     editConfig((c) => {
       c.models = models;
-      if (layout) c.layout = layout;
     });
     // Never a --strict input: the block's verdict is pharn-oss's checker's.
     expect(await status({ drift: false, strict: true })).toBeNull();

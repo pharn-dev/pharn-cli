@@ -12,7 +12,6 @@ import {
   reportCapabilityChanges,
   reportDryRun,
   reportOutcome,
-  reportRootMigration,
   reportExecutableUnit,
   reportForcedOverwrites,
   type Backup,
@@ -65,12 +64,7 @@ import {
   type InstallSource,
   type RefChoice,
 } from '../lib/release.js';
-import {
-  deleteRootDocs,
-  rootDocsChangedSincePlan,
-} from '../lib/root-migration.js';
 import { versionStatus } from '../lib/version-status.js';
-import { configLayout, flatDeprecationLines } from '../lib/layout.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { fetchRemoteSkillsVersion } from '../lib/skills-version.js';
@@ -184,10 +178,6 @@ async function updateProject(
   // dry run, below the refusals so a refused run prints only its one error.
   const channelNotice = defaultChannelNotice(config, opts.ref);
   if (channelNotice !== null && !json) log.info(channelNotice);
-  // DEPRECATED, once per run and on every path below (ahead of the source, the
-  // dry run, up to date, the real run), text only: `--json` stays one report.
-  const deprecation = flatDeprecationLines(configLayout(config));
-  if (deprecation !== null && !json) note(deprecation.join('\n'), 'DEPRECATED');
   await runArchetypeUpdate(
     config,
     cwd,
@@ -345,8 +335,6 @@ async function runArchetypeUpdate(
         confirmed.removals,
         true,
       );
-      // Root docs it would delete and hints about user data it leaves alone.
-      reportRootMigration(confirmed.rootMigration, null);
       // The executable unit it would hold, so a user can revert edits first.
       reportExecutableUnit(confirmed.executableUnit, true);
       // What "overwrite your changes" means, file by file.
@@ -484,19 +472,12 @@ async function applyConfirmed(
   const { config, cwd, channel, repoDir, fingerprint } = ctx;
   // Before the spinner, so a refused run never renders a frame.
   assertConfigFingerprintUnchanged(cwd, fingerprint, 'update');
-  const changed = [
-    ...changedSince(
-      cwd,
-      planned.apply.seen,
-      planned.report.writes,
-      planned.apply.expected,
-    ),
-    ...rootDocsChangedSincePlan(
-      cwd,
-      planned.report.rootMigration?.docs ?? [],
-      planned.apply.records,
-    ),
-  ];
+  const changed = changedSince(
+    cwd,
+    planned.apply.seen,
+    planned.report.writes,
+    planned.apply.expected,
+  );
   if (changed.length > 0) throw CliError.refusal(changedWhileWaiting(changed));
   let s = spinner();
   s.start('Updating');
@@ -625,15 +606,6 @@ async function applyPlannedUpdate(
     throw err;
   }
 
-  // The old root docs: deleted only now that the pharn/ copy has landed, and
-  // only when still record-equal. A failure keeps the file and its record.
-  const migration = report.rootMigration;
-  const docResult =
-    migration === null
-      ? { deleted: [], kept: [] }
-      : deleteRootDocs(cwd, repoDir, migration.docs, records);
-  const retired = new Set(docResult.deleted);
-
   // Records first, then the config: if the config write fails, the records
   // still describe the bytes on disk. Every hash is re-read from the DEST after
   // the copy, so a record cannot disagree with what landed.
@@ -641,7 +613,6 @@ async function applyPlannedUpdate(
     cwd,
     nextRecordStore(apply, {
       written: buildRecords(cwd, written),
-      retired,
       unwritten,
     }),
   );
@@ -672,7 +643,6 @@ async function applyPlannedUpdate(
     backup,
     recordsNote: report.recordsNote,
     versionWithheld: report.versionWithheld,
-    abandonedLayout: report.abandonedLayout,
     featuresReadmeRelocation: report.featuresReadmeRelocation,
     hookWiring: report.hookWiring,
     absentUpstream: report.absentUpstream,
@@ -681,8 +651,6 @@ async function applyPlannedUpdate(
     orphans: report.orphans,
     gitignore,
     prettierignore,
-    rootMigration: migration,
-    rootMigrationResult: migration === null ? null : docResult,
   };
 }
 
@@ -701,7 +669,6 @@ function unchangedOutcome(planned: PlannedUpdate): UpdateOutcome {
     backup: null,
     recordsNote: report.recordsNote,
     versionWithheld: report.versionWithheld,
-    abandonedLayout: report.abandonedLayout,
     featuresReadmeRelocation: report.featuresReadmeRelocation,
     hookWiring: report.hookWiring,
     absentUpstream: report.absentUpstream,
@@ -710,10 +677,6 @@ function unchangedOutcome(planned: PlannedUpdate): UpdateOutcome {
     orphans: report.orphans,
     gitignore: report.gitignore,
     prettierignore: report.prettierignore,
-    rootMigration: report.rootMigration,
-    // So the note still prints its hints about root user data.
-    rootMigrationResult:
-      report.rootMigration === null ? null : { deleted: [], kept: [] },
     unchanged: true,
   };
 }

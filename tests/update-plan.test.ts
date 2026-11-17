@@ -134,7 +134,7 @@ describe('buildUpdatePlan', () => {
     expect(apply.nextSkillsVersion).toBe('1.1.0');
     expect(apply.nextCommit).toBe('a'.repeat(40));
     expect(report.backups).toEqual([]);
-    expect(report.abandonedLayout).toBeNull();
+    expect(report.layout).toBe('pharn');
     expect(report.unknownWarning).toBeNull();
     expect(report.unknownCapabilities).toEqual([]);
   });
@@ -328,10 +328,7 @@ describe('buildUpdatePlan', () => {
 
         // The store that run writes (its records), then plan again.
         const { nextRecordStore } = await import('../src/lib/update-next.js');
-        await writeRecords(
-          proj,
-          nextRecordStore(first.apply, { written: {}, retired: new Set() }),
-        );
+        await writeRecords(proj, nextRecordStore(first.apply, { written: {} }));
         const second = plan(settled);
         expect(second.report.stateChanges).toEqual({
           config: false,
@@ -473,14 +470,15 @@ describe('buildUpdatePlan', () => {
     expect(report.changesNothing).toBe(false);
   });
 
-  // A fetched clone is always the pharn layout, so the one direction left is a
-  // `flat` install moving to it.
+  // v0.21.0: there is no layout move to plan. The plan records the clone's one
+  // layout, and a tree without the pharn layout's marker is refused.
   it('plans the abandoned layout in both directions, only when something would be written', async () => {
     await fixture();
-    const report = plan(config({ layout: 'flat' })).report;
+    const report = plan(config()).report;
     expect(report.layout).toBe('pharn');
-    expect(report.abandonedLayout).toBe('flat');
-    expect(plan(config()).report.abandonedLayout).toBeNull();
+    expect(report).not.toHaveProperty('abandonedLayout');
+    rmSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
+    expect(() => plan(config())).toThrow(/pharn\/pharn-contracts/);
   });
 
   // An install that recorded the root features/README.md, updated from a clone
@@ -733,21 +731,17 @@ describe('buildUpdatePlan', () => {
     });
 
     it('holds the root migration with the unit (the old floor reads the old paths)', async () => {
+      // v0.21.0: there is no root migration to hold. Held or not, the plan
+      // never names, moves or backs up the root memory-bank/.
       const cfg = await unitFixture();
       const { report } = plan(cfg);
-      expect(report.rootMigration).toBeNull();
-      // Without the blocker the same fixture migrates — and only hints at the
-      // root memory-bank/, never moves it (CORE-158).
+      expect(report.executableUnit).not.toBeNull();
+      expect(report).not.toHaveProperty('rootMigration');
       write(join(proj, OLD_FLOOR), 'baseline v7');
       const unheld = plan(cfg);
       expect(unheld.report.executableUnit).toBeNull();
-      expect(unheld.report.rootMigration?.userData).toEqual([
-        {
-          from: 'memory-bank/',
-          to: 'pharn/memory-bank/',
-          destination: 'free',
-        },
-      ]);
+      expect(unheld.report).not.toHaveProperty('rootMigration');
+      expect(unheld.report.writes).not.toContain('memory-bank/notes.md');
       expect(unheld.report.backups).not.toContain('memory-bank/notes.md');
     });
 
@@ -891,22 +885,14 @@ describe('buildUpdatePlan', () => {
     });
 
     it('addresses the directory at the layout the CONFIG recorded, not the clone’s', async () => {
-      // A `flat` install (its stale lens at the root) updated from a clone,
-      // which is always the pharn layout.
-      const cfg = await withStale(
-        config({
-          layout: 'flat',
-          capabilities: [
-            { ...CAP, source: 'auto' },
-            { ...STALE, source: 'auto' },
-          ],
-        }),
-        'pharn-review/stale',
-      );
+      // v0.21.0: config and clone share the one layout, so a removal is
+      // addressed under pharn/ — never at a root path a flat install used.
+      const cfg = await withStale();
+      write(join(proj, 'pharn-review/stale/stale.md'), 'a flat-era copy');
       const { report, apply } = plan(cfg);
       expect(report.layout).toBe('pharn');
-      expect(report.removals[0]!.dir).toBe('pharn-review/stale');
-      expect(apply.removalPaths.lenses).toBe('pharn-review');
+      expect(report.removals[0]!.dir).toBe(STALE_DIR);
+      expect(apply.removalPaths.lenses).toBe('pharn/pharn-review');
     });
 
     it('never removes a frozen (kept, unparsed) capability', async () => {

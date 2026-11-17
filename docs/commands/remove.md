@@ -34,9 +34,9 @@ filesystem. `CONSTITUTION.md`, `memory-bank/`, and your detected `archetypes` ar
 
 ## The capability argument
 
-Each capability lives in its own directory, addressed at your project's recorded layout — flat
-(`pharn-review/<name>` for a lens, `pharn-pipeline/grillers/<name>` for a griller) or the same paths
-under `pharn/`. Removal is therefore precise; siblings are never touched.
+Each capability lives in its own directory: `pharn/pharn-review/<name>` for a lens,
+`pharn/pharn-pipeline/grillers/<name>` for a griller. (A project recorded at the legacy `flat` layout,
+removed in v0.21.0, is refused with a message to re-run `pharn init`.) Removal is therefore precise; siblings are never touched.
 
 - **Not installed** → an error: exit **1**, nothing written — the same answer `pharn add` gives for a
   name it does not know, so a script that removes the wrong name does not read success. The CLI
