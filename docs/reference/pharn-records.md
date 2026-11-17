@@ -18,15 +18,21 @@ missing ones; files identical to upstream are no-ops and have their records refr
 
 ## Shape
 
+Five of the 546 entries the store held after the run that wrote the
+[`pharn.config.json` example](pharn-config.md#example) (`pharn init --yes`, then `pharn add n-plus-one`,
+`pharn` 0.20.0, pharn-oss v7.22.0), hashes shortened to `…`. Keys are sorted.
+
 ```json
 {
   "schemaVersion": 1,
-  "skillsVersion": "3.0.2",
-  "commit": "daa06788…",
+  "skillsVersion": "7.22.0",
+  "commit": "9422b97f9bcef022d240822024e75a1a49c6e278",
   "files": {
-    "pharn/CONSTITUTION.md": "e3b0c44298fc1c149afbf4c8996fb924…",
-    ".claude/hooks/set-writes-scope.cjs": "9f86d081884c7d659a2feaa0c55ad015…",
-    "pharn/pharn-review/n-plus-one/n-plus-one.md": "2c26b46b68ffc68ff99b453c1d304134…"
+    ".claude/hooks/set-writes-scope.cjs": "668a9b0154c341a98a9f73a1ab0fe98e…",
+    ".claude/settings.json": "d218f551515df41482b8a18885b76ee8…",
+    "pharn.config.json#/models": "da4baeb9b1ed1c7e0f06bfd6b4f79dcf…",
+    "pharn/CONSTITUTION.md": "8f0c7cad7d2c7350da2bcb1674509f2a…",
+    "pharn/pharn-review/n-plus-one/n-plus-one.md": "5149e3524a2aa5c78407787c41341b84…"
   }
 }
 ```

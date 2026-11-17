@@ -543,6 +543,10 @@ describe('parseCliArgs: --version and --help', () => {
 
   it('scopes every option to its commands in the full text', () => {
     const full = printed(['--help']);
+    expect(full).toContain(
+      'Options (each names the commands that take it; any other command refuses it):',
+    );
+    expect(full).not.toContain('ONE command');
     expect(full).toMatch(/--archetype <list>\s+init:/);
     expect(full).toMatch(/--ref <ref>\s+init: install from "latest"/);
     expect(full).toMatch(/\n\s+update: switch to "latest"/);

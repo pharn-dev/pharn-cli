@@ -13,6 +13,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ### Changed
 
+- **`pharn --help` no longer says each option belongs to one command.** `--json`, `--yes`, `--ref` and `--dry-run` are taken by several, as the lines below the header already showed. The header now reads "Options (each names the commands that take it; any other command refuses it):".
+
 - **New configs no longer carry `modules`; pharn 0.20.0 is the oldest CLI that can read them.** `pharn init` wrote `"modules": []` into every archetype `pharn.config.json` only because `pharn` 0.3.0 to 0.19.x reads a config without a `modules` array as no config at all. It no longer does, and every write (`init`, `add`, `remove`, `update`) now also drops the fields only older CLIs wrote (`modules`, `constitution`, `installedSkills`, `stackAnswers`, `isMultiTenant`) when it finds them. A config that still carries them loads in every command as before. If a teammate runs `pharn` 0.19.x or older, upgrade it first: it reports _"No pharn.config.json found"_ for a config 0.21.0 wrote, and running `pharn init` there would replace the file.
 
 ### Removed

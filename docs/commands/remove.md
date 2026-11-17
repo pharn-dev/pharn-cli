@@ -30,7 +30,7 @@ pharn remove                 # no arg, in a terminal: interactive multi-select p
    store never describes files that are gone.
 
 Removal needs **no network and no clone** — everything is derivable from `capabilities` plus your
-filesystem. `CONSTITUTION.md`, `memory-bank/`, and your detected `archetypes` are **never** touched.
+filesystem. `CONSTITUTION.md`, `pharn/memory-bank/`, and your detected `archetypes` are **never** touched.
 
 ## The capability argument
 
@@ -139,8 +139,10 @@ guarantee.
 _resolved_ half is unaffected. If your archetypes still select that capability — and most capabilities
 are `universal`, so they usually do — the next `update` may re-add it as `auto` and name it under
 `ADDED`. `remove` cannot warn about this: it has no capability index and never fetches one, so it
-cannot know whether your archetypes select the thing you are removing. To keep a capability out for
-good, remove the archetype that selects it.
+cannot know whether your archetypes select the thing you are removing. There is no permanent
+exclusion today ([planned](../roadmap.md#planned)): a `universal` capability is selected whatever your
+archetypes are, so `update` re-adds it. Only a re-run `pharn init --archetype <list>` changes the
+recorded `archetypes`, which drops a capability that only the archetypes you leave out select.
 
 The warning is derived from the stored field alone, so `remove` stays offline. An entry whose `source`
 is **absent** (a config predating the field) warns nothing — its provenance is genuinely unknown until

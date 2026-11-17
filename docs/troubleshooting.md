@@ -419,7 +419,8 @@ Symptoms:
 - A warning naming one or more capabilities: `… could not be read and … SKIPPED — not installed`
 - `init` / `add` / `update` / `status` otherwise complete normally, exit 0
 
-pharn always reads `pharn-dev/pharn-oss` at `main`, so upstream can change a capability into a shape
+pharn reads the newest verified release of `pharn-dev/pharn-oss` (the default) or, with `--ref main`, the
+tip of `main`, so upstream can change a capability into a shape
 your installed pharn version does not understand yet. Rather than abort, pharn skips that **one**
 capability, names it with the reason, and carries on — it will not install content it could not
 validate.
@@ -531,7 +532,7 @@ non-interactive-terminal messages all name the one action that resolves them ins
 
 ## Overwrite declined
 
-If any install targets already exist and you decline the overwrite prompt, the wizard cancels with exit 0 and **nothing is written into your project** (the temporary clone is cleaned up).
+If any install targets already exist and you decline the overwrite prompt, `pharn init` cancels with exit 0 and **nothing is written into your project** (the temporary clone is cleaned up).
 
 Nothing is written outside your project either: the repo fetch runs first, but it downloads into a temporary directory that is removed on every path — success, cancel, and error alike. `pharn` keeps no download cache. (Earlier versions did, through `degit`; see [A leftover cache you may want to delete](#a-leftover-cache-you-may-want-to-delete) if you want to reclaim that space.)
 
@@ -889,7 +890,8 @@ Unsupported option for `status`: "--force"
 Run `pharn --help` for usage.
 ```
 
-Every option belongs to exactly one command, and `pharn` refuses the ones a command does not take:
+Each option is taken by the commands listed below (`--json`, `--yes`, `--ref` and `--dry-run` by
+several), and `pharn` refuses the ones a command does not take:
 
 | command         | options it accepts                                                                                              |
 | --------------- | --------------------------------------------------------------------------------------------------------------- |

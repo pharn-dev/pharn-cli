@@ -275,7 +275,7 @@ const USAGE = [
     (c) => `  ${commandLabel(c).padEnd(COMMAND_COLUMN - 2)}${c.summary}`,
   ),
   '',
-  'Options (each belongs to ONE command; passing it to another is an error):',
+  'Options (each names the commands that take it; any other command refuses it):',
   ...OPTIONS.flatMap((opt) => optionLines(opt)),
   '',
   ENVIRONMENT,

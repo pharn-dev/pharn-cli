@@ -389,7 +389,8 @@ drops the same way, after listing them in its overwrite prompt.
 
 ## When pharn cannot read a capability upstream
 
-pharn always fetches `pharn-dev/pharn-oss` at `main`, so a capability can change upstream in a way
+`update` fetches the source your install follows — the newest verified release of `pharn-dev/pharn-oss`
+(the default), or the tip of `main` for an install on `--ref main` — so a capability can change upstream in a way
 your installed pharn version does not understand yet — a new field value, a directory that does not
 have its markdown yet, a shape from a newer release. When that happens `update` **skips that one
 capability and says so**; it does not abort:
@@ -767,7 +768,8 @@ exits 0. Use [`pharn status --strict`](status.md) when you want CI to fail on dr
 `--force` does **not** imply `--yes`. Overwriting your edits is the most destructive thing `update`
 does, so it still asks — `pharn update --force` in a pipe is refused exactly like a bare one.
 
-> [`pharn init`](init.md) has no `--yes` and is interactive-only — see its note for why.
+> [`pharn init --yes`](init.md#install-without-prompts---yes) skips init's "Ready to install?" question
+> but never confirms an overwrite: it installs only into a project where none of its files exists yet.
 
 ## Before you confirm
 

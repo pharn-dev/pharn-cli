@@ -1,6 +1,6 @@
 # pharn init
 
-Interactive setup wizard — or, with `--dry-run`, a preview, and with `--yes`, a prompt-free install into a fresh project. Default command when you run `pharn` with no subcommand.
+Interactive install (a summary, then "Ready to install?") — or, with `--dry-run`, a preview, and with `--yes`, a prompt-free install into a fresh project. Default command when you run `pharn` with no subcommand.
 
 ```bash
 pharn init
@@ -72,8 +72,12 @@ previews the install for those archetypes (the same summary block, then the plan
 
 ## `init` is interactive by default
 
-`init` asks which capabilities to install, and — only when any of its write targets already exist —
-whether to overwrite them, so a plain `pharn init` needs a terminal. Off a TTY (CI, a pipe, a script) it
+`init` prints a summary of the archetypes it detected and the capabilities they select, then asks
+**Ready to install?**, and — only when any of its write targets already exist — whether to overwrite
+them, so a plain `pharn init` needs a terminal. It does not ask which capabilities to install: the
+selection follows your archetypes, and you change it with
+[`--archetype`](#choosing-the-archetypes-yourself---archetype) or, after the install, with
+[`pharn add`](add.md) and [`pharn remove`](remove.md). Off a TTY (CI, a pipe, a script) it
 **exits 1** instead of prompting into a stream nobody is reading:
 
 ```console
@@ -326,7 +330,8 @@ sequenceDiagram
 
 ## When pharn cannot read a capability upstream
 
-`init` fetches `pharn-dev/pharn-oss` at `main`, so a capability can be in a shape your installed
+`init` fetches the newest verified release of `pharn-dev/pharn-oss` (or the tip of `main` with
+`--ref main`), so a capability can be in a shape your installed
 pharn version does not understand yet. `init` **skips that one capability and names it**, before the
 summary you act on, then installs everything else normally:
 
@@ -591,7 +596,7 @@ overwrites them.
 
 The install also copies pharn-oss's Apache-2.0 `LICENSE` — to `pharn/LICENSE`. The destination is deliberately **not** a plain root `LICENSE`:
 that file is yours, and pharn never overwrites it. The copy exists so that a repo you commit and
-publish carries the license grant for the ~450 Apache-2.0 files pharn put in it.
+publish carries the license grant for the several hundred Apache-2.0 files pharn put in it.
 
 The four trusted docs land in `pharn/` (`pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`,
 `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`), where pharn-oss keeps them from 7.0.0 on. A root

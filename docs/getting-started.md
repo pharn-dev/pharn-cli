@@ -43,9 +43,13 @@ npx @pharn-dev/pharn init
 npx create-next-app@latest my-app
 cd my-app
 npx shadcn@latest init
-git init && git add -A && git commit -m "init"
+[ -d .git ] || { git init && git add -A && git commit -m "init"; }
 npx @pharn-dev/pharn init
 ```
+
+`create-next-app` already runs `git init` and makes the first commit (unless git is missing or you pass
+`--disable-git`), so the git line runs only when `.git` is absent. `pharn init` needs a git repository at
+the project root.
 
 `pharn` with no subcommand runs `init` (same as `pharn init`).
 
@@ -127,7 +131,7 @@ The pipeline is eight typed stages: `/pharn-spec → /pharn-plan → /pharn-gril
 
 **Set up a test runner before your first feature.** `/pharn-test` writes each acceptance criterion's test before the build and requires it to fail, so it needs a `test` script (plus `test:e2e` or `e2e` for end-to-end criteria) whose reporter writes per-test JSON, named under `testResults` in `pharn.config.json`. Without one, `/pharn-test` stops and asks, and `/pharn-loop` ends with `blocked: no-test-runner`. Set the runner up as its own increment (a SPEC with `spec_kind: test-infra`); the reporter setup is in upstream's [Per-test results](https://github.com/pharn-dev/pharn-oss#per-test-results).
 
-Two of the installed commands stand on their own, outside the pipeline and `/pharn-loop`: **`/pharn-review`** runs the review lenses in parallel over any code and merges their findings (no stage invokes it), and **`/pharn-memory-promote`** promotes one lesson into `memory-bank/` through a gated provenance check.
+Two of the installed commands stand on their own, outside the pipeline and `/pharn-loop`: **`/pharn-review`** runs the review lenses in parallel over any code and merges their findings (no stage invokes it), and **`/pharn-memory-promote`** promotes one lesson into `pharn/memory-bank/` through a gated provenance check.
 
 ## Next steps
 
