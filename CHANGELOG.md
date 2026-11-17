@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **`pharn --help` no longer says each option belongs to one command.** `--json`, `--yes`, `--ref` and `--dry-run` are taken by several, as the lines below the header already showed. The header now reads "Options (each names the commands that take it; any other command refuses it):".
+
 ## [0.21.0] — 2026-11-17
 
 ### Changed

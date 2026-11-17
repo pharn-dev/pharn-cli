@@ -86,14 +86,15 @@ Run PHARN inside an existing git project:
 npx @pharn-dev/pharn@latest init
 ```
 
-For a new app, initialize git before installing PHARN:
+For a new app, make sure it is a git repository before installing PHARN.
+`create-next-app` already runs `git init` and makes the first commit (unless git
+is missing or you pass `--disable-git`), so initialize git only when `.git` is
+absent:
 
 ```bash
 npx create-next-app@latest my-app
 cd my-app
-git init
-git add -A
-git commit -m "init"
+[ -d .git ] || { git init && git add -A && git commit -m "init"; }
 npx @pharn-dev/pharn@latest init
 ```
 
@@ -179,17 +180,20 @@ They only ever append: your lines are never reordered or rewritten, CRLF stays
 CRLF, and a second run changes nothing. A symlinked `.gitignore` is never written
 through (you get a warning naming the lines). Lines added to `.gitignore` do not
 untrack files you already committed (`git rm -r --cached pharn/.run` does).
-`pharn/.lock*` is a transient file — add it yourself if you like. When your
-`.gitignore` still names the old `.pharn/`, `pharn update` prints the
-replacement line; it never rewrites yours.
+`pharn/.lock*` is a transient file — add it yourself if you like. A `.pharn/`
+line left from an install older than pharn-oss 7.0.0 is neither rewritten nor
+mentioned; replace it with `pharn/.run/` yourself.
 
 Everything PHARN keeps in your project lives under `.claude/` and `pharn/`, plus
 the two JSON files at the root. An install made from a pharn-oss older than 7.0.0
 also has `THREAT-MODEL.md` and `LIMITS.md` at the root, and may have
-`memory-bank/` and `pharn.spec-template.md` there: the first `pharn update` to
-7.0.0 or later deletes the two docs if you never edited them. It never moves the
-other two (nothing proves they are PHARN's); it prints the `git mv` command, or
-says to merge by hand when the `pharn/` copy already exists — see
+`memory-bank/` and `pharn.spec-template.md` there. pharn-oss 7.x reads none of
+them. `pharn update` installs the `pharn/` copies of the two docs and lists the
+root copies it recorded under `ORPHANED`, for you to delete. It never moves,
+deletes or mentions a root `memory-bank/` or `pharn.spec-template.md` (nothing
+proves they are PHARN's): move them yourself to `pharn/memory-bank/` and
+`pharn/spec-template.md` (`git mv`), or merge by hand when the `pharn/` copy
+already exists — see
 [update](docs/commands/update.md#the-root-footprint-migration).
 
 **Two version numbers, on purpose.** The npm package `@pharn-dev/pharn` carries
@@ -215,18 +219,19 @@ In an **installed** project (`pharn.config.json` carries a non-empty
 `skillsVersion`), you can edit ordinary application source **outside** an open
 PHARN run. The narrow fail-closed posture — Claude Code's
 Write/Edit/MultiEdit/NotebookEdit tools restricted to `pharn/features/**` and
-`.pharn/**` — applies **only while** `/pharn-ship`, `/pharn-loop`, or
-`/pharn-review` has an open marker (`.pharn/<command>/<name>/active.json`; ship
-and review via `pharn/floor/run-marker.mjs`, loop via
+`pharn/.run/**` — applies **only while** `/pharn-ship`, `/pharn-loop`, or
+`/pharn-review` has an open marker (`pharn/.run/<command>/<name>/active.json`;
+ship and review via `pharn/floor/run-marker.mjs`, loop via
 `require-loop-record.cjs`). Outside those runs the guard **denies** PHARN's
-installed surface (`pharn/**` except `pharn/features/**`, `.claude/**`,
-`pharn.config.json`, and `.pharn/writes-scope.json`) and **allows** the rest of
-your project, including app source. While a stage is running it still sets
-explicit scope from the concrete paths your `PLAN.md` declared.
+installed surface (`pharn/**` except `pharn/features/**` and `pharn/.run/**`,
+`.claude/**`, `pharn.config.json`, and `pharn/.run/writes-scope.json`) and
+**allows** the rest of your project, including app source. While a stage is
+running it still sets explicit scope from the concrete paths your `PLAN.md`
+declared.
 
 In PHARN's own dev repo or an unsignalled tree, the pre-6.24.0 posture
 remains: fail-closed everywhere with no active scope. Clearing the scope
-(`set-writes-scope.cjs --clear`, or deleting `.pharn/writes-scope.json`)
+(`set-writes-scope.cjs --clear`, or deleting `pharn/.run/writes-scope.json`)
 returns to whichever default your tree and open-run state compute; it does not
 by itself re-open source in those postures, or during an open install run.
 
@@ -280,7 +285,7 @@ That decision is one model's judgment, not a check. You can run `/pharn-triage`
 yourself after a full `/pharn-grill`.
 
 `/pharn-spec` fills PHARN's default SPEC template, or your own if you put one at
-`pharn.spec-template.md` in the project root. The write guard denies Claude
+`pharn/spec-template.md`. The write guard denies Claude
 Code's edit tools on that path, so edit it yourself; see upstream's
 [Your own SPEC template](https://github.com/pharn-dev/pharn-oss#your-own-spec-template).
 
@@ -289,7 +294,7 @@ Two commands sit outside the pipeline:
 | Command                 | Purpose                                                                                                                                |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `/pharn-review`         | Run the review lenses in parallel over any code and merge their findings deterministically. Standalone — no pipeline stage invokes it. |
-| `/pharn-memory-promote` | Promote one lesson into `memory-bank/` through a gated provenance check.                                                               |
+| `/pharn-memory-promote` | Promote one lesson into `pharn/memory-bank/` through a gated provenance check.                                                         |
 
 ## CLI commands
 
@@ -377,7 +382,7 @@ PHARN is intentionally conservative about writes:
 - `remove` deletes only the selected capability directory and prunes its records,
   after backing up to `pharn/.backup/<timestamp>/` any file in it that `pharn`
   cannot prove it wrote unchanged;
-  it never touches `CONSTITUTION.md`, `memory-bank/`, or your detected
+  it never touches `CONSTITUTION.md`, `pharn/memory-bank/`, or your detected
   archetypes, and refuses when that directory's path crosses a symlink.
 - `uninstall` deletes only files recorded in `pharn.records.json` that still
   match their recorded hash, inside `pharn`'s install paths; it keeps every file
