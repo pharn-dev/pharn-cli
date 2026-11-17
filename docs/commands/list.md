@@ -62,26 +62,10 @@ run while an `init`/`add`/`remove`/`update` is in flight. To see what more you c
 
 ## JSON output
 
-`pharn list --json` prints a single JSON object and nothing else (no spinner, intro, or outro), suitable
-for scripting:
-
-```json
-{
-  "mode": "archetype",
-  "skillsVersion": "1.0.0",
-  "archetypes": ["ssr"],
-  "capabilities": [
-    { "name": "a11y", "role": "griller", "source": "auto" },
-    { "name": "n-plus-one", "role": "lens", "source": "manual" }
-  ]
-}
-```
-
-`source` is emitted when the config records it and **omitted** when it does not (an install predating
-the field) — it is never defaulted, because an absent value means the provenance is not yet known.
-
-Diagnostics (a missing config, or a pre-archetype config that is no longer supported) go to **stderr**,
-and the exit code is non-zero on failure — so stdout always parses cleanly.
+`pharn list --json` prints the inventory as **one JSON object** on stdout and nothing else; on failure
+stdout is empty, the reason goes to stderr and the exit code is 1. It is unversioned: it has no
+`schemaVersion`. Its keys and a real example are in the
+[JSON output reference](../reference/json-output.md#list).
 
 ## Related
 
