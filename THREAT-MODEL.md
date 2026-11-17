@@ -264,17 +264,16 @@ not a "the source repo is ours" assumption (P0).
   which classifies a symlink or non-regular path as `unreadable` rather than hashing it
   (`apply-update.ts:57-61`). _Backstop:_ drift **is** detected (`pharn status`, live), and bytes pharn
   cannot explain are **skipped, never overwritten** without `--force`.
-- **4d. The single-writer lock excludes an OLDER pharn in one direction only.** From 0.14.0 the lock is
-  `pharn/.lock` (beside the backups in `pharn/.backup/`), and for one release a run also honours the
-  root `.pharn.lock` that 0.13.0 and older take: a live one refuses the run, a stale one is broken by
-  the same rename-and-verify rules (`src/lib/project-lock.ts`, `checkLegacyLock`). An older CLI does
-  not know `pharn/.lock`, so one started while a 0.14.0 run holds it is **not** refused, and the two
-  can interleave as two runs could before the lock existed. _Backstop, partial:_ the config check
+- **4d. The single-writer lock does not exclude a pharn older than 0.14.0.** The lock is `pharn/.lock`
+  (beside the backups in `pharn/.backup/`, `src/lib/project-lock.ts`). pharn 0.13.0 and older lock a
+  different file, which 0.20.0 and later no longer read (0.19.x was the last CLI to honour it), so an
+  old and a new run in one project do not see each other's lock, in either direction, and can
+  interleave as two runs could before the lock existed. _Backstop, partial:_ the config check
   (`assertConfigFingerprintUnchanged`, run after a writer's last prompt and before its first write)
   refuses a run whose config an old run wrote after this run read it under the lock, but not one
-  written after that check. The window closes once no supported CLI predates 0.14.0. A
-  `pharn` that is a symbolic link is refused before the lock is created, so neither the lock nor a
-  backup is ever written through it.
+  written after that check. Those CLIs are outside the support policy (current minor plus the previous
+  one). A `pharn` that is a symbolic link is refused before the lock is created, so neither the lock
+  nor a backup is ever written through it.
 
 ---
 

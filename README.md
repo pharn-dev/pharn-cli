@@ -179,8 +179,8 @@ CRLF, and a second run changes nothing. A symlinked `.gitignore` is never writte
 through (you get a warning naming the lines). Lines added to `.gitignore` do not
 untrack files you already committed (`git rm -r --cached pharn/.run` does).
 `pharn/.lock*` is a transient file — add it yourself if you like. When your
-`.gitignore` still names the old `.pharn/`, `.pharn-backup` or `.pharn.lock`,
-`pharn update` prints the replacement lines; it never rewrites yours.
+`.gitignore` still names the old `.pharn/`, `pharn update` prints the
+replacement line; it never rewrites yours.
 
 Everything PHARN keeps in your project lives under `.claude/` and `pharn/`, plus
 the two JSON files at the root. An install made from a pharn-oss older than 7.0.0

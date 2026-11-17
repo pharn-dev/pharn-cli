@@ -388,16 +388,17 @@ describe('scratch notice and .gitignore hints', () => {
 
   it('names each replacement once, whatever spelling the old line used', () => {
     const proj = project();
+    // `.pharn-backup` and `.pharn.lock` (the old root backup dir and lock) are
+    // no longer hinted from 0.20.0: nothing reads either path any more.
     put(
       proj,
       '.gitignore',
-      '# .pharn-backup\n/.pharn/**\n.pharn.lock*\n  .pharn-backup/  \n!.pharn\n',
+      '# .pharn-backup\n/.pharn/**\n.pharn.lock*\n  .pharn-backup/  \n!.pharn\n.pharn/\n',
     );
-    expect(plan(proj, clone('7.0.0', true), '7.0.0')?.gitignoreHints).toEqual([
-      'pharn/.run/',
-      'pharn/.backup/',
-      'pharn/.lock*',
-    ]);
+    const hints = plan(proj, clone('7.0.0', true), '7.0.0')?.gitignoreHints;
+    expect(hints).toEqual(['pharn/.run/']);
+    expect(hints).not.toContain('pharn/.backup/');
+    expect(hints).not.toContain('pharn/.lock*');
   });
 
   it('no .gitignore → no hints', () => {

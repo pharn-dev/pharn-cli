@@ -985,9 +985,8 @@ it as `plan.rootMigration`):
 - **`.pharn/`** (pharn-oss's runtime scratch) is never moved or deleted. When it holds anything but
   pharn-ci's `ci.yml`, the note says the scratch now lives in `pharn/.run/` and the old contents can
   be deleted.
-- **`.gitignore`**: your lines are never rewritten. When it names `.pharn/`, `.pharn-backup` or
-  `.pharn.lock`, the note prints the replacements: `pharn/.run/`, `pharn/.backup/`, `pharn/.lock*`. (The
-  first two are appended for you anyway — see [`.gitignore`](#gitignore).)
+- **`.gitignore`**: your lines are never rewritten. When it names `.pharn/`, the note prints the
+  replacement, `pharn/.run/` (appended for you anyway — see [`.gitignore`](#gitignore)).
 
 A real `update` prints the note in the future tense before it asks `Apply this update?` (and under
 `--yes`), and, after taking the lock, refuses with exit 1 if what it would delete is no longer what it

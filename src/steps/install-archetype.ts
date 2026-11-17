@@ -23,7 +23,6 @@ import { layoutPaths } from '../lib/layout.js';
 import {
   backupAction,
   createBackup,
-  legacyBackupNotice,
   printBackupNotice,
   replacedConfigBackup,
 } from '../lib/backup.js';
@@ -236,8 +235,6 @@ export async function runInstallArchetype(
   const absent = absentInstallSurfaces({ repoDir, layout });
   const absentLines = absentSurfaceLines(absent);
   if (absentLines) log.warn(absentLines.join('\n'));
-  const legacyBackups = legacyBackupNotice(cwd);
-  if (legacyBackups) log.info(legacyBackups);
   // The `.claude/` surfaces that actually landed, for the outro. Agents are an
   // OPTIONAL surface (pharn-oss < 6.64.0 ships none), named only when the
   // applied manifest holds one.

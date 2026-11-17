@@ -140,10 +140,6 @@ overwritten**. Inspect `pharn/.backup` (and `pharn` itself) in your project:
 - **A symlink** at `pharn/.backup` or `pharn` — `pharn` refuses to write backups through it. Confirm
   that path is the one named in the error, then remove or replace the symlink and re-run.
 
-Before 0.14.0 backups went to `.pharn-backup/` at the project root. `pharn` no longer writes there and
-never deletes it — `pharn update` and `pharn init` print a reminder while it exists: move what you
-still need, then remove it yourself.
-
 A symlink in a source file's path (or one of its parent directories) is also rejected; the error names
 the component.
 
@@ -697,15 +693,13 @@ pharn/.lock is a directory, not a pharn lock file. pharn will not move or delete
 Remove it yourself (or rename it) and re-run.
 ```
 
-Earlier versions moved it aside to `.pharn.lock.<pid>.<hex>` (at the project root, where the lock
-lived then) without saying so; if you find a directory with that name, it is yours.
+**A file named `pharn/.lock.<pid>.<hex>`** is what is left when a `pharn` run is killed (`kill -9`, a
+power cut) in the instant it breaks a stale lock: it moves the old lock to that name, checks it, and
+deletes it. `pharn` never reads such a file and never deletes a name it did not just create, so it
+stays until you delete it. It is safe to delete when no `pharn` command is running.
 
-**The lock moved in 0.14.0.** pharn 0.13.0 and older take `.pharn.lock` at the project **root**; from
-0.14.0 the lock is `pharn/.lock`, for every layout. For one release `pharn` still checks the old file:
-a **live** root `.pharn.lock` (an older `pharn` is running) refuses the run with the old message, and a
-**stale** one (an older run that crashed) is broken by the rules above, so it cannot wedge the project.
-The reverse is not covered: an older `pharn` does not know `pharn/.lock`, so do not run two versions
-in one project at the same time.
+**Do not run two `pharn` versions in one project at the same time.** `pharn` 0.13.0 and older lock a
+different file, so neither sees the other's lock.
 
 **`pharn` must be a real directory.** The lock, the backups and the `pharn` layout's install all live
 under `pharn/`, which a writing command creates when it is missing (and removes again if nothing ended
@@ -932,11 +926,10 @@ writes; **review each path before deleting it** — anything you wrote yourself 
    whose command runs one of the scripts you deleted. If `pharn init` created `settings.json` and you never
    added anything to it, you can delete the file. (`pharn uninstall` does this itself when
    `pharn.records.json` has a `.claude/settings.json` entry — a fresh `init` records one.)
-4. **Delete pharn's own files:** `pharn.config.json`, `pharn.records.json`, and `pharn/.lock` (or, from
-   an older `pharn`, `.pharn.lock`) if it exists and no `pharn` command is running. `pharn/.run/` (or
-   `.pharn/` before pharn-oss 7.0.0) is runtime scratch written while PHARN commands run, and
-   `pharn/.backup/` (`.pharn-backup/` before 0.14.0) holds backups `pharn` made — delete them once you
-   no longer need them.
+4. **Delete pharn's own files:** `pharn.config.json`, `pharn.records.json`, and `pharn/.lock` if it
+   exists and no `pharn` command is running. `pharn/.run/` (or `.pharn/` before pharn-oss 7.0.0) is
+   runtime scratch written while PHARN commands run, and `pharn/.backup/` holds backups `pharn` made —
+   delete them once you no longer need them.
 
 ## Local development issues
 

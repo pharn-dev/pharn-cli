@@ -159,6 +159,21 @@ describe('pharn init --dry-run (text)', () => {
     );
   });
 
+  // pharn 0.14.1 to 0.19.x pointed at an old root `.pharn-backup/` here; from
+  // 0.20.0 nothing reads it.
+  it('prints no notice for an old root .pharn-backup/, and leaves it alone', async () => {
+    mkdirSync(at('.pharn-backup/20261001-120000'), { recursive: true });
+    writeFileSync(at('.pharn-backup/20261001-120000/x.md'), 'old\n');
+    expect(await dryRun()).toBeNull();
+    expect(plan()).toMatch(/WOULD CREATE \d+ file\(s\)/);
+    expect(
+      vi
+        .mocked(clack.log.info)
+        .mock.calls.some(([m]) => String(m).includes('.pharn-backup')),
+    ).toBe(false);
+    expect(read('.pharn-backup/20261001-120000/x.md')).toBe('old\n');
+  });
+
   it('`--archetype backend` previews for the flag and names the unused detection', async () => {
     const before = snapshot();
     expect(await dryRun({ archetypes: ['backend'] })).toBeNull();

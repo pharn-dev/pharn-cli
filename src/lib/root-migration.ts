@@ -67,11 +67,10 @@ const USER_DATA_PATHS: readonly { from: string; to: string; dir: boolean }[] = [
 ];
 
 // Old `.gitignore` entries and the line that replaces each, matched as whole
-// normalized lines (see gitignoreHints); never rewritten.
+// normalized lines (see gitignoreHints); never rewritten. Goes with this module
+// in v0.22.0.
 const GITIGNORE_REPLACEMENTS: readonly { old: string; hint: string }[] = [
   { old: '.pharn', hint: 'pharn/.run/' },
-  { old: '.pharn-backup', hint: 'pharn/.backup/' },
-  { old: '.pharn.lock', hint: 'pharn/.lock*' },
 ];
 
 // pharn-ci's config inside the old scratch dir: not scratch, and not moved by
