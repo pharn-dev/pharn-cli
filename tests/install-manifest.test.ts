@@ -29,6 +29,17 @@ import { RECORDS_FILE } from '../src/lib/install-records.js';
 import { layoutPaths } from '../src/lib/layout.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 import type { Selection } from '../src/types.js';
+import {
+  A11Y,
+  manifestTree,
+  NEW_SURFACE,
+  SECURITY,
+  SETTINGS,
+  upstreamTree7,
+  withManifest,
+  writeTree,
+} from './support/harness.js';
+import { upstreamSettingsCopyable } from '../src/lib/install-capabilities.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -1036,5 +1047,147 @@ describe('hook and command name predicates (shared by the copy and the manifest)
     ];
     expect(keys).toContain('.claude/hooks/require-loop-record.mjs');
     expect(keys).not.toContain('.claude/hooks/require-loop-record.test.mjs');
+  });
+});
+
+// CORE-194: a tree that declares pharn-install.json installs what it declares.
+// Each fixture makes the manifest DISAGREE with the derivation somewhere, so a
+// pass proves the manifest was the source.
+describe('with pharn-install.json — the manifest is the install set', () => {
+  const tmp = useTmpDir();
+  const repo = (tree: Record<string, string>): string =>
+    writeTree(join(tmp.path(), 'repo'), tree);
+  const SEC = { name: 'security', role: 'griller' as const };
+  const A11 = { name: 'a11y', role: 'griller' as const };
+
+  it("is the manifest's managed fixed files plus the selected capabilities", () => {
+    const dir = repo(manifestTree('7.20.0'));
+    const expected = collectExpectedInstallPaths({
+      repoDir: dir,
+      capabilities: [SEC],
+      layout: 'pharn',
+    });
+    expect([...expected.keys()].sort()).toEqual(
+      [
+        '.claude/agents/pharn-review-lens.md',
+        '.claude/commands/pharn-plan.md',
+        '.claude/hooks/guard.cjs',
+        NEW_SURFACE,
+        'pharn/ARCHITECTURE.md',
+        'pharn/CONSTITUTION.md',
+        'pharn/LICENSE',
+        'pharn/LIMITS.md',
+        'pharn/THREAT-MODEL.md',
+        'pharn/features/README.md',
+        'pharn/floor/validate.mjs',
+        'pharn/pharn-contracts/finding-shape.md',
+        'pharn/pharn-core/seam-resolver/SKILL.md',
+        SECURITY,
+      ].sort(),
+    );
+    expect(expected.get('pharn/LICENSE')).toBe(join(dir, 'LICENSE'));
+    expect(expected.has(SETTINGS)).toBe(false);
+    expect(expected.has(A11Y)).toBe(false);
+  });
+
+  it('installs a file the derivation never would, and leaves out one it would', () => {
+    const tree = {
+      ...upstreamTree7('7.20.0'),
+      'pharn/floor/fixtures/kept.mjs': 'declared\n',
+      'pharn/floor/extra.mjs': 'undeclared\n',
+    };
+    const dir = repo(
+      withManifest(tree, (m) => {
+        m.files = m.files.filter((f) => f.path !== 'pharn/floor/extra.mjs');
+      }),
+    );
+    const keys = [
+      ...collectExpectedInstallPaths({
+        repoDir: dir,
+        capabilities: [],
+        layout: 'pharn',
+      }).keys(),
+    ];
+    expect(keys).toContain('pharn/floor/fixtures/kept.mjs');
+    expect(keys).not.toContain('pharn/floor/extra.mjs');
+  });
+
+  it('answers a flat-layout request by the derivation, as before', () => {
+    const dir = repo(manifestTree('7.20.0'));
+    const flat = collectExpectedInstallPaths({
+      repoDir: dir,
+      capabilities: [],
+      layout: 'flat',
+    });
+    expect(flat.has(NEW_SURFACE)).toBe(false);
+    expect(capabilityCloneFiles(dir, layoutPaths('flat'), SEC)).toEqual([]);
+  });
+
+  it('accounts absent surfaces from the manifest: none for a full one, named for an empty one', () => {
+    expect(
+      absentInstallSurfaces({
+        repoDir: repo(manifestTree('7.20.0')),
+        layout: 'pharn',
+      }),
+    ).toEqual([]);
+    rmSync(join(tmp.path(), 'repo'), { recursive: true, force: true });
+    const sparse = repo(
+      manifestTree('7.20.0', (m) => {
+        m.files = m.files.filter(
+          (f) =>
+            !f.dest.startsWith('.claude/hooks/') &&
+            f.dest !== 'pharn/LIMITS.md' &&
+            f.dest !== 'pharn/LICENSE' &&
+            f.dest !== 'pharn/features/README.md',
+        );
+      }),
+    );
+    expect(absentInstallSurfaces({ repoDir: sparse, layout: 'pharn' })).toEqual(
+      [
+        { surface: 'hooks', path: '.claude/hooks' },
+        { surface: 'trusted-doc', path: 'pharn/LIMITS.md' },
+        { surface: 'license', path: 'LICENSE' },
+        { surface: 'features-readme', path: 'pharn/features/README.md' },
+      ],
+    );
+  });
+
+  it("lists one capability's declared files for add, sorted", () => {
+    const dir = repo(
+      withManifest({
+        ...upstreamTree7('7.20.0'),
+        'pharn/pharn-pipeline/grillers/a11y/evals/case.md': 'case\n',
+      }),
+    );
+    expect(capabilityCloneFiles(dir, layoutPaths('pharn'), A11)).toEqual([
+      A11Y,
+      'pharn/pharn-pipeline/grillers/a11y/evals/case.md',
+    ]);
+  });
+
+  it('copies settings only when the manifest declares it', () => {
+    expect(upstreamSettingsCopyable(repo(manifestTree('7.20.0')))).toBe(true);
+    rmSync(join(tmp.path(), 'repo'), { recursive: true, force: true });
+    const without = repo(
+      manifestTree('7.20.0', (m) => {
+        m.files = m.files.filter((f) => f.dest !== SETTINGS);
+      }),
+    );
+    // The tree still ships the file; the manifest decides.
+    expect(existsSync(join(without, SETTINGS))).toBe(true);
+    expect(upstreamSettingsCopyable(without)).toBe(false);
+  });
+
+  it("writes the manifest's set through a real install, new surface included", () => {
+    const dir = repo(manifestTree('7.20.0'));
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj);
+    const result = installCapabilities(dir, proj, {
+      selected: [{ ...SEC, matched: 'universal' }],
+    } as unknown as Selection);
+    expect(result.settingsWritten).toBe(true);
+    expect(existsSync(join(proj, NEW_SURFACE))).toBe(true);
+    expect(existsSync(join(proj, 'pharn/LICENSE'))).toBe(true);
+    expect(existsSync(join(proj, 'LICENSE'))).toBe(false);
   });
 });

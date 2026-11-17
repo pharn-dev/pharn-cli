@@ -73,9 +73,12 @@ directory gets its actionable error), under the lock, and before any network cal
 3. **Source** (`lib/release.ts`, `lib/repo.ts`). `resolveSource` decides which commit, and `fetchRepo(source)` downloads
    and extracts the codeload tarball into a temp dir that is removed in a `finally`. No command exits mid-run: a
    refusal, a failure or a cancel is thrown as a `CliError` (`lib/cli-error.ts`), so that `finally` (and the project
-   lock's) runs first, and `runCli` in `src/index.ts` prints it once and sets `process.exitCode`.
-4. **Index and selection.** `parseCapabilityIndex` reads each capability's `role`/`applies` frontmatter by pharn-oss's
-   own rules. `resolveCapabilities` selects `universal` capabilities and those whose `applies` intersects the archetypes.
+   lock's) runs first, and `runCli` in `src/index.ts` prints it once and sets `process.exitCode`. When the tree carries
+   `pharn-install.json` (pharn-oss 7.20.0 and later), `fetchRepo` validates it and checks every declared file's raw
+   sha256 before it returns the tree (see [The install manifest](#the-install-manifest-pharn-installjson)).
+4. **Index and selection.** `parseCapabilityIndex` takes the capabilities from `pharn-install.json`, or, for a tree
+   without it, reads each capability's `role`/`applies` frontmatter by pharn-oss's own rules. `resolveCapabilities`
+   selects `universal` capabilities and those whose `applies` intersects the archetypes.
 5. **Carry-over** (`lib/init-plan.ts`). The replaced config is read tolerantly. A config that exists but cannot be read
    is named in the summary, and nothing is carried. Otherwise `carryOver` applies `update`'s merge rules:
    - a `manual` entry the index still has is reinstalled as `manual`;
@@ -128,6 +131,34 @@ run's prompt and install consume. It skips the TTY gate, both prompts, the lock 
   `.claude/settings.json` link is allowed, since it is never written.
 
 The install mirrors the clone's layout: `pharn` (everything under `pharn/`) or legacy `flat` (`lib/layout.ts`).
+
+## The install manifest (`pharn-install.json`)
+
+pharn-oss 7.20.0 and later declare what an install receives in `pharn-install.json` at the root of the tree (its schema
+is pharn-oss's [`docs/install-manifest.md`](https://github.com/pharn-dev/pharn-oss/blob/main/docs/install-manifest.md)).
+`lib/upstream-manifest.ts` is its one reader:
+
+- **Read and validate.** A bounded read (4 MiB, regular file, non-blocking), then a strict check: `schemaVersion` must
+  be `1` (anything else refuses and says to upgrade pharn); `skillsVersion` must equal `SKILLS_VERSION`; the layout
+  must be the `pharn` layout this CLI knows; every capability `name`, `role` and `dir`, and every file `path`, `dest`,
+  `sha256`, `policy` and `surface`, is held to an allowlist and to `safeJoin`; `dest`s are unique. Unknown keys are
+  ignored (the schema is additive within version 1).
+- **The outer bound.** Every `dest` must lie inside `isPharnOwnedPath` (`lib/install-surfaces.ts`): below `pharn/`
+  inside a `pharn-*` entry or one of the layout's fixed roots, or below `.claude/<dir>/` inside a `pharn-*` entry (or a
+  top-level hook in `.claude/hooks/`). `.claude/settings.json` may appear only as `if-absent`. Anything else — the
+  project root, a `.git` path, `.claude/settings.local.json`, user data under `pharn/` — refuses the whole manifest.
+  The manifest's own `installRoots` are never the bound. The record-key bound (`isInstallRootPath`, used by orphans,
+  `uninstall` and `.prettierignore`) accepts the same paths, so a file installed into a surface this CLI does not name
+  is updated, orphaned and uninstalled like any other, still gated by its record's hash.
+- **Verify.** `fetchRepo` checks each declared file's raw-byte sha256 (`matchesRawSha256` in `lib/hash.ts`; the
+  records' `contentHash` stays CRLF-folded) before it returns the tree. A mismatch refuses, and nothing is written.
+- **Use.** The install set (`collectExpectedInstallPaths`), `add`'s file list (`capabilityCloneFiles`), the
+  capability index, the settings copy and the `models` defaults come from it. An `applies` token outside this CLI's
+  enum makes that capability `unknown`, as the frontmatter path does. `models.defaults` passes the same
+  `checkModelsBlock` gate; `models.rules` and `installRoots` are type-checked and drive nothing, and
+  `lib/model-config.ts` stays the one validator.
+- **Fallback.** A tree without the file (every release before 7.20.0, the `flat` layout) is installed by the CLI's own
+  derivation, unchanged. That fallback is removed in v0.22.0.
 
 ## Release channels (`lib/release.ts`)
 

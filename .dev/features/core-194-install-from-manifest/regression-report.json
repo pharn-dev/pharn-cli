@@ -1,0 +1,58 @@
+{
+  "base": "b66d1aa283d733c96634464cbb2068266465f768",
+  "inside": [
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "docs/architecture.md",
+    "docs/commands/init.md",
+    "eslint.config.mjs",
+    "src/commands/init.ts",
+    "src/lib/capability-index.ts",
+    "src/lib/hash.ts",
+    "src/lib/install-capabilities.ts",
+    "src/lib/install-manifest.ts",
+    "src/lib/install-surfaces.ts",
+    "src/lib/repo.ts",
+    "src/lib/upstream-models.ts",
+    "src/lib/upstream-manifest.ts",
+    "tests/capability-index.test.ts",
+    "tests/commands/add.test.ts",
+    "tests/commands/init.test.ts",
+    "tests/commands/status.test.ts",
+    "tests/commands/uninstall.test.ts",
+    "tests/commands/update.test.ts",
+    "tests/hash.test.ts",
+    "tests/install-manifest.test.ts",
+    "tests/lint-rules.test.ts",
+    "tests/orphans.test.ts",
+    "tests/repo.test.ts",
+    "tests/support/harness.ts",
+    "tests/upstream-models.test.ts",
+    "tests/upstream-manifest.test.ts"
+  ],
+  "outside_gates": {
+    "format:check": {
+      "base": 0,
+      "head": 0
+    },
+    "lint": {
+      "base": 0,
+      "head": 0
+    },
+    "lint:md": {
+      "base": 0,
+      "head": 0
+    },
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}

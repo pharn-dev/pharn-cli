@@ -23,6 +23,8 @@ import {
   CONSTITUTION,
   HOOK_SETTINGS,
   installFresh,
+  manifestTree,
+  NEW_SURFACE,
   PHARN_GITIGNORE_BLOCK,
   proj,
   projectFiles,
@@ -933,5 +935,26 @@ describe('pharn uninstall over a hand-seeded install', () => {
     expect(lstatSync(proj()).isDirectory()).toBe(true);
     expect(rootEntries()).toEqual(['pharn']);
     expect(readdirSync(at('pharn'))).toEqual(['.backup']);
+  });
+});
+
+// CORE-194: a file installed into a surface the CLI names nowhere is still an
+// install path, so uninstall deletes it under the records hash rule.
+describe('uninstall after an install from pharn-install.json', () => {
+  it('deletes a new-surface file it can prove it wrote, with its empty dirs', async () => {
+    serveTip(SHA_V1, '7.20.0', { tree: manifestTree('7.20.0') });
+    await installFresh();
+    expect(read(NEW_SURFACE)).toBe('skill 7.20.0\n');
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+    expect(existsSync(at(NEW_SURFACE))).toBe(false);
+    expect(existsSync(at('.claude/skills'))).toBe(false);
+  });
+
+  it('keeps an edited new-surface file', async () => {
+    serveTip(SHA_V1, '7.20.0', { tree: manifestTree('7.20.0') });
+    await installFresh();
+    writeFileSync(at(NEW_SURFACE), 'mine now\n');
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+    expect(read(NEW_SURFACE)).toBe('mine now\n');
   });
 });

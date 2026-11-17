@@ -36,8 +36,10 @@ the floor (`ARCHITECTURE.md §2`).
 
 ## 2. B's attack surface (name it explicitly)
 
-pharn downloads the whole pharn-oss repo as a tarball (`src/lib/repo.ts` → `fetchRepo`), derives the
-capability index from the clone's directory tree + markdown frontmatter
+pharn downloads the whole pharn-oss repo as a tarball (`src/lib/repo.ts` → `fetchRepo`), takes the
+install set, the capability index and the `models` defaults from the tree's `pharn-install.json` when
+it carries one (pharn-oss 7.20.0 on; `src/lib/upstream-manifest.ts`), else derives the capability
+index from the clone's directory tree + markdown frontmatter
 (`src/lib/capability-index.ts` → `parseCapabilityIndex`), then copies the resolved capabilities
 and fixed product surfaces into the user's project (`src/lib/install-capabilities.ts`). There is
 **no** `manifest.json`, **no** per-module `module.json`, and **no** wizard block. The concrete
@@ -61,6 +63,12 @@ surface:
    `@main` HEAD (or release, on the `--ref latest` channel), not the pinned `commit`, so an upstream rename can orphan or re-target a path.
 7. **The archive itself** — entry paths, types, sizes and header fields are attacker-controlled
    bytes, read by pharn's own extractor (see the fetch boundary below).
+8. **The install manifest (`pharn-install.json`)** — untrusted JSON inside the same tarball: a
+   `dest` aimed at `.git/hooks/`, the project root, `.claude/settings.local.json` or user data under
+   `pharn/`; a `path`/`dest` escape; a schema this CLI cannot read; or declared bytes that differ
+   from the bytes shipped. Its provenance is exactly the tarball's — the same release-tag
+   resolution (C3.1, `src/lib/release.ts`), the same download, no second fetch path — so its
+   `sha256` values bind the files to the manifest, never the manifest to pharn-oss (§4a).
 
 **The fetch boundary, in pharn's own code.** The clone is one REST resolve followed by a direct
 download of `https://codeload.github.com/pharn-dev/pharn-oss/tar.gz/<sha>`, extracted by
@@ -166,6 +174,7 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 | oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + a separate cap on the **decompressed** size + `redirect: 'error'`; an entry-count cap in the extractor. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
 | redirect to attacker host | `redirect: 'error'` on every pharn `fetch()` call, the tarball included | `fetchRemoteSkillsVersion`, `fetchCommitSha`, `downloadArchive` |
 | malformed / hostile archive entry | typeflag allowlist (files + dirs only; symlinks, hardlinks, devices and fifos **rejected**), `prefix`+`name` reassembly, `..`/absolute/`\`/`:` rejection, single-root check, `safeJoin` on every write, header-checksum verification | `extractTar` (`src/lib/tar-extract.ts`) |
+| hostile / malformed `pharn-install.json` | data, never executed: one parser, a bounded (4 MiB) non-blocking read; `schemaVersion` exact-match (`1`, else refuse, naming the upgrade); every `path`/`dest` through a safe-segment regex + `safeJoin`; unique `dest`s; names, roles and versions against `CAPABILITY_NAME_RE` / `assertRole` / `VERSION_RE` (an unknown `applies` token makes that capability `unknown`, never installed); every `dest` inside the CLI-owned outer bound — below `pharn/` or `.claude/<dir>/` inside a `pharn-*` entry or a fixed pharn root, `.claude/settings.json` only as copy-if-absent — never the manifest's own `installRoots`; each declared file's **raw** sha256 verified in `fetchRepo` before the tree is returned, so a mismatch refuses and nothing is written; `models.defaults` passes `checkModelsBlock` before any config write; `models.rules` drives nothing. Provenance only (§4a): whoever can change the tarball can change the manifest with it | `readUpstreamManifest` / `verifyUpstreamManifest` (`src/lib/upstream-manifest.ts`), `isPharnOwnedPath` (`src/lib/install-surfaces.ts`), `matchesRawSha256` (`src/lib/hash.ts`) |
 | poisoned tarball cache | **not applicable — pharn keeps no cache.** Every fetch downloads into a fresh temp dir | `fetchRepo` (`src/lib/repo.ts`) |
 | malformed / hostile upstream `models` block | bounded (1 MiB), non-blocking read; checked against pharn-oss's rules through the pinned copy; an unserializable block is refused; a failing block is **not written** and each reason is printed through `terminalSafe`; never executed | `readUpstreamModels` (`src/lib/upstream-models.ts`), `checkModelsBlock` (`src/lib/model-config.ts`) |
 | hostile `pharn.records.json` keys (committed, hand-editable; only type-checked) quoted into a terminal message — the stamp is no longer quoted anywhere, since it no longer gates the baseline (CORE-161) | the records note `update` prints (`recordsNote`, built with `JSON.stringify`, which leaves C1 — the 8-bit CSI U+009B — and bidi overrides raw) is escaped with `escapeUnsafe` at both print sites; `--dry-run --json` carries it raw for `serializeJsonReport` to escape once; `uninstall`'s refusal escapes the same message. One unsafe-character set (C0, DEL, C1, `\p{Cf}`, U+2028/2029) in `terminal-safe.ts`, which `terminalSafe` / `hasUnsafeChars` / `escapeUnsafe` / `assertSafeString` all derive from — a static test refuses a second definition in `src/` | `reportOutcome` / `reportDryRun` (`src/lib/update-render.ts`), `escapeUnsafe` (`src/lib/terminal-safe.ts`) |
@@ -192,7 +201,8 @@ SHA against `COMMIT_RE` — a full 40-hex sha — at the fetch boundary in `fetc
 `LIMITS.md §3b`); the release `tag_name` against `RELEASE_TAG_RE` and the tag's commit — resolved through the full
 tag ref `commits/refs/tags/<tag>`, never a bare name a same-named branch could answer — against
 `COMMIT_RE` (`src/lib/release.ts`), with the fetched tree's `SKILLS_VERSION` required to equal the tag;
-and the `models` block, copied from pharn-oss's root `pharn.config.json`, against
+and the `models` block, copied from `pharn-install.json`'s `models.defaults` (or, for a tree
+without one, pharn-oss's root `pharn.config.json`), against
 pharn-oss's own rules — `checkModelsBlock` (`src/lib/model-config.ts`, a copy pinned
 to pharn-oss's checker) applied by `readUpstreamModels`
 (`src/lib/upstream-models.ts`), which bounds the read to 1 MiB and refuses a block

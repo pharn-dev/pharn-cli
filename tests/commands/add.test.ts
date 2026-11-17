@@ -26,6 +26,7 @@ import {
   interactive,
   lastOutro,
   logs,
+  manifestTree,
   N_PLUS_ONE,
   read,
   records,
@@ -860,3 +861,28 @@ describe('pharn add: the proxy notice', () => {
 function setTTY(): void {
   interactive();
 }
+
+// CORE-194: `add` writes exactly the files pharn-install.json declares for the
+// capability, and records them.
+describe('add with pharn-install.json', () => {
+  it("writes and records only the capability's declared files", async () => {
+    const tree = manifestTree('7.20.0', (m) => {
+      // Declared beside the markdown; an undeclared file in the same dir is
+      // never written.
+      m.files = m.files.filter(
+        (f) => f.path !== 'pharn/pharn-pipeline/grillers/a11y/undeclared.md',
+      );
+    });
+    tree['pharn/pharn-pipeline/grillers/a11y/undeclared.md'] = 'not in it\n';
+    serveTip(SHA_V1, '7.20.0', { tree });
+    await installFresh();
+    expect(exists(A11Y)).toBe(false);
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    expect(exists(A11Y)).toBe(true);
+    expect(exists('pharn/pharn-pipeline/grillers/a11y/undeclared.md')).toBe(
+      false,
+    );
+    expect(records().files[A11Y]).toBe(sha256(A11Y));
+    expect(config().capabilities.map((c) => c.name)).toContain('a11y');
+  });
+});

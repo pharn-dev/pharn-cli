@@ -36,7 +36,9 @@ import {
   interactive,
   jsonOut,
   lastOutro,
+  manifestTree,
   N_PLUS_ONE,
+  NEW_SURFACE,
   notes,
   printed,
   RELEASE_URL,
@@ -3394,5 +3396,58 @@ describe('a layout move', () => {
     expect(read('pharn/pharn-contracts/finding-shape.md')).toBe(
       'finding shape\n',
     );
+  });
+});
+
+// CORE-194: an update from a tree that declares pharn-install.json writes what
+// it declares — a surface the CLI names nowhere included — after the same
+// raw-sha256 verification as init.
+describe('update with pharn-install.json', () => {
+  const SHA_V4 = '5'.repeat(40);
+
+  it('moves a derived install onto the manifest, then updates and orphans a new-surface file', async () => {
+    serveTip(SHA_V1, '7.19.0', { tree: upstreamTree7('7.19.0') });
+    await installFresh();
+    expect(exists(NEW_SURFACE)).toBe(false);
+
+    // v2 declares the new surface: installed and recorded.
+    serveTip(SHA_V2, '7.20.0', { tree: manifestTree('7.20.0') });
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read(NEW_SURFACE)).toBe('skill 7.20.0\n');
+    expect(records().files[NEW_SURFACE]).toBe(sha256(NEW_SURFACE));
+    expect(read(SECURITY)).toContain('security 7.20.0');
+
+    // v3 changes it: the unedited copy is replaced, its record moves.
+    serveTip('4'.repeat(40), '7.21.0', { tree: manifestTree('7.21.0') });
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(read(NEW_SURFACE)).toBe('skill 7.21.0\n');
+    expect(records().files[NEW_SURFACE]).toBe(sha256(NEW_SURFACE));
+
+    // v4 stops declaring it: kept on disk and reported as orphaned.
+    serveTip(SHA_V4, '7.22.0', {
+      tree: manifestTree('7.22.0', (m) => {
+        m.files = m.files.filter((f) => f.dest !== NEW_SURFACE);
+      }),
+    });
+    clearOutput();
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(exists(NEW_SURFACE)).toBe(true);
+    expect(printed()).toContain('ORPHANED');
+    expect(printed()).toContain(NEW_SURFACE);
+  });
+
+  it('refuses an upstream file that does not match its declared sha256: exit 1, nothing written', async () => {
+    serveTip(SHA_V1, '7.20.0', { tree: manifestTree('7.20.0') });
+    await installFresh();
+    const tree = manifestTree('7.21.0');
+    serveTip(SHA_V2, '7.21.0', {
+      tree: { ...tree, [SECURITY]: 'swapped\n' },
+    });
+    const before = snapshot();
+    expect(await run(() => runUpdate({ yes: true }))).toBe(1);
+    expect(printed()).toContain(
+      `sha256 for ${SECURITY} that its bytes do not match`,
+    );
+    expect(snapshot()).toEqual(before);
   });
 });

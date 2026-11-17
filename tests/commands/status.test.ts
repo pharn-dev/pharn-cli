@@ -22,6 +22,8 @@ import {
   jsonOut,
   lastOutro,
   logs,
+  manifestTree,
+  NEW_SURFACE,
   notes,
   printed,
   noteTitles,
@@ -1037,5 +1039,22 @@ describe('pharn status, end to end', () => {
       expect(stdout()).toEqual([]);
       expect(stderr().join('\n')).toMatch(/archetypes\[1\].*"bogus"/);
     });
+  });
+});
+
+// CORE-194: status compares against the manifest's install set.
+describe('status after an install from pharn-install.json', () => {
+  it('reports no drift, then an edit to a new-surface file', async () => {
+    serveTip(SHA_V1, '7.20.0', { tree: manifestTree('7.20.0') });
+    await installFresh();
+    const { report: clean } = await statusJson();
+    expect(clean.drift).toMatchObject({
+      modified: [],
+      missing: [],
+      absentUpstream: [],
+    });
+    writeFileSync(at(NEW_SURFACE), 'edited\n');
+    const { report: drifted } = await statusJson();
+    expect(drifted.drift?.modified).toEqual([NEW_SURFACE]);
   });
 });

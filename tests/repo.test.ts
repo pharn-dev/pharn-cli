@@ -11,6 +11,9 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPO, REPO_BRANCH } from '../src/lib/constants.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
+import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
+import { codeloadArchive } from './support/tar-fixture.js';
+import { manifestTree, SECURITY } from './support/harness.js';
 
 const { fetchRepo, fetchCommitSha } = await import('../src/lib/repo.js');
 
@@ -531,5 +534,63 @@ describe('fetchCommitSha', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('fetchRepo — a tree that declares pharn-install.json (CORE-194)', () => {
+  const release = {
+    kind: 'release' as const,
+    tag: 'v7.20.0',
+    version: '7.20.0',
+    sha: VALID_SHA,
+  };
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'pharn-repo-sandbox-'));
+    process.env.TMPDIR = sandbox;
+    process.env.TEMP = sandbox;
+    process.env.TMP = sandbox;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(realTmp)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(sandbox, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+  });
+
+  const serve = (tree: Record<string, string>): void => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => tarResponse(codeloadArchive(VALID_SHA, tree))),
+    );
+  };
+
+  it('returns a tree whose every declared file matches its sha256', async () => {
+    serve(manifestTree('7.20.0'));
+    const repo = await fetchRepo(release);
+    expect(readdirSync(repo.dir)).toContain('pharn-install.json');
+    repo.cleanup();
+  });
+
+  it('refuses a tree whose file differs from its declared sha256, and removes the tree', async () => {
+    const tree = manifestTree('7.20.0');
+    serve({ ...tree, [SECURITY]: 'tampered after the manifest was written\n' });
+    const err = await fetchRepo(release).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UpstreamManifestError);
+    expect((err as Error).message).toContain(SECURITY);
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('refuses a malformed manifest before returning, and removes the tree', async () => {
+    serve(
+      manifestTree('7.20.0', (m) => {
+        m.schemaVersion = 2;
+      }),
+    );
+    await expect(fetchRepo(release)).rejects.toThrow(/schemaVersion 2/);
+    expect(leftoverTempDirs()).toEqual([]);
   });
 });

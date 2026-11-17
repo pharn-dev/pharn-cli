@@ -1,5 +1,6 @@
 import { readJsonBounded } from './bounded-read.js';
 import { checkModelsBlock } from './model-config.js';
+import { readUpstreamManifest } from './upstream-manifest.js';
 import { isPlainObject, safeJoin } from './validate.js';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,11 @@ export type UpstreamModels =
   | { kind: 'invalid'; reasons: string[] };
 
 export function readUpstreamModels(repoDir: string): UpstreamModels {
+  // pharn-install.json's `models.defaults` when the tree declares one — held
+  // to the same gate. The root config read is the fallback, removed in v0.22.0
+  // (CORE-186).
+  const manifest = readUpstreamManifest(repoDir);
+  if (manifest) return checkUpstreamBlock(manifest.modelsDefaults);
   const read = readJsonBounded(
     safeJoin(repoDir, UPSTREAM_CONFIG_FILE),
     MAX_UPSTREAM_CONFIG_BYTES,
@@ -59,7 +65,11 @@ export function readUpstreamModels(repoDir: string): UpstreamModels {
       ],
     };
   }
-  const block = config.models;
+  return checkUpstreamBlock(config.models);
+}
+
+// The one gate an upstream block passes before it can reach a config write.
+function checkUpstreamBlock(block: unknown): UpstreamModels {
   if (block === undefined || block === null) return { kind: 'absent' };
   const check = checkModelsBlock(block);
   if (check.kind === 'invalid') {

@@ -14,6 +14,10 @@ import { readFileSync } from 'node:fs';
 //
 // `sha256File` is the RAW byte hash, for true byte pins only (an import ban in
 // eslint.config.mjs keeps every other src/ file from calling it).
+// `matchesRawSha256` is the one raw-byte check src/ may make: a file against a
+// digest declared for exactly those bytes (pharn-install.json's `sha256`). It
+// answers yes/no and hands out no digest, so it cannot become one side of a
+// records or drift comparison.
 // ---------------------------------------------------------------------------
 
 /**
@@ -65,4 +69,13 @@ export function contentHash(path: string): string {
 /** sha256 of a file's RAW bytes, lowercase hex. Throws if the path is unreadable. */
 export function sha256File(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+/**
+ * Do the file's RAW bytes (no CRLF fold) hash to `expected`, a lowercase hex
+ * sha256? Any other `expected` spelling is false. Throws if the path is
+ * unreadable, like {@link sha256File}.
+ */
+export function matchesRawSha256(path: string, expected: string): boolean {
+  return sha256File(path) === expected;
 }

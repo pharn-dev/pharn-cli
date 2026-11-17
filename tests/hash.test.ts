@@ -8,6 +8,7 @@ import {
   contentHash,
   contentHashBytes,
   isBinaryContent,
+  matchesRawSha256,
   sha256File,
 } from '../src/lib/hash.js';
 
@@ -156,5 +157,28 @@ describe('contentHash / sha256File — the file readers', () => {
     const missing = join(tmp.path(), 'nope');
     expect(() => contentHash(missing)).toThrow();
     expect(() => sha256File(missing)).toThrow();
+  });
+});
+
+describe('matchesRawSha256 — a declared digest over RAW bytes (CORE-194)', () => {
+  const tmp = useTmpDir();
+
+  it('matches the unfolded digest of a CRLF file, never its contentHash', () => {
+    const p = join(tmp.path(), 'f.md');
+    writeFileSync(p, 'a\r\nb\r\n');
+    expect(matchesRawSha256(p, raw('a\r\nb\r\n'))).toBe(true);
+    expect(matchesRawSha256(p, contentHash(p))).toBe(false);
+  });
+
+  it('is false for any other spelling of the digest', () => {
+    const p = join(tmp.path(), 'g.md');
+    writeFileSync(p, 'x');
+    expect(matchesRawSha256(p, raw('x').toUpperCase())).toBe(false);
+    expect(matchesRawSha256(p, '')).toBe(false);
+    expect(matchesRawSha256(p, `${raw('x')}\n`)).toBe(false);
+  });
+
+  it('throws on an unreadable path, like sha256File', () => {
+    expect(() => matchesRawSha256(join(tmp.path(), 'nope'), raw(''))).toThrow();
   });
 });

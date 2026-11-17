@@ -34,7 +34,10 @@ import {
   type Orphan,
 } from '../src/lib/orphans.js';
 import { MODELS_RECORD_KEY } from '../src/lib/install-records.js';
-import { isInstallRootPath } from '../src/lib/install-surfaces.js';
+import {
+  isInstallRootPath,
+  isPharnOwnedPath,
+} from '../src/lib/install-surfaces.js';
 import { contentHash } from '../src/lib/hash.js';
 import type { InstalledCapability } from '../src/types.js';
 
@@ -116,6 +119,98 @@ describe('isInstallRootPath', () => {
     'pharn/floorx/y.mjs',
   ])('%s is never an install path', (rel) => {
     expect(isInstallRootPath(rel)).toBe(false);
+  });
+});
+
+// The outer bound a pharn-install.json dest must lie in (CORE-194), which the
+// record-key bound above also accepts, so a file in a surface the CLI names
+// nowhere can be updated, orphaned and uninstalled.
+const NEW_SURFACE_KEYS = [
+  '.claude/skills/pharn-x/SKILL.md',
+  '.claude/skills/pharn-x/references/deep/notes.md',
+  '.claude/commands/pharn-x/part.md',
+  '.claude/output-styles/pharn-terse.md',
+  'pharn/pharn-new/x.md',
+  'pharn/pharn-core/new/x.md',
+  'pharn/floor/lib/x.mjs',
+  'pharn/pharn-pipeline/other/x.md',
+];
+const NEVER_OWNED = [
+  'pharn/memory-bank/lesson.md',
+  'pharn/spec-template.md',
+  'pharn/features/my-feature/SPEC.md',
+  'pharn/.backup/20260101-000000/x.md',
+  'pharn/.lock',
+  'pharn/notes.md',
+  'pharn/pharn-dev-x/y.md',
+  'pharn/pharn-new',
+  'pharn/pharn-/x.md',
+  '.claude/skills/my-skill/SKILL.md',
+  '.claude/skills/pharn-x/.hidden',
+  '.claude/skills/pharn-dev-x/SKILL.md',
+  '.claude/pharn-x.md',
+  '.claude/Skills/pharn-x/SKILL.md',
+  '.claude/skills/pharn-x.txt',
+  '.claude/settings.json',
+  '.claude/settings.local.json',
+  '.git/hooks/pre-commit',
+  'pharn/.git/config',
+  '.claude/.git/pharn-x/y',
+  'README.md',
+  'pharn',
+  '',
+];
+
+describe('isPharnOwnedPath — the outer bound', () => {
+  const tmp = useTmpDir();
+
+  it.each(NEW_SURFACE_KEYS)('%s is pharn-owned, and an install path', (rel) => {
+    expect(isPharnOwnedPath(rel)).toBe(true);
+    expect(isInstallRootPath(rel)).toBe(true);
+  });
+
+  it.each(NEVER_OWNED)('%s is never pharn-owned', (rel) => {
+    expect(isPharnOwnedPath(rel)).toBe(false);
+    expect(isInstallRootPath(rel)).toBe(false);
+  });
+
+  it('holds every path of the pharn layout the CLI names, hooks included', () => {
+    for (const rel of [
+      'pharn/CONSTITUTION.md',
+      'pharn/LICENSE',
+      'pharn/features/README.md',
+      'pharn/pharn-contracts/finding-shape.md',
+      'pharn/pharn-review/n-plus-one/n-plus-one.md',
+      '.claude/commands/pharn-plan.md',
+      '.claude/agents/pharn-review-lens.md',
+      '.claude/hooks/guard.cjs',
+      '.claude/hooks/guard.mjs',
+    ])
+      expect(isPharnOwnedPath(rel)).toBe(true);
+    for (const rel of [
+      '.claude/hooks/guard.test.cjs',
+      '.claude/hooks/Guard.cjs',
+      '.claude/hooks/guard.js',
+      'pharn/pharn-review/README.md',
+    ])
+      expect(isPharnOwnedPath(rel)).toBe(false);
+  });
+
+  it('reports a recorded new-surface file upstream no longer ships as an orphan', () => {
+    const root = join(tmp.path(), 'p');
+    write(root, NEW_SURFACE_KEYS[0]!, 'skill\n');
+    const scan = findOrphans({
+      projectRoot: root,
+      records: {
+        [NEW_SURFACE_KEYS[0]!]: contentHash(join(root, NEW_SURFACE_KEYS[0]!)),
+      },
+      expected: new Map(),
+      capabilities: [],
+      frozen: [],
+    });
+    expect(scan.orphans).toEqual([
+      { path: NEW_SURFACE_KEYS[0], state: 'unchanged' },
+    ]);
   });
 });
 

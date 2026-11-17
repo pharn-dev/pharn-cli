@@ -57,7 +57,7 @@ const MSG = {
   picocolors:
     "Import colour from src/lib/color.ts: one picocolors instance, decided by the same stream check @clack/prompts makes, so pharn's text and clack's chrome are never coloured differently (F-28).",
   sha256File:
-    'Use contentHash: every drift and records comparison must use the CRLF-folding hash, or two sides of a comparison mix schemes (F-16). sha256File is the raw byte hash, for byte pins in tests only.',
+    'Use contentHash: every drift and records comparison must use the CRLF-folding hash, or two sides of a comparison mix schemes (F-16). sha256File is the raw byte hash, for byte pins in tests only; a digest declared for exact bytes (pharn-install.json) is checked through matchesRawSha256.',
   isTTY:
     "Read isTTY only as an argument to interactiveAllowed({...}) (src/lib/capability-picker.ts): one predicate decides 'interactive', so no caller can check only stdout and let a pipe through.",
   processExit:

@@ -43,6 +43,8 @@ import {
   HOOK_SETTINGS,
   INSTALLED,
   installFresh,
+  manifestTree,
+  NEW_SURFACE,
   interactive,
   lastOutro,
   logs,
@@ -1841,5 +1843,106 @@ describe('pharn init ends through a CliError', () => {
     expect(reportCliError(err)).toBe(0);
     expect(cancelled()).toHaveLength(1);
     expect(logs('error')).toEqual([]);
+  });
+});
+
+// CORE-194: a tree that declares pharn-install.json is installed from it, after
+// every declared file's raw sha256 is verified — before anything is written.
+describe('init with pharn-install.json', () => {
+  // What `init --yes` installs for `lib` from manifestTree: the 7.x layout,
+  // plus a surface this CLI names nowhere.
+  const MANIFEST_INSTALLED = [
+    ...INSTALLED.filter((p) => p !== 'LIMITS.md' && p !== 'THREAT-MODEL.md'),
+    'pharn/LIMITS.md',
+    'pharn/THREAT-MODEL.md',
+    NEW_SURFACE,
+  ].sort();
+  const DECLARED_MODELS = {
+    stages: { default: { model: 'haiku', effort: 'low' } },
+  };
+
+  it('installs exactly the declared set, LICENSE at its dest, models from the manifest', async () => {
+    serveTip(SHA_V1, '7.20.0', {
+      tree: manifestTree('7.20.0', (m) => {
+        m.models.defaults = DECLARED_MODELS;
+      }),
+    });
+    await installFresh();
+    expect(projectFiles()).toEqual(
+      [...MANIFEST_INSTALLED, ...STATE_FILES].sort(),
+    );
+    expect(read('pharn/LICENSE')).toBe('Apache-2.0\n');
+    expect(exists('LICENSE')).toBe(false);
+    expect(read(NEW_SURFACE)).toBe('skill 7.20.0\n');
+    expect(config().models).toEqual(DECLARED_MODELS);
+    const rec = records();
+    // Every managed file recorded at what landed; settings too (fresh write).
+    for (const rel of MANIFEST_INSTALLED)
+      expect(rec.files[rel], rel).toBe(sha256(rel));
+    expect(logs('warn')).toEqual([]);
+  });
+
+  it('never writes over an existing settings.json, and does not record it', async () => {
+    serveTip(SHA_V1, '7.20.0', { tree: manifestTree('7.20.0') });
+    write(SETTINGS, '{"mine":true}\n');
+    await installFresh();
+    expect(read(SETTINGS)).toBe('{"mine":true}\n');
+    expect(records().files).not.toHaveProperty(SETTINGS);
+  });
+
+  it('refuses a tree whose file does not match its declared sha256: exit 1, nothing written', async () => {
+    const clones = watchClones();
+    const tree = manifestTree('7.20.0');
+    serveTip(SHA_V1, '7.20.0', {
+      tree: { ...tree, [SECURITY]: 'swapped after the manifest was made\n' },
+    });
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain(
+      `pharn-oss's pharn-install.json declares a sha256 for ${SECURITY} that its bytes do not match`,
+    );
+    expect(errors()).toContain('Nothing was written');
+    // Shown bare: the network was reached.
+    expect(errors()).not.toContain('Could not reach');
+    expect(snapshot()).toEqual(before);
+    expect(clones()).toEqual([]);
+  });
+
+  it.each<[string, Parameters<typeof manifestTree>[1], string]>([
+    [
+      'an unknown schemaVersion',
+      (m) => (m.schemaVersion = 2),
+      'schemaVersion 2',
+    ],
+    [
+      'a dest outside the paths pharn installs',
+      (m) =>
+        (m.files.find((f) => f.dest === PLAN_COMMAND)!.dest =
+          '.git/hooks/pre-commit'),
+      'would write .git/hooks/pre-commit',
+    ],
+    [
+      "a dest at the user's local settings",
+      (m) =>
+        (m.files.find((f) => f.dest === PLAN_COMMAND)!.dest =
+          '.claude/settings.local.json'),
+      'would write .claude/settings.local.json',
+    ],
+  ])('refuses %s: exit 1, nothing written', async (_l, edit, text) => {
+    serveTip(SHA_V1, '7.20.0', { tree: manifestTree('7.20.0', edit) });
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain(text);
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('a tree without the manifest installs by the derivation, as before', async () => {
+    serveTip(SHA_V1, '7.20.0', {
+      tree: { ...upstreamTree7('7.20.0'), [NEW_SURFACE]: 'skill\n' },
+    });
+    await installFresh();
+    // The derivation names no `.claude/skills/` surface.
+    expect(exists(NEW_SURFACE)).toBe(false);
+    expect(exists(SECURITY)).toBe(true);
   });
 });
