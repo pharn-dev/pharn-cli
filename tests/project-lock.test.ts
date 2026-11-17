@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
+import { withManifest } from './support/harness.js';
 import {
   FUTURE_SKEW_MS,
   LOCK_DIR,
@@ -773,7 +774,7 @@ describe('withProjectLock — a fatal signal while held', () => {
     const script = `
       const { withProjectLock } = await import(${src('../src/lib/project-lock.ts')});
       const { fetchRepo } = await import(${src('../src/lib/repo.ts')});
-      const { githubArchive } = await import(${src('./support/tar-fixture.ts')});
+      const { codeloadArchive } = await import(${src('./support/tar-fixture.ts')});
       const { writeFileSync } = await import('node:fs');
       const { join } = await import('node:path');
       const [dir, sig] = process.argv.slice(1);
@@ -841,12 +842,18 @@ describe('withProjectLock — a fatal signal while held', () => {
   it('SIGINT after a fetch removes the clone AND releases the lock', async () => {
     const dir = tmp.path();
     const sha = 'da39a3ee5e6b4b0d3255bfef95601890afd80709';
+    // The smallest tree fetchRepo accepts: a SKILLS_VERSION, the pharn layout's
+    // marker and the pharn-install.json that declares them.
+    const tree = withManifest({
+      SKILLS_VERSION: '1.0.0\n',
+      'pharn/pharn-contracts/x.md': 'x\n',
+    });
     const r = await runChild(
       `
       globalThis.fetch = async (url) =>
         String(url).startsWith('https://api.github.com/')
           ? new Response(${JSON.stringify(sha)})
-          : new Response(new Uint8Array(githubArchive(${JSON.stringify(sha)})));
+          : new Response(new Uint8Array(codeloadArchive(${JSON.stringify(sha)}, ${JSON.stringify(tree)})));
       await withProjectLock(dir, 'update', async () => {
         const repo = await fetchRepo({ kind: 'main' });
         console.log('CLONE=' + repo.dir);

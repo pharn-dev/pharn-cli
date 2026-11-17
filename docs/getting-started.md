@@ -94,10 +94,10 @@ surfaces:
 | `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | The installed grillers + lenses, each with its `evals/`                                                                           |
 | `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs`/`.mjs` floor hooks                                                |
 | `.claude/agents/`                                                     | The `pharn-*` subagents (`pharn-review-lens` runs each `/pharn-review` lens); none from a pharn-oss older than 6.64.0             |
-| `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke (minus the floor's own test files, `test-fixtures/` and `fixtures/`) |
+| `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke, as pharn-oss's `pharn-install.json` declares them (no test files)   |
 | `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                   |
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim — see the layout note below                                                    |
-| `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`                            | The other two — at the project **root** when the fetched pharn-oss is older than 7.0.0 (see below)                                |
+| `pharn/THREAT-MODEL.md`, `pharn/LIMITS.md`                            | The other two — an install made from a pharn-oss older than 7.0.0 left them at the project **root** (see below)                   |
 | `pharn/LICENSE` (flat: `PHARN-LICENSE`)                               | PHARN's Apache-2.0 license, copied so a repo you publish carries the grant. Your own root `LICENSE` is never touched              |
 | `pharn/features/README.md`                                            | The product-loop boundary contract the installed commands cite by name (project root in both layouts)                             |
 | `pharn.config.json`                                                   | `skillsVersion`, commit SHA, detected archetypes, installed capabilities, and the layout                                          |
@@ -105,18 +105,15 @@ surfaces:
 
 `.claude/*` is **layout-invariant** — commands, agents, hooks and `settings.json` sit at those paths either
 way, and an existing `.claude/settings.json` is never overwritten (a fresh one is copied, and `init`
-lists the hooks it wires). Everything else follows the fetched
-version: the CLI **mirrors** whichever layout `pharn-dev/pharn-oss` ships and never rewrites a copied
-file's contents, so the paths above are the `pharn` layout it installs today. The legacy **flat**
-layout puts the same surfaces at the project root instead — `pharn-pipeline/grillers/`,
-`pharn-review/`, `pharn-contracts/`, `.dev/floor/`, `PHARN-LICENSE` — and upstream ships no root
-`pharn-core/`, so that one surface is simply absent there. The **four trusted docs** are the same set
-in both layouts. A `pharn` install keeps all four under `pharn/` from pharn-oss 7.0.0 on; an older
-pharn-oss still ships `THREAT-MODEL.md` and `LIMITS.md` at the repo root, and the install mirrors that
-(an ordered probe: `pharn/<doc>` if the fetched version has it, else the root path). A flat install
-lands all four at the root. Each doc is copied only if the fetched version ships it — a clone that predates one simply
-does not get it, and `init` says which docs it wrote and warns about any it did not. Which layout you
-got is recorded as `layout` in `pharn.config.json`.
+lists the hooks it wires). Everything else is what the fetched version's `pharn-install.json` declares
+(pharn-oss 7.21.0 and later; an older one is refused): the CLI never rewrites a copied file's contents,
+and the paths above are the `pharn` layout it installs. An install made from an older pharn-oss may sit
+in the legacy **flat** layout, with the same surfaces at the project root (`pharn-pipeline/grillers/`,
+`pharn-review/`, `pharn-contracts/`, `.dev/floor/`, `PHARN-LICENSE` and all four trusted docs), or in
+the `pharn` layout with `THREAT-MODEL.md` and `LIMITS.md` at the root (pharn-oss before 7.0.0).
+`pharn update` moves either to the paths above. Each doc is copied only if the manifest declares it,
+and `init` says which docs it wrote and warns about any it did not. Which layout you got is recorded as
+`layout` in `pharn.config.json`.
 
 See [pharn.config.json](reference/pharn-config.md) and
 [pharn.records.json](reference/pharn-records.md) for the exact schemas. **Commit both** — they are

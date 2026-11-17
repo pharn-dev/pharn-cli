@@ -2,7 +2,7 @@ import { CLAUDE_COMMANDS_DIR, CLAUDE_HOOKS_DIR } from './constants.js';
 import {
   isInstalledHookFile,
   isProductCommandFile,
-} from './install-manifest.js';
+} from './install-surfaces.js';
 import type { LayoutPaths } from './layout.js';
 
 // ---------------------------------------------------------------------------

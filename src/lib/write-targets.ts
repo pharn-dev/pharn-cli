@@ -4,7 +4,6 @@ import {
   conflictingWriteTargets,
   PHARN_CONFIG_FILE,
 } from './install-manifest.js';
-import { detectLayout } from './layout.js';
 import { safeJoin } from './validate.js';
 import { manifestSources, scanDest, type DriftLabel } from './dest-drift.js';
 import type { FileRecords } from './install-records.js';
@@ -78,7 +77,6 @@ export function planWriteTargets(params: WriteTargetsParams): WriteTargetsPlan {
     repoDir,
     projectRoot,
     capabilities,
-    layout: detectLayout(repoDir),
     expected: manifest,
   });
   if (conflicts.length === 0)

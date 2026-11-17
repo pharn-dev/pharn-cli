@@ -1,7 +1,7 @@
 import { readDiskState } from './apply-update.js';
 import { contentHash } from './hash.js';
 import { collectExpectedInstallPaths } from './install-manifest.js';
-import type { InstalledCapability, Layout } from '../types.js';
+import type { InstalledCapability } from '../types.js';
 
 export interface InstallDiff {
   // .claude-relative paths present on disk but whose bytes differ from upstream.
@@ -21,8 +21,9 @@ export interface InstallDiff {
 
 /**
  * Read-only comparison of an archetype install's PHARN-owned files against a
- * fetched clone. The expected set is the shared install manifest at the
- * recorded layout; `.claude/settings.json` (user-owned) is excluded, the
+ * fetched clone. The expected set is the shared install manifest (callers
+ * compare only an install recorded at the clone's layout);
+ * `.claude/settings.json` (user-owned) is excluded, the
  * copied-verbatim docs, hooks, contracts and floor checkers ARE compared.
  * Reads stay contained through `readDiskState` (project) and
  * `collectExpectedInstallPaths` (clone).
@@ -31,18 +32,9 @@ export function diffInstalledCapabilities(params: {
   repoDir: string;
   projectRoot: string;
   capabilities: InstalledCapability[];
-  // The project's recorded layout. The expected set is derived at its paths
-  // for both clone source and project dest — except the license, whose dest
-  // differs from its source, hence a dest→source MAP. A clone at another layout
-  // simply lacks the sources.
-  layout: Layout;
 }): InstallDiff {
-  const { repoDir, projectRoot, capabilities, layout } = params;
-  const expected = collectExpectedInstallPaths({
-    repoDir,
-    capabilities,
-    layout,
-  });
+  const { repoDir, projectRoot, capabilities } = params;
+  const expected = collectExpectedInstallPaths({ repoDir, capabilities });
   return compareExpected(expected, projectRoot);
 }
 

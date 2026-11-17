@@ -2,6 +2,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
+import { sealRepo } from './support/harness.js';
 import {
   assertNoExistingTargets,
   CONFIG_MARKER,
@@ -16,7 +17,6 @@ import {
 } from '../src/lib/write-targets.js';
 import type { CapabilityRemoval } from '../src/lib/capability-removal.js';
 import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
-import { detectLayout } from '../src/lib/layout.js';
 import { contentHash } from '../src/lib/hash.js';
 import type { InstalledCapability } from '../src/types.js';
 
@@ -38,15 +38,16 @@ function fixture(root: string): {
 } {
   const repo = join(root, 'repo');
   const proj = join(root, 'proj');
-  write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'), 'a11y');
+  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a11y');
   write(join(repo, '.claude/commands/pharn-plan.md'), 'plan');
   write(join(repo, '.claude/commands/pharn-ship.md'), 'ship');
-  write(join(repo, 'CONSTITUTION.md'), 'C');
+  write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
+  mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
+  sealRepo(repo);
   mkdirSync(proj, { recursive: true });
   const manifest = collectExpectedInstallPaths({
     repoDir: repo,
     capabilities: CAPS,
-    layout: detectLayout(repo),
   });
   return { repo, proj, manifest };
 }
@@ -105,7 +106,7 @@ describe('planWriteTargets', () => {
   it('lists the labelled files first (by label, then path), then the replaced config, then the rest', () => {
     const { repo, proj, manifest } = fixture(tmp.path());
     // Identical to upstream: a target, never labelled.
-    write(join(proj, 'CONSTITUTION.md'), 'C');
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'C');
     // Changed since pharn recorded writing it: modified.
     write(join(proj, '.claude/commands/pharn-ship.md'), 'my edit');
     // Differs, no record: unrecorded.
@@ -126,13 +127,13 @@ describe('planWriteTargets', () => {
       '.claude/commands/pharn-ship.md',
       '.claude/commands/pharn-plan.md',
       'pharn.config.json',
-      'CONSTITUTION.md',
+      'pharn/CONSTITUTION.md',
     ]);
     expect(plan.labels.get('.claude/commands/pharn-ship.md')).toBe('modified');
     expect(plan.labels.get('.claude/commands/pharn-plan.md')).toBe(
       'unrecorded',
     );
-    expect(plan.labels.has('CONSTITUTION.md')).toBe(false);
+    expect(plan.labels.has('pharn/CONSTITUTION.md')).toBe(false);
   });
 
   it('labels every differing file unverifiable when there are no records', () => {
@@ -284,7 +285,7 @@ describe('planWriteTargets — given labels', () => {
   it('uses the labels it is given instead of scanning', () => {
     const { repo, proj, manifest } = fixture(tmp.path());
     write(join(proj, '.claude/commands/pharn-plan.md'), 'mine');
-    write(join(proj, 'CONSTITUTION.md'), 'C');
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'C');
     const params = {
       repoDir: repo,
       projectRoot: proj,
@@ -299,10 +300,10 @@ describe('planWriteTargets — given labels', () => {
     // Given: exactly those labels, which also decide the order.
     const given = planWriteTargets({
       ...params,
-      labels: new Map([['CONSTITUTION.md', 'modified' as const]]),
+      labels: new Map([['pharn/CONSTITUTION.md', 'modified' as const]]),
     });
-    expect([...given.labels]).toEqual([['CONSTITUTION.md', 'modified']]);
-    expect(given.conflicts[0]).toBe('CONSTITUTION.md');
+    expect([...given.labels]).toEqual([['pharn/CONSTITUTION.md', 'modified']]);
+    expect(given.conflicts[0]).toBe('pharn/CONSTITUTION.md');
   });
 });
 
@@ -317,9 +318,9 @@ describe('removals in the write-target plan', () => {
   ): CapabilityRemoval => ({
     cap: { name: 'old', role: 'lens', source: 'auto' },
     reason: 'dropped-unselected',
-    dir: 'pharn-review/old',
+    dir: 'pharn/pharn-review/old',
     present: true,
-    backups: ['pharn-review/old/NOTES.md'],
+    backups: ['pharn/pharn-review/old/NOTES.md'],
     ...over,
   });
 
@@ -345,8 +346,8 @@ describe('removals in the write-target plan', () => {
         removal({ cap: { name: 'gone', role: 'lens' }, present: false }),
       ]),
     ).toEqual([
-      '  • pharn-review/old/ (lens:old — 1 file(s) backed up to pharn/.backup/ first)',
-      '  • pharn-review/old/ (griller:x)',
+      '  • pharn/pharn-review/old/ (lens:old — 1 file(s) backed up to pharn/.backup/ first)',
+      '  • pharn/pharn-review/old/ (griller:x)',
     ]);
   });
 
@@ -373,7 +374,7 @@ describe('removals in the write-target plan', () => {
   it('--yes refuses a re-install that would delete a directory, naming it', () => {
     const { repo, proj, manifest } = fixture(tmp.path());
     write(join(proj, 'pharn.config.json'), '{"capabilities":[]}');
-    write(join(proj, 'pharn-review/old/NOTES.md'), 'mine');
+    write(join(proj, 'pharn/pharn-review/old/NOTES.md'), 'mine');
     expect(existingConfigRefusal(proj)).toMatch(
       /pharn\.config\.json already exists/,
     );

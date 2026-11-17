@@ -9,6 +9,7 @@ import {
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
+import { sealRepo } from './support/harness.js';
 import {
   backupAction,
   backupNoticeLines,
@@ -282,6 +283,7 @@ describe('a backed-up capability copy is invisible to every install reader', () 
     write(join(repo, 'SKILLS_VERSION'), '7.0.0\n');
     write(join(repo, 'pharn/pharn-contracts/x.md'), 'x');
     write(join(repo, LIVE), '---\nrole: lens\napplies: universal\n---\ncap\n');
+    sealRepo(repo);
     return { proj, repo };
   }
 
@@ -311,13 +313,11 @@ describe('a backed-up capability copy is invisible to every install reader', () 
       repoDir: repo,
       projectRoot: proj,
       capabilities: caps,
-      layout: 'pharn',
     });
     expect(JSON.stringify(diff)).not.toContain('.backup');
     const expected = collectExpectedInstallPaths({
       repoDir: repo,
       capabilities: caps,
-      layout: 'pharn',
     });
     expect([...expected.keys()].some((k) => k.includes('.backup'))).toBe(false);
     const scan = scanDest({
@@ -330,11 +330,13 @@ describe('a backed-up capability copy is invisible to every install reader', () 
 
   it('is not a capability the index reads, known or unknown', () => {
     const { proj } = setup();
-    // Read the project as the index would read a pharn-layout tree.
+    // Read the project as the index would read a pharn-layout tree, sealed
+    // with the manifest its files make (the copy sits under pharn/.backup/,
+    // outside every capability subtree).
     write(join(proj, 'pharn/pharn-contracts/x.md'), 'x');
     mkdirSync(join(proj, 'pharn/pharn-pipeline/grillers'), { recursive: true });
     write(join(proj, LIVE), '---\nrole: lens\napplies: universal\n---\ncap\n');
-    const index = parseCapabilityIndex(proj);
+    const index = parseCapabilityIndex(sealRepo(proj));
     expect(index.capabilities.map((c) => c.name)).toEqual(['x']);
     expect(JSON.stringify(index)).not.toContain('.backup');
   });

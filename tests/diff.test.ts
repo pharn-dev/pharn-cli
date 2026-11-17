@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
+import { sealRepo } from './support/harness.js';
 import { diffInstalledCapabilities } from '../src/lib/diff.js';
 import type { InstalledCapability } from '../src/types.js';
 
@@ -27,29 +28,29 @@ describe('diffInstalledCapabilities', () => {
   ];
 
   function scaffoldClone(repo: string): void {
-    write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
-    write(join(repo, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+    write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'), 'N');
     write(join(repo, '.claude/commands/pharn-plan.md'), 'plan');
     write(join(repo, '.claude/commands/pharn-dev-plan.md'), 'DEV');
     write(join(repo, '.claude/hooks/enforce.cjs'), 'hook');
     write(join(repo, '.claude/hooks/enforce.test.cjs'), 'HOOKTEST');
     write(join(repo, '.claude/settings.json'), '{"a":1}');
-    write(join(repo, 'CONSTITUTION.md'), 'C');
-    write(join(repo, 'pharn-contracts/finding-shape.md'), 'fs');
-    write(join(repo, '.dev/floor/validate.mjs'), 'floor');
-    write(join(repo, '.dev/floor/validate.test.mjs'), 'FLOORTEST');
+    write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
+    write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
+    write(join(repo, 'pharn/floor/validate.mjs'), 'floor');
+    write(join(repo, 'pharn/floor/validate.test.mjs'), 'FLOORTEST');
   }
 
   // The exact PHARN-owned set installCapabilities would have written (settings
   // excluded — user-owned; dev-only + test files never copied).
   function scaffoldMatchingProject(proj: string): void {
-    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A');
-    write(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'), 'N');
+    write(join(proj, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'A');
+    write(join(proj, 'pharn/pharn-review/n-plus-one/n-plus-one.md'), 'N');
     write(join(proj, '.claude/commands/pharn-plan.md'), 'plan');
     write(join(proj, '.claude/hooks/enforce.cjs'), 'hook');
-    write(join(proj, 'CONSTITUTION.md'), 'C');
-    write(join(proj, 'pharn-contracts/finding-shape.md'), 'fs');
-    write(join(proj, '.dev/floor/validate.mjs'), 'floor');
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'C');
+    write(join(proj, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
+    write(join(proj, 'pharn/floor/validate.mjs'), 'floor');
   }
 
   it('reports all ok when the project matches (settings.json + dev-only excluded)', () => {
@@ -61,10 +62,9 @@ describe('diffInstalledCapabilities', () => {
     write(join(proj, '.claude/settings.json'), '{"user":true}');
 
     const r = diffInstalledCapabilities({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       projectRoot: proj,
       capabilities: caps,
-      layout: 'flat',
     });
     expect(r.missing).toEqual([]);
     expect(r.modified).toEqual([]);
@@ -82,19 +82,18 @@ describe('diffInstalledCapabilities', () => {
     // real: this case named a missing file but only ever REWROTE it with the
     // same bytes, so the `missing` arm went unexercised and the three unreadable
     // cases below that assert "not reported missing" would have been vacuous.
-    write(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'), 'A-EDITED');
-    rmSync(join(proj, 'pharn-review/n-plus-one/n-plus-one.md'));
-    write(join(proj, 'CONSTITUTION.md'), 'C-EDITED'); // modified doc
+    write(join(proj, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'A-EDITED');
+    rmSync(join(proj, 'pharn/pharn-review/n-plus-one/n-plus-one.md'));
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'C-EDITED'); // modified doc
 
     const r = diffInstalledCapabilities({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       projectRoot: proj,
       capabilities: caps,
-      layout: 'flat',
     });
-    expect(r.modified).toContain('pharn-pipeline/grillers/a11y/a11y.md');
-    expect(r.modified).toContain('CONSTITUTION.md');
-    expect(r.missing).toEqual(['pharn-review/n-plus-one/n-plus-one.md']);
+    expect(r.modified).toContain('pharn/pharn-pipeline/grillers/a11y/a11y.md');
+    expect(r.modified).toContain('pharn/CONSTITUTION.md');
+    expect(r.missing).toEqual(['pharn/pharn-review/n-plus-one/n-plus-one.md']);
     expect(r.unreadable).toEqual([]);
     const paths = [...r.modified, ...r.missing];
     expect(paths).not.toContain('.claude/settings.json');
@@ -127,10 +126,9 @@ describe('diffInstalledCapabilities', () => {
     }
 
     const r = diffInstalledCapabilities({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       projectRoot: proj,
       capabilities: caps,
-      layout: 'pharn',
     });
     expect(r.missing).toEqual([]);
     expect(r.modified).toEqual([]);
@@ -141,10 +139,9 @@ describe('diffInstalledCapabilities', () => {
     // set used the pharn paths, not the flat ones.
     write(join(proj, 'pharn/pharn-review/n-plus-one/n-plus-one.md'), 'N-EDIT');
     const r2 = diffInstalledCapabilities({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       projectRoot: proj,
       capabilities: caps,
-      layout: 'pharn',
     });
     expect(r2.modified).toContain(
       'pharn/pharn-review/n-plus-one/n-plus-one.md',
@@ -164,10 +161,9 @@ describe('diffInstalledCapabilities', () => {
     // The project does NOT have the core file (a pre-surface install).
 
     const r = diffInstalledCapabilities({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       projectRoot: proj,
       capabilities: [],
-      layout: 'pharn',
     });
     expect(r.missing).toContain(
       'pharn/pharn-core/seam-resolver/seam-resolver.md',
@@ -180,35 +176,14 @@ describe('diffInstalledCapabilities', () => {
       'sr-EDITED',
     );
     const r2 = diffInstalledCapabilities({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       projectRoot: proj,
       capabilities: [],
-      layout: 'pharn',
     });
     expect(r2.missing).toEqual([]);
     expect(r2.modified).toEqual([
       'pharn/pharn-core/seam-resolver/seam-resolver.md',
     ]);
-  });
-
-  it('degrades gracefully (skips, never throws) when the clone lacks the project layout', () => {
-    const repo = join(tmp.path(), 'repo');
-    const proj = join(tmp.path(), 'proj');
-    scaffoldClone(repo); // FLAT clone (e.g. @main before #86 merges)
-    scaffoldMatchingProject(proj);
-    // Ask for the pharn layout though the clone is flat: every pharn/ capability
-    // source is absent in the clone → skipped (the documented @main bound), so no
-    // pharn/ path is reported and the call never throws. The layout-invariant
-    // .claude/* surfaces still compare.
-    const r = diffInstalledCapabilities({
-      repoDir: repo,
-      projectRoot: proj,
-      capabilities: caps,
-      layout: 'pharn',
-    });
-    const all = [...r.missing, ...r.modified];
-    expect(all.some((p) => p.startsWith('pharn/'))).toBe(false);
-    expect(r.okCount).toBeGreaterThanOrEqual(2);
   });
 
   // -------------------------------------------------------------------------
@@ -229,10 +204,9 @@ describe('diffInstalledCapabilities', () => {
     }
     const run = (repo: string, proj: string) =>
       diffInstalledCapabilities({
-        repoDir: repo,
+        repoDir: sealRepo(repo),
         projectRoot: proj,
         capabilities: caps,
-        layout: 'flat',
       });
     // The 7-file matching set, minus the one path under test: what must STILL
     // compare cleanly while the sabotaged path is reported.
@@ -243,13 +217,13 @@ describe('diffInstalledCapabilities', () => {
       // throw EISDIR, status print a raw errno naming no file, and the drift
       // report for every OTHER file vanish.
       const { repo, proj } = fixture();
-      rmSync(join(proj, 'CONSTITUTION.md'));
-      mkdirSync(join(proj, 'CONSTITUTION.md'), { recursive: true });
+      rmSync(join(proj, 'pharn/CONSTITUTION.md'));
+      mkdirSync(join(proj, 'pharn/CONSTITUTION.md'), { recursive: true });
 
       expect(() => run(repo, proj)).not.toThrow();
       const r = run(repo, proj);
 
-      expect(r.unreadable.map((u) => u.rel)).toEqual(['CONSTITUTION.md']);
+      expect(r.unreadable.map((u) => u.rel)).toEqual(['pharn/CONSTITUTION.md']);
       expect(r.unreadable[0]!.reason).toBeTruthy();
       // ANTI-COLLAPSE: every other expected file still got compared.
       expect(r.okCount).toBe(REST);
@@ -262,12 +236,15 @@ describe('diffInstalledCapabilities', () => {
       // from a genuine content edit — the reason (a link sits there) erased.
       const { repo, proj } = fixture();
       write(join(proj, 'elsewhere.md'), 'NOT-THE-CONSTITUTION');
-      rmSync(join(proj, 'CONSTITUTION.md'));
-      symlinkSync(join(proj, 'elsewhere.md'), join(proj, 'CONSTITUTION.md'));
+      rmSync(join(proj, 'pharn/CONSTITUTION.md'));
+      symlinkSync(
+        join(proj, 'elsewhere.md'),
+        join(proj, 'pharn/CONSTITUTION.md'),
+      );
 
       const r = run(repo, proj);
 
-      expect(r.unreadable.map((u) => u.rel)).toEqual(['CONSTITUTION.md']);
+      expect(r.unreadable.map((u) => u.rel)).toEqual(['pharn/CONSTITUTION.md']);
       // The reason NAMES the link: that is the whole honesty claim here.
       expect(r.unreadable[0]!.reason).toMatch(/symlink/);
       expect(r.modified).toEqual([]);
@@ -281,15 +258,15 @@ describe('diffInstalledCapabilities', () => {
       // it would leave every other assertion here satisfied.
       const { repo, proj } = fixture();
       write(join(proj, 'identical-copy.md'), 'C'); // the clone's exact bytes
-      rmSync(join(proj, 'CONSTITUTION.md'));
+      rmSync(join(proj, 'pharn/CONSTITUTION.md'));
       symlinkSync(
         join(proj, 'identical-copy.md'),
-        join(proj, 'CONSTITUTION.md'),
+        join(proj, 'pharn/CONSTITUTION.md'),
       );
 
       const r = run(repo, proj);
 
-      expect(r.unreadable.map((u) => u.rel)).toEqual(['CONSTITUTION.md']);
+      expect(r.unreadable.map((u) => u.rel)).toEqual(['pharn/CONSTITUTION.md']);
       expect(r.unreadable[0]!.reason).toMatch(/symlink/);
       expect(r.okCount).toBe(REST); // NOT REST + 1
       expect(r.modified).toEqual([]);
@@ -300,12 +277,15 @@ describe('diffInstalledCapabilities', () => {
       // existsSync follows the link and returns false, so the old report said
       // the file was absent when the truth is a link squats on the path.
       const { repo, proj } = fixture();
-      rmSync(join(proj, 'CONSTITUTION.md'));
-      symlinkSync(join(proj, 'ghost-target.md'), join(proj, 'CONSTITUTION.md'));
+      rmSync(join(proj, 'pharn/CONSTITUTION.md'));
+      symlinkSync(
+        join(proj, 'ghost-target.md'),
+        join(proj, 'pharn/CONSTITUTION.md'),
+      );
 
       const r = run(repo, proj);
 
-      expect(r.unreadable.map((u) => u.rel)).toEqual(['CONSTITUTION.md']);
+      expect(r.unreadable.map((u) => u.rel)).toEqual(['pharn/CONSTITUTION.md']);
       expect(r.unreadable[0]!.reason).toMatch(/symlink/);
       expect(r.missing).toEqual([]);
       expect(r.okCount).toBe(REST);
@@ -319,14 +299,14 @@ describe('diffInstalledCapabilities', () => {
       // install and can be re-pointed tomorrow. `update` meanwhile planned a
       // write and aborted mid-run on the write-side walk.
       const { repo, proj } = fixture();
-      const dir = join(proj, 'pharn-pipeline/grillers/a11y');
+      const dir = join(proj, 'pharn/pharn-pipeline/grillers/a11y');
       renameSync(dir, join(proj, 'a11y-moved'));
       symlinkSync(join(proj, 'a11y-moved'), dir);
 
       const r = run(repo, proj);
 
       expect(r.unreadable.map((u) => u.rel)).toEqual([
-        'pharn-pipeline/grillers/a11y/a11y.md',
+        'pharn/pharn-pipeline/grillers/a11y/a11y.md',
       ]);
       expect(r.unreadable[0]!.reason).toMatch(/symlink/);
       // okCount is asserted, not just membership: counting it would leave every
@@ -340,16 +320,18 @@ describe('diffInstalledCapabilities', () => {
       // existsSync returns false without throwing here too, so this read as
       // "absent" when the truth is the path cannot exist.
       const { repo, proj } = fixture();
-      rmSync(join(proj, 'pharn-pipeline/grillers/a11y'), { recursive: true });
+      rmSync(join(proj, 'pharn/pharn-pipeline/grillers/a11y'), {
+        recursive: true,
+      });
       write(
-        join(proj, 'pharn-pipeline/grillers/a11y'),
+        join(proj, 'pharn/pharn-pipeline/grillers/a11y'),
         'a file where a directory belongs',
       );
 
       const r = run(repo, proj);
 
       expect(r.unreadable.map((u) => u.rel)).toEqual([
-        'pharn-pipeline/grillers/a11y/a11y.md',
+        'pharn/pharn-pipeline/grillers/a11y/a11y.md',
       ]);
       expect(r.unreadable[0]!.reason).toBeTruthy();
       expect(r.missing).toEqual([]);
@@ -357,13 +339,11 @@ describe('diffInstalledCapabilities', () => {
     });
 
     it('sorts `unreadable` by rel, independent of manifest order (P5)', () => {
-      // The manifest emits capability dirs BEFORE the trusted docs, so these two
-      // arrive in the opposite order to the one asserted — the sort is doing
-      // real work, not agreeing with iteration order by luck.
+      // The sort is the diff's own, never the manifest's iteration order.
       const { repo, proj } = fixture();
       for (const rel of [
-        'pharn-pipeline/grillers/a11y/a11y.md',
-        'CONSTITUTION.md',
+        'pharn/pharn-pipeline/grillers/a11y/a11y.md',
+        'pharn/CONSTITUTION.md',
       ]) {
         rmSync(join(proj, rel));
         mkdirSync(join(proj, rel), { recursive: true });
@@ -372,8 +352,8 @@ describe('diffInstalledCapabilities', () => {
       const r = run(repo, proj);
 
       expect(r.unreadable.map((u) => u.rel)).toEqual([
-        'CONSTITUTION.md',
-        'pharn-pipeline/grillers/a11y/a11y.md',
+        'pharn/CONSTITUTION.md',
+        'pharn/pharn-pipeline/grillers/a11y/a11y.md',
       ]);
     });
   });
@@ -383,13 +363,19 @@ describe('diffInstalledCapabilities', () => {
   describe('line endings (CRLF vs LF in text files)', () => {
     // Multi-line bodies, so there ARE line endings to convert.
     const BODIES: [string, string][] = [
-      ['pharn-pipeline/grillers/a11y/a11y.md', '# a11y\n\nask about focus\n'],
-      ['pharn-review/n-plus-one/n-plus-one.md', '# n+1\nlook for loops\n'],
+      [
+        'pharn/pharn-pipeline/grillers/a11y/a11y.md',
+        '# a11y\n\nask about focus\n',
+      ],
+      [
+        'pharn/pharn-review/n-plus-one/n-plus-one.md',
+        '# n+1\nlook for loops\n',
+      ],
       ['.claude/commands/pharn-plan.md', '---\nrole: skill\n---\nplan\n'],
       ['.claude/hooks/enforce.cjs', "'use strict';\nmodule.exports = 1;\n"],
-      ['CONSTITUTION.md', '# C\n\nP0\nP1\n'],
-      ['pharn-contracts/finding-shape.md', '# finding\nshape\n'],
-      ['.dev/floor/validate.mjs', 'export {};\nconsole.log(1);\n'],
+      ['pharn/CONSTITUTION.md', '# C\n\nP0\nP1\n'],
+      ['pharn/pharn-contracts/finding-shape.md', '# finding\nshape\n'],
+      ['pharn/floor/validate.mjs', 'export {};\nconsole.log(1);\n'],
     ];
 
     function scaffold(transform: (lf: string) => string): {
@@ -408,17 +394,16 @@ describe('diffInstalledCapabilities', () => {
 
     const run = (repo: string, proj: string) =>
       diffInstalledCapabilities({
-        repoDir: repo,
+        repoDir: sealRepo(repo),
         projectRoot: proj,
         capabilities: caps,
-        layout: 'flat',
       });
 
     it('a CRLF copy of every expected file is all ok — nothing modified', () => {
       const { repo, proj } = scaffold((lf) => lf.replace(/\n/g, '\r\n'));
-      expect(readFileSync(join(proj, 'CONSTITUTION.md'), 'utf8')).toContain(
-        '\r\n',
-      );
+      expect(
+        readFileSync(join(proj, 'pharn/CONSTITUTION.md'), 'utf8'),
+      ).toContain('\r\n');
       const r = run(repo, proj);
       expect(r.modified).toEqual([]);
       expect(r.missing).toEqual([]);
@@ -436,17 +421,20 @@ describe('diffInstalledCapabilities', () => {
 
     it('a real edit in a CRLF file is still modified', () => {
       const { repo, proj } = scaffold((lf) => lf.replace(/\n/g, '\r\n'));
-      write(join(proj, 'CONSTITUTION.md'), '# C\r\n\r\nP0 EDITED\r\nP1\r\n');
+      write(
+        join(proj, 'pharn/CONSTITUTION.md'),
+        '# C\r\n\r\nP0 EDITED\r\nP1\r\n',
+      );
       const r = run(repo, proj);
-      expect(r.modified).toEqual(['CONSTITUTION.md']);
+      expect(r.modified).toEqual(['pharn/CONSTITUTION.md']);
       expect(r.okCount).toBe(BODIES.length - 1);
     });
 
     it('a binary file (NUL in its first bytes) is compared byte-for-byte', () => {
       const { repo, proj } = scaffold((lf) => lf);
-      write(join(repo, 'CONSTITUTION.md'), '\0bin\nary\n');
-      write(join(proj, 'CONSTITUTION.md'), '\0bin\r\nary\r\n');
-      expect(run(repo, proj).modified).toEqual(['CONSTITUTION.md']);
+      write(join(repo, 'pharn/CONSTITUTION.md'), '\0bin\nary\n');
+      write(join(proj, 'pharn/CONSTITUTION.md'), '\0bin\r\nary\r\n');
+      expect(run(repo, proj).modified).toEqual(['pharn/CONSTITUTION.md']);
     });
 
     // GRILL P1: the real phenomenon, not hand-written CRLF. git converts LF →

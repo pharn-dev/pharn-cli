@@ -73,12 +73,12 @@ directory gets its actionable error), under the lock, and before any network cal
 3. **Source** (`lib/release.ts`, `lib/repo.ts`). `resolveSource` decides which commit, and `fetchRepo(source)` downloads
    and extracts the codeload tarball into a temp dir that is removed in a `finally`. No command exits mid-run: a
    refusal, a failure or a cancel is thrown as a `CliError` (`lib/cli-error.ts`), so that `finally` (and the project
-   lock's) runs first, and `runCli` in `src/index.ts` prints it once and sets `process.exitCode`. When the tree carries
-   `pharn-install.json` (pharn-oss 7.21.0 and later), `fetchRepo` validates it and checks every declared file's raw
-   sha256 before it returns the tree (see [The install manifest](#the-install-manifest-pharn-installjson)).
-4. **Index and selection.** `parseCapabilityIndex` takes the capabilities from `pharn-install.json`, or, for a tree
-   without it, reads each capability's `role`/`applies` frontmatter by pharn-oss's own rules. `resolveCapabilities`
-   selects `universal` capabilities and those whose `applies` intersects the archetypes.
+   lock's) runs first, and `runCli` in `src/index.ts` prints it once and sets `process.exitCode`. `fetchRepo` requires
+   the tree's `pharn-install.json` (pharn-oss 7.21.0 and later), validates it and checks every declared file's raw
+   sha256 before it returns the tree; a tree without it is refused (see
+   [The install manifest](#the-install-manifest-pharn-installjson)).
+4. **Index and selection.** `parseCapabilityIndex` takes the capabilities from `pharn-install.json`.
+   `resolveCapabilities` selects `universal` capabilities and those whose `applies` intersects the archetypes.
 5. **Carry-over** (`lib/init-plan.ts`). The replaced config is read tolerantly. A config that exists but cannot be read
    is named in the summary, and nothing is carried. Otherwise `carryOver` applies `update`'s merge rules:
    - a `manual` entry the index still has is reinstalled as `manual`;
@@ -130,7 +130,8 @@ run's prompt and install consume. It skips the TTY gate, both prompts, the lock 
   (the features README included), and a directory where `pharn.config.json`/`pharn.records.json` belong. A live
   `.claude/settings.json` link is allowed, since it is never written.
 
-The install mirrors the clone's layout: `pharn` (everything under `pharn/`) or legacy `flat` (`lib/layout.ts`).
+The install mirrors the clone's layout, which the manifest fixes as `pharn` (everything under `pharn/`). The legacy
+`flat` layout (`lib/layout.ts`) is left only for installs recorded at it, which `update` moves to `pharn`.
 
 ## The install manifest (`pharn-install.json`)
 
@@ -154,11 +155,12 @@ is pharn-oss's [`docs/install-manifest.md`](https://github.com/pharn-dev/pharn-o
   records' `contentHash` stays CRLF-folded) before it returns the tree. A mismatch refuses, and nothing is written.
 - **Use.** The install set (`collectExpectedInstallPaths`), `add`'s file list (`capabilityCloneFiles`), the
   capability index, the settings copy and the `models` defaults come from it. An `applies` token outside this CLI's
-  enum makes that capability `unknown`, as the frontmatter path does. `models.defaults` passes the same
+  enum makes that capability `unknown` (seen and named, never installed). `models.defaults` passes the same
   `checkModelsBlock` gate; `models.rules` and `installRoots` are type-checked and drive nothing, and
-  `lib/model-config.ts` stays the one validator.
-- **Fallback.** A tree without the file (every release before 7.21.0, the `flat` layout) is installed by the CLI's own
-  derivation, unchanged. That fallback is removed in v0.22.0.
+  `lib/model-config.ts` stays the one validator: `status` and `update` check the project's block without a clone.
+- **No fallback.** A tree without the file (every pharn-oss release before 7.21.0, so every `flat` one) is refused
+  inside `fetchRepo`: an `UpstreamManifestError` naming the tree's `SKILLS_VERSION`, 7.21.0 and `--ref main`, exit 1,
+  nothing written, the clone removed. pharn 0.20.x is the last that installs from such a tree.
 
 ## Release channels (`lib/release.ts`)
 

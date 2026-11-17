@@ -116,11 +116,11 @@ The `flat` layout is deprecated in v0.20.0 and removed in v0.22.0. `pharn update
 | v0.20.0   | The legacy fields `constitution`, `installedSkills`, `stackAnswers`, `isMultiTenant` in the type | `PharnConfig` in `src/types.ts`                                                                                                                                                                                                                          | They leave the documented type only; still loaded and kept on read (no behaviour change) until v0.21.0                                      | C6.4   |
 | v0.21.0   | Writing `modules: []`, and the four legacy fields above                                          | Removed: the `modules: []` write in `src/steps/install-archetype.ts`, `PharnConfig.modules` and `LegacyConfigFields` in `src/types.ts`. `LEGACY_CONFIG_KEYS` in `src/lib/pharn-config.ts` keeps the five loading, pharn-owned and dropped by every write | 0.19.x reads a config without a `modules` array as no config, and v0.20.0 is the first CLI that does not, so 0.19 had to read 0.20's config | C6.4   |
 | v0.22.0   | The `flat` layout                                                                                | The `flat` branch of `src/lib/layout.ts` (`detectLayout`, `layoutPaths`), the `Layout` type in `src/types.ts`, and its cases in `install-surfaces`, `init-plan`, `update-render` and `pharn-config` (an absent `layout` reads as `flat`)                 | Installs recorded at, and clones shipping, the legacy root layout (deprecated in v0.20.0)                                                   | —      |
-| v0.22.0   | `PHARN_ROOT_FALLBACK_DOCS`                                                                       | `src/lib/constants.ts`, read by `resolveTrustedDocs` in `src/lib/layout.ts`                                                                                                                                                                              | A pharn-oss clone older than 7.0.0 that still ships `THREAT-MODEL.md` and `LIMITS.md` at the root                                           | —      |
+| v0.21.0   | `PHARN_ROOT_FALLBACK_DOCS`                                                                       | Removed: `PHARN_ROOT_FALLBACK_DOCS` in `src/lib/constants.ts` and `resolveTrustedDocs` in `src/lib/layout.ts`; `src/lib/root-migration.ts` keeps its own two-doc list                                                                                    | A pharn-oss clone older than 7.0.0 that still ships `THREAT-MODEL.md` and `LIMITS.md` at the root                                           | C8.3   |
 | v0.22.0   | The root-footprint migration                                                                     | `src/lib/root-migration.ts` (the root-doc deletion, the user-data hints, the `.pharn/` notice, the `.pharn/` `.gitignore` hint)                                                                                                                          | A `pharn`-layout install made from a pharn-oss older than 7.0.0                                                                             | —      |
-| v0.22.0   | The derivation fallback for a tree without `pharn-install.json`                                  | The derivation in `src/lib/install-manifest.ts`, the frontmatter index in `src/lib/capability-index.ts`, the root config read in `src/lib/upstream-models.ts`                                                                                            | A pharn-oss release older than 7.21.0, which ships no install manifest                                                                      | —      |
+| v0.21.0   | The derivation fallback for a tree without `pharn-install.json`                                  | Removed: the derivation in `src/lib/install-manifest.ts`, the frontmatter index in `src/lib/capability-index.ts`, the root config read in `src/lib/upstream-models.ts`                                                                                   | A pharn-oss release older than 7.21.0, which ships no install manifest                                                                      | C8.3   |
 
-The v0.20.0 and v0.21.0 rows are tickets of epic C6 (CORE-155); the v0.22.0 rows have none yet. Some of these shims' code comments predate the rule and do not name their version yet; the change that retires a shim removes its comment with it.
+The v0.20.0 rows and the `modules` row of v0.21.0 are tickets of epic C6 (CORE-155). The `PHARN_ROOT_FALLBACK_DOCS` and derivation rows are C8.3 of epic C8 (CORE-157), retired in v0.21.0 instead of v0.22.0 by the owner's decision. The v0.22.0 rows have no ticket yet. Some of these shims' code comments predate the rule and do not name their version yet; the change that retires a shim removes its comment with it.
 
 ## Project layout
 
@@ -141,7 +141,7 @@ See [Architecture](architecture.md) for the architecture in depth (the archetype
 
 ## Security-sensitive files
 
-`lib/validate.ts` and `lib/install-capabilities.ts` handle the untrusted remote input that reaches the filesystem (capability names, install paths, frontmatter). They are not the whole boundary: `lib/tar-extract.ts` parses attacker-controlled archive headers, `lib/capability-index.ts` parses untrusted frontmatter, `lib/unknown-capabilities.ts` strips control characters from upstream text before display, and `lib/install-records.ts` and `lib/project-lock.ts` parse local-but-user-editable sidecars. Preserve their invariants when editing:
+`lib/validate.ts` and `lib/install-capabilities.ts` handle the untrusted remote input that reaches the filesystem (capability names, install paths). They are not the whole boundary: `lib/tar-extract.ts` parses attacker-controlled archive headers, `lib/upstream-manifest.ts` parses the untrusted `pharn-install.json`, `lib/unknown-capabilities.ts` strips control characters from upstream text before display, and `lib/install-records.ts` and `lib/project-lock.ts` parse local-but-user-editable sidecars. Preserve their invariants when editing:
 
 - Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
 - `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
@@ -174,31 +174,6 @@ When pharn-oss changes its checker:
 4. If a released CLI would now reject pharn-oss's own block, release the new CLI first, then ask
    pharn-oss to raise `MIN_CLI` to it.
 
-### pharn-oss's capability frontmatter rules — a pinned copy
-
-`src/lib/capability-index.ts` reads a capability's `role` and `applies` by pharn-oss's own rules: the
-`---` fence and the line rule of its validator's `parseFrontmatter`, and the `applies` check (CHECK 4b) of
-`pharn/floor/validate.mjs`. A capability pharn-oss's CI passes must not be skipped as unknown, and
-nothing its CI refuses may be installed. `tests/capability-index.test.ts` runs the validator, vendored
-byte-for-byte at `tests/fixtures/pharn-oss/validate.mjs` and pinned by sha256, over the fence shapes
-(a byte-order mark, CRLF and displaced leads included) and the value shapes (scalar, array, mixed, duplicate keys, quoting) and requires the same verdict.
-It extracts `parseFrontmatter`, the `applies` normalization line and the role and applies enums from
-the file's source, so they cannot drift.
-
-When pharn-oss changes its validator:
-
-1. Copy `pharn/floor/validate.mjs` from pharn-oss `main` over
-   `tests/fixtures/pharn-oss/validate.mjs`, unedited, together with every pharn-oss module it imports
-   (today `pharn/floor/frontmatter-core.mjs`, shared with the models checker, and
-   `pharn/floor/capability-files-core.mjs`), vendored beside it, so the validator loads.
-2. Update `UPSTREAM_VALIDATOR_SHA256`, and the commit and `SKILLS_VERSION` in the comment above it, in
-   `tests/capability-index.test.ts`, and the sha256 pin of each imported module beside it.
-3. Run `npx vitest run tests/capability-index.test.ts`, and change `src/lib/capability-index.ts` until
-   it passes. Port pharn-oss's change; do not add a rule of your own. If a piece the test extracts was
-   renamed or moved, update the extraction, not the verdicts. `parseFrontmatter` reads through
-   `frontmatter-core.mjs` (`looseFrontmatter`, `looseValue`, `stripBom`): the test injects those from
-   the vendored copy and pins the import line, so a new name there means a new injection.
-
 ### The fetch boundary
 
 `pharn` has **no dependency that fetches or unpacks remote content**. `src/lib/repo.ts` resolves the
@@ -228,7 +203,7 @@ Two rules that are easy to get wrong:
 | Test file                                                                              | Behavior covered                                                                                                                                                                               |
 | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `detect-archetype.test.ts` / `archetype.test.ts`                                       | Archetype detection from `package.json` names + file-tree signals                                                                                                                              |
-| `capability-index.test.ts`                                                             | Parse/validate the untrusted capability index (frontmatter → typed entries)                                                                                                                    |
+| `capability-index.test.ts`                                                             | The capability index from `pharn-install.json` (unknown `applies` tokens seen, never installed)                                                                                                |
 | `resolve-capabilities.test.ts`                                                         | Select capabilities by `applies` against detected archetypes                                                                                                                                   |
 | `install-capabilities.test.ts`                                                         | Copy capability dirs + fixed product surfaces; symlink + path-escape guards                                                                                                                    |
 | `commands/init.test.ts` / `commands/init-dry-run.test.ts`                              | `init` end to end (every refusal, the prompts, `--yes`, re-runs, carry-over, backups) and `init --dry-run [--json]`                                                                            |

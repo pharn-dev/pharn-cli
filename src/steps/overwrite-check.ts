@@ -3,7 +3,6 @@ import {
   collectExpectedInstallPaths,
   PHARN_CONFIG_FILE,
 } from '../lib/install-manifest.js';
-import { detectLayout } from '../lib/layout.js';
 import type { DriftLabel } from '../lib/dest-drift.js';
 import {
   DRIFT_LABEL_ORDER,
@@ -117,7 +116,6 @@ export async function confirmWriteTargets(
         collectExpectedInstallPaths({
           repoDir,
           capabilities: selection.selected,
-          layout: detectLayout(repoDir),
         }),
       records: context.records ?? null,
       removals: context.removals,

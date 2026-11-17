@@ -26,7 +26,7 @@ import {
   recordsBaseline,
   writeRecords,
 } from '../lib/install-records.js';
-import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
+import { configLayout, detectLayout } from '../lib/layout.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
   channelOf,
@@ -385,10 +385,10 @@ async function resolveArchetypeAdd(
   if (existing.some((c) => c.name === cap.name && c.role === cap.role)) {
     return { kind: 'noop', name: cap.name };
   }
-  // The files the copy will write, enumerated in the CLONE — one list drives
-  // both the drift set and the records merge, so they cannot disagree.
-  const paths = layoutPaths(detectLayout(repoDir));
-  const cloneRels = capabilityCloneFiles(repoDir, paths, cap);
+  // The files the copy will write, as the clone's manifest declares them — one
+  // list drives both the drift set and the records merge, so they cannot
+  // disagree.
+  const cloneRels = capabilityCloneFiles(repoDir, cap);
 
   // DESTINATION-DRIFT PROTECTION. A capability directory can outlive its config
   // entry (left by an older pharn, or made by hand) and hold edited bytes, so

@@ -13,11 +13,13 @@ import {
   collectExpectedInstallPaths,
   absentInstallSurfaces,
   conflictingWriteTargets,
+  PHARN_CONFIG_FILE,
+} from '../src/lib/install-manifest.js';
+import {
   isInstalledHookFile,
   isProductAgentFile,
   isProductCommandFile,
-  PHARN_CONFIG_FILE,
-} from '../src/lib/install-manifest.js';
+} from '../src/lib/install-surfaces.js';
 import {
   installCapabilities,
   installCapabilityDirs,
@@ -26,16 +28,16 @@ import { applyWrites } from '../src/lib/apply-update.js';
 import { isInstallRootPath } from '../src/lib/orphans.js';
 import { BACKUP_DIR } from '../src/lib/backup.js';
 import { RECORDS_FILE } from '../src/lib/install-records.js';
-import { layoutPaths } from '../src/lib/layout.js';
-import { ManifestValidationError } from '../src/lib/validate.js';
+import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
 import type { Selection } from '../src/types.js';
 import {
   A11Y,
   manifestTree,
   NEW_SURFACE,
+  sealRepo,
   SECURITY,
   SETTINGS,
-  upstreamTree7,
+  upstreamTree,
   withManifest,
   writeTree,
 } from './support/harness.js';
@@ -57,17 +59,17 @@ function walkRel(dir: string, prefix = ''): string[] {
   return out;
 }
 
-// A fake fetched clone (flat layout) with the full product + dev surface, so the
-// manifest's exclusions (dev commands, *.test.*, settings.json, skipped caps,
-// .dev/features + .dev/memory-bank) can be asserted.
-function scaffoldRepo(repo: string): void {
-  write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'));
-  write(join(repo, 'pharn-pipeline/grillers/a11y/evals/cases/c.md'));
-  write(join(repo, 'pharn-pipeline/grillers/security/security.md'));
-  write(join(repo, 'pharn-review/n-plus-one/n-plus-one.md'));
-  write(join(repo, 'pharn-review/trust-fence/trust-fence.md'));
+// A fake fetched clone in the pharn/ layout (marker: pharn/pharn-contracts),
+// with the full product + dev surface. NOT sealed: a test changes the tree
+// first if it needs to, then seals it (`sealed`), so the pharn-install.json
+// declares exactly what is on disk.
+function scaffoldRepoPharn(repo: string): void {
+  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'));
+  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md'));
+  write(join(repo, 'pharn/pharn-pipeline/grillers/security/security.md'));
+  write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'));
+  write(join(repo, 'pharn/pharn-review/trust-fence/trust-fence.md'));
   write(join(repo, '.claude/commands/pharn-plan.md'));
-  write(join(repo, '.claude/commands/pharn-ship.md'));
   write(join(repo, '.claude/commands/pharn-dev-plan.md'));
   write(join(repo, '.claude/commands/README.md'));
   write(join(repo, '.claude/hooks/set-writes-scope.cjs'));
@@ -81,78 +83,30 @@ function scaffoldRepo(repo: string): void {
   write(join(repo, '.claude/agents/pharn-review-lens.md'));
   write(join(repo, '.claude/agents/pharn-dev-reviewer.md'));
   write(join(repo, '.claude/agents/README.md'));
-  write(join(repo, 'CONSTITUTION.md'));
-  write(join(repo, 'ARCHITECTURE.md'));
-  write(join(repo, 'THREAT-MODEL.md'));
-  write(join(repo, 'LIMITS.md'));
-  write(join(repo, 'features/README.md'));
-  write(join(repo, 'LICENSE'));
-  write(join(repo, 'pharn-contracts/finding-shape.md'));
-  write(join(repo, '.dev/floor/validate.mjs'));
-  write(join(repo, '.dev/floor/validate.test.mjs'));
-  write(join(repo, '.dev/floor/test-fixtures/red/skill.md'));
-  write(join(repo, '.dev/floor/test-fixtures/structural/red-1.expected.json'));
-  write(join(repo, '.dev/floor/my-test-fixtures.mjs'));
-  // pharn-oss's second test-apparatus dir (cost-ledger transcripts read only by
-  // *.test.mjs), a name-only near-miss, and a NESTED `fixtures/` the
-  // floor-root-anchored rule deliberately keeps.
-  write(join(repo, '.dev/floor/fixtures/cost-ledger/single-session.jsonl'));
-  write(join(repo, '.dev/floor/my-fixtures.mjs'));
-  write(join(repo, '.dev/floor/lib/fixtures/keep.json'));
-  write(join(repo, '.dev/floor/lib/test-fixtures/keep.json'));
-  write(join(repo, '.dev/features/some-feature/PLAN.md'));
-  write(join(repo, '.dev/memory-bank/lessons-learned.md'));
-}
-
-// The pharn/ single-install layout (detection marker: pharn/pharn-contracts).
-function scaffoldRepoPharn(repo: string): void {
-  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'));
-  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md'));
-  write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'));
-  write(join(repo, '.claude/commands/pharn-plan.md'));
-  write(join(repo, '.claude/commands/pharn-dev-plan.md'));
-  write(join(repo, '.claude/hooks/set-writes-scope.cjs'));
-  write(join(repo, '.claude/hooks/set-writes-scope.test.cjs'));
-  // An ESM hook: upstream may ship `.mjs` as well as `.cjs` (F-10).
-  write(join(repo, '.claude/hooks/require-loop-record.mjs'));
-  write(join(repo, '.claude/hooks/require-loop-record.test.mjs'));
-  write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
-  // The review lens agent (pharn-oss >= 6.64.0), a dev-loop agent the install
-  // must leave out, and a non-pharn file (CORE-272).
-  write(join(repo, '.claude/agents/pharn-review-lens.md'));
-  write(join(repo, '.claude/agents/pharn-dev-reviewer.md'));
-  write(join(repo, '.claude/agents/README.md'));
-  // The docs, at the paths pharn-oss ACTUALLY ships them in a pharn-layout tree:
-  // the relocation moved CONSTITUTION + ARCHITECTURE under pharn/ and left
-  // THREAT-MODEL + LIMITS at the repo ROOT. `pharn/THREAT-MODEL.md` and
-  // `pharn/LIMITS.md` are deliberately NOT created — they have never existed
-  // upstream, and scaffolding them is what let this manifest expect two paths no
-  // install could ever produce.
+  // All four trusted docs live under pharn/ (pharn-oss SKILLS 7.0.0 on).
   write(join(repo, 'pharn/CONSTITUTION.md'));
   write(join(repo, 'pharn/ARCHITECTURE.md'));
-  write(join(repo, 'THREAT-MODEL.md'));
-  write(join(repo, 'LIMITS.md'));
-  // Post-relocation pharn layout ships under pharn/features/.
+  write(join(repo, 'pharn/THREAT-MODEL.md'));
+  write(join(repo, 'pharn/LIMITS.md'));
   write(join(repo, 'pharn/features/README.md'));
   write(join(repo, 'LICENSE'));
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
   write(join(repo, 'pharn/floor/validate.test.mjs'));
-  write(join(repo, 'pharn/floor/test-fixtures/red/skill.md'));
-  write(join(repo, 'pharn/floor/my-test-fixtures.mjs'));
-  write(join(repo, 'pharn/floor/fixtures/cost-ledger/single-session.jsonl'));
-  write(join(repo, 'pharn/floor/my-fixtures.mjs'));
-  write(join(repo, 'pharn/floor/lib/fixtures/keep.json'));
-  write(join(repo, 'pharn/floor/lib/test-fixtures/keep.json'));
   // pharn-core: the fixed skill surface (seam-resolver + its evals), copied whole.
   write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'));
   write(join(repo, 'pharn/pharn-core/seam-resolver/evals/cases/resolve.md'));
   write(join(repo, 'pharn/pharn-core/seam-resolver/evals/expected/resolve.md'));
-  // Genuinely dev-only roots, which a pharn install must NOT copy. (The root
-  // THREAT-MODEL.md / LIMITS.md above are NOT in this class — they are product
-  // docs at the only path upstream ever puts them.)
+  // Genuinely dev-only roots, which an install must NOT copy.
   write(join(repo, '.dev/features/x/PLAN.md'));
   write(join(repo, '.dev/memory-bank/lessons-learned.md'));
+}
+
+// The scaffold, changed by `change` and then sealed.
+function sealed(repo: string, change?: (repo: string) => void): string {
+  scaffoldRepoPharn(repo);
+  change?.(repo);
+  return sealRepo(repo);
 }
 
 function selection(): Selection {
@@ -171,85 +125,24 @@ function selection(): Selection {
   };
 }
 
-describe('collectExpectedInstallPaths (flat)', () => {
-  const tmp = useTmpDir();
-
-  function keys(): string[] {
-    const repo = join(tmp.path(), 'repo');
-    scaffoldRepo(repo);
-    return [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'flat',
-      }).keys(),
-    ].sort();
-  }
-
-  it('includes the selected capability dirs (incl. evals) + fixed surfaces', () => {
-    const k = keys();
-    for (const p of [
-      'pharn-pipeline/grillers/a11y/a11y.md',
-      'pharn-pipeline/grillers/a11y/evals/cases/c.md',
-      'pharn-review/n-plus-one/n-plus-one.md',
-      '.claude/commands/pharn-plan.md',
-      '.claude/commands/pharn-ship.md',
-      '.claude/hooks/set-writes-scope.cjs',
-      '.claude/hooks/require-loop-record.mjs',
-      '.claude/agents/pharn-review-lens.md',
-      'CONSTITUTION.md',
-      'ARCHITECTURE.md',
-      'THREAT-MODEL.md',
-      'LIMITS.md',
-      'pharn-contracts/finding-shape.md',
-      '.dev/floor/validate.mjs',
-      // The product-loop boundary contract the installed commands cite by name.
-      'features/README.md',
-    ]) {
-      expect(k).toContain(p);
-    }
-  });
-
-  it('EXCLUDES settings.json, dev commands, non-pharn commands, *.test.*, skipped caps, .dev/features+memory-bank', () => {
-    const k = keys();
-    for (const p of [
-      '.claude/settings.json',
-      '.claude/commands/pharn-dev-plan.md',
-      '.claude/commands/README.md',
-      '.claude/agents/pharn-dev-reviewer.md',
-      '.claude/agents/README.md',
-      '.claude/hooks/set-writes-scope.test.cjs',
-      '.claude/hooks/require-loop-record.test.mjs',
-      '.dev/floor/validate.test.mjs',
-      'pharn-pipeline/grillers/security/security.md',
-      'pharn-review/trust-fence/trust-fence.md',
-      '.dev/features/some-feature/PLAN.md',
-      '.dev/memory-bank/lessons-learned.md',
-    ]) {
-      expect(k).not.toContain(p);
-    }
-    // The flat `core` path resolves, but no flat clone ships the dir, so it
-    // contributes no keys — a flat install's expected set is unchanged (P7).
-    expect(k.some((p) => p.startsWith('pharn-core/'))).toBe(false);
-  });
-});
-
 describe('collectExpectedInstallPaths (pharn layout)', () => {
   const tmp = useTmpDir();
 
   it('mirrors every surface UNDER pharn/, all four trusted docs included', () => {
-    const repo = join(tmp.path(), 'repo');
-    scaffoldRepoPharn(repo);
+    const repo = sealed(join(tmp.path(), 'repo'));
     const k = [
       ...collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: selection().selected,
-        layout: 'pharn',
       }).keys(),
     ];
     expect(k).toContain('pharn/pharn-pipeline/grillers/a11y/a11y.md');
+    expect(k).toContain('pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md');
+    expect(k).toContain('pharn/pharn-review/n-plus-one/n-plus-one.md');
     expect(k).toContain('pharn/CONSTITUTION.md');
     expect(k).toContain('pharn/ARCHITECTURE.md');
+    expect(k).toContain('pharn/THREAT-MODEL.md');
+    expect(k).toContain('pharn/LIMITS.md');
     expect(k).toContain('pharn/pharn-contracts/finding-shape.md');
     expect(k).toContain('pharn/floor/validate.mjs');
     // pharn-core is in the expected set, so status compares it and update
@@ -258,19 +151,17 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).toContain(
       'pharn/pharn-core/seam-resolver/evals/cases/resolve.md',
     );
-    // Root in the pharn layout too — that is where upstream keeps these two, so
-    // that is where the mirror expects them. This pair FAILS against the old
-    // `pharn/`-prefixed constant, which is the point: the previous scaffold
-    // invented `pharn/THREAT-MODEL.md`, so the manifest could expect a path no
-    // clone has ever carried and no assertion noticed.
-    expect(k).toContain('THREAT-MODEL.md');
-    expect(k).toContain('LIMITS.md');
-    expect(k).not.toContain('pharn/THREAT-MODEL.md');
-    expect(k).not.toContain('pharn/LIMITS.md');
-    // Post-relocation pharn layout resolves to pharn/features/.
     expect(k).toContain('pharn/features/README.md');
     expect(k).not.toContain('features/README.md');
-    // The genuinely dev-only roots stay out.
+    expect(k).not.toContain('THREAT-MODEL.md');
+    expect(k).not.toContain('LIMITS.md');
+    // Unselected capabilities, settings (copied only if absent) and the
+    // dev-only roots stay out.
+    expect(k).not.toContain(
+      'pharn/pharn-pipeline/grillers/security/security.md',
+    );
+    expect(k).not.toContain('pharn/pharn-review/trust-fence/trust-fence.md');
+    expect(k).not.toContain('.claude/settings.json');
     expect(k).not.toContain('.dev/features/x/PLAN.md');
     expect(k).not.toContain('.dev/memory-bank/lessons-learned.md');
     expect(k).not.toContain('pharn/floor/validate.test.mjs');
@@ -278,6 +169,7 @@ describe('collectExpectedInstallPaths (pharn layout)', () => {
     expect(k).toContain('.claude/commands/pharn-plan.md');
     expect(k).toContain('.claude/agents/pharn-review-lens.md');
     expect(k).not.toContain('pharn/.claude/agents/pharn-review-lens.md');
+    expect(k).not.toContain('.claude/commands/pharn-dev-plan.md');
     expect(k).not.toContain('.claude/agents/pharn-dev-reviewer.md');
     expect(k).not.toContain('.claude/agents/README.md');
   });
@@ -291,19 +183,16 @@ describe('conflictingWriteTargets', () => {
     mkdirSync(p, { recursive: true });
     return p;
   }
-  function repoFlat(): string {
-    const r = join(tmp.path(), 'repo');
-    scaffoldRepo(r);
-    return r;
+  function repo(): string {
+    return sealed(join(tmp.path(), 'repo'));
   }
 
   it('is [] for a fresh project (nothing already installed)', () => {
     expect(
       conflictingWriteTargets({
-        repoDir: repoFlat(),
+        repoDir: repo(),
         projectRoot: proj(),
         capabilities: selection().selected,
-        layout: 'flat',
       }),
     ).toEqual([]);
   });
@@ -313,10 +202,9 @@ describe('conflictingWriteTargets', () => {
     write(join(p, '.claude/settings.json'), '{"user":"cfg"}');
     expect(
       conflictingWriteTargets({
-        repoDir: repoFlat(),
+        repoDir: repo(),
         projectRoot: p,
         capabilities: selection().selected,
-        layout: 'flat',
       }),
     ).toEqual([]);
   });
@@ -326,125 +214,26 @@ describe('conflictingWriteTargets', () => {
     write(join(p, PHARN_CONFIG_FILE), '{}');
     expect(
       conflictingWriteTargets({
-        repoDir: repoFlat(),
+        repoDir: repo(),
         projectRoot: p,
         capabilities: selection().selected,
-        layout: 'flat',
       }),
     ).toEqual([PHARN_CONFIG_FILE]);
   });
 
   it('lists existing write targets, sorted (deterministic)', () => {
     const p = proj();
-    write(join(p, 'CONSTITUTION.md'));
-    write(join(p, 'pharn-review/n-plus-one/n-plus-one.md'));
+    write(join(p, 'pharn/pharn-review/n-plus-one/n-plus-one.md'));
+    write(join(p, 'pharn/CONSTITUTION.md'));
     const got = conflictingWriteTargets({
-      repoDir: repoFlat(),
+      repoDir: repo(),
       projectRoot: p,
       capabilities: selection().selected,
-      layout: 'flat',
     });
     expect(got).toEqual([
-      'CONSTITUTION.md',
-      'pharn-review/n-plus-one/n-plus-one.md',
+      'pharn/CONSTITUTION.md',
+      'pharn/pharn-review/n-plus-one/n-plus-one.md',
     ]);
-  });
-});
-
-// The floor's test apparatus is excluded from the expected set too, or `status`
-// would drift-track 16 dev files as product and `update` would restore them.
-describe('collectExpectedInstallPaths — floor test-fixtures + fixtures excluded', () => {
-  const tmp = useTmpDir();
-
-  function keysFor(layout: 'flat' | 'pharn'): string[] {
-    const repo = join(tmp.path(), 'repo');
-    if (layout === 'flat') scaffoldRepo(repo);
-    else scaffoldRepoPharn(repo);
-    return [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout,
-      }).keys(),
-    ];
-  }
-
-  it('omits every test-fixtures path but keeps the checkers (flat)', () => {
-    const k = keysFor('flat');
-    expect(k).toContain('.dev/floor/validate.mjs');
-    // Anchored at the floor root (a NESTED test-fixtures/ is kept, see below).
-    expect(k.filter((p) => p.startsWith('.dev/floor/test-fixtures/'))).toEqual(
-      [],
-    );
-    // SEGMENT, not substring: the near-miss sibling survives.
-    expect(k).toContain('.dev/floor/my-test-fixtures.mjs');
-  });
-
-  it('omits every test-fixtures path but keeps the checkers (pharn)', () => {
-    const k = keysFor('pharn');
-    expect(k).toContain('pharn/floor/validate.mjs');
-    expect(k.filter((p) => p.startsWith('pharn/floor/test-fixtures/'))).toEqual(
-      [],
-    );
-    expect(k).toContain('pharn/floor/my-test-fixtures.mjs');
-  });
-
-  // pharn-oss's `fixtures/` (the cost-ledger transcripts) is the same class of
-  // test apparatus: read only by *.test.mjs, so it is not product either.
-  it.each([
-    ['flat', '.dev/floor'],
-    ['pharn', 'pharn/floor'],
-  ] as const)(
-    'omits the floor-root fixtures/ subtree (%s)',
-    (layout, floor) => {
-      const k = keysFor(layout);
-      expect(k.filter((p) => p.startsWith(`${floor}/fixtures/`))).toEqual([]);
-      // SEGMENT, not substring: a file merely NAMED like it survives.
-      expect(k).toContain(`${floor}/my-fixtures.mjs`);
-    },
-  );
-
-  // Same anchoring as `test-fixtures`: only the floor root's DIRECT child is the
-  // test apparatus. A deeper dir of that name is ordinary floor content.
-  it.each([
-    ['flat', '.dev/floor'],
-    ['pharn', 'pharn/floor'],
-  ] as const)(
-    'keeps a NESTED fixtures/ dir, as it keeps a nested test-fixtures/ (%s)',
-    (layout, floor) => {
-      const k = keysFor(layout);
-      expect(k).toContain(`${floor}/lib/fixtures/keep.json`);
-      expect(k).toContain(`${floor}/lib/test-fixtures/keep.json`);
-    },
-  );
-
-  // The mirror pin below proves writer and manifest agree — but ONLY if the
-  // scaffold actually contains a fixture. Without this guard a future scaffold
-  // edit could remove it and the pin would go quiet rather than red.
-  it('the mirror scaffolds really do contain a fixture file (else the pin is vacuous)', () => {
-    const repo = join(tmp.path(), 'repo');
-    scaffoldRepo(repo);
-    expect(
-      existsSync(join(repo, '.dev/floor/test-fixtures/red/skill.md')),
-    ).toBe(true);
-    expect(
-      existsSync(
-        join(repo, '.dev/floor/fixtures/cost-ledger/single-session.jsonl'),
-      ),
-    ).toBe(true);
-    const pharnRepo = join(tmp.path(), 'pharn-repo');
-    scaffoldRepoPharn(pharnRepo);
-    expect(
-      existsSync(join(pharnRepo, 'pharn/floor/test-fixtures/red/skill.md')),
-    ).toBe(true);
-    expect(
-      existsSync(
-        join(
-          pharnRepo,
-          'pharn/floor/fixtures/cost-ledger/single-session.jsonl',
-        ),
-      ),
-    ).toBe(true);
   });
 });
 
@@ -453,26 +242,11 @@ describe('collectExpectedInstallPaths — floor test-fixtures + fixtures exclude
 describe('collectExpectedInstallPaths — the mapped LICENSE entry', () => {
   const tmp = useTmpDir();
 
-  it('maps PHARN-LICENSE back to the clone ROOT LICENSE (flat)', () => {
-    const repo = join(tmp.path(), 'repo');
-    scaffoldRepo(repo);
-    const map = collectExpectedInstallPaths({
-      repoDir: repo,
-      capabilities: selection().selected,
-      layout: 'flat',
-    });
-    expect(map.get('PHARN-LICENSE')).toBe(join(repo, 'LICENSE'));
-    // The dest is NOT a root LICENSE — that one is the user's.
-    expect(map.has('LICENSE')).toBe(false);
-  });
-
   it('maps pharn/LICENSE back to the clone ROOT LICENSE (pharn)', () => {
-    const repo = join(tmp.path(), 'pharn-repo');
-    scaffoldRepoPharn(repo);
+    const repo = sealed(join(tmp.path(), 'pharn-repo'));
     const map = collectExpectedInstallPaths({
       repoDir: repo,
       capabilities: selection().selected,
-      layout: 'pharn',
     });
     expect(map.get('pharn/LICENSE')).toBe(join(repo, 'LICENSE'));
     expect(map.has('LICENSE')).toBe(false);
@@ -487,33 +261,20 @@ describe('collectExpectedInstallPaths — the mapped LICENSE entry', () => {
 describe('collectExpectedInstallPaths ⟷ installCapabilities (mirror)', () => {
   const tmp = useTmpDir();
 
-  function assertMirror(
-    layout: 'flat' | 'pharn',
-    scaffold: (r: string) => void,
-  ) {
-    const repo = join(tmp.path(), 'repo');
+  it('pharn layout: manifest keys ∪ settings.json == files actually written', () => {
+    const repo = sealed(join(tmp.path(), 'repo'));
     const proj = join(tmp.path(), 'proj');
     mkdirSync(proj, { recursive: true });
-    scaffold(repo);
     installCapabilities(repo, proj, selection());
     const written = new Set(walkRel(proj));
     const expected = new Set(
       collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: selection().selected,
-        layout,
       }).keys(),
     );
     expected.add('.claude/settings.json'); // install writes it; manifest excludes it
     expect([...written].sort()).toEqual([...expected].sort());
-  }
-
-  it('flat layout: manifest keys ∪ settings.json == files actually written', () => {
-    assertMirror('flat', scaffoldRepo);
-  });
-
-  it('pharn layout: manifest keys ∪ settings.json == files actually written', () => {
-    assertMirror('pharn', scaffoldRepoPharn);
   });
 });
 
@@ -523,19 +284,14 @@ describe('collectExpectedInstallPaths ⟷ installCapabilities (mirror)', () => {
 describe('collectExpectedInstallPaths ⟷ the update writer (mirror)', () => {
   const tmp = useTmpDir();
 
-  function assertUpdateMirror(
-    layout: 'flat' | 'pharn',
-    scaffold: (r: string) => void,
-  ): Map<string, string> {
-    const repo = join(tmp.path(), 'repo');
+  function assertUpdateMirror(): Map<string, string> {
+    const repo = sealed(join(tmp.path(), 'repo'));
     const proj = join(tmp.path(), 'proj');
     mkdirSync(proj, { recursive: true });
-    scaffold(repo);
 
     const expected = collectExpectedInstallPaths({
       repoDir: repo,
       capabilities: selection().selected,
-      layout,
     });
     // A fresh project: every expected file is absent → row 1 → all written.
     applyWrites({
@@ -549,15 +305,12 @@ describe('collectExpectedInstallPaths ⟷ the update writer (mirror)', () => {
   }
 
   it('applying every manifest entry writes exactly the manifest keys', () => {
-    assertUpdateMirror('flat', scaffoldRepo);
+    assertUpdateMirror();
   });
 
-  // The pharn layout carries the surfaces the flat scaffold cannot (pharn-core),
-  // so pin the update writer against it too — otherwise the new surface is
-  // covered by the init writer's mirror only, and `update` could silently
-  // diverge on exactly the files it is now expected to restore.
+  // pharn-core is a surface the update writer must restore too, so pin it.
   it('pharn layout: applying every manifest entry writes exactly the keys', () => {
-    const expected = assertUpdateMirror('pharn', scaffoldRepoPharn);
+    const expected = assertUpdateMirror();
     expect([...expected.keys()]).toContain(
       'pharn/pharn-core/seam-resolver/seam-resolver.md',
     );
@@ -570,18 +323,19 @@ describe('CLI-owned metadata is outside the install set', () => {
   const tmp = useTmpDir();
 
   it('pharn.records.json and pharn/.backup/ are in neither the manifest nor the conflict set', () => {
-    const repo = join(tmp.path(), 'repo');
+    const repo = sealed(join(tmp.path(), 'repo'));
     const proj = join(tmp.path(), 'proj');
-    scaffoldRepo(repo);
     mkdirSync(proj, { recursive: true });
     write(join(proj, RECORDS_FILE), '{}');
-    write(join(proj, `${BACKUP_DIR}/20260807-091500/CONSTITUTION.md`), 'old');
+    write(
+      join(proj, `${BACKUP_DIR}/20260807-091500/pharn/CONSTITUTION.md`),
+      'old',
+    );
 
     const keys = [
       ...collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: selection().selected,
-        layout: 'flat',
       }).keys(),
     ];
     expect(keys).not.toContain(RECORDS_FILE);
@@ -591,73 +345,60 @@ describe('CLI-owned metadata is outside the install set', () => {
       repoDir: repo,
       projectRoot: proj,
       capabilities: selection().selected,
-      layout: 'flat',
     });
     expect(conflicts).toEqual([]);
   });
 });
 
 // ---------------------------------------------------------------------------
-// capabilityCloneFiles — ONE capability's files enumerated in the CLONE, which
-// is what `pharn add` derives BOTH its drift set and its record keys from. The
-// contract that matters: it reports what the copy WOULD write and nothing else,
-// and on an unreadable source it reports NOTHING rather than throwing — the
-// curated refusal belongs to installCapabilityDirs' pre-flight, which runs after
-// it and must be the message the user sees.
+// capabilityCloneFiles — ONE capability's files as the clone's manifest
+// declares them, which is what `pharn add` derives BOTH its drift set and its
+// record keys from. The contract that matters: it reports what the copy WOULD
+// write and nothing else, and for a capability the manifest does not declare
+// it reports NOTHING rather than throwing — the curated refusal belongs to
+// installCapabilityDirs' pre-flight, which runs after it and must be the
+// message the user sees.
 // ---------------------------------------------------------------------------
 describe('capabilityCloneFiles', () => {
   const tmp = useTmpDir();
 
+  // A minimal sealed pharn-layout clone holding `files`.
+  function clone(...files: string[]): string {
+    const repo = join(tmp.path(), 'repo');
+    write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
+    for (const f of files) write(join(repo, f));
+    return sealRepo(repo);
+  }
+
   it('enumerates the capability dir (incl. evals), sorted, prefixed with its subtree', () => {
-    const repo = tmp.path();
-    write(join(repo, 'pharn-review/n-plus-one/n-plus-one.md'));
-    write(join(repo, 'pharn-review/n-plus-one/evals/cases/c.md'));
-    write(join(repo, 'pharn-review/other/other.md'));
+    const repo = clone(
+      'pharn/pharn-review/n-plus-one/n-plus-one.md',
+      'pharn/pharn-review/n-plus-one/evals/cases/c.md',
+      'pharn/pharn-review/other/other.md',
+    );
 
     expect(
-      capabilityCloneFiles(repo, layoutPaths('flat'), {
-        name: 'n-plus-one',
-        role: 'lens',
-      }),
+      capabilityCloneFiles(repo, { name: 'n-plus-one', role: 'lens' }),
     ).toEqual([
-      'pharn-review/n-plus-one/evals/cases/c.md',
-      'pharn-review/n-plus-one/n-plus-one.md',
+      'pharn/pharn-review/n-plus-one/evals/cases/c.md',
+      'pharn/pharn-review/n-plus-one/n-plus-one.md',
     ]);
   });
 
   it('routes a griller to the grillers subtree', () => {
-    const repo = tmp.path();
-    write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'));
+    const repo = clone('pharn/pharn-pipeline/grillers/a11y/a11y.md');
 
     expect(
-      capabilityCloneFiles(repo, layoutPaths('flat'), {
-        name: 'a11y',
-        role: 'griller',
-      }),
-    ).toEqual(['pharn-pipeline/grillers/a11y/a11y.md']);
-  });
-
-  it('addresses the pharn/ layout when that is the layout given', () => {
-    const repo = tmp.path();
-    write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'));
-
-    expect(
-      capabilityCloneFiles(repo, layoutPaths('pharn'), {
-        name: 'a11y',
-        role: 'griller',
-      }),
+      capabilityCloneFiles(repo, { name: 'a11y', role: 'griller' }),
     ).toEqual(['pharn/pharn-pipeline/grillers/a11y/a11y.md']);
   });
 
   it('is [] when the capability dir is absent — the pre-flight owns that refusal', () => {
-    // A raw ENOENT from here would pre-empt installCapabilityDirs' curated
+    // A throw from here would pre-empt installCapabilityDirs' curated
     // `Capability "ghost" (lens) is missing at …` message, which is the one the
     // user can act on.
     expect(
-      capabilityCloneFiles(tmp.path(), layoutPaths('flat'), {
-        name: 'ghost',
-        role: 'lens',
-      }),
+      capabilityCloneFiles(clone(), { name: 'ghost', role: 'lens' }),
     ).toEqual([]);
   });
 
@@ -667,196 +408,53 @@ describe('capabilityCloneFiles', () => {
   // so its agreement with what the copy actually writes is tested against the
   // real disk, not argued from the code.
   it('MIRROR: equals exactly what a real installCapabilityDirs copy writes', () => {
-    const repo = join(tmp.path(), 'repo');
+    const repo = clone(
+      'pharn/pharn-review/a11y/a11y.md',
+      'pharn/pharn-review/a11y/evals/cases/basic.md',
+      'pharn/pharn-review/a11y/evals/expected/basic.json',
+    );
     const proj = join(tmp.path(), 'proj');
     mkdirSync(proj, { recursive: true });
-    write(join(repo, 'pharn-review/a11y/a11y.md'));
-    write(join(repo, 'pharn-review/a11y/evals/cases/basic.md'));
-    write(join(repo, 'pharn-review/a11y/evals/expected/basic.json'));
     const cap = { name: 'a11y', role: 'lens' } as const;
 
     installCapabilityDirs(repo, proj, [cap]);
 
     // Both sides sorted: walkRel yields readdir order, so an unsorted compare
     // would pass or fail on directory-entry ordering rather than on membership.
-    expect(capabilityCloneFiles(repo, layoutPaths('flat'), cap)).toEqual(
-      walkRel(join(proj, 'pharn-review/a11y'))
-        .map((rel) => `pharn-review/a11y/${rel}`)
+    expect(capabilityCloneFiles(repo, cap)).toEqual(
+      walkRel(join(proj, 'pharn/pharn-review/a11y'))
+        .map((rel) => `pharn/pharn-review/a11y/${rel}`)
         .sort(),
     );
   });
 
   it('is [] when the capability path is a file rather than a directory', () => {
-    const repo = tmp.path();
-    write(join(repo, 'pharn-review/x'));
+    const repo = clone('pharn/pharn-review/x');
 
-    expect(
-      capabilityCloneFiles(repo, layoutPaths('flat'), {
-        name: 'x',
-        role: 'lens',
-      }),
-    ).toEqual([]);
-  });
-});
-
-// The manifest is the SOURCE side of every `pharn update` write, and the
-// installer writes the SAME map (src/lib/install-capabilities.ts), so each kept
-// basename is held to COPY_FILENAME_RE + no-`..` and HARD-FAILS on a miss for
-// both. These cases pin that `init` and `update` refuse together, and that the
-// floor is scoped to exactly those two surfaces.
-describe('collectExpectedInstallPaths — command/hook filename floor (P2)', () => {
-  const tmp = useTmpDir();
-
-  function repoWith(plant: (repo: string) => void): string {
-    const repo = join(tmp.path(), 'repo');
-    scaffoldRepo(repo);
-    plant(repo);
-    return repo;
-  }
-
-  function keysOf(repo: string): string[] {
-    return [
-      ...collectExpectedInstallPaths({
-        repoDir: repo,
-        capabilities: selection().selected,
-        layout: 'flat',
-      }).keys(),
-    ];
-  }
-
-  function installInto(repo: string): void {
-    const proj = join(tmp.path(), 'proj');
-    mkdirSync(proj, { recursive: true });
-    installCapabilities(repo, proj, selection());
-  }
-
-  // Both write paths, one clone: the mirror must agree on the REFUSAL too, not
-  // just on the accepted set.
-  it('an out-of-allowlist product command makes BOTH the manifest and the installer throw', () => {
-    const repo = repoWith((r) =>
-      write(join(r, '.claude/commands/pharn-Weird_Name.md')),
-    );
-    expect(() => keysOf(repo)).toThrow(ManifestValidationError);
-    expect(() => keysOf(repo)).toThrow(/pharn-Weird_Name\.md/);
-    expect(() => installInto(repo)).toThrow(ManifestValidationError);
-  });
-
-  // A NEW name, not an uppercase respelling of the scaffold's own hook: on a
-  // case-insensitive filesystem (macOS default) the respelling would overwrite
-  // the existing entry and readdir would report the original lowercase name, so
-  // the case would pass vacuously.
-  it('an uppercase hook name makes BOTH the manifest and the installer throw', () => {
-    const repo = repoWith((r) =>
-      write(join(r, '.claude/hooks/Guard-Hook.cjs')),
-    );
-    expect(() => keysOf(repo)).toThrow(ManifestValidationError);
-    expect(() => installInto(repo)).toThrow(ManifestValidationError);
-  });
-
-  // The regex half and the control-char half of assertSafeString are different
-  // checks; a control char is a legal POSIX filename byte, so pin it separately.
-  it('a control-char hook name is refused by both (assertSafeString, not just the regex)', () => {
-    const bad = `set${String.fromCharCode(1)}scope.cjs`;
-    const repo = repoWith((r) => write(join(r, '.claude/hooks', bad)));
-    expect(() => keysOf(repo)).toThrow(ManifestValidationError);
-    expect(() => keysOf(repo)).toThrow(/control characters/);
-    expect(() => installInto(repo)).toThrow(ManifestValidationError);
-  });
-
-  // Ordering: `keep` runs first, so a name that is not a copy candidate never
-  // reaches the validator. scaffoldRepo already carries `.claude/commands/
-  // README.md` and `pharn-dev-plan.md`; these add the adversarial spellings.
-  it('a non-candidate odd name throws nothing and contributes nothing', () => {
-    const repo = repoWith((r) => {
-      write(join(r, '.claude/commands/pharn-dev-Weird.md'));
-      write(join(r, '.claude/commands/READ_ME.md'));
-      write(join(r, '.claude/hooks/Some-Hook.test.cjs'));
-    });
-    const keys = keysOf(repo);
-    expect(keys).not.toContain('.claude/commands/pharn-dev-Weird.md');
-    expect(keys).not.toContain('.claude/commands/READ_ME.md');
-    expect(keys).not.toContain('.claude/hooks/Some-Hook.test.cjs');
-    expect(keys).toContain('.claude/commands/pharn-plan.md');
-  });
-
-  // The nested case is what actually pins keep-before-validate: the basename is
-  // adversarial, but `keep`'s `!rel.includes('/')` rejects it first, so the
-  // validator never sees it: only top-level entries are install candidates.
-  it('a nested adversarial name under the commands dir throws nothing', () => {
-    const repo = repoWith((r) =>
-      write(join(r, '.claude/commands/sub/pharn-Weird_Name.md')),
-    );
-    const keys = keysOf(repo);
-    expect(keys).not.toContain('.claude/commands/sub/pharn-Weird_Name.md');
-    expect(keys).toContain('.claude/commands/pharn-plan.md');
-  });
-
-  // Scope proof: the verbatim-copied surfaces carry NO name check, so
-  // validating them here would reject legitimate evals fixtures.
-  it('capability, contract and floor names outside COPY_FILENAME_RE are still enumerated', () => {
-    const repo = repoWith((r) => {
-      write(join(r, 'pharn-pipeline/grillers/a11y/evals/cases/Case_One.TXT'));
-      write(join(r, 'pharn-review/n-plus-one/README.notes.md'));
-      write(join(r, 'pharn-contracts/Finding_Shape.md'));
-      write(join(r, '.dev/floor/check-Ship.mjs'));
-    });
-    const keys = keysOf(repo);
-    for (const rel of [
-      'pharn-pipeline/grillers/a11y/evals/cases/Case_One.TXT',
-      'pharn-review/n-plus-one/README.notes.md',
-      'pharn-contracts/Finding_Shape.md',
-      '.dev/floor/check-Ship.mjs',
-    ]) {
-      expect(keys).toContain(rel);
-    }
+    expect(capabilityCloneFiles(repo, { name: 'x', role: 'lens' })).toEqual([]);
   });
 });
 
 // `pharn uninstall` (and orphan detection) has no clone, so it bounds what it
 // may touch with isInstallRootPath, a pure predicate over the SHAPE of an
-// install path. Pinned here against a REAL install in both layouts: every path
-// the install writes must pass, or uninstall would silently leave it.
+// install path. Pinned here against a REAL install: every path the install
+// writes must pass, or uninstall would silently leave it.
 describe('isInstallRootPath ⟷ installCapabilities (mirror)', () => {
   const tmp = useTmpDir();
 
-  function installedPaths(
-    layout: 'flat' | 'pharn',
-    scaffold: (r: string) => void,
-  ): string[] {
-    const repo = join(tmp.path(), 'repo');
+  it('accepts every path a real pharn-layout install writes', () => {
+    const repo = sealed(join(tmp.path(), 'repo'));
     const proj = join(tmp.path(), 'proj');
     mkdirSync(proj, { recursive: true });
-    scaffold(repo);
     installCapabilities(repo, proj, selection());
-    return [
+    const paths = [
       ...collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: selection().selected,
-        layout,
       }).keys(),
     ];
-  }
-
-  it('accepts every path a real flat install writes', () => {
-    const paths = installedPaths('flat', scaffoldRepo);
-    expect(paths.length).toBeGreaterThan(10);
-    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
-  });
-
-  it('accepts every path a real pharn-layout install writes', () => {
-    const paths = installedPaths('pharn', scaffoldRepoPharn);
     expect(paths).toContain('pharn/pharn-core/seam-resolver/seam-resolver.md');
     expect(paths).toContain('pharn/LICENSE');
-    expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
-  });
-
-  it('accepts the root features README a pre-relocation pharn clone ships', () => {
-    const paths = installedPaths('pharn', (repo) => {
-      scaffoldRepoPharn(repo);
-      rmSync(join(repo, 'pharn/features'), { recursive: true });
-      write(join(repo, 'features/README.md'));
-    });
-    expect(paths).toContain('features/README.md');
     expect(paths.filter((p) => !isInstallRootPath(p))).toEqual([]);
   });
 
@@ -868,39 +466,16 @@ describe('isInstallRootPath ⟷ installCapabilities (mirror)', () => {
 
 // ---------------------------------------------------------------------------
 // Surface accounting (F-10): every DECLARED fixed surface either contributes at
-// least one file to the manifest or is named as absent upstream — never a
-// silent existence-guarded no-op.
+// least one file to the manifest's install set or is named as absent upstream
+// — never a silent no-op.
 // ---------------------------------------------------------------------------
 describe('absentInstallSurfaces', () => {
   const tmp = useTmpDir();
 
-  function repoOf(scaffold: (r: string) => void): string {
-    const repo = join(tmp.path(), 'repo');
-    scaffold(repo);
-    return repo;
-  }
-
   it('is [] for a complete clone, in both layouts', () => {
     expect(
-      absentInstallSurfaces({ repoDir: repoOf(scaffoldRepo), layout: 'flat' }),
+      absentInstallSurfaces({ repoDir: sealed(join(tmp.path(), 'repo')) }),
     ).toEqual([]);
-    rmSync(join(tmp.path(), 'repo'), { recursive: true, force: true });
-    expect(
-      absentInstallSurfaces({
-        repoDir: repoOf(scaffoldRepoPharn),
-        layout: 'pharn',
-      }),
-    ).toEqual([]);
-  });
-
-  it('never declares pharn-core for the flat layout (a documented no-op path)', () => {
-    const repo = repoOf(scaffoldRepo);
-    expect(existsSync(join(repo, 'pharn-core'))).toBe(false);
-    expect(
-      absentInstallSurfaces({ repoDir: repo, layout: 'flat' }).map(
-        (s) => s.surface,
-      ),
-    ).not.toContain('core');
   });
 
   const pharnCases: [string, string, { surface: string; path: string }][] = [
@@ -915,7 +490,11 @@ describe('absentInstallSurfaces', () => {
       'file',
       { surface: 'trusted-doc', path: 'pharn/CONSTITUTION.md' },
     ],
-    ['LIMITS.md', 'file', { surface: 'trusted-doc', path: 'pharn/LIMITS.md' }],
+    [
+      'pharn/LIMITS.md',
+      'file',
+      { surface: 'trusted-doc', path: 'pharn/LIMITS.md' },
+    ],
     ['LICENSE', 'file', { surface: 'license', path: 'LICENSE' }],
     [
       'pharn/features/README.md',
@@ -932,79 +511,47 @@ describe('absentInstallSurfaces', () => {
   ];
   for (const [rel, kind, row] of pharnCases) {
     it(`pharn layout: names exactly ${row.surface} at ${row.path} when the clone lacks ${rel} (${kind})`, () => {
-      const repo = repoOf(scaffoldRepoPharn);
-      if (rel === 'pharn/pharn-contracts') {
-        // The layout MARKER: keep the dir (else the clone reads as flat), but
-        // ship no file in it — zero files contributed is absent.
-        rmSync(join(repo, rel), { recursive: true, force: true });
-        mkdirSync(join(repo, rel), { recursive: true });
-      } else {
-        rmSync(join(repo, rel), { recursive: true, force: true });
-      }
-      expect(absentInstallSurfaces({ repoDir: repo, layout: 'pharn' })).toEqual(
-        [row],
-      );
+      const repo = sealed(join(tmp.path(), 'repo'), (r) => {
+        rmSync(join(r, rel), { recursive: true, force: true });
+        // The layout MARKER: keep the dir (the manifest's layout check needs
+        // it), but ship no file in it — zero files declared is absent.
+        if (rel === 'pharn/pharn-contracts')
+          mkdirSync(join(r, rel), { recursive: true });
+      });
+      expect(absentInstallSurfaces({ repoDir: repo })).toEqual([row]);
     });
   }
 
-  it('flat layout: names a missing contracts dir, floor dir and features README', () => {
-    const repo = repoOf(scaffoldRepo);
-    rmSync(join(repo, 'pharn-contracts'), { recursive: true, force: true });
-    rmSync(join(repo, '.dev/floor'), { recursive: true, force: true });
-    rmSync(join(repo, 'features'), { recursive: true, force: true });
-    expect(absentInstallSurfaces({ repoDir: repo, layout: 'flat' })).toEqual([
-      { surface: 'features-readme', path: 'features/README.md' },
-      { surface: 'contracts', path: 'pharn-contracts' },
-      { surface: 'floor', path: '.dev/floor' },
-    ]);
-  });
-
   it('a dir that ships no file passing its filter is absent (zero files contributed)', () => {
-    const repo = repoOf(scaffoldRepoPharn);
-    // Commands renamed out of the product prefix; hooks shipped only as tests or
-    // under an extension the install does not take.
-    rmSync(join(repo, '.claude/commands/pharn-plan.md'));
-    write(join(repo, '.claude/commands/plan.md'));
-    for (const f of ['set-writes-scope.cjs', 'require-loop-record.mjs'])
-      rmSync(join(repo, '.claude/hooks', f));
-    write(join(repo, '.claude/hooks/guard.js'));
+    const repo = sealed(join(tmp.path(), 'repo'), (r) => {
+      // Commands renamed out of the product prefix; hooks shipped only as tests
+      // or under an extension pharn-oss does not declare.
+      rmSync(join(r, '.claude/commands/pharn-plan.md'));
+      write(join(r, '.claude/commands/plan.md'));
+      for (const f of ['set-writes-scope.cjs', 'require-loop-record.mjs'])
+        rmSync(join(r, '.claude/hooks', f));
+      write(join(r, '.claude/hooks/guard.js'));
+    });
     expect(
-      absentInstallSurfaces({ repoDir: repo, layout: 'pharn' }).map(
-        (s) => s.surface,
-      ),
+      absentInstallSurfaces({ repoDir: repo }).map((s) => s.surface),
     ).toEqual(['commands', 'hooks']);
   });
 
   it('a clone without .claude/agents/ is NOT reported: the surface is optional (CORE-272)', () => {
     // pharn-oss before 6.64.0 ships no agent; naming it would turn `status
     // --strict` red for every older clone.
-    for (const [scaffold, layout] of [
-      [scaffoldRepo, 'flat'],
-      [scaffoldRepoPharn, 'pharn'],
-    ] as const) {
-      rmSync(join(tmp.path(), 'repo'), { recursive: true, force: true });
-      const repo = repoOf(scaffold);
-      rmSync(join(repo, '.claude/agents'), { recursive: true, force: true });
-      expect(absentInstallSurfaces({ repoDir: repo, layout })).toEqual([]);
-      expect(
-        [
-          ...collectExpectedInstallPaths({
-            repoDir: repo,
-            capabilities: [],
-            layout,
-          }).keys(),
-        ].some((k) => k.startsWith('.claude/agents/')),
-      ).toBe(false);
-    }
-  });
-
-  it('the features README at the ROOT fallback counts as shipped on the pharn layout', () => {
-    const repo = repoOf(scaffoldRepoPharn);
-    rmSync(join(repo, 'pharn/features'), { recursive: true, force: true });
-    write(join(repo, 'features/README.md'));
-    expect(absentInstallSurfaces({ repoDir: repo, layout: 'pharn' })).toEqual(
-      [],
+    const repo = sealed(join(tmp.path(), 'repo'), (r) =>
+      rmSync(join(r, '.claude/agents'), { recursive: true, force: true }),
     );
+    expect(absentInstallSurfaces({ repoDir: repo })).toEqual([]);
+    expect(
+      [
+        ...collectExpectedInstallPaths({
+          repoDir: repo,
+          capabilities: [],
+        }).keys(),
+      ].some((k) => k.startsWith('.claude/agents/')),
+    ).toBe(false);
   });
 });
 
@@ -1036,13 +583,11 @@ describe('hook and command name predicates (shared by the copy and the manifest)
   });
 
   it('an .mjs hook is in the manifest; its .test.mjs is not (the copy side: the mirror tests)', () => {
-    const repo = join(tmp.path(), 'repo');
-    scaffoldRepoPharn(repo);
+    const repo = sealed(join(tmp.path(), 'repo'));
     const keys = [
       ...collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: [],
-        layout: 'pharn',
       }).keys(),
     ];
     expect(keys).toContain('.claude/hooks/require-loop-record.mjs');
@@ -1050,9 +595,9 @@ describe('hook and command name predicates (shared by the copy and the manifest)
   });
 });
 
-// CORE-194: a tree that declares pharn-install.json installs what it declares.
-// Each fixture makes the manifest DISAGREE with the derivation somewhere, so a
-// pass proves the manifest was the source.
+// CORE-194: a tree's pharn-install.json is the install set. Some fixtures make
+// the manifest DISAGREE with the files on disk, so a pass proves the manifest
+// was the source.
 describe('with pharn-install.json — the manifest is the install set', () => {
   const tmp = useTmpDir();
   const repo = (tree: Record<string, string>): string =>
@@ -1065,7 +610,6 @@ describe('with pharn-install.json — the manifest is the install set', () => {
     const expected = collectExpectedInstallPaths({
       repoDir: dir,
       capabilities: [SEC],
-      layout: 'pharn',
     });
     expect([...expected.keys()].sort()).toEqual(
       [
@@ -1092,7 +636,7 @@ describe('with pharn-install.json — the manifest is the install set', () => {
 
   it('installs a file the derivation never would, and leaves out one it would', () => {
     const tree = {
-      ...upstreamTree7('7.20.0'),
+      ...upstreamTree('7.20.0'),
       'pharn/floor/fixtures/kept.mjs': 'declared\n',
       'pharn/floor/extra.mjs': 'undeclared\n',
     };
@@ -1105,30 +649,15 @@ describe('with pharn-install.json — the manifest is the install set', () => {
       ...collectExpectedInstallPaths({
         repoDir: dir,
         capabilities: [],
-        layout: 'pharn',
       }).keys(),
     ];
     expect(keys).toContain('pharn/floor/fixtures/kept.mjs');
     expect(keys).not.toContain('pharn/floor/extra.mjs');
   });
 
-  it('answers a flat-layout request by the derivation, as before', () => {
-    const dir = repo(manifestTree('7.20.0'));
-    const flat = collectExpectedInstallPaths({
-      repoDir: dir,
-      capabilities: [],
-      layout: 'flat',
-    });
-    expect(flat.has(NEW_SURFACE)).toBe(false);
-    expect(capabilityCloneFiles(dir, layoutPaths('flat'), SEC)).toEqual([]);
-  });
-
   it('accounts absent surfaces from the manifest: none for a full one, named for an empty one', () => {
     expect(
-      absentInstallSurfaces({
-        repoDir: repo(manifestTree('7.20.0')),
-        layout: 'pharn',
-      }),
+      absentInstallSurfaces({ repoDir: repo(manifestTree('7.20.0')) }),
     ).toEqual([]);
     rmSync(join(tmp.path(), 'repo'), { recursive: true, force: true });
     const sparse = repo(
@@ -1142,24 +671,22 @@ describe('with pharn-install.json — the manifest is the install set', () => {
         );
       }),
     );
-    expect(absentInstallSurfaces({ repoDir: sparse, layout: 'pharn' })).toEqual(
-      [
-        { surface: 'hooks', path: '.claude/hooks' },
-        { surface: 'trusted-doc', path: 'pharn/LIMITS.md' },
-        { surface: 'license', path: 'LICENSE' },
-        { surface: 'features-readme', path: 'pharn/features/README.md' },
-      ],
-    );
+    expect(absentInstallSurfaces({ repoDir: sparse })).toEqual([
+      { surface: 'hooks', path: '.claude/hooks' },
+      { surface: 'trusted-doc', path: 'pharn/LIMITS.md' },
+      { surface: 'license', path: 'LICENSE' },
+      { surface: 'features-readme', path: 'pharn/features/README.md' },
+    ]);
   });
 
   it("lists one capability's declared files for add, sorted", () => {
     const dir = repo(
       withManifest({
-        ...upstreamTree7('7.20.0'),
+        ...upstreamTree('7.20.0'),
         'pharn/pharn-pipeline/grillers/a11y/evals/case.md': 'case\n',
       }),
     );
-    expect(capabilityCloneFiles(dir, layoutPaths('pharn'), A11)).toEqual([
+    expect(capabilityCloneFiles(dir, A11)).toEqual([
       A11Y,
       'pharn/pharn-pipeline/grillers/a11y/evals/case.md',
     ]);
@@ -1189,5 +716,67 @@ describe('with pharn-install.json — the manifest is the install set', () => {
     expect(existsSync(join(proj, NEW_SURFACE))).toBe(true);
     expect(existsSync(join(proj, 'pharn/LICENSE'))).toBe(true);
     expect(existsSync(join(proj, 'LICENSE'))).toBe(false);
+  });
+});
+
+// C8.3: there is no derivation left. A tree without pharn-install.json (a
+// pharn-oss older than 7.21.0) gets no install set, no capability file list
+// and no conflict set: each refuses, naming the missing manifest.
+describe('without pharn-install.json — every install-set reader refuses', () => {
+  const tmp = useTmpDir();
+  const bare = (): string => {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepoPharn(repo);
+    return repo;
+  };
+  const MISSING = /ships no pharn-install\.json/;
+
+  it('collectExpectedInstallPaths refuses a tree without the manifest', () => {
+    const repo = bare();
+    expect(() =>
+      collectExpectedInstallPaths({
+        repoDir: repo,
+        capabilities: selection().selected,
+      }),
+    ).toThrow(UpstreamManifestError);
+    expect(() =>
+      collectExpectedInstallPaths({ repoDir: repo, capabilities: [] }),
+    ).toThrow(MISSING);
+  });
+
+  it('absentInstallSurfaces and conflictingWriteTargets refuse it too', () => {
+    const repo = bare();
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    expect(() => absentInstallSurfaces({ repoDir: repo })).toThrow(MISSING);
+    expect(() =>
+      conflictingWriteTargets({
+        repoDir: repo,
+        projectRoot: proj,
+        capabilities: selection().selected,
+      }),
+    ).toThrow(MISSING);
+  });
+
+  it('capabilityCloneFiles refuses it rather than walking the directory', () => {
+    expect(() =>
+      capabilityCloneFiles(bare(), { name: 'a11y', role: 'griller' }),
+    ).toThrow(UpstreamManifestError);
+  });
+
+  it('upstreamSettingsCopyable refuses it although the tree ships a settings file', () => {
+    const repo = bare();
+    expect(existsSync(join(repo, '.claude/settings.json'))).toBe(true);
+    expect(() => upstreamSettingsCopyable(repo)).toThrow(MISSING);
+  });
+
+  it('installCapabilities refuses it and writes nothing', () => {
+    const repo = bare();
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      UpstreamManifestError,
+    );
+    expect(readdirSync(proj)).toEqual([]);
   });
 });

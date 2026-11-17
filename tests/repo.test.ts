@@ -13,7 +13,13 @@ import { REPO, REPO_BRANCH } from '../src/lib/constants.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
 import { codeloadArchive } from './support/tar-fixture.js';
-import { manifestTree, SECURITY } from './support/harness.js';
+import {
+  MANIFEST,
+  manifestTree,
+  SECURITY,
+  upstreamTree,
+  withManifest,
+} from './support/harness.js';
 
 const { fetchRepo, fetchCommitSha } = await import('../src/lib/repo.js');
 
@@ -65,12 +71,31 @@ function entry(name: string, type: string, data = ''): Buffer {
   return Buffer.concat(parts);
 }
 
-function archive(sha: string): Buffer {
+// The smallest tree fetchRepo accepts: a SKILLS_VERSION, the pharn layout's
+// marker, and the pharn-install.json that declares them (a tree without one is
+// a pharn-oss older than 7.21.0, refused).
+const MINIMAL_TREE = withManifest({
+  SKILLS_VERSION: '1.0.0\n',
+  'pharn/pharn-contracts/finding-shape.md': 'finding shape\n',
+});
+
+function archive(sha: string, manifest = true): Buffer {
+  const root = `pharn-oss-${sha.slice(0, 7)}`;
   return gzipSync(
     Buffer.concat([
       entry('pax_global_header', 'g', `52 comment=${sha}\n`),
-      entry(`pharn-oss-${sha.slice(0, 7)}/`, '5'),
-      entry(`pharn-oss-${sha.slice(0, 7)}/SKILLS_VERSION`, '0', '1.0.0\n'),
+      entry(`${root}/`, '5'),
+      entry(`${root}/SKILLS_VERSION`, '0', MINIMAL_TREE.SKILLS_VERSION),
+      entry(`${root}/pharn/`, '5'),
+      entry(`${root}/pharn/pharn-contracts/`, '5'),
+      entry(
+        `${root}/pharn/pharn-contracts/finding-shape.md`,
+        '0',
+        MINIMAL_TREE['pharn/pharn-contracts/finding-shape.md'],
+      ),
+      ...(manifest
+        ? [entry(`${root}/${MANIFEST}`, '0', MINIMAL_TREE[MANIFEST])]
+        : []),
       Buffer.alloc(BLOCK * 2),
     ]),
   );
@@ -581,6 +606,45 @@ describe('fetchRepo — a tree that declares pharn-install.json (CORE-194)', () 
     const err = await fetchRepo(release).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(UpstreamManifestError);
     expect((err as Error).message).toContain(SECURITY);
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  // A pharn-oss older than 7.21.0 ships no manifest. Whether it arrives as
+  // the release the channel resolved or as the tip of main, it is refused
+  // inside fetchRepo, and the extracted tree is removed with nothing returned.
+  it('refuses a release older than 7.21.0 (no pharn-install.json), and removes the tree', async () => {
+    serve(upstreamTree('7.20.0'));
+    const err = await fetchRepo(release).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UpstreamManifestError);
+    expect((err as Error).message).toContain('(SKILLS_VERSION 7.20.0)');
+    expect((err as Error).message).toContain('older than 7.21.0');
+    expect((err as Error).message).toContain('`--ref main`');
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('refuses a tip of main with no pharn-install.json, and removes the tree', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === RESOLVE_URL
+          ? new Response(`${VALID_SHA}\n`)
+          : tarResponse(codeloadArchive(VALID_SHA, upstreamTree('7.20.0'))),
+      ),
+    );
+    const err = await fetchRepo({ kind: 'main' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UpstreamManifestError);
+    expect((err as Error).message).toContain('ships no pharn-install.json');
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('refuses the minimal archive once its manifest is left out', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => tarResponse(archive(VALID_SHA, false))),
+    );
+    await expect(
+      fetchRepo({ ...release, tag: 'v1.0.0', version: '1.0.0' }),
+    ).rejects.toThrow(UpstreamManifestError);
     expect(leftoverTempDirs()).toEqual([]);
   });
 

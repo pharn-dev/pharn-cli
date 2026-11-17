@@ -20,8 +20,6 @@ import {
   failures,
   fetched,
   fetchStub,
-  FLAT,
-  flatTree,
   installFresh,
   interactive,
   lastOutro,
@@ -32,7 +30,9 @@ import {
   records,
   RELEASE_URL,
   RESOLVE_URL,
+  legacyInstall,
   run,
+  sealRepo,
   serveTip,
   sha256,
   SHA_V1,
@@ -43,6 +43,7 @@ import {
   stdout,
   upstream,
   useHarness,
+  watchClones,
   write,
 } from '../support/harness.js';
 import { runAdd } from '../../src/commands/add.js';
@@ -99,9 +100,11 @@ function plantSymlinkedEvals(): void {
   symlinkSync(at('elsewhere'), at(`${A11Y_DIR}/evals`));
 }
 
-// An upstream capability directory with no markdown: the index cannot parse
-// it, so it is reported (`unknown`) and is not addressable.
-const BACKWARDS = 'pharn/pharn-pipeline/grillers/backwards-compat/notes.txt';
+// An upstream capability whose `applies` token this pharn does not know: the
+// index reports it (`unknown`), and it is not addressable.
+const BACKWARDS =
+  'pharn/pharn-pipeline/grillers/backwards-compat/backwards-compat.md';
+const UNPARSEABLE = '---\nrole: griller\napplies: ["mobile"]\n---\nwip\n';
 
 // A name upstream ships in BOTH roles.
 function shipDupInBothRoles(): void {
@@ -166,25 +169,16 @@ describe('pharn add <name>: success', () => {
     expect(await run(() => runStatus({ json: true }))).toBeNull();
   });
 
-  it('role:name resolves a name upstream ships in both roles; the bare name is refused naming both', async () => {
-    shipDupInBothRoles();
+  // pharn-install.json declares each capability name once, so a name in both
+  // roles never reaches the address resolver: the manifest refuses the tree.
+  it('a name upstream ships in both roles is refused by its pharn-install.json, writing nothing', async () => {
     await installFresh();
+    shipDupInBothRoles();
     const before = snapshot();
 
-    expect(await run(() => runAdd('dup'))).toBe(1);
-    expect(errors()).toContain(
-      '"dup" is ambiguous — use griller:dup or lens:dup.',
-    );
+    expect(await run(() => runAdd('lens:dup'))).toBe(1);
+    expect(errors()).toContain('declares capability "dup" twice');
     expect(snapshot()).toEqual(before);
-
-    expect(await run(() => runAdd('lens:dup'))).toBeNull();
-    expect(read('pharn/pharn-review/dup/dup.md')).toContain('dup lens');
-    expect(exists('pharn/pharn-pipeline/grillers/dup')).toBe(false);
-    expect(config().capabilities).toContainEqual({
-      name: 'dup',
-      role: 'lens',
-      source: 'manual',
-    });
   });
 
   it('is a no-op for a capability already installed: nothing written', async () => {
@@ -234,21 +228,8 @@ describe('pharn add <name>: success', () => {
     expect(records().files[A11Y]).toBe(sha256(A11Y));
   });
 
-  it('a flat install adds at the flat layout, and an absent layout field reads as flat', async () => {
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
-    await installFresh();
-    expect(config().layout).toBe('flat');
-    editConfig((c) => {
-      delete (c as { layout?: string }).layout;
-    });
-    expect(await run(() => runAdd('a11y'))).toBeNull();
-    expect(read(FLAT.a11y)).toContain('a11y');
-    expect(exists(A11Y)).toBe(false);
-    expect(records().files[FLAT.a11y]).toBe(sha256(FLAT.a11y));
-  });
-
   it('warns about an upstream capability it cannot parse and still installs the rest', async () => {
-    upstream.tree[BACKWARDS] = 'no markdown here\n';
+    upstream.tree[BACKWARDS] = UNPARSEABLE;
     await installFresh();
     clearOutput();
     expect(await run(() => runAdd('a11y'))).toBeNull();
@@ -316,7 +297,7 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
     {
       name: 'a capability upstream ships but this CLI cannot parse',
       setup: () => {
-        upstream.tree[BACKWARDS] = 'no markdown here\n';
+        upstream.tree[BACKWARDS] = UNPARSEABLE;
       },
       arg: 'backwards-compat',
       error: ['Unknown capability "backwards-compat"'],
@@ -391,13 +372,13 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
       download: true,
     },
     {
-      name: 'a clone at another layout (pharn project, flat clone)',
-      setup: () => serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') }),
+      // Every clone is the pharn layout now; a flat install is the mismatch.
+      name: 'a clone at another layout (flat project, pharn clone)',
+      setup: () => legacyInstall('flat'),
       arg: 'a11y',
       error: [
-        'Install layout mismatch: pharn.config.json records the `pharn` layout, but the fetched',
-        'uses the `flat` layout',
-        'Run `pharn update --force` first',
+        'Install layout mismatch: pharn.config.json records the `flat` layout, but the fetched',
+        'uses the `pharn` layout',
       ],
       download: true,
     },
@@ -413,7 +394,10 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
     },
     {
       name: 'version AND layout mismatch: the version refusal wins',
-      setup: () => serveTip(SHA_V2, '2.0.0', { tree: flatTree('2.0.0') }),
+      setup: () => {
+        legacyInstall('flat');
+        serveTip(SHA_V2, '2.0.0');
+      },
       arg: 'a11y',
       error: ['Skills version mismatch', 'v1.0.0', 'v2.0.0'],
       notError: ['Install layout mismatch'],
@@ -443,7 +427,20 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
         upstream.tree.SKILLS_VERSION = 'not a version\n';
       },
       arg: 'a11y',
-      error: ['SKILLS_VERSION'],
+      // pharn-install.json's skillsVersion is the tree's, held to VERSION_RE.
+      error: ['invalid skillsVersion "not a version"'],
+      hint: true,
+      download: true,
+    },
+    {
+      name: 'a pharn-oss older than 7.21.0 (no pharn-install.json)',
+      setup: () => serveTip(SHA_V1, '1.0.0', { seal: false }),
+      arg: 'a11y',
+      error: [
+        'The fetched pharn-oss (SKILLS_VERSION 1.0.0) ships no pharn-install.json, so it is older than 7.21.0',
+        '`--ref main`',
+        'Nothing was written.',
+      ],
       hint: true,
       download: true,
     },
@@ -490,6 +487,29 @@ describe('pharn add <name>: refusals (exit 1, nothing written)', () => {
     if (!row.download) expect(fetched()).toEqual([]);
     expect(lastOutro()).not.toContain('already installed');
   });
+
+  // C8.3: the named and the picker paths both fetch first, so both refuse a
+  // pharn-oss without pharn-install.json before anything is asked or written.
+  it.each<[string, string | undefined]>([
+    ['pharn add a11y', 'a11y'],
+    ['the picker', undefined],
+  ])(
+    '%s refuses a pharn-oss older than 7.21.0, leaving no clone',
+    async (_l, arg) => {
+      await installFresh();
+      serveTip(SHA_V1, '1.0.0', { seal: false });
+      const clones = watchClones();
+      const before = snapshot();
+      clearOutput();
+      if (arg === undefined) setTTY();
+      expect(await run(() => runAdd(arg))).toBe(1);
+      expect(errors()).toContain('ships no pharn-install.json');
+      expect(errors()).toContain('older than 7.21.0');
+      expect(clack.groupMultiselect).not.toHaveBeenCalled();
+      expect(snapshot()).toEqual(before);
+      expect(clones()).toEqual([]);
+    },
+  );
 });
 
 describe('pharn add <name>: the user’s bytes in the capability directory', () => {
@@ -602,6 +622,7 @@ describe('pharn add (no argument): the picker', () => {
       mkdirSync(join(clone, rel, '..'), { recursive: true });
       writeFileSync(join(clone, rel), body);
     }
+    sealRepo(clone);
     const order: string[] = [];
     const addOne: AddOne = async (_r, _s, _c, _w, parsed) => {
       order.push(`add ${parsed.name}`);
@@ -652,7 +673,7 @@ describe('pharn add (no argument): the picker', () => {
   });
 
   it('installs every pick, tagged manual and recorded, warning once about an unparseable capability', async () => {
-    upstream.tree[BACKWARDS] = 'no markdown here\n';
+    upstream.tree[BACKWARDS] = UNPARSEABLE;
     await installFresh();
     clearOutput();
     interactive({ groupMultiselect: [['griller:a11y', 'lens:n-plus-one']] });
@@ -744,7 +765,7 @@ describe('pharn add (no argument): the picker', () => {
     },
     {
       name: 'the layout gate',
-      setup: () => serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') }),
+      setup: () => legacyInstall('flat'),
       error: 'Install layout mismatch',
       hint: false,
     },

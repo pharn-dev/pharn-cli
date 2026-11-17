@@ -16,7 +16,6 @@ import {
   PHARN_LICENSE_DEST,
   FEATURES_README,
   PHARN_FEATURES_README,
-  PHARN_ROOT_FALLBACK_DOCS,
   PHARN_TRUSTED_DOCS,
   TRUSTED_DOCS,
   UPSTREAM_LICENSE,
@@ -25,11 +24,12 @@ import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Layout resolver — the ONE place that knows the two install layouts: legacy
-// `flat` (surfaces at the repo root) and `pharn` (everything under pharn/). The
-// CLI MIRRORS whichever the clone has, so a source path IS its dest path —
-// except `license` (see the field). The `.claude/*` surfaces are identical in
-// both and live in constants.ts. Every decision's else branch is the safe
-// legacy default `flat`.
+// `flat` (surfaces at the repo root) and `pharn` (everything under pharn/). A
+// fetched clone is always `pharn` (its pharn-install.json declares it), and a
+// source path IS its dest path — except `license` (see the field). `flat` is
+// left only for installs recorded at it. The `.claude/*` surfaces are
+// identical in both and live in constants.ts. Every decision's else branch is
+// the safe legacy default `flat`.
 //
 // The `flat` layout is deprecated in v0.20.0 and removed in v0.22.0
 // (docs/contributing.md#support-policy): its branches here, the `Layout`
@@ -54,8 +54,8 @@ export interface LayoutPaths {
   // user's own. The dest is pharn's: `pharn/LICENSE` or flat `PHARN-LICENSE`.
   license: { from: string; to: string };
   // Trusted spec docs copied verbatim (write-protected by the installed hook),
-  // at the layout's own path — where a CLONE keeps each is resolveTrustedDocs's
-  // answer. Every consumer existence-guards each entry.
+  // at the layout's own path. A doc the manifest does not declare is not
+  // installed, and is named by absentInstallSurfaces.
   docs: string[];
   featuresReadme: string;
 }
@@ -125,29 +125,4 @@ export function flatDeprecationLines(layout: Layout): string[] | null {
     pc.dim('`pharn update` moves the install to the pharn/ layout; then'),
     pc.dim('delete the old top-level copies it leaves behind by hand.'),
   ];
-}
-
-// Where the clone carries the product-loop boundary contract. For the pharn
-// layout an ordered existence probe also accepts an older clone's root path.
-export function resolveFeaturesReadme(repoDir: string, layout: Layout): string {
-  if (layout === 'pharn') {
-    const preferred = safeJoin(repoDir, PHARN_FEATURES_README);
-    if (!existsSync(preferred)) {
-      return FEATURES_README;
-    }
-  }
-  return layoutPaths(layout).featuresReadme;
-}
-
-// Where the clone carries each trusted doc: for the pharn layout, its pharn/
-// path when present, else the root path a pre-7.0 clone ships
-// (PHARN_ROOT_FALLBACK_DOCS). Existence only; flat has no fallback.
-export function resolveTrustedDocs(repoDir: string, layout: Layout): string[] {
-  const docs = layoutPaths(layout).docs;
-  if (layout !== 'pharn') return docs;
-  return docs.map((doc) => {
-    const fallback = PHARN_ROOT_FALLBACK_DOCS[doc];
-    if (fallback === undefined) return doc;
-    return existsSync(safeJoin(repoDir, doc)) ? doc : fallback;
-  });
 }

@@ -5,7 +5,10 @@ import { isPlainObject } from './validate.js';
 // port of `pharn/floor/check-model-config.mjs`'s `validate` and `resolve`
 // rules (same stage, model and effort sets, same RED kinds and wording, same
 // order). A copy, not a call, because this CLI never executes a file it
-// installs (THREAT-MODEL.md §1).
+// installs (THREAT-MODEL.md §1). Kept although pharn-install.json carries
+// `models.rules`: `status` and `update` validate the PROJECT's block with no
+// clone (or before one is fetched), so the rules must live in the CLI; the
+// manifest's `rules` are read by no code here.
 //
 // tests/model-config-parity.test.ts runs the vendored checker (byte-for-byte,
 // sha256-pinned at tests/fixtures/pharn-oss/) over a corpus and compares every

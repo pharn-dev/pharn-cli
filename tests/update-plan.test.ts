@@ -9,16 +9,18 @@ import {
 import { join } from 'node:path';
 import { describe, expect, expectTypeOf, it, beforeEach } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
+import { sealRepo } from './support/harness.js';
 import type { PharnConfig } from '../src/types.js';
 
-// The clone is a real tree: its capability files carry the frontmatter the real
-// index parses (lib/capability-index.ts), and the real resolver selects from
-// it against the config's archetypes. A griller every `ssr` project selects:
+// The clone is a real tree, sealed with the pharn-install.json its files make
+// (sealRepo reads each capability's `applies` into it), and the real resolver
+// selects from its index against the config's archetypes. A griller every
+// `ssr` project selects:
 const capDoc = (body: string): string =>
   `---\nrole: griller\napplies: ["ssr"]\n---\n${body}`;
-// One upstream ships but this CLI cannot parse (a role outside the enum): the
-// index lists it as unknown, so update keeps it frozen.
-const UNPARSABLE = '---\nrole: bogus\napplies: ["ssr"]\n---\nWIP\n';
+// One upstream ships but this CLI cannot install (an `applies` token outside
+// its enum): the index lists it as unknown, so update keeps it frozen.
+const UNPARSABLE = '---\nrole: griller\napplies: ["mobile"]\n---\nWIP\n';
 
 const { buildUpdatePlan, CapabilityRemovalError } =
   await import('../src/lib/update-plan.js');
@@ -26,11 +28,11 @@ const { writeRecords } = await import('../src/lib/install-records.js');
 const { contentHash } = await import('../src/lib/hash.js');
 
 const CAP = { name: 'a11y', role: 'griller' as const };
-const CAP_FILE = 'pharn-pipeline/grillers/a11y/a11y.md';
-const DOC = 'CONSTITUTION.md';
+const CAP_FILE = 'pharn/pharn-pipeline/grillers/a11y/a11y.md';
+const DOC = 'pharn/CONSTITUTION.md';
 const FROZEN = { name: 'backwards-compat', role: 'griller' as const };
 const FROZEN_FILE =
-  'pharn-pipeline/grillers/backwards-compat/backwards-compat.md';
+  'pharn/pharn-pipeline/grillers/backwards-compat/backwards-compat.md';
 
 function write(path: string, content: string): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -46,7 +48,7 @@ function config(over: Partial<PharnConfig> = {}): PharnConfig {
     installedAt: '2026-06-11T00:00:00.000Z',
     archetypes: ['ssr'],
     capabilities: [CAP],
-    layout: 'flat',
+    layout: 'pharn',
     ...over,
   };
 }
@@ -74,9 +76,10 @@ describe('buildUpdatePlan', () => {
     write(join(repo, DOC), 'constitution v2');
   }
 
+  // Sealed at plan time, so a test's later change to the clone is declared.
   const plan = (cfg: PharnConfig, over: { force?: boolean } = {}) =>
     buildUpdatePlan({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       sha: 'a'.repeat(40),
       config: cfg,
       cwd: proj,
@@ -88,18 +91,13 @@ describe('buildUpdatePlan', () => {
     proj = join(tmp.path(), 'proj');
     repo = join(tmp.path(), 'repo');
     mkdirSync(proj, { recursive: true });
-    // Both role subtrees, at both layouts: the index requires them to exist.
-    for (const sub of [
-      'pharn-pipeline/grillers',
-      'pharn-review',
-      'pharn/pharn-pipeline/grillers',
-      'pharn/pharn-review',
-    ])
-      mkdirSync(join(repo, sub), { recursive: true });
+    // The pharn layout's marker: the manifest declares that layout.
+    mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
   });
 
   it('reads the project and the clone and writes nothing', async () => {
     await fixture();
+    sealRepo(repo);
     const before = [snapshotTree(proj), snapshotTree(repo)];
     plan(config(), { force: true });
     expect([snapshotTree(proj), snapshotTree(repo)]).toEqual(before);
@@ -420,7 +418,7 @@ describe('buildUpdatePlan', () => {
     write(join(repo, FROZEN_FILE), UNPARSABLE);
     const warnings: string[] = [];
     const { report, apply } = buildUpdatePlan({
-      repoDir: repo,
+      repoDir: sealRepo(repo),
       sha: null,
       config: config({ capabilities: [CAP, { ...FROZEN, source: 'auto' }] }),
       cwd: proj,
@@ -438,9 +436,8 @@ describe('buildUpdatePlan', () => {
       expect.objectContaining({
         role: 'griller',
         name: 'backwards-compat',
-        subtree: 'pharn-pipeline/grillers',
-        reason:
-          'backwards-compat has invalid role "bogus" (expected one of griller, lens)',
+        subtree: 'pharn/pharn-pipeline/grillers',
+        reason: expect.stringContaining('"mobile"'),
       }),
     ]);
   });
@@ -476,22 +473,42 @@ describe('buildUpdatePlan', () => {
     expect(report.changesNothing).toBe(false);
   });
 
+  // A fetched clone is always the pharn layout, so the one direction left is a
+  // `flat` install moving to it.
   it('plans the abandoned layout in both directions, only when something would be written', async () => {
     await fixture();
-    write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v2');
-    write(
-      join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'),
-      capDoc('a'),
-    );
-    write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'c');
-    const report = plan(config()).report;
+    const report = plan(config({ layout: 'flat' })).report;
     expect(report.layout).toBe('pharn');
     expect(report.abandonedLayout).toBe('flat');
+    expect(plan(config()).report.abandonedLayout).toBeNull();
+  });
+
+  // An install that recorded the root features/README.md, updated from a clone
+  // whose manifest installs it under pharn/, is told the file moved.
+  it('reports the features/README.md relocation only when the records hold the root copy', async () => {
+    await fixture();
+    write(join(repo, 'pharn/features/README.md'), 'features\n');
+    expect(plan(config()).report.featuresReadmeRelocation).toBe(false);
+
+    write(join(proj, 'features/README.md'), 'features\n');
+    await writeRecords(proj, {
+      skillsVersion: '1.0.0',
+      commit: null,
+      files: {
+        [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
+        [DOC]: contentHash(join(proj, DOC)),
+        'features/README.md': contentHash(join(proj, 'features/README.md')),
+      },
+    });
+    expect(plan(config()).report.featuresReadmeRelocation).toBe(true);
+
+    rmSync(join(repo, 'pharn/features/README.md'));
+    expect(plan(config()).report.featuresReadmeRelocation).toBe(false);
   });
 
   describe('orphans (files upstream stopped shipping)', () => {
     const OLD_CMD = '.claude/commands/pharn-old.md';
-    const OLD_CAP_FILE = 'pharn-pipeline/grillers/a11y/old.md';
+    const OLD_CAP_FILE = 'pharn/pharn-pipeline/grillers/a11y/old.md';
 
     async function withOrphans(cfg = config()): Promise<void> {
       await fixture(cfg);
@@ -764,7 +781,7 @@ describe('buildUpdatePlan', () => {
   // with the files a delete would lose; it deletes nothing itself.
   describe('removals (capabilities dropped from the config)', () => {
     const STALE = { name: 'stale', role: 'lens' as const };
-    const STALE_DIR = 'pharn-review/stale';
+    const STALE_DIR = 'pharn/pharn-review/stale';
     const GONE = { name: 'gone', role: 'lens' as const };
 
     async function withStale(
@@ -774,19 +791,18 @@ describe('buildUpdatePlan', () => {
           { ...STALE, source: 'auto' },
         ],
       }),
+      dir = STALE_DIR,
     ): Promise<PharnConfig> {
       await fixture(cfg);
-      write(join(proj, `${STALE_DIR}/stale.md`), 'stale v1');
-      write(join(proj, `${STALE_DIR}/NOTES.md`), 'my notes');
+      write(join(proj, `${dir}/stale.md`), 'stale v1');
+      write(join(proj, `${dir}/NOTES.md`), 'my notes');
       await writeRecords(proj, {
         skillsVersion: cfg.skillsVersion,
         commit: cfg.commit,
         files: {
           [CAP_FILE]: contentHash(join(proj, CAP_FILE)),
           [DOC]: contentHash(join(proj, DOC)),
-          [`${STALE_DIR}/stale.md`]: contentHash(
-            join(proj, `${STALE_DIR}/stale.md`),
-          ),
+          [`${dir}/stale.md`]: contentHash(join(proj, `${dir}/stale.md`)),
         },
       });
       return cfg;
@@ -816,7 +832,7 @@ describe('buildUpdatePlan', () => {
 
     it('plans a dropped-gone capability (a manual add upstream no longer ships) the same way', async () => {
       await fixture();
-      write(join(proj, 'pharn-review/gone/gone.md'), 'old');
+      write(join(proj, 'pharn/pharn-review/gone/gone.md'), 'old');
       const { report } = plan(
         config({ capabilities: [CAP, { ...GONE, source: 'manual' }] }),
       );
@@ -824,10 +840,10 @@ describe('buildUpdatePlan', () => {
         {
           cap: { ...GONE, source: 'manual' },
           reason: 'dropped-gone',
-          dir: 'pharn-review/gone',
+          dir: 'pharn/pharn-review/gone',
           present: true,
           // No record for it → not provably pharn's → backed up.
-          backups: ['pharn-review/gone/gone.md'],
+          backups: ['pharn/pharn-review/gone/gone.md'],
         },
       ]);
     });
@@ -862,7 +878,10 @@ describe('buildUpdatePlan', () => {
 
     it('reads a path below a regular file as not present, not as an error', async () => {
       await fixture();
-      write(join(proj, 'pharn-review'), 'a file where the subtree would be');
+      write(
+        join(proj, 'pharn/pharn-review'),
+        'a file where the subtree would be',
+      );
       const { report } = plan(
         config({ capabilities: [CAP, { ...STALE, source: 'auto' }] }),
       );
@@ -872,16 +891,21 @@ describe('buildUpdatePlan', () => {
     });
 
     it('addresses the directory at the layout the CONFIG recorded, not the clone’s', async () => {
-      const cfg = await withStale();
-      write(join(repo, 'pharn/CONSTITUTION.md'), 'constitution v2');
-      write(
-        join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'),
-        capDoc('a'),
+      // A `flat` install (its stale lens at the root) updated from a clone,
+      // which is always the pharn layout.
+      const cfg = await withStale(
+        config({
+          layout: 'flat',
+          capabilities: [
+            { ...CAP, source: 'auto' },
+            { ...STALE, source: 'auto' },
+          ],
+        }),
+        'pharn-review/stale',
       );
-      write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'c');
       const { report, apply } = plan(cfg);
       expect(report.layout).toBe('pharn');
-      expect(report.removals[0]!.dir).toBe(STALE_DIR);
+      expect(report.removals[0]!.dir).toBe('pharn-review/stale');
       expect(apply.removalPaths.lenses).toBe('pharn-review');
     });
 
@@ -916,6 +940,7 @@ describe('buildUpdatePlan', () => {
       );
       const outside = join(tmp.path(), 'outside');
       write(join(outside, 'pharn-review/stale/stale.md'), 'not ours');
+      rmSync(join(proj, 'pharn'), { recursive: true });
       symlinkSync(outside, join(proj, 'pharn'));
       expect(() => plan(cfg)).toThrow(CapabilityRemovalError);
       expect(() => plan(cfg)).toThrow(/pharn is a symbolic link/);

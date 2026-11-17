@@ -48,9 +48,12 @@ const bump = (): void => serveTip(SHA_V2, '1.1.0');
 const tooOld = (): void => {
   upstream.tree.MIN_CLI = '99.0.0\n';
 };
-// A clone missing a whole capability subtree: the planner THROWS.
-const brokenClone = (): void => {
-  delete upstream.tree['pharn/pharn-review/n-plus-one/n-plus-one.md'];
+// A pharn-oss without pharn-install.json (older than 7.21.0): the download
+// lands, then the fetch THROWS before any command reads the tree. Every later
+// read goes through that verified manifest, so this is the throw left after
+// the download.
+const manifestLess = (): void => {
+  upstream.seal = false;
 };
 
 interface Case {
@@ -119,18 +122,18 @@ const cases: Case[] = [
     code: 0,
   },
   {
-    name: 'update --dry-run --json: a planner that throws',
+    name: 'update --dry-run --json: a fetch refused for a missing pharn-install.json',
     setup: () => {
       bump();
-      brokenClone();
+      manifestLess();
     },
     command: () => runUpdate({ dryRun: true, json: true }),
     code: 1,
     hint: true,
   },
   {
-    name: 'status: a drift check that throws',
-    setup: brokenClone,
+    name: 'status: a fetch refused for a missing pharn-install.json',
+    setup: manifestLess,
     command: () => runStatus({ drift: true }),
     code: 1,
     hint: true,

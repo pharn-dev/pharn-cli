@@ -20,24 +20,34 @@ import {
   upstreamSettingsCopyable,
 } from '../src/lib/install-capabilities.js';
 import { collectExpectedInstallPaths } from '../src/lib/install-manifest.js';
+import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 import { ApplyError } from '../src/lib/apply-update.js';
 import type { InstalledCapability, Selection } from '../src/types.js';
+import { sealRepo } from './support/harness.js';
 
 function write(path: string, content = 'x'): void {
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, content);
 }
 
-// A fake fetched pharn-oss clone with the full product + dev surface, so the
-// copy's dev-only exclusions can be asserted.
+// A fake fetched pharn-oss clone with the full product + dev surface, sealed
+// with the pharn-install.json that declares it (tests/support/harness.ts), so
+// the copy's dev-only exclusions can be asserted. A test that changes the
+// tree re-seals it (`sealRepo` again) unless it means the manifest to differ.
 function scaffoldRepo(repo: string): void {
   // capabilities (grillers + lenses)
-  write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'), 'a11y');
-  write(join(repo, 'pharn-pipeline/grillers/a11y/evals/cases/c.md'), 'case');
-  write(join(repo, 'pharn-pipeline/grillers/security/security.md'), 'sec');
-  write(join(repo, 'pharn-review/n-plus-one/n-plus-one.md'), 'npo');
-  write(join(repo, 'pharn-review/trust-fence/trust-fence.md'), 'tf');
+  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a11y');
+  write(
+    join(repo, 'pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md'),
+    'case',
+  );
+  write(
+    join(repo, 'pharn/pharn-pipeline/grillers/security/security.md'),
+    'sec',
+  );
+  write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'), 'npo');
+  write(join(repo, 'pharn/pharn-review/trust-fence/trust-fence.md'), 'tf');
   // product + dev commands
   write(join(repo, '.claude/commands/pharn-plan.md'), 'plan');
   write(join(repo, '.claude/commands/pharn-ship.md'), 'ship');
@@ -52,41 +62,20 @@ function scaffoldRepo(repo: string): void {
   // settings
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
   // trusted docs
-  write(join(repo, 'CONSTITUTION.md'), 'C');
-  write(join(repo, 'ARCHITECTURE.md'), 'A');
-  write(join(repo, 'THREAT-MODEL.md'), 'T');
-  write(join(repo, 'LIMITS.md'), 'L');
-  write(join(repo, 'features/README.md'), 'FEATURES');
+  write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
+  write(join(repo, 'pharn/ARCHITECTURE.md'), 'A');
+  write(join(repo, 'pharn/THREAT-MODEL.md'), 'T');
+  write(join(repo, 'pharn/LIMITS.md'), 'L');
+  write(join(repo, 'pharn/features/README.md'), 'FEATURES');
   write(join(repo, 'LICENSE'), 'APACHE-2.0 UPSTREAM');
-  // contracts
-  write(join(repo, 'pharn-contracts/finding-shape.md'), 'fs');
+  // contracts (the layout marker)
+  write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
   // floor (+ tests, dev-only) + dev-only trees
-  write(join(repo, '.dev/floor/validate.mjs'), 'floor');
-  write(join(repo, '.dev/floor/validate.test.mjs'), 'FLOORTEST');
-  // Dev test apparatus: fixture skills + structural pairs, read only by the
-  // *.test.mjs above. Must not reach a user project.
-  write(
-    join(repo, '.dev/floor/test-fixtures/red/skill.md'),
-    'DELIBERATELY RED',
-  );
-  write(
-    join(repo, '.dev/floor/test-fixtures/structural/red-1.expected.json'),
-    '{}',
-  );
-  // A near-miss: SEGMENT match, not substring — this one must survive.
-  write(join(repo, '.dev/floor/my-test-fixtures.mjs'), 'KEEP ME');
-  // pharn-oss's second test-apparatus dir: cost-ledger transcripts read only by
-  // *.test.mjs. Excluded like test-fixtures/, with the same near-miss and the
-  // same floor-root anchoring (a NESTED dir of either name is kept).
-  write(
-    join(repo, '.dev/floor/fixtures/cost-ledger/single-session.jsonl'),
-    'TRANSCRIPT',
-  );
-  write(join(repo, '.dev/floor/my-fixtures.mjs'), 'KEEP ME TOO');
-  write(join(repo, '.dev/floor/lib/fixtures/keep.json'), 'NESTED');
-  write(join(repo, '.dev/floor/lib/test-fixtures/keep.json'), 'NESTED');
+  write(join(repo, 'pharn/floor/validate.mjs'), 'floor');
+  write(join(repo, 'pharn/floor/validate.test.mjs'), 'FLOORTEST');
   write(join(repo, '.dev/features/some-feature/PLAN.md'), 'DEVPLAN');
   write(join(repo, '.dev/memory-bank/lessons-learned.md'), 'DEVMB');
+  sealRepo(repo);
 }
 
 function selection(): Selection {
@@ -130,14 +119,14 @@ describe('installCapabilities', () => {
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
     const dests = [
-      'pharn-pipeline/grillers/a11y/a11y.md',
+      'pharn/pharn-pipeline/grillers/a11y/a11y.md',
       '.claude/commands/pharn-plan.md',
       '.claude/hooks/set-writes-scope.cjs',
-      'CONSTITUTION.md',
-      'PHARN-LICENSE',
-      'features/README.md',
-      'pharn-contracts/finding-shape.md',
-      '.dev/floor/validate.mjs',
+      'pharn/CONSTITUTION.md',
+      'pharn/LICENSE',
+      'pharn/features/README.md',
+      'pharn/pharn-contracts/finding-shape.md',
+      'pharn/floor/validate.mjs',
     ];
     const outside = join(tmp.path(), 'outside');
     mkdirSync(outside, { recursive: true });
@@ -160,31 +149,35 @@ describe('installCapabilities', () => {
 
   it('copies the SELECTED capabilities (whole dir, incl. evals) and no others', () => {
     const { proj } = run();
-    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
-      true,
-    );
     expect(
-      existsSync(join(proj, 'pharn-pipeline/grillers/a11y/evals/cases/c.md')),
+      existsSync(join(proj, 'pharn/pharn-pipeline/grillers/a11y/a11y.md')),
     ).toBe(true);
     expect(
-      existsSync(join(proj, 'pharn-review/n-plus-one/n-plus-one.md')),
+      existsSync(
+        join(proj, 'pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md'),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(join(proj, 'pharn/pharn-review/n-plus-one/n-plus-one.md')),
     ).toBe(true);
     // security griller was skipped → never copied.
-    expect(existsSync(join(proj, 'pharn-pipeline/grillers/security'))).toBe(
+    expect(
+      existsSync(join(proj, 'pharn/pharn-pipeline/grillers/security')),
+    ).toBe(false);
+    // trust-fence lens was not in the selection → never copied.
+    expect(existsSync(join(proj, 'pharn/pharn-review/trust-fence'))).toBe(
       false,
     );
-    // trust-fence lens was not in the selection → never copied.
-    expect(existsSync(join(proj, 'pharn-review/trust-fence'))).toBe(false);
   });
 
-  it('returns the copied capability list (name + role) and records layout: flat', () => {
+  it('returns the copied capability list (name + role) and records layout: pharn', () => {
     const { result } = run();
     expect(result.capabilities).toEqual([
       { name: 'a11y', role: 'griller' },
       { name: 'n-plus-one', role: 'lens' },
     ]);
-    // A flat clone (no pharn/pharn-contracts marker) → the legacy layout (P7).
-    expect(result.layout).toBe('flat');
+    // The manifest declares the one layout there is.
+    expect(result.layout).toBe('pharn');
   });
 
   it('copies product pharn-*.md commands but EXCLUDES pharn-dev-*.md and non-pharn files', () => {
@@ -221,34 +214,23 @@ describe('installCapabilities', () => {
   it('copies the trusted docs and pharn-contracts', () => {
     const { proj } = run();
     for (const doc of [
-      'CONSTITUTION.md',
-      'ARCHITECTURE.md',
-      'THREAT-MODEL.md',
-      'LIMITS.md',
+      'pharn/CONSTITUTION.md',
+      'pharn/ARCHITECTURE.md',
+      'pharn/THREAT-MODEL.md',
+      'pharn/LIMITS.md',
     ]) {
       expect(existsSync(join(proj, doc))).toBe(true);
     }
-    expect(existsSync(join(proj, 'pharn-contracts/finding-shape.md'))).toBe(
-      true,
-    );
-  });
-
-  // The flat `core` path is resolved for interface uniformity only: no flat clone
-  // upstream ships a root pharn-core/ (the dir postdates the pharn/ relocation),
-  // so the copy site sees existsSync false and no-ops. Nothing is written, and
-  // nothing throws — a flat install is byte-for-byte what it was before (P7).
-  it('writes NO pharn-core for a flat clone that has none (tolerant no-op)', () => {
-    const { proj } = run();
-    expect(existsSync(join(proj, 'pharn-core'))).toBe(false);
-    expect(existsSync(join(proj, 'pharn/pharn-core'))).toBe(false);
+    expect(
+      existsSync(join(proj, 'pharn/pharn-contracts/finding-shape.md')),
+    ).toBe(true);
   });
 
   it('copies .dev/floor checkers but EXCLUDES *.test.mjs, .dev/features and .dev/memory-bank', () => {
     const { proj } = run();
-    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
-    expect(existsSync(join(proj, '.dev/floor/validate.test.mjs'))).toBe(false);
-    expect(existsSync(join(proj, '.dev/features'))).toBe(false);
-    expect(existsSync(join(proj, '.dev/memory-bank'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/floor/validate.mjs'))).toBe(true);
+    expect(existsSync(join(proj, 'pharn/floor/validate.test.mjs'))).toBe(false);
+    expect(existsSync(join(proj, '.dev'))).toBe(false);
   });
 
   it('copies settings.json into a fresh project (settingsPreserved false, settingsWritten true)', () => {
@@ -265,6 +247,7 @@ describe('installCapabilities', () => {
     mkdirSync(proj, { recursive: true });
     scaffoldRepo(repo);
     rmSync(join(repo, '.claude/settings.json'));
+    sealRepo(repo);
     expect(upstreamSettingsCopyable(repo)).toBe(false);
     const result = installCapabilities(repo, proj, selection());
     expect(result.settingsPreserved).toBe(false);
@@ -313,29 +296,29 @@ describe('installCapabilities', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
-    write(join(proj, 'CONSTITUTION.md'), 'edited after the scan');
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'edited after the scan');
 
     const result = installCapabilities(
       repo,
       proj,
       selection(),
       undefined,
-      new Map([['CONSTITUTION.md', null]]),
+      new Map([['pharn/CONSTITUTION.md', null]]),
     );
 
-    expect(result.docs).toContain('CONSTITUTION.md');
-    expect(readFileSync(join(proj, 'CONSTITUTION.md'), 'utf8')).toBe('C');
+    expect(result.docs).toContain('pharn/CONSTITUTION.md');
+    expect(readFileSync(join(proj, 'pharn/CONSTITUTION.md'), 'utf8')).toBe('C');
     const backups = readdirSync(join(proj, 'pharn/.backup'));
     expect(backups).toHaveLength(1);
     expect(
       readFileSync(
-        join(proj, 'pharn/.backup', backups[0]!, 'CONSTITUTION.md'),
+        join(proj, 'pharn/.backup', backups[0]!, 'pharn/CONSTITUTION.md'),
         'utf8',
       ),
     ).toBe('edited after the scan');
   });
 
-  // The changed-file backup failing (here: `pharn` is a symlink, which
+  // The changed-file backup failing (here: `pharn/.backup` is a symlink, which
   // createBackup refuses) still names the files the first pass wrote.
   it('a failed changed-file backup names the files already written', () => {
     const repo = join(tmp.path(), 'repo');
@@ -343,8 +326,8 @@ describe('installCapabilities', () => {
     const outside = join(tmp.path(), 'outside');
     scaffoldRepo(repo);
     mkdirSync(outside, { recursive: true });
-    write(join(proj, 'CONSTITUTION.md'), 'edited after the scan');
-    symlinkSync(outside, join(proj, 'pharn'));
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'edited after the scan');
+    symlinkSync(outside, join(proj, 'pharn/.backup'));
 
     let caught: unknown;
     try {
@@ -353,7 +336,7 @@ describe('installCapabilities', () => {
         proj,
         selection(),
         undefined,
-        new Map([['CONSTITUTION.md', null]]),
+        new Map([['pharn/CONSTITUTION.md', null]]),
       );
     } catch (err) {
       caught = err;
@@ -361,10 +344,12 @@ describe('installCapabilities', () => {
 
     expect(caught).toBeInstanceOf(ApplyError);
     const { message, written } = caught as ApplyError;
-    expect(message).toMatch(/^pharn is a symlink; refusing to write backups/);
+    expect(message).toMatch(
+      /^pharn\/\.backup is a symlink; refusing to write backups/,
+    );
     expect(message).toContain('were written before the failure');
-    expect(written).toContain('ARCHITECTURE.md');
-    expect(readFileSync(join(proj, 'CONSTITUTION.md'), 'utf8')).toBe(
+    expect(written).toContain('pharn/ARCHITECTURE.md');
+    expect(readFileSync(join(proj, 'pharn/CONSTITUTION.md'), 'utf8')).toBe(
       'edited after the scan',
     );
     expect(readdirSync(outside)).toEqual([]);
@@ -373,13 +358,12 @@ describe('installCapabilities', () => {
   // The manifest init computed, plus one LAST entry whose clone source is gone
   // by the time it is written: a real writer failure (ENOENT on the read) that
   // happens for every user, root included, after every other file landed.
-  const LATE = 'pharn-contracts/zz-late.md';
+  const LATE = 'pharn/pharn-contracts/zz-late.md';
   function manifestWithVanishedSource(repo: string): Map<string, string> {
     return new Map([
       ...collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: selection().selected,
-        layout: 'flat',
       }),
       [LATE, join(repo, 'vanished-since-the-plan.md')],
     ]);
@@ -426,6 +410,7 @@ describe('installCapabilities', () => {
     scaffoldRepo(repo);
     rmSync(join(repo, '.claude/commands'), { recursive: true });
     rmSync(join(repo, '.claude/hooks'), { recursive: true });
+    sealRepo(repo);
     write(join(proj, '.claude'), 'a regular file where a directory goes');
 
     const { written, message } = thrown(() =>
@@ -433,8 +418,8 @@ describe('installCapabilities', () => {
     );
 
     expect(message).toContain('were written before the failure');
-    expect(written).toContain('CONSTITUTION.md');
-    expect(written).toContain('.dev/floor/validate.mjs');
+    expect(written).toContain('pharn/CONSTITUTION.md');
+    expect(written).toContain('pharn/floor/validate.mjs');
     expect(readFileSync(join(proj, '.claude'), 'utf8')).toBe(
       'a regular file where a directory goes',
     );
@@ -442,7 +427,8 @@ describe('installCapabilities', () => {
 
   // Only EEXIST means "the user's file is there"; any other copy error is a
   // failure, named with the files before it. Here the clone's settings.json is
-  // a DIRECTORY, which the exclusive copy cannot copy on any OS, as any user.
+  // a DIRECTORY (swapped in after the seal, which declared the file), which the
+  // exclusive copy cannot copy on any OS, as any user.
   it('a settings.json copy error other than EEXIST is a failure, not "preserved"', () => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -526,30 +512,23 @@ describe('installCapabilities', () => {
     );
   });
 
-  it('installs features/README.md at the project root (flat layout)', () => {
-    const { proj } = run();
-    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
-      'FEATURES',
-    );
-  });
-
   it('installs cleanly from a clone WITHOUT features/README.md, and expects it not at all', () => {
     const repo = join(tmp.path(), 'no-features-repo');
     const proj = join(tmp.path(), 'no-features-proj');
     mkdirSync(proj, { recursive: true });
     scaffoldRepo(repo);
-    rmSync(join(repo, 'features/README.md'));
+    rmSync(join(repo, 'pharn/features/README.md'));
+    sealRepo(repo);
 
     expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
-    expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/features/README.md'))).toBe(false);
     const keys = [
       ...collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: selection().selected,
-        layout: 'flat',
       }).keys(),
     ];
-    expect(keys).not.toContain('features/README.md');
+    expect(keys).not.toContain('pharn/features/README.md');
   });
 
   // The mirror image of the source case, and equally measured: a PROJECT whose
@@ -564,16 +543,16 @@ describe('installCapabilities', () => {
     const proj = join(tmp.path(), 'destlink-proj');
     const outside = join(tmp.path(), 'outside-dest');
     mkdirSync(outside, { recursive: true });
-    mkdirSync(proj, { recursive: true });
+    mkdirSync(join(proj, 'pharn'), { recursive: true });
     scaffoldRepo(repo);
-    symlinkSync(outside, join(proj, 'features'));
+    symlinkSync(outside, join(proj, 'pharn/features'));
 
     expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      /Refusing to install: features is a symbolic link/,
+      /Refusing to install: pharn\/features is a symbolic link/,
     );
 
     expect(existsSync(join(outside, 'README.md'))).toBe(false);
-    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(false);
   });
 
   // ORDER: the file is OPTIONAL, so a clone without it must never reach the
@@ -583,18 +562,18 @@ describe('installCapabilities', () => {
   it('does not fail init when the clone lacks the file and the project has a FILE named features', () => {
     const repo = join(tmp.path(), 'nofeat-repo');
     const proj = join(tmp.path(), 'nofeat-proj');
-    mkdirSync(proj, { recursive: true });
     scaffoldRepo(repo);
-    rmSync(join(repo, 'features/README.md'));
-    write(join(proj, 'features'), 'a regular file, not a directory');
+    rmSync(join(repo, 'pharn/features/README.md'));
+    sealRepo(repo);
+    write(join(proj, 'pharn/features'), 'a regular file, not a directory');
 
     expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
     // The user's file is left exactly as it was.
-    expect(readFileSync(join(proj, 'features'), 'utf8')).toBe(
+    expect(readFileSync(join(proj, 'pharn/features'), 'utf8')).toBe(
       'a regular file, not a directory',
     );
     // The rest of the install still happened.
-    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(true);
+    expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(true);
   });
 
   // Same shape with the source PRESENT: the README is a manifest entry like any
@@ -603,68 +582,21 @@ describe('installCapabilities', () => {
   it('refuses, writing nothing, when the project has a FILE named features', () => {
     const repo = join(tmp.path(), 'filefeat-repo');
     const proj = join(tmp.path(), 'filefeat-proj');
-    mkdirSync(proj, { recursive: true });
     scaffoldRepo(repo);
-    write(join(proj, 'features'), 'a regular file');
+    write(join(proj, 'pharn/features'), 'a regular file');
 
     expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      /Refusing to install: features is in the way.*Move or rename it/,
+      /Refusing to install: pharn\/features is in the way.*Move or rename it/,
     );
-    expect(readFileSync(join(proj, 'features'), 'utf8')).toBe('a regular file');
-    expect(readdirSync(proj)).toEqual(['features']);
-  });
-
-  // The floor ships the deterministic checkers the installed product commands
-  // invoke — but NOT its test apparatus, whose only readers are the *.test.mjs
-  // files already excluded. A user browsing an installed floor should not find a
-  // deliberately-malformed capability and a pile of red failure fixtures.
-  it('does NOT install the floor test-fixtures subtree', () => {
-    const { proj } = run();
-    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
-    expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
-    expect(
-      existsSync(join(proj, '.dev/floor/test-fixtures/red/skill.md')),
-    ).toBe(false);
-  });
-
-  it('does NOT install the floor fixtures/ subtree', () => {
-    const { proj } = run();
-    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
-    expect(existsSync(join(proj, '.dev/floor/fixtures'))).toBe(false);
-    expect(readFileSync(join(proj, '.dev/floor/my-fixtures.mjs'), 'utf8')).toBe(
-      'KEEP ME TOO',
+    expect(readFileSync(join(proj, 'pharn/features'), 'utf8')).toBe(
+      'a regular file',
     );
+    expect(readdirSync(proj)).toEqual(['pharn']);
+    expect(readdirSync(join(proj, 'pharn'))).toEqual(['features']);
   });
 
-  // Anchored at the floor root: only its DIRECT child of either name is test
-  // apparatus. A deeper dir of that name is ordinary floor content and is kept —
-  // the same for both names.
-  it('keeps a NESTED fixtures/ and test-fixtures/ dir', () => {
-    const { proj } = run();
-    expect(
-      readFileSync(join(proj, '.dev/floor/lib/fixtures/keep.json'), 'utf8'),
-    ).toBe('NESTED');
-    expect(
-      readFileSync(
-        join(proj, '.dev/floor/lib/test-fixtures/keep.json'),
-        'utf8',
-      ),
-    ).toBe('NESTED');
-  });
-
-  // SEGMENT, not substring. The scaffold's `my-test-fixtures.mjs` sits beside
-  // the fixtures dir and must survive.
-  it('still installs a floor file whose NAME merely contains test-fixtures', () => {
-    const { proj } = run();
-    expect(
-      readFileSync(join(proj, '.dev/floor/my-test-fixtures.mjs'), 'utf8'),
-    ).toBe('KEEP ME');
-  });
-
-  // THE ANCHOR CASE. The floor filter must test the FLOOR-relative path: one
-  // that matched a segment of the absolute path would hit an ANCESTOR directory
-  // named `test-fixtures` and drop every floor file — silently shipping no
-  // floor at all. The failure is invisible without this.
+  // Every path is the manifest's, relative to the clone: an ANCESTOR directory
+  // of the clone named like floor test apparatus changes nothing.
   it('installs the whole floor even when an ANCESTOR dir is named test-fixtures', () => {
     const repo = join(tmp.path(), 'test-fixtures', 'repo');
     const proj = join(tmp.path(), 'test-fixtures', 'proj');
@@ -673,12 +605,9 @@ describe('installCapabilities', () => {
 
     installCapabilities(repo, proj, selection());
 
-    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
-    expect(
-      readFileSync(join(proj, '.dev/floor/my-test-fixtures.mjs'), 'utf8'),
-    ).toBe('KEEP ME');
-    // …and the real subtree is still excluded under that ancestor.
-    expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
+    expect(readFileSync(join(proj, 'pharn/floor/validate.mjs'), 'utf8')).toBe(
+      'floor',
+    );
   });
 
   it('installs the whole floor even when an ANCESTOR dir is named fixtures', () => {
@@ -689,20 +618,8 @@ describe('installCapabilities', () => {
 
     installCapabilities(repo, proj, selection());
 
-    expect(existsSync(join(proj, '.dev/floor/validate.mjs'))).toBe(true);
-    expect(readFileSync(join(proj, '.dev/floor/my-fixtures.mjs'), 'utf8')).toBe(
-      'KEEP ME TOO',
-    );
-    expect(existsSync(join(proj, '.dev/floor/fixtures'))).toBe(false);
-    expect(existsSync(join(proj, '.dev/floor/test-fixtures'))).toBe(false);
-  });
-
-  // Apache-2.0 §4(a): a redistributor must give recipients a copy of the license,
-  // and a published pharn-initialized repo redistributes ~450 Apache-2.0 files.
-  it('installs upstream LICENSE as PHARN-LICENSE (flat)', () => {
-    const { proj } = run();
-    expect(readFileSync(join(proj, 'PHARN-LICENSE'), 'utf8')).toBe(
-      'APACHE-2.0 UPSTREAM',
+    expect(readFileSync(join(proj, 'pharn/floor/validate.mjs'), 'utf8')).toBe(
+      'floor',
     );
   });
 
@@ -722,7 +639,7 @@ describe('installCapabilities', () => {
       'THE USER OWN LICENSE — DO NOT TOUCH',
     );
     // …and upstream's landed beside it, under pharn's own name.
-    expect(readFileSync(join(proj, 'PHARN-LICENSE'), 'utf8')).toBe(
+    expect(readFileSync(join(proj, 'pharn/LICENSE'), 'utf8')).toBe(
       'APACHE-2.0 UPSTREAM',
     );
   });
@@ -733,9 +650,10 @@ describe('installCapabilities', () => {
     mkdirSync(proj, { recursive: true });
     scaffoldRepo(repo);
     rmSync(join(repo, 'LICENSE'));
+    sealRepo(repo);
 
     expect(() => installCapabilities(repo, proj, selection())).not.toThrow();
-    expect(existsSync(join(proj, 'PHARN-LICENSE'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/LICENSE'))).toBe(false);
   });
 });
 
@@ -752,14 +670,14 @@ describe('installCapabilityDirs', () => {
     const result = installCapabilityDirs(repo, proj, caps);
 
     expect(result).toEqual([{ name: 'a11y', role: 'griller' }]);
-    expect(existsSync(join(proj, 'pharn-pipeline/grillers/a11y/a11y.md'))).toBe(
-      true,
-    );
+    expect(
+      existsSync(join(proj, 'pharn/pharn-pipeline/grillers/a11y/a11y.md')),
+    ).toBe(true);
     // The focused primitive copies NO product surfaces.
     expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(
       false,
     );
-    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(false);
   });
 
   it('rejects a name that escapes the base (P2 safeJoin)', () => {
@@ -778,11 +696,9 @@ describe('installCapabilityDirs', () => {
 describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
   const tmp = useTmpDir();
 
-  // A fetched clone in the new pharn/ single-install layout: runtime surfaces
-  // under pharn/, .claude/* at root. All four trusted docs live under pharn/ and
-  // are installed there; the ROOT copies below are the dev repo's own and must
-  // never reach the project. The pharn/pharn-contracts dir is the detection
-  // marker.
+  // A fetched clone in the pharn/ single-install layout: runtime surfaces under
+  // pharn/, .claude/* at root, all four trusted docs under pharn/. The
+  // pharn/pharn-contracts dir is the layout marker the manifest names.
   function scaffoldRepoPharn(repo: string): void {
     write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'), 'a11y');
     write(
@@ -797,20 +713,11 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
     write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
     write(join(repo, 'pharn/ARCHITECTURE.md'), 'A');
+    write(join(repo, 'pharn/THREAT-MODEL.md'), 'T');
+    write(join(repo, 'pharn/LIMITS.md'), 'L');
     write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
     write(join(repo, 'pharn/floor/validate.mjs'), 'floor');
     write(join(repo, 'pharn/floor/validate.test.mjs'), 'FLOORTEST');
-    write(
-      join(repo, 'pharn/floor/test-fixtures/red/skill.md'),
-      'DELIBERATELY RED',
-    );
-    write(join(repo, 'pharn/floor/my-test-fixtures.mjs'), 'KEEP ME');
-    write(
-      join(repo, 'pharn/floor/fixtures/cost-ledger/single-session.jsonl'),
-      'TRANSCRIPT',
-    );
-    write(join(repo, 'pharn/floor/my-fixtures.mjs'), 'KEEP ME TOO');
-    write(join(repo, 'pharn/floor/lib/fixtures/keep.json'), 'NESTED');
     // pharn-core: the fixed skill surface the installed /pharn-build cites
     // (seam-resolver + its evals). Copied whole, like pharn-contracts.
     write(join(repo, 'pharn/pharn-core/seam-resolver/seam-resolver.md'), 'sr');
@@ -822,20 +729,12 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
       join(repo, 'pharn/pharn-core/seam-resolver/evals/expected/resolve.md'),
       'expected',
     );
-    // Root in BOTH layouts, like .claude/* — upstream keeps features/ at the
-    // repo root even in a pharn-layout tree.
     write(join(repo, 'pharn/features/README.md'), 'FEATURES');
     write(join(repo, 'LICENSE'), 'APACHE-2.0 UPSTREAM');
-    // THE TWO DOCS UPSTREAM KEEPS AT THE ROOT. pharn-oss's relocation moved
-    // CONSTITUTION + ARCHITECTURE under pharn/ and left these two behind; there
-    // is no `pharn/THREAT-MODEL.md` or `pharn/LIMITS.md` anywhere in its history,
-    // so this scaffold deliberately does not invent one. Bytes differ from the
-    // pharn/ docs above so a passing assertion cannot be passing on ambiguity.
-    write(join(repo, 'THREAT-MODEL.md'), 'T');
-    write(join(repo, 'LIMITS.md'), 'L');
     // Genuinely dev-only roots, which the install must leave behind.
     write(join(repo, '.dev/features/x/PLAN.md'), 'DEVPLAN');
     write(join(repo, '.dev/memory-bank/lessons-learned.md'), 'DEVMEM');
+    sealRepo(repo);
   }
 
   function run(): { repo: string; proj: string } {
@@ -874,24 +773,6 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(existsSync(join(proj, 'pharn/ARCHITECTURE.md'))).toBe(true);
   });
 
-  // THE REGRESSION. Measured over one real install of pharn-oss@main: 108 of the
-  // copied files cite these two docs, always by their BARE name (118x / 68x, and
-  // 0x with a pharn/ prefix) — the form an agent resolves against the project
-  // root. The install shipped none of them, because the constant named
-  // `pharn/THREAT-MODEL.md` / `pharn/LIMITS.md` and both readers are
-  // existence-guarded, so 108 files landed citing files that were never written.
-  //
-  // Fails against the old constant twice over: it wrote to the pharn/ paths, and
-  // this scaffold no longer contains a pharn/ source for it to read.
-  it('installs THREAT-MODEL.md and LIMITS.md at the project ROOT, from the clone root', () => {
-    const { proj } = run();
-    expect(readFileSync(join(proj, 'THREAT-MODEL.md'), 'utf8')).toBe('T');
-    expect(readFileSync(join(proj, 'LIMITS.md'), 'utf8')).toBe('L');
-    // The dead paths are not resurrected.
-    expect(existsSync(join(proj, 'pharn/THREAT-MODEL.md'))).toBe(false);
-    expect(existsSync(join(proj, 'pharn/LIMITS.md'))).toBe(false);
-  });
-
   // The outro's claim surface: what it reports is what the copy branch actually
   // wrote, in paths.docs order — not the expected list, and not a count.
   it('reports the four docs it wrote, at their per-doc paths', () => {
@@ -902,8 +783,8 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(installCapabilities(repo, proj, selection()).docs).toEqual([
       'pharn/CONSTITUTION.md',
       'pharn/ARCHITECTURE.md',
-      'THREAT-MODEL.md',
-      'LIMITS.md',
+      'pharn/THREAT-MODEL.md',
+      'pharn/LIMITS.md',
     ]);
   });
 
@@ -929,36 +810,14 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
 
   it('leaks no flat-layout RUNTIME surface to the project root', () => {
     const { proj } = run();
-    // The root docs are the exception and have their own case above: they are at
-    // the project root because that is where upstream keeps them, not leakage.
-    // Everything else a flat install would put at the root must be under pharn/.
     expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
     expect(existsSync(join(proj, 'ARCHITECTURE.md'))).toBe(false);
+    expect(existsSync(join(proj, 'THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(join(proj, 'LIMITS.md'))).toBe(false);
     expect(existsSync(join(proj, 'pharn-contracts'))).toBe(false);
     expect(existsSync(join(proj, 'pharn-pipeline'))).toBe(false);
     expect(existsSync(join(proj, 'pharn-review'))).toBe(false);
     expect(existsSync(join(proj, '.dev'))).toBe(false);
-  });
-
-  it('does NOT install the floor test-fixtures subtree (pharn layout)', () => {
-    const { proj } = run();
-    expect(existsSync(join(proj, 'pharn/floor/validate.mjs'))).toBe(true);
-    expect(existsSync(join(proj, 'pharn/floor/test-fixtures'))).toBe(false);
-    expect(
-      readFileSync(join(proj, 'pharn/floor/my-test-fixtures.mjs'), 'utf8'),
-    ).toBe('KEEP ME');
-  });
-
-  it('does NOT install the floor fixtures/ subtree (pharn layout)', () => {
-    const { proj } = run();
-    expect(existsSync(join(proj, 'pharn/floor/validate.mjs'))).toBe(true);
-    expect(existsSync(join(proj, 'pharn/floor/fixtures'))).toBe(false);
-    expect(
-      readFileSync(join(proj, 'pharn/floor/my-fixtures.mjs'), 'utf8'),
-    ).toBe('KEEP ME TOO');
-    expect(
-      readFileSync(join(proj, 'pharn/floor/lib/fixtures/keep.json'), 'utf8'),
-    ).toBe('NESTED');
   });
 
   it('installs upstream LICENSE as pharn/LICENSE (pharn layout)', () => {
@@ -979,38 +838,22 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
     expect(existsSync(join(proj, 'features/README.md'))).toBe(false);
   });
 
-  it('installs at the project root when the clone predates the relocation (C2b window)', () => {
-    const repo = join(tmp.path(), 'pre-reloc-repo');
-    const proj = join(tmp.path(), 'pre-reloc-proj');
-    mkdirSync(proj, { recursive: true });
-    scaffoldRepoPharn(repo);
-    rmSync(join(repo, 'pharn/features/README.md'));
-    write(join(repo, 'features/README.md'), 'LEGACY');
-
-    installCapabilities(repo, proj, selection());
-    expect(readFileSync(join(proj, 'features/README.md'), 'utf8')).toBe(
-      'LEGACY',
-    );
-    expect(existsSync(join(proj, 'pharn/features/README.md'))).toBe(false);
-  });
-
-  // THE P7 PIN. A clone that predates a doc must still install cleanly and the
-  // manifest must simply omit it — which is what makes naming a doc the CLI's
-  // promise about WHERE upstream puts it, not a requirement that it exists yet.
-  // The guard is deliberate; only its SILENCE was the defect, and the outro's
-  // warn (steps/install-archetype.ts) is what ends that.
+  // THE P7 PIN. A manifest that does not declare a doc must still install
+  // cleanly and the install set must simply omit it — the outro's warn
+  // (steps/install-archetype.ts) is what keeps the absence from being silent.
   it('installs cleanly from a clone that ships neither root doc, and expects neither', () => {
     const repo = join(tmp.path(), 'old-repo');
     const proj = join(tmp.path(), 'old-proj');
     mkdirSync(proj, { recursive: true });
     scaffoldRepoPharn(repo);
-    rmSync(join(repo, 'THREAT-MODEL.md'));
-    rmSync(join(repo, 'LIMITS.md'));
+    rmSync(join(repo, 'pharn/THREAT-MODEL.md'));
+    rmSync(join(repo, 'pharn/LIMITS.md'));
+    sealRepo(repo);
 
     const result = installCapabilities(repo, proj, selection());
     expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(true);
-    expect(existsSync(join(proj, 'THREAT-MODEL.md'))).toBe(false);
-    expect(existsSync(join(proj, 'LIMITS.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/THREAT-MODEL.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/LIMITS.md'))).toBe(false);
     // What the caller reports is the SHORTER list — the absence is visible.
     expect(result.docs).toEqual([
       'pharn/CONSTITUTION.md',
@@ -1023,11 +866,10 @@ describe('installCapabilities — pharn/ layout (mirrors PR #86)', () => {
       ...collectExpectedInstallPaths({
         repoDir: repo,
         capabilities: selection().selected,
-        layout: 'pharn',
       }).keys(),
     ];
-    expect(keys).not.toContain('THREAT-MODEL.md');
-    expect(keys).not.toContain('LIMITS.md');
+    expect(keys).not.toContain('pharn/THREAT-MODEL.md');
+    expect(keys).not.toContain('pharn/LIMITS.md');
     expect(keys).toContain('pharn/CONSTITUTION.md');
   });
 
@@ -1071,10 +913,11 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     ['.claude'],
     ['.claude/commands'],
     ['.claude/hooks'],
-    ['pharn-review'],
-    ['pharn-pipeline/grillers/a11y'],
-    ['pharn-contracts'],
-    ['.dev/floor'],
+    ['pharn'],
+    ['pharn/pharn-review'],
+    ['pharn/pharn-pipeline/grillers/a11y'],
+    ['pharn/pharn-contracts'],
+    ['pharn/floor'],
   ])(
     'refuses when %s is a symlink out of the project; nothing written anywhere',
     (link) => {
@@ -1185,14 +1028,15 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     mkdirSync(join(outside, 'lenses'), { recursive: true });
     write(join(outside, 'plan.md'), 'MY PLAN');
     mkdirSync(join(proj, '.claude/commands'), { recursive: true });
-    symlinkSync(join(outside, 'lenses'), join(proj, 'pharn-review'));
+    mkdirSync(join(proj, 'pharn'), { recursive: true });
+    symlinkSync(join(outside, 'lenses'), join(proj, 'pharn/pharn-review'));
     symlinkSync(
       join(outside, 'plan.md'),
       join(proj, '.claude/commands/pharn-plan.md'),
     );
 
     expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      /pharn-review is a symbolic link inside the project.*real directory.*\.claude\/commands\/pharn-plan\.md is a symbolic link where pharn writes a file/,
+      /pharn\/pharn-review is a symbolic link inside the project.*real directory.*\.claude\/commands\/pharn-plan\.md is a symbolic link where pharn writes a file/,
     );
   });
 
@@ -1204,11 +1048,12 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     mkdirSync(join(outside, 'a'), { recursive: true });
     mkdirSync(join(outside, 'b'), { recursive: true });
     mkdirSync(join(proj, '.claude'), { recursive: true });
-    symlinkSync(join(outside, 'a'), join(proj, 'pharn-review'));
+    mkdirSync(join(proj, 'pharn'), { recursive: true });
+    symlinkSync(join(outside, 'a'), join(proj, 'pharn/pharn-review'));
     symlinkSync(join(outside, 'b'), join(proj, '.claude/hooks'));
 
     expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      /\.claude\/hooks, pharn-review are symbolic links/,
+      /\.claude\/hooks, pharn\/pharn-review are symbolic links/,
     );
   });
 
@@ -1220,6 +1065,7 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'), 'npo');
     write(join(repo, 'pharn/pharn-contracts/finding-shape.md'), 'fs');
     write(join(repo, 'pharn/CONSTITUTION.md'), 'C');
+    sealRepo(repo);
     write(join(outside, 'pharn-pipeline/grillers/a11y/a11y.md'), 'TEAM COPY');
     mkdirSync(proj, { recursive: true });
     symlinkSync(outside, join(proj, 'pharn'));
@@ -1242,13 +1088,13 @@ describe('installCapabilities — symlinked destination pre-flight (PHARN-02)', 
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
     mkdirSync(join(proj, '.claude/commands'), { recursive: true });
-    mkdirSync(join(proj, 'pharn-review'), { recursive: true });
+    mkdirSync(join(proj, 'pharn/pharn-review'), { recursive: true });
 
     installCapabilities(repo, proj, selection());
 
     expect(existsSync(join(proj, '.claude/commands/pharn-plan.md'))).toBe(true);
     expect(
-      existsSync(join(proj, 'pharn-review/n-plus-one/n-plus-one.md')),
+      existsSync(join(proj, 'pharn/pharn-review/n-plus-one/n-plus-one.md')),
     ).toBe(true);
   });
 });
@@ -1271,11 +1117,11 @@ describe('installCapabilities — destination type pre-flight (PHARN-16)', () =>
     ['a directory at a file target', '.claude/commands/pharn-plan.md', 'dir'],
     [
       'a directory at a capability file',
-      'pharn-pipeline/grillers/a11y/a11y.md',
+      'pharn/pharn-pipeline/grillers/a11y/a11y.md',
       'dir',
     ],
-    ['a file at a directory component', 'pharn-contracts', 'file'],
-    ['a file at a capability dir', 'pharn-review/n-plus-one', 'file'],
+    ['a file at a directory component', 'pharn/pharn-contracts', 'file'],
+    ['a file at a capability dir', 'pharn/pharn-review/n-plus-one', 'file'],
   ])('refuses %s; nothing written anywhere', (_label, rel, kind) => {
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
@@ -1297,11 +1143,11 @@ describe('installCapabilities — destination type pre-flight (PHARN-16)', () =>
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
-    write(join(proj, 'pharn-review'), 'a file where lenses go');
-    write(join(proj, 'LIMITS.md/inner.txt'), 'a dir where a doc goes');
+    write(join(proj, 'pharn/pharn-review'), 'a file where lenses go');
+    write(join(proj, 'pharn/LIMITS.md/inner.txt'), 'a dir where a doc goes');
 
     expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      /Refusing to install: LIMITS\.md, pharn-review are in the way/,
+      /Refusing to install: pharn\/LIMITS\.md, pharn\/pharn-review are in the way/,
     );
   });
 
@@ -1350,15 +1196,15 @@ describe('installCapabilities — destination type pre-flight (PHARN-16)', () =>
     const repo = join(tmp.path(), 'repo');
     const proj = join(tmp.path(), 'proj');
     scaffoldRepo(repo);
-    write(join(proj, 'features/README.md/keep.txt'), 'USER');
+    write(join(proj, 'pharn/features/README.md/keep.txt'), 'USER');
 
     expect(() => installCapabilities(repo, proj, selection())).toThrow(
-      'Refusing to install: features/README.md is in the way',
+      'Refusing to install: pharn/features/README.md is in the way',
     );
     expect(
-      readFileSync(join(proj, 'features/README.md/keep.txt'), 'utf8'),
+      readFileSync(join(proj, 'pharn/features/README.md/keep.txt'), 'utf8'),
     ).toBe('USER');
-    expect(existsSync(join(proj, 'CONSTITUTION.md'))).toBe(false);
+    expect(existsSync(join(proj, 'pharn/CONSTITUTION.md'))).toBe(false);
   });
 });
 
@@ -1376,14 +1222,13 @@ describe('prepareInstall', () => {
     const prepared = prepareInstall(repo, proj, selection().selected);
 
     expect(readdirSync(proj)).toEqual([]);
-    expect(prepared.paths.layout).toBe('flat');
-    expect(prepared.manifest.has('features/README.md')).toBe(true);
+    expect(prepared.paths.layout).toBe('pharn');
+    expect(prepared.manifest.has('pharn/features/README.md')).toBe(true);
     expect([...prepared.manifest.keys()].sort()).toEqual(
       [
         ...collectExpectedInstallPaths({
           repoDir: repo,
           capabilities: selection().selected,
-          layout: 'flat',
         }).keys(),
       ].sort(),
     );
@@ -1399,12 +1244,13 @@ describe('prepareInstall', () => {
     // Only the given map names `extra/`, so only a pre-flight over THAT map
     // can see its symlink.
     symlinkSync(outside, join(proj, 'extra'));
-    const given = new Map([['extra/file.md', join(repo, 'CONSTITUTION.md')]]);
+    const doc = join(repo, 'pharn/CONSTITUTION.md');
+    const given = new Map([['extra/file.md', doc]]);
 
     expect(() =>
       prepareInstall(repo, proj, selection().selected, given),
     ).toThrow(/Refusing to install: extra is a symbolic link/);
-    const ok = new Map([['CONSTITUTION.md', join(repo, 'CONSTITUTION.md')]]);
+    const ok = new Map([['pharn/CONSTITUTION.md', doc]]);
     expect(prepareInstall(repo, proj, selection().selected, ok).manifest).toBe(
       ok,
     );
@@ -1423,19 +1269,59 @@ describe('prepareInstall', () => {
     const prepared = prepareInstall(repo, proj, selection().selected);
 
     const result = installPrepared(repo, proj, selection(), prepared);
-    expect(result.layout).toBe('flat');
+    expect(result.layout).toBe('pharn');
     for (const rel of prepared.manifest.keys())
       expect(existsSync(join(proj, rel))).toBe(true);
 
     // A link swapped in after the pre-flight: no whole-install refusal any
     // more, but the writer refuses to write through it, naming it.
     const again = join(tmp.path(), 'proj2');
-    mkdirSync(again, { recursive: true });
+    mkdirSync(join(again, 'pharn'), { recursive: true });
     const checked = prepareInstall(repo, again, selection().selected);
-    symlinkSync(outside, join(again, 'pharn-contracts'));
+    symlinkSync(outside, join(again, 'pharn/pharn-contracts'));
     expect(() => installPrepared(repo, again, selection(), checked)).toThrow(
-      /pharn-contracts is a symlink; refusing to write through it/,
+      /pharn\/pharn-contracts is a symlink; refusing to write through it/,
     );
     expect(readdirSync(outside)).toEqual([]);
+  });
+});
+
+// C8.3: there is no derivation left to fall back on, so a clone without
+// pharn-install.json (a pharn-oss older than 7.21.0) is refused by every entry
+// point here, before anything is written.
+describe('a clone without pharn-install.json', () => {
+  const tmp = useTmpDir();
+
+  function bareRepo(): string {
+    const repo = join(tmp.path(), 'repo');
+    scaffoldRepo(repo);
+    rmSync(join(repo, 'pharn-install.json'));
+    return repo;
+  }
+
+  it('installCapabilities refuses it, writing nothing', () => {
+    const repo = bareRepo();
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      UpstreamManifestError,
+    );
+    expect(() => installCapabilities(repo, proj, selection())).toThrow(
+      /ships no pharn-install\.json/,
+    );
+    expect(readdirSync(proj)).toEqual([]);
+  });
+
+  it('installCapabilityDirs and upstreamSettingsCopyable refuse it', () => {
+    const repo = bareRepo();
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj, { recursive: true });
+
+    expect(() =>
+      installCapabilityDirs(repo, proj, [{ name: 'a11y', role: 'griller' }]),
+    ).toThrow(UpstreamManifestError);
+    expect(() => upstreamSettingsCopyable(repo)).toThrow(UpstreamManifestError);
+    expect(readdirSync(proj)).toEqual([]);
   });
 });

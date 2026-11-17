@@ -45,24 +45,13 @@ export const CONTRACTS_DIR = 'pharn-contracts';
 // ROLE_VALUES). Upstream ships no root `pharn-core/`, so this flat path is a
 // no-op kept for LayoutPaths uniformity.
 export const CORE_DIR = 'pharn-core';
-// Floor checkers the product commands + hooks invoke. Copied whole EXCEPT test
-// files and FLOOR_TEST_FIXTURES_DIRS; never `.dev/` wholesale.
+// Floor checkers the product commands + hooks invoke (the flat layout's path).
 export const FLOOR_DIR = '.dev/floor';
-// Test apparatus inside the floor, read only by `*.test.mjs` — excluded so an
-// installed floor holds no deliberately-RED fixtures and status/update do not
-// track test data. A floor-relative segment anchored at the floor root
-// (`isFloorTestFixturePath`), so a nested `lib/fixtures/` is kept. Add a name
-// only after checking upstream that no non-test floor file, hook or command
-// reads it.
-export const FLOOR_TEST_FIXTURES_DIRS: readonly string[] = [
-  'test-fixtures',
-  'fixtures',
-];
 
 // ---------------------------------------------------------------------------
-// The pharn/ single-install layout: every runtime-read surface under pharn/.
-// The CLI mirrors whichever layout the clone has (lib/layout.ts); `.claude/*`
-// paths are identical in both.
+// The pharn/ single-install layout: every runtime-read surface under pharn/,
+// the one layout a fetched clone has (lib/layout.ts); `.claude/*` paths are
+// identical in both.
 // ---------------------------------------------------------------------------
 export const PHARN_GRILLERS_DIR = 'pharn/pharn-pipeline/grillers';
 export const PHARN_LENSES_DIR = 'pharn/pharn-review';
@@ -71,23 +60,14 @@ export const PHARN_CONTRACTS_DIR = 'pharn/pharn-contracts';
 export const PHARN_CORE_DIR = 'pharn/pharn-core';
 export const PHARN_FLOOR_DIR = 'pharn/floor';
 // The same FOUR documents, all under pharn/ from pharn-oss SKILLS 7.0.0 on. A
-// pre-7.0 clone still ships THREAT-MODEL/LIMITS at the root: see
-// PHARN_ROOT_FALLBACK_DOCS. A doc a clone lacks is not installed, and is named
-// by `absentInstallSurfaces`, so an existence-guarded no-op never reads as
-// success.
+// doc the manifest does not declare is not installed, and is named by
+// `absentInstallSurfaces`, so a missing doc never reads as success.
 export const PHARN_TRUSTED_DOCS = [
   'pharn/CONSTITUTION.md',
   'pharn/ARCHITECTURE.md',
   'pharn/THREAT-MODEL.md',
   'pharn/LIMITS.md',
 ];
-// The probe fallback (resolveTrustedDocs): each pharn-layout doc a pre-7.0
-// clone still ships at the ROOT. Removable once no supported pharn-oss is older
-// than 7.0.0. Also the fixed list the root-doc migration may delete from.
-export const PHARN_ROOT_FALLBACK_DOCS: Readonly<Record<string, string>> = {
-  'pharn/THREAT-MODEL.md': 'THREAT-MODEL.md',
-  'pharn/LIMITS.md': 'LIMITS.md',
-};
 // The product-loop boundary contract the product commands cite by name;
 // layout-specific. NOT a trusted doc.
 export const FEATURES_README = 'features/README.md';

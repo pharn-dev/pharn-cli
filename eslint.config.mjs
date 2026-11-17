@@ -47,9 +47,6 @@ const modules = (names, message, extra = {}) =>
 // raw source (one or two backslashes: a regex literal or a RegExp string).
 const CONTROL_RANGE = String.raw`/\\{1,2}(?:x[0-9a-f]{2}|u00[0-9a-f]{2}|u\{[0-9a-f]{1,2}\})-\\{1,2}(?:x|u00|u\{)/i`;
 const CATEGORY_CLASS = String.raw`/\[[^\]\n]*\\{1,2}p\{C[cf]\}/`;
-// capability-index.ts's literal port of pharn-oss's fence rule — not a
-// sanitizer. Spared by its exact spelling, so the exemption cannot widen.
-const DISPLACED_LEAD_RAW = String.raw`/^[\s\p{Cf}]+(?=---)/u`;
 
 const MSG = {
   childProcess:
@@ -190,7 +187,7 @@ const INVARIANTS = [
   ...[
     `Literal[raw=${CONTROL_RANGE}]`,
     `TemplateElement[value.raw=${CONTROL_RANGE}]`,
-    `Literal[raw=${CATEGORY_CLASS}]:not([raw='${DISPLACED_LEAD_RAW.replaceAll('\\', '\\\\')}'])`,
+    `Literal[raw=${CATEGORY_CLASS}]`,
     `TemplateElement[value.raw=${CATEGORY_CLASS}]`,
   ].map((selector) => ({
     rule: 'no-restricted-syntax',

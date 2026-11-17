@@ -138,11 +138,11 @@ async function fetchAt(
         );
       }
     }
-    // A declared install manifest is validated (the one parser) and every file
-    // it declares is held to its raw sha256 HERE, before the tree is returned:
-    // no command can reach an install branch point on a tree that fails.
-    const manifest = readUpstreamManifest(dir);
-    if (manifest) verifyUpstreamManifest(dir, manifest);
+    // The install manifest is required (a tree without one is older than
+    // pharn-oss 7.21.0 and refused), validated by the one parser, and every
+    // file it declares is held to its raw sha256 HERE, before the tree is
+    // returned: no command can read a tree that fails.
+    verifyUpstreamManifest(dir, readUpstreamManifest(dir));
   } catch (err) {
     // Extraction is not transactional, so a partially-written tree must never
     // be returned. Callers treat a fetchRepo throw as fatal.

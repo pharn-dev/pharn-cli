@@ -4,6 +4,9 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -33,7 +36,9 @@ import { reportCliError } from '../../src/lib/report-error.js';
 //     `fetch` — by `fetchStub`, which serves a real gzipped codeload tarball
 //     (tar-fixture.ts) of `upstream.tree` and the small GitHub answers each
 //     channel asks for (the latest release and its tag's commit for `latest`,
-//     the tip's commit and its SKILLS_VERSION for `main`);
+//     the tip's commit and its SKILLS_VERSION for `main`). The tarball carries
+//     a pharn-install.json built from the tree at serve time (`withManifest`),
+//     unless the tree has its own or `upstream.seal` is false;
 //   - the terminal, by the clack stub (clack-stub.ts), which each suite
 //     installs with its own one-line `vi.mock` (vi.mock is per file).
 //
@@ -95,7 +100,7 @@ export const SETTINGS = '.claude/settings.json';
 // The review lens agent pharn-oss ships from 6.64.0 on (CORE-272).
 export const AGENT = '.claude/agents/pharn-review-lens.md';
 
-// The flat layout (a pre-`pharn/` pharn-oss).
+// Where an install from a flat (pre-`pharn/`) pharn-oss left those files.
 export const FLAT = {
   security: 'pharn-pipeline/grillers/security/security.md',
   a11y: 'pharn-pipeline/grillers/a11y/a11y.md',
@@ -111,6 +116,7 @@ export type Tree = Record<string, string>;
  * pharn-oss at `version`, in the `pharn/` layout it ships today, with every
  * product surface the install declares — so a clean install reports nothing
  * absent upstream — plus the dev-only files the install must leave behind.
+ * The fetch stub serves it with a pharn-install.json built from it.
  */
 export function upstreamTree(version: string): Tree {
   return {
@@ -119,8 +125,8 @@ export function upstreamTree(version: string): Tree {
     'pharn.config.json': JSON.stringify({ models: UPSTREAM_MODELS }),
     [CONSTITUTION]: `constitution ${version}\n`,
     'pharn/ARCHITECTURE.md': 'architecture\n',
-    'THREAT-MODEL.md': 'threat model\n',
-    'LIMITS.md': 'limits\n',
+    'pharn/THREAT-MODEL.md': 'threat model\n',
+    'pharn/LIMITS.md': 'limits\n',
     'pharn/features/README.md': 'features\n',
     'pharn/pharn-contracts/finding-shape.md': 'finding shape\n',
     'pharn/pharn-core/seam-resolver/SKILL.md': 'seam resolver\n',
@@ -138,48 +144,6 @@ export function upstreamTree(version: string): Tree {
   };
 }
 
-/** pharn-oss at a 7.x version: both root docs moved under pharn/. */
-export function upstreamTree7(version: string): Tree {
-  const {
-    'THREAT-MODEL.md': threat,
-    'LIMITS.md': limits,
-    ...rest
-  } = upstreamTree(version);
-  return {
-    ...rest,
-    'pharn/THREAT-MODEL.md': threat!,
-    'pharn/LIMITS.md': limits!,
-  };
-}
-
-/** pharn-oss at `version` in the FLAT layout (no `pharn/pharn-contracts`). */
-export function flatTree(version: string): Tree {
-  return {
-    SKILLS_VERSION: `${version}\n`,
-    LICENSE: 'Apache-2.0\n',
-    'pharn.config.json': JSON.stringify({ models: UPSTREAM_MODELS }),
-    [FLAT.constitution]: `constitution ${version}\n`,
-    'ARCHITECTURE.md': 'architecture\n',
-    'THREAT-MODEL.md': 'threat model\n',
-    'LIMITS.md': 'limits\n',
-    'features/README.md': 'features\n',
-    'pharn-contracts/finding-shape.md': 'finding shape\n',
-    [FLAT.floor]: 'export {};\n',
-    '.dev/floor/validate.test.mjs': 'dev only\n',
-    [FLAT.security]: capability(
-      'griller',
-      '["universal"]',
-      `security ${version}`,
-    ),
-    [FLAT.a11y]: capability('griller', '["ssr", "spa"]', 'a11y'),
-    [FLAT.nPlusOne]: capability('lens', '["backend"]', 'n-plus-one'),
-    [PLAN_COMMAND]: 'plan\n',
-    [AGENT]: `review lens agent ${version}\n`,
-    [HOOK]: 'module.exports = {};\n',
-    [SETTINGS]: HOOK_SETTINGS,
-  };
-}
-
 /**
  * What the stubbed network serves: the tip of `main` and — unless `published`
  * is false — a verified release AT that tip (tag `v<version>`). So the default
@@ -191,22 +155,36 @@ export const upstream: {
   version: string;
   tree: Tree;
   published: boolean;
+  // false: serve the tree as is, with no pharn-install.json — a pharn-oss
+  // older than 7.21.0, which every command refuses.
+  seal: boolean;
 } = {
   sha: SHA_V1,
   version: '1.0.0',
   tree: upstreamTree('1.0.0'),
   published: true,
+  seal: true,
 };
 
 export function serveTip(
   sha: string,
   version: string,
-  opts: { published?: boolean; tree?: Tree } = {},
+  opts: { published?: boolean; tree?: Tree; seal?: boolean } = {},
 ): void {
   upstream.sha = sha;
   upstream.version = version;
   upstream.tree = opts.tree ?? upstreamTree(version);
   upstream.published = opts.published ?? true;
+  upstream.seal = opts.seal ?? true;
+}
+
+// The bytes the tarball carries: the tree plus a manifest that declares it,
+// built now so a test's in-place edit of `upstream.tree` is declared too. A
+// tree that brings its own manifest (one a test made disagree on purpose) is
+// served untouched.
+function servedTree(): Tree {
+  const { tree, seal } = upstream;
+  return !seal || MANIFEST in tree ? tree : withManifest(tree);
 }
 
 /** Which request kinds to fail, and how: a thrown error or an HTTP status. */
@@ -247,7 +225,7 @@ export const fetchStub = vi.fn(async (input: unknown): Promise<Response> => {
   }
   if (url === tarballUrl(upstream.sha)) {
     return new Response(
-      new Uint8Array(codeloadArchive(upstream.sha, upstream.tree)),
+      new Uint8Array(codeloadArchive(upstream.sha, servedTree())),
     );
   }
   throw new Error(`unexpected fetch: ${url}`);
@@ -545,8 +523,8 @@ export const INSTALLED = [
   PLAN_COMMAND,
   HOOK,
   SETTINGS,
-  'LIMITS.md',
-  'THREAT-MODEL.md',
+  'pharn/LIMITS.md',
+  'pharn/THREAT-MODEL.md',
   'pharn/ARCHITECTURE.md',
   CONSTITUTION,
   'pharn/LICENSE',
@@ -625,7 +603,8 @@ function surfaceOf(path: string): { surface: string; dest?: string } | null {
     path.split('/').length === 3;
   if (owned('.claude/commands')) return { surface: 'commands' };
   if (owned('.claude/agents')) return { surface: 'agents' };
-  if (/^\.claude\/hooks\/[^/]+\.cjs$/.test(path)) return { surface: 'hooks' };
+  if (/^\.claude\/hooks\/[^/]+\.(cjs|mjs)$/.test(path))
+    return { surface: 'hooks' };
   if (path === SETTINGS) return { surface: 'settings' };
   // A surface the CLI does not name: `.claude/<dir>/pharn-<x>/...`.
   const extra = /^\.claude\/([a-z]+)\/pharn-[a-z0-9-]+\//.exec(path);
@@ -671,8 +650,14 @@ export function withManifest(
     );
     for (const name of [...names].sort()) {
       const md = tree[`${subtree}/${name}/${name}.md`] ?? '';
-      const raw = /^applies:\s*(.*)$/m.exec(md)?.[1] ?? '["universal"]';
-      const tokens = JSON.parse(raw) as string[];
+      const raw = /^applies:\s*(.*)$/m.exec(md)?.[1] ?? 'universal';
+      // `["ssr", "spa"]`, `[ssr, spa]` or a bare `universal`.
+      const tokens = raw
+        .trim()
+        .replace(/^\[|\]$/g, '')
+        .split(',')
+        .map((t) => t.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean);
       const applies =
         tokens.length === 1 && tokens[0] === 'universal' ? 'universal' : tokens;
       const dir = `${subtree}/${name}`;
@@ -705,7 +690,16 @@ export function withManifest(
       sha256: rawSha256(content),
     });
   }
-  const rootConfig = tree['pharn.config.json'];
+  // The root config's `models` block, as pharn-oss's generator copies it;
+  // nothing when the file is absent or not a JSON object.
+  let defaults: unknown;
+  try {
+    const root: unknown = JSON.parse(tree['pharn.config.json'] ?? 'null');
+    if (root !== null && typeof root === 'object' && !Array.isArray(root))
+      defaults = (root as { models?: unknown }).models;
+  } catch {
+    defaults = undefined;
+  }
   const doc: ManifestDoc = {
     $comment: 'GENERATED (test fixture)',
     schemaVersion: 1,
@@ -718,10 +712,7 @@ export function withManifest(
     capabilities,
     files,
     models: {
-      defaults:
-        rootConfig === undefined
-          ? undefined
-          : (JSON.parse(rootConfig) as { models?: unknown }).models,
+      defaults,
       rules: {
         fallbackStage: 'default',
         stages: ['plan'],
@@ -742,7 +733,7 @@ export function manifestTree(
   edit?: (m: ManifestDoc) => void,
 ): Tree {
   return withManifest(
-    { ...upstreamTree7(version), [NEW_SURFACE]: `skill ${version}\n` },
+    { ...upstreamTree(version), [NEW_SURFACE]: `skill ${version}\n` },
     edit,
   );
 }
@@ -754,4 +745,104 @@ export function writeTree(dir: string, tree: Tree): string {
     writeFileSync(join(dir, rel), content);
   }
   return dir;
+}
+
+/** Every regular file under `dir`, relative path → its utf8 content. */
+function readTree(dir: string, prefix = ''): Tree {
+  const tree: Tree = {};
+  for (const ent of readdirSync(join(dir, prefix), { withFileTypes: true })) {
+    const rel = prefix === '' ? ent.name : `${prefix}/${ent.name}`;
+    if (ent.isDirectory()) Object.assign(tree, readTree(dir, rel));
+    else if (ent.isFile()) tree[rel] = readFileSync(join(dir, rel), 'utf8');
+  }
+  return tree;
+}
+
+/**
+ * Seal a fake clone a lib test scaffolded on disk: write the
+ * pharn-install.json `withManifest` builds from its files (a SKILLS_VERSION
+ * first, when it has none). `edit` may change the document. Returns `dir`.
+ */
+export function sealRepo(dir: string, edit?: (m: ManifestDoc) => void): string {
+  if (!existsSync(join(dir, 'SKILLS_VERSION'))) {
+    writeFileSync(join(dir, 'SKILLS_VERSION'), '1.0.0\n');
+  }
+  const sealed = withManifest(readTree(dir), edit);
+  writeFileSync(join(dir, MANIFEST), sealed[MANIFEST]!);
+  return dir;
+}
+
+// ---------------------------------------------------------------------------
+// An install made from a pharn-oss this pharn can no longer fetch. Such a
+// project still exists, and `pharn update` must carry it to the latest
+// release, so a suite installs from today's tree and then puts the project in
+// the shape the old install left: files moved, each record moved with its
+// file (same bytes, so the same contentHash), and for `flat` the recorded
+// layout. pharn-core is dropped from a flat install (flat pharn-oss shipped
+// none). Everything else — config, records stamp, models — is what a real
+// `init` wrote.
+// ---------------------------------------------------------------------------
+
+const PRE7_MOVES: readonly (readonly [string, string])[] = [
+  ['pharn/THREAT-MODEL.md', 'THREAT-MODEL.md'],
+  ['pharn/LIMITS.md', 'LIMITS.md'],
+];
+const FLAT_MOVES: readonly (readonly [string, string | null])[] = [
+  ['pharn/pharn-pipeline/', 'pharn-pipeline/'],
+  ['pharn/pharn-review/', 'pharn-review/'],
+  ['pharn/pharn-contracts/', 'pharn-contracts/'],
+  ['pharn/pharn-core/', null],
+  ['pharn/floor/', '.dev/floor/'],
+  ['pharn/features/README.md', 'features/README.md'],
+  ['pharn/LICENSE', FLAT.license],
+  ['pharn/CONSTITUTION.md', FLAT.constitution],
+  ['pharn/ARCHITECTURE.md', 'ARCHITECTURE.md'],
+  ...PRE7_MOVES,
+];
+
+/**
+ * Turn the installed project into what an install from an older pharn-oss
+ * left: `pre7` (the pharn layout before 7.0.0, THREAT-MODEL.md and LIMITS.md
+ * at the root) or `flat` (everything at the root, `layout: "flat"`).
+ */
+export function legacyInstall(kind: 'flat' | 'pre7'): void {
+  const moves = kind === 'flat' ? FLAT_MOVES : PRE7_MOVES;
+  // The new path of `rel`, null to drop it, or `rel` itself when unmoved.
+  const target = (rel: string): string | null => {
+    for (const [from, to] of moves) {
+      if (from.endsWith('/') ? rel.startsWith(from) : rel === from) {
+        return to === null ? null : `${to}${rel.slice(from.length)}`;
+      }
+    }
+    return rel;
+  };
+  editRecords((r) => {
+    const files: Record<string, string> = {};
+    for (const [rel, hash] of Object.entries(r.files)) {
+      const to = target(rel);
+      if (to !== null) files[to] = hash;
+    }
+    r.files = files;
+  });
+  for (const rel of projectFiles()) {
+    const to = target(rel);
+    if (to === rel) continue;
+    if (to !== null) {
+      mkdirSync(dirname(at(to)), { recursive: true });
+      renameSync(at(rel), at(to));
+    } else {
+      rmSync(at(rel));
+    }
+  }
+  pruneEmptyDirs('pharn');
+  if (kind === 'flat') editConfig((c) => (c.layout = 'flat'));
+}
+
+// Remove every empty directory under `rel`, then `rel` itself when empty.
+function pruneEmptyDirs(rel: string): void {
+  if (!existsSync(at(rel))) return;
+  for (const ent of readdirSync(at(rel), { withFileTypes: true })) {
+    if (ent.isDirectory()) pruneEmptyDirs(`${rel}/${ent.name}`);
+  }
+  if (readdirSync(at(rel)).length === 0) rmdirSync(at(rel));
 }

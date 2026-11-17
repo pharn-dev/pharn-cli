@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -15,6 +15,7 @@ import {
 } from '../src/lib/model-config.js';
 import { readUpstreamModels } from '../src/lib/upstream-models.js';
 import { useTmpDir } from './helpers.js';
+import { sealRepo, upstreamTree, writeTree } from './support/harness.js';
 
 // ---------------------------------------------------------------------------
 // src/lib/model-config.ts is a COPY of pharn-oss's rules for the `models`
@@ -194,7 +195,7 @@ const BLOCKS: [string, string | null][] = [
   ],
 ];
 
-// Upstream's ROOT config, as `readUpstreamModels` reads it from a clone:
+// Upstream's ROOT config shapes, run through the checker's whole-file read:
 // [label, the file's text — or null for "no file"].
 const FILES: [string, string | null][] = [
   ['no file', null],
@@ -280,24 +281,39 @@ describe('validate: the copy gives the checker’s verdict and RED lines', () =>
     ).toEqual(upstreamReds);
   });
 
+  // The checker is still run over each whole-file shape (its `json` and
+  // `input` REDs come only from here, for the reach check below). The CLI
+  // takes pharn-oss's block from pharn-install.json's `models.defaults`, so
+  // whatever the root config holds, a clone whose manifest declares no
+  // defaults gives `absent`: the root config is never read.
+  const sealedClone = (dir: string): string => {
+    const repo = writeTree(join(tmp.path(), dir), upstreamTree('1.0.0'));
+    rmSync(join(repo, 'pharn.config.json'), { recursive: true, force: true });
+    return repo;
+  };
+  const sealWithoutDefaults = (repo: string): void => {
+    sealRepo(repo, (m) => {
+      m.models.defaults = undefined;
+    });
+  };
+
   it.each(FILES)('reading a clone whose root config is %s', (_label, text) => {
-    const repo = join(tmp.path(), 'clone');
-    mkdirSync(repo, { recursive: true });
+    const repo = sealedClone('clone');
     const file = join(repo, 'pharn.config.json');
     if (text !== null) writeFileSync(file, text);
+    sealWithoutDefaults(repo);
 
     const r = runChecker(['validate', '--config', file]);
     checkerReds(r.stdout).forEach((red) =>
       observedKinds.add(red.split(':')[0]!),
     );
-    const read = readUpstreamModels(repo);
-    // GREEN ⇔ there is nothing to refuse: no block, or a block that passed.
-    expect(r.status).toBe(read.kind === 'invalid' ? 1 : 0);
+    expect(readUpstreamModels(repo)).toEqual({ kind: 'absent' });
   });
 
   it('reading a clone whose root config is a directory', () => {
-    const repo = join(tmp.path(), 'clone-dir');
+    const repo = sealedClone('clone-dir');
     mkdirSync(join(repo, 'pharn.config.json'), { recursive: true });
+    sealWithoutDefaults(repo);
     const r = runChecker([
       'validate',
       '--config',
@@ -307,7 +323,7 @@ describe('validate: the copy gives the checker’s verdict and RED lines', () =>
       observedKinds.add(red.split(':')[0]!),
     );
     expect(r.status).toBe(1);
-    expect(readUpstreamModels(repo).kind).toBe('invalid');
+    expect(readUpstreamModels(repo)).toEqual({ kind: 'absent' });
   });
 
   // The corpus is only as good as its reach. Every RED kind the checker's

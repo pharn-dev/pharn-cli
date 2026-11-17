@@ -9,8 +9,6 @@ import {
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
-import { contentHash } from '../src/lib/hash.js';
-import { layoutPaths, resolveTrustedDocs } from '../src/lib/layout.js';
 import { isInstallRootPath } from '../src/lib/orphans.js';
 import { planUninstall } from '../src/lib/uninstall-plan.js';
 import {
@@ -74,28 +72,9 @@ function plan(
   });
 }
 
-describe('resolveTrustedDocs — the ordered probe', () => {
-  it('an old clone keeps THREAT-MODEL/LIMITS at the root', () => {
-    expect(resolveTrustedDocs(clone('6.9.0', false), 'pharn')).toEqual([
-      'pharn/CONSTITUTION.md',
-      'pharn/ARCHITECTURE.md',
-      'THREAT-MODEL.md',
-      'LIMITS.md',
-    ]);
-  });
-
-  it('a new clone has them under pharn/', () => {
-    expect(resolveTrustedDocs(clone('7.0.0', true), 'pharn')).toEqual(
-      layoutPaths('pharn').docs,
-    );
-  });
-
-  it('the flat layout has no fallback', () => {
-    expect(resolveTrustedDocs(clone('7.0.0', true), 'flat')).toEqual(
-      layoutPaths('flat').docs,
-    );
-  });
-
+// The old root docs a pre-7.0 install recorded are still paths `update` and
+// `uninstall` may handle, beside their pharn/ replacements.
+describe('the old root docs', () => {
   it('old root records stay install paths (the FLAT list), the new ones too', () => {
     for (const rel of [
       'THREAT-MODEL.md',
@@ -581,12 +560,5 @@ describe('the ROOT MIGRATION note', () => {
     ).toBeNull();
     expect(versionMajor('12.3.4')).toBe(12);
     expect(versionMajor('nope')).toBeNull();
-  });
-});
-
-describe('the probe feeds the install manifest and the copy', () => {
-  it('records the content the probe found', () => {
-    const repo = clone('7.0.0', true);
-    expect(contentHash(join(repo, 'pharn/LIMITS.md'))).toBe(hashOf('limits'));
   });
 });

@@ -36,6 +36,8 @@ const REASONS = {
 type Reason = keyof typeof REASONS;
 
 const PROBE = 'src/lib/lint-probe.ts';
+// The fence-lead literal capability-index.ts once carried under an exemption;
+// the frontmatter port is gone, so no file is spared any more.
 const DISPLACED = String.raw`const DISPLACED_LEAD_RE = /^[\s\p{Cf}]+(?=---)/u;`;
 
 /** [case, file the snippet is linted as, snippet, the reasons that must fire]. */
@@ -191,7 +193,7 @@ const CASES: [string, string, string, Reason[]][] = [
     'DISPLACED_LEAD_RE in capability-index.ts',
     'src/lib/capability-index.ts',
     DISPLACED,
-    [],
+    ['unsafeChars'],
   ],
   [
     'DISPLACED_LEAD_RE elsewhere is still a Cf class',

@@ -1,25 +1,29 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  MAX_UPSTREAM_CONFIG_BYTES,
-  readUpstreamModels,
-} from '../src/lib/upstream-models.js';
+import { readUpstreamModels } from '../src/lib/upstream-models.js';
+import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
 import { useTmpDir } from './helpers.js';
-import { manifestTree, writeTree } from './support/harness.js';
+import {
+  MANIFEST,
+  manifestTree,
+  upstreamTree,
+  writeTree,
+} from './support/harness.js';
 
-// pharn-oss's own models block, read out of a fetched clone's ROOT
-// pharn.config.json. Its verdicts against pharn-oss's checker are pinned in
+// pharn-oss's own models block: the `models.defaults` of a fetched clone's
+// pharn-install.json. Its verdicts against pharn-oss's checker are pinned in
 // tests/model-config-parity.test.ts; this file pins what the reader returns.
 
 describe('readUpstreamModels', () => {
   const tmp = useTmpDir();
-  const clone = (text?: string): string => {
-    const repo = join(tmp.path(), 'clone');
-    mkdirSync(repo, { recursive: true });
-    if (text !== undefined)
-      writeFileSync(join(repo, 'pharn.config.json'), text);
-    return repo;
+  // A sealed clone whose manifest declares `defaults` (left out when
+  // undefined); `rootConfig` replaces the tree's root pharn.config.json.
+  const clone = (defaults: unknown, rootConfig?: string): string => {
+    const tree = manifestTree('7.21.0', (m) => {
+      m.models.defaults = defaults;
+    });
+    if (rootConfig !== undefined) tree['pharn.config.json'] = rootConfig;
+    return writeTree(join(tmp.path(), 'clone'), tree);
   };
   const block = {
     stages: {
@@ -29,44 +33,25 @@ describe('readUpstreamModels', () => {
     comment: 'a key beside stages, kept verbatim',
   };
 
-  it('is absent when the clone has no root config', () => {
-    expect(readUpstreamModels(clone())).toEqual({ kind: 'absent' });
+  it('is absent when the manifest declares no models.defaults', () => {
+    expect(readUpstreamModels(clone(undefined))).toEqual({ kind: 'absent' });
   });
 
-  it('is absent when the config has no models block, or a null one', () => {
-    expect(readUpstreamModels(clone('{"ship":{}}'))).toEqual({
-      kind: 'absent',
-    });
-    expect(readUpstreamModels(clone('{"models":null}'))).toEqual({
-      kind: 'absent',
-    });
+  it('is absent when models.defaults is null', () => {
+    expect(readUpstreamModels(clone(null))).toEqual({ kind: 'absent' });
   });
 
   it('returns the block VERBATIM — other keys included — and nothing beside it', () => {
-    const read = readUpstreamModels(
-      clone(
-        JSON.stringify({
-          _models_stages_note: 'pharn-oss explains the block here',
-          models: block,
-          ship: { requireAttestation: false },
-        }),
-      ),
-    );
-    expect(read).toEqual({ kind: 'ok', block });
+    expect(readUpstreamModels(clone(block))).toEqual({ kind: 'ok', block });
   });
 
   it('copies a block that declares no stages, as pharn-oss ships it', () => {
-    expect(readUpstreamModels(clone('{"models":{}}'))).toEqual({
-      kind: 'ok',
-      block: {},
-    });
+    expect(readUpstreamModels(clone({}))).toEqual({ kind: 'ok', block: {} });
   });
 
   it('refuses a block pharn-oss’s rules reject, with every reason', () => {
     const read = readUpstreamModels(
-      clone(
-        '{"models":{"stages":{"plan":{"model":"opus-4-8","effort":"max"}}}}',
-      ),
+      clone({ stages: { plan: { model: 'opus-4-8', effort: 'max' } } }),
     );
     expect(read).toEqual({
       kind: 'invalid',
@@ -77,34 +62,14 @@ describe('readUpstreamModels', () => {
     });
   });
 
-  it.each([
-    [
-      'not JSON',
-      '{"models":',
-      "pharn-oss's pharn.config.json is not valid JSON",
-    ],
-    [
-      'a JSON array',
-      '[]',
-      "pharn-oss's pharn.config.json is valid JSON but is not an object",
-    ],
-    [
-      'JSON null',
-      'null',
-      "pharn-oss's pharn.config.json is valid JSON but is not an object",
-    ],
-  ])('refuses a root config that is %s', (_label, text, reason) => {
-    expect(readUpstreamModels(clone(text))).toEqual({
-      kind: 'invalid',
-      reasons: [reason],
+  it('never reads the root pharn.config.json', () => {
+    // Not JSON, or not an object: neither matters, the manifest decides.
+    expect(readUpstreamModels(clone(undefined, '{"models":'))).toEqual({
+      kind: 'absent',
     });
-  });
-
-  it('never echoes the parser’s message, which can quote raw bytes', () => {
-    const read = readUpstreamModels(clone('\u001b[31mRED'));
-    expect(read).toEqual({
-      kind: 'invalid',
-      reasons: ["pharn-oss's pharn.config.json is not valid JSON"],
+    expect(readUpstreamModels(clone(block, '[]'))).toEqual({
+      kind: 'ok',
+      block,
     });
   });
 
@@ -113,32 +78,22 @@ describe('readUpstreamModels', () => {
   // — which used to throw during an install, after the files were copied.
   it('refuses a block nested too deeply to serialize — before anything copies it', () => {
     const depth = 100_000;
-    const read = readUpstreamModels(
-      clone(
-        `{"models":{"stages":{"default":{"model":"opus","effort":"high"}},"deep":${'['.repeat(depth)}${']'.repeat(depth)}}}`,
-      ),
-    );
+    const deep = `{"stages":{"default":{"model":"opus","effort":"high"}},"deep":${'['.repeat(depth)}${']'.repeat(depth)}}`;
+    const tree = manifestTree('7.21.0', (m) => {
+      m.models.defaults = '__DEEP__';
+    });
+    // JSON.stringify could not build this document, so it is spliced in.
+    tree[MANIFEST] = tree[MANIFEST]!.replace('"__DEEP__"', deep);
+    const read = readUpstreamModels(writeTree(join(tmp.path(), 'deep'), tree));
     expect(read).toEqual({
       kind: 'invalid',
       reasons: ["pharn-oss's models block is nested too deeply to copy"],
     });
   });
 
-  it('refuses a directory at the path', () => {
-    const repo = join(tmp.path(), 'clone');
-    mkdirSync(join(repo, 'pharn.config.json'), { recursive: true });
-    expect(readUpstreamModels(repo)).toEqual({
-      kind: 'invalid',
-      reasons: ["pharn-oss's pharn.config.json is not a regular file"],
-    });
-  });
-
-  it('refuses a root config larger than its cap, unread', () => {
-    const big = `{"models":${JSON.stringify(block)},"pad":"${'x'.repeat(MAX_UPSTREAM_CONFIG_BYTES)}"}`;
-    expect(readUpstreamModels(clone(big))).toEqual({
-      kind: 'invalid',
-      reasons: ["pharn-oss's pharn.config.json is larger than 1 MiB"],
-    });
+  it('refuses a clone without pharn-install.json instead of reading its root config', () => {
+    const repo = writeTree(join(tmp.path(), 'old'), upstreamTree('7.20.0'));
+    expect(() => readUpstreamModels(repo)).toThrow(UpstreamManifestError);
   });
 });
 

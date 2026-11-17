@@ -147,8 +147,8 @@ none of your other capabilities, docs, or contracts actually live, turning one m
 an install-wide one. Migrating a tree is `update`'s job, so the refusal sends you there.
 
 The refusal happens **before anything in your project is written** and before the interactive picker
-renders, and it exits non-zero. It is symmetric: a `pharn`-layout project meeting a flat clone refuses
-the same way.
+renders, and it exits non-zero. Every clone pharn fetches is the `pharn` layout (a flat pharn-oss
+predates `pharn-install.json` and is refused), so a `flat`-layout project is the one that meets it.
 
 > **At a matching skills version too.** A layout mismatch can occur while your `skillsVersion` already
 > matches upstream (an install migrated by an older CLI, or a hand-edited `layout`). A plain

@@ -26,9 +26,10 @@ import type {
 
 // ---------------------------------------------------------------------------
 // pharn-install.json — the install manifest pharn-oss declares (from SKILLS
-// 7.21.0; schema: pharn-oss docs/install-manifest.md). When a fetched tree
-// carries one, the install set, the capability index, the settings copy and
-// the `models` defaults come from it instead of the CLI's own derivation.
+// 7.21.0; schema: pharn-oss docs/install-manifest.md). The install set, the
+// capability index, the settings copy and the `models` defaults all come from
+// it, and a tree without one is refused: this CLI no longer derives an install
+// from pharn-oss's internals.
 //
 // Trust: it arrives in the same tarball, at the same tag-resolved commit, as
 // the files it describes — provenance, not authentication. So it is DATA:
@@ -41,9 +42,9 @@ import type {
 //
 // ONE parser: readUpstreamManifest is the only reader. verifyUpstreamManifest
 // takes its result, and every branch point re-reads through it, so there is no
-// second validation path. Present but unusable, invalid or of an unknown
-// `schemaVersion` → refuse (never fall back to the derivation). Absent → null:
-// the caller derives as before, a fallback removed in v0.22.0 (CORE-186).
+// second validation path. Absent, unusable, invalid or of an unknown
+// `schemaVersion` → refuse; fetchRepo reads it first, so a refused tree is
+// removed before any command can read it.
 // ---------------------------------------------------------------------------
 
 export const MANIFEST_FILE = 'pharn-install.json';
@@ -110,16 +111,34 @@ function refuse(detail: string): UpstreamManifestError {
 
 const show = (v: unknown): string => JSON.stringify(v) ?? String(v);
 
+// The first pharn-oss release that ships the manifest.
+export const MANIFEST_SINCE = '7.21.0';
+
+// A tree from before the manifest. Its SKILLS_VERSION is named when the
+// validated reader accepts it (escaped all the same: it is tree data); a tree
+// without a usable one is refused for the missing manifest just the same.
+function absentManifest(repoDir: string): UpstreamManifestError {
+  let which = '';
+  try {
+    which = ` (SKILLS_VERSION ${escapeUnsafe(readSkillsVersion(repoDir))})`;
+  } catch (err) {
+    if (!(err instanceof ManifestValidationError)) throw err;
+  }
+  return new UpstreamManifestError(
+    `The fetched pharn-oss${which} ships no ${MANIFEST_FILE}, so it is older than ${MANIFEST_SINCE}, and this pharn installs only from pharn-oss ${MANIFEST_SINCE} or newer. Re-run on the latest release (the default, \`--ref latest\`) or with \`--ref main\`. Nothing was written.`,
+  );
+}
+
 /**
- * Read and validate the tree's pharn-install.json, or `null` when the tree has
- * none. Throws UpstreamManifestError for anything else.
+ * Read and validate the tree's pharn-install.json. Throws UpstreamManifestError
+ * when the tree has none, and for anything else it refuses.
  */
-export function readUpstreamManifest(repoDir: string): UpstreamManifest | null {
+export function readUpstreamManifest(repoDir: string): UpstreamManifest {
   const read = readJsonBounded(
     safeJoin(repoDir, MANIFEST_FILE),
     MAX_MANIFEST_BYTES,
   );
-  if (read.kind === 'absent') return null;
+  if (read.kind === 'absent') throw absentManifest(repoDir);
   if (read.kind === 'unusable') throw refuse(read.reason);
   // V8's message is not echoed: one of its shapes quotes raw file bytes.
   if (read.kind === 'invalid-json') throw refuse('is not valid JSON');
@@ -401,9 +420,9 @@ export function verifyUpstreamManifest(
 // ---------------------------------------------------------------------------
 
 /**
- * The capability index: grillers then lenses, each by name (the derivation's
- * order). An `applies` token outside this CLI's enum makes that capability
- * `unknown` — seen and reported, never installed — as the derivation does.
+ * The capability index: grillers then lenses, each by name. An `applies` token
+ * outside this CLI's enum makes that capability `unknown` — seen and reported,
+ * never installed — since upstream grammar evolves faster than CLI releases.
  */
 export function manifestCapabilityIndex(m: UpstreamManifest): CapabilityIndex {
   const pharn = layoutPaths('pharn');
