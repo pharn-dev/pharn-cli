@@ -66,7 +66,8 @@ There is no manifest. `update`/`status` re-derive the expected set from a fresh 
 install's channel offers NOW — the newest verified release for an install that records
 `"ref": "latest"` (what `pharn init` writes by default since 0.15.0), or `@main` for one that records no
 `ref` (`--ref main`, or an install made before `--ref` existed) — (not the pinned `commit`), while `remove` resolves against **nothing remote** — it is addressed entirely from
-`pharn.config.json` via `configLayout` (`src/commands/remove.ts:12`, `:212`, `:307`). An upstream
+`pharn.config.json` at the one `pharn` layout (`layoutPaths('pharn')` in `src/commands/remove.ts`;
+a config recorded at the `flat` layout, removed in v0.21.0, is refused at load). An upstream
 **rename** lands at two levels: a renamed **capability** surfaces in `update`'s membership report as
 `dropped-gone` / `added` (`src/lib/merge-capabilities.ts:79`, `:201`), while a renamed **file inside** a
 capability is restored at its new path and the old copy is left on disk — `update` never deletes
@@ -75,7 +76,7 @@ capability is restored at its new path and the old copy is left on disk — `upd
 - **Struck claim:** "`remove`/`update` always know exactly what the pinned version installed."
 - **True statement:** `update`/`status` reconstruct from the **current** upstream, so a capability
   renamed since the pin is **reported**, never guessed; `remove` reconstructs from the **recorded
-  config**, deleting the directory the recorded `layout` addresses for that capability
+  config**, deleting the directory the `pharn` layout addresses for that capability
   (`src/commands/remove.ts:72`) and pruning that capability's entries from `pharn.records.json`
   (`:117`).
 - **Backstop:** every one of those paths is `safeJoin`-contained. Two residuals remain named: a file
