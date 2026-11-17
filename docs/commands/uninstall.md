@@ -10,6 +10,7 @@ pharn uninstall --yes    # no prompt — for scripts and CI (-y works too)
 ```
 
 It needs **no network and no clone**: the proof is local — [`pharn.records.json`](../reference/pharn-records.md).
+What every other command deletes is listed in [What PHARN deletes](../reference/deletes.md).
 
 ## What is deleted
 

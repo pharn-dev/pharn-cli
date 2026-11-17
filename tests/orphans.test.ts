@@ -508,7 +508,10 @@ describe('orphanNoteLines', () => {
     );
     expect(text).toContain('c.md — the path is a symlink');
     expect(text).toContain('git rm');
-    expect(text).toMatch(/never deletes/);
+    // A true statement: `uninstall` deletes unchanged orphans, so the note
+    // names the command that never does (docs/reference/deletes.md).
+    expect(text).toContain('`pharn update` never\n  deletes them');
+    expect(text).not.toContain('pharn never deletes');
     expect(text).not.toMatch(/\bsafe\b/i);
     expect(text).not.toContain('more —');
   });

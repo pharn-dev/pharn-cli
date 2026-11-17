@@ -4,7 +4,8 @@ Remove a single installed **capability** — a griller or a lens — from an exi
 `pharn.config.json`). The inverse of [`add`](add.md): it deletes exactly that capability's directory and
 drops its entry from `pharn.config.json`. Any file in that directory that `pharn` cannot prove it wrote
 unchanged is copied to `pharn/.backup/<timestamp>/` first — see
-[What is backed up before the delete](#what-is-backed-up-before-the-delete).
+[What is backed up before the delete](#what-is-backed-up-before-the-delete). Every delete `pharn` makes
+is listed in [What PHARN deletes](../reference/deletes.md).
 
 ```bash
 pharn remove <name>          # e.g. pharn remove a11y

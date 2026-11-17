@@ -534,7 +534,7 @@ describe('the ROOT MIGRATION note', () => {
   it('previews in the future tense', () => {
     expect(text()).toContain('THREAT-MODEL.md');
     expect(text()).not.toContain('WOULD DELETE');
-    expect(text()).toContain('pharn never deletes');
+    expect(text()).toContain('`pharn update` never');
   });
 
   it('hints at a free destination with git mv (or mv), never moving it', () => {

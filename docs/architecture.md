@@ -239,9 +239,9 @@ prompt was open (a file now byte-identical to upstream is not a change), then ap
 - **Executable unit** (`lib/executable-unit.ts`): floor files, hooks and product commands are written all-or-nothing.
   One skip holds the rest (`held`), so the floor never mixes two versions.
 - **Deletes**: only the directory of a capability dropped from the config, because PHARN enumerates capabilities from
-  disk. Nothing else is deleted.
+  disk. Nothing else is deleted ([the full list](reference/deletes.md)).
 - **Orphans** (`lib/orphans.ts`): a record key outside the new manifest that is still on disk is listed and keeps its
-  record. It is never deleted.
+  record. `update` never deletes it.
 - **Every run plans**: there is no same-version shortcut. `update` downloads and plans at the recorded version too, so
   a missing file, a pending ignore-file line, an old `models` block, a channel switch or a frozen
   capability is handled by the one planner. "Up to date" is a plan that changes nothing (`changesNothing`); only the

@@ -187,12 +187,13 @@ listed, and a key outside `pharn`'s install paths is never deleted whatever its 
 [`.claude/settings.json`](#claudesettingsjson)) and then checked the same way. With no
 usable store (absent or corrupt) `uninstall` refuses and deletes nothing; a store written for another
 `skillsVersion`/`commit` is still usable, since only a file whose hash equals its record is deleted.
-The store itself is deleted after the files, before `pharn.config.json`.
+The store itself is deleted after the files, before `pharn.config.json`. Every delete `pharn` makes is
+listed in [What PHARN deletes](deletes.md).
 
 ## Trust
 
 The file is local but hand-editable, so it is treated as untrusted input: it is parsed defensively,
-and a record **key never causes a write or a delete**. `update` iterates its own install manifest and
+and a record **key never causes a write**, and causes a delete only in `uninstall` (below). `update` iterates its own install manifest and
 looks each path up here, so an invented key cannot cause a write. The one place a key becomes a path is
 orphan detection, and only for a **read** (an `lstat` and a hash): the key must name a path an install
 could have written (`.claude/commands/pharn-*.md`, `.claude/hooks/*.cjs` or `*.mjs`, a capability directory,

@@ -9,8 +9,10 @@ import type { InstalledCapability } from '../types.js';
 // Orphaned files — files pharn RECORDED writing that the install no longer
 // owns (upstream stopped shipping them) but that are still on disk. `update`
 // never deletes them (only a DROPPED capability's directory, whose keys are
-// excluded here), so without this they would sit in `.claude/commands/` (still
-// live slash commands), `.claude/hooks/` or the floor dir, unnamed.
+// excluded here; `uninstall` deletes the unchanged ones — the full list is
+// docs/reference/deletes.md), so without this they would sit in
+// `.claude/commands/` (still live slash commands), `.claude/hooks/` or the
+// floor dir, unnamed.
 //
 // Read-only. `findOrphans` returns the orphans' records so `update` / a re-run
 // `init` can CARRY them, which keeps an orphan listed until its file is gone.
@@ -112,8 +114,8 @@ const GROUPS: readonly { state: OrphanState; heading: string }[] = [
 export function orphanNoteLines(orphans: readonly Orphan[]): string[] | null {
   if (orphans.length === 0) return null;
   const lines: string[] = [
-    '  Upstream no longer ships these files pharn installed. pharn never deletes',
-    '  them, and keeps listing each one until it is gone.',
+    '  Upstream no longer ships these files pharn installed. `pharn update` never',
+    '  deletes them, and keeps listing each one until it is gone.',
     '',
   ];
   let capped = false;
