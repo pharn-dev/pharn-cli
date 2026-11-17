@@ -24,6 +24,7 @@ The CLI version (`pharn --version`) and the content version it installs (`skills
 
 - [pharn.config.json](reference/pharn-config.md) — config file schema and overwrite behavior
 - [pharn.records.json](reference/pharn-records.md) — the per-file install hashes `pharn update` compares against
+- [JSON output](reference/json-output.md) — the `--json` reports of `init`, `update`, `status` and `list`: keys, stability rule, real examples
 - [Support policy](support-policy.md) — which installs and `pharn` versions are supported, and what is being retired when
 
 ## Other
