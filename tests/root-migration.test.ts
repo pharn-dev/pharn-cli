@@ -12,11 +12,8 @@ import { describe, expect, it } from 'vitest';
 import { snapshotTree, useTmpDir } from './helpers.js';
 import { detectLayout } from '../src/lib/layout.js';
 import { writeRecords } from '../src/lib/install-records.js';
-import {
-  isInstallRootPath,
-  orphanNoteLines,
-  type Orphan,
-} from '../src/lib/orphans.js';
+import { isInstallRootPath } from '../src/lib/install-surfaces.js';
+import { orphanNoteLines, type Orphan } from '../src/lib/orphans.js';
 import {
   FLAT_LAYOUT_MESSAGE,
   loadArchetypeConfig,
@@ -479,7 +476,10 @@ describe('planRootMigration — what a same-version run finishes', () => {
     put(proj, 'THREAT-MODEL.md', 'threat');
     put(proj, 'memory-bank/canon.md', 'canon');
     const p = await plan(proj, clone('7.0.0', true));
-    expect(orphanOf(p.report.orphans, 'THREAT-MODEL.md')).toBeDefined();
+    expect(orphanOf(p.report.orphans, 'THREAT-MODEL.md')).toEqual({
+      path: 'THREAT-MODEL.md',
+      state: 'unchanged',
+    });
     expect(JSON.stringify(p.report)).not.toContain('memory-bank');
     expect(readFileSync(join(proj, 'memory-bank/canon.md'), 'utf8')).toBe(
       'canon',
@@ -502,7 +502,10 @@ describe('planRootMigration — what a same-version run finishes', () => {
       /ships no pharn-install\.json/,
     );
     const now = await plan(proj, clone('7.0.0', true));
-    expect(orphanOf(now.report.orphans, 'THREAT-MODEL.md')).toBeDefined();
+    expect(orphanOf(now.report.orphans, 'THREAT-MODEL.md')).toEqual({
+      path: 'THREAT-MODEL.md',
+      state: 'unchanged',
+    });
     // Without a usable store.
     writeFileSync(join(proj, 'pharn.records.json'), '{ not json');
     const unstored = await plan(proj, clone('7.0.0', true), null);

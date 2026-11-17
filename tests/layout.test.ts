@@ -14,6 +14,10 @@ import {
 } from '../src/lib/pharn-config.js';
 import { CliError } from '../src/lib/cli-error.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
+import { FLAT_LICENSE_DEST, TRUSTED_DOCS } from '../src/lib/constants.js';
+import { prepareInstall } from '../src/lib/install-capabilities.js';
+import { readUpstreamManifest } from '../src/lib/upstream-manifest.js';
+import { sealRepo } from './support/harness.js';
 
 // The flat layout was removed in v0.21.0 (docs/contributing.md, "Support
 // policy"): a flat clone is refused by detectLayout, a config recorded at it
@@ -30,6 +34,12 @@ describe('detectLayout', () => {
     mkdirSync(join(root, 'pharn/pharn-contracts'), { recursive: true });
     expect(detectLayout(root)).toBe('pharn');
     expect(isPharnLayout(root)).toBe(true);
+    // The install mirrors it: a sealed pharn tree prepares at the pharn layout.
+    writeFileSync(join(root, 'pharn/pharn-contracts/x.md'), 'x\n');
+    sealRepo(root);
+    const proj = join(tmp.path(), 'proj');
+    mkdirSync(proj);
+    expect(prepareInstall(root, proj, []).paths.layout).toBe('pharn');
   });
 
   it('returns flat when contracts live at the root (the legacy layout)', () => {
@@ -47,6 +57,12 @@ describe('detectLayout', () => {
     mkdirSync(join(root, 'pharn'), { recursive: true });
     expect(isPharnLayout(root)).toBe(false);
     expect(() => detectLayout(root)).toThrow(FLAT_CLONE);
+    // A manifest declaring the pharn layout over such a tree is refused too.
+    writeFileSync(join(root, 'pharn/CONSTITUTION.md'), 'c\n');
+    sealRepo(root);
+    expect(() => readUpstreamManifest(root)).toThrow(
+      /has no pharn\/pharn-contracts/,
+    );
   });
 
   it('returns flat for an empty dir (safe legacy default)', () => {
@@ -74,6 +90,9 @@ describe('layoutPaths', () => {
     for (const path of all) expect(path.startsWith('pharn/')).toBe(true);
     expect(p.docs).not.toContain('THREAT-MODEL.md');
     expect(p.docs).not.toContain('LIMITS.md');
+    // The old root names are never a destination.
+    for (const doc of TRUSTED_DOCS) expect(p.docs).not.toContain(doc);
+    expect(p.license.to).not.toBe(FLAT_LICENSE_DEST);
     // The ONE source≠dest mapping: upstream's LICENSE must never land on the
     // user's own root LICENSE.
     expect(p.license).toEqual({ from: 'LICENSE', to: 'pharn/LICENSE' });
@@ -97,6 +116,8 @@ describe('layoutPaths', () => {
       'pharn/THREAT-MODEL.md',
       'pharn/LIMITS.md',
     ]);
+    // The same four BASENAMES as the old root list — only the prefix differs.
+    expect(p.docs.map((d) => d.split('/').pop())).toEqual(TRUSTED_DOCS);
     expect(p.license).toEqual({ from: 'LICENSE', to: 'pharn/LICENSE' });
   });
 });

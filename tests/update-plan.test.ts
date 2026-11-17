@@ -735,7 +735,9 @@ describe('buildUpdatePlan', () => {
       // never names, moves or backs up the root memory-bank/.
       const cfg = await unitFixture();
       const { report } = plan(cfg);
-      expect(report.executableUnit).not.toBeNull();
+      expect(report.executableUnit?.blocking).toEqual([
+        { rel: OLD_FLOOR, label: 'modified' },
+      ]);
       expect(report).not.toHaveProperty('rootMigration');
       write(join(proj, OLD_FLOOR), 'baseline v7');
       const unheld = plan(cfg);

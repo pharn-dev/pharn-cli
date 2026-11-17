@@ -179,31 +179,31 @@ describe('pharn remove <name>', () => {
       write(`${dir}/${gone}.md`, 'X');
       write(kept, 'K');
 
-      if (layout === 'flat') {
-        // v0.21.0: a config recorded at the flat layout (no `layout` key) is
-        // refused with "re-run `pharn init`"; nothing is deleted or written.
-        const before = snapshot();
-        expect(await run(() => runRemove(arg))).toBe(1);
-        expect(snapshot()).toEqual(before);
-        expect(errors()).toContain(FLAT_LAYOUT_MESSAGE);
-        return;
-      }
-
+      // v0.21.0: a config recorded at the flat layout (no `layout` key) is
+      // refused with "re-run `pharn init`"; nothing is deleted or written.
+      const flat = layout === 'flat';
+      const before = snapshot();
       // The NAMED path never confirms (the stub's confirm would throw).
-      expect(await run(() => runRemove(arg))).toBeNull();
-
-      expect(exists(dir)).toBe(false);
-      expect(read(kept)).toBe('K');
-      const cfg = config();
-      expect(cfg.capabilities).toEqual(
-        gone === 'a11y'
-          ? [{ name: 'n-plus-one', role: 'lens' }]
-          : [{ name: 'a11y', role: 'griller' }],
-      );
-      // A partial edit: archetypes and the first install's date carried (F-23).
-      expect(cfg.archetypes).toEqual(['ssr']);
-      expect(cfg.installedAt).toBe(INSTALLED_AT);
-      expect(lastOutro()).toContain(`Removed ${gone}`);
+      expect(await run(() => runRemove(arg))).toBe(flat ? 1 : null);
+      expect(errors().includes(FLAT_LAYOUT_MESSAGE)).toBe(flat);
+      if (flat) {
+        expect(snapshot()).toEqual(before);
+        expect(exists(dir)).toBe(true);
+      } else {
+        expect(exists(dir)).toBe(false);
+        expect(read(kept)).toBe('K');
+        const cfg = config();
+        expect(cfg.capabilities).toEqual(
+          gone === 'a11y'
+            ? [{ name: 'n-plus-one', role: 'lens' }]
+            : [{ name: 'a11y', role: 'griller' }],
+        );
+        // A partial edit: archetypes and the first install's date carried
+        // (F-23).
+        expect(cfg.archetypes).toEqual(['ssr']);
+        expect(cfg.installedAt).toBe(INSTALLED_AT);
+        expect(lastOutro()).toContain(`Removed ${gone}`);
+      }
     },
   );
 

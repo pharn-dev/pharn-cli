@@ -58,6 +58,8 @@ function input(extra: Partial<StatusReportInput> = {}): StatusReportInput {
 
 describe('buildStatusReport', () => {
   it('reports a clean drift-path install', () => {
+    // v0.21.0: config and clone are at the one layout, `pharn`.
+    expect(input().config.layout).toBe('pharn');
     expect(buildStatusReport(input())).toEqual({
       schemaVersion: 1,
       node: { floor: '24.2.0', running: '24.5.0', status: 'ok' },
