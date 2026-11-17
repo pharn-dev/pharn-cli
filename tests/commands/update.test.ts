@@ -939,8 +939,12 @@ describe('pharn update, end to end', () => {
       ],
       moves: [],
       scratchNotice: true,
-      gitignoreHints: ['pharn/.run/', 'pharn/.backup/'],
+      // `.pharn-backup` is no longer hinted (0.20.0): only `.pharn/` is.
+      gitignoreHints: ['pharn/.run/'],
     });
+    expect(preview.plan?.rootMigration?.gitignoreHints ?? []).not.toContain(
+      'pharn/.backup/',
+    );
     // Nothing of the user's data is backed up: nothing of it is touched.
     const previewBackups = (
       JSON.parse(stdout()[0] ?? '') as { plan: { backups: string[] } }
@@ -1239,20 +1243,21 @@ describe('pharn update, end to end', () => {
         .join('\n'),
     ).toContain('git mv memory-bank pharn/memory-bank');
   });
-  it('points at an old root .pharn-backup/ and leaves it alone', async () => {
+  // pharn 0.14.1 to 0.19.x pointed at an old root `.pharn-backup/` on every
+  // run; from 0.20.0 nothing reads it.
+  it('no longer points at an old root .pharn-backup/, and leaves it alone', async () => {
     await installFresh();
     mkdirSync(at('.pharn-backup/20261001-120000'), { recursive: true });
     writeFileSync(at('.pharn-backup/20261001-120000/x.md'), 'old\n');
     serveTip(SHA_V2, '2.0.0');
     vi.mocked(clack.log.info).mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(config().skillsVersion).toBe('2.0.0');
     expect(
       vi
         .mocked(clack.log.info)
-        .mock.calls.some(([m]) =>
-          String(m).startsWith('.pharn-backup/ holds backups'),
-        ),
-    ).toBe(true);
+        .mock.calls.some(([m]) => String(m).includes('.pharn-backup')),
+    ).toBe(false);
     expect(read('.pharn-backup/20261001-120000/x.md')).toBe('old\n');
   });
 });

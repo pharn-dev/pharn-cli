@@ -44,7 +44,7 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { applyWrites, ApplyError, changedSince } from '../lib/apply-update.js';
 import { removalBackupsNow } from '../lib/capability-removal.js';
-import { BACKUP_DIR, createBackup, legacyBackupNotice } from '../lib/backup.js';
+import { BACKUP_DIR, createBackup } from '../lib/backup.js';
 import {
   applyGitignore,
   backupDirIgnored,
@@ -375,8 +375,6 @@ async function runArchetypeUpdate(
   }
 
   // Before the report, whose outro is the run's last line.
-  const legacyBackups = legacyBackupNotice(cwd);
-  if (legacyBackups) log.info(legacyBackups);
   const gitignore =
     outcome.gitignore === undefined ? null : gitignoreLines(outcome.gitignore);
   if (gitignore?.warn) log.warn(gitignore.text);
@@ -848,7 +846,5 @@ async function runDryRun(
     return;
   }
   if (!report.changesNothing) printHeader(config, latest, source, force, true);
-  const legacyBackups = legacyBackupNotice(cwd);
-  if (legacyBackups) log.info(legacyBackups);
   reportDryRun(report, force, channel, config);
 }

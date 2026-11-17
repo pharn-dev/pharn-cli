@@ -32,7 +32,7 @@ import {
 } from '../lib/hook-wiring.js';
 import { serializeJsonReport } from '../lib/json-report.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
-import { BACKUP_DIR, legacyBackupNotice } from '../lib/backup.js';
+import { BACKUP_DIR } from '../lib/backup.js';
 import {
   buildInitPlan,
   capabilityKey,
@@ -442,8 +442,6 @@ async function runInitDryRun(
     return;
   }
   reportCarry(carry);
-  const legacyBackups = legacyBackupNotice(cwd);
-  if (legacyBackups) log.info(legacyBackups);
   reportInitDryRun(plan);
 }
 

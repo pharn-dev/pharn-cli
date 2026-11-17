@@ -1,6 +1,7 @@
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
@@ -14,8 +15,8 @@ import {
   backupTimestamp,
   BACKUP_DIR,
   createBackup,
-  legacyBackupNotice,
 } from '../src/lib/backup.js';
+import * as backupModule from '../src/lib/backup.js';
 import { parseCapabilityIndex } from '../src/lib/capability-index.js';
 import { scanDest } from '../src/lib/dest-drift.js';
 import { diffInstalledCapabilities } from '../src/lib/diff.js';
@@ -339,27 +340,52 @@ describe('a backed-up capability copy is invisible to every install reader', () 
   });
 });
 
+// pharn 0.13.0 and older wrote backups to a root `.pharn-backup/`, and 0.14.1 to
+// 0.19.x pointed at one on every run. From 0.20.0 nothing reads that path.
 describe('legacyBackupNotice — an old root .pharn-backup/', () => {
   const tmp = useTmpDir();
 
   it('names a real directory, and says pharn deletes neither', () => {
+    // "Neither" now: no notice names it, and a backup never touches it.
     mkdirSync(join(tmp.path(), '.pharn-backup/20261001-120000'), {
       recursive: true,
     });
-    const line = legacyBackupNotice(tmp.path());
-    expect(line).toContain('.pharn-backup/ holds backups from pharn 0.13.0');
-    expect(line).toContain('new ones go to pharn/.backup/');
-    expect(line).toContain('pharn never deletes either');
+    write(join(tmp.path(), '.pharn-backup/20261001-120000/x.md'), 'old\n');
+    write(join(tmp.path(), 'pharn/x.md'), 'mine\n');
+    const dir = createBackup(tmp.path(), ['pharn/x.md'], AT);
+    expect('legacyBackupNotice' in backupModule).toBe(false);
+    expect(dir).toBe('pharn/.backup/20260807-091500');
+    expect(
+      readFileSync(
+        join(tmp.path(), '.pharn-backup/20261001-120000/x.md'),
+        'utf8',
+      ),
+    ).toBe('old\n');
+    const lines = backupNoticeLines({ dir, saved: 1 }).join('\n');
+    expect(lines).not.toContain('.pharn-backup');
   });
 
   it('is silent when there is none, or when the name is a file or a link', () => {
-    expect(legacyBackupNotice(tmp.path())).toBeNull();
+    // A real backup in each state: its notice never names the old path, and
+    // the backup lands in pharn/.backup/, never through a root link.
+    const notice = (root: string): string => {
+      write(join(root, 'pharn/y.md'), 'y\n');
+      const dir = createBackup(root, ['pharn/y.md'], AT);
+      expect(dir.startsWith(`${BACKUP_DIR}/`)).toBe(true);
+      return backupNoticeLines({ dir, saved: 1 }).join('\n');
+    };
+    expect(notice(tmp.path())).not.toContain('.pharn-backup');
     writeFileSync(join(tmp.path(), '.pharn-backup'), 'not a dir');
-    expect(legacyBackupNotice(tmp.path())).toBeNull();
+    expect(notice(tmp.path())).not.toContain('.pharn-backup');
+    expect(readFileSync(join(tmp.path(), '.pharn-backup'), 'utf8')).toBe(
+      'not a dir',
+    );
     const other = join(tmp.path(), 'p2');
     mkdirSync(join(other, '..', 'elsewhere'), { recursive: true });
     mkdirSync(other);
     symlinkSync(join(other, '..', 'elsewhere'), join(other, '.pharn-backup'));
-    expect(legacyBackupNotice(other)).toBeNull();
+    expect(notice(other)).not.toContain('.pharn-backup');
+    expect(readdirSync(join(other, '..', 'elsewhere'))).toEqual([]);
+    expect('LEGACY_BACKUP_DIR' in backupModule).toBe(false);
   });
 });

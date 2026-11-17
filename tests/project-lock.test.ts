@@ -17,7 +17,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   FUTURE_SKEW_MS,
-  LEGACY_LOCK_FILE,
   LOCK_DIR,
   LOCK_FILE,
   MALFORMED_GRACE_MS,
@@ -77,9 +76,9 @@ function payload(dir: string): Record<string, unknown> {
 /**
  * Everything sitting next to the lock in `pharn/` under a `.lock.`-prefixed name.
  *
- * Deliberately looser than the production `CORPSE_RE`: "the break left nothing
- * behind" has to fail on a stray with an UNEXPECTED name too, or the assertion
- * only tests the names we already thought of.
+ * Deliberately loose: "the break left nothing behind" has to fail on a stray
+ * with an UNEXPECTED name too, or the assertion only tests the names we already
+ * thought of.
  */
 function lockSiblings(dir: string): string[] {
   if (!existsSync(join(dir, LOCK_DIR))) return [];
@@ -88,7 +87,7 @@ function lockSiblings(dir: string): string[] {
     .sort();
 }
 
-/** A corpse-shaped file, aged so the sweep's age bound is the thing under test. */
+/** A corpse-shaped file, aged: nothing deletes it, however old (no sweep). */
 function plantCorpse(dir: string, name: string, ageMs: number): void {
   mkdirSync(join(dir, LOCK_DIR), { recursive: true });
   const p = join(dir, LOCK_DIR, name);
@@ -346,29 +345,36 @@ describe('withProjectLock', () => {
     expect(existsSync(lockPath(dir))).toBe(false);
   });
 
-  it('sweeps an AGED corpse, and leaves a fresh one and a non-matching neighbour', async () => {
+  it('leaves an AGED corpse, a fresh one and a non-matching neighbour alone: nothing sweeps', async () => {
     const dir = tmp.path();
-    // A corpse from a run killed between its rename and its tidy — nothing else
-    // would ever remove this, which is why the break sweeps.
+    // A corpse from a run killed between its rename and its tidy (the module's
+    // STRANDED CORPSE residual). This call did not create it, so it stays.
     plantCorpse(dir, '.lock.4821.deadbeef', 48 * 60 * 60 * 1000);
     // A corpse seconds old may belong to a breaker racing us RIGHT NOW, mid-verify.
     plantCorpse(dir, '.lock.4822.cafef00d', 0);
-    // Prefixed, but not corpse-shaped: the sweep matches an allowlist, not a prefix.
+    // Prefixed, but not corpse-shaped: the user's.
     writeFileSync(join(dir, LOCK_DIR, '.lock.keepme'), 'mine', 'utf8');
-    plantLock(dir, 'not json at all'); // malformed → stale → break → sweep
+    plantLock(dir, 'not json at all'); // malformed → stale → break
 
     await withProjectLock(dir, 'init', () => undefined);
 
-    expect(lockSiblings(dir)).toEqual(['.lock.4822.cafef00d', '.lock.keepme']);
+    expect(lockSiblings(dir)).toEqual([
+      '.lock.4821.deadbeef',
+      '.lock.4822.cafef00d',
+      '.lock.keepme',
+    ]);
+    expect(
+      readFileSync(join(dir, LOCK_DIR, '.lock.4821.deadbeef'), 'utf8'),
+    ).toBe('corpse');
+    expect(existsSync(join(dir, LOCK_FILE))).toBe(false);
   });
 
   it('does NOT sweep on an uncontended acquire', async () => {
     const dir = tmp.path();
     plantCorpse(dir, '.lock.4821.deadbeef', 48 * 60 * 60 * 1000);
 
-    // No lock present, so tryCreate wins outright and the break path never runs.
-    // The uncontended acquire stays two syscalls: nobody pays a directory listing
-    // for a lock that was never contended.
+    // No lock present, so tryCreate wins outright and the break path never runs;
+    // nothing lists the directory on any path.
     await withProjectLock(dir, 'update', () => undefined);
 
     expect(lockSiblings(dir)).toEqual(['.lock.4821.deadbeef']);
@@ -599,6 +605,25 @@ describe('withProjectLock — a lock being written is live (PHARN-03)', () => {
       ran = true;
     });
     expect(ran).toBe(true);
+    expect(existsSync(lockPath(dir))).toBe(false);
+  });
+
+  it('judges a payload whose startedAt is not a date as unparseable: refused young, broken old', async () => {
+    const dir = tmp.path();
+    const bad = {
+      pid: process.pid, // alive: only the date makes this lock malformed
+      host: hostname(),
+      command: 'update',
+      startedAt: 'yesterday-ish',
+    };
+    plantLock(dir, bad, 0);
+    const err = await withProjectLock(dir, 'add', () => undefined).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ProjectLockedError);
+    expect((err as Error).message).toContain('another pharn process');
+    plantLock(dir, bad);
+    expect(await withProjectLock(dir, 'add', () => 'ran')).toBe('ran');
     expect(existsSync(lockPath(dir))).toBe(false);
   });
 });
@@ -1006,10 +1031,12 @@ describe('withProjectLock — the pharn/ directory', () => {
   });
 });
 
-// One-release compatibility with the ROOT lock pharn 0.13.0 takes.
+// pharn 0.13.0 and older take a lock at the project ROOT, and 0.14.0 to 0.19.x
+// still honoured it. From 0.20.0 it is never read: whatever it holds, the run
+// takes `pharn/.lock` alone and leaves the root file as it found it.
 describe('withProjectLock — the legacy root .pharn.lock', () => {
   const tmp = useTmpDir();
-  const legacy = (dir: string): string => join(dir, LEGACY_LOCK_FILE);
+  const legacy = (dir: string): string => join(dir, '.pharn.lock');
 
   function plantLegacy(dir: string, data: unknown, ageMs = 0): void {
     writeFileSync(legacy(dir), JSON.stringify(data));
@@ -1017,7 +1044,7 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
     utimesSync(legacy(dir), when, when);
   }
 
-  it('a LIVE root lock held by an old CLI refuses, naming it, and releases ours', async () => {
+  it('a LIVE root lock held by an old CLI is ignored: the run proceeds and leaves it', async () => {
     const dir = tmp.path();
     plantLegacy(dir, {
       pid: process.pid,
@@ -1025,16 +1052,16 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
       command: 'update',
       startedAt: new Date().toISOString(),
     });
+    const before = readFileSync(legacy(dir), 'utf8');
     const fn = vi.fn();
-    const err = await withProjectLock(dir, 'update', fn).catch((e: Error) => e);
-    expect(err).toBeInstanceOf(ProjectLockedError);
-    expect((err as Error).message).toContain(`delete ${LEGACY_LOCK_FILE}`);
-    expect(fn).not.toHaveBeenCalled();
-    expect(existsSync(legacy(dir))).toBe(true);
+    await withProjectLock(dir, 'update', fn);
+    expect(fn).toHaveBeenCalledOnce();
+    expect(readFileSync(legacy(dir), 'utf8')).toBe(before);
     expect(existsSync(join(dir, LOCK_DIR))).toBe(false);
+    expect(existsSync(legacy(dir))).toBe(true);
   });
 
-  it('a STALE root lock (a crashed old run) is broken, its corpses swept, and the run proceeds', async () => {
+  it('a STALE root lock (a crashed old run) and its corpse-named neighbours are left untouched', async () => {
     const dir = tmp.path();
     plantLegacy(dir, {
       pid: DEAD_PID, // the old run crashed: its pid is gone on this host
@@ -1051,13 +1078,20 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
     const fn = vi.fn();
     await withProjectLock(dir, 'update', fn);
     expect(fn).toHaveBeenCalledOnce();
-    expect(existsSync(legacy(dir))).toBe(false);
-    expect(readdirSync(dir).filter((n) => n.startsWith('.pharn.lock'))).toEqual(
-      ['.pharn.lock.keepme'],
-    );
+    expect(existsSync(legacy(dir))).toBe(true);
+    expect(
+      readdirSync(dir)
+        .filter((n) => n.startsWith('.pharn.lock'))
+        .sort(),
+    ).toEqual([
+      '.pharn.lock',
+      '.pharn.lock.4821.deadbeef',
+      '.pharn.lock.keepme',
+    ]);
+    expect(readFileSync(corpse, 'utf8')).toBe('corpse');
   });
 
-  it('a LIVE same-host root lock older than six hours still refuses (age never breaks it)', async () => {
+  it('a LIVE same-host root lock older than six hours is ignored too (never read)', async () => {
     const dir = tmp.path();
     plantLegacy(dir, {
       pid: process.pid,
@@ -1065,11 +1099,10 @@ describe('withProjectLock — the legacy root .pharn.lock', () => {
       command: 'update',
       startedAt: new Date(Date.now() - 7 * HOUR).toISOString(),
     });
-    const fn = vi.fn();
-    const err = await withProjectLock(dir, 'update', fn).catch((e: Error) => e);
-    expect(err).toBeInstanceOf(ProjectLockedError);
-    expect(fn).not.toHaveBeenCalled();
+    const result = await withProjectLock(dir, 'update', () => 'ran');
+    expect(result).toBe('ran');
     expect(existsSync(legacy(dir))).toBe(true);
+    expect(existsSync(join(dir, LOCK_FILE))).toBe(false);
   });
 
   it('a directory at the root path is not a lock: ignored', async () => {

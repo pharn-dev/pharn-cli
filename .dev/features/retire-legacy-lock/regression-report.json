@@ -1,0 +1,32 @@
+{
+  "base": "df1fc929287a50d119f982870ceb61d832c79a3a",
+  "inside": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/commands/update.md",
+    "docs/troubleshooting.md",
+    "src/commands/init.ts",
+    "src/commands/update.ts",
+    "src/lib/backup.ts",
+    "src/lib/project-lock.ts",
+    "src/lib/root-migration.ts",
+    "src/steps/install-archetype.ts",
+    "tests/backup.test.ts",
+    "tests/commands/update.test.ts",
+    "tests/project-lock.test.ts",
+    "tests/root-migration.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 0,
+      "head": 0
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": [],
+  "verdict": "no-regressions"
+}
