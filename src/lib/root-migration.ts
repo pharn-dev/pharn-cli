@@ -1,9 +1,7 @@
-import { lstatSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, unlinkSync } from 'node:fs';
 import { readBoundedFile } from './bounded-read.js';
-import { PHARN_ROOT_FALLBACK_DOCS } from './constants.js';
 import { contentHash } from './hash.js';
 import type { FileRecords } from './install-records.js';
-import { resolveTrustedDocs } from './layout.js';
 import { findSymlinkComponent } from './symlink-guard.js';
 import { planUninstall } from './uninstall-plan.js';
 import { safeJoin } from './validate.js';
@@ -16,7 +14,7 @@ import type { Layout } from '../types.js';
 // Older installs left four kinds of thing at the root, each handled by the
 // narrowest safe rule:
 //
-//   docs      Root THREAT-MODEL.md / LIMITS.md (exactly PHARN_ROOT_FALLBACK_DOCS):
+//   docs      Root THREAT-MODEL.md / LIMITS.md (exactly ROOT_DOCS):
 //             deleted only when the pharn/ copy landed AND the root copy still
 //             equals its record (uninstall's classifier); anything else stays.
 //   user data `memory-bank/`, `pharn.spec-template.md`: NEVER moved, copied or
@@ -59,6 +57,14 @@ export interface RootMigration {
 // The SKILLS_VERSION major from which pharn-oss reads the pharn/ paths: the
 // user-data hints and both notices apply from it.
 export const ROOT_MIGRATION_FROM_MAJOR = 7;
+
+// The two trusted docs a pre-7.0 pharn-layout install left at the ROOT, keyed
+// by the pharn/ path that replaces each: the fixed list the root-doc migration
+// may delete from, and nothing else.
+const ROOT_DOCS: Readonly<Record<string, string>> = {
+  'pharn/THREAT-MODEL.md': 'THREAT-MODEL.md',
+  'pharn/LIMITS.md': 'LIMITS.md',
+};
 
 // The old user-data paths, in report order.
 const USER_DATA_PATHS: readonly { from: string; to: string; dir: boolean }[] = [
@@ -114,17 +120,15 @@ export function planRootMigration(input: {
   };
 }
 
-// One step per root doc whose pharn/ counterpart this clone ships (a doc the
-// clone still keeps at the root is an ordinary install file).
+// One step per root doc whose pharn/ counterpart this clone ships.
 function planRootDocs(
   projectRoot: string,
   repoDir: string,
   records: FileRecords | null,
 ): RootDocStep[] {
-  const shipped = new Set(resolveTrustedDocs(repoDir, 'pharn'));
   const steps: RootDocStep[] = [];
-  for (const [pharnRel, rootRel] of Object.entries(PHARN_ROOT_FALLBACK_DOCS)) {
-    if (!shipped.has(pharnRel)) continue;
+  for (const [pharnRel, rootRel] of Object.entries(ROOT_DOCS)) {
+    if (!existsSync(safeJoin(repoDir, pharnRel))) continue;
     steps.push({
       rel: rootRel,
       action: classifyRootDoc(projectRoot, rootRel, records),
@@ -286,7 +290,7 @@ export function deleteRootDocs(
 }
 
 function pharnCounterpart(rootRel: string): string | null {
-  for (const [pharnRel, rel] of Object.entries(PHARN_ROOT_FALLBACK_DOCS))
+  for (const [pharnRel, rel] of Object.entries(ROOT_DOCS))
     if (rel === rootRel) return pharnRel;
   return null;
 }

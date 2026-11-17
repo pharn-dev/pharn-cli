@@ -10,7 +10,7 @@ import {
   SECURITY,
   SETTINGS,
   withManifest,
-  upstreamTree7,
+  upstreamTree,
   type ManifestDoc,
   type Tree,
 } from './support/harness.js';
@@ -60,8 +60,44 @@ const fileAt = (m: ManifestDoc, dest: string) => {
 };
 
 describe('readUpstreamManifest — the one parser', () => {
-  it('returns null for a tree without pharn-install.json (the fallback)', () => {
-    expect(readUpstreamManifest(writeTree(upstreamTree7('7.20.0')))).toBeNull();
+  // A pharn-oss older than 7.21.0 ships no manifest; this pharn no longer
+  // derives an install from such a tree.
+  const absentRefusal = (tree: Tree): string => {
+    try {
+      readUpstreamManifest(writeTree(tree));
+    } catch (err) {
+      expect(err).toBeInstanceOf(UpstreamManifestError);
+      return (err as Error).message;
+    }
+    throw new Error('expected a refusal');
+  };
+
+  it('refuses a tree without pharn-install.json, naming its version and the fix', () => {
+    const message = absentRefusal(upstreamTree('7.20.0'));
+    expect(message).toContain('(SKILLS_VERSION 7.20.0)');
+    expect(message).toContain('ships no pharn-install.json');
+    expect(message).toContain('older than 7.21.0');
+    expect(message).toContain('`--ref main`');
+    expect(message).toContain('Nothing was written.');
+  });
+
+  it('refuses a manifest-less tree whose SKILLS_VERSION is hostile, never quoting it', () => {
+    const message = absentRefusal({
+      ...upstreamTree('7.20.0'),
+      SKILLS_VERSION: '\u001b[31m7.20.0\u202e\n',
+    });
+    expect(message).toContain('ships no pharn-install.json');
+    expect(message).not.toContain('SKILLS_VERSION');
+    expect(message).not.toContain('\u001b');
+    expect(message).not.toContain('\u202e');
+  });
+
+  it('refuses a manifest-less tree with no SKILLS_VERSION for the missing manifest', () => {
+    const { SKILLS_VERSION: _drop, ...tree } = upstreamTree('7.20.0');
+    const message = absentRefusal(tree);
+    expect(message).toMatch(
+      /^The fetched pharn-oss ships no pharn-install\.json/,
+    );
   });
 
   it('reads a valid manifest: capabilities, files, models.defaults', () => {
@@ -113,7 +149,7 @@ describe('readUpstreamManifest — the one parser', () => {
 
   it('refuses a file that is not JSON, or not an object, without quoting it', () => {
     const notJson = writeTree({
-      ...upstreamTree7('7.20.0'),
+      ...upstreamTree('7.20.0'),
       [MANIFEST]: '{"x": \u001b[31m',
     });
     expect(() => readUpstreamManifest(notJson)).toThrow(/is not valid JSON/);
@@ -450,7 +486,7 @@ describe('readUpstreamManifest — the one parser', () => {
       const m = readUpstreamManifest(
         writeTree(
           withManifest({
-            ...upstreamTree7('7.20.0'),
+            ...upstreamTree('7.20.0'),
             [NEW_SURFACE]: 'skill\n',
             'pharn/pharn-new/notes/x.md': 'new\n',
           }),
@@ -551,7 +587,7 @@ describe('verifyUpstreamManifest — raw sha256 after extraction', () => {
   });
 
   it('hashes RAW bytes: a CRLF file verifies against its unfolded digest only', () => {
-    const tree = upstreamTree7('7.20.0');
+    const tree = upstreamTree('7.20.0');
     tree['pharn/LIMITS.md'] = 'line one\r\nline two\r\n';
     const ok = writeTree(withManifest(tree));
     expect(() =>
@@ -629,7 +665,7 @@ describe('projections', () => {
     const m = readUpstreamManifest(
       writeTree(
         withManifest({
-          ...upstreamTree7('7.20.0'),
+          ...upstreamTree('7.20.0'),
           'pharn/pharn-pipeline/grillers/a11y/evals/b.md': 'b\n',
         }),
       ),

@@ -5,7 +5,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPO, REPO_BRANCH } from '../src/lib/constants.js';
-import { githubArchive } from './support/tar-fixture.js';
+import { codeloadArchive } from './support/tar-fixture.js';
+import { withManifest } from './support/harness.js';
+
+// The smallest tree fetchRepo accepts: a SKILLS_VERSION, the pharn layout's
+// marker, and the pharn-install.json that declares them.
+const SEALED = withManifest({
+  SKILLS_VERSION: '1.0.0\n',
+  'pharn/pharn-contracts/finding-shape.md': 'finding shape\n',
+});
 
 // fetchRepo's temp clone is multi-megabyte and the clone/copy phases are the
 // longest prompt-free windows in the CLI. Disposal hung entirely off a `finally`
@@ -79,7 +87,7 @@ describe('temp-clone cleanup handlers', () => {
       vi.fn(async (url: string) =>
         url === RESOLVE_URL
           ? new Response(VALID_SHA)
-          : tarResponse(githubArchive(VALID_SHA)),
+          : tarResponse(codeloadArchive(VALID_SHA, SEALED)),
       ),
     );
   });
@@ -220,16 +228,17 @@ describe('SIGINT during a clone', () => {
     writeFileSync(
       script,
       `
-import { githubArchive } from ${JSON.stringify(join(repoRoot, 'tests/support/tar-fixture.ts'))};
+import { codeloadArchive } from ${JSON.stringify(join(repoRoot, 'tests/support/tar-fixture.ts'))};
 import { fetchRepo } from ${JSON.stringify(join(repoRoot, 'src/lib/repo.ts'))};
 
 const SHA = ${JSON.stringify(VALID_SHA)};
 const RESOLVE = ${JSON.stringify(RESOLVE_URL)};
+const TREE = ${JSON.stringify(SEALED)};
 globalThis.fetch = (async (url) => {
   if (String(url) === RESOLVE) {
     return new Response(SHA);
   }
-  const bytes = githubArchive(SHA);
+  const bytes = codeloadArchive(SHA, TREE);
   return {
     ok: true,
     status: 200,

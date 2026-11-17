@@ -15,7 +15,7 @@ import {
   failures,
   fetched,
   fetchStub,
-  flatTree,
+  legacyInstall,
   HOOK,
   HOOK_SETTINGS,
   installFresh,
@@ -39,8 +39,10 @@ import {
   stdout,
   tarballUrl,
   upstream,
+  snapshot,
   useHarness,
   VERSION_URL,
+  watchClones,
   write,
 } from '../support/harness.js';
 import { runStatus } from '../../src/commands/status.js';
@@ -187,13 +189,13 @@ describe('pharn status, end to end', () => {
     expectNoClack();
 
     writeFileSync(at(PLAN_COMMAND), `edited\n`);
-    rmSync(at('LIMITS.md'));
+    rmSync(at('pharn/LIMITS.md'));
     const { report: drifted } = await statusJson();
     expect(drifted.drift?.modified).toEqual([PLAN_COMMAND]);
-    expect(drifted.drift?.missing).toEqual(['LIMITS.md']);
+    expect(drifted.drift?.missing).toEqual(['pharn/LIMITS.md']);
     // status is read-only: nothing it reported was put back.
     expect(read(PLAN_COMMAND)).toBe(`edited\n`);
-    expect(exists('LIMITS.md')).toBe(false);
+    expect(exists('pharn/LIMITS.md')).toBe(false);
   });
 
   it('text: a clean install prints VERSION, NODE, MODELS and "No drift", downloads once, and changes nothing', async () => {
@@ -227,14 +229,14 @@ describe('pharn status, end to end', () => {
   it('text renders the --json report: same drift, orphans and counts, and --strict exits on report.strict.failed', async () => {
     await installWithOrphan();
     writeFileSync(at(PLAN_COMMAND), `edited\n`);
-    rmSync(at('LIMITS.md'));
+    rmSync(at('pharn/LIMITS.md'));
 
     const { report, exitCode } = await statusJson({ strict: true });
     expect(report.strict).toEqual({ enabled: true, failed: true });
     expect(exitCode).toBe(1);
     expect(report.drift).toMatchObject({
       modified: [PLAN_COMMAND],
-      missing: ['LIMITS.md'],
+      missing: ['pharn/LIMITS.md'],
     });
     expect(report.orphans?.map((o) => o.path)).toEqual([OLD_COMMAND]);
 
@@ -385,7 +387,7 @@ describe('pharn status, end to end', () => {
     },
     {
       name: 'a missing file',
-      make: () => rmSync(at('LIMITS.md')),
+      make: () => rmSync(at('pharn/LIMITS.md')),
       fails: true,
     },
     {
@@ -405,7 +407,8 @@ describe('pharn status, end to end', () => {
     },
     {
       name: 'a layout mismatch',
-      make: () => serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') }),
+      // A flat install (recorded `flat`) against the pharn clone.
+      make: () => legacyInstall('flat'),
       fails: true,
     },
     {
@@ -475,7 +478,7 @@ describe('pharn status, end to end', () => {
   it('DRIFT lists DIFFERS → MISSING → UNREADABLE, each with what to do; nothing is changed', async () => {
     await installFresh();
     write(PLAN_COMMAND, 'edited\n');
-    rmSync(at('LIMITS.md'));
+    rmSync(at('pharn/LIMITS.md'));
     rmSync(at(CONSTITUTION));
     symlinkSync('elsewhere.md', at(CONSTITUTION));
     expect(await status()).toBeNull();
@@ -540,14 +543,15 @@ describe('pharn status, end to end', () => {
   });
 
   // CORE-167: a recorded layout upstream no longer ships.
+  // A flat install is made from a pharn-oss this pharn can no longer fetch:
+  // installed from today's tree, then put in the flat shape (legacyInstall).
   it('a layout mismatch prints LAYOUT instead of DRIFT, compares nothing, and still checks the hooks', async () => {
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
     await installFresh();
     expect(await status()).toBeNull();
     expect(noteTitles()).not.toContain('LAYOUT');
     expect(note('DRIFT')).toContain('No drift');
 
-    serveTip(SHA_V1, '1.0.0');
+    legacyInstall('flat');
     write(SETTINGS, '{}\n');
     expect(await status()).toBeNull();
     expect(noteTitles()).not.toContain('DRIFT');
@@ -580,16 +584,12 @@ describe('pharn status, end to end', () => {
 
   // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
   it('DEPRECATED: a flat install is told the layout goes in v0.22.0 and how to move off it, on both paths, never failing --strict', async () => {
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+    // A flat install comes from a pharn-oss this pharn can no longer fetch.
     await installFresh();
-    expect(await status({ strict: true })).toBeNull();
-    expect(noteTitles()).toEqual([
-      'NODE',
-      'VERSION',
-      'DEPRECATED',
-      'MODELS',
-      'DRIFT',
-    ]);
+    legacyInstall('flat');
+    // Without a clone there is no layout mismatch to fail --strict on.
+    expect(await status({ strict: true, drift: false })).toBeNull();
+    expect(noteTitles().slice(0, 3)).toEqual(['NODE', 'VERSION', 'DEPRECATED']);
     const deprecated = note('DEPRECATED');
     expect(deprecated).toContain('This install is at the flat layout');
     expect(deprecated).toContain(
@@ -602,12 +602,8 @@ describe('pharn status, end to end', () => {
     for (const line of deprecated.split('\n'))
       expect(line.length).toBeLessThanOrEqual(70);
 
-    // Read from the recorded layout, so --no-drift (no clone) prints it too.
-    expect(await status({ drift: false })).toBeNull();
-    expect(notes('DEPRECATED')).toHaveLength(1);
-
-    // Across layouts it prints beside LAYOUT, which names the same move.
-    serveTip(SHA_V1, '1.0.0');
+    // Read from the recorded layout, so it prints with a clone too: across
+    // layouts, beside LAYOUT, which names the same move.
     expect(await status()).toBeNull();
     expect(noteTitles()).toContain('LAYOUT');
     expect(notes('DEPRECATED')).toHaveLength(1);
@@ -727,15 +723,24 @@ describe('pharn status, end to end', () => {
 
   it('a frozen capability (upstream ships it, pharn cannot parse it) is named, left out of the diff, and never fails --strict', async () => {
     const FROZEN = 'pharn/pharn-pipeline/grillers/backwards-compat';
-    upstream.tree[`${FROZEN}/backwards-compat.md`] = 'no frontmatter here\n';
-    // A lens of the same name that parses: the (name, role) pair is the key.
-    upstream.tree['pharn/pharn-review/backwards-compat/backwards-compat.md'] =
-      capability('lens', '["backend"]', 'lens');
+    // An `applies` token this pharn does not know: seen, never compared.
+    upstream.tree[`${FROZEN}/backwards-compat.md`] = capability(
+      'griller',
+      '["mobile"]',
+      'wip',
+    );
+    // A lens that parses beside it (pharn-install.json declares each name
+    // once, so it has its own name).
+    upstream.tree['pharn/pharn-review/compat-lens/compat-lens.md'] = capability(
+      'lens',
+      '["backend"]',
+      'lens',
+    );
     await installFresh();
     editConfig((c) => {
       c.capabilities.push(
         { name: 'backwards-compat', role: 'griller', source: 'auto' },
-        { name: 'backwards-compat', role: 'lens', source: 'manual' },
+        { name: 'compat-lens', role: 'lens', source: 'manual' },
       );
     });
 
@@ -745,9 +750,7 @@ describe('pharn status, end to end', () => {
     expect(warned).toContain('backwards-compat');
     const drift = note('DRIFT');
     // The lens is compared (its files are missing); the griller is not.
-    expect(drift).toContain(
-      'pharn/pharn-review/backwards-compat/backwards-compat.md',
-    );
+    expect(drift).toContain('pharn/pharn-review/compat-lens/compat-lens.md');
     expect(drift).not.toContain(FROZEN);
 
     editConfig((c) => {
@@ -1137,4 +1140,29 @@ describe('status after an install from pharn-install.json', () => {
     const { report: drifted } = await statusJson();
     expect(drifted.drift?.modified).toEqual([NEW_SURFACE]);
   });
+});
+
+// C8.3: a pharn-oss without pharn-install.json (older than 7.21.0) is refused.
+describe('status against a pharn-oss older than 7.21.0', () => {
+  it.each<[string, boolean]>([
+    ['text', false],
+    ['--json', true],
+  ])(
+    'refuses it (%s): exit 1, nothing written, no clone left',
+    async (_l, json) => {
+      await installFresh();
+      serveTip(SHA_V2, '7.20.0', { seal: false });
+      const clones = watchClones();
+      const before = snapshot();
+      expect(await status({ json })).toBe(1);
+      const said = printed();
+      expect(said).toContain(
+        'The fetched pharn-oss (SKILLS_VERSION 7.20.0) ships no pharn-install.json',
+      );
+      expect(said).toContain('older than 7.21.0');
+      if (json) expect(stdout()).toEqual([]);
+      expect(snapshot()).toEqual(before);
+      expect(clones()).toEqual([]);
+    },
+  );
 });

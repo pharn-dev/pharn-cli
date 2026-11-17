@@ -37,12 +37,13 @@ import {
   FLOOR,
   fetched,
   fetchStub,
-  flatTree,
   FLAT,
   HOOK,
   HOOK_SETTINGS,
   INSTALLED,
   installFresh,
+  legacyInstall,
+  MANIFEST,
   manifestTree,
   NEW_SURFACE,
   interactive,
@@ -70,11 +71,13 @@ import {
   stderr,
   stdout,
   tagCommitUrl,
+  tarballUrl,
   upstream,
-  upstreamTree7,
+  upstreamTree,
   UPSTREAM_MODELS,
   useHarness,
   VERSION_URL,
+  withManifest,
   write,
 } from '../support/harness.js';
 import { runInit } from '../../src/commands/init.js';
@@ -383,7 +386,7 @@ describe('pharn init, end to end', () => {
   });
 
   it('a first init prints no ROOT MIGRATION note, even with memory-bank/ at the root', async () => {
-    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree('7.0.0') });
     write('memory-bank/canon.md', 'canon\n');
     await installFresh();
     expect(notes('ROOT MIGRATION')).toEqual([]);
@@ -391,7 +394,7 @@ describe('pharn init, end to end', () => {
   });
 
   it('a re-run init hints at memory-bank/ and never moves it (dry run and real run)', async () => {
-    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree('7.0.0') });
     await installFresh();
     write('memory-bank/canon.md', 'canon\n');
     const HINT = 'git mv memory-bank pharn/memory-bank';
@@ -677,11 +680,13 @@ describe('init after the download', () => {
 
   it('a malformed clone: exit 1 with the hint, nothing written, the clone removed', async () => {
     const clones = watchClones();
-    delete upstream.tree[N_PLUS_ONE]; // the whole lens subtree is gone
+    // The manifest declares a lens file the tree does not ship.
+    upstream.tree = withManifest(upstream.tree);
+    delete upstream.tree[N_PLUS_ONE];
     const before = snapshot();
     expect(await run(() => runInit({ yes: true }))).toBe(1);
     expect(errors()).toContain(
-      'Capability subtree "pharn/pharn-review" is missing in the fetched repo.',
+      `pharn-oss's pharn-install.json declares ${N_PLUS_ONE}, which the tree does not ship as a file`,
     );
     expect(informed()).toContain('PHARN_DEBUG=1');
     expect(snapshot()).toEqual(before);
@@ -709,8 +714,10 @@ describe('init after the download', () => {
   // warns.
   it('names an unreadable upstream capability before the summary, and never copies it', async () => {
     ssrProject();
-    upstream.tree['pharn/pharn-pipeline/grillers/backwards-compat/NOTES.md'] =
-      'WIP\n';
+    // An `applies` token this pharn does not know.
+    upstream.tree[
+      'pharn/pharn-pipeline/grillers/backwards-compat/backwards-compat.md'
+    ] = capability('griller', '["mobile"]', 'WIP');
     upstream.tree.MIN_CLI = 'garbage\n';
     interactive({ select: ['install'] });
     expect(await run(() => runInit())).toBeNull();
@@ -852,6 +859,18 @@ describe('a fresh install', () => {
   ])('writes no models key for %s', async (_l, root) => {
     if (root === null) delete upstream.tree['pharn.config.json'];
     else upstream.tree['pharn.config.json'] = root;
+    if (root?.includes('"deep"')) {
+      // Too deep for the fixture's own JSON.stringify: the block is spliced
+      // into the manifest's text, as pharn-oss's generator would carry it.
+      const block = root.slice('{"models":'.length, -1);
+      upstream.tree['pharn.config.json'] = '{}';
+      const sealed = withManifest(upstream.tree);
+      sealed[MANIFEST] = sealed[MANIFEST]!.replace(
+        '"models": {',
+        `"models": {"defaults": ${block},`,
+      );
+      upstream.tree = sealed;
+    }
     await installFresh();
     expect(config()).not.toHaveProperty('models');
     expect(records().files).not.toHaveProperty([MODELS_RECORD_KEY]);
@@ -892,7 +911,7 @@ describe('a fresh install', () => {
     ],
     [
       'no hooks, docs, LICENSE or features README',
-      [HOOK, 'LIMITS.md', 'LICENSE', 'pharn/features/README.md'],
+      [HOOK, 'pharn/LIMITS.md', 'LICENSE', 'pharn/features/README.md'],
       ['3 trusted docs written', 'PHARN commands + agents written'],
       [
         '.claude/hooks (hooks)',
@@ -909,13 +928,18 @@ describe('a fresh install', () => {
     ],
     [
       'one trusted doc',
-      ['pharn/ARCHITECTURE.md', 'THREAT-MODEL.md', 'LIMITS.md'],
+      ['pharn/ARCHITECTURE.md', 'pharn/THREAT-MODEL.md', 'pharn/LIMITS.md'],
       ['1 trusted doc written'],
       ['ARCHITECTURE.md (trusted-doc)', 'THREAT-MODEL.md (trusted-doc)'],
     ],
     [
       'no trusted doc at all',
-      [CONSTITUTION, 'pharn/ARCHITECTURE.md', 'THREAT-MODEL.md', 'LIMITS.md'],
+      [
+        CONSTITUTION,
+        'pharn/ARCHITECTURE.md',
+        'pharn/THREAT-MODEL.md',
+        'pharn/LIMITS.md',
+      ],
       ['no trusted docs written'],
       ['CONSTITUTION.md (trusted-doc)', 'LIMITS.md (trusted-doc)'],
     ],
@@ -940,23 +964,16 @@ describe('a fresh install', () => {
     expect(exists('pharn.records.json')).toBe(true);
   });
 
-  // A flat clone has no pharn-core (a documented no-op, never reported); one
-  // that ships no pharn-contracts either still installs, naming the contracts.
-  it('a flat clone with no pharn-contracts installs, naming only the contracts as absent', async () => {
-    const tree = flatTree('1.0.0');
-    delete tree['pharn-contracts/finding-shape.md'];
-    serveTip(SHA_V1, '1.0.0', { tree });
-    await installFresh();
-    expect(config().layout).toBe('flat');
-    const warnings = logs('warn').filter((w) =>
-      w.includes('pharn-oss ships nothing'),
+  // pharn/pharn-contracts is the pharn layout's marker: a manifest that
+  // declares that layout over a tree without it is refused, never installed.
+  it('a clone with no pharn-contracts is refused: its manifest declares a layout the tree lacks', async () => {
+    delete upstream.tree['pharn/pharn-contracts/finding-shape.md'];
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain(
+      'declares the pharn layout, but the tree has no pharn/pharn-contracts',
     );
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toContain('pharn-contracts (contracts)');
-    expect(warnings[0]).not.toContain('(core)');
-    expect(exists('pharn-contracts')).toBe(false);
-    expect(exists('pharn-core')).toBe(false);
-    expect(read(FLAT.security)).toContain('security 1.0.0');
+    expect(snapshot()).toEqual(before);
   });
 });
 
@@ -1042,37 +1059,38 @@ describe('init refuses a project it cannot install into', () => {
   // A write that fails part-way names the files that landed and writes no
   // records and no config. The failure is real and root-proof: once the first
   // file is being written (after every pre-flight), a non-empty DIRECTORY
-  // appears where the floor checker goes, so its atomic rename fails. The next
-  // run treats the landed files as unrecorded: one that differs from upstream
-  // is backed up before it is overwritten.
+  // appears where the security griller goes (written last), so its atomic
+  // rename fails. The next run treats the landed files as unrecorded: one that
+  // differs from upstream is backed up before it is overwritten.
   it('a write failing part-way names what landed and writes no records or config', async () => {
     let planted = false;
     fsHooks.open = (path, flags) => {
       if (!planted && flags === 'wx' && path.endsWith('.tmp')) {
         planted = true;
-        mkdirSync(at(`${FLOOR}/in-the-way`), { recursive: true });
+        mkdirSync(at(`${SECURITY}/in-the-way`), { recursive: true });
       }
     };
     expect(await run(() => runInit({ yes: true }))).toBe(1);
     fsHooks.open = null;
 
     expect(planted).toBe(true);
+    // The manifest's order: `.claude/` lands first.
     expect(errors()).toMatch(
-      /\d+ files were written before the failure; no records or config were written:\n {2}pharn\/pharn-pipeline\/grillers\/security\/security\.md\n/,
+      /\d+ files were written before the failure; no records or config were written:\n {2}\.claude\/agents\/pharn-review-lens\.md\n/,
     );
     expect(errors()).toMatch(/\n {2}and \d+ more$/m);
-    expect(errors()).toContain(`Failed to write ${FLOOR}`);
-    expect(exists(SECURITY)).toBe(true);
-    expect(exists(`${FLOOR}/in-the-way`)).toBe(true);
+    expect(errors()).toContain(`Failed to write ${SECURITY}`);
+    expect(exists(AGENT)).toBe(true);
+    expect(exists(`${SECURITY}/in-the-way`)).toBe(true);
     expect(exists('pharn.config.json')).toBe(false);
     expect(exists('pharn.records.json')).toBe(false);
 
-    rmSync(at(FLOOR), { recursive: true });
-    write(SECURITY, 'EDITED AFTER THE FAILED RUN\n');
+    rmSync(at(SECURITY), { recursive: true });
+    write(AGENT, 'EDITED AFTER THE FAILED RUN\n');
     expect(await rerun()).toBeNull();
-    expect(backupFiles()).toContain(SECURITY);
-    expect(read(FLOOR)).toBe('export {};\n');
-    expect(Object.keys(records().files)).toContain(FLOOR);
+    expect(backupFiles()).toContain(AGENT);
+    expect(read(SECURITY)).toContain('security 1.0.0');
+    expect(Object.keys(records().files)).toContain(SECURITY);
   });
 
   // The install step hands the writer what the plan's scan saw (`seen`): a
@@ -1081,7 +1099,7 @@ describe('init refuses a project it cannot install into', () => {
   // over a clone written from the served tree and the run's one plan.
   it('runInstallArchetype backs up, then writes, a file that changed since its scan', async () => {
     const clone = join(proj(), '..', 'step-clone');
-    for (const [rel, body] of Object.entries(upstream.tree)) {
+    for (const [rel, body] of Object.entries(withManifest(upstream.tree))) {
       mkdirSync(join(clone, rel, '..'), { recursive: true });
       writeFileSync(join(clone, rel), body);
     }
@@ -1185,8 +1203,9 @@ describe('re-running init over an install', () => {
   it('a root doc edited while the overwrite prompt is open is never deleted', async () => {
     serveTip(SHA_V1, '6.9.0');
     await installFresh();
+    legacyInstall('pre7');
     expect(records().files['LIMITS.md']).toBeDefined();
-    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
     interactive({ select: ['install'] });
     vi.mocked(clack.confirm).mockImplementationOnce(async () => {
       write('LIMITS.md', 'my limits, edited at the prompt\n');
@@ -1370,22 +1389,15 @@ describe('re-running init over an install', () => {
   );
 
   describe('flat layout', () => {
-    it("backs up an edited PHARN-LICENSE, compared with upstream's LICENSE", async () => {
-      serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
-      await installFresh();
-      expect(config().layout).toBe('flat');
-      write(FLAT.license, 'MY LICENSE NOTES');
-      expect(await rerun()).toBeNull();
-      expect(backupFiles()).toEqual([FLAT.license, 'pharn.config.json']);
-      expect(read(FLAT.license)).toBe('Apache-2.0\n');
-    });
-
     // The records are keyed by PATH: a layout change writes to new paths and
     // leaves the old files in place (init deletes only dropped capabilities),
     // so only a file of the user's at a new path is backed up.
+    // A flat install is one this pharn can no longer make: installed from
+    // today's tree, then put in the flat shape (legacyInstall).
     it('a layout change (flat → pharn/) backs up only a file of yours at a new path', async () => {
-      serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
       await installFresh();
+      legacyInstall('flat');
+      expect(config().layout).toBe('flat');
       write('pharn/LICENSE', 'MY OWN NOTES');
       serveTip(SHA_V2, '2.0.0');
       expect(await rerun()).toBeNull();
@@ -1917,12 +1929,7 @@ describe('pharn init ends through a CliError', () => {
 describe('init with pharn-install.json', () => {
   // What `init --yes` installs for `lib` from manifestTree: the 7.x layout,
   // plus a surface this CLI names nowhere.
-  const MANIFEST_INSTALLED = [
-    ...INSTALLED.filter((p) => p !== 'LIMITS.md' && p !== 'THREAT-MODEL.md'),
-    'pharn/LIMITS.md',
-    'pharn/THREAT-MODEL.md',
-    NEW_SURFACE,
-  ].sort();
+  const MANIFEST_INSTALLED = [...INSTALLED, NEW_SURFACE].sort();
   const DECLARED_MODELS = {
     stages: { default: { model: 'haiku', effort: 'low' } },
   };
@@ -2002,13 +2009,29 @@ describe('init with pharn-install.json', () => {
     expect(snapshot()).toEqual(before);
   });
 
-  it('a tree without the manifest installs by the derivation, as before', async () => {
-    serveTip(SHA_V1, '7.20.0', {
-      tree: { ...upstreamTree7('7.20.0'), [NEW_SURFACE]: 'skill\n' },
-    });
-    await installFresh();
-    // The derivation names no `.claude/skills/` surface.
-    expect(exists(NEW_SURFACE)).toBe(false);
-    expect(exists(SECURITY)).toBe(true);
-  });
+  // A pharn-oss older than 7.21.0 ships no pharn-install.json. `--ref` takes
+  // only `latest` or `main`, so an old tree arrives as the latest release or
+  // the tip of main; either is refused at the fetch.
+  it.each<[string, Parameters<typeof runInit>[0]]>([
+    ['the latest release (v7.20.0)', {}],
+    ['the tip of main (--ref main)', { ref: 'main' }],
+  ])(
+    'refuses a tree without the manifest from %s: exit 1, nothing written, no clone left',
+    async (_l, opts) => {
+      const clones = watchClones();
+      serveTip(SHA_V1, '7.20.0', { seal: false });
+      const before = snapshot();
+      expect(await run(() => runInit({ yes: true, ...opts }))).toBe(1);
+      expect(errors()).toContain(
+        'The fetched pharn-oss (SKILLS_VERSION 7.20.0) ships no pharn-install.json, so it is older than 7.21.0',
+      );
+      expect(errors()).toContain('`--ref main`');
+      expect(errors()).toContain('Nothing was written.');
+      // Shown bare: the network was reached.
+      expect(errors()).not.toContain('Could not reach');
+      expect(fetched()).toContain(tarballUrl(SHA_V1));
+      expect(snapshot()).toEqual(before);
+      expect(clones()).toEqual([]);
+    },
+  );
 });

@@ -16,7 +16,7 @@ import {
   exists,
   failures,
   fetched,
-  flatTree,
+  legacyInstall,
   HOOK,
   installFresh,
   jsonOut,
@@ -33,7 +33,6 @@ import {
   SECURITY,
   serveTip,
   SETTINGS,
-  SHA_V1,
   SHA_V2,
   snapshot,
   stderr,
@@ -159,8 +158,8 @@ function staleCapability(): void {
   write(`${STALE_DIR}/NOTES.md`, 'my notes');
 }
 
-/** An entry upstream ships but this CLI cannot parse (an unknown role). */
-function frozenCapability(role = 'bogus'): void {
+/** An entry upstream ships but this CLI cannot parse (an unknown applies token). */
+function frozenCapability(token = 'mobile'): void {
   editConfig((c) => {
     c.capabilities.push({
       name: 'backwards-compat',
@@ -168,7 +167,7 @@ function frozenCapability(role = 'bogus'): void {
       source: 'auto',
     });
   });
-  upstream.tree[FROZEN_FILE] = capability(role, '["universal"]', 'wip');
+  upstream.tree[FROZEN_FILE] = capability('griller', `["${token}"]`, 'wip');
 }
 
 /** Edit CONSTITUTION, and drop PLAN_COMMAND's record while editing it. */
@@ -278,12 +277,15 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
       },
     },
     {
-      name: 'a pharn → flat layout migration, with a lock file left untouched',
+      // Every clone is the pharn layout: a flat install is the one that moves.
+      name: 'a flat → pharn layout migration, with a lock file left untouched',
       setup: () => {
-        serveTip(SHA_V2, '2.0.0', { tree: flatTree('2.0.0') });
+        legacyInstall('flat');
+        v2();
         write('pharn/.lock', '{"pid":1}');
       },
-      expect: () => expect(warned()).toContain('would move to the flat layout'),
+      expect: () =>
+        expect(warned()).toContain('would move to the pharn/ layout'),
     },
   ])('$name', async ({ opts, setup, expect: check }) => {
     await installFresh();
@@ -296,8 +298,8 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
   });
 
   it('a flat → pharn migration previews the move and the features README relocation', async () => {
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
     await installFresh();
+    legacyInstall('flat');
     v2();
     const before = snapshot();
     expect(await dry()).toBeNull();
@@ -308,9 +310,11 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
   });
 
   // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
-  it('DEPRECATED: a flat install is told once, on an empty plan too; --json carries nothing of it', async () => {
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+  // Every fetched pharn-oss is the pharn layout, so a flat install's preview
+  // is always the move.
+  it('DEPRECATED: a flat install is told once in the preview of its move; --json carries nothing of it', async () => {
     await installFresh();
+    legacyInstall('flat');
     expect(await dry()).toBeNull();
     expect(notes('DEPRECATED')).toHaveLength(1);
     expect(note('DEPRECATED')).toContain(
@@ -319,11 +323,6 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
     expect(note('DEPRECATED')).toContain(
       '`pharn update` moves the install to the pharn/ layout',
     );
-
-    // A preview of the move itself says it once as well.
-    serveTip(SHA_V1, '1.0.0');
-    expect(await dry()).toBeNull();
-    expect(notes('DEPRECATED')).toHaveLength(1);
     expect(warned()).toContain('would move to the pharn/ layout');
 
     // --json: one object on stdout, no clack, no stderr, no notice.
@@ -364,7 +363,7 @@ describe('pharn update --dry-run (text): early returns and refusals', () => {
     },
     {
       name: 'a file missing at the current version',
-      setup: () => rmSync(at('LIMITS.md')),
+      setup: () => rmSync(at('pharn/LIMITS.md')),
     },
   ])('plans (downloads) instead of returning early: $name', async (row) => {
     await installFresh();
@@ -475,10 +474,10 @@ describe('pharn update --dry-run (text): what it reports', () => {
   it('lists restored and updated writes, counts them, and says how to apply', async () => {
     await installFresh();
     v2();
-    rmSync(at('LIMITS.md'));
+    rmSync(at('pharn/LIMITS.md'));
     expect(await dry()).toBeNull();
     expect(planNote()).toContain('WOULD WRITE — restored');
-    expect(planNote()).toContain('LIMITS.md');
+    expect(planNote()).toContain('pharn/LIMITS.md');
     expect(planNote()).toContain('WOULD WRITE — updated');
     expect(lastOutro()).toContain('would write 4');
     expect(lastOutro()).toContain('Run `pharn update` to apply');
@@ -487,7 +486,7 @@ describe('pharn update --dry-run (text): what it reports', () => {
   it('names the state files when they are all a run would change (CORE-162)', async () => {
     await installFresh();
     editRecords((r) => {
-      delete r.files['LIMITS.md'];
+      delete r.files['pharn/LIMITS.md'];
     });
     expect(await dry({ force: true })).toBeNull();
     expect(planNote()).toContain('Would rewrite only pharn.records.json.');
@@ -541,7 +540,7 @@ describe('pharn update --dry-run (text): what it reports', () => {
   // CORE-163: at the same version a skip withholds no upgrade.
   it('does not speak of finishing an upgrade when a skip happens at the current version', async () => {
     await installFresh();
-    rmSync(at('LIMITS.md'));
+    rmSync(at('pharn/LIMITS.md'));
     write(CONSTITUTION, 'MY EDIT');
     expect(await dry()).toBeNull();
     expect(note('SKIPPED')).toContain('MODIFIED');
@@ -768,7 +767,7 @@ describe('pharn update --dry-run: parity with the real run', () => {
     await installFresh();
     v2();
     modifiedAndUnrecorded();
-    rmSync(at('LIMITS.md'));
+    rmSync(at('pharn/LIMITS.md'));
     const before = snapshot();
     expect(await dry({ force: true })).toBeNull();
     const plan = planned();
@@ -866,7 +865,8 @@ describe('pharn update --dry-run --json', () => {
     );
     expect(json.plan.counts).toMatchObject({ updated: 3, skipped: 0 });
     // The keys present only when non-empty are absent; rootMigration is
-    // always present (null when nothing applies).
+    // always present. A clone that ships the docs under pharn/ (every one with
+    // pharn-install.json) plans each old root doc, here `absent`.
     for (const key of [
       'orphans',
       'absentUpstream',
@@ -877,7 +877,15 @@ describe('pharn update --dry-run --json', () => {
     ])
       expect(json.plan, key).not.toHaveProperty(key);
     expect(json.plan.capabilities).not.toHaveProperty('removals');
-    expect(json.plan.rootMigration).toBeNull();
+    expect(json.plan.rootMigration).toEqual({
+      docs: [
+        { rel: 'THREAT-MODEL.md', action: 'absent' },
+        { rel: 'LIMITS.md', action: 'absent' },
+      ],
+      moves: [],
+      scratchNotice: false,
+      gitignoreHints: [],
+    });
     expect(json).not.toHaveProperty('compact');
     expect(json.plan).not.toHaveProperty('filesOmitted');
   });
@@ -886,12 +894,12 @@ describe('pharn update --dry-run --json', () => {
     await installFresh();
     v2();
     write(CONSTITUTION, 'MY EDIT');
-    rmSync(at('LIMITS.md'));
+    rmSync(at('pharn/LIMITS.md'));
     const json = await dryJson();
     const byRel = Object.fromEntries(
       json.plan.files.map((f: { rel: string }) => [f.rel, f]),
     );
-    expect(byRel['LIMITS.md']).toMatchObject({
+    expect(byRel['pharn/LIMITS.md']).toMatchObject({
       action: 'write',
       label: 'restored',
     });
@@ -1000,10 +1008,11 @@ describe('pharn update --dry-run --json', () => {
 
   it('reports a layout migration', async () => {
     await installFresh();
-    serveTip(SHA_V2, '2.0.0', { tree: flatTree('2.0.0') });
+    legacyInstall('flat');
+    v2();
     expect((await dryJson()).plan).toMatchObject({
-      layout: 'flat',
-      abandonedLayout: 'pharn',
+      layout: 'pharn',
+      abandonedLayout: 'flat',
     });
   });
 
@@ -1260,10 +1269,12 @@ describe('pharn update --dry-run --json', () => {
       },
       {
         name: 'a recorded file missing at the current version',
-        setup: () => rmSync(at('LIMITS.md')),
+        setup: () => rmSync(at('pharn/LIMITS.md')),
         check: (json) =>
           expect(
-            json.plan.files.find((f: { rel: string }) => f.rel === 'LIMITS.md'),
+            json.plan.files.find(
+              (f: { rel: string }) => f.rel === 'pharn/LIMITS.md',
+            ),
           ).toMatchObject({ action: 'write', label: 'restored' }),
       },
       {

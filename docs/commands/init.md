@@ -418,7 +418,8 @@ reads. Any failure stops the run with exit 1, names what failed, and writes noth
 `schemaVersion` says to upgrade pharn. The install then copies exactly what the manifest declares,
 including a surface this pharn does not know by name (a new `.claude/skills/pharn-*` directory, say),
 and takes the `models` block and the capability list from it. A tree without the manifest (every
-release before 7.21.0) is installed the way it always was, until pharn v0.22.0 drops that path.
+release before 7.21.0) is refused: exit 1, naming the tree's `SKILLS_VERSION`, 7.21.0 and `--ref main`,
+with nothing written. pharn 0.20.x is the last that installs from such a tree.
 
 ### 5. Resolve capabilities
 
@@ -514,7 +515,7 @@ commands name the problem), and re-run. Otherwise the overwrite prompt that foll
 `pharn.config.json` and defaults to No. `init --yes` refuses any existing config before it downloads
 anything, so it never gets as far as the summary. If `pharn.config.json` changes while `init` waits at
 its prompts (edited by hand or by another program — no other `pharn` command can write it while `init`
-holds the lock), `init` refuses and writes nothing; re-run it. The target set is derived from the fetched clone's layout + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
+holds the lock), `init` refuses and writes nothing; re-run it. The target set is the fetched clone's `pharn-install.json` + your resolved selection (`lib/install-manifest.ts`), so it is exact — not a git-history heuristic.
 
 **When `init` refuses to install.** After you choose **install**, and before it asks to overwrite
 anything, `init` checks every path it is about to write and stops, naming each problem, if the copy
@@ -563,13 +564,13 @@ cannot find them; PHARN still runs them. Delete them by hand.
 | Action                     | Behavior                                                                                                                                                                                                                                                           |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Copy capabilities          | Each selected griller/lens dir (with its `evals/`) → the mirrored project path                                                                                                                                                                                     |
-| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — each at the fetched layout (minus test files, `test-fixtures/` and `fixtures/`)    |
+| Copy product surfaces      | `pharn-*.md` commands (not `pharn-dev-*`), `.cjs`/`.mjs` hooks (not `*.test.*`), the trusted docs, `pharn/features/README.md`, and the contracts, `pharn-core` and floor dirs — as the fetched `pharn-install.json` declares them (no test files)                  |
 | Copy agents                | `pharn-*.md` subagents in `.claude/agents/` (not `pharn-dev-*`), at that path in both layouts; a pharn-oss older than 6.64.0 ships none, and that is not reported                                                                                                  |
 | Write or preserve settings | An existing `.claude/settings.json` is **never** overwritten or merged ([below](#an-existing-claudesettingsjson)); with none, pharn-oss's is copied and a `HOOKS` note lists what it wires ([below](#a-fresh-claudesettingsjson))                                  |
-| Mirror the layout          | Whichever layout the fetched clone uses is mirrored verbatim; the CLI never rewrites copied file contents. Today that is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/` |
+| Mirror the layout          | The CLI never rewrites copied file contents. The fetched clone's layout is `pharn/pharn-contracts/`, `pharn/pharn-core/`, `pharn/floor/`; the legacy flat layout is `pharn-contracts/`, `pharn-core/`, `.dev/floor/`                                               |
 | Pin commit SHA             | Best-effort (the SHA the tree was pinned to; `null` if unavailable)                                                                                                                                                                                                |
 | Write `pharn.config.json`  | `pharnVersion`, `skillsVersion` (from `SKILLS_VERSION`), `repo`, `commit`, `installedAt`, `archetypes`, `capabilities` (`source: "auto"`, or `"manual"` for a kept `pharn add`), `layout`, `models`, `frozenCapabilities` (see above); no `seam` (pharn-oss's)     |
-| Copy the `models` block    | pharn-oss's own, verbatim, from its root `pharn.config.json`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                                |
+| Copy the `models` block    | pharn-oss's own, verbatim, from `pharn-install.json`'s `models.defaults`; none when pharn-oss ships none, and none — with the reason — when it fails pharn-oss's rules as this pharn knows them ([Models](../reference/pharn-config.md#models))                    |
 | Write `pharn.records.json` | A sha256 of every file the install wrote, so [`pharn update`](update.md) can keep your later edits ([reference](../reference/pharn-records.md))                                                                                                                    |
 | Update `.gitignore`        | Appends `pharn/.run/` and `pharn/.backup/` when it does not already cover them, creating the file if needed ([below](#gitignore))                                                                                                                                  |
 | Update `.prettierignore`   | Only when the project uses Prettier: appends the lines that keep its check off the files pharn installs and rewrites ([below](#prettierignore))                                                                                                                    |

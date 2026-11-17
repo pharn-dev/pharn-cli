@@ -2,6 +2,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CANCEL, stubProcessExit, useTmpDir } from './helpers.js';
+import { sealRepo } from './support/harness.js';
 
 // The stage confirms via lib/confirm.js → @clack/prompts. Mock the prompt surface;
 // conflictingWriteTargets + detectLayout run for real over the fake repo/proj.
@@ -54,19 +55,20 @@ function write(path: string, content = 'x'): void {
 }
 
 function scaffoldRepo(repo: string): void {
-  write(join(repo, 'pharn-pipeline/grillers/a11y/a11y.md'));
-  write(join(repo, 'pharn-pipeline/grillers/a11y/evals/cases/c.md'));
-  write(join(repo, 'pharn-review/n-plus-one/n-plus-one.md'));
+  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/a11y.md'));
+  write(join(repo, 'pharn/pharn-pipeline/grillers/a11y/evals/cases/c.md'));
+  write(join(repo, 'pharn/pharn-review/n-plus-one/n-plus-one.md'));
   write(join(repo, '.claude/commands/pharn-plan.md'));
   write(join(repo, '.claude/commands/pharn-ship.md'));
   write(join(repo, '.claude/hooks/set-writes-scope.cjs'));
   write(join(repo, '.claude/settings.json'), '{"hooks":{}}');
-  write(join(repo, 'CONSTITUTION.md'));
-  write(join(repo, 'ARCHITECTURE.md'));
-  write(join(repo, 'THREAT-MODEL.md'));
-  write(join(repo, 'LIMITS.md'));
-  write(join(repo, 'pharn-contracts/finding-shape.md'));
-  write(join(repo, '.dev/floor/validate.mjs'));
+  write(join(repo, 'pharn/CONSTITUTION.md'));
+  write(join(repo, 'pharn/ARCHITECTURE.md'));
+  write(join(repo, 'pharn/THREAT-MODEL.md'));
+  write(join(repo, 'pharn/LIMITS.md'));
+  write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
+  write(join(repo, 'pharn/floor/validate.mjs'));
+  sealRepo(repo);
 }
 
 function scaffoldRepoPharn(repo: string): void {
@@ -79,6 +81,7 @@ function scaffoldRepoPharn(repo: string): void {
   write(join(repo, 'pharn/ARCHITECTURE.md'));
   write(join(repo, 'pharn/pharn-contracts/finding-shape.md'));
   write(join(repo, 'pharn/floor/validate.mjs'));
+  sealRepo(repo);
 }
 
 function selection(): Selection {
@@ -111,9 +114,9 @@ describe('confirmWriteTargets', () => {
     const removal = {
       cap: { name: 'old', role: 'lens' as const, source: 'auto' as const },
       reason: 'dropped-unselected' as const,
-      dir: 'pharn-review/old',
+      dir: 'pharn/pharn-review/old',
       present: true,
-      backups: ['pharn-review/old/NOTES.md'],
+      backups: ['pharn/pharn-review/old/NOTES.md'],
     };
 
     // init's one plan hands its targets over (C5.2): rendered as given, the
@@ -124,15 +127,15 @@ describe('confirmWriteTargets', () => {
       await expect(
         confirmWriteTargets(repo, proj, selection(), {
           targets: {
-            conflicts: ['CONSTITUTION.md'],
-            labels: new Map([['CONSTITUTION.md', 'modified' as const]]),
+            conflicts: ['pharn/CONSTITUTION.md'],
+            labels: new Map([['pharn/CONSTITUTION.md', 'modified' as const]]),
             configBackedUp: false,
             removals: [removal],
           },
         }),
       ).resolves.toBe('proceed');
       expect(lastWarning()).toContain('CONSTITUTION.md (edited)');
-      expect(lastWarning()).toContain('pharn-review/old/');
+      expect(lastWarning()).toContain('pharn/pharn-review/old/');
       expect(prompts.confirm).toHaveBeenCalledWith(
         expect.objectContaining({ message: 'Continue, overwrite and delete?' }),
       );
@@ -152,7 +155,7 @@ describe('confirmWriteTargets', () => {
       );
       const warning = lastWarning();
       expect(warning).toContain('will be DELETED');
-      expect(warning).toContain('pharn-review/old/ (lens:old');
+      expect(warning).toContain('pharn/pharn-review/old/ (lens:old');
       expect(warning).toContain(
         '1 file(s) in them pharn did not write will be copied to pharn/.backup/ first.',
       );
@@ -205,7 +208,7 @@ describe('confirmWriteTargets', () => {
 
   it('warns listing the conflicting path and returns the confirm result', async () => {
     const { repo, proj } = dirs(scaffoldRepo);
-    write(join(proj, 'CONSTITUTION.md'));
+    write(join(proj, 'pharn/CONSTITUTION.md'));
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     await expect(confirmWriteTargets(repo, proj, selection())).resolves.toBe(
       'proceed',
@@ -213,7 +216,7 @@ describe('confirmWriteTargets', () => {
     expect(prompts.confirm).toHaveBeenCalledTimes(1);
     const warning = vi.mocked(prompts.log.warn).mock.calls[0]![0] as string;
     expect(warning).toContain('already exist and may be overwritten');
-    expect(warning).toContain('CONSTITUTION.md');
+    expect(warning).toContain('pharn/CONSTITUTION.md');
   });
 
   it('a declined confirm (default No) returns `decline` — the caller cancels', async () => {
@@ -342,7 +345,7 @@ describe('confirmWriteTargets', () => {
 
   it('shows no version when pharn.config.json is not among the conflicts', async () => {
     const { repo, proj } = dirs(scaffoldRepo);
-    write(join(proj, 'CONSTITUTION.md'));
+    write(join(proj, 'pharn/CONSTITUTION.md'));
     vi.mocked(prompts.confirm).mockResolvedValue(true);
     await confirmWriteTargets(repo, proj, selection());
     expect(lastWarning()).not.toContain('skills v');
@@ -366,7 +369,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     ],
     skipped: [],
   };
-  const NPO = 'pharn-review/n-plus-one/n-plus-one.md';
+  const NPO = 'pharn/pharn-review/n-plus-one/n-plus-one.md';
 
   function firstListed(warning: string): string | undefined {
     return warning.split('\n').find((l) => l.trimStart().startsWith('•'));
@@ -386,8 +389,8 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     const records: Record<string, string> = {};
     for (const rel of [
       NPO,
-      'pharn-pipeline/grillers/a11y/a11y.md',
-      'CONSTITUTION.md',
+      'pharn/pharn-pipeline/grillers/a11y/a11y.md',
+      'pharn/CONSTITUTION.md',
     ]) {
       records[rel] = contentHash(join(proj, rel));
     }
@@ -426,8 +429,8 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
 
   it('with records: a differing file with no record is "(no pharn record)"', async () => {
     const { repo, proj, records } = installed();
-    write(join(proj, 'CONSTITUTION.md'), 'SOMEONE ELSES CONSTITUTION');
-    const { 'CONSTITUTION.md': _dropped, ...withoutIt } = records;
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'SOMEONE ELSES CONSTITUTION');
+    const { 'pharn/CONSTITUTION.md': _dropped, ...withoutIt } = records;
 
     await confirmWriteTargets(repo, proj, sel, { records: withoutIt });
 
@@ -442,6 +445,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     const { repo, proj, records } = installed();
     // Upstream moved on; the project still holds exactly what pharn wrote.
     write(join(repo, NPO), 'upstream v2');
+    sealRepo(repo);
 
     await confirmWriteTargets(repo, proj, sel, { records });
 
@@ -456,8 +460,8 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
   it("groups the labels in update's order and counts every backed-up file", async () => {
     const { repo, proj, records } = installed();
     write(join(proj, NPO), 'MY EDIT');
-    write(join(proj, 'CONSTITUTION.md'), 'SOMEONE ELSES CONSTITUTION');
-    const { 'CONSTITUTION.md': _dropped, ...withoutIt } = records;
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'SOMEONE ELSES CONSTITUTION');
+    const { 'pharn/CONSTITUTION.md': _dropped, ...withoutIt } = records;
 
     await confirmWriteTargets(repo, proj, sel, { records: withoutIt });
 
@@ -473,12 +477,13 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
   it("compares the mapped PHARN-LICENSE with the clone's LICENSE", async () => {
     const { repo, proj } = installed();
     write(join(repo, 'LICENSE'), 'APACHE-2.0');
-    write(join(proj, 'PHARN-LICENSE'), 'MY EDITED LICENSE');
+    sealRepo(repo);
+    write(join(proj, 'pharn/LICENSE'), 'MY EDITED LICENSE');
 
     await confirmWriteTargets(repo, proj, sel);
 
     expect(firstListed(lastWarning())).toContain(
-      'PHARN-LICENSE (differs from upstream)',
+      'pharn/LICENSE (differs from upstream)',
     );
   });
 
@@ -487,7 +492,9 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
     // Only the given map names `extra.md`, so only a prompt over THAT map
     // lists it.
     write(join(proj, 'extra.md'), 'MINE');
-    const manifest = new Map([['extra.md', join(repo, 'CONSTITUTION.md')]]);
+    const manifest = new Map([
+      ['extra.md', join(repo, 'pharn/CONSTITUTION.md')],
+    ]);
 
     await confirmWriteTargets(repo, proj, sel, { manifest });
 
@@ -514,7 +521,7 @@ describe('confirmWriteTargets — edited files first (PHARN-11)', () => {
 describe('confirmWriteTargets — pharn.config.json is rewritten, backed up first (F-08)', () => {
   const tmp = useTmpDir();
   const sel = selection();
-  const NPO = 'pharn-review/n-plus-one/n-plus-one.md';
+  const NPO = 'pharn/pharn-review/n-plus-one/n-plus-one.md';
   const MARKED = 'pharn.config.json (will be rewritten — backed up first)';
   const CONFIG_LINE =
     'pharn.config.json will be rewritten (models reset to its default); it will be copied to pharn/.backup/ first.';
@@ -552,7 +559,7 @@ describe('confirmWriteTargets — pharn.config.json is rewritten, backed up firs
     const { repo, proj } = installed();
     write(join(proj, 'pharn.config.json'), CONFIG_2_3_4);
     write(join(proj, NPO), 'MY EDIT');
-    write(join(proj, 'CONSTITUTION.md'), 'MY CONSTITUTION');
+    write(join(proj, 'pharn/CONSTITUTION.md'), 'MY CONSTITUTION');
 
     await confirmWriteTargets(repo, proj, sel);
 

@@ -612,7 +612,6 @@ export function buildInitPlan(params: {
   const manifest = collectExpectedInstallPaths({
     repoDir,
     capabilities: selection.selected,
-    layout,
   });
   // The destination pre-flight, once per run: a refused project is refused
   // before any prompt and before anything is written.
@@ -715,7 +714,7 @@ export function buildInitPlan(params: {
         : upstreamModels.kind === 'absent'
           ? { outcome: 'none', reasons: [] }
           : { outcome: 'rejected', reasons: upstreamModels.reasons },
-    absentUpstream: absentInstallSurfaces({ repoDir, layout }),
+    absentUpstream: absentInstallSurfaces({ repoDir }),
     carriedConfigKeys: Object.keys(readCarriedEntries(cwd)),
     rootMigration,
     gitignore: planGitignore(cwd),

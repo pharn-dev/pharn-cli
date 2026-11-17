@@ -24,6 +24,7 @@ import {
 import {
   at,
   backupFiles,
+  capability,
   clearOutput,
   downloaded,
   editConfig,
@@ -39,6 +40,7 @@ import {
   proj,
   read,
   run,
+  serveTip,
   SETTINGS,
   SHA_V1,
   snapshot,
@@ -434,7 +436,7 @@ describe('pharn init --dry-run (text)', () => {
   describe('warnings in the text preview', () => {
     it('warns about every declared surface the clone does not ship, as a real run would', async () => {
       delete upstream.tree['pharn/features/README.md'];
-      delete upstream.tree['LIMITS.md'];
+      delete upstream.tree['pharn/LIMITS.md'];
       expect(await dryRun()).toBeNull();
       const warned = logs('warn').join('\n');
       expect(warned).toContain('so pharn would not install them:');
@@ -445,8 +447,12 @@ describe('pharn init --dry-run (text)', () => {
     });
 
     it('names an upstream capability this pharn cannot read', async () => {
-      // No markdown file of its own name: refused at the fetch boundary.
-      upstream.tree['pharn/pharn-review/broken/notes.md'] = 'x\n';
+      // An `applies` token this pharn does not know: seen, never installed.
+      upstream.tree['pharn/pharn-review/broken/broken.md'] = capability(
+        'lens',
+        '["mobile"]',
+        'x',
+      );
       expect(await dryRun()).toBeNull();
       const warned = logs('warn').join('\n');
       expect(warned).toContain('lens:broken');
@@ -484,12 +490,30 @@ describe('pharn init --dry-run (text)', () => {
       expectCloneCleanedUp();
       expect(notes('PLAN')).toEqual([]);
     });
+
+    // A pharn-oss older than 7.21.0 ships no pharn-install.json.
+    it('a pharn-oss older than 7.21.0 (no pharn-install.json), with --json: stdout empty', async () => {
+      serveTip(SHA_V1, '7.20.0', { seal: false });
+      const before = snapshot();
+      expect(await run(() => runInit({ dryRun: true, json: true }))).toBe(1);
+      expect(stdout()).toEqual([]);
+      expect(stderr().join('\n')).toContain(
+        'The fetched pharn-oss (SKILLS_VERSION 7.20.0) ships no pharn-install.json, so it is older than 7.21.0',
+      );
+      expect(stderr().join('\n')).toContain('`--ref main`');
+      expect(snapshot()).toEqual(before);
+      expectCloneCleanedUp();
+    });
   });
 });
 
 describe('pharn init --dry-run --json', () => {
   it('prints one schemaVersion 1 object for a fresh project, writing nothing', async () => {
-    upstream.tree['pharn/pharn-review/broken/notes.md'] = 'x\n';
+    upstream.tree['pharn/pharn-review/broken/broken.md'] = capability(
+      'lens',
+      '["mobile"]',
+      'x',
+    );
     const before = snapshot();
     const r = await jsonRun();
     expect(snapshot()).toEqual(before);

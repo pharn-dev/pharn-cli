@@ -24,7 +24,6 @@ import {
   configLayout,
   detectLayout,
   layoutPaths,
-  resolveFeaturesReadme,
   type LayoutPaths,
 } from './layout.js';
 import {
@@ -61,7 +60,7 @@ import {
 import { diffHookWiring, type HookWiringDiff } from './hook-wiring.js';
 import { readSkillsVersion } from './skills-version.js';
 import { CONFIG_FILENAME } from './pharn-config.js';
-import { FEATURES_README } from './constants.js';
+import { FEATURES_README, PHARN_FEATURES_README } from './constants.js';
 import type { RefChoice } from './release.js';
 import type {
   InstalledCapability,
@@ -232,7 +231,6 @@ export function buildUpdatePlan(input: {
   const expected = collectExpectedInstallPaths({
     repoDir,
     capabilities: manifestCapabilities,
-    layout,
   });
 
   const latestHashes = new Map<string, string>();
@@ -411,10 +409,12 @@ export function buildUpdatePlan(input: {
       previousLayout !== layout && plan.writes.length > 0
         ? previousLayout
         : null,
+    // An install that recorded the root features/README.md, updated from a
+    // clone that installs it under pharn/.
     featuresReadmeRelocation:
       records !== null &&
       FEATURES_README in records &&
-      resolveFeaturesReadme(repoDir, layout) !== FEATURES_README,
+      expected.has(PHARN_FEATURES_README),
     capabilityChanges: merged.changes,
     removals,
     files: plan.files,
@@ -427,7 +427,7 @@ export function buildUpdatePlan(input: {
     modelsFloor: paths.floor,
     // Read-only; `update` never writes the settings files it reads.
     hookWiring: diffHookWiring(repoDir, cwd),
-    absentUpstream: absentInstallSurfaces({ repoDir, layout }),
+    absentUpstream: absentInstallSurfaces({ repoDir }),
     recordsNote,
     unknownWarning,
     unknownCapabilities: index.unknown,

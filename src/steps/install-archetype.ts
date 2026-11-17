@@ -229,10 +229,9 @@ export async function runInstallArchetype(
     upstreamModels.kind === 'ok' ? upstreamModels.block : undefined;
 
   // Every declared product surface the clone shipped NO file for
-  // (absentInstallSurfaces). Each copy is existence-guarded so an older clone
-  // still installs, but never silently: warned, never fatal — upstream's
-  // MIN_CLI is the lever for refusing a too-old CLI.
-  const absent = absentInstallSurfaces({ repoDir, layout });
+  // (absentInstallSurfaces): warned, never fatal — upstream's MIN_CLI is the
+  // lever for refusing a too-old CLI.
+  const absent = absentInstallSurfaces({ repoDir });
   const absentLines = absentSurfaceLines(absent);
   if (absentLines) log.warn(absentLines.join('\n'));
   // The `.claude/` surfaces that actually landed, for the outro. Agents are an

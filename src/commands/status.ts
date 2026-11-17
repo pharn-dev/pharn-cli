@@ -196,12 +196,8 @@ function cloneInput(
           capabilities: (config.capabilities ?? []).filter(
             (cap) => !frozen.has(`${cap.role}:${cap.name}`),
           ),
-          layout: recordedLayout,
         }),
-        absentUpstream: absentInstallSurfaces({
-          repoDir: repo.dir,
-          layout: upstreamLayout,
-        }),
+        absentUpstream: absentInstallSurfaces({ repoDir: repo.dir }),
       };
   return {
     ...base,
@@ -383,7 +379,6 @@ function statusOrphans(
   const expected = collectExpectedInstallPaths({
     repoDir,
     capabilities: all.filter((cap) => !isFrozen(cap)),
-    layout,
   });
   return findOrphans({
     projectRoot: cwd,

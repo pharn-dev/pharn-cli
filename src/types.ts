@@ -100,18 +100,17 @@ export interface CapabilityEntry {
   applies: 'universal' | Archetype[];
 }
 
-// A capability the fetch boundary enumerated but could NOT parse (name,
-// markdown, frontmatter, `role` or `applies` failed validation). Skipped and
-// REPORTED: fail closed on installing it, never on merely seeing it.
+// A capability the fetch boundary read from pharn-install.json but this CLI
+// cannot install (an `applies` token outside its enum). Skipped and REPORTED:
+// fail closed on installing it, never on merely seeing it.
 //
 // Every field is UNTRUSTED upstream text and reaches only the terminal, through
 // lib/unknown-capabilities.ts; nothing here is ever selected, copied, or
 // newly recorded.
 export interface UnknownCapability {
-  // The directory name as found (may itself be why it was skipped).
+  // The capability's declared name (CAPABILITY_NAME_RE-checked).
   name: string;
-  // The SUBTREE's role — never the frontmatter `role`, which may be what
-  // failed — so a `role:name` key is always derivable.
+  // Its declared role, so a `role:name` key is always derivable.
   role: 'griller' | 'lens';
   // The subtree directory it was found under, at the clone's layout.
   subtree: string;

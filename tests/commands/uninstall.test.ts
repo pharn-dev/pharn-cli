@@ -34,7 +34,7 @@ import {
   serveTip,
   SHA_V1,
   snapshot,
-  upstreamTree7,
+  upstreamTree,
   useHarness,
 } from '../support/harness.js';
 import type { PharnConfig } from '../../src/types.js';
@@ -142,7 +142,7 @@ describe('pharn uninstall, end to end', () => {
     expect(read(AGENT)).toBe('my own lens agent\n');
   });
   it('uninstall afterwards leaves no empty pharn/, and names what it kept', async () => {
-    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree('7.0.0') });
     await installFresh();
     expect(await run(() => runUninstall({ yes: true }))).toBeNull();
     expect(readdirSync(at('pharn'))).toEqual(['.backup']);

@@ -30,7 +30,7 @@ import {
   failures,
   fetched,
   downloaded,
-  flatTree,
+  legacyInstall,
   FLOOR,
   HOOK,
   interactive,
@@ -70,7 +70,6 @@ import {
   stdout,
   tarballUrl,
   upstream,
-  upstreamTree7,
   upstreamTree,
   useHarness,
   UPSTREAM_MODELS,
@@ -910,9 +909,13 @@ describe('pharn update, end to end', () => {
       expect(existsSync(at('pharn.config.json'))).toBe(true);
     });
   });
+  // An install made from a pharn-oss before 7.0.0 (the docs at the root), which
+  // this pharn can no longer fetch: installed from today's tree, then put in the
+  // shape the old one left (legacyInstall).
   async function oldInstallWithUserData(): Promise<void> {
     serveTip(SHA_V1, '6.9.0');
     await installFresh();
+    legacyInstall('pre7');
     expect(records().files['THREAT-MODEL.md']).toBeDefined();
     expect(records().files['LIMITS.md']).toBeDefined();
     mkdirSync(at('memory-bank'));
@@ -926,7 +929,7 @@ describe('pharn update, end to end', () => {
 
   it('previews, then retires the root docs, leaves the user data with a hint, and status is clean right after', async () => {
     await oldInstallWithUserData();
-    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
 
     clearOutput();
     expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
@@ -1056,6 +1059,7 @@ describe('pharn update, end to end', () => {
     async (_l, sameVersion) => {
       serveTip(SHA_V1, '6.9.0');
       await installFresh();
+      legacyInstall('pre7');
       if (sameVersion) {
         const stamp = { skillsVersion: '7.0.0', commit: SHA_V2 };
         writeFileSync(
@@ -1067,7 +1071,7 @@ describe('pharn update, end to end', () => {
           JSON.stringify({ ...records(), ...stamp }, null, 2),
         );
       }
-      serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+      serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
       const cfg = read('pharn.config.json');
       const rec = read('pharn.records.json');
       setTTY(true, true);
@@ -1106,7 +1110,7 @@ describe('pharn update, end to end', () => {
     writeFileSync(at('LIMITS.md'), 'my limits\n');
     mkdirSync(at('pharn/memory-bank'));
     writeFileSync(at('pharn/memory-bank/other.md'), 'other\n');
-    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
 
     vi.mocked(clack.note).mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
@@ -1141,7 +1145,7 @@ describe('pharn update, end to end', () => {
 
   it('update --force leaves the user data where it is too', async () => {
     await oldInstallWithUserData();
-    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
     expect(await run(() => runUpdate({ yes: true, force: true }))).toBeNull();
     expect(process.exitCode).toBeUndefined();
     expect(read('memory-bank/lessons-learned.md')).toBe('lesson\n');
@@ -1152,15 +1156,20 @@ describe('pharn update, end to end', () => {
     expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
   });
 
-  it('is inert against a pre-7.0 tree: nothing moves, and the report says null', async () => {
+  // A pre-7.0 pharn-oss ships no pharn-install.json, so it is refused before
+  // anything is planned: the root docs and the user data stay as they are.
+  it('refuses a pre-7.0 tree (no pharn-install.json): nothing moves, nothing is written', async () => {
     await oldInstallWithUserData();
-    serveTip(SHA_V2, '6.9.1');
+    serveTip(SHA_V2, '6.9.1', { seal: false });
+    const before = snapshot();
     clearOutput();
-    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
-    expect(
-      (JSON.parse(stdout()[0] ?? '') as MigrationJson).plan?.rootMigration,
-    ).toBeNull();
-    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBe(1);
+    expect(stdout()).toEqual([]);
+    expect(await run(() => runUpdate({ yes: true }))).toBe(1);
+    expect(printed()).toContain(
+      'The fetched pharn-oss (SKILLS_VERSION 6.9.1) ships no pharn-install.json',
+    );
+    expect(snapshot()).toEqual(before);
     expect(read('THREAT-MODEL.md')).toBe('threat model\n');
     expect(read('memory-bank/lessons-learned.md')).toBe('lesson\n');
     expect(existsSync(at('pharn/memory-bank'))).toBe(false);
@@ -1172,6 +1181,7 @@ describe('pharn update, end to end', () => {
     // the root docs still recorded (carried as orphans), no pharn/ docs.
     serveTip(SHA_V1, '6.9.0');
     await installFresh();
+    legacyInstall('pre7');
     const stamp = { skillsVersion: '7.0.0', commit: SHA_V2 };
     writeFileSync(
       at('pharn.config.json'),
@@ -1181,7 +1191,7 @@ describe('pharn update, end to end', () => {
       at('pharn.records.json'),
       JSON.stringify({ ...records(), ...stamp }, null, 2),
     );
-    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V2, '7.0.0', { tree: upstreamTree('7.0.0') });
 
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(existsSync(at('THREAT-MODEL.md'))).toBe(false);
@@ -1197,7 +1207,7 @@ describe('pharn update, end to end', () => {
   });
 
   it('leaves user data at the root of a 7.x install alone: one download, nothing written', async () => {
-    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree('7.0.0') });
     await installFresh();
     mkdirSync(at('memory-bank'));
     writeFileSync(at('memory-bank/canon.md'), 'canon\n');
@@ -1214,7 +1224,7 @@ describe('pharn update, end to end', () => {
   });
 
   it('a plan whose only root-migration content is a user-data hint changes nothing: no write, the hint printed', async () => {
-    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree7('7.0.0') });
+    serveTip(SHA_V1, '7.0.0', { tree: upstreamTree('7.0.0') });
     await installFresh();
     mkdirSync(at('memory-bank'));
     writeFileSync(at('memory-bank/canon.md'), 'canon\n');
@@ -1488,6 +1498,18 @@ describe('a failed fetch exits 1 before the confirm, writing nothing and leaving
       () => serveTip(SHA_V2, '2.0.0', { published: false }),
       '--ref main',
     ],
+    [
+      'a release older than 7.21.0 (no pharn-install.json)',
+      {},
+      () => serveTip(SHA_V2, '7.20.0', { seal: false }),
+      'older than 7.21.0',
+    ],
+    [
+      'a tip of main with no pharn-install.json',
+      { ref: 'main' },
+      () => serveTip(SHA_V2, '7.20.0', { seal: false }),
+      'older than 7.21.0',
+    ],
   ])('%s', async (_l, init, arrange, says) => {
     await bumped(undefined, init);
     arrange();
@@ -1503,10 +1525,34 @@ describe('a failed fetch exits 1 before the confirm, writing nothing and leaving
       expect(streamsOf('info', DEBUG_HINT)).toEqual([process.stderr]);
     }
     expect(clack.confirm).not.toHaveBeenCalled();
-    expect(downloaded()).toBe(failures.tarball !== undefined);
+    expect(downloaded()).toBe(
+      failures.tarball !== undefined || says === 'older than 7.21.0',
+    );
     expect(snapshot()).toEqual(before);
     expect(clones.list()).toEqual([]);
   });
+
+  // `--ref` takes only `latest` or `main`: an explicit old ref is the latest
+  // release or the tip resolving to a tree from before pharn-install.json.
+  it.each<['latest' | 'main']>([['latest'], ['main']])(
+    'an explicit --ref %s to a pharn-oss older than 7.21.0 is refused: nothing written, no clone left',
+    async (ref) => {
+      await bumped();
+      serveTip(SHA_V2, '7.20.0', { seal: false });
+      const clones = isolateClones();
+      const before = snapshot();
+      expect(await run(() => runUpdate({ ref, yes: true }))).toBe(1);
+      const err = logged('error').join('\n');
+      expect(err).toContain(
+        'The fetched pharn-oss (SKILLS_VERSION 7.20.0) ships no pharn-install.json, so it is older than 7.21.0',
+      );
+      expect(err).toContain('`--ref main`');
+      expect(err).toContain('Nothing was written.');
+      expect(downloaded()).toBe(true);
+      expect(snapshot()).toEqual(before);
+      expect(clones.list()).toEqual([]);
+    },
+  );
 
   it('dumps the error itself instead of the hint under PHARN_DEBUG=1', async () => {
     await bumped();
@@ -2271,7 +2317,7 @@ describe('per-file decisions on a version bump', () => {
       delete t[FLOOR];
       delete t['pharn/floor/validate.test.mjs'];
       delete t.LICENSE;
-      delete t['LIMITS.md'];
+      delete t['pharn/LIMITS.md'];
     });
     expect(await updateYes()).toBeNull();
     const notShipped = notes('NOT SHIPPED').join('\n');
@@ -2638,9 +2684,10 @@ describe('a capability upstream ships but this pharn cannot parse (frozen)', () 
       r.files[FROZEN_FILE] = sha256(FROZEN_FILE);
     });
     serveTip(SHA_V2, '2.0.0');
+    // An `applies` token this pharn does not know: seen, never installed.
     upstream.tree[FROZEN_FILE] = capability(
-      'auditor',
-      '["universal"]',
+      'griller',
+      '["mobile"]',
       'WIP upstream content',
     );
     upstream.tree[FROZEN_EXTRA] = 'WIP eval case\n';
@@ -2667,7 +2714,7 @@ describe('a capability upstream ships but this pharn cannot parse (frozen)', () 
     expect(report).not.toContain('REMOVED');
     const warned = logged('warn').join('\n');
     expect(warned).toContain('backwards-compat');
-    expect(warned).toContain('invalid role');
+    expect(warned).toContain('invalid applies value "mobile"');
     expect(warned).not.toContain('still recorded as skills');
     expect(config()).toMatchObject({
       skillsVersion: '2.0.0',
@@ -3110,14 +3157,6 @@ describe('a run that changes nothing asks nothing and writes nothing', () => {
     ]
   >([
     [
-      'a config with no layout key over a flat clone',
-      flatTree,
-      {},
-      (c) => {
-        delete (c as Partial<Config>).layout;
-      },
-    ],
-    [
       'a config with no commit key',
       upstreamTree,
       {},
@@ -3132,7 +3171,7 @@ describe('a run that changes nothing asks nothing and writes nothing', () => {
     ],
     [
       'a ref other than "latest" on main (dropped at load)',
-      upstreamTree7,
+      upstreamTree,
       { ref: 'main' },
       (c) => {
         c.ref = 'bogus';
@@ -3140,7 +3179,7 @@ describe('a run that changes nothing asks nothing and writes nothing', () => {
     ],
     [
       'a seam block in the user’s own key order',
-      upstreamTree7,
+      upstreamTree,
       {},
       (c) => {
         c.seam = {
@@ -3166,7 +3205,7 @@ describe('a run that changes nothing asks nothing and writes nothing', () => {
   });
 
   it('a file put back with upstream bytes while the confirm is open is not an edit: the confirmed plan applies', async () => {
-    await afterWithheld(upstreamTree7, {}, () => undefined);
+    await afterWithheld(upstreamTree, {}, () => undefined);
     const cfg = read('pharn.config.json');
     const hook = read(HOOK);
     const hookRecord = records().files[HOOK];
@@ -3354,17 +3393,20 @@ describe('a run that fails part-way', () => {
       await bumped((t) => {
         t[HOOK] = 'module.exports = { v: 2 };\n';
       });
-      const hookRecord = records().files[HOOK];
-      chmodSync(at('.claude/hooks'), 0o555);
+      // The manifest's order writes `.claude/` before `pharn/`: the hook lands,
+      // then the capability dir refuses the write.
+      const securityDir = at('pharn/pharn-pipeline/grillers/security');
+      const securityRecord = records().files[SECURITY];
+      chmodSync(securityDir, 0o555);
       try {
         expect(await updateYes()).toBe(1);
       } finally {
-        chmodSync(at('.claude/hooks'), 0o755);
+        chmodSync(securityDir, 0o755);
       }
-      expect(read(SECURITY)).toContain('security 2.0.0');
-      expect(records().files[SECURITY]).toBe(sha256(SECURITY));
-      expect(read(HOOK)).toBe('module.exports = {};\n');
-      expect(records().files[HOOK]).toBe(hookRecord);
+      expect(read(HOOK)).toBe('module.exports = { v: 2 };\n');
+      expect(records().files[HOOK]).toBe(sha256(HOOK));
+      expect(read(SECURITY)).toContain('security 1.0.0');
+      expect(records().files[SECURITY]).toBe(securityRecord);
       expect(records().skillsVersion).toBe('1.0.0');
       expect(config().skillsVersion).toBe('1.0.0');
       expect(config().updatedAt).toBeUndefined();
@@ -3391,9 +3433,11 @@ describe('a run that fails part-way', () => {
 });
 
 describe('a layout move', () => {
+  // A flat install is made from a pharn-oss this pharn can no longer fetch:
+  // installed from today's tree, then put in the flat shape (legacyInstall).
   it('flat → pharn/: records the clone’s layout, installs pharn-core, and warns about the abandoned flat tree', async () => {
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
     await installed();
+    legacyInstall('flat');
     expect(config().layout).toBe('flat');
     serveTip(SHA_V2, '2.0.0');
     expect(await updateYes()).toBeNull();
@@ -3410,8 +3454,8 @@ describe('a layout move', () => {
 
   // Every run plans, so a layout move needs no version bump and no --force.
   it('flat → pharn/ at the same skills version: one plain update moves it, and the next run is up to date', async () => {
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
     await installed();
+    legacyInstall('flat');
     expect(config().layout).toBe('flat');
     serveTip(SHA_V1, '1.0.0');
     expect(await updateYes()).toBeNull();
@@ -3420,6 +3464,16 @@ describe('a layout move', () => {
     expect(read(SECURITY)).toContain('security 1.0.0');
     expect(records().files[SECURITY]).toBe(sha256(SECURITY));
     expect(exists('pharn/.backup')).toBe(false);
+    // The move keeps the flat tree's root docs (orphans, never deleted by it).
+    expect(read('THREAT-MODEL.md')).toBe('threat model\n');
+
+    // The next run sees a pharn-layout install with record-proved root
+    // THREAT-MODEL.md / LIMITS.md and a clone that ships both under pharn/: the
+    // root-footprint migration retires them. The run after is up to date.
+    expect(await updateYes()).toBeNull();
+    expect(exists('THREAT-MODEL.md')).toBe(false);
+    expect(exists('LIMITS.md')).toBe(false);
+    expect(read('pharn/LIMITS.md')).toBe('limits\n');
 
     const settled = snapshot();
     fetchStub.mockClear();
@@ -3430,21 +3484,12 @@ describe('a layout move', () => {
   });
 
   // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
-  it('DEPRECATED: a flat install is told once per run (up to date, ahead of its source, the run that moves it), and a pharn install never is', async () => {
+  // Every fetched pharn-oss is the pharn layout, so a flat install is never
+  // up to date: the next run moves it.
+  it('DEPRECATED: a flat install is told once per run (ahead of its source, the run that moves it), and a pharn install never is', async () => {
     const deprecated = (): string[] => notes('DEPRECATED');
-    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
     await installed();
-
-    // Up to date: the plan changes nothing, the note still prints.
-    expect(await updateYes()).toBeNull();
-    expect(lastOutro()).toMatch(upToDate());
-    expect(deprecated()).toHaveLength(1);
-    expect(deprecated()[0]).toContain(
-      'The flat layout is deprecated and is removed in pharn v0.22.0.',
-    );
-    expect(deprecated()[0]).toContain(
-      '`pharn update` moves the install to the pharn/ layout',
-    );
+    legacyInstall('flat');
 
     // Ahead of its source: refused before the download, the note still prints.
     clearOutput();
@@ -3454,13 +3499,18 @@ describe('a layout move', () => {
     expect(await updateYes()).toBeNull();
     expect(lastOutro()).toContain('is ahead of');
     expect(deprecated()).toHaveLength(1);
+    expect(deprecated()[0]).toContain(
+      'The flat layout is deprecated and is removed in pharn v0.22.0.',
+    );
+    expect(deprecated()[0]).toContain(
+      '`pharn update` moves the install to the pharn/ layout',
+    );
     editConfig((c) => {
       c.skillsVersion = '1.0.0';
     });
 
     // The run that moves the install: once, above the move's own warning.
     clearOutput();
-    serveTip(SHA_V1, '1.0.0');
     expect(await updateYes()).toBeNull();
     expect(config().layout).toBe('pharn');
     expect(deprecated()).toHaveLength(1);
@@ -3468,24 +3518,26 @@ describe('a layout move', () => {
       'Your install moved to the pharn/ layout',
     );
 
-    // Moved: the next run says nothing about it.
+    // Moved: no later run says anything about it (the next one retires the
+    // flat tree's root docs, the one after is up to date).
+    clearOutput();
+    expect(await updateYes()).toBeNull();
+    expect(noteTitles()).not.toContain('DEPRECATED');
     clearOutput();
     expect(await updateYes()).toBeNull();
     expect(lastOutro()).toMatch(upToDate());
     expect(noteTitles()).not.toContain('DEPRECATED');
   });
 
-  it('pharn/ → flat: records flat and warns about the abandoned pharn/ tree', async () => {
+  // Every pharn-oss that ships a flat tree predates pharn-install.json.
+  it('pharn/ → flat no longer happens: a flat pharn-oss is refused, and nothing is written', async () => {
     await installed();
-    serveTip(SHA_V2, '2.0.0', { tree: flatTree('2.0.0') });
-    expect(await updateYes()).toBeNull();
-    expect(config().layout).toBe('flat');
-    const warned = logged('warn').join('\n');
-    expect(warned).toContain('pharn/ tree');
-    expect(warned).not.toContain('moved to the pharn/ layout');
-    expect(read('pharn/pharn-contracts/finding-shape.md')).toBe(
-      'finding shape\n',
-    );
+    const before = snapshot();
+    serveTip(SHA_V2, '2.0.0', { seal: false });
+    expect(await updateYes()).toBe(1);
+    expect(config().layout).toBe('pharn');
+    expect(printed()).toContain('ships no pharn-install.json');
+    expect(snapshot()).toEqual(before);
   });
 });
 
@@ -3496,7 +3548,7 @@ describe('update with pharn-install.json', () => {
   const SHA_V4 = '5'.repeat(40);
 
   it('moves a derived install onto the manifest, then updates and orphans a new-surface file', async () => {
-    serveTip(SHA_V1, '7.19.0', { tree: upstreamTree7('7.19.0') });
+    serveTip(SHA_V1, '7.19.0', { tree: upstreamTree('7.19.0') });
     await installFresh();
     expect(exists(NEW_SURFACE)).toBe(false);
 

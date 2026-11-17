@@ -16,7 +16,6 @@ import {
   capabilitySubtree,
   detectLayout,
   layoutPaths,
-  resolveTrustedDocs,
   type LayoutPaths,
 } from './layout.js';
 import {
@@ -119,7 +118,7 @@ export function installCapabilityDirs(
   const expected = new Map<string, string>();
   for (const cap of capabilities) {
     // The layout is mirrored, so each path addresses source and destination.
-    for (const rel of capabilityCloneFiles(repoDir, paths, cap))
+    for (const rel of capabilityCloneFiles(repoDir, cap))
       expected.set(rel, safeJoin(repoDir, rel));
   }
   writeInstallFiles(projectRoot, expected, seen);
@@ -153,12 +152,7 @@ export function prepareInstall(
   // The resolved relative paths are the clone SOURCE and the project DEST at once.
   const paths = layoutPaths(detectLayout(repoDir));
   const expected =
-    manifest ??
-    collectExpectedInstallPaths({
-      repoDir,
-      capabilities,
-      layout: paths.layout,
-    });
+    manifest ?? collectExpectedInstallPaths({ repoDir, capabilities });
 
   assertDestinationsInProject(projectRoot, expected);
   assertDestinationTypes(projectRoot, expected);
@@ -219,9 +213,7 @@ export function installPrepared(
     settingsPreserved,
     settingsWritten,
     layout: prepared.paths.layout,
-    docs: resolveTrustedDocs(repoDir, prepared.paths.layout).filter((doc) =>
-      prepared.manifest.has(doc),
-    ),
+    docs: prepared.paths.docs.filter((doc) => prepared.manifest.has(doc)),
   };
 }
 
@@ -298,12 +290,8 @@ function copySettingsIfAbsent(repoDir: string, projectRoot: string): boolean {
  * that has none? ONE predicate for the copy and `init --dry-run`'s plan.
  */
 export function upstreamSettingsCopyable(repoDir: string): boolean {
-  // Declared `if-absent` by the manifest (and sha-verified, so present); the
-  // existence probe is the fallback, removed in v0.22.0 (CORE-186).
-  const manifest = readUpstreamManifest(repoDir);
-  if (manifest) return manifestDeclaresSettings(manifest);
-  const from = safeJoin(repoDir, CLAUDE_SETTINGS_FILE);
-  return existsSync(from);
+  // Declared `if-absent` by the manifest (and sha-verified, so present).
+  return manifestDeclaresSettings(readUpstreamManifest(repoDir));
 }
 
 /**

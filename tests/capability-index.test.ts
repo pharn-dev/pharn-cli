@@ -1,54 +1,63 @@
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import { parseCapabilityIndex } from '../src/lib/capability-index.js';
-import { ManifestValidationError } from '../src/lib/validate.js';
-import { sha256File } from '../src/lib/hash.js';
-import type { CapabilityEntry } from '../src/types.js';
-import { A11Y, manifestTree, writeTree } from './support/harness.js';
+import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
+import {
+  A11Y,
+  capability,
+  manifestTree,
+  upstreamTree,
+  withManifest,
+  writeTree,
+  type ManifestDoc,
+  type Tree,
+} from './support/harness.js';
 
-const GRILLERS = 'pharn-pipeline/grillers';
-const LENSES = 'pharn-review';
+const GRILLERS = 'pharn/pharn-pipeline/grillers';
+const LENSES = 'pharn/pharn-review';
 
-// A capability markdown with the three declared frontmatter fields.
-function fm(role: string, applies: string): string {
-  return `---\nname: cap-name\nrole: ${role}\napplies: ${applies}\ncoupling: agnostic\n---\n\n# capability\n\nbody with a stray applies: ["ignored"] line in prose\n`;
+// A pharn-oss tree holding exactly `caps` (`<subtree>/<name>` → applies), plus
+// the layout marker and SKILLS_VERSION the manifest needs. Capabilities come
+// from pharn-install.json only (the frontmatter is never read), so `edit`
+// changes what the manifest declares.
+function tree(
+  caps: Record<string, string>,
+  edit?: (m: ManifestDoc) => void,
+): Tree {
+  const t: Tree = {
+    SKILLS_VERSION: '7.21.0\n',
+    'pharn/pharn-contracts/finding-shape.md': 'finding shape\n',
+  };
+  for (const [dir, applies] of Object.entries(caps)) {
+    const name = dir.slice(dir.lastIndexOf('/') + 1);
+    const role = dir.startsWith(GRILLERS) ? 'griller' : 'lens';
+    t[`${dir}/${name}.md`] = capability(role, applies, name);
+  }
+  return withManifest(t, edit);
 }
 
-// Ensure both subtree roots exist (parseCapabilityIndex requires both), then let
-// callers add capabilities.
-function scaffold(repo: string): void {
-  mkdirSync(join(repo, GRILLERS), { recursive: true });
-  mkdirSync(join(repo, LENSES), { recursive: true });
-}
-
-function writeCap(
-  repo: string,
-  subtree: string,
-  name: string,
-  body: string,
-): void {
-  const dir = join(repo, subtree, name);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${name}.md`), body);
-}
+// Declare `applies` for one capability, whatever its markdown says.
+const declare =
+  (name: string, applies: unknown) =>
+  (m: ManifestDoc): void => {
+    m.capabilities.find((c) => c.name === name)!.applies = applies;
+  };
 
 describe('parseCapabilityIndex', () => {
   const tmp = useTmpDir();
+  const index = (t: Tree) => parseCapabilityIndex(writeTree(tmp.path(), t));
 
-  it('derives a typed index from frontmatter (grillers then lenses, sorted)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'security', fm('griller', '["universal"]'));
-    writeCap(repo, GRILLERS, 'a11y', fm('griller', '["ssr", "spa"]'));
-    writeCap(repo, LENSES, 'trust-fence', fm('lens', '["universal"]'));
-    writeCap(repo, LENSES, 'n-plus-one', fm('lens', '["backend", "ssr"]'));
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities).toEqual([
+  it('builds a typed index from pharn-install.json (grillers then lenses, sorted)', () => {
+    const result = index(
+      tree({
+        [`${LENSES}/trust-fence`]: '["universal"]',
+        [`${GRILLERS}/security`]: '["universal"]',
+        [`${LENSES}/n-plus-one`]: '["backend", "ssr"]',
+        [`${GRILLERS}/a11y`]: '["ssr", "spa"]',
+      }),
+    );
+    expect(result.capabilities).toEqual([
       { name: 'a11y', role: 'griller', applies: ['ssr', 'spa'] },
       { name: 'security', role: 'griller', applies: 'universal' },
       { name: 'n-plus-one', role: 'lens', applies: ['backend', 'ssr'] },
@@ -56,754 +65,134 @@ describe('parseCapabilityIndex', () => {
     ]);
   });
 
-  it('enumerates the pharn/ layout when the clone uses it (marker: pharn/pharn-contracts)', () => {
-    const repo = tmp.path();
-    // The detection marker + both pharn/ subtree roots.
-    mkdirSync(join(repo, 'pharn/pharn-contracts'), { recursive: true });
-    mkdirSync(join(repo, 'pharn/pharn-pipeline/grillers'), { recursive: true });
-    mkdirSync(join(repo, 'pharn/pharn-review'), { recursive: true });
-    writeCap(
-      repo,
-      'pharn/pharn-pipeline/grillers',
-      'a11y',
-      fm('griller', '["ssr"]'),
-    );
-    writeCap(
-      repo,
-      'pharn/pharn-review',
-      'n-plus-one',
-      fm('lens', '["backend"]'),
-    );
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities).toEqual([
-      { name: 'a11y', role: 'griller', applies: ['ssr'] },
-      { name: 'n-plus-one', role: 'lens', applies: ['backend'] },
-    ]);
-  });
-
   it('maps ["universal"] to the string, not an array (the resolver contract)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'security', fm('griller', '["universal"]'));
-    const [entry] = parseCapabilityIndex(repo).capabilities;
+    const [entry] = index(
+      tree(
+        { [`${GRILLERS}/security`]: '["universal"]' },
+        declare('security', ['universal']),
+      ),
+    ).capabilities;
     expect(entry!.applies).toBe('universal');
   });
 
-  // archetype-path-context: `applies` tokens may be UNQUOTED YAML — pharn-oss is
-  // not required to quote them. `[ssr, backend]` parses like `["ssr","backend"]`.
-  it('accepts unquoted YAML applies tokens ([ssr, backend])', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'a11y', fm('griller', '[ssr, backend]'));
-    const [entry] = parseCapabilityIndex(repo).capabilities;
-    expect(entry!.applies).toEqual(['ssr', 'backend']);
-  });
-
-  it('accepts unquoted [universal] → the string (resolver contract)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'security', fm('griller', '[universal]'));
-    const [entry] = parseCapabilityIndex(repo).capabilities;
+  it('maps universal beside an archetype to the string', () => {
+    const [entry] = index(
+      tree(
+        { [`${GRILLERS}/security`]: '["universal"]' },
+        declare('security', ['ssr', 'universal']),
+      ),
+    ).capabilities;
     expect(entry!.applies).toBe('universal');
-  });
-
-  it('accepts mixed quoted/unquoted tokens ([ssr, "backend"])', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'a11y', fm('griller', '[ssr, "backend"]'));
-    const [entry] = parseCapabilityIndex(repo).capabilities;
-    expect(entry!.applies).toEqual(['ssr', 'backend']);
-  });
-
-  // The enum gate must survive the loosening: an unknown UNQUOTED token is still
-  // REFUSED (fail-closed on installing, P2/P5) - the split validates each element
-  // WHOLE. What changed is the BLAST RADIUS: the offending capability is skipped
-  // and reported instead of killing the whole index.
-  it('still refuses an unknown unquoted token (enum gate survives loosening)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'a11y', fm('griller', '[ssr, mobile]'));
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities).toEqual([]);
-    expect(index.unknown).toHaveLength(1);
-    expect(index.unknown[0]!.reason).toMatch(/mobile|invalid applies/);
   });
 
   it('is deterministic - identical result across repeated parses', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'a11y', fm('griller', '["ssr", "spa"]'));
-    writeCap(repo, LENSES, 'n-plus-one', fm('lens', '["backend"]'));
+    const repo = writeTree(
+      tmp.path(),
+      tree({
+        [`${GRILLERS}/security`]: '["universal"]',
+        [`${LENSES}/n-plus-one`]: '["backend"]',
+      }),
+    );
     expect(parseCapabilityIndex(repo)).toEqual(parseCapabilityIndex(repo));
   });
 
-  it('only reads the frontmatter block, never a field-looking prose line', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    // fm() body contains a stray `applies: ["ignored"]` line in prose.
-    writeCap(repo, GRILLERS, 'a11y', fm('griller', '["ssr"]'));
-    const [entry] = parseCapabilityIndex(repo).capabilities;
-    expect(entry!.applies).toEqual(['ssr']);
-  });
-
-  it('accepts a closing fence with trailing blanks, and ignores look-alike keys', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(
-      repo,
-      GRILLERS,
-      'spaced',
-      '---\nrole: griller\nroles: lens\n  applies: ["ssr"]\napplies: ["universal"]\n--- \t\n# x\n',
-    );
-    const index = parseCapabilityIndex(repo);
-    expect(index.unknown).toEqual([]);
-    expect(index.capabilities).toEqual([
-      { name: 'spaced', role: 'griller', applies: 'universal' },
-    ]);
-  });
-
   it('reports an empty unknown list for a fully-parseable clone (P5: zero noise)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'a11y', fm('griller', '["ssr"]'));
-    expect(parseCapabilityIndex(repo).unknown).toEqual([]);
+    const result = index(
+      tree({
+        [`${GRILLERS}/security`]: '["universal"]',
+        [`${LENSES}/n-plus-one`]: '["backend"]',
+      }),
+    );
+    expect(result.unknown).toEqual([]);
   });
 
-  // -------------------------------------------------------------------------
-  // TOLERATE AND REPORT (the forward-compatibility contract).
-  //
-  // These tests used to assert a THROW. The contract deliberately changed: a
-  // released CLI always parses `main` HEAD and can never pin older content, so
-  // one routine grammar evolution upstream used to brick init/add/update in
-  // every deployed CLI at once. The posture is unchanged where it matters -
-  // nothing unparseable is ever INSTALLED - but merely SEEING unknown content
-  // is no longer fatal. The scope of the tolerance is WHERE the failure happens
-  // (inside the per-capability loop), never an enumerated list of shapes.
-  // -------------------------------------------------------------------------
-
-  // The reason each case is skipped, and the good capability that must survive
-  // alongside it in the SAME subtree.
-  const SKIP_CASES: { label: string; body: string; reason: RegExp }[] = [
-    {
-      label: 'an invalid role',
-      body: fm('auditor', '["universal"]'),
-      reason: /invalid role/,
-    },
-    {
-      label: 'a role that does not match its subtree',
-      body: fm('lens', '["universal"]'),
-      reason: /declares role/,
-    },
-    {
-      label: 'an unknown applies token',
-      body: fm('griller', '["mobile"]'),
-      reason: /invalid applies/,
-    },
-    {
-      label: 'an empty applies array',
-      body: fm('griller', '[]'),
-      reason: /empty "applies"/,
-    },
-    {
-      label: 'an unknown scalar applies value',
-      body: fm('griller', 'mobile'),
-      reason: /invalid applies/,
-    },
-    // Upstream reads a quoted array as ONE scalar, `[ssr]`, outside its enum.
-    {
-      label: 'a quoted array',
-      body: fm('griller', '"[ssr]"'),
-      reason: /invalid applies/,
-    },
-    {
-      label: 'a role given as an array',
-      body: '---\nrole: [griller]\napplies: [universal]\n---\n# x\n',
-      reason: /malformed "role"/,
-    },
-    {
-      label: 'no frontmatter fence',
-      body: '# no frontmatter here\n',
-      reason: /missing a "---"-fenced frontmatter block/,
-    },
-    // pharn-oss 7.3.0: a fence after only whitespace or invisible characters
-    // is DISPLACED — upstream reads it and REDs it (P6/frontmatter-offset),
-    // so the reason names the offset, not a missing fence.
-    {
-      label: 'a frontmatter fence after a blank line',
-      body: '\n---\nrole: griller\napplies: ["universal"]\n---\n# x\n',
-      reason: /fence is not at the start of the file/,
-    },
-    {
-      label: 'a frontmatter fence after a byte-order mark and a blank line',
-      body: '\uFEFF\n---\nrole: griller\napplies: ["universal"]\n---\n# x\n',
-      reason: /fence is not at the start of the file/,
-    },
-    // Upstream only calls a fence displaced when it also closes; an
-    // unterminated one is no fence at all.
-    {
-      label: 'an unterminated frontmatter fence after a blank line',
-      body: '\n---\nrole: griller\napplies: ["universal"]\n# x\n',
-      reason: /missing a "---"-fenced frontmatter block/,
-    },
-    {
-      label: 'a missing applies field (what a YAML block-list produces)',
-      body: '---\nname: x\nrole: griller\n---\n# x\n',
-      reason: /missing the "applies"/,
-    },
-    {
-      label: 'a missing role field',
-      body: '---\nname: x\napplies: ["universal"]\n---\n# x\n',
-      reason: /missing the "role"/,
-    }, // PHARN-14: a lazy-regex fence read an EMPTY block's following BODY as
-    // frontmatter. The body carries a VALID role/applies on purpose, so the base
-    // source installs it (the wrong reason cannot make this pass).
-    {
-      label: 'an empty frontmatter block (fields only in the body)',
-      body: '---\n---\nrole: griller\napplies: ["universal"]\n---\n# x\n',
-      reason: /missing the "role"/,
-    },
-    {
-      label: 'an unterminated frontmatter fence',
-      body: '---\nrole: griller\napplies: ["universal"]\n# x\n',
-      reason: /frontmatter block/,
-    },
-    // F-26: a duplicate keeps its LAST value, as upstream's validator does —
-    // so it is that value that must pass, and an earlier valid one rescues
-    // nothing.
-    {
-      label: 'a duplicated applies field whose last value is invalid',
-      body: '---\nrole: griller\napplies: ["universal"]\napplies: ["mobile"]\n---\n# x\n',
-      reason: /invalid applies/,
-    },
-    {
-      label: 'a duplicated role field whose last value is empty',
-      body: '---\nrole: griller\nrole:\napplies: ["universal"]\n---\n# x\n',
-      reason: /missing the "role"/,
-    },
-  ];
-
-  for (const { label, body, reason } of SKIP_CASES) {
-    it(`skips and reports ${label}, keeping the rest of the index`, () => {
-      const repo = tmp.path();
-      scaffold(repo);
-      writeCap(repo, GRILLERS, 'broken', body);
-      writeCap(repo, GRILLERS, 'security', fm('griller', '["universal"]'));
-      writeCap(repo, LENSES, 'trust-fence', fm('lens', '["universal"]'));
-
-      const index = parseCapabilityIndex(repo);
-
-      expect(index.capabilities).toEqual([
-        { name: 'security', role: 'griller', applies: 'universal' },
-        { name: 'trust-fence', role: 'lens', applies: 'universal' },
-      ]);
-      expect(index.unknown).toEqual([
+  it('skips and reports an unknown applies token, keeping the rest of the index', () => {
+    const result = index(
+      tree(
         {
-          name: 'broken',
-          role: 'griller',
-          subtree: GRILLERS,
-          reason: expect.stringMatching(reason) as unknown as string,
+          [`${GRILLERS}/security`]: '["universal"]',
+          [`${GRILLERS}/a11y`]: '["ssr"]',
         },
-      ]);
+        declare('a11y', ['ssr', 'mobile']),
+      ),
+    );
+    expect(result.capabilities).toEqual([
+      { name: 'security', role: 'griller', applies: 'universal' },
+    ]);
+    expect(result.unknown).toHaveLength(1);
+    expect(result.unknown[0]).toMatchObject({
+      name: 'a11y',
+      role: 'griller',
+      subtree: GRILLERS,
     });
-  }
-
-  it('skips and reports a capability directory name outside the allowlist (P2)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    // Underscore is rejected by CAPABILITY_NAME_RE BEFORE any path-join, so the
-    // name is never joined at all - it is reported and enumerated no further.
-    writeCap(repo, GRILLERS, 'bad_name', fm('griller', '["universal"]'));
-    writeCap(repo, GRILLERS, 'security', fm('griller', '["universal"]'));
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities.map((c) => c.name)).toEqual(['security']);
-    expect(index.unknown).toHaveLength(1);
-    expect(index.unknown[0]!.name).toBe('bad_name');
-  });
-
-  // PHARN-08: `<name>/<name>.md` present but NOT a regular file. existsSync
-  // said yes, readFileSync threw EISDIR (not a ManifestValidationError), and the
-  // whole index — init/add/update/status for every deployed CLI — died.
-  it('skips and reports a DIRECTORY named <name>.md instead of aborting the index', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    mkdirSync(join(repo, LENSES, 'newcap', 'newcap.md'), { recursive: true });
-    writeCap(repo, LENSES, 'n-plus-one', fm('lens', '["universal"]'));
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities.map((c) => c.name)).toEqual(['n-plus-one']);
-    expect(index.unknown).toEqual([
-      {
-        name: 'newcap',
-        role: 'lens',
-        subtree: LENSES,
-        reason: expect.stringMatching(
-          /newcap\/newcap\.md is not a regular file/,
-        ) as unknown as string,
-      },
-    ]);
-  });
-
-  it('skips and reports a directory with no capability markdown (the live repro)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    // An untracked WIP dir upstream: a shape pharn-oss's own floor validator does
-    // not catch, and the exact one that killed the entire parse before this fix.
-    mkdirSync(join(repo, GRILLERS, 'backwards-compat'), { recursive: true });
-    writeCap(repo, GRILLERS, 'security', fm('griller', '["universal"]'));
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities.map((c) => c.name)).toEqual(['security']);
-    expect(index.unknown).toEqual([
-      {
-        name: 'backwards-compat',
-        role: 'griller',
-        subtree: GRILLERS,
-        reason: expect.stringMatching(
-          /missing its markdown/,
-        ) as unknown as string,
-      },
-    ]);
+    expect(result.unknown[0]!.reason).toMatch(/mobile/);
   });
 
   it('reports the lens subtree role for an unparseable lens (subtree is authoritative)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    // Frontmatter says `griller`; the SUBTREE says lens, and the subtree wins -
-    // so the reported role is one a caller can safely build a `role:name` key from
-    // even when the frontmatter role is exactly what failed.
-    writeCap(repo, LENSES, 'misfiled', fm('griller', '["universal"]'));
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.unknown).toEqual([
-      {
-        name: 'misfiled',
+    const result = index(
+      tree(
+        { [`${LENSES}/n-plus-one`]: '["backend"]' },
+        declare('n-plus-one', ['mobile']),
+      ),
+    );
+    expect(result.unknown).toEqual([
+      expect.objectContaining({
+        name: 'n-plus-one',
         role: 'lens',
         subtree: LENSES,
-        reason: expect.stringMatching(/declares role/) as unknown as string,
-      },
+      }),
     ]);
   });
 
   it('lists unknowns deterministically: grillers before lenses, sorted within each', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    mkdirSync(join(repo, GRILLERS, 'zeta'), { recursive: true });
-    mkdirSync(join(repo, GRILLERS, 'alpha'), { recursive: true });
-    mkdirSync(join(repo, LENSES, 'beta'), { recursive: true });
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.unknown.map((u) => `${u.role}:${u.name}`)).toEqual([
+    const unknownAll = (m: ManifestDoc): void => {
+      for (const c of m.capabilities) c.applies = ['mobile'];
+    };
+    const result = index(
+      tree(
+        {
+          [`${LENSES}/beta`]: '["ssr"]',
+          [`${GRILLERS}/zeta`]: '["ssr"]',
+          [`${GRILLERS}/alpha`]: '["ssr"]',
+        },
+        unknownAll,
+      ),
+    );
+    expect(result.unknown.map((u) => `${u.role}:${u.name}`)).toEqual([
       'griller:alpha',
       'griller:zeta',
       'lens:beta',
     ]);
-    expect(parseCapabilityIndex(repo)).toEqual(index);
   });
 
   it('tolerates a WHOLE subtree of unparseable capabilities without throwing', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    mkdirSync(join(repo, GRILLERS, 'one'), { recursive: true });
-    mkdirSync(join(repo, GRILLERS, 'two'), { recursive: true });
-
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities).toEqual([]);
-    expect(index.unknown).toHaveLength(2);
-  });
-
-  // The STRUCTURAL failure stays fatal: a missing subtree is not "one unknown
-  // capability", it is a clone whose shape the CLI cannot address at all.
-  it('hard-fails when a required subtree directory is missing', () => {
-    const repo = tmp.path();
-    mkdirSync(join(repo, GRILLERS), { recursive: true });
-    // No pharn-review/ subtree at all.
-    expect(() => parseCapabilityIndex(repo)).toThrow(ManifestValidationError);
-    expect(() => parseCapabilityIndex(repo)).toThrow(/pharn-review.*missing/);
+    const result = index(
+      tree(
+        {
+          [`${GRILLERS}/one`]: '["ssr"]',
+          [`${GRILLERS}/two`]: '["ssr"]',
+        },
+        (m) => {
+          for (const c of m.capabilities) c.applies = ['mobile'];
+        },
+      ),
+    );
+    expect(result.capabilities).toEqual([]);
+    expect(result.unknown).toHaveLength(2);
   });
 
   it('accepts an empty subtree (no capabilities of that role)', () => {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'security', fm('griller', '["universal"]'));
-    // pharn-review exists but is empty.
-    const index = parseCapabilityIndex(repo);
-    expect(index.capabilities.map((c) => c.name)).toEqual(['security']);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// pharn-oss's validator, vendored byte-for-byte: pharn-dev/pharn-oss `main` @
-// 3afbb125 (SKILLS_VERSION 7.7.1), where pharn/floor/validate.mjs last changed
-// in 73a2bfc7. Beside it, byte-for-byte from the same commit, the two pharn-oss
-// modules it imports: frontmatter-core.mjs (shared with the models checker,
-// tests/model-config-parity.test.ts) and capability-files-core.mjs. A refresh
-// changes these lines in the same commit as the files (docs/contributing.md).
-// The validator runs its checks on import (it ends the process), so the pieces
-// this CLI ports are extracted from its SOURCE by name and built on their own,
-// with its frontmatter-core imports injected — there is no second copy to
-// drift: the day upstream's rule changes, these tests run the new one.
-// ---------------------------------------------------------------------------
-const VENDORED = join(import.meta.dirname, 'fixtures', 'pharn-oss');
-const UPSTREAM_VALIDATOR = join(VENDORED, 'validate.mjs');
-const UPSTREAM_VALIDATOR_SHA256 =
-  '361eff5ea794bf69024f399b106b9614e5603e4e82a695e62c5404a43e266a16';
-const FRONTMATTER_CORE = join(VENDORED, 'frontmatter-core.mjs');
-const FRONTMATTER_CORE_SHA256 =
-  'e883dbe7b3b5bf381ba512d57ac1c9e88230fb52f17fa99893a1aa7eb4be24e0';
-const CAPABILITY_FILES_CORE = join(VENDORED, 'capability-files-core.mjs');
-const CAPABILITY_FILES_CORE_SHA256 =
-  'bcfb4349454070333d98fe66be2046d3aaedc74ee902c87efb050cab81b1551d';
-
-// The three names the validator's parseFrontmatter reads from its import.
-interface FrontmatterCore {
-  looseFrontmatter: unknown;
-  looseValue: unknown;
-  stripBom: unknown;
-}
-const frontmatterCore = (await import(
-  pathToFileURL(FRONTMATTER_CORE).href
-)) as FrontmatterCore;
-
-type UpstreamFm = Record<string, unknown> | null;
-
-interface Upstream {
-  parseFrontmatter: (text: string) => { fm: UpstreamFm; displaced: boolean };
-  // CHECK 4b's normalization: an array as-is, a non-empty scalar as [scalar].
-  appliesOf: (fm: Record<string, unknown>) => unknown[];
-  ROLE_ENUM: string[];
-  APPLIES_ENUM: string[];
-}
-
-function upstream(): Upstream {
-  const src = readFileSync(UPSTREAM_VALIDATOR, 'utf8');
-  const one = (re: RegExp): string => {
-    const found = src.match(re);
-    expect(found).toHaveLength(1);
-    return found![0];
-  };
-  const enumOf = (name: string): string[] =>
-    JSON.parse(
-      one(new RegExp(`^const ${name} = (\\[.*\\]);$`, 'gm')).replace(
-        /^[^=]*= |;$/g,
-        '',
-      ),
-    ) as string[];
-  // parseFrontmatter delegates to frontmatter-core.mjs. The import line is
-  // pinned exactly, so the names injected below are the ones it imports.
-  one(
-    /^import \{ looseFrontmatter, looseValue, stripBom \} from "\.\/frontmatter-core\.mjs";$/gm,
-  );
-  const parseFrontmatter = new Function(
-    'looseFrontmatter',
-    'looseValue',
-    'stripBom',
-    `${one(/^function parseFrontmatter\(rawText\) \{\n[\s\S]*?\n\}\n/gm)}; return parseFrontmatter;`,
-  )(
-    frontmatterCore.looseFrontmatter,
-    frontmatterCore.looseValue,
-    frontmatterCore.stripBom,
-  ) as Upstream['parseFrontmatter'];
-  // pharn-oss 7.3.0: a role-bearing capability whose fence is displaced is a
-  // blocking finding. A lexical pin on that finding (not a behavioural one):
-  // the verdicts below refuse a displaced block on the strength of it.
-  one(
-    /^ {4}if \(displaced\) \{\n {6}finding\(\n {8}"blocking",\n {8}"P6\/frontmatter-offset",$/gm,
-  );
-  const appliesLine = one(/^ {2}const applies = .*;$/gm);
-  const appliesOf = new Function(
-    'fm',
-    `${appliesLine} return applies;`,
-  ) as Upstream['appliesOf'];
-  return {
-    parseFrontmatter,
-    appliesOf,
-    ROLE_ENUM: enumOf('ROLE_ENUM'),
-    APPLIES_ENUM: enumOf('APPLIES_ENUM'),
-  };
-}
-
-// F23: the fence is upstream's own rule. pharn-oss's validator (the vendored
-// copy above → parseFrontmatter) opens on a file that STARTS with
-// `---` and closes at the first newline followed by `---` — any line that
-// starts with it (`----`, `--- note`). A capability upstream's CI passes must
-// never be skipped here for its fence.
-describe("parseCapabilityIndex — the frontmatter fence is upstream's", () => {
-  const tmp = useTmpDir();
-  const FIELDS = 'role: griller\napplies: ["universal"]';
-
-  // Installs `body` as the one griller and reports whether it was ACCEPTED.
-  function accepted(body: string): boolean {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'probe', body);
-    const index = parseCapabilityIndex(repo);
-    return index.capabilities.some((c) => c.name === 'probe');
-  }
-
-  it('accepts a closing ---- line', () => {
-    expect(accepted(`---\n${FIELDS}\n----\n# x\n`)).toBe(true);
+    const result = index(tree({ [`${GRILLERS}/security`]: '["universal"]' }));
+    expect(result.capabilities).toEqual([
+      { name: 'security', role: 'griller', applies: 'universal' },
+    ]);
+    expect(result.unknown).toEqual([]);
   });
 
-  it('accepts a closing "--- note" line', () => {
-    expect(accepted(`---\n${FIELDS}\n--- note\n# x\n`)).toBe(true);
-  });
-
-  it('closes at the FIRST such line — a later horizontal rule in the body is prose', () => {
-    expect(
-      accepted(`---\n${FIELDS}\n---\n# x\n\n---\n\nrole: lens\napplies: []\n`),
-    ).toBe(true);
-  });
-
-  it('still refuses an empty block whose fields sit only in the body', () => {
-    expect(accepted(`---\n---\n${FIELDS}\n---\n# x\n`)).toBe(false);
-  });
-
-  // The upstream parser, read out of the vendored validator (above).
-  function upstreamParseFrontmatter(): Upstream['parseFrontmatter'] {
-    return upstream().parseFrontmatter;
-  }
-
-  // Upstream's verdict for the two fields this CLI reads: a block exists and
-  // carries a role and a non-empty applies.
-  function upstreamAccepts(body: string): boolean {
-    const { fm, displaced } = upstreamParseFrontmatter()(body);
-    return (
-      fm !== null &&
-      !displaced &&
-      typeof fm.role === 'string' &&
-      fm.role !== '' &&
-      Array.isArray(fm.applies) &&
-      fm.applies.length > 0
-    );
-  }
-
-  const BOM = String.fromCharCode(0xfeff);
-  const SHAPES: [string, string][] = [
-    ['the plain fence', `---\n${FIELDS}\n---\n# x\n`],
-    ['a closing fence with trailing blanks', `---\n${FIELDS}\n--- \t\n# x\n`],
-    ['a closing ----', `---\n${FIELDS}\n----\n# x\n`],
-    ['a closing "--- note"', `---\n${FIELDS}\n--- note\n# x\n`],
-    ['an opening ----', `----\n${FIELDS}\n---\n# x\n`],
-    ['an opening "--- note"', `--- note\n${FIELDS}\n---\n# x\n`],
-    [
-      'a field on the opening line',
-      `--- role: griller\napplies: ["universal"]\n---\n`,
-    ],
-    ['a body rule after the close', `---\n${FIELDS}\n---\n# x\n\n---\n`],
-    ['an empty block', `---\n---\n${FIELDS}\n---\n`],
-    ['an unterminated block', `---\n${FIELDS}\n# x\n`],
-    ['no fence at all', `# x\n${FIELDS}\n`],
-    ['a blank line before the fence', `\n---\n${FIELDS}\n---\n`],
-    ['a byte-order mark before the fence', `${BOM}---\n${FIELDS}\n---\n`],
-    ['a fence that is not at column 0', ` ---\n${FIELDS}\n---\n`],
-    // pharn-oss 7.3.0 (family-grammar-crlf): CRLF lines, and the displaced
-    // leads — whitespace or a format character before the fence.
-    [
-      'CRLF line endings',
-      `---\r\n${FIELDS.replaceAll('\n', '\r\n')}\r\n---\r\n`,
-    ],
-    [
-      'a byte-order mark and CRLF line endings',
-      `${BOM}---\r\n${FIELDS.replaceAll('\n', '\r\n')}\r\n---\r\n`,
-    ],
-    ['two byte-order marks', `${BOM}${BOM}---\n${FIELDS}\n---\n`],
-    ['a byte-order mark and a blank line', `${BOM}\n---\n${FIELDS}\n---\n`],
-    ['a zero-width space before the fence', `\u200B---\n${FIELDS}\n---\n`],
-    ['a tab before the fence', `\t---\n${FIELDS}\n---\n`],
-    ['a no-break space before the fence', `\u00A0---\n${FIELDS}\n---\n`],
-    ['an unterminated fence after a blank line', `\n---\n${FIELDS}\n# x\n`],
-    ['a letter before the fence', `x---\n${FIELDS}\n---\n`],
-  ];
-
-  it.each(SHAPES)("gives upstream's verdict for %s", (_label, body) => {
-    expect(accepted(body)).toBe(upstreamAccepts(body));
-  });
-
-  // Before pharn-oss 7.3.0 upstream split the block on "\n" alone, so a CRLF
-  // file read no field there, and this CLI's CRLF reading was its one named
-  // difference. Upstream now splits on CRLF or LF: the two agree.
-  it('reads CRLF as upstream does', () => {
-    const crlf = `---\r\nrole: griller\r\napplies: ["universal"]\r\n---\r\n# x\r\n`;
-    expect(upstreamAccepts(crlf)).toBe(true);
-    expect(accepted(crlf)).toBe(true);
-  });
-
-  // Non-vacuity: the byte-order-mark and CRLF rows are ACCEPTED upstream, so
-  // their differential rows hold the CLI to reading them.
-  it('upstream accepts the byte-order-mark and CRLF rows', () => {
-    for (const label of [
-      'a byte-order mark before the fence',
-      'CRLF line endings',
-      'a byte-order mark and CRLF line endings',
-    ]) {
-      expect(upstreamAccepts(SHAPES.find(([l]) => l === label)![1])).toBe(true);
-    }
-  });
-
-  // Non-vacuity: the displaced rows are refused upstream BECAUSE they are
-  // displaced — the block itself parses, role and applies included.
-  it('the displaced rows parse upstream and are refused only for the offset', () => {
-    const parse = upstreamParseFrontmatter();
-    for (const label of [
-      'a blank line before the fence',
-      'two byte-order marks',
-      'a zero-width space before the fence',
-    ]) {
-      const { fm, displaced } = parse(SHAPES.find(([l]) => l === label)![1]);
-      expect(displaced).toBe(true);
-      expect(fm?.role).toBe('griller');
-    }
-  });
-});
-
-// F-26: the field VALUES are upstream's too. A capability upstream's CI passes
-// must not be `unknown` here, and nothing its CI refuses may be installed. Each
-// row runs through the vendored validator's own parser and CHECK 4b, and the
-// CLI must give the same verdict — and, when both accept, resolve `applies` to
-// what upstream's list means (any `universal` → always selected).
-describe("parseCapabilityIndex — role and applies values are upstream's (F-26)", () => {
-  const tmp = useTmpDir();
-
-  it('reads the vendored validator at its pinned sha256', () => {
-    expect(sha256File(UPSTREAM_VALIDATOR)).toBe(UPSTREAM_VALIDATOR_SHA256);
-  });
-
-  it('reads its two imports at their pinned sha256', () => {
-    expect(sha256File(FRONTMATTER_CORE)).toBe(FRONTMATTER_CORE_SHA256);
-    expect(sha256File(CAPABILITY_FILES_CORE)).toBe(
-      CAPABILITY_FILES_CORE_SHA256,
-    );
-  });
-
-  // The vendored set is complete: the validator loads with its siblings and
-  // runs (an empty target is GREEN over zero capabilities). A missing import
-  // fails here with node's module-not-found error.
-  it('runs the vendored validator with its imports', () => {
-    const out = execFileSync(
-      process.execPath,
-      [UPSTREAM_VALIDATOR, tmp.path()],
-      { encoding: 'utf8' },
-    );
-    expect(out).toMatch(/^FLOOR: GREEN — 0 capabilities/m);
-  });
-
-  function entry(body: string): CapabilityEntry | undefined {
-    const repo = tmp.path();
-    scaffold(repo);
-    writeCap(repo, GRILLERS, 'probe', body);
-    return parseCapabilityIndex(repo).capabilities.find(
-      (c) => c.name === 'probe',
-    );
-  }
-
-  // Upstream's verdict for a capability under the griller subtree: its CHECK
-  // 3 role enum and CHECK 4b applies rule. `role === 'griller'` is this CLI's
-  // own subtree cross-check (stricter by design, and outside this test's axis),
-  // so every row that should pass declares griller.
-  function upstreamVerdict(body: string): { ok: boolean; applies: unknown[] } {
-    const u = upstream();
-    const { fm, displaced } = u.parseFrontmatter(body);
-    if (fm === null || displaced) return { ok: false, applies: [] };
-    const applies = u.appliesOf(fm);
-    const ok =
-      Boolean(fm.role) &&
-      u.ROLE_ENUM.includes(fm.role as string) &&
-      fm.role === 'griller' &&
-      applies.length > 0 &&
-      applies.every((a) => u.APPLIES_ENUM.includes(a as string));
-    return { ok, applies };
-  }
-
-  const doc = (...lines: string[]): string =>
-    `---\n${lines.join('\n')}\n---\n# x\n`;
-  const R = 'role: griller';
-  const ROWS: [string, string][] = [
-    // scalar
-    ['a scalar universal', doc(R, 'applies: universal')],
-    ['a quoted scalar universal', doc(R, 'applies: "universal"')],
-    ['a single-quoted scalar', doc(R, "applies: 'universal'")],
-    ['a half-quoted scalar', doc(R, 'applies: "universal')],
-    ['a scalar archetype', doc(R, 'applies: ssr')],
-    ['an unknown scalar', doc(R, 'applies: mobile')],
-    ['a bare list without brackets', doc(R, 'applies: ssr, backend')],
-    ['a quoted array (one scalar upstream)', doc(R, 'applies: "[ssr]"')],
-    ['an empty value', doc(R, 'applies:')],
-    ['an empty quoted value', doc(R, 'applies: ""')],
-    // array and mixed
-    ['an array universal', doc(R, 'applies: [universal]')],
-    ['two archetypes', doc(R, 'applies: [ssr, backend]')],
-    ['universal mixed with an archetype', doc(R, 'applies: [universal, ssr]')],
-    [
-      'an archetype mixed with universal',
-      doc(R, 'applies: ["ssr", "universal"]'),
-    ],
-    ['an archetype beside an unknown token', doc(R, 'applies: [ssr, mobile]')],
-    ['an empty array', doc(R, 'applies: []')],
-    ['a trailing comma', doc(R, 'applies: [ssr,]')],
-    ['a repeated archetype', doc(R, 'applies: [ssr, ssr]')],
-    // duplicate keys — upstream keeps the LAST
-    [
-      'a duplicate applies whose last is valid',
-      doc(R, 'applies: [mobile]', 'applies: [universal]'),
-    ],
-    [
-      'a duplicate applies whose last is invalid',
-      doc(R, 'applies: [universal]', 'applies: [mobile]'),
-    ],
-    [
-      'a duplicate applies whose last is empty',
-      doc(R, 'applies: [universal]', 'applies:'),
-    ],
-    [
-      'a duplicate role whose last is valid',
-      doc('role: lens', R, 'applies: [universal]'),
-    ],
-    [
-      'a duplicate role whose last is invalid',
-      doc(R, 'role: auditor', 'applies: [universal]'),
-    ],
-    [
-      'a duplicate role whose last is empty',
-      doc(R, 'role:', 'applies: [universal]'),
-    ],
-    // role and line shapes
-    ['a half-quoted role', doc('role: "griller', 'applies: [universal]')],
-    [
-      'a role given as an array',
-      doc('role: [griller]', 'applies: [universal]'),
-    ],
-    ['an indented key', doc(R, '  applies: [universal]')],
-    ['a tab after the colon', doc('role:\tgriller', 'applies:\t[universal]')],
-    ['a CR inside a line', doc('role: griller\rapplies: [universal]')],
-    ['a look-alike key', doc(R, 'appliesx: [universal]')],
-  ];
-
-  it.each(ROWS)("gives upstream's verdict for %s", (_label, body) => {
-    const verdict = upstreamVerdict(body);
-    const got = entry(body);
-    expect(got !== undefined).toBe(verdict.ok);
-    if (got !== undefined) {
-      expect(got.applies).toEqual(
-        verdict.applies.includes('universal') ? 'universal' : verdict.applies,
-      );
-    }
-  });
-
-  // Non-vacuity: the corpus reaches both verdicts in each group this finding
-  // is about, so a parser that accepted or refused everything would fail.
-  it('the corpus reaches both verdicts for scalar, mixed and duplicate shapes', () => {
-    const verdictOf = (label: string): boolean =>
-      upstreamVerdict(ROWS.find(([l]) => l === label)![1]).ok;
-    expect(verdictOf('a scalar universal')).toBe(true);
-    expect(verdictOf('an unknown scalar')).toBe(false);
-    expect(verdictOf('universal mixed with an archetype')).toBe(true);
-    expect(verdictOf('an archetype beside an unknown token')).toBe(false);
-    expect(verdictOf('a duplicate applies whose last is valid')).toBe(true);
-    expect(verdictOf('a duplicate applies whose last is invalid')).toBe(false);
-    expect(verdictOf('a duplicate role whose last is valid')).toBe(true);
-    expect(verdictOf('a duplicate role whose last is empty')).toBe(false);
+  it('refuses a tree without pharn-install.json (a pharn-oss older than 7.21.0)', () => {
+    const repo = writeTree(tmp.path(), upstreamTree('7.20.0'));
+    expect(() => parseCapabilityIndex(repo)).toThrow(UpstreamManifestError);
+    expect(() => parseCapabilityIndex(repo)).toThrow(/older than 7\.21\.0/);
   });
 });
 
@@ -814,10 +203,9 @@ describe('parseCapabilityIndex — from pharn-install.json (CORE-194)', () => {
     const tree = manifestTree('7.20.0', (m) => {
       m.capabilities.find((c) => c.name === 'a11y')!.applies = ['backend'];
     });
-    // Frontmatter that would make the derivation skip a11y as unknown.
+    // A markdown with no frontmatter at all: the index reads no capability
+    // file, only the manifest.
     tree[A11Y] = 'no frontmatter at all\n';
-    // The manifest's sha must still match for a fetch, but the index reads
-    // no file: this proves the frontmatter is never consulted.
     const index = parseCapabilityIndex(writeTree(join(tmp.path(), 'r'), tree));
     expect(index.capabilities).toEqual([
       { name: 'a11y', role: 'griller', applies: ['backend'] },
