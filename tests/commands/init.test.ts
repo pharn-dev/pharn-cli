@@ -89,6 +89,8 @@ import { runUpdate } from '../../src/commands/update.js';
 import { runRemove } from '../../src/commands/remove.js';
 import { runStatus } from '../../src/commands/status.js';
 import { runUninstall } from '../../src/commands/uninstall.js';
+import { runList } from '../../src/commands/list.js';
+import { LEGACY_CONFIG_KEYS } from '../../src/lib/pharn-config.js';
 import { displayHook } from '../../src/lib/hook-wiring.js';
 import { CliError } from '../../src/lib/cli-error.js';
 import { reportCliError } from '../../src/lib/report-error.js';
@@ -186,8 +188,8 @@ describe('pharn init, end to end', () => {
       capabilities: [{ name: 'security', role: 'griller', source: 'auto' }],
       archetypes: ['lib'],
       models: UPSTREAM_MODELS,
-      modules: [],
     });
+    expect(config()).not.toHaveProperty('modules');
     expect(config()).not.toHaveProperty('frozenCapabilities');
     expect(config()).not.toHaveProperty('seam');
     expect(config()).not.toHaveProperty('updatedAt');
@@ -307,6 +309,54 @@ describe('pharn init, end to end', () => {
       capabilities: { carried: { manual: string[] } };
     };
     expect(plan.capabilities.carried.manual).toEqual(['griller:a11y']);
+  });
+
+  // CORE-189 (v0.21.0): a config an older CLI wrote, with `modules: []` and the
+  // module-era and wizard fields, loads in every command; the first config
+  // write drops every one of them, and nothing carries them as the user's.
+  it('an old config with `modules` and the legacy fields loads in every command, and a write drops them', async () => {
+    await installFresh();
+    const legacy = {
+      modules: [],
+      constitution: 'minimal',
+      isMultiTenant: false,
+      stackAnswers: { db: 'postgres' },
+      installedSkills: [{ skill: 'x', from: 'y' }],
+    };
+    expect(Object.keys(legacy)).toEqual([...LEGACY_CONFIG_KEYS]);
+    const plant = (): void => editConfig((c) => Object.assign(c, legacy));
+    const dropped = (): void => {
+      for (const key of LEGACY_CONFIG_KEYS) {
+        expect(config()).not.toHaveProperty(key);
+      }
+    };
+
+    // The readers: nothing written, so the old keys stay as found.
+    plant();
+    expect(await run(() => runStatus({ json: true }))).toBeNull();
+    expect(await run(() => runList({ json: true }))).toBeNull();
+    expect(await run(() => runUpdate({ dryRun: true }))).toBeNull();
+    expect(await run(() => runInit({ dryRun: true, json: true }))).toBeNull();
+    expect(config()).toMatchObject(legacy);
+
+    // Every writer drops them.
+    expect(await run(() => runAdd('a11y'))).toBeNull();
+    dropped();
+    plant();
+    expect(await run(() => runRemove('a11y'))).toBeNull();
+    dropped();
+    plant();
+    expect(await rerun()).toBeNull();
+    dropped();
+    plant();
+    serveTip(SHA_V2, '2.0.0');
+    expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+    expect(config().skillsVersion).toBe('2.0.0');
+    dropped();
+
+    plant();
+    expect(await run(() => runUninstall({ yes: true }))).toBeNull();
+    expect(exists('pharn.config.json')).toBe(false);
   });
 
   it('an init that preserved an existing settings.json records nothing for it', async () => {
@@ -685,12 +735,12 @@ describe('init after the download', () => {
 // ---------------------------------------------------------------------------
 
 describe('a fresh install', () => {
-  // CORE-189: `modules: []` is a shim for 0.19.x (written until v0.21.0); the
-  // fields only older CLIs wrote are never written.
-  it('writes modules: [] for 0.19.x and none of the legacy fields', async () => {
+  // CORE-189: from v0.21.0 a new config has no `modules` (0.20.x was the last
+  // CLI that wrote it), nor any other field only older CLIs wrote.
+  it('writes none of the legacy fields, modules included', async () => {
     await installFresh();
     const written = config();
-    expect(written.modules).toEqual([]);
+    expect(written).not.toHaveProperty('modules');
     for (const key of [
       'constitution',
       'isMultiTenant',
@@ -1457,7 +1507,7 @@ describe('re-running init over an install', () => {
   });
 
   // CORE-164: a config with no `modules` key loads; its manual entries carry
-  // and its dropped directories are deleted; `modules: []` is written again.
+  // and its dropped directories are deleted; `modules` is not written back.
   it.each([
     ['a manual entry is kept', true],
     ['a dropped entry is deleted', false],
@@ -1482,7 +1532,7 @@ describe('re-running init over an install', () => {
         source: 'manual',
       });
     else expect(warned()).toContain('will be DELETED');
-    expect(config().modules).toEqual([]);
+    expect(config()).not.toHaveProperty('modules');
     expect(summary()).not.toContain('could not be read');
   });
 

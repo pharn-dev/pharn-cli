@@ -43,7 +43,6 @@ function config(over: Partial<PharnConfig> = {}): PharnConfig {
     skillsVersion: '1.0.0',
     repo: 'pharn-dev/pharn-oss',
     commit: null,
-    modules: [],
     installedAt: '2026-06-11T00:00:00.000Z',
     archetypes: ['ssr'],
     capabilities: [CAP],

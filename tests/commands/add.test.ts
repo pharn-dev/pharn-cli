@@ -147,12 +147,13 @@ describe('pharn add <name>: success', () => {
   });
 
   // CORE-189: the fields older CLIs wrote are out of the public type, yet an
-  // old config carrying them still loads, and `add` writes them back as found.
-  it('keeps the legacy fields an older CLI wrote, and init still writes modules: []', async () => {
+  // old config carrying them (`modules` too) still loads, and `add` drops them.
+  it('keeps loading the legacy fields an older CLI wrote, and init no longer writes modules', async () => {
     await installFresh();
-    // Written for 0.19.x, whose guard needs it, until v0.21.0.
-    expect(config().modules).toEqual([]);
+    // 0.20.x was the last CLI that wrote it.
+    expect(config()).not.toHaveProperty('modules');
     const legacy = {
+      modules: [],
       constitution: 'minimal',
       isMultiTenant: false,
       stackAnswers: { db: 'postgres' },
@@ -161,7 +162,7 @@ describe('pharn add <name>: success', () => {
     editConfig((c) => Object.assign(c, legacy));
 
     expect(await run(() => runAdd('a11y'))).toBeNull();
-    expect(config()).toMatchObject({ ...legacy, modules: [] });
+    expect(Object.keys(config()).filter((k) => k in legacy)).toEqual([]);
     expect(await run(() => runStatus({ json: true }))).toBeNull();
   });
 
