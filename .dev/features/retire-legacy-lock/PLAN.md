@@ -31,6 +31,8 @@
 - `tests/root-migration.test.ts` — the hint test asserts the two old names are no longer hinted — tests
 - `README.md` — the `.gitignore` sentence names only `.pharn/` (CORE-186's lane; required for P4) — docs
 - `tests/commands/init-dry-run.test.ts` — `init --dry-run` prints no `.pharn-backup/` notice (exercises `src/commands/init.ts`; added after pharn-ci warned TESTS_NOT_EXERCISING_CHANGES) — tests
+- `docs/contributing.md` — after rebasing onto #394: the shim table's C6.2 rows say what was removed, and the root-migration row keeps only the `.pharn/` `.gitignore` hint (CORE-186's file) — docs
+- `docs/support-policy.md` — the v0.20.0 row also names `update`'s `.gitignore` hints for the two old names (CORE-186's file) — docs
 - `docs/troubleshooting.md` — drop the `.pharn-backup/` reminder paragraph, the "lock moved in 0.14.0"
   one-release paragraph and the root corpse-directory sentence; say leftovers are no longer read and
   may be deleted; fix the manual-uninstall step — docs
