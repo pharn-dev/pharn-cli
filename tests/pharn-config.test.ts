@@ -259,7 +259,7 @@ describe('pharn-config', () => {
   });
 
   // `models` is pharn-oss's schema, not this CLI's: it is carried VERBATIM, so
-  // the old format (which `update` must load to migrate), a block pharn-oss's
+  // the old format (which `update` must load to keep), a block pharn-oss's
   // rules reject, and a format newer than this CLI all load, unvalidated —
   // and no command refuses to run over a block it does not own.
   it.each([

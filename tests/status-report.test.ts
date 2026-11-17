@@ -360,19 +360,38 @@ describe('buildStatusReport', () => {
       expect(m.reds).toBeNull();
     });
     it('reports the pre-0.7.0 format as old-format with nothing resolved', () => {
+      // CORE-188: no longer `old-format` — the block is `invalid` with its REDs,
+      // and `conversionNeeded`/`old-format` are schemaVersion-1 constants
+      // (always `false`, never emitted). Nothing is resolved either way.
       const m = buildStatusReport(
         input({
           config: config({
-            models: { default: { model: 'opus-4-8', effort: 'high' } },
+            models: {
+              default: { model: 'sonnet-5', effort: 'high' },
+              stages: { plan: { model: 'opus-4-8', effort: 'max' } },
+            },
           }),
         }),
       ).models!;
       expect(m).toEqual({
-        conversionNeeded: true,
-        verdict: 'old-format',
+        conversionNeeded: false,
+        verdict: 'invalid',
         stages: null,
-        reds: null,
+        reds: [
+          {
+            kind: 'default',
+            detail:
+              'missing required `default` stage entry (the resolution fallback)',
+          },
+          {
+            kind: 'model',
+            detail:
+              'stage "plan" model "opus-4-8" is not an alias {sonnet, opus, haiku, fable, inherit} nor a claude-* id',
+          },
+        ],
       });
+      // The key keeps its place in the report.
+      expect(Object.keys(m)[0]).toBe('conversionNeeded');
     });
     it('reports rejected blocks as reds, each detail capped at 300', () => {
       const m = buildStatusReport(

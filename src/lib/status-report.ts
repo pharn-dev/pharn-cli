@@ -7,7 +7,6 @@ import type {
 } from './hook-wiring.js';
 import { resolveStageRows, type StageRow } from './model-config-format.js';
 import { checkModelsBlock, type ModelsRed } from './model-config.js';
-import { needsModelsConversion } from './models-update.js';
 import { NODE_FLOOR, type NodeFloorStatus } from './node-floor.js';
 import type { RefChoice, SourceSummary } from './release.js';
 import { cap, serializeJsonReport } from './json-report.js';
@@ -81,7 +80,11 @@ export interface StatusReport {
   } | null;
   // null when the config carries no `models` block.
   models: {
-    conversionNeeded: boolean;
+    // Constants kept for `schemaVersion` 1: pharn no longer converts the
+    // pre-0.7.0 format (0.19.x was the last CLI that did), so a block in it is
+    // `invalid` with its REDs, `conversionNeeded` is always `false` and the
+    // verdict is never `old-format`. Removed only with a `schemaVersion` bump.
+    conversionNeeded: false;
     verdict: 'valid' | 'no-stages' | 'invalid' | 'old-format';
     stages: StageRow[] | null;
     reds: { kind: ModelsRed['kind']; detail: string }[] | null;
@@ -171,14 +174,6 @@ export function strictFails(input: {
 
 function modelsReport(models: unknown): StatusReport['models'] {
   if (models === undefined) return null;
-  if (needsModelsConversion(models)) {
-    return {
-      conversionNeeded: true,
-      verdict: 'old-format',
-      stages: null,
-      reds: null,
-    };
-  }
   const check = checkModelsBlock(models);
   if (check.kind === 'invalid') {
     return {

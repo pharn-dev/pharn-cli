@@ -142,11 +142,9 @@ describe('the records note is escaped at both print sites', () => {
   const models: ModelsUpdate = {
     outcome: 'ok',
     label: null,
-    replacedLegacyDefault: false,
     next: undefined,
     nextRecord: null,
     backup: false,
-    conversion: null,
     problems: [],
     upstreamReasons: [],
   };

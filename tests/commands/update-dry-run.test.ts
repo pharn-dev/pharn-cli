@@ -77,8 +77,9 @@ const STALE_DIR = 'pharn/pharn-review/stale';
 const FROZEN_FILE =
   'pharn/pharn-pipeline/grillers/backwards-compat/backwards-compat.md';
 const NEW_FLOOR = 'pharn/floor/new-cli.mjs';
-// The block every published pharn before 0.7.0 wrote (lib/models-update.ts):
-// equal to it is proof pharn wrote it, record or not.
+// The block every published pharn before 0.7.0 wrote. Since CORE-188 it is
+// pharn's only when its record says so; otherwise a block pharn-oss's rules
+// reject, kept as the user's.
 const LEGACY_MODELS = {
   default: { model: 'sonnet-5', effort: 'high' },
   stages: {
@@ -86,7 +87,7 @@ const LEGACY_MODELS = {
     review: { model: 'opus-4-8', effort: 'high' },
   },
 };
-// An old-format block someone edited: not a default, so it is kept and converted.
+// An old-format block someone edited: kept as it is, its REDs named.
 const EDITED_LEGACY_MODELS = {
   ...LEGACY_MODELS,
   stages: { ...LEGACY_MODELS.stages, mine: 1 },
@@ -542,7 +543,7 @@ describe('pharn update --dry-run (text): what it reports', () => {
       says: 'Would move your models block',
     },
     {
-      name: 'the block an earlier pharn wrote is replaced',
+      name: 'the block an earlier pharn wrote moves when its record proves it pharn’s',
       setup: () => {
         editConfig((c) => {
           c.models = LEGACY_MODELS;
@@ -551,18 +552,18 @@ describe('pharn update --dry-run (text): what it reports', () => {
           r.files[MODELS_RECORD_KEY] = modelsRecordHash(LEGACY_MODELS);
         });
       },
-      says: 'Would replace the models block',
+      says: 'Would move your models block',
     },
     {
-      name: 'an edited old-format block is kept and converted',
+      name: 'an edited old-format block is kept as it is, with how to replace it',
       setup: () =>
         editConfig((c) => {
           c.models = EDITED_LEGACY_MODELS;
         }),
-      says: 'Would convert your models block',
+      says: 'Replace it by hand, or delete the `models` key from',
     },
     {
-      name: 'upstream ships no block: an old-format one is kept and converted',
+      name: 'upstream ships no block: an old-format one is kept as it is',
       setup: () => {
         upstream.tree['pharn.config.json'] = '{}';
         editConfig((c) => {
@@ -604,6 +605,38 @@ describe('pharn update --dry-run (text): what it reports', () => {
       expect(planNote()).toContain('WOULD BACK UP');
       expect(planNote()).toContain('pharn.config.json');
     }
+  });
+
+  // CORE-188: `replacedLegacyDefault` and `conversion` stay in `plan.models`
+  // as schemaVersion-1 constants, in their place, over an old-format block
+  // too — which is kept, its REDs in `problems`.
+  it('MODELS --json: an old-format block is kept; the conversion keys stay constants', async () => {
+    await installFresh();
+    v2();
+    editConfig((c) => {
+      c.models = LEGACY_MODELS;
+    });
+    const json = await dryJson();
+    expect(json.status).toBe('planned');
+    expect(Object.keys(json.plan.models)).toEqual([
+      'outcome',
+      'label',
+      'replacedLegacyDefault',
+      'backup',
+      'conversion',
+      'problems',
+      'upstreamReasons',
+    ]);
+    expect(json.plan.models).toMatchObject({
+      outcome: 'kept',
+      label: 'modified',
+      replacedLegacyDefault: false,
+      backup: false,
+      conversion: null,
+    });
+    expect(json.plan.models.problems).toContain(
+      'stage "plan" model "opus-4-8" is not an alias {sonnet, opus, haiku, fable, inherit} nor a claude-* id',
+    );
   });
 
   it('reports a hook upstream wires that the project does not', async () => {
@@ -1178,13 +1211,19 @@ describe('pharn update --dry-run --json', () => {
           }),
       },
       {
-        name: 'an edited old-format models block (kept, converted)',
+        // An old-format block is kept as the user's, which changes nothing;
+        // deleting its key, as the MODELS note says, plans the restore.
+        name: 'an old-format models block whose key was deleted (restored)',
         setup: () =>
           editConfig((c) => {
-            c.models = EDITED_LEGACY_MODELS;
+            delete c.models;
           }),
         check: (json) =>
-          expect(json.plan.models.conversion.changes).not.toEqual([]),
+          expect(json.plan.models).toMatchObject({
+            outcome: 'restored',
+            replacedLegacyDefault: false,
+            conversion: null,
+          }),
       },
       {
         name: 'a recorded file missing at the current version',

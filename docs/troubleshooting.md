@@ -811,9 +811,9 @@ The `models` block in `pharn.config.json` is pharn-oss's (see
 lists what pharn-oss's rules reject, and you fix it by hand. The checker installed with PHARN says the
 same: `node pharn/floor/check-model-config.mjs validate` (`.dev/floor/` in the legacy flat layout).
 
-- **"In the format pharn wrote before 0.7.0"** — run `pharn update`. An unedited block is replaced
-  with pharn-oss's; an edited one is converted to pharn-oss's format, keeping your values. Anything it
-  cannot convert is listed for you to fix.
+- **A block in the format pharn wrote before 0.7.0** (a top-level `default`, ids such as `opus-4-8`)
+  — `pharn` no longer converts it, and `pharn update` keeps it as yours. Replace it by hand, or delete
+  the `models` key from `pharn.config.json` so the next `pharn update` writes pharn-oss's.
 - **A stage, alias or effort pharn-oss added after your `pharn` was released** — upgrade `pharn`: the
   copy of pharn-oss's rules it checks with predates the change.
 - **Your values differ from the installed commands' frontmatter** — not an error here.
