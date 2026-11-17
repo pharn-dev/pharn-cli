@@ -148,8 +148,9 @@ a test.
   the resolved SHA _as_ the ref, so every fetch wrote a self-mapped `"<sha>": "<sha>"` entry under a
   new key, the previous hash was always `undefined`, and the delete branch could never run. One
   ~2.4 MB tarball per distinct upstream commit, retained forever, each one an entry reusable by
-  filename. Caches already on disk are inert but **not** removed — pharn deletes nothing outside the
-  user's project; `docs/troubleshooting.md` says where they live and how to size them.
+  filename. Caches already on disk are inert but **not** removed — outside the user's project pharn
+  deletes only the temporary download directory it created itself (`docs/reference/deletes.md`);
+  `docs/troubleshooting.md` says where the caches live and how to size them.
 - **No proxy support of pharn's own, stated as a limit.** Node's global `fetch` reads **no** proxy
   environment variable by default. Every Node at or above pharn's floor (24.2.0, `engines.node`)
   reads them once the user opts in (`NODE_USE_ENV_PROXY=1`, or `--use-env-proxy` on 24.5+), and then
