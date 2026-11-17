@@ -146,18 +146,18 @@ from the list. A value that is not a list of
 
 ## Example
 
-Written by `pharn` 0.20.0 from pharn-oss v7.22.0, in a project whose `package.json` has no
+Written by `pharn` 0.21.0 from pharn-oss v7.22.0, in a project whose `package.json` has no
 dependencies (so the archetype is `lib`): `pharn init --yes`, then `pharn add n-plus-one`. The
 `models` stages and most capabilities are trimmed to `…`; the key order is the one `pharn` writes.
 
 ```json
 {
-  "pharnVersion": "0.20.0",
+  "pharnVersion": "0.21.0",
   "skillsVersion": "7.22.0",
   "repo": "pharn-dev/pharn-oss",
   "commit": "9422b97f9bcef022d240822024e75a1a49c6e278",
   "ref": "latest",
-  "installedAt": "2026-11-17T12:07:43.364Z",
+  "installedAt": "2026-11-17T12:15:45.108Z",
   "models": {
     "stages": {
       "default": { "model": "sonnet", "effort": "high" },

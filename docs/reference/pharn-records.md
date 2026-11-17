@@ -20,7 +20,7 @@ missing ones; files identical to upstream are no-ops and have their records refr
 
 Five of the 546 entries the store held after the run that wrote the
 [`pharn.config.json` example](pharn-config.md#example) (`pharn init --yes`, then `pharn add n-plus-one`,
-`pharn` 0.20.0, pharn-oss v7.22.0), hashes shortened to `…`. Keys are sorted.
+`pharn` 0.21.0, pharn-oss v7.22.0), hashes shortened to `…`. Keys are sorted.
 
 ```json
 {
