@@ -711,20 +711,10 @@ function modelsReportLines(
       break;
     case 'updated':
       lines.push(
-        ...(models.replacedLegacyDefault
-          ? [
-              preview
-                ? "Would replace the models block an earlier pharn wrote with pharn-oss's."
-                : "Replaced the models block an earlier pharn wrote with pharn-oss's.",
-              'Its model ids, such as opus-4-8, are rejected by Claude Code',
-              "and by pharn-oss's checker.",
-            ]
-          : [
-              preview
-                ? "Would move your models block to pharn-oss's current one: you have"
-                : "Moved your models block to pharn-oss's current one: you had",
-              'not changed it since pharn wrote it.',
-            ]),
+        preview
+          ? "Would move your models block to pharn-oss's current one: you have"
+          : "Moved your models block to pharn-oss's current one: you had",
+        'not changed it since pharn wrote it.',
       );
       break;
     case 'forced':
@@ -749,21 +739,25 @@ function modelsReportLines(
       );
       break;
     case 'upstream-absent':
-      if (models.conversion === null && models.problems.length === 0) {
-        return [];
-      }
+      if (models.problems.length === 0) return [];
       lines.push('pharn-oss ships no models block, so yours is kept.');
       break;
   }
-  if (models.conversion !== null) {
+  if (models.outcome === 'kept' && models.problems.length > 0) {
+    // A kept block pharn-oss's rules reject, such as one in the format pharn
+    // wrote before 0.7.0. The by-hand ways come first: `--force` also
+    // overwrites every other file the user edited.
     lines.push(
       '',
-      preview
-        ? 'Would convert your models block from the format pharn wrote before 0.7.0,'
-        : 'Converted your models block from the format pharn wrote before 0.7.0,',
-      'keeping your values:',
-      ...models.conversion.changes.map(quoted),
+      "pharn-oss's rules reject your models block:",
+      ...models.problems.map(quoted),
+      '',
+      'Replace it by hand, or delete the `models` key from',
+      `${CONFIG_FILENAME} so the next \`pharn update\` restores pharn-oss's.`,
+      pc.dim('--force also replaces it, after backing up the config,'),
+      pc.dim('but it overwrites every file you edited, too.'),
     );
+    return lines;
   }
   if (models.problems.length > 0) {
     lines.push(

@@ -249,7 +249,7 @@ not apply such a block from pharn-oss.
   none and says why (see below). A re-run `init` replaces your block with pharn-oss's, as it rewrites
   every other key pharn writes.
 - **`pharn update`** treats the block like a file: pharn-oss's block replaces one pharn wrote, and one
-  you changed is kept. It also converts the format earlier releases wrote. See
+  you changed is kept, with what pharn-oss's rules reject in it listed. See
   [update](../commands/update.md#the-models-block).
 - **`pharn status`** prints every product stage beside the model and effort it resolves to — marked
   `(default)` when the stage has no entry of its own — under the label above, and lists by name
@@ -257,7 +257,7 @@ not apply such a block from pharn-oss.
 - **`add`, `remove` and `list`** leave the block exactly as it is.
 
 No command refuses to run over this block: `pharn` does not validate it when it loads the config,
-because it is not `pharn`'s schema. `pharn` checks it where it copies, converts or shows it, with a
+because it is not `pharn`'s schema. `pharn` checks it where it copies, keeps or shows it, with a
 **copy** of pharn-oss's rules. A test in the pharn repository runs pharn-oss's checker beside that
 copy over a corpus of cases and fails on any difference. If pharn-oss's rules move ahead of the copy in your pharn
 (a new stage, a new alias), `pharn` does not apply the newer block, names what it could not accept, and
@@ -267,10 +267,12 @@ upgrading `pharn` fixes it. pharn-oss can also require the upgrade with `MIN_CLI
 ### The format `pharn` wrote before 0.7.0
 
 Releases up to 0.6.0 wrote a block of their own: a top-level `default`, and model ids — `opus-4-8`,
-`sonnet-5`, `fable-5`, `haiku-4-5` — that neither Claude Code nor pharn-oss's checker accepts. The
-first `pharn update` with 0.7.0 or later fixes it, even when your skills version is current: an
-unedited block is replaced with pharn-oss's, and an edited one is converted and kept. See
-[update](../commands/update.md#the-models-block).
+`sonnet-5`, `fable-5`, `haiku-4-5` — that neither Claude Code nor pharn-oss's checker accepts. `pharn`
+no longer converts it (0.19.x was the last release that did): it is a block pharn-oss's rules reject,
+like any other. `pharn status` lists what they reject, and `pharn update` keeps it unless its record
+proves `pharn` wrote it. To move to pharn-oss's block, replace yours by hand, or delete the `models`
+key so the next `pharn update` writes pharn-oss's; `pharn update --force` also replaces it, but
+overwrites every other file you edited too. See [update](../commands/update.md#the-models-block).
 
 ## Seam resolution
 

@@ -266,8 +266,8 @@ frontmatter.
 
 - `lib/model-config.ts` is a pinned copy of the checker's rules. The CLI never runs a file it installs, and
   `tests/model-config-parity.test.ts` holds the copy to the vendored checker.
-- `lib/models-update.ts` migrates the CLI's own pre-0.7.0 format. It decides the block's outcome with the same per-file
-  rows, hashed under the non-path record key `pharn.config.json#/models`.
+- `lib/models-update.ts` decides the block's outcome with the same per-file rows, hashed under the non-path record key
+  `pharn.config.json#/models`. A kept block is never rewritten: the CLI keeps no format of its own.
 
 ## `status` (`commands/status.ts`)
 

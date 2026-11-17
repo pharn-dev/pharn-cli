@@ -737,17 +737,24 @@ describe('pharn status, end to end', () => {
       hasNot: [],
     },
     {
-      name: 'the pre-0.7.0 format is converted by pharn update',
+      // CORE-188: an invalid block like any other, its REDs named.
+      name: 'the pre-0.7.0 format is a block pharn-oss rejects, its REDs named',
       models: {
         default: { model: 'sonnet-5', effort: 'high' },
         stages: { plan: { model: 'opus-4-8', effort: 'max' } },
       },
-      verdict: 'old-format',
+      verdict: 'invalid',
       has: [
-        'In the format pharn wrote before 0.7.0',
-        '`pharn update` converts it',
+        "pharn-oss's rules reject this block:",
+        'missing required `default` stage entry',
+        'stage "plan" model "opus-4-8" is not an alias',
+        'Fix it by hand.',
       ],
-      hasNot: ['sonnet-5 · high'],
+      hasNot: [
+        'sonnet-5 · high',
+        'In the format pharn wrote before 0.7.0',
+        'converts it',
+      ],
     },
     {
       name: "pharn-oss's rules reject it, printed terminal-safe",
@@ -785,10 +792,12 @@ describe('pharn status, end to end', () => {
     const body = note('MODELS');
     for (const s of has) expect(body).toContain(s);
     for (const s of hasNot) expect(body).not.toContain(s);
-    if (verdict === 'old-format')
+    if (verdict === 'no-stages')
       for (const line of body.split('\n'))
         expect(line.length).toBeLessThanOrEqual(70);
+    // `conversionNeeded` is a schemaVersion-1 constant (CORE-188).
     expect((await statusJson({ drift: false })).report.models).toMatchObject({
+      conversionNeeded: false,
       verdict,
     });
   });

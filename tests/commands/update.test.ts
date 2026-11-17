@@ -1306,7 +1306,9 @@ const PROXY = 'will not use it';
 const CHANNEL_NOTICE =
   'Verified releases are now the default for new installs. This install keeps following pharn-oss main; run `pharn update --ref latest` to switch (recorded on first use).';
 
-// The default every published pharn through 0.6.0 wrote.
+// The default every published pharn through 0.6.0 wrote. Since CORE-188 it is
+// pharn's only when its record says so; otherwise a block pharn-oss's rules
+// reject, kept as the user's.
 const OLD_DEFAULT = {
   default: { model: 'sonnet-5', effort: 'high' },
   stages: {
@@ -1314,14 +1316,19 @@ const OLD_DEFAULT = {
     review: { model: 'opus-4-8', effort: 'high' },
   },
 };
-// OLD_DEFAULT in the current format.
-const OLD_DEFAULT_CONVERTED = {
-  stages: {
-    default: { model: 'sonnet', effort: 'high' },
-    plan: { model: 'opus', effort: 'max' },
-    review: { model: 'opus', effort: 'high' },
-  },
-};
+// What pharn-oss's rules reject in OLD_DEFAULT.
+const OLD_DEFAULT_REDS = [
+  'missing required `default` stage entry (the resolution fallback)',
+  'stage "plan" model "opus-4-8" is not an alias',
+  'stage "review" model "opus-4-8" is not an alias',
+];
+// The MODELS note's way out for a kept block pharn-oss's rules reject.
+const REPLACE_BY_HAND = [
+  'Replace it by hand, or delete the `models` key from',
+  "pharn.config.json so the next `pharn update` restores pharn-oss's.",
+  '--force also replaces it, after backing up the config,',
+  'but it overwrites every file you edited, too.',
+];
 
 /** The first argument of every call to one clack log level, colour stripped. */
 const logged = (level: 'info' | 'warn' | 'error'): string[] =>
@@ -1769,12 +1776,14 @@ describe('at the same version, an empty plan is "Up to date"', () => {
       },
     ],
     [
-      'a models block in the pre-0.7.0 format',
+      // Kept as the user's since CORE-188; the MODELS note's remedy — delete
+      // the key — is what one plain update then fixes.
+      'a models block in the pre-0.7.0 format, its key deleted by hand',
       () =>
         editConfig((c) => {
-          c.models = OLD_DEFAULT;
+          delete c.models;
         }),
-      'Replaced the models block an earlier pharn wrote',
+      "Your config had no models block — wrote pharn-oss's.",
       () => expect(config().models).toEqual(UPSTREAM_MODELS),
     ],
   ])(
@@ -1973,7 +1982,7 @@ describe('an install ahead of its source', () => {
       ['newer than pharn-oss main'],
     ],
     [
-      'main, with a models block to convert',
+      'main, with a models block in the pre-0.7.0 format',
       { ref: 'main' },
       (c) => {
         c.models = OLD_DEFAULT;
@@ -2810,45 +2819,61 @@ describe('the models block', () => {
 
   it.each<Row>([
     {
-      name: 'the default an earlier pharn wrote is replaced with pharn-oss’s',
+      name: 'the default an earlier pharn wrote, unrecorded, is kept with how to replace it',
       mine: OLD_DEFAULT,
+      after: OLD_DEFAULT,
+      record: 'none',
+      says: [
+        'Kept your models block — pharn has no record of writing it.',
+        "pharn-oss's rules reject your models block:",
+        ...OLD_DEFAULT_REDS,
+        ...REPLACE_BY_HAND,
+      ],
+    },
+    {
+      name: 'the default an earlier pharn wrote, recorded, moves to pharn-oss’s',
+      mine: OLD_DEFAULT,
+      recorded: OLD_DEFAULT,
       after: UPSTREAM_MODELS,
       record: 'theirs',
       says: [
-        "Replaced the models block an earlier pharn wrote with pharn-oss's.",
+        "Moved your models block to pharn-oss's current one: you had",
         'check-model-config.mjs agreement',
       ],
     },
     {
-      name: 'an edited old-format block is converted and kept, unrecorded',
+      name: 'an edited old-format block is kept as it is, unrecorded',
       mine: {
         default: { model: 'haiku-4-5', effort: 'low' },
         stages: { review: { model: 'fable-5', effort: 'max' } },
       },
-      after: EDITED,
+      after: {
+        default: { model: 'haiku-4-5', effort: 'low' },
+        stages: { review: { model: 'fable-5', effort: 'max' } },
+      },
       record: 'none',
       says: [
         'Kept your models block — pharn has no record of writing it.',
-        'Converted your models block from the format pharn wrote before 0.7.0,',
-        'stage "review" model "fable-5" → "fable"',
-        "--force replaces it with pharn-oss's",
+        'stage "review" model "fable-5" is not an alias',
+        ...REPLACE_BY_HAND,
       ],
     },
     {
-      name: 'what cannot be converted is named and left as it is',
+      name: 'an old-format block changed since its record is kept, its REDs named',
       mine: {
         default: { model: 'gpt-4', effort: 'high' },
         stages: { plan: { model: 'opus-4-8', effort: 'max' } },
       },
+      recorded: { stages: {} },
       after: {
-        stages: {
-          default: { model: 'gpt-4', effort: 'high' },
-          plan: { model: 'opus', effort: 'max' },
-        },
+        default: { model: 'gpt-4', effort: 'high' },
+        stages: { plan: { model: 'opus-4-8', effort: 'max' } },
       },
+      record: 'recorded',
       says: [
-        "pharn-oss's rules still reject your models block — left as is,",
-        'stage "default" model "gpt-4"',
+        'Kept your models block — you changed it since pharn wrote it.',
+        'stage "plan" model "opus-4-8" is not an alias',
+        ...REPLACE_BY_HAND,
       ],
     },
     {
@@ -2892,13 +2917,14 @@ describe('the models block', () => {
       ],
     },
     {
-      name: 'pharn-oss shipping none, an old-format block is still converted',
+      name: 'pharn-oss shipping none, an old-format block is kept as it is',
       mine: OLD_DEFAULT,
       theirs: null,
-      after: OLD_DEFAULT_CONVERTED,
+      after: OLD_DEFAULT,
       says: [
         'pharn-oss ships no models block, so yours is kept.',
-        'Converted your models block',
+        "pharn-oss's rules still reject your models block — left as is,",
+        ...OLD_DEFAULT_REDS,
       ],
     },
     {
@@ -2913,7 +2939,7 @@ describe('the models block', () => {
       name: 'a block pharn-oss’s rules reject is not applied, and why is named',
       mine: OLD_DEFAULT,
       theirs: REJECTED,
-      after: OLD_DEFAULT_CONVERTED,
+      after: OLD_DEFAULT,
       says: [
         "pharn-oss's models block was not applied; this pharn rejects it:",
         'stage "deploy" is not a product stage',
@@ -3006,11 +3032,15 @@ describe('the models block', () => {
     };
     upstream.tree['pharn.config.json'] = JSON.stringify({ models: shaped });
     await installed();
-    editConfig((c) => {
-      c.models = OLD_DEFAULT;
-    });
+    // The top-level `default` an older pharn converted is left exactly where
+    // pharn-oss put it: the block is neither moved nor rewritten.
+    expect(config().models).toEqual(shaped);
     expect(await updateYes()).toBeNull();
     expect(config().models).toEqual(shaped);
+    expect(Object.keys(config().models as object)).toEqual([
+      'default',
+      'stages',
+    ]);
     const settled = snapshot();
     fetchStub.mockClear();
     expect(await updateYes()).toBeNull();
@@ -3021,13 +3051,21 @@ describe('the models block', () => {
 
   it('replaces an old default it had to convert once pharn-oss’s block is usable again', async () => {
     await installed();
+    // Recorded as pharn's: no longer converted, but its record is carried while
+    // pharn-oss's block cannot be applied.
     editConfig((c) => {
       c.models = OLD_DEFAULT;
+    });
+    editRecords((r) => {
+      r.files[MODELS_RECORD_KEY] = modelsRecordHash(OLD_DEFAULT);
     });
     serveTip(SHA_V2, '2.0.0');
     upstream.tree['pharn.config.json'] = JSON.stringify({ models: REJECTED });
     expect(await updateYes()).toBeNull();
-    expect(config().models).toEqual(OLD_DEFAULT_CONVERTED);
+    expect(config().models).toEqual(OLD_DEFAULT);
+    expect(records().files[MODELS_RECORD_KEY]).toBe(
+      modelsRecordHash(OLD_DEFAULT),
+    );
 
     serveTip('4'.repeat(40), '3.0.0');
     clearOutput();

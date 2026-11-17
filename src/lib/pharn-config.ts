@@ -285,8 +285,8 @@ export function userOwnedConfigEntries(
  * `ArchetypesError`, `ConfigStampError`), so it is never reported as missing.
  *
  * `models` and `seam` are pharn-oss's and are NOT validated: they ride the
- * spread verbatim, so a block pharn-oss accepts (or the pre-0.7.0 `models`
- * format `update` migrates) never stops a command. Unknown top-level keys pass
+ * spread verbatim, so a block pharn-oss accepts (or one it rejects, such as
+ * the pre-0.7.0 `models` format) never stops a command. Unknown top-level keys pass
  * through too, so legacy fields load and user keys survive every write-back.
  */
 export function readPharnConfig(cwd: string): PharnConfig | null {

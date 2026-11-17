@@ -66,11 +66,9 @@ function planReport(over: Partial<UpdatePlanReport> = {}): UpdatePlanReport {
     models: {
       outcome: 'kept',
       label: 'modified',
-      replacedLegacyDefault: false,
       next: { stages: { default: { model: 'SECRET-BLOCK' } } },
       nextRecord: 'sha256-internal',
       backup: true,
-      conversion: { block: {}, changes: ['moved default'], leftovers: ['x'] },
       problems: ['stage "x" is wrong'],
       upstreamReasons: [],
     },
@@ -323,10 +321,14 @@ describe('buildUpdateReport — planned', () => {
       label: 'modified',
       replacedLegacyDefault: false,
       backup: true,
-      conversion: { changes: ['moved default'], leftovers: ['x'] },
+      conversion: null,
       problems: ['stage "x" is wrong'],
       upstreamReasons: [],
     });
+    // `replacedLegacyDefault` and `conversion` are schemaVersion-1 constants:
+    // no plan carries a conversion any more, so they keep their key and
+    // their place in the report with a fixed value.
+    expect(Object.keys(r.plan!.models)).toContain('conversion');
     const text = JSON.stringify(r);
     expect(text).not.toContain('SECRET-BLOCK');
     expect(text).not.toContain('sha256-internal');
@@ -568,11 +570,12 @@ describe('buildUpdateReport — planned', () => {
       input({
         plan: planReport({
           recordsNote: null,
-          models: { ...planReport().models, conversion: null },
+          models: { ...planReport().models, outcome: 'updated', label: null },
         }),
       }),
     );
     expect(q.plan!.models.conversion).toBeNull();
+    expect(q.plan!.models.replacedLegacyDefault).toBe(false);
     expect(q.plan!.recordsNote).toBeNull();
   });
 });
@@ -625,7 +628,6 @@ describe('buildUpdateReport — untrusted text', () => {
             ...planReport().models,
             problems: [hostile, long],
             upstreamReasons: [long],
-            conversion: { block: {}, changes: [long], leftovers: [hostile] },
           },
           unknownCapabilities: [
             { name: long, role: 'lens', subtree: long, reason: long },
@@ -636,9 +638,8 @@ describe('buildUpdateReport — untrusted text', () => {
     expect(r.plan!.recordsNote!.length).toBeLessThanOrEqual(301);
     expect(r.plan!.models.problems[1]!.length).toBeLessThanOrEqual(301);
     expect(r.plan!.models.upstreamReasons[0]!.length).toBeLessThanOrEqual(301);
-    expect(r.plan!.models.conversion!.changes[0]!.length).toBeLessThanOrEqual(
-      301,
-    );
+    // No free text rides in `conversion` any more: it is the constant null.
+    expect(r.plan!.models.conversion).toBeNull();
     expect(r.plan!.unknownCapabilities[0]!.name.length).toBeLessThanOrEqual(
       201,
     );
@@ -695,7 +696,21 @@ describe('buildUpdateReport — default output is unchanged', () => {
     expect(report.plan!.rootMigration).toBeNull();
     const { rootMigration: _added, ...plan010 } = report.plan!;
     const text = serializeJsonReport({ ...report, plan: plan010 });
-    expect(sha(text)).toBe(
+    // CORE-188: `plan.models.conversion` is the constant `null` now, where the
+    // fixture carried a conversion when the hash was captured. Put that value
+    // back and the 0.10.0 bytes return: no other byte moved.
+    const converted = [
+      '"conversion": {',
+      '        "changes": [',
+      '          "moved default"',
+      '        ],',
+      '        "leftovers": [',
+      '          "x"',
+      '        ]',
+      '      },',
+    ].join('\n');
+    expect(text).toContain('      "conversion": null,\n');
+    expect(sha(text.replace('"conversion": null,', converted))).toBe(
       '13a9755b35bf7eb73c52357d17572aedeeb61ce1e737026267c17447169f8615',
     );
     expect(text).not.toContain('"compact"');

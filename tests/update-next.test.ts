@@ -37,11 +37,9 @@ const models = (over: Partial<ModelsUpdate> = {}): ModelsUpdate =>
   ({
     outcome: 'ok',
     label: null,
-    replacedLegacyDefault: false,
     next: undefined,
     nextRecord: null,
     backup: false,
-    conversion: null,
     problems: [],
     upstreamReasons: [],
     ...over,

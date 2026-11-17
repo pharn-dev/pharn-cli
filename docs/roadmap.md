@@ -27,7 +27,7 @@ What the latest release does; the [CHANGELOG](../CHANGELOG.md) says which versio
 | Interactive-only `init`/`update` (exit 1 off a TTY; `update --yes` for CI) + the capability picker for bare `add`/`remove`                                                                                                                                                                     | Shipped |
 | `init --dry-run [--json]` (a preview that writes nothing) and `init --yes` (a prompt-free install that refuses wherever it would overwrite a file)                                                                                                                                             | Shipped |
 | `seam` block left to pharn-oss: never written or validated, carried verbatim by every command                                                                                                                                                                                                  | Shipped |
-| pharn-oss's `models` block — copied by `init`, kept or upgraded by `update` (which converts the format `pharn` wrote before 0.7.0), shown resolved per stage by `status`                                                                                                                       | Shipped |
+| pharn-oss's `models` block — copied by `init`, kept or upgraded by `update`, shown resolved per stage by `status`                                                                                                                                                                              | Shipped |
 
 ## Planned
 

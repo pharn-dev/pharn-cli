@@ -43,7 +43,6 @@ import {
   modelsLabelLines,
   resolvedStageLines,
 } from '../lib/model-config-format.js';
-import { needsModelsConversion } from '../lib/models-update.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { nodeFloorLines, nodeFloorStatus } from '../lib/node-floor.js';
 import { loadArchetypeConfig } from '../lib/pharn-config.js';
@@ -312,16 +311,9 @@ function printModels(config: PharnConfig): void {
   note(modelsNoteLines(config.models, floor).join('\n'), 'MODELS');
 }
 
+// A block in the format pharn wrote before 0.7.0 is an invalid block like any
+// other: its REDs are named.
 function modelsNoteLines(block: unknown, floor: string): string[] {
-  if (needsModelsConversion(block)) {
-    return [
-      'In the format pharn wrote before 0.7.0: a top-level `default` and',
-      "model ids such as `opus-4-8`, which Claude Code and pharn-oss's",
-      'checker reject.',
-      pc.dim('`pharn update` converts it: a block pharn wrote and you never'),
-      pc.dim("changed becomes pharn-oss's; an edited one keeps your values."),
-    ];
-  }
   const check = checkModelsBlock(block);
   if (check.kind === 'invalid') {
     return [

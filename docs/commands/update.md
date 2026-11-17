@@ -50,7 +50,7 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    (see [An install ahead of its source](#an-install-ahead-of-its-source)).
 5. Downloads the repo (SHA-pinned) and plans the update — **every run does, at the same skills version
    too**: there is no "same version, nothing to do" shortcut, so one plain `pharn update` restores a
-   missing file, adds a missing `.gitignore` or `.prettierignore` line, converts an old `models` block,
+   missing file, adds a missing `.gitignore` or `.prettierignore` line, restores a deleted `models` block,
    records a `--ref` switch and re-checks a capability it kept unread. The plan checks `MIN_CLI`,
    **re-resolves your recorded `archetypes`** against the latest capability index and **unions** that
    result with the capabilities you added by hand. A failed download, a `MIN_CLI` refusal, or a dropped
@@ -267,7 +267,7 @@ whose plan changes nothing (only your kept edits differ) is `up-to-date`. Its by
 | `plan.executableUnit`                       | Present **only** when a real run would [hold the executable unit](#the-executable-unit-is-upgraded-all-or-none): `{blocking, held}`, where `blocking` lists the unit files that would be skipped as `{rel, label}` and `held` lists the unit files that would not be written because of them. Those files then carry the label `held` in `plan.files` and `plan.skipped`. `missing`, present only when non-empty, lists the held files that are not on disk and would stay missing until the hold ends. Added in 0.18.0.                                                                                                                                                         |
 | `plan.capabilities`                         | The `count` after the update and every membership `changes[{role, name, source, reason}]` (`added`, `dropped-unselected`, `dropped-gone`, `kept-manual`, `kept-frozen`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `plan.capabilities.removals`                | Present **only** when this update drops at least one capability: one entry per capability whose directory a real run would **delete**, as `{role, name, reason, dir, present, backups}` — `dir` is the directory, `present` says there is anything there, and `backups` are the files in it a real run would copy to `pharn/.backup/<timestamp>/` first. With none, the key is **absent** (not `[]`), so such a report is byte-identical to earlier releases; read it as `plan.capabilities.removals ?? []`.                                                                                                                                                                     |
-| `plan.models`                               | What would happen to your `models` block: `outcome` (`restored`, `updated`, `ok`, `kept`, `forced`, `upstream-absent`, `upstream-invalid`), its `label`, a `conversion` of an old-format block, and the `problems`/`upstreamReasons`. The block itself is not included.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `plan.models`                               | What would happen to your `models` block: `outcome` (`restored`, `updated`, `ok`, `kept`, `forced`, `upstream-absent`, `upstream-invalid`), its `label`, and the `problems`/`upstreamReasons`. `replacedLegacyDefault` is always `false` and `conversion` always `null`: kept for `schemaVersion` 1 since pharn stopped converting the pre-0.7.0 format. The block itself is not included.                                                                                                                                                                                                                                                                                       |
 | `plan.hooks`                                | The same comparison as `pharn status --json`: `status`, `missing[]` and `localOnly[]` as `{event, matcher, command, args}`, `file`/`reason`, and `replace[]` (present only when non-empty). `update` never writes your settings files.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `plan.absentUpstream`                       | Present **only** when there is one: the declared surfaces the fetched clone ships no file for, at its own layout, as `{surface, path}` (`surface` is `commands`, `hooks`, `trusted-doc`, `license`, `features-readme`, `contracts`, `core` or `floor`) — the `NOT SHIPPED` note. Absent otherwise, so a report without one is byte-identical to earlier releases.                                                                                                                                                                                                                                                                                                                |
 | `plan.layout`                               | The layout the install would be recorded at; `abandonedLayout` is the one it would leave behind, and `featuresReadmeRelocation` says a copy of the boundary contract would be left at the project root.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -687,7 +687,7 @@ A `pendingSkillsVersion` counts too: when the last run withheld the version bump
 edits, every file outside those edits (and outside an executable unit they held back) is already at that
 version, so an upstream older than it is refused the same way
 even if your recorded `skillsVersion` is older still. The check runs before the download and the plan
-— so nothing a plan would do (re-check a kept unreadable capability, convert an old `models` block,
+— so nothing a plan would do (re-check a kept unreadable capability, restore a deleted `models` block,
 record a `--ref` switch) happens, and `update --ref main` on a release install that is ahead of `main`
 changes nothing, the switch included. `--dry-run` reports the same outcome, and `--dry-run --json` reports it as `status`
 `ahead-of-release` or `ahead-of-main` with `plan: null`. `--yes` does not skip it; only `--force` does.
@@ -703,30 +703,25 @@ pick the model they request for the stages they route (see
 using the block's hash where a file would use its bytes, and prints a `MODELS` note for every outcome
 except "already identical":
 
-| Your block                                                                        | Default                   | With `--force`                               |
-| --------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------- |
-| absent                                                                            | pharn-oss's is written    | same                                         |
-| identical to pharn-oss's                                                          | nothing to do             | same                                         |
-| still what `pharn` wrote — its recorded hash, or a default an earlier pharn wrote | replaced with pharn-oss's | same                                         |
-| changed since `pharn` wrote it, never recorded, or no usable records file         | **kept**                  | `pharn.config.json` backed up, then replaced |
+| Your block                                                                | Default                   | With `--force`                               |
+| ------------------------------------------------------------------------- | ------------------------- | -------------------------------------------- |
+| absent                                                                    | pharn-oss's is written    | same                                         |
+| identical to pharn-oss's                                                  | nothing to do             | same                                         |
+| still what `pharn` wrote — its recorded hash                              | replaced with pharn-oss's | same                                         |
+| changed since `pharn` wrote it, never recorded, or no usable records file | **kept**                  | `pharn.config.json` backed up, then replaced |
 
 "What `pharn` wrote" is compared as `pharn` writes it: re-indenting the file is not an edit, but
 reordering the block's keys is — so a reordered default counts as yours and is kept, never replaced.
 The block's record lives in [`pharn.records.json`](../reference/pharn-records.md#the-models-block).
 
-**The format `pharn` wrote before 0.7.0.** Earlier releases wrote a block of their own — a top-level
-`default`, and model ids that neither Claude Code nor pharn-oss's checker accepts. A block that is
-exactly one of those defaults is replaced with pharn-oss's. An edited one is **converted, not reset**:
-
-- a top-level `default` moves into `stages.default`;
-- `opus-4-8` becomes `opus`, `sonnet-5` becomes `sonnet`, `fable-5` becomes `fable`, and `haiku-4-5`
-  becomes `haiku`;
-- everything else is kept exactly as it is.
-
-What pharn-oss's rules still reject after that — a model with no mapping, a stage that does not exist,
-a `default` that could not move because `stages.default` is already set — is listed by name for you to
-fix by hand. Nothing is dropped, and nothing is guessed. This conversion runs even when your skills
-version is current, since every `update` plans; once your block is converted the next run is up to date.
+**A kept block pharn-oss's rules reject** — one you edited into an invalid shape, or one in the format
+`pharn` wrote before 0.7.0 (a top-level `default`, and model ids such as `opus-4-8` that neither Claude
+Code nor pharn-oss's checker accepts) — stays exactly as it is, and the `MODELS` note lists what the
+rules reject in it. To replace it, either edit the block by hand, or delete the `models` key from
+`pharn.config.json` so the next `pharn update` writes pharn-oss's (the "absent" row above). `--force`
+replaces it too, after backing up `pharn.config.json`, but it also overwrites every other file you
+edited. An old-format block is replaced without asking only when its recorded hash proves `pharn` wrote
+it; `pharn` no longer converts the old format (0.19.x was the last release that did).
 
 A kept block never holds back the skills version, unlike a skipped file: your `models` block is
 configuration, and a block you tuned is a steady state, not an unfinished upgrade. Keep in mind what
@@ -737,7 +732,7 @@ Editing the frontmatter of a `/pharn-*` command is a different edit: that file b
 Editing only the block causes no file drift, and a re-run `pharn init` resets it (copying the previous
 `pharn.config.json` to `pharn/.backup/` first).
 
-If pharn-oss ships no block, yours is left alone (converted, if it is in the old format). If pharn-oss
+If pharn-oss ships no block, yours is left alone, and what its rules reject in it is listed. If pharn-oss
 ships one this `pharn` cannot accept — pharn-oss's rules can move ahead of the copy of them in your
 `pharn` — the block is not applied, the reasons are listed, and upgrading `pharn` fixes it.
 

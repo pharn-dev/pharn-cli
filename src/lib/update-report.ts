@@ -141,9 +141,12 @@ export interface UpdateReport {
     models: {
       outcome: ModelsOutcome;
       label: UpdateLabel | null;
-      replacedLegacyDefault: boolean;
+      // Constants kept for `schemaVersion` 1: pharn no longer converts the
+      // pre-0.7.0 format (0.19.x was the last CLI that did), so these are
+      // always `false` and `null`. Removed only with a `schemaVersion` bump.
+      replacedLegacyDefault: false;
       backup: boolean;
-      conversion: { changes: string[]; leftovers: string[] } | null;
+      conversion: null;
       problems: string[];
       upstreamReasons: string[];
     };
@@ -284,15 +287,9 @@ function planReport(
     models: {
       outcome: p.models.outcome,
       label: p.models.label,
-      replacedLegacyDefault: p.models.replacedLegacyDefault,
+      replacedLegacyDefault: false,
       backup: p.models.backup,
-      conversion:
-        p.models.conversion === null
-          ? null
-          : {
-              changes: capAll(p.models.conversion.changes, MAX_REASON),
-              leftovers: capAll(p.models.conversion.leftovers, MAX_REASON),
-            },
+      conversion: null,
       problems: capAll(p.models.problems, MAX_REASON),
       upstreamReasons: capAll(p.models.upstreamReasons, MAX_REASON),
     },
