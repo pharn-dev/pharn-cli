@@ -38,7 +38,7 @@ the floor (`ARCHITECTURE.md §2`).
 
 pharn downloads the whole pharn-oss repo as a tarball (`src/lib/repo.ts` → `fetchRepo`), takes the
 install set, the capability index and the `models` defaults from the tree's `pharn-install.json` when
-it carries one (pharn-oss 7.20.0 on; `src/lib/upstream-manifest.ts`), else derives the capability
+it carries one (pharn-oss 7.21.0 on; `src/lib/upstream-manifest.ts`), else derives the capability
 index from the clone's directory tree + markdown frontmatter
 (`src/lib/capability-index.ts` → `parseCapabilityIndex`), then copies the resolved capabilities
 and fixed product surfaces into the user's project (`src/lib/install-capabilities.ts`). There is
