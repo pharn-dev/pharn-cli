@@ -440,7 +440,8 @@ PHARN is intentionally scoped:
 - **Supported installs: the current minor and the previous one.** v0.20.x
   works with installs made by 0.19.x or 0.20.x; re-run `pharn init` on an older
   install, and it keeps the capabilities you added.
-  `--json` reports stay additive within `schemaVersion: 1`. Compatibility code
+  `--json` reports stay additive within `schemaVersion: 1`
+  ([JSON output](docs/reference/json-output.md)). Compatibility code
   for older installs is removed on a named version: see the
   [support policy](docs/support-policy.md).
 
