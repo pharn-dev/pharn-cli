@@ -306,6 +306,39 @@ describe('pharn update --dry-run (text): writes nothing, asks nothing', () => {
     expect(warned()).toContain('features/README.md');
     expect((await dryJson()).plan.featuresReadmeRelocation).toBe(true);
   });
+
+  // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
+  it('DEPRECATED: a flat install is told once, on an empty plan too; --json carries nothing of it', async () => {
+    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+    await installFresh();
+    expect(await dry()).toBeNull();
+    expect(notes('DEPRECATED')).toHaveLength(1);
+    expect(note('DEPRECATED')).toContain(
+      'The flat layout is deprecated and is removed in pharn v0.22.0.',
+    );
+    expect(note('DEPRECATED')).toContain(
+      '`pharn update` moves the install to the pharn/ layout',
+    );
+
+    // A preview of the move itself says it once as well.
+    serveTip(SHA_V1, '1.0.0');
+    expect(await dry()).toBeNull();
+    expect(notes('DEPRECATED')).toHaveLength(1);
+    expect(warned()).toContain('would move to the pharn/ layout');
+
+    // --json: one object on stdout, no clack, no stderr, no notice.
+    const json = await dryJson();
+    expect(json.plan).toMatchObject({ abandonedLayout: 'flat' });
+    expect(stdout().join('\n')).not.toMatch(/deprecat|v0\.22\.0/i);
+    expect(stderr()).toEqual([]);
+    expectClackSilent();
+  });
+
+  it('DEPRECATED is not printed for a pharn install', async () => {
+    await installFresh();
+    expect(await dry()).toBeNull();
+    expect(noteTitles()).not.toContain('DEPRECATED');
+  });
 });
 
 describe('pharn update --dry-run (text): early returns and refusals', () => {

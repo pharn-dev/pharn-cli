@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import pc from './color.js';
 import { safeJoin } from './validate.js';
 import {
   CONTRACTS_DIR,
@@ -29,6 +30,10 @@ import type { InstalledCapability, Layout, PharnConfig } from '../types.js';
 // except `license` (see the field). The `.claude/*` surfaces are identical in
 // both and live in constants.ts. Every decision's else branch is the safe
 // legacy default `flat`.
+//
+// The `flat` layout is deprecated in v0.20.0 and removed in v0.22.0
+// (docs/contributing.md#support-policy): its branches here, the `Layout`
+// member and `flatDeprecationLines` go then.
 // ---------------------------------------------------------------------------
 
 export interface LayoutPaths {
@@ -104,6 +109,22 @@ export function capabilitySubtree(
 // pharn; anything else (absent, garbage) → `flat`.
 export function configLayout(config: PharnConfig): Layout {
   return config.layout === 'pharn' ? 'pharn' : 'flat';
+}
+
+// The DEPRECATED note `pharn status` and `pharn update` print for an install
+// recorded at the `flat` layout (null for any other), text output only, so
+// the `--json` reports keep their schemaVersion-1 bytes. Advisory, never a
+// `--strict` input. The move is `update`'s layout migration, which mirrors
+// the clone, and every current pharn-oss ships the `pharn` layout. Removed in
+// v0.22.0, with the flat layout.
+export function flatDeprecationLines(layout: Layout): string[] | null {
+  if (layout !== 'flat') return null;
+  return [
+    'This install is at the flat layout (PHARN files at the project',
+    'root). The flat layout is deprecated and is removed in pharn v0.22.0.',
+    pc.dim('`pharn update` moves the install to the pharn/ layout; then'),
+    pc.dim('delete the old top-level copies it leaves behind by hand.'),
+  ];
 }
 
 // Where the clone carries the product-loop boundary contract. For the pharn

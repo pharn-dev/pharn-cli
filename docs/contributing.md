@@ -104,7 +104,7 @@ A new `pharn.config.json` key is optional. Legacy fields load, and are kept on r
 
 ### The `flat` layout
 
-The `flat` layout is deprecated in v0.20.0 and removed in v0.22.0. `pharn update` already moves a `flat` install to the `pharn` layout when the fetched pharn-oss ships it ([Layout migrations](commands/update.md#layout-migrations)). The deprecation notice in `pharn status` and `pharn update` is **Coming soon** (see the [roadmap](roadmap.md#planned)).
+The `flat` layout is deprecated in v0.20.0 and removed in v0.22.0. `pharn update` already moves a `flat` install to the `pharn` layout when the fetched pharn-oss ships it ([Layout migrations](commands/update.md#layout-migrations)). On a `flat` install, `pharn status` and `pharn update` print a `DEPRECATED` note (`flatDeprecationLines` in `src/lib/layout.ts`, text output only, never a `--strict` input) naming v0.22.0 and the move.
 
 ### Shims to retire
 

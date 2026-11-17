@@ -142,7 +142,8 @@ catalog.
 The current upstream install layout places most runtime surfaces under `pharn/`
 and Claude Code integration under `.claude/`. Older flat-layout installs are
 still understood through the recorded `layout` field; that layout is deprecated
-in v0.20.0 and removed in v0.22.0, and a plain `pharn update` moves you off it.
+in v0.20.0 and removed in v0.22.0 (`pharn status` and `pharn update` say so), and
+a plain `pharn update` moves you off it.
 
 ## What gets installed
 

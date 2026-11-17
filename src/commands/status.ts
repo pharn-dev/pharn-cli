@@ -24,7 +24,12 @@ import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { diffInstalledCapabilities } from '../lib/diff.js';
 import { parseCapabilityIndex } from '../lib/capability-index.js';
 import { unknownCapabilitiesWarning } from '../lib/unknown-capabilities.js';
-import { configLayout, detectLayout, layoutPaths } from '../lib/layout.js';
+import {
+  configLayout,
+  detectLayout,
+  flatDeprecationLines,
+  layoutPaths,
+} from '../lib/layout.js';
 import {
   absentInstallSurfaces,
   collectExpectedInstallPaths,
@@ -219,6 +224,9 @@ function cloneInput(
 // form is capped for JSON, the input it was built from).
 function renderStatus(report: StatusReport, input: StatusReportInput): void {
   printArchetypeVersion(report, input.source);
+  // DEPRECATED: from the recorded layout, so `--no-drift` prints it too.
+  const deprecation = flatDeprecationLines(report.layout.recorded);
+  if (deprecation) note(deprecation.join('\n'), 'DEPRECATED');
   printModels(input.config);
   printPrettierignore(input.prettierignore);
   const drift = input.drift;

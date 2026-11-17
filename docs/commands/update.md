@@ -41,6 +41,9 @@ wrote is upgraded. A file it cannot prove is untouched is **skipped and listed**
    and exit 1, not the "run `pharn init`" hint.
 3. Warns if a proxy is configured — emitted once at the top of the run, so it precedes **both** of
    update's fetches (the lightweight version check as well as the tarball).
+   On an install recorded at the deprecated `flat` layout it also prints a `DEPRECATED` note, once,
+   whatever the run then does — up to date, ahead of its source, `--dry-run`, or the run that moves it
+   (see [Layout migrations](#layout-migrations)). `--json` prints no such note.
 4. Resolves what to update to — the newest **verified release** for an install that follows releases,
    or the tip of `pharn-dev/pharn-oss` `main` for one that records no `ref` (see
    [Release channel](#release-channel)) — and
@@ -960,6 +963,14 @@ The reverse direction behaves the same way. If your project is recorded at the `
 clone is flat, the update installs the top-level tree and the whole `pharn/` directory — contracts,
 floor scripts, trusted docs, and every capability — is what stays behind. `update` does not delete it, no
 command addresses it any more, and the update prints its own warning naming it. Delete it by hand.
+
+The `flat` layout is deprecated in v0.20.0 and removed in `pharn` v0.22.0
+([support policy](../support-policy.md#the-flat-layout-is-deprecated)). While your install is recorded
+at it, every `update` run prints one `DEPRECATED` note that says so and names the move above
+(`pharn update` moves the install to the `pharn/` layout; the old top-level copies are yours to
+delete): on `--dry-run`, on a run that is already up to date, and on the run that moves the install. It is text
+only: `--dry-run --json` prints nothing new, and reports the move as `plan.abandonedLayout: "flat"`.
+`pharn status` prints the same note.
 
 ## The root-footprint migration
 

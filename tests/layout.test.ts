@@ -1,11 +1,13 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
   capabilitySubtree,
   configLayout,
   detectLayout,
+  flatDeprecationLines,
   layoutPaths,
 } from '../src/lib/layout.js';
 import type { PharnConfig } from '../src/types.js';
@@ -119,5 +121,23 @@ describe('capabilitySubtree', () => {
     ['pharn', 'lens', 'pharn/pharn-review'],
   ] as const)('%s layout, %s → %s', (layout, role, subtree) => {
     expect(capabilitySubtree(layoutPaths(layout), role)).toBe(subtree);
+  });
+});
+
+// CORE-155: the flat layout is deprecated in v0.20.0 and removed in v0.22.0.
+describe('flatDeprecationLines', () => {
+  it('is null for the pharn layout', () => {
+    expect(flatDeprecationLines('pharn')).toBeNull();
+  });
+
+  it('names the removal version and the move for the flat layout', () => {
+    const lines = (flatDeprecationLines('flat') ?? []).map((l) =>
+      stripVTControlCharacters(l),
+    );
+    expect(lines.join(' ')).toContain('removed in pharn v0.22.0');
+    expect(lines.join(' ')).toContain(
+      '`pharn update` moves the install to the pharn/ layout',
+    );
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(70);
   });
 });
