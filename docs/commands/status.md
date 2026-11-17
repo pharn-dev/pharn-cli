@@ -111,6 +111,13 @@ v7.1.3 — run `pharn update`)``, or `(no newer verified release)`); on `main`, 
    the Node you are running, with a `MISMATCH` line when it is older or its version cannot be read.
    Local and instant. It is reported, never fatal, and **not** a `--strict` input: `pharn init` and
    `pharn update` are what refuse on an older Node.
+9. **Deprecated** — when `pharn.config.json` records the `flat` layout (or no `layout` key), a
+   `DEPRECATED` note on **both** paths, right after `VERSION`: the `flat` layout is deprecated and is
+   removed in `pharn` v0.22.0, `pharn update` moves the install to the `pharn/` layout, and the old
+   top-level copies it leaves behind are yours to delete (see the
+   [support policy](../support-policy.md#the-flat-layout-is-deprecated)). It is advisory, **not** a
+   `--strict` input, and `--json` carries no notice: `layout.recorded` already says `flat`. A
+   `pharn`-layout install never prints it.
 
 The heading says "differs from", not "locally modified", on purpose: the comparison is against what
 upstream ships now, so a file can differ because **upstream moved**, not only because you edited it.

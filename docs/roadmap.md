@@ -29,6 +29,7 @@ What the latest release does; the [CHANGELOG](../CHANGELOG.md) says which versio
 | `init --dry-run [--json]` (a preview that writes nothing) and `init --yes` (a prompt-free install that refuses wherever it would overwrite a file)                                                                                                                                             | Shipped |
 | `seam` block left to pharn-oss: never written or validated, carried verbatim by every command                                                                                                                                                                                                  | Shipped |
 | pharn-oss's `models` block — copied by `init`, kept or upgraded by `update`, shown resolved per stage by `status`                                                                                                                                                                              | Shipped |
+| `flat` layout deprecation notice — `pharn status` and `pharn update` say the `flat` layout is removed in v0.22.0 and that `pharn update` moves the install to `pharn/` ([support policy](support-policy.md))                                                                                   | Shipped |
 
 ## Planned
 
@@ -38,7 +39,6 @@ What the latest release does; the [CHANGELOG](../CHANGELOG.md) says which versio
 | Stack scaffolding               | Install npm packages / generate app code for a detected framework                                                                                                       |
 | Migration for existing projects | Onboard repos with significant git history (today the CLI only requires a `.git` directory and hard-fails without one; it never inspects history and issues no warning) |
 | Other agents                    | Codex and Cursor in addition to Claude Code                                                                                                                             |
-| `flat` deprecation notice       | `pharn status` and `pharn update` say that the `flat` layout is deprecated and removed in v0.22.0 ([support policy](support-policy.md))                                 |
 
 ## Related
 

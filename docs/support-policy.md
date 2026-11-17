@@ -22,7 +22,7 @@ Every `--json` report carries `schemaVersion: 1`. Within `1` a new key can appea
 
 ## The `flat` layout is deprecated
 
-Installs from a pharn-oss before the `pharn/` layout keep everything at the project root (`"layout": "flat"` in `pharn.config.json`, or no `layout` key). That layout is deprecated in v0.20.0 and removed in v0.22.0. A plain `pharn update` moves a `flat` install to the `pharn` layout ([Layout migrations](commands/update.md#layout-migrations)). The notice in `pharn status` and `pharn update` that says so is **Coming soon** ([roadmap](roadmap.md#planned)).
+Installs from a pharn-oss before the `pharn/` layout keep everything at the project root (`"layout": "flat"` in `pharn.config.json`, or no `layout` key). That layout is deprecated in v0.20.0 and removed in v0.22.0. A plain `pharn update` moves a `flat` install to the `pharn` layout ([Layout migrations](commands/update.md#layout-migrations)); delete the old top-level copies it leaves behind by hand. On a `flat` install, `pharn status` and `pharn update` print a `DEPRECATED` note that says so. It is advisory: `status --strict` does not fail on it, and `--json` reports carry no notice (`status --json` already reports `layout.recorded: "flat"`, and `update --dry-run --json` reports the move as `plan.abandonedLayout: "flat"`).
 
 ## What is being retired
 

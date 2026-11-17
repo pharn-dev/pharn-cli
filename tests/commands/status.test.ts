@@ -578,6 +578,77 @@ describe('pharn status, end to end', () => {
     });
   });
 
+  // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
+  it('DEPRECATED: a flat install is told the layout goes in v0.22.0 and how to move off it, on both paths, never failing --strict', async () => {
+    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+    await installFresh();
+    expect(await status({ strict: true })).toBeNull();
+    expect(noteTitles()).toEqual([
+      'NODE',
+      'VERSION',
+      'DEPRECATED',
+      'MODELS',
+      'DRIFT',
+    ]);
+    const deprecated = note('DEPRECATED');
+    expect(deprecated).toContain('This install is at the flat layout');
+    expect(deprecated).toContain(
+      'The flat layout is deprecated and is removed in pharn v0.22.0.',
+    );
+    expect(deprecated).toContain(
+      '`pharn update` moves the install to the pharn/ layout',
+    );
+    expect(deprecated).toContain('delete the old top-level copies');
+    for (const line of deprecated.split('\n'))
+      expect(line.length).toBeLessThanOrEqual(70);
+
+    // Read from the recorded layout, so --no-drift (no clone) prints it too.
+    expect(await status({ drift: false })).toBeNull();
+    expect(notes('DEPRECATED')).toHaveLength(1);
+
+    // Across layouts it prints beside LAYOUT, which names the same move.
+    serveTip(SHA_V1, '1.0.0');
+    expect(await status()).toBeNull();
+    expect(noteTitles()).toContain('LAYOUT');
+    expect(notes('DEPRECATED')).toHaveLength(1);
+  });
+
+  it('DEPRECATED is not printed for the pharn layout, and --json carries no notice', async () => {
+    await installFresh();
+    expect(await status()).toBeNull();
+    expect(noteTitles()).not.toContain('DEPRECATED');
+
+    // A flat install's --json: the same schemaVersion-1 keys, one object on
+    // stdout, nothing else anywhere (the recorded layout already says flat).
+    editConfig((c) => {
+      c.layout = 'flat';
+    });
+    for (const drift of [true, false]) {
+      const { report } = await statusJson({ drift });
+      expect(report.layout.recorded).toBe('flat');
+      expect(Object.keys(report).sort()).toEqual(
+        [
+          'archetypes',
+          'capabilities',
+          'drift',
+          'hooks',
+          'layout',
+          'models',
+          'node',
+          'orphans',
+          'prettierignore',
+          'schemaVersion',
+          'strict',
+          'unknownCapabilities',
+          'version',
+        ].sort(),
+      );
+      expect(stdout().join('\n')).not.toMatch(/deprecat|v0\.22\.0/i);
+      expect(stderr()).toEqual([]);
+      expectNoClack();
+    }
+  });
+
   // --- HOOKS, ORPHANED, PRETTIER, frozen ------------------------------------
 
   it('HOOKS names an unwired upstream hook as its JSON, says when hooks reach only this user, and is silent when wired', async () => {

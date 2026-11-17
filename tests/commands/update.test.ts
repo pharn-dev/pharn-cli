@@ -40,6 +40,7 @@ import {
   N_PLUS_ONE,
   NEW_SURFACE,
   notes,
+  noteTitles,
   printed,
   RELEASE_URL,
   SETTINGS,
@@ -3426,6 +3427,52 @@ describe('a layout move', () => {
     expect(tarballFetches()).toBe(1);
     expect(lastOutro()).toMatch(upToDate());
     expect(snapshot()).toEqual(settled);
+  });
+
+  // CORE-155: the flat layout is deprecated in v0.20.0, removed in v0.22.0.
+  it('DEPRECATED: a flat install is told once per run (up to date, ahead of its source, the run that moves it), and a pharn install never is', async () => {
+    const deprecated = (): string[] => notes('DEPRECATED');
+    serveTip(SHA_V1, '1.0.0', { tree: flatTree('1.0.0') });
+    await installed();
+
+    // Up to date: the plan changes nothing, the note still prints.
+    expect(await updateYes()).toBeNull();
+    expect(lastOutro()).toMatch(upToDate());
+    expect(deprecated()).toHaveLength(1);
+    expect(deprecated()[0]).toContain(
+      'The flat layout is deprecated and is removed in pharn v0.22.0.',
+    );
+    expect(deprecated()[0]).toContain(
+      '`pharn update` moves the install to the pharn/ layout',
+    );
+
+    // Ahead of its source: refused before the download, the note still prints.
+    clearOutput();
+    editConfig((c) => {
+      c.skillsVersion = '9.0.0';
+    });
+    expect(await updateYes()).toBeNull();
+    expect(lastOutro()).toContain('is ahead of');
+    expect(deprecated()).toHaveLength(1);
+    editConfig((c) => {
+      c.skillsVersion = '1.0.0';
+    });
+
+    // The run that moves the install: once, above the move's own warning.
+    clearOutput();
+    serveTip(SHA_V1, '1.0.0');
+    expect(await updateYes()).toBeNull();
+    expect(config().layout).toBe('pharn');
+    expect(deprecated()).toHaveLength(1);
+    expect(logged('warn').join('\n')).toContain(
+      'Your install moved to the pharn/ layout',
+    );
+
+    // Moved: the next run says nothing about it.
+    clearOutput();
+    expect(await updateYes()).toBeNull();
+    expect(lastOutro()).toMatch(upToDate());
+    expect(noteTitles()).not.toContain('DEPRECATED');
   });
 
   it('pharn/ → flat: records flat and warns about the abandoned pharn/ tree', async () => {

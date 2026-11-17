@@ -70,6 +70,7 @@ import {
   rootDocsChangedSincePlan,
 } from '../lib/root-migration.js';
 import { versionStatus } from '../lib/version-status.js';
+import { configLayout, flatDeprecationLines } from '../lib/layout.js';
 import { detectProxyNotice } from '../lib/proxy-env.js';
 import { proxyNoticeMessage } from '../lib/proxy-env-format.js';
 import { fetchRemoteSkillsVersion } from '../lib/skills-version.js';
@@ -183,6 +184,10 @@ async function updateProject(
   // dry run, below the refusals so a refused run prints only its one error.
   const channelNotice = defaultChannelNotice(config, opts.ref);
   if (channelNotice !== null && !json) log.info(channelNotice);
+  // DEPRECATED, once per run and on every path below (ahead of the source, the
+  // dry run, up to date, the real run), text only: `--json` stays one report.
+  const deprecation = flatDeprecationLines(configLayout(config));
+  if (deprecation !== null && !json) note(deprecation.join('\n'), 'DEPRECATED');
   await runArchetypeUpdate(
     config,
     cwd,
