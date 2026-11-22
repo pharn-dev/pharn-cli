@@ -44,6 +44,7 @@ import {
   VERSION_URL,
   watchClones,
   write,
+  serveRefusedDest,
 } from '../support/harness.js';
 import { runStatus } from '../../src/commands/status.js';
 import { LOCK_FILE } from '../../src/lib/project-lock.js';
@@ -1181,4 +1182,16 @@ describe('status against a pharn-oss older than 7.21.0', () => {
       expect(clones()).toEqual([]);
     },
   );
+});
+
+describe('a release whose manifest names a path outside the outer bound', () => {
+  it('status exits 1 with the same refusal and writes nothing', async () => {
+    await installFresh();
+    const message = serveRefusedDest(SHA_V2, '1.1.0');
+    const before = snapshot();
+    expect(await status()).toBe(1);
+    expect(printed()).toContain(message);
+    expect(noteTitles()).not.toContain('DRIFT');
+    expect(snapshot()).toEqual(before);
+  });
 });

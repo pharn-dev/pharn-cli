@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A pharn-oss release whose manifest names a path outside what `pharn` installs is now refused with a way forward.** `init`, `add`, `update` and `status` still refuse the whole release, but the message now names the path, says the problem is in the pharn-oss release and that nothing in your project was changed, that an existing install keeps working, and to report it at <https://github.com/pharn-dev/pharn-oss/issues> and re-run with `--ref main` once pharn-oss has fixed `main`. Which paths `pharn` installs into is unchanged. See [A pharn-oss release was refused](docs/troubleshooting.md#a-pharn-oss-release-was-refused).
+
 ## [0.21.1] — 2026-11-17
 
 ### Changed

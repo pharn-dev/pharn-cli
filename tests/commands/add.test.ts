@@ -45,6 +45,7 @@ import {
   useHarness,
   watchClones,
   write,
+  serveRefusedDest,
 } from '../support/harness.js';
 import { runAdd } from '../../src/commands/add.js';
 import { resolveAddPicker, type AddOne } from '../../src/steps/add-picker.js';
@@ -930,5 +931,17 @@ describe('add with pharn-install.json', () => {
     );
     expect(records().files[A11Y]).toBe(sha256(A11Y));
     expect(config().capabilities.map((c) => c.name)).toContain('a11y');
+  });
+});
+
+describe('a release whose manifest names a path outside the outer bound', () => {
+  it('add exits 1 with the same refusal and writes nothing', async () => {
+    await installFresh();
+    const message = serveRefusedDest(SHA_V1, '1.0.0');
+    const before = snapshot();
+    clearOutput();
+    expect(await run(() => runAdd('a11y'))).toBe(1);
+    expect(errors()).toContain(message);
+    expect(snapshot()).toEqual(before);
   });
 });

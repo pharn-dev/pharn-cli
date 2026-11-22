@@ -26,16 +26,17 @@
 
 ## Common problems
 
-| Symptom                                                    | See                                                                                  |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `update` listed files under `SKIPPED` or `held`            | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                    |
-| `Another pharn process is writing to this project`         | [Another pharn process is running](#another-pharn-process-is-running)                |
-| `No pharn.config.json found. Run pharn init first.`        | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)         |
-| `Could not resolve the latest verified … release`          | [No verified release could be resolved](#no-verified-release-could-be-resolved)      |
-| `Failed to fetch`, a timeout, or a proxy notice            | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)              |
-| The wrong archetypes were detected                         | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)        |
-| `Unknown option` / ``Unsupported option for `<command>` `` | [Unsupported option for this command](#unsupported-option-for-this-command)          |
-| Your Prettier check fails on PHARN's files                 | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files) |
+| Symptom                                                     | See                                                                                  |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `update` listed files under `SKIPPED` or `held`             | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                    |
+| `Another pharn process is writing to this project`          | [Another pharn process is running](#another-pharn-process-is-running)                |
+| `No pharn.config.json found. Run pharn init first.`         | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)         |
+| `Could not resolve the latest verified … release`           | [No verified release could be resolved](#no-verified-release-could-be-resolved)      |
+| `Failed to fetch`, a timeout, or a proxy notice             | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)              |
+| `… outside the paths pharn installs; refusing this release` | [A pharn-oss release was refused](#a-pharn-oss-release-was-refused)                  |
+| The wrong archetypes were detected                          | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)        |
+| `Unknown option` / ``Unsupported option for `<command>` ``  | [Unsupported option for this command](#unsupported-option-for-this-command)          |
+| Your Prettier check fails on PHARN's files                  | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files) |
 
 ## Node version
 
@@ -217,6 +218,19 @@ installs only the newest pharn-oss **GitHub release**, never the tip of `main`. 
 
 A release whose tree carries another `SKILLS_VERSION` than its tag is refused too
 (`Release vX.Y.Z (…) ships SKILLS_VERSION …`). `pharn update --ref main` moves an install to `main`.
+
+## A pharn-oss release was refused
+
+```text
+⚠ pharn-oss's pharn-install.json files[N] would write pharn/floor/.eslintrc.json, outside the paths pharn
+  installs; refusing this release. This is a problem in the pharn-oss release, not in your project: …
+```
+
+`init`, `add`, `update` and `status` exit 1 when the fetched release's install manifest names a file outside
+the paths `pharn` installs into. `pharn` refuses the whole release, so nothing in your project is changed and an
+existing install keeps working as it is. Upgrading `pharn` does not help: the path is wrong in pharn-oss. Report it
+at the [pharn-oss issues](https://github.com/pharn-dev/pharn-oss/issues), then re-run with `--ref main` once
+pharn-oss has fixed `main` (or wait for the next release).
 
 ## An upstream capability was skipped
 

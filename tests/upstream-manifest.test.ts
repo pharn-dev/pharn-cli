@@ -15,6 +15,7 @@ import {
   type Tree,
 } from './support/harness.js';
 import {
+  disallowedDestMessage,
   manifestCapabilityFiles,
   manifestCapabilityIndex,
   manifestDeclaresSettings,
@@ -453,6 +454,28 @@ describe('readUpstreamManifest — the one parser', () => {
           fileAt(m, 'pharn/LIMITS.md').dest = dest;
         }),
       ).toContain(`would write ${dest}, outside the paths pharn installs`);
+    });
+
+    it('names the dest, the release as the problem and the way forward', () => {
+      const msg = refusal((m) => {
+        fileAt(m, 'pharn/LIMITS.md').dest = 'pharn/floor/.eslintrc.json';
+      });
+      expect(msg).toMatch(
+        /files\[\d+\] would write pharn\/floor\/\.eslintrc\.json, outside the paths pharn installs/,
+      );
+      expect(msg).toContain('This is a problem in the pharn-oss release');
+      expect(msg).toContain('nothing in your project was changed');
+      expect(msg).toContain('an existing install keeps working as it is');
+      expect(msg).toContain(
+        'Report it at https://github.com/pharn-dev/pharn-oss/issues',
+      );
+      expect(msg).toContain('re-run with --ref main');
+    });
+
+    it('escapes the dest it prints', () => {
+      const msg = disallowedDestMessage('pharn/\u001b[2Kx', 'files[0]');
+      expect(msg).not.toContain('\u001b');
+      expect(msg).toContain('would write pharn/\\u001b[2Kx');
     });
 
     it('refuses a dest that escapes the project', () => {

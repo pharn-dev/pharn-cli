@@ -26,6 +26,7 @@ import { codeloadArchive } from './tar-fixture.js';
 import { runInit } from '../../src/commands/init.js';
 import { CliError } from '../../src/lib/cli-error.js';
 import { reportCliError } from '../../src/lib/report-error.js';
+import { disallowedDestMessage } from '../../src/lib/upstream-manifest.js';
 
 // ---------------------------------------------------------------------------
 // The command-suite harness (CORE-190). Every suite under tests/commands/ runs
@@ -725,6 +726,26 @@ export function withManifest(
   };
   edit?.(doc);
   return { ...tree, [MANIFEST]: `${JSON.stringify(doc, null, 2)}\n` };
+}
+
+// A dot-led floor file: its dest fails the outer bound (OWNED_SEGMENT_RE), so
+// every command refuses the release at the fetch (CORE-303).
+export const REFUSED_DEST = 'pharn/floor/.eslintrc.json';
+
+/**
+ * Serve pharn-oss `version` at `sha` whose manifest declares REFUSED_DEST, and
+ * return the one refusal text every fetching command must print for it.
+ */
+export function serveRefusedDest(sha: string, version: string): string {
+  const tree = withManifest({
+    ...upstreamTree(version),
+    [REFUSED_DEST]: '{}\n',
+  });
+  serveTip(sha, version, { tree });
+  const doc = JSON.parse(tree[MANIFEST]!) as ManifestDoc;
+  const i = doc.files.findIndex((f) => f.dest === REFUSED_DEST);
+  expect(i).toBeGreaterThanOrEqual(0);
+  return disallowedDestMessage(REFUSED_DEST, `files[${i}]`);
 }
 
 /** pharn-oss 7.x with a manifest, plus a file in a surface the CLI names nowhere. */

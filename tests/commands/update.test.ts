@@ -78,6 +78,9 @@ import {
   type Config,
   type Records,
   type Tree,
+  REFUSED_DEST,
+  serveRefusedDest,
+  watchClones,
 } from '../support/harness.js';
 import { runAdd } from '../../src/commands/add.js';
 import { runUpdate } from '../../src/commands/update.js';
@@ -3605,5 +3608,32 @@ describe('update with pharn-install.json', () => {
       `sha256 for ${SECURITY} that its bytes do not match`,
     );
     expect(snapshot()).toEqual(before);
+  });
+});
+
+describe('a release whose manifest names a path outside the outer bound', () => {
+  it('update exits 1, names the path, says the project was not changed, and writes nothing', async () => {
+    await installFresh();
+    const message = serveRefusedDest(SHA_V2, '1.1.0');
+    const clones = watchClones();
+    const before = snapshot();
+    const configBytes = read('pharn.config.json');
+    const recordsBytes = read('pharn.records.json');
+    clearOutput();
+    expect(await run(() => runUpdate({ yes: true }))).toBe(1);
+    const said = printed();
+    expect(said).toContain(message);
+    expect(said).toContain(
+      `would write ${REFUSED_DEST}, outside the paths pharn installs`,
+    );
+    expect(said).toContain('This is a problem in the pharn-oss release');
+    expect(said).toContain('nothing in your project was changed');
+    expect(said).toContain('an existing install keeps working as it is');
+    expect(said).toContain('https://github.com/pharn-dev/pharn-oss/issues');
+    expect(said).toContain('--ref main');
+    expect(read('pharn.config.json')).toBe(configBytes);
+    expect(read('pharn.records.json')).toBe(recordsBytes);
+    expect(snapshot()).toEqual(before);
+    expect(clones()).toEqual([]);
   });
 });
