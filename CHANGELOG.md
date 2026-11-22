@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.21.2] — 2026-11-23
+
 ### Fixed
 
 - **A pharn-oss release whose manifest names a path outside what `pharn` installs is now refused with a way forward.** `init`, `add`, `update` and `status` still refuse the whole release, but the message now names the path, says the problem is in the pharn-oss release and that nothing in your project was changed, that an existing install keeps working, and to report it at <https://github.com/pharn-dev/pharn-oss/issues> and, once pharn-oss has fixed `main`, to move to it with `pharn update --ref main` (`pharn init --ref main` for a new install). Which paths `pharn` installs into is unchanged. See [A pharn-oss release was refused](docs/troubleshooting.md#a-pharn-oss-release-was-refused).
@@ -495,7 +497,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.1...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.2...HEAD
+[0.21.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.19.0...v0.20.0
