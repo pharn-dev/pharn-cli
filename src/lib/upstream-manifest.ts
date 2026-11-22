@@ -1,6 +1,10 @@
 import { lstatSync } from 'node:fs';
 import { readJsonBounded } from './bounded-read.js';
-import { CLAUDE_SETTINGS_FILE, PHARN_CONTRACTS_DIR } from './constants.js';
+import {
+  CLAUDE_SETTINGS_FILE,
+  PHARN_CONTRACTS_DIR,
+  REPO_URL,
+} from './constants.js';
 import { matchesRawSha256 } from './hash.js';
 import { capabilityOf, isPharnOwnedPath } from './install-surfaces.js';
 import { capabilitySubtree, isPharnLayout, layoutPaths } from './layout.js';
@@ -60,6 +64,10 @@ const CAPABILITY_SURFACE = 'capability';
 
 // A project- or tree-relative path: `/`-separated segments of the portable
 // filename set, none empty, `.` or `..`, no leading `/`, no backslash.
+// Mirrored upstream: pharn-oss's generator `.dev/floor/install-manifest-core.mjs`
+// (`assertPlainRelative`) applies this rule and OWNED_SEGMENT_RE
+// (lib/install-surfaces.ts) to every path it emits, so a release this CLI would
+// refuse is caught when pharn-oss builds it. Change both together.
 const MANIFEST_PATH_RE =
   /^(?!(?:.*\/)?\.{1,2}(?:\/|$))[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/;
 // A surface name: a token, never a closed enum, so a surface upstream adds is
@@ -348,8 +356,27 @@ function checkDestBound(
     );
   }
   if (!isPharnOwnedPath(dest)) {
-    throw refuse(`${at} would write ${dest}, outside the paths pharn installs`);
+    throw new UpstreamManifestError(disallowedDestMessage(dest, at));
   }
+}
+
+/** Where a refused release is reported upstream. */
+export const PHARN_OSS_ISSUES_URL = `https://${REPO_URL}/issues`;
+
+/**
+ * THE refusal for a manifest `dest` outside the outer bound — the one text
+ * every command that fetches (`init`, `add`, `update`, `status`) prints. It
+ * runs inside fetchRepo, before the MIN_CLI gate, so it cannot say "upgrade
+ * pharn"; it names what does work today instead. The bound is a containment
+ * guard: the release is refused, never installed in part.
+ */
+export function disallowedDestMessage(dest: string, at: string): string {
+  return (
+    `pharn-oss's ${MANIFEST_FILE} ${at} would write ${escapeUnsafe(dest)}, outside the paths pharn installs; ` +
+    `refusing this release. This is a problem in the pharn-oss release, not in your project: nothing in your project was changed, ` +
+    `and an existing install keeps working as it is. Report it at ${PHARN_OSS_ISSUES_URL}, ` +
+    `then move to main once pharn-oss has fixed it: \`pharn update --ref main\` (\`pharn init --ref main\` for a new install).`
+  );
 }
 
 // `defaults` is checked later, by the pinned checker (lib/upstream-models.ts).

@@ -80,6 +80,7 @@ import {
   VERSION_URL,
   withManifest,
   write,
+  serveRefusedDest,
 } from '../support/harness.js';
 import { runInit } from '../../src/commands/init.js';
 import { runInstallArchetype } from '../../src/steps/install-archetype.js';
@@ -2041,4 +2042,15 @@ describe('init with pharn-install.json', () => {
       expect(clones()).toEqual([]);
     },
   );
+});
+
+describe('a release whose manifest names a path outside the outer bound', () => {
+  it('init exits 1 with the same refusal and writes nothing', async () => {
+    const message = serveRefusedDest(SHA_V1, '1.0.0');
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain(message);
+    expect(errors()).not.toContain('Could not reach');
+    expect(snapshot()).toEqual(before);
+  });
 });

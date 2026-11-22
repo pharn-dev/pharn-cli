@@ -174,6 +174,9 @@ const PHARN_ROOT = 'pharn';
 const CLAUDE_ROOT = '.claude';
 // One path segment an install may create: no dot-led name (so no `.`, `..`,
 // `.git`, `.backup`, `.lock`), nothing outside the portable filename set.
+// Mirrored upstream: pharn-oss's generator `.dev/floor/install-manifest-core.mjs`
+// (`assertPlainRelative`) holds every emitted dest to this rule, so a release
+// this CLI would refuse is caught when pharn-oss builds it. Change both together.
 const OWNED_SEGMENT_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 // A directory name under `.claude/` (`commands`, `skills`, ...).
 const CLAUDE_DIR_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
