@@ -229,8 +229,9 @@ A release whose tree carries another `SKILLS_VERSION` than its tag is refused to
 `init`, `add`, `update` and `status` exit 1 when the fetched release's install manifest names a file outside
 the paths `pharn` installs into. `pharn` refuses the whole release, so nothing in your project is changed and an
 existing install keeps working as it is. Upgrading `pharn` does not help: the path is wrong in pharn-oss. Report it
-at the [pharn-oss issues](https://github.com/pharn-dev/pharn-oss/issues), then re-run with `--ref main` once
-pharn-oss has fixed `main` (or wait for the next release).
+at the [pharn-oss issues](https://github.com/pharn-dev/pharn-oss/issues). Once pharn-oss has fixed `main`, move to it
+with `pharn update --ref main` (`pharn init --ref main` for a new install), or wait for the next release; `add`
+and `status` follow the channel your config records, so they work again after that.
 
 ## An upstream capability was skipped
 

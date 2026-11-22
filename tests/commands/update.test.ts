@@ -3630,7 +3630,7 @@ describe('a release whose manifest names a path outside the outer bound', () => 
     expect(said).toContain('nothing in your project was changed');
     expect(said).toContain('an existing install keeps working as it is');
     expect(said).toContain('https://github.com/pharn-dev/pharn-oss/issues');
-    expect(said).toContain('--ref main');
+    expect(said).toContain('`pharn update --ref main`');
     expect(read('pharn.config.json')).toBe(configBytes);
     expect(read('pharn.records.json')).toBe(recordsBytes);
     expect(snapshot()).toEqual(before);

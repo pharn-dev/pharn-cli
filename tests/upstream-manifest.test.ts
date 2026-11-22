@@ -469,7 +469,9 @@ describe('readUpstreamManifest — the one parser', () => {
       expect(msg).toContain(
         'Report it at https://github.com/pharn-dev/pharn-oss/issues',
       );
-      expect(msg).toContain('re-run with --ref main');
+      expect(msg).toContain(
+        'then move to main once pharn-oss has fixed it: `pharn update --ref main` (`pharn init --ref main` for a new install).',
+      );
     });
 
     it('escapes the dest it prints', () => {

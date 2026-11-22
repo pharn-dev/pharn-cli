@@ -375,7 +375,7 @@ export function disallowedDestMessage(dest: string, at: string): string {
     `pharn-oss's ${MANIFEST_FILE} ${at} would write ${escapeUnsafe(dest)}, outside the paths pharn installs; ` +
     `refusing this release. This is a problem in the pharn-oss release, not in your project: nothing in your project was changed, ` +
     `and an existing install keeps working as it is. Report it at ${PHARN_OSS_ISSUES_URL}, ` +
-    `then re-run with --ref main once pharn-oss has fixed main.`
+    `then move to main once pharn-oss has fixed it: \`pharn update --ref main\` (\`pharn init --ref main\` for a new install).`
   );
 }
 
