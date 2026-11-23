@@ -289,7 +289,9 @@ export function buildUpdatePlan(input: {
   const nextSkillsVersion = versionWithheld
     ? config.skillsVersion
     : installedVersion;
-  const nextCommit = versionWithheld ? config.commit : sha;
+  // A tip `main` could not resolve (`sha` null) says nothing about the commit,
+  // so it keeps the recorded one: never a state change, never `commit: null`.
+  const nextCommit = versionWithheld || sha === null ? config.commit : sha;
   // Withheld ONLY by the user's kept edits (directly, or through a unit hold
   // they caused) → everything outside those edits and the unit IS at
   // `installedVersion`, so record it as pending for `add`, which writes

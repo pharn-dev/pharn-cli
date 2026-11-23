@@ -53,6 +53,8 @@ export const RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest
 export const tagCommitUrl = (tag: string): string =>
   `https://api.github.com/repos/${REPO}/commits/refs/tags/${tag}`;
 export const VERSION_URL = `https://raw.githubusercontent.com/${REPO}/main/SKILLS_VERSION`;
+/** The ref `main` downloads at when its tip SHA cannot be resolved. */
+export const FLOATING_REF = 'refs/heads/main';
 export const tarballUrl = (sha: string): string =>
   `https://codeload.github.com/${REPO}/tar.gz/${sha}`;
 
@@ -224,7 +226,8 @@ export const fetchStub = vi.fn(async (input: unknown): Promise<Response> => {
   if (upstream.published && url === tagCommitUrl(`v${upstream.version}`)) {
     return new Response(upstream.sha);
   }
-  if (url === tarballUrl(upstream.sha)) {
+  // An unresolved tip (`failures.tip`) floats the branch: the same bytes.
+  if (url === tarballUrl(upstream.sha) || url === tarballUrl(FLOATING_REF)) {
     return new Response(
       new Uint8Array(codeloadArchive(upstream.sha, servedTree())),
     );
