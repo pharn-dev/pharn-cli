@@ -322,8 +322,10 @@ is still listed under `SKIPPED`) and ends with:
 - `Up to date.` when nothing is skipped and the recorded version is the one upstream ships.
 
 A missing `commit` (`null`) or a `ref` other than `"latest"` never forces a write by itself; recording a
-new `pendingSkillsVersion` does. The dry run ends `Dry run — Up to date.` (or `Nothing to change.`), and
-`--json` reports `status` `up-to-date` with `plan: null`.
+new `pendingSkillsVersion` does. The dry run ends `Dry run — Up to date.` (or `Nothing to change.`).
+`--json` follows the same rule: `status` `up-to-date` with `plan: null` only for `Up to date.`; a
+`Nothing to change.` run is `planned`, with a plan that writes nothing and names what it skips and the
+version it would withhold.
 
 ## The recorded version stays true
 

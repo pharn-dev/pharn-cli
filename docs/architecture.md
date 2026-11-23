@@ -225,8 +225,9 @@ alone and reaches no write function. `--dry-run --json` projects the report thro
 (`schemaVersion: 1`).
 
 **The real run plans once, before it asks.** Under the lock, it downloads once, plans, prints the membership changes,
-and asks. A plan that changes nothing (`changesNothing`) is "Up to date": it asks nothing and writes nothing, and
-`--dry-run --json` reports it as `status: "up-to-date"` with `plan: null`. After the confirm,
+and asks. A plan that changes nothing (`changesNothing`) asks nothing and writes nothing. It is "Up to date" only when
+it also skips nothing and records the installed version (`noChangeVerdict`); only then does `--dry-run --json` report
+`status: "up-to-date"` with `plan: null`, and otherwise `planned` with the plan. After the confirm,
 `applyConfirmed` refuses before the first write when `pharn.config.json` or any file the plan writes changed while the
 prompt was open (a file now byte-identical to upstream is not a change), then applies the confirmed plan.
 

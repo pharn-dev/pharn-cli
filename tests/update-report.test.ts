@@ -594,6 +594,44 @@ describe('buildUpdateReport — early returns and channel', () => {
     },
   );
 
+  // A plan that changes nothing but is held back by a kept edit is `planned`:
+  // the report carries the plan, so the withheld version is visible, and the
+  // planner's internal `changesNothing` never reaches the JSON.
+  it('a planned report that changes nothing keeps its plan and the withheld version', () => {
+    const plan = planReport({
+      files: [
+        {
+          rel: 'c.md',
+          action: 'skip',
+          label: 'modified',
+          backup: false,
+          forced: false,
+        },
+      ],
+      writes: [],
+      backups: [],
+      skipped: [{ label: 'modified', rels: ['c.md'] }],
+      counts: { updated: 0, restored: 0, ok: 0, forced: 0, skipped: 1 },
+      stateChanges: { config: false, records: false },
+      changesNothing: true,
+    });
+    const r = buildUpdateReport(input({ plan }));
+    expect(r.status).toBe('planned');
+    expect(r.version).toEqual({
+      installed: '1.0.0',
+      latest: '1.1.0',
+      recorded: '1.0.0',
+      withheld: true,
+      pending: '1.1.0',
+    });
+    expect(r.plan).toMatchObject({
+      writes: [],
+      backups: [],
+      counts: { skipped: 1 },
+    });
+    expect(r.plan).not.toHaveProperty('changesNothing');
+  });
+
   it('names the tag of a release source and the channel it would record', () => {
     const r = buildUpdateReport(
       input({

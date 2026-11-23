@@ -1247,6 +1247,66 @@ describe('pharn update --dry-run --json', () => {
       },
     );
 
+    // A plan that changes nothing is `up-to-date` only under the text outro's
+    // rule (lib/update-render.ts `noChangeVerdict`): nothing skipped, and the
+    // recorded version is the installed one. A kept edit holding the install
+    // back stays `planned`, with the plan, so a script sees what `status` sees.
+    it.each<{ name: string; opts: Opts }>([
+      { name: '--dry-run --json', opts: { dryRun: true, json: true } },
+      {
+        name: '--json --yes (implies --dry-run)',
+        opts: { json: true, yes: true },
+      },
+    ])(
+      'is planned, changing nothing, when a kept edit withholds the version — $name',
+      async (row) => {
+        await installFresh();
+        write(CONSTITUTION, 'MY EDIT');
+        v2();
+        expect(await run(() => runUpdate({ yes: true }))).toBeNull();
+        const before = snapshot();
+        fresh();
+        expect(await run(() => runUpdate(row.opts))).toBeNull();
+        expectClackSilent();
+        const json = jsonOut<Json>();
+        expect(json).toMatchObject({
+          schemaVersion: 1,
+          status: 'planned',
+          version: {
+            installed: '1.0.0',
+            latest: '2.0.0',
+            recorded: '1.0.0',
+            withheld: true,
+            pending: '2.0.0',
+          },
+        });
+        // The plan changes nothing: no write, no backup, the edit skipped.
+        expect(json.plan).toMatchObject({
+          writes: [],
+          backups: [],
+          counts: { updated: 0, restored: 0, forced: 0, skipped: 1 },
+        });
+        expect(json.plan).not.toHaveProperty('changesNothing');
+        expect(snapshot()).toEqual(before);
+      },
+    );
+
+    it('is planned, changing nothing, when a kept edit is skipped at the current version', async () => {
+      await installFresh();
+      write(CONSTITUTION, 'MY EDIT');
+      const json = await dryJson();
+      expect(json.status).toBe('planned');
+      expect(json.plan).toMatchObject({
+        writes: [],
+        backups: [],
+        counts: { updated: 0, restored: 0, forced: 0, skipped: 1 },
+      });
+      expect(json.version).toMatchObject({
+        installed: '1.0.0',
+        recorded: '1.0.0',
+      });
+    });
+
     it.each<{
       name: string;
       ref?: 'main';

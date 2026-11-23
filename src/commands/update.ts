@@ -8,6 +8,7 @@ import { nextConfig, nextRecordStore } from '../lib/update-next.js';
 import {
   backupAction,
   defaultChannelNotice,
+  noChangeVerdict,
   reportBackup,
   reportCapabilityChanges,
   reportDryRun,
@@ -798,8 +799,12 @@ async function runDryRun(
 
   const { report } = planned;
   if (json) {
-    // An empty plan is `up-to-date`, with `plan: null` like the ahead-of returns.
-    const empty = report.changesNothing;
+    // `up-to-date` (with `plan: null`, like the ahead-of returns) under the
+    // text outro's rule: nothing changes, nothing is skipped and the recorded
+    // version is the installed one. A plan held back by kept edits changes
+    // nothing yet is not current, so it stays `planned` with the plan.
+    const empty =
+      report.changesNothing && noChangeVerdict(report) === 'Up to date.';
     emitJson(
       buildUpdateReport({
         status: empty ? 'up-to-date' : 'planned',

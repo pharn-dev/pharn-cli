@@ -52,7 +52,9 @@ const MAX_REASON = 300;
 const MAX_UNKNOWN_FIELD = 200;
 
 // `up-to-date`: the plan changes nothing (lib/update-next.ts `changesNothing`),
-// so a real run would ask nothing and write nothing. `ahead-of-release` /
+// skips nothing and records the installed version (lib/update-render.ts
+// `noChangeVerdict`), so a real run would ask nothing and write nothing. A plan
+// that changes nothing but is held back by kept edits stays `planned`. `ahead-of-release` /
 // `ahead-of-main`: the install is newer than its source, and a real run would
 // change nothing without `--force`.
 export type UpdateStatus =

@@ -211,12 +211,12 @@ for what the plan means.
 
 The outcome is `status`:
 
-| `status`           | Meaning                                                                                                        | `plan` |
-| ------------------ | -------------------------------------------------------------------------------------------------------------- | ------ |
-| `planned`          | A real run would proceed.                                                                                      | object |
-| `up-to-date`       | The plan changes nothing: a real run would ask nothing and write nothing (it may still keep an edit of yours). | `null` |
-| `ahead-of-release` | The install is newer than the newest verified release (`--ref latest`); nothing changes without `--force`.     | `null` |
-| `ahead-of-main`    | The install is newer than pharn-oss `main`; nothing changes without `--force`.                                 | `null` |
+| `status`           | Meaning                                                                                                                                              | `plan` |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `planned`          | A real run would proceed.                                                                                                                            | object |
+| `up-to-date`       | The plan changes nothing, skips nothing and records the version upstream ships. A plan that changes nothing but keeps an edit of yours is `planned`. | `null` |
+| `ahead-of-release` | The install is newer than the newest verified release (`--ref latest`); nothing changes without `--force`.                                           | `null` |
+| `ahead-of-main`    | The install is newer than pharn-oss `main`; nothing changes without `--force`.                                                                       | `null` |
 
 | Key                                     | Type                                                                                     | Notes                                                                                                                                                                                                                                                                                             |
 | --------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
