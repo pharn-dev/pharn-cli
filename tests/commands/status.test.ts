@@ -458,6 +458,26 @@ describe('pharn status, end to end', () => {
       opts: { drift: false },
       fails: false,
     },
+    // Being ahead never fails --strict on its own, but the drift section still
+    // compares against the older source: a byte difference from it does.
+    {
+      name: 'an install ahead of its source, with drift and no difference',
+      make: () =>
+        editConfig((c) => {
+          c.skillsVersion = '1.2.0';
+        }),
+      fails: false,
+    },
+    {
+      name: 'an install ahead of its source whose files differ from it',
+      make: () => {
+        editConfig((c) => {
+          c.skillsVersion = '1.2.0';
+        });
+        write(PLAN_COMMAND, 'edited\n');
+      },
+      fails: true,
+    },
   ];
 
   it.each(strictRows)(

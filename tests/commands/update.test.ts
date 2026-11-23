@@ -740,7 +740,15 @@ describe('pharn update, end to end', () => {
     rmSync(at(SETTINGS));
 
     // Same version: the run plans, does not restore the file (update never
-    // writes it), and drops its record.
+    // writes it), and drops its record. Not "up to date": it re-applies once,
+    // copying no file.
+    expect(await run(() => runUpdate({ dryRun: true, json: true }))).toBeNull();
+    const preview = JSON.parse(stdout().at(-1) ?? '') as {
+      status: string;
+      plan: { writes: string[] } | null;
+    };
+    expect(preview.status).toBe('planned');
+    expect(preview.plan?.writes).toEqual([]);
     fetchStub.mockClear();
     expect(await run(() => runUpdate({ yes: true }))).toBeNull();
     expect(downloaded()).toBe(true);
