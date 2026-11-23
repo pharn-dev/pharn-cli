@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.21.3] — 2026-11-23
+
 ### Fixed
 
 - **`pharn update` on the `main` channel no longer erases the recorded `commit` when GitHub will not say which commit `main` is at.** When that lookup failed (an unauthenticated rate limit or a 403), an up-to-date install was re-applied with `updated 0` and `pharn.config.json` and `pharn.records.json` were rewritten with `commit: null`, losing the commit your files were installed from. An unresolved tip now keeps the recorded `commit`: an up-to-date run reports `Up to date.` and writes neither file, and a run that applies a new version records the new version with the previous `commit`. Installs on verified releases were not affected.
@@ -505,7 +507,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.2...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.3...HEAD
+[0.21.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.20.0...v0.21.0
