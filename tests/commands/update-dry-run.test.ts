@@ -819,6 +819,17 @@ describe('pharn update --dry-run: parity with the real run', () => {
     expect(backedUp()).toEqual(plan.backups);
   });
 
+  it('escapes a file name in the WOULD BACK UP list: a dropped directory is the user’s, untrusted', async () => {
+    await installFresh();
+    v2();
+    staleCapability();
+    write(`${STALE_DIR}/evil${ESC}[31m.md`, 'mine');
+    expect(await dry()).toBeNull();
+    expect(planNote()).toContain('WOULD BACK UP 3 file(s)');
+    expect(planNote()).toContain(`  ${STALE_DIR}/evil[31m.md`);
+    expect(planNote()).not.toContain(ESC);
+  });
+
   it('skips exactly what the preview skipped (no --force)', async () => {
     await installFresh();
     v2();

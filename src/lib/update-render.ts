@@ -432,7 +432,10 @@ export function reportDryRun(
     lines.push(
       `  WOULD BACK UP ${backupRels.length} file(s) to ${BACKUP_DIR}/<timestamp>/ first`,
     );
-    for (const rel of backupRels) lines.push(`  ${rel}`);
+    // A dropped capability's directory is read from the project: its file
+    // names are untrusted, unlike the allowlisted manifest paths above.
+    for (const rel of backupRels)
+      lines.push(`  ${terminalSafe(rel, { max: 300 })}`);
     lines.push('');
   }
   // What a real run would append to `.gitignore`; a refusal is a warning,
