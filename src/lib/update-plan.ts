@@ -31,6 +31,7 @@ import {
   readRecords,
   recordsBaseline,
   recordsUnderCapabilities,
+  settleIncoming,
   type FileRecords,
 } from './install-records.js';
 import { decideModelsUpdate, type ModelsUpdate } from './models-update.js';
@@ -238,7 +239,17 @@ export function buildUpdatePlan(input: {
   // Read ONCE: the baseline, and the store the "changes nothing" comparison
   // holds the next one against.
   const loadedRecords = readRecords(cwd);
-  const { records, note: recordsNote } = recordsBaseline(loadedRecords);
+  const { records: stored, note: recordsNote } = recordsBaseline(loadedRecords);
+  // A file whose bytes equal the hash an interrupted run announced before
+  // copying is pharn's (lib/install-records.ts, INCOMING).
+  const incoming =
+    loadedRecords.kind === 'ok' ? loadedRecords.store.incoming : undefined;
+  const records =
+    stored &&
+    settleIncoming(stored, incoming, (rel) => {
+      const disk = diskStates.get(rel);
+      return disk?.kind === 'file' ? disk.hash : null;
+    });
 
   // The unit is held only when this run moves the version. At the same version
   // every file but the user's kept edits is already at it (a version is

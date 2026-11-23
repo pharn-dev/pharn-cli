@@ -35,6 +35,14 @@ import type { InstalledCapability } from '../types.js';
 //
 // One key is not a file: MODELS_RECORD_KEY records the `models` block pharn
 // wrote INSIDE pharn.config.json; it is compared, never path-joined.
+//
+// INCOMING (optional, absent when empty): the hashes an `update` is about to
+// copy, written before its first copy and dropped by its closing write. A run
+// interrupted between the two leaves files that match neither their record nor
+// the next release; a file whose bytes equal its incoming hash holds bytes pharn
+// copied (`settleIncoming`). It only ever widens what counts as pharn's, so a
+// malformed map is ignored as a whole rather than invalidating the store, and a
+// CLI that does not know the key reads the store exactly as before.
 // ---------------------------------------------------------------------------
 
 export const RECORDS_FILE = 'pharn.records.json';
@@ -91,6 +99,8 @@ export interface RecordStore {
   skillsVersion: string;
   commit: string | null;
   files: FileRecords;
+  // Hashes an interrupted `update` announced before copying; see the header.
+  incoming?: FileRecords;
 }
 
 /**
@@ -172,6 +182,7 @@ export function readRecords(cwd: string): ReadRecordsResult {
     files[key] = value;
   }
 
+  const incoming = readIncoming(raw.incoming);
   return {
     kind: 'ok',
     store: {
@@ -179,8 +190,44 @@ export function readRecords(cwd: string): ReadRecordsResult {
       skillsVersion: raw.skillsVersion,
       commit,
       files,
+      ...(incoming === null ? {} : { incoming }),
     },
   };
+}
+
+/**
+ * The `incoming` map, or `null` when it is absent, empty or malformed in ANY
+ * entry: ignoring it fails closed (the files read as edits), while rejecting
+ * the store would make the whole install unverifiable over an optional hint.
+ */
+function readIncoming(raw: unknown): FileRecords | null {
+  if (!isPlainObject(raw)) return null;
+  const incoming: FileRecords = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (isInvalidRecordKey(key)) return null;
+    if (typeof value !== 'string' || !SHA256_RE.test(value)) return null;
+    incoming[key] = value;
+  }
+  return Object.keys(incoming).length > 0 ? incoming : null;
+}
+
+/**
+ * The baseline with each `incoming` hash taken as the record of a file whose
+ * current hash equals it: bytes pharn announced, then copied. `diskHashOf`
+ * answers for the planner's manifest-keyed disk reads, so a key is looked up,
+ * never turned into a path, and one outside the manifest never settles.
+ */
+export function settleIncoming(
+  records: FileRecords,
+  incoming: FileRecords | undefined,
+  diskHashOf: (rel: string) => string | null,
+): FileRecords {
+  if (incoming === undefined) return records;
+  const settled: FileRecords = { ...records };
+  for (const [rel, hash] of Object.entries(incoming)) {
+    if (diskHashOf(rel) === hash) settled[rel] = hash;
+  }
+  return settled;
 }
 
 /**
@@ -203,14 +250,20 @@ export async function writeRecords(
     skillsVersion: string;
     commit: string | null;
     files: FileRecords;
+    incoming?: FileRecords;
   },
 ): Promise<void> {
+  const incoming = params.incoming ?? {};
   const store: RecordStore = {
     schemaVersion: RECORDS_SCHEMA_VERSION,
     skillsVersion: params.skillsVersion,
     commit: params.commit,
     // Sorted so the committed file has a stable, reviewable diff.
     files: sortRecords(params.files),
+    // Absent when empty, so every other store keeps its bytes.
+    ...(Object.keys(incoming).length > 0
+      ? { incoming: sortRecords(incoming) }
+      : {}),
   };
   // ATOMIC: a torn write would leave an `invalid` store.
   await writeJsonAtomic(recordsPath(cwd), store);

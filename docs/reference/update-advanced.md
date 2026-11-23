@@ -214,6 +214,17 @@ with the config's stamp and changes nothing else, and on the next upstream relea
 edit upgrades, every file you edited is skipped as `modified`, and no `--force` is needed. The two edge cases
 of trusting the hash alone are in [The stamp is not a gate](pharn-records.md#the-stamp-is-not-a-gate).
 
+An `update` interrupted while it was copying files (after some or all of them landed, before the store
+was rewritten) is covered too. Before its first copy it writes the hashes of the files it is about to
+write into the store's [`incoming`](pharn-records.md#shape) map, so a plain `pharn update` treats a file
+whose bytes equal that hash as written by `pharn`: it finishes the update, even when upstream has released
+again in between, with no `modified` and no `--force`. A file you edit after the interruption is still
+skipped as `modified`. Three cases fall back to the behaviour above (the changed files read as
+`modified` until `--force`): a `pharn add`, `pharn remove` or `pharn init` run before the re-run (each
+rewrites the store without `incoming`), a re-run by `pharn` 0.21.2 or older, and a run interrupted after
+the store was rewritten but before the config was, when the same release changed the `models` block
+(the block then reads as edited and is kept).
+
 ## No usable records store
 
 A store that is **absent** or **unreadable** (invalid JSON, an unknown `schemaVersion`) is not used: every

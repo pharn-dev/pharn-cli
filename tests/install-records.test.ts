@@ -21,6 +21,7 @@ import {
   recordsBaseline,
   RECORDS_FILE,
   RECORDS_SCHEMA_VERSION,
+  settleIncoming,
   writeRecords,
 } from '../src/lib/install-records.js';
 import { TMP_NONCE_BYTES, tmpPathFor } from '../src/lib/atomic-write.js';
@@ -467,6 +468,76 @@ describe('recordsBaseline — a parsed store is the baseline, whatever its stamp
         },
       }).records,
     ).toEqual(files);
+  });
+});
+
+describe('incoming — the hashes an update announced before copying', () => {
+  const tmp = useTmpDir();
+
+  it('round-trips, sorted, beside `files`', async () => {
+    await writeRecords(tmp.path(), {
+      ...STAMP,
+      files: { 'a.md': sha('a') },
+      incoming: { 'z.md': sha('z2'), 'a.md': sha('a2') },
+    });
+    const raw = JSON.parse(
+      readFileSync(join(tmp.path(), RECORDS_FILE), 'utf8'),
+    );
+    expect(Object.keys(raw.incoming)).toEqual(['a.md', 'z.md']);
+    const read = readRecords(tmp.path());
+    expect(read.kind === 'ok' && read.store.incoming).toEqual({
+      'a.md': sha('a2'),
+      'z.md': sha('z2'),
+    });
+  });
+
+  it('is absent from the bytes when empty', async () => {
+    const files = { 'a.md': sha('a') };
+    await writeRecords(tmp.path(), { ...STAMP, files, incoming: {} });
+    expect(readFileSync(join(tmp.path(), RECORDS_FILE), 'utf8')).toBe(
+      `${JSON.stringify(validStore(files), null, 2)}\n`,
+    );
+  });
+
+  it.each([
+    ['not an object', ['a.md']],
+    ['a non-hash value', { 'a.md': 'nope', 'b.md': sha('b') }],
+    ['an invalid key', { '../x.md': sha('x') }],
+    ['empty', {}],
+  ])('%s → ignored as a whole; the store stays ok', (_name, incoming) => {
+    writeStore(tmp.path(), { ...validStore(), incoming });
+    const read = readRecords(tmp.path());
+    expect(read.kind).toBe('ok');
+    expect(read.kind === 'ok' && read.store).not.toHaveProperty('incoming');
+    expect(read.kind === 'ok' && read.store.files).toEqual({
+      'a.md': sha('a'),
+    });
+  });
+
+  it('settleIncoming takes an incoming hash only where the disk holds exactly it', () => {
+    const disk: Record<string, string> = {
+      'match.md': sha('new'),
+      'edited.md': sha('mine'),
+    };
+    const settled = settleIncoming(
+      { 'match.md': sha('old'), 'edited.md': sha('old'), 'kept.md': sha('k') },
+      {
+        'match.md': sha('new'),
+        'edited.md': sha('new'),
+        'outside.md': sha('o'),
+      },
+      (rel) => disk[rel] ?? null,
+    );
+    expect(settled).toEqual({
+      'match.md': sha('new'),
+      'edited.md': sha('old'),
+      'kept.md': sha('k'),
+    });
+  });
+
+  it('settleIncoming without an incoming map returns the records as they are', () => {
+    const records = { 'a.md': sha('a') };
+    expect(settleIncoming(records, undefined, () => sha('a'))).toBe(records);
   });
 });
 
