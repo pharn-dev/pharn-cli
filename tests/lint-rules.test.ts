@@ -54,11 +54,44 @@ const CASES: [string, string, string, Reason[]][] = [
     "import { spawn } from 'child_process';",
     ['childProcess'],
   ],
+  // no-restricted-imports sees only static declarations; a literal dynamic
+  // import() is caught by no-restricted-syntax instead.
+  [
+    'dynamic node:child_process',
+    PROBE,
+    "const cp = await import('node:child_process');",
+    ['childProcess'],
+  ],
+  [
+    'dynamic child_process',
+    PROBE,
+    "const cp = await import('child_process');",
+    ['childProcess'],
+  ],
+  // A file with its own syntax bans keeps the src-wide dynamic-import ban.
+  [
+    'dynamic child_process in symlink-guard.ts',
+    'src/lib/symlink-guard.ts',
+    "const cp = await import('node:child_process');",
+    ['childProcess'],
+  ],
   ['picocolors', PROBE, "import pc from 'picocolors';", ['picocolors']],
+  [
+    'dynamic picocolors',
+    PROBE,
+    "const pc = await import('picocolors');",
+    ['picocolors'],
+  ],
   [
     'picocolors in color.ts',
     'src/lib/color.ts',
     "import pc from 'picocolors';",
+    [],
+  ],
+  [
+    'dynamic picocolors in color.ts',
+    'src/lib/color.ts',
+    "const pc = await import('picocolors');",
     [],
   ],
   [

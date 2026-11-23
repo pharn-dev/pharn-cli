@@ -16,8 +16,8 @@ import globals from 'globals';
 // for each file an entry exempts (`except`) or targets alone (`only`).
 //
 // What an AST rule cannot see, a text scan could not either: a dynamic
-// `import(name)`, `globalThis['process']`, a regex built at run time. Those stay
-// named residuals, not claims.
+// `import(name)` whose specifier is not a literal, `globalThis['process']`, a
+// regex built at run time. Those stay named residuals, not claims.
 // ---------------------------------------------------------------------------
 
 const SRC = 'src/**/*.ts';
@@ -104,6 +104,25 @@ const INVARIANTS = [
     rule: 'no-restricted-imports',
     kind: 'paths',
     entry: { name: 'picocolors', message: MSG.picocolors },
+    except: ['src/lib/color.ts'],
+  },
+  // no-restricted-imports sees only import declarations, so the two bans above
+  // are repeated for an `import('…')` expression with a literal specifier.
+  {
+    rule: 'no-restricted-syntax',
+    kind: 'syntax',
+    entry: {
+      selector: 'ImportExpression[source.value=/^(node:)?child_process$/]',
+      message: MSG.childProcess,
+    },
+  },
+  {
+    rule: 'no-restricted-syntax',
+    kind: 'syntax',
+    entry: {
+      selector: 'ImportExpression[source.value=/^picocolors$/]',
+      message: MSG.picocolors,
+    },
     except: ['src/lib/color.ts'],
   },
   {
