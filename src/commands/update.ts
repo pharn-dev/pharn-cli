@@ -566,6 +566,24 @@ async function applyPlannedUpdate(
       : null;
   if (backup) onBackup(backup);
 
+  // Announce the hashes about to be copied BEFORE the first copy (and before
+  // the deletes, so a failure here leaves the tree untouched). The copy loop is
+  // synchronous, so a Ctrl-C lands after it, at the closing store write: files
+  // new, records old. The announced hash proves those bytes are pharn's on the
+  // re-run, even after another upstream release. Every planned write's next
+  // record is its source hash, and the copy is verbatim. Never minted from no
+  // store, for the reason the ApplyError branch below gives.
+  if (records !== null && plan.writes.length > 0) {
+    await writeRecords(cwd, {
+      skillsVersion: config.skillsVersion,
+      commit: config.commit,
+      files: records,
+      incoming: Object.fromEntries(
+        plan.writes.map((rel) => [rel, plan.nextRecords[rel]!]),
+      ),
+    });
+  }
+
   // Dropped capability directories are deleted BEFORE the writes: a delete
   // failing after them would strand pharn-written files with no records (only an
   // ApplyError carries what was written), read as edits by the next run. Failing

@@ -41,9 +41,19 @@ Five of the 546 entries the store held after the run that wrote the
 | `skillsVersion` | string         | The `skillsVersion` in `pharn.config.json` when this store was written (never a gate)     |
 | `commit`        | string \| null | The `commit` in `pharn.config.json` when this store was written (never a gate)            |
 | `files`         | object         | Project-root-relative path → content hash (lowercase sha256 hex) of the bytes that landed |
+| `incoming`      | object         | Optional, usually absent. The hashes an `update` is about to copy — see below             |
 
 Hashes are taken from the **written file**, never from the upstream source, so a record cannot
-disagree with what is actually on disk. Keys are sorted, so the committed file has a reviewable diff.
+disagree with what is actually on disk.
+
+`incoming` exists only while an `update` is copying files. Before its first copy, `update` writes the
+store with the hash of every file it is about to write under `incoming`, and its closing write drops the
+map. If the run is interrupted between the two (Ctrl-C, a crash), the next `update` treats a file whose
+current hash equals its `incoming` hash as written by `pharn`, so a plain re-run finishes the update even
+after another upstream release (see
+[A records store from an interrupted run](update-advanced.md#a-records-store-from-an-interrupted-run)).
+A malformed `incoming` is ignored, never an error: the files it names then read as `modified`. `pharn`
+0.21.2 and older ignore the key. Keys are sorted, so the committed file has a reviewable diff.
 
 The hash is a sha256 that ignores line endings in text files: before hashing, each `\r\n` in a file
 whose first 8000 bytes contain no NUL byte is turned into `\n` (a lone `\r` is kept, and a binary
@@ -58,7 +68,7 @@ this is the plain sha256 of its bytes, so stores written by earlier versions sta
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `init`      | Writes the full store — every file the install wrote, the `models` block when it wrote one, and `.claude/settings.json` when it created it. A re-run keeps the entries of [orphaned files](#orphaned-files), and reads the replaced store to decide what to back up before deleting a dropped capability's directory |
 | `add`       | Merges the added capability's files in. Only extends an **already readable** store; it never mints one                                                                                                                                                                                                               |
-| `update`    | Rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files). Reads it first to decide what to back up before deleting a dropped capability's directory                                                             |
+| `update`    | Writes it once with `incoming` before copying, then rewrites it, keyed by the manifest it just applied (see [Pruning](#pruning)), and the `models` record. Keeps the entries of [orphaned files](#orphaned-files). Reads it first to decide what to back up before deleting a dropped capability's directory         |
 | `remove`    | Reads it to decide what to back up, then prunes the removed capability's entries. Never mints one                                                                                                                                                                                                                    |
 | `uninstall` | Reads it to decide what it may delete, then deletes it (after the files it proved, before the config)                                                                                                                                                                                                                |
 

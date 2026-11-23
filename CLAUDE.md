@@ -91,6 +91,8 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **Records are the proof.** Overwriting or deleting a file requires that its `contentHash` (`lib/hash.ts`, CRLF folded
   for text) equals its record in pharn.records.json. The store's stamp is diagnostics and never gates the baseline.
   A file with no record is never deleted.
+  The one widening: `update` writes the hashes it is about to copy as the store's `incoming` map first, and a file equal
+  to its `incoming` hash counts as recorded (`settleIncoming`), so an interrupted run heals on a plain re-run.
 - **Back up before overwrite or delete.** What pharn cannot prove it wrote goes to `pharn/.backup/<ts>/` first (one
   `createBackup`, announced via `printBackupNotice`). `update` deletes only the directories of dropped capabilities.
   User data (`memory-bank/`) is never moved, and an existing `.claude/settings.json` is never overwritten.
