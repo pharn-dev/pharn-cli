@@ -58,8 +58,9 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   picocolors instance, decided by `styleText`'s stream check, the one `@clack/prompts` uses. Never import `picocolors`.
 - Code invariants are eslint rules in `eslint.config.mjs`, each message naming its reason, and
   `tests/lint-rules.test.ts` proves that each fires. They cover: no `child_process`; `picocolors` only via
-  `color.ts`; `sha256File` only in `hash.ts`; `isTTY` only inside `interactiveAllowed()`; `process.exit` only in
-  `fatal-signal.ts` (all else throws a `CliError`; `runCli` reports it once); no `cpSync`/`cp`; and the per-module bans.
+  `color.ts` (both bans also catch a literal `import('…')`); `sha256File` only in `hash.ts`; `isTTY` only inside
+  `interactiveAllowed()`; `process.exit` only in `fatal-signal.ts` (all else throws a `CliError`; `runCli` reports it
+  once); no `cpSync`/`cp`; and the per-module bans.
 - Options are per command: `parseCliArgs` (`lib/cli-args.ts`, pure) runs one `util.parseArgs` and checks its tokens
   against `OPTIONS[].uses`, the table `--help` renders. It refuses an unknown or another command's option, a value on
   an on/off option, a repeated `--ref`/`--archetype`: one stderr line, exit 1, above `--help`/`--version`.
