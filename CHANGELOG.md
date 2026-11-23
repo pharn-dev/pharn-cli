@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.21.4] — 2026-11-23
+
 ### Fixed
 
 - **`pharn update --dry-run` now escapes the file names in its `WOULD BACK UP` list.** That list names every file in the directory of a capability dropped from your config that a real run would back up before deleting the directory, and those names come from your project, not from `pharn`. They were printed as they were, so a file name holding a terminal control sequence (for example an ANSI colour code) reached your terminal raw. Each name now goes through the same escaping as every other list in the preview: unsafe characters are removed and a name is cut at 300 characters. Which files are backed up, and what a real run does, is unchanged.
@@ -511,7 +513,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.3...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.4...HEAD
+[0.21.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.3...v0.21.4
 [0.21.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.1...v0.21.2
 [0.21.1]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.0...v0.21.1
