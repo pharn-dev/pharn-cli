@@ -307,7 +307,8 @@ add them), then `pharn update --force` puts pharn-oss's bytes back, backing your
   **never** touches it (not even with `--force`: it is not in the install manifest). When `init` created it,
   `update` keeps the hash `init` recorded for it in `pharn.records.json` while the file exists, so
   [`uninstall`](../commands/uninstall.md) can still remove it unchanged; a deleted file is not put back, and
-  its record is dropped by the next update that has work to do.
+  the next `update` drops its record, re-applying once even on an already-current install (it copies no
+  file); the run after it changes nothing.
 - **The `HOOKS` note.** `update` compares the hooks of `.claude/settings.json` and
   `.claude/settings.local.json` with the fetched upstream ones, and names every hook upstream wires that
   neither file does. Matching is textual, so an equivalent hook you wrote differently is listed too. Each

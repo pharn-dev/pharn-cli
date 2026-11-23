@@ -115,8 +115,9 @@ release (`pharn-dev/pharn-oss@v6.54.1`, say) for an install that records `"ref":
 source `update` would install, not the `commit` pinned in your config. An install **ahead** of the
 source it follows — newer than the newest release (made from `main`, then switched with `--ref latest`),
 or newer than `main` itself (when `main` has moved back to an older version) — is reported as ahead, not
-outdated, and does not fail `--strict`, because `pharn update` will not downgrade it without `--force`;
-its drift section compares against the older source.
+outdated, because `pharn update` will not downgrade it without `--force`. Being ahead does not fail
+`--strict` by itself, but its drift section compares against the older source, so a file that differs from
+that source fails `--strict` like any other drift (see [strict conditions](#strict-conditions)).
 
 ## Orphaned files
 
@@ -223,7 +224,8 @@ These are reported and **never** fail `--strict`:
 - the `NODE` mismatch (a Node older than the floor, or one whose version cannot be read);
 - the `MODELS` note's REDs (a `models` block pharn-oss's rules reject);
 - a hook wired **only** in `.claude/settings.local.json`, and extra hooks of your own;
-- an install ahead of the source it follows, and the channel or release line;
+- being ahead of the source the install follows (its files are still compared with that older source,
+  and a difference fails as condition 2), and the channel or release line;
 - an installed capability this `pharn` cannot read in the fetched clone (an unknown `role` or `applies`,
   or a name that fails the allowlist): it is warned about as SKIPPED and left out of the comparison;
 - the layout: there is no `LAYOUT` note. An install recorded at the removed `flat` layout is refused

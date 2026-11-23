@@ -86,8 +86,9 @@ matches, and keep it (listed) once you have changed it. A `settings.json` that e
 - A re-run `init`, which now preserves the file, keeps the record. `update` keeps it too, and `add` and
   `remove` leave it alone. None of them writes the file.
 - `init` and `update` keep the record only while something is at that path. If you delete the file,
-  `pharn` does not put it back; the next `update` that has work to do drops the record (it rewrites only
-  `pharn.records.json` for it, once), and deleting it never makes an already-current `update` re-run.
+  `pharn` does not put it back, and the next `update` drops the record — an already-current install
+  included: that run is not "up to date", it re-applies once, copying no file and rewriting
+  `pharn.records.json` without the record. The run after it changes nothing.
 - It is never an [orphan](#orphaned-files) and never gets a `.prettierignore` line: it is not one of the
   install paths.
 - A store written before this change has no such entry, so `uninstall` leaves the file, as it always did.
@@ -188,7 +189,8 @@ recorded here at its current hash is deleted without a copy, and every other fil
 
 [`uninstall`](../commands/uninstall.md) has no clone and so no install manifest: this store is its
 **only** proof of what `pharn` wrote. It deletes a recorded file only when the key is a path an install
-writes at your recorded layout, the file is a regular file reached without a symlinked directory, and
+writes at either layout (`pharn/` or the legacy root one, so a recorded copy an older install left at the
+root is covered), the file is a regular file reached without a symlinked directory, and
 its bytes still match the recorded hash. Every other key is left alone — an edited file is kept and
 listed, and a key outside `pharn`'s install paths is never deleted whatever its hash says — except
 `.claude/settings.json`, admitted by name when `init` recorded it (see
