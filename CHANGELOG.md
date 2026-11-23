@@ -13,6 +13,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 - **`pharn update` on the `main` channel no longer erases the recorded `commit` when GitHub will not say which commit `main` is at.** When that lookup failed (an unauthenticated rate limit or a 403), an up-to-date install was re-applied with `updated 0` and `pharn.config.json` and `pharn.records.json` were rewritten with `commit: null`, losing the commit your files were installed from. An unresolved tip now keeps the recorded `commit`: an up-to-date run reports `Up to date.` and writes neither file, and a run that applies a new version records the new version with the previous `commit`. Installs on verified releases were not affected.
 
+- **`pharn update --dry-run --json` no longer reports an install held back by your kept edits as up to date.** When a plan changed nothing only because an edit of yours was kept (the text run ends `Nothing to change.`), the JSON said `status: "up-to-date"` with `plan: null`, so `version.withheld` and `version.pending` were `null` and a script concluded the install was current while `pharn status --json` said it was outdated. `up-to-date` now follows the text outro's rule: nothing changes, nothing is skipped and the recorded version is the one upstream ships. Otherwise the status is `planned`, with a plan that writes nothing and names the skipped file and the version withheld. A truly up-to-date install reports the same bytes as before; `schemaVersion` stays `1` and no key is added. See [`pharn update --dry-run --json`](docs/reference/json-output.md#pharn-update---dry-run---json).
+
 ## [0.21.2] — 2026-11-23
 
 ### Fixed
