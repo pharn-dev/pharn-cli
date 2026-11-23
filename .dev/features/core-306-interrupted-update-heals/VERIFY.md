@@ -15,7 +15,7 @@ through heavy.sh.
 
 - `test` is `npx vitest run --coverage --maxWorkers=1` (what CI's `Test` job runs): 106 files, 3625 passed,
   1 skipped; coverage floors met (98.53/95.66/99.06/99.02). The feature's own cases are
-  `tests/commands/update-interrupted.test.ts` (9) and the `incoming` block of `tests/install-records.test.ts` (8).
+  `tests/commands/update-interrupted.test.ts` (10) and the `incoming` block of `tests/install-records.test.ts` (8).
 - No eval-actual pair ships with this increment, so there is no `structural:*` gate.
 - An earlier run under a load average near 96 (sibling agents) failed 11 tests on the 5 s vitest timeout, in
   files this change does not touch; the run above, after the reboot and on one heavy slot, is clean.

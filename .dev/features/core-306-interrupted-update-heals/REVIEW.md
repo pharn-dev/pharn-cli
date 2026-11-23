@@ -33,7 +33,7 @@ None.
 ## Lenses
 
 - **L-floor (P0):** the new guarantee (a file whose bytes equal the hash announced before the copy is pharn's)
-  reduces to content-hash equality (`settleIncoming` over the planner's `diskStates`), pinned by 9 command cases
+  reduces to content-hash equality (`settleIncoming` over the planner's `diskStates`), pinned by 10 command cases
   and 8 unit cases. Older-CLI compatibility rests on their reader ignoring unknown top-level keys (read from the
   v0.20.0 source) and is stated as such. Residuals are named in PLAN.md, the docs and the CHANGELOG.
 - **L-eval (P1):** every acceptance criterion has a command-level test that failed at 8cdf996 before the fix

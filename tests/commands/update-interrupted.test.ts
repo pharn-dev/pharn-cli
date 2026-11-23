@@ -26,6 +26,8 @@ import {
   write,
 } from '../support/harness.js';
 import { runUpdate } from '../../src/commands/update.js';
+// Spied on (never mocked) to read the plan the healing run applied.
+import * as updatePlanModule from '../../src/lib/update-plan.js';
 
 // An `update` interrupted after its file copies but before its closing record
 // store: every file is at the new version while the store and the config are
@@ -120,6 +122,22 @@ describe('an update interrupted after its writes, before its records', () => {
     expect(await updateYes()).toBeNull();
     expectHealedAt('3.0.0');
     expect(exists('pharn/.backup')).toBe(false);
+  });
+
+  it('the planner settles the announced hashes: the healing plan updates every changed file and skips none', async () => {
+    await interruptedAt2();
+    serveTip(SHA_V3, '3.0.0');
+    const planner = vi.spyOn(updatePlanModule, 'buildUpdatePlan');
+    expect(await updateYes()).toBeNull();
+    expect(planner).toHaveBeenCalledTimes(1);
+    const { apply } = planner.mock.results[0]!.value as ReturnType<
+      typeof updatePlanModule.buildUpdatePlan
+    >;
+    expect(apply.plan.counts.skipped).toBe(0);
+    expect(apply.plan.writes).toEqual(expect.arrayContaining(CHANGED));
+    // The baseline the plan used is the announced 2.0.0 hash, not the 1.0.0 record.
+    expect(apply.records?.[CONSTITUTION]).toBe(sha('constitution 2.0.0\n'));
+    planner.mockRestore();
   });
 
   it('no new release: a plain re-run heals the store and the config', async () => {
