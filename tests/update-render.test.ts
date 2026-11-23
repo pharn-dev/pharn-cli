@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateOutcome } from '../src/lib/update-render.js';
 import type { UpdatePlanReport } from '../src/lib/update-plan.js';
+import type { CapabilityRemoval } from '../src/lib/capability-removal.js';
 import type { ModelsUpdate } from '../src/lib/models-update.js';
 import type { PharnConfig } from '../src/types.js';
 
@@ -233,6 +234,37 @@ describe('the records note is escaped at both print sites', () => {
   it('reportDryRun (the preview)', () => {
     reportDryRun(report, false, 'main', {} as PharnConfig);
     expectEscaped(warned());
+  });
+
+  // A dropped capability's directory is read from the project, so the file
+  // names in the preview's WOULD BACK UP list are untrusted.
+  it('reportDryRun escapes each file name in the WOULD BACK UP list', () => {
+    vi.mocked(prompts.note).mockClear();
+    const dir = 'pharn/pharn-review/stale';
+    const removal: CapabilityRemoval = {
+      cap: { name: 'stale', role: 'lens', source: 'auto' },
+      reason: 'dropped-unselected',
+      dir,
+      present: true,
+      backups: [`${dir}/evil${ESC}[31m${CSI}2J${RLO}.md`, `${dir}/NOTES.md`],
+    };
+    reportDryRun(
+      { ...report, recordsNote: null, removals: [removal] },
+      false,
+      'main',
+      {} as PharnConfig,
+    );
+    const plan = vi
+      .mocked(prompts.note)
+      .mock.calls.filter(([, title]) => title === 'PLAN')
+      .map(([body]) => String(body))
+      .join('\n');
+    expect(plan).toContain('WOULD BACK UP 2 file(s)');
+    expect(plan).toContain(`  ${dir}/evil[31m2J.md`);
+    expect(plan).toContain(`  ${dir}/NOTES.md`);
+    expect(plan).not.toContain(ESC);
+    expect(plan).not.toContain(CSI);
+    expect(plan).not.toContain(RLO);
   });
 
   // CORE-162: the same verdict closes both reports of a plan that changes
