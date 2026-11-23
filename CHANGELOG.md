@@ -9,6 +9,10 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pharn update` on the `main` channel no longer erases the recorded `commit` when GitHub will not say which commit `main` is at.** When that lookup failed (an unauthenticated rate limit or a 403), an up-to-date install was re-applied with `updated 0` and `pharn.config.json` and `pharn.records.json` were rewritten with `commit: null`, losing the commit your files were installed from. An unresolved tip now keeps the recorded `commit`: an up-to-date run reports `Up to date.` and writes neither file, and a run that applies a new version records the new version with the previous `commit`. Installs on verified releases were not affected.
+
 ## [0.21.2] — 2026-11-23
 
 ### Fixed

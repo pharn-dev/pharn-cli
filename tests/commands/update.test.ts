@@ -28,6 +28,7 @@ import {
   editRecords,
   exists,
   failures,
+  FLOATING_REF,
   fetched,
   downloaded,
   legacyInstall,
@@ -2123,6 +2124,32 @@ describe('the channel', () => {
     });
     expect(await updateYes({ ref: 'main' })).toBeNull();
     expect(notices()).toBe(0);
+  });
+
+  it('on main, an unresolved tip commit leaves an up-to-date install byte-identical', async () => {
+    await installed({ ref: 'main' });
+    const before = {
+      config: read('pharn.config.json'),
+      records: read('pharn.records.json'),
+    };
+    failures.tip = 403;
+    expect(await updateYes()).toBeNull();
+    expect(fetched()).toContain(tarballUrl(FLOATING_REF));
+    expect(lastOutro()).toMatch(upToDate());
+    expect(read('pharn.config.json')).toBe(before.config);
+    expect(read('pharn.records.json')).toBe(before.records);
+  });
+
+  it('on main, an unresolved tip commit still applies a new version and keeps the recorded commit', async () => {
+    await installed({ ref: 'main' });
+    serveTip(SHA_V2, '2.0.0');
+    failures.tip = 403;
+    expect(await updateYes()).toBeNull();
+    expect(read(SECURITY)).toContain('security 2.0.0');
+    expect(config().skillsVersion).toBe('2.0.0');
+    expect(config().commit).toBe(SHA_V1);
+    expect(records().skillsVersion).toBe('2.0.0');
+    expect(records().commit).toBe(SHA_V1);
   });
 
   it('--ref latest moves a main install to the release, recorded even at the same version; --ref main moves it back', async () => {
