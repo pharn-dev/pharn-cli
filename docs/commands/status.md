@@ -26,9 +26,10 @@ which, and `status` cannot. `status` reads `pharn.records.json` for one thing on
 1. Reads `pharn.config.json`. If none exists — or it is a pre-archetype (module) config — it exits with
    a hint to run `pharn init` first. A config that is present but **invalid** gets its own named error
    and exit 1, not the "run `pharn init`" hint.
-2. Warns if a proxy is configured. `pharn` uses Node's global `fetch`, which reads no proxy variable,
-   so the notice is emitted above **both** network paths — `--no-drift` skips the clone but still
-   fetches `SKILLS_VERSION` over the wire.
+2. Warns if a proxy is configured, and says whether `pharn`'s downloads use it: `pharn` uses Node's
+   global `fetch`, which reads no proxy variable unless `NODE_USE_ENV_PROXY=1` (or Node's
+   `--use-env-proxy`) turns that on. The notice is emitted above **both** network paths —
+   `--no-drift` skips the clone but still makes the version request of step 3.
 3. By default, resolves what the install follows — the newest verified release for a config that
    records `"ref": "latest"` (what `pharn init` writes by default), or the tip of pharn-oss `main` for a
    config with no `ref` — clones it once and reuses it for both sections below (the temporary clone is

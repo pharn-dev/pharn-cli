@@ -300,9 +300,10 @@ migrations; correct it with `--archetype`. Only names are tested against fixed i
 
 ### 4. Fetch PHARN
 
-If a proxy is configured in your environment, `init` warns first: `pharn` uses Node's global `fetch`,
-which reads no proxy variable on any platform, so a proxy-only network fails as an unexplained timeout
-unless you are told. Resolves the newest verified release (or, with `--ref main`, the branch head) via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir — refusing a release whose `SKILLS_VERSION` is not its tag. A release that cannot be resolved stops the run (exit 1, nothing written) and names `--ref main`. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up — on success, on error, on cancel, and on Ctrl-C or a `SIGTERM` mid-clone — and `pharn` keeps no download cache. An interrupted run also exits **130** (or 143 for `SIGTERM`) rather than reporting success.
+If a proxy is configured in your environment, `init` warns first and says whether its downloads use
+it: `pharn` uses Node's global `fetch`, which reads no proxy variable unless `NODE_USE_ENV_PROXY=1` (or
+Node's `--use-env-proxy`) turns that on, so without it a proxy-only network fails as an unexplained
+timeout unless you are told. Resolves the newest verified release (or, with `--ref main`, the branch head) via the GitHub API, then downloads that exact commit's tarball from `codeload.github.com` and extracts it into a temp dir — refusing a release whose `SKILLS_VERSION` is not its tag. A release that cannot be resolved stops the run (exit 1, nothing written) and names `--ref main`. If the fetch fails — or the archive contains an entry `pharn` refuses to extract — the CLI exits; re-run with `PHARN_DEBUG=1` for details. The temp clone is always cleaned up — on success, on error, on cancel, and on Ctrl-C or a `SIGTERM` mid-clone — and `pharn` keeps no download cache. An interrupted run also exits **130** (or 143 for `SIGTERM`) rather than reporting success.
 
 If the fetched version declares a `MIN_CLI` newer than your CLI, `init` stops here with a named error
 and writes nothing.
@@ -666,7 +667,7 @@ lock). See [Another pharn process is running](../troubleshooting.md#another-phar
 
 ## Legacy configs
 
-`init` always writes an **archetype** config, and every command is archetype-only. A pre-archetype **module**-based `pharn.config.json` (one with `modules[]` but no `capabilities[]`, from a much older release) is no longer supported: `add`, `remove`, `list`, `update`, and `status` detect it up front and exit with a message to re-run `pharn init` — there is **no** module/manifest fallback (live pharn-oss ships no `manifest.json`). The config schema is additive, so a legacy config's now-unused fields (`modules`, `constitution`, `stackAnswers`, `installedSkills`) still parse; only the absence of `capabilities[]` triggers the rejection.
+`init` always writes an **archetype** config, and every command is archetype-only. A pre-archetype **module**-based `pharn.config.json` (one with `modules[]` but no `capabilities[]`, from a much older release) is no longer supported: `add`, `remove`, `list`, `update`, `status` and `uninstall` detect it up front and exit with a message to re-run `pharn init` — there is **no** module/manifest fallback (live pharn-oss ships no `manifest.json`). The config schema is additive, so a legacy config's now-unused fields (`modules`, `constitution`, `stackAnswers`, `installedSkills`) still parse; only the absence of `capabilities[]` triggers the rejection.
 
 A config that is present but **invalid** — an out-of-enum `capabilities[].source`, an unknown
 archetype, or JSON that does not parse — is a different case with its own named error and

@@ -12,19 +12,19 @@ capability they drop. At run time `/pharn-ship` and `/pharn-loop` read the `mode
 
 ## Top-level fields (archetype install)
 
-| Field           | Type           | Description                                                                                                            |     |
-| --------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- | --- |
-| `pharnVersion`  | string         | Version of the PHARN CLI that last wrote the install (`init` or `update`)                                              |     |
-| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                                                    |     |
-| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                                                    |     |
-| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                                                    |     |
-| `ref`           | string         | `"latest"` follows verified releases (`pharn init`'s default, or `--ref latest`); absent → the tip of main             |     |
-| `installedAt`   | string         | ISO timestamp of the first install, set by `init` (a re-run included); `update`, `add` and `remove` leave it unchanged |     |
-| `updatedAt`     | string         | ISO timestamp of the last `pharn update` that rewrote the config; absent until one does, never written by `init`       |     |
-| `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype`               |     |
-| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                                     |     |
-| `layout`        | string         | Install layout your files are at: `pharn`. Anything else, or no key, is refused: re-run `pharn init`                   |     |
-| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                           |     |
+| Field           | Type           | Description                                                                                                      |     |
+| --------------- | -------------- | ---------------------------------------------------------------------------------------------------------------- | --- |
+| `pharnVersion`  | string         | Version of the PHARN CLI that last wrote the install (`init` or `update`)                                        |     |
+| `skillsVersion` | string         | The repo's `SKILLS_VERSION` at the installed commit                                                              |     |
+| `repo`          | string         | Source repo (`pharn-dev/pharn-oss`)                                                                              |     |
+| `commit`        | string \| null | Pinned commit SHA of the install; `null` if the SHA was unavailable                                              |     |
+| `ref`           | string         | `"latest"` follows verified releases (`pharn init`'s default, or `--ref latest`); absent → the tip of main       |     |
+| `installedAt`   | string         | ISO timestamp of the last `pharn init` (a re-run sets it again); `update`, `add` and `remove` leave it unchanged |     |
+| `updatedAt`     | string         | ISO timestamp of the last `pharn update` that rewrote the config; absent until one does, never written by `init` |     |
+| `archetypes`    | array          | Project archetypes (`ssr` / `backend` / `spa` / `lib`): detected, or given with `pharn init --archetype`         |     |
+| `capabilities`  | array          | Installed capabilities, each `{ name, role, source? }` — see below                                               |     |
+| `layout`        | string         | Install layout your files are at: `pharn`. Anything else, or no key, is refused: re-run `pharn init`             |     |
+| `models`        | object         | pharn-oss's per-stage model/effort block ([Models](#models))                                                     |     |
 
 The presence of a `capabilities` array marks an archetype install.
 A `capabilities` that is present but **not** an array (for example `"capabilities": "x"` or `null`) is a
@@ -34,6 +34,10 @@ config described [below](#fields-older-clis-wrote).
 
 Any top-level key **not** on this page is yours, and every command keeps it — see
 [Keys pharn does not own](#keys-pharn-does-not-own).
+
+A `pharn` whose major.minor is older than `pharnVersion` warns, on stderr, before it writes (and in
+`status` and every `--dry-run`), then goes ahead — see
+[Teammates on different pharn versions](../support-policy.md#teammates-on-different-pharn-versions).
 
 `layout` is written only by `pharn init` and `pharn update`, always as `"pharn"` (`pharn` 0.20.x and
 older read a config without it as the legacy `flat` layout, so it keeps being written). The `flat`
@@ -45,7 +49,7 @@ config recorded at it, or with no `layout` key, is refused by `add`, `remove`, `
 ### `archetypes` — checked when the config loads
 
 `archetypes` decides which capabilities `pharn update` selects, so `list`, `status`, `update`, `add`
-and `remove` check it when they load the config. It must be an array, and each entry must be one of `"ssr"`,
+`remove` and `uninstall` check it when they load the config. It must be an array, and each entry must be one of `"ssr"`,
 `"backend"`, `"spa"` or `"lib"` — exactly what `pharn init` writes. Anything else is a hand-edit error:
 a string such as `"archetypes": "ssr"`, an entry that is not a string, or an unknown name such as
 `"bogus"` or `"SSR"`. `pharn` names the field or the entry (`archetypes[1]`) and the value it found,
@@ -252,8 +256,8 @@ not apply such a block from pharn-oss.
 
 ### What each command does with it
 
-- **`pharn init`** copies pharn-oss's block **verbatim** from the root `pharn.config.json` of the
-  commit it installs, and prints it resolved per stage. If pharn-oss ships no block, `init` writes
+- **`pharn init`** copies pharn-oss's block **verbatim** from `models.defaults` in the
+  `pharn-install.json` of the commit it installs, and prints it resolved per stage. If pharn-oss ships no block, `init` writes
   **none** — it never invents one. If pharn-oss ships a block this pharn cannot accept, `init` writes
   none and says why (see below). A re-run `init` replaces your block with pharn-oss's, as it rewrites
   every other key pharn writes.
@@ -408,7 +412,7 @@ A re-run `pharn init` over a config it cannot read (not valid JSON, a value phar
 | `isMultiTenant`   | bool   | Legacy multi-tenancy answer; nothing writes or reads it today                       |
 
 The module/manifest install path itself has been **removed**, so `add` / `update` / `remove` / `list` /
-`status` no longer operate on a pre-archetype config — they exit with a message pointing you to re-run
+`status` / `uninstall` no longer operate on a pre-archetype config — they exit with a message pointing you to re-run
 `pharn init`.
 
 ## Overwrite behavior

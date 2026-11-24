@@ -18,8 +18,10 @@ Every path recorded in a usable `pharn.records.json` is checked, and deleted onl
 hold:
 
 - it is a path a `pharn` install writes — a capability directory's files, a `pharn-*` command under
-  `.claude/commands/`, a hook script under `.claude/hooks/`, a trusted doc, the `LICENSE` copy, the
-  features README, `pharn-contracts/`, `pharn-core/`, or the floor checkers — in either layout, so a
+  `.claude/commands/`, a `pharn-*` agent under `.claude/agents/`, a hook script under `.claude/hooks/`,
+  any other `pharn-*` entry below `pharn/` or a `.claude/` directory (a `.claude/skills/pharn-*`
+  skill, say), a trusted doc, the `LICENSE` copy, the features README, `pharn-contracts/`,
+  `pharn-core/`, or the floor checkers — in either layout, so a
   file an older install left at the other layout, or one upstream has since stopped shipping (an
   [orphan](../reference/pharn-records.md#orphaned-files)), is covered too;
 - it is a regular file, reached without passing through a symbolic-linked directory;
@@ -131,7 +133,8 @@ Each of these exits 1 and removes nothing:
 - **`pharn.config.json` cannot be backed up** (for example `pharn/.backup` is a symbolic link).
 - **Another `pharn` command holds the project lock**, `pharn.config.json` was edited while the prompt
   was open, or `pharn.records.json` is gone or broken by then.
-- **A pre-archetype (module) config** — the shared config check rejects it, as every command does.
+- **A pre-archetype (module) config, or one recorded at the removed `flat` layout** — the shared
+  config check rejects it with a message to re-run `pharn init`, as every command does.
 
 When there is **no `pharn.config.json` at all**, `uninstall` prints
 `PHARN is not installed here (no pharn.config.json). Nothing was removed.` and exits **0**, so running it

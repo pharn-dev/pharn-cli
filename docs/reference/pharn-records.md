@@ -206,7 +206,8 @@ The file is local but hand-editable, so it is treated as untrusted input: it is 
 and a record **key never causes a write**, and causes a delete only in `uninstall` (below). `update` iterates its own install manifest and
 looks each path up here, so an invented key cannot cause a write. The one place a key becomes a path is
 orphan detection, and only for a **read** (an `lstat` and a hash): the key must name a path an install
-could have written (`.claude/commands/pharn-*.md`, `.claude/hooks/*.cjs` or `*.mjs`, a capability directory,
+could have written (`.claude/commands/pharn-*.md`, `.claude/agents/pharn-*.md`, `.claude/hooks/*.cjs` or
+`*.mjs`, any other `pharn-*` entry below `pharn/` or a `.claude/` directory, a capability directory,
 `pharn-contracts/`, `pharn-core/`, the floor directory, a trusted doc, the PHARN license or the features
 `README.md`, in either layout), stay inside your project, cross no symlink, and be a regular file. Any
 other key is never read and never listed. Editing a
