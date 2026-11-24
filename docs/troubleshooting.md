@@ -2,27 +2,27 @@
 
 ## Exit codes
 
-| Situation                                                                                               | Exit code  |
-| ------------------------------------------------------------------------------------------------------- | ---------- |
-| Successful run; `init --dry-run` or `update --dry-run` printed its plan (nothing written)               | 0          |
-| User cancel at a prompt, or overwrite declined                                                          | 0          |
-| `update` completed but skipped files it could not verify                                                | 0          |
-| `update` on an install ahead of its source (newest release, or `main` after it moved back)              | 0          |
-| `uninstall` with no `pharn.config.json` at all (nothing to uninstall)                                   | 0          |
-| Prerequisite failure (no `.git`, or `init` / `update` on a Node older than 24.2.0)                      | 1          |
-| Capability fetch / install failure, or no verified pharn-oss release could be resolved                  | 1          |
-| The fetched version declares a `MIN_CLI` newer than the installed CLI                                   | 1          |
-| Unknown command, unknown or unsupported option, unexpected argument, invalid `--ref` value              | 1          |
-| A value on an on/off option (`--json=false`), or `--ref` / `--archetype` given twice                    | 1          |
-| `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1          |
-| `status --strict` found a [strict condition](commands/status.md#strict-conditions)                      | 1          |
-| `init`, `update` or `uninstall` without an interactive terminal (and `add`/`remove` with no name)       | 1          |
-| `init --yes` in a project where a file it would write already exists (nothing written)                  | 1          |
-| Another `pharn` process holds the project lock (`pharn/.lock`)                                          | 1          |
-| `add` refused on a skills-version mismatch                                                              | 1          |
-| `update --force` aborted because a backup could not be written                                          | 1          |
-| `uninstall` refused, or stopped part-way (see [`uninstall`](commands/uninstall.md))                     | 1          |
-| Interrupted by Ctrl-C (`SIGINT`) or `SIGTERM` (a `timeout`, `docker stop`); the project may be partial  | 130 or 143 |
+| Situation                                                                                                                            | Exit code  |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| Successful run; `init --dry-run` or `update --dry-run` printed its plan (nothing written)                                            | 0          |
+| User cancel at a prompt, or overwrite declined                                                                                       | 0          |
+| `update` completed but skipped files it could not verify                                                                             | 0          |
+| `update` on an install ahead of its source (newest release, or `main` after it moved back)                                           | 0          |
+| `uninstall` with no `pharn.config.json` at all (nothing to uninstall)                                                                | 0          |
+| Prerequisite failure (no `.git`, or `init` / `update` on a Node older than 24.2.0)                                                   | 1          |
+| Capability fetch / install failure, or no verified pharn-oss release could be resolved                                               | 1          |
+| The fetched version declares a `MIN_CLI` newer than the installed CLI                                                                | 1          |
+| Unknown command, unknown or unsupported option, unexpected argument, invalid `--ref` value                                           | 1          |
+| A value on an on/off option (`--json=false`), or `--ref` / `--archetype` given twice                                                 | 1          |
+| `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config)                              | 1          |
+| `status --strict` found a [strict condition](commands/status.md#strict-conditions)                                                   | 1          |
+| A plain `init`, `update` or `uninstall` (no `--yes` / `--dry-run`) without an interactive terminal (and `add`/`remove` with no name) | 1          |
+| `init --yes` in a project where a file it would write already exists (nothing written)                                               | 1          |
+| Another `pharn` process holds the project lock (`pharn/.lock`)                                                                       | 1          |
+| `add` refused on a skills-version mismatch                                                                                           | 1          |
+| `update --force` aborted because a backup could not be written                                                                       | 1          |
+| `uninstall` refused, or stopped part-way (see [`uninstall`](commands/uninstall.md))                                                  | 1          |
+| Interrupted by Ctrl-C (`SIGINT`) or `SIGTERM` (a `timeout`, `docker stop`); the project may be partial                               | 130 or 143 |
 
 ## Common problems
 
