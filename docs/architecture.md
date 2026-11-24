@@ -115,7 +115,7 @@ run's prompt and install consume. It skips the TTY gate, both prompts, the lock 
 - `installCapabilities` (used by `init`) writes exactly the install manifest (`collectExpectedInstallPaths`): the
   capability dirs and the fixed surfaces, which are product `pharn-*` commands and agents (never `pharn-dev-*`),
   `.cjs`/`.mjs` hooks (never `*.test.*`), the trusted docs, upstream's `LICENSE` (to a pharn-owned name), the
-  product-loop boundary contract, `pharn-contracts/`, `pharn-core`, and `.dev/floor/` minus its tests and test fixtures.
+  product-loop boundary contract, `pharn-contracts/`, `pharn-core`, and the floor (`pharn/floor/`) minus its tests and test fixtures.
 - Both hand the writer the destination hashes `scanDest` saw (`init`: its plan's scan). A file edited between that
   scan and its write — for `init`, while a prompt was open — is backed up (one `createBackup`) and then written.
 - A write that fails part-way names the files already written (the first ten, then a count) and writes no records and
@@ -184,8 +184,8 @@ is pharn-oss's [`docs/install-manifest.md`](https://github.com/pharn-dev/pharn-o
 `add <name>` or `add <role>:<name>` installs one capability as a manual override, recorded with `source: 'manual'`.
 
 - It clones at the config's channel. The **version gate** refuses unless the clone's `SKILLS_VERSION` equals the
-  config's (or its `pendingSkillsVersion`). The **layout gate** refuses unless the clone's layout equals
-  `configLayout(config)`.
+  config's (or its `pendingSkillsVersion`). There is no layout gate: a `flat` config is refused at load and a `flat`
+  clone at the fetch, so the two cannot differ.
 - `add` never stamps `skillsVersion` or `layout`, because it writes one capability, not the tree.
 - Before the copy, `scanDest` backs up destination files whose content differs from the clone's. It refuses the whole
   install if a destination path crosses a symlinked component: the writer would refuse it only after the files before
