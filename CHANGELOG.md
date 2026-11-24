@@ -9,6 +9,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.21.5] — 2026-11-24
+
+### Changed
+
+- **The README and the docs now match what the CLI does.** The README names `init --ref main` (the tip of pharn-oss's `main`, against the default `--ref latest`), says that `update --ref latest` or `update --ref main` switches the recorded channel, and mentions the `remove` alias `rm`. The troubleshooting exit-code table, `init`, `status`, `uninstall`, the `pharn.config.json` and `pharn.records.json` references and the roadmap were corrected to the code: a plain `uninstall` exits 1 off a terminal like `init` and `update`, `--yes` and `--dry-run` need none, and `NODE_USE_ENV_PROXY=1` makes Node's `fetch` use a proxy. No command behaviour changes.
+
 ## [0.21.4] — 2026-11-23
 
 ### Fixed
@@ -513,7 +519,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.4...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.5...HEAD
+[0.21.5]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.3...v0.21.4
 [0.21.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.2...v0.21.3
 [0.21.2]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.1...v0.21.2
