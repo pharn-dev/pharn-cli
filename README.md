@@ -151,7 +151,9 @@ commits a green result to a new local branch (never pushed or merged), leaving t
 | `pharn --version`           | Show the installed CLI version.                                                                                                                                                                                                                                                                                                                 |
 
 `init` also takes `--archetype <list>` (for example `--archetype ssr,backend`) to install for those
-archetypes instead of the detected ones; the choice is recorded, so `update` keeps it.
+archetypes instead of the detected ones; the choice is recorded, so `update` keeps it. `init --ref main`
+installs from the tip of pharn-oss's `main` instead of the newest verified release (`--ref latest`, the
+default); the channel is recorded, and `update --ref latest` or `update --ref main` switches it. `remove` has the alias `rm`.
 
 If you script the CLI: an option a command does not take, or an extra positional, exits **1**
 (``Unsupported option for `status`: "--force"``); off a TTY a plain `init`, `update` or `uninstall` exits 1
