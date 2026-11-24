@@ -11,26 +11,26 @@ Closes #<!-- issue number -->
 
 ## Type of change
 
-- [ ] `feat` — new stack option, wizard step, or command capability
+- [ ] `feat` — new command, option, or install behavior
 - [ ] `fix` — bug fix
 - [ ] `docs` — docs-only change
 - [ ] `chore` / `refactor` — tooling or internal restructure, no behavior change
 
 ## Area(s) touched
 
-<!-- commands/init | steps/* | lib/github | lib/validate | types | docs | repo tooling -->
+<!-- commands/* | steps/* | lib/* (e.g. lib/repo, lib/validate) | types | docs | repo tooling -->
 
 ## Checklist
 
 - [ ] Read the existing file(s) before editing; followed the ESM `.js`-extension import convention.
-- [ ] Updated the matching `tests/*.test.ts` when wizard behavior changed (tests mirror step/lib files one-to-one).
+- [ ] Updated the matching `tests/*.test.ts` (or `tests/commands/*.test.ts`) when behavior changed.
 - [ ] Updated the relevant `docs/` page (see the "Documentation maintenance" table in `CONTRIBUTING.md`); unimplemented behavior is marked **Coming soon** or linked to `docs/roadmap.md`.
 - [ ] **Releasing?** Merging a version bump publishes to npm. Bump `package.json` + `package-lock.json` (`npm version --no-git-tag-version X.Y.Z`) and move the `[Unreleased]` entries under a `## [X.Y.Z] — YYYY-MM-DD` CHANGELOG heading (with its compare link) in this PR — see [`docs/RELEASING.md`](https://github.com/pharn-dev/pharn-cli/blob/main/docs/RELEASING.md). Not releasing? Leave the version alone and add to `[Unreleased]`.
-- [ ] Preserved the security invariants in `src/lib/github.ts` / `src/lib/validate.ts` (regex allowlists, `..` checks, `redirect: 'error'`, timeout/size caps, `schemaVersion === 1`) if I touched remote-input handling.
+- [ ] Preserved the security invariants in `src/lib/repo.ts` / `src/lib/fetch-capped.ts` / `src/lib/upstream-manifest.ts` / `src/lib/validate.ts` (regex allowlists, `..` checks, `redirect: 'error'`, timeout/size caps, `schemaVersion === 1`) if I touched remote-input handling.
 
 ## Quality gates
 
-- [ ] `npm run check` passes locally (`format:check` + `lint` + `typecheck` + `test`).
+- [ ] `npm run check` passes locally (`format:check` + `lint` + `lint:md` + `typecheck` + `test`).
 - [ ] `npm run build` succeeds.
 - [ ] `npm run test:coverage` passes (coverage thresholds met).
 
