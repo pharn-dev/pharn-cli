@@ -123,7 +123,7 @@ jobs:
       # uploads. This step still gates on the threshold.
       - id: pharn-ci
         if: github.event_name == 'pull_request'
-        uses: pharn-dev/pharn-ci@38aca1f95b3f5e4bfa83ff08a98d0d3147869a90 # v0.10.0
+        uses: pharn-dev/pharn-ci@bd7b36ea07588884418f5002ae74afc35135c400 # v0.11.0
         timeout-minutes: 5
         with:
           comment: false
@@ -194,7 +194,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: pharn-ci-input
-      - uses: pharn-dev/pharn-ci@38aca1f95b3f5e4bfa83ff08a98d0d3147869a90 # v0.10.0
+      - uses: pharn-dev/pharn-ci@bd7b36ea07588884418f5002ae74afc35135c400 # v0.11.0
         timeout-minutes: 5
         with:
           comment: true
