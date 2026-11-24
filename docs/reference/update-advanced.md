@@ -110,9 +110,10 @@ What is **not** listed:
 - The files of a capability this update **drops** from your config: that is a membership change, named in
   the `CAPABILITIES` note, and its directory is deleted (see
   [Dropped capabilities are deleted](../commands/update.md#dropped-capabilities-are-deleted)).
-- Anything outside the paths an install can write (`.claude/commands/pharn-*.md`, `.claude/hooks/*.cjs` or
-  `*.mjs`, the capability directories, `pharn-contracts/`, `pharn-core/`, the floor directory, the trusted
-  docs, the PHARN license and the features `README.md`), even if a hand-edited `pharn.records.json` names it.
+- Anything outside the paths an install can write (`.claude/commands/pharn-*.md`, `.claude/agents/pharn-*.md`,
+  `.claude/hooks/*.cjs` or `*.mjs`, any other `pharn-*` entry below `pharn/` or a `.claude/` directory, the
+  capability directories, `pharn-contracts/`, `pharn-core/`, the floor directory, the trusted docs, the PHARN
+  license and the features `README.md`), even if a hand-edited `pharn.records.json` names it.
 
 Every run plans, so an up-to-date run prints the `ORPHANED` note too. `--dry-run --json` lists orphans in
 `plan.orphans` when its `status` is `planned`; an `up-to-date` report has `plan: null`, so use
