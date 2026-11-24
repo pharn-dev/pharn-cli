@@ -16,7 +16,7 @@
 | A value on an on/off option (`--json=false`), or `--ref` / `--archetype` given twice                    | 1          |
 | `add` / `update` / `remove` / `list` / `status` with no `pharn.config.json` (or a pre-archetype config) | 1          |
 | `status --strict` found a [strict condition](commands/status.md#strict-conditions)                      | 1          |
-| `init` or `update` without an interactive terminal (and `add`/`remove` with no name)                    | 1          |
+| `init`, `update` or `uninstall` without an interactive terminal (and `add`/`remove` with no name)       | 1          |
 | `init --yes` in a project where a file it would write already exists (nothing written)                  | 1          |
 | Another `pharn` process holds the project lock (`pharn/.lock`)                                          | 1          |
 | `add` refused on a skills-version mismatch                                                              | 1          |
@@ -43,7 +43,7 @@
 The CLI and what it installs need **Node 24.2.0 or newer**. `pharn init` and `pharn update` check it first
 (npm only warns about `engines.node`), and on an older Node, or one whose version cannot be read, print
 `pharn init requires Node 24.2.0 or newer, and this is Node …` (or `pharn update …`), exit **1** and write nothing. `pharn status`
-shows the floor in a `NODE` note and never fails over it; `add`, `remove` and `list` do not check. The
+shows the floor in a `NODE` note and never fails over it; `add`, `remove`, `list` and `uninstall` do not check. The
 installed checkers (`pharn/floor/*.mjs`) refuse to run on an older Node (one stderr line, exit **2**): if a
 `/pharn-*` stage fails that way, check `node -v` where Claude Code runs your gates.
 
@@ -126,7 +126,8 @@ on Windows ([Contributing](contributing.md)).
 ## Prerequisites failed
 
 `pharn init` needs Node >= 24.2.0 ([above](#node-version)), a git repository and, for a plain run, an
-interactive terminal. Off a TTY a plain `init` or `update` **exits 1**; use `update --yes` in CI.
+interactive terminal. Off a TTY a plain `init`, `update` or `uninstall` **exits 1**; use `update --yes`
+(or `uninstall --yes`) in CI.
 `init --yes` installs only where none of its files exists yet: wherever it would overwrite it exits 1,
 lists the files and points at `pharn init` in a terminal, `--dry-run` or `pharn update`; on a re-install it
 refuses before downloading, naming only `pharn.config.json`. `init --dry-run` and `update --dry-run` need no terminal.

@@ -89,7 +89,7 @@ surfaces:
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `pharn/pharn-pipeline/grillers/<name>/`, `pharn/pharn-review/<name>/` | The installed grillers + lenses, each with its `evals/`                                                                         |
 | `.claude/commands/`, `.claude/hooks/`                                 | The `pharn-*` product slash commands + the deterministic `.cjs`/`.mjs` floor hooks                                              |
-| `.claude/agents/`                                                     | The `pharn-*` subagents (`pharn-review-lens` runs each `/pharn-review` lens); none from a pharn-oss older than 6.64.0           |
+| `.claude/agents/`                                                     | The `pharn-*` subagents (`pharn-review-lens` runs each `/pharn-review` lens)                                                    |
 | `pharn/pharn-contracts/`, `pharn/floor/`                              | Inter-layer schemas + the floor checkers the commands invoke, as pharn-oss's `pharn-install.json` declares them (no test files) |
 | `pharn/pharn-core/`                                                   | The agnostic mechanism skills the commands cite (the seam resolver + its evals)                                                 |
 | `pharn/CONSTITUTION.md`, `pharn/ARCHITECTURE.md`                      | Two of the four trusted spec docs, copied verbatim                                                                              |
