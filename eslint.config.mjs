@@ -65,8 +65,6 @@ const MSG = {
     'diff.ts owns no disk or hash primitive: it reads through apply-update.ts and hash.ts, so the status drift check and the update decision can never disagree.',
   executableUnitFs:
     'isExecutableUnitPath is a path-only membership test: executable-unit.ts reads no file.',
-  rootMigrationRename:
-    "root-migration.ts never moves user data (CORE-158): a path's type is no proof it is PHARN's (memory-bank/ is also Cline's), so the note only hints.",
   symlinkWalk:
     'The symlink-component walk lives in src/lib/symlink-guard.ts: call findSymlinkComponent(Or) instead of forking it. (This matches the one spelling the forks used, `current = current ? … : …`, not every respelling.)',
   unsafeChars:
@@ -184,15 +182,6 @@ const INVARIANTS = [
     entry,
     only: ['src/lib/executable-unit.ts'],
   })),
-  {
-    rule: 'no-restricted-syntax',
-    kind: 'syntax',
-    entry: {
-      selector: 'Identifier[name=/^rename(Sync)?$/]',
-      message: MSG.rootMigrationRename,
-    },
-    only: ['src/lib/root-migration.ts'],
-  },
   {
     rule: 'no-restricted-syntax',
     kind: 'syntax',

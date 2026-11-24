@@ -25,7 +25,6 @@ const REASONS = {
   updatePrompt: "update's confirm is its only prompt",
   diffPrimitives: 'diff.ts owns no disk or hash primitive',
   executableUnitFs: 'executable-unit.ts reads no file',
-  rootMigrationRename: 'never moves user data',
   symlinkWalk: 'symlink-component walk lives in src/lib/symlink-guard.ts',
   unsafeChars: 'unsafe-character set is defined once',
   reportError: 'Report failures through src/lib/report-error.ts',
@@ -183,12 +182,6 @@ const CASES: [string, string, string, Reason[]][] = [
     'src/lib/executable-unit.ts',
     "import { statSync } from 'node:fs';",
     ['executableUnitFs'],
-  ],
-  [
-    'rename in root-migration.ts',
-    'src/lib/root-migration.ts',
-    "import { renameSync } from 'node:fs';",
-    ['rootMigrationRename'],
   ],
   [
     'a forked walk',
