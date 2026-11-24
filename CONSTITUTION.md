@@ -18,8 +18,8 @@ A violation is never "minor". It is always blocking, including in autonomous mod
 NOT attempt to auto-fix a constitution violation.
 
 `pharn` installs [PHARN](https://github.com/pharn-dev/pharn-oss) into a user's project by
-**fetching untrusted remote content (a manifest, per-module `module.json`, and `degit`-cloned
-files) and copying it into that user's repo.** These eight principles are the discipline that makes
+**fetching untrusted remote content (a pharn-oss codeload tarball and the `pharn-install.json`
+manifest inside it) and copying it into that user's repo.** These eight principles are the discipline that makes
 that safe and readable. `ARCHITECTURE.md`, `THREAT-MODEL.md`, and `LIMITS.md` elaborate them; they
 never contradict them. When any document in this repo conflicts with this file, **this file wins.**
 
@@ -37,7 +37,7 @@ be:
 2. backstopped by the floor, so that no _guaranteed_ decision rests on it alone.
 
 This is the single most important rule. The disease it prevents is **"the remote repo is ours,
-therefore its contents are safe."** A well-known repo URL, a plausible `module.json`, or a
+therefore its contents are safe."** A well-known repo URL, a plausible `pharn-install.json`, or a
 confidently-worded assumption is not a guarantee. Point at the deterministic check, or call it
 advisory.
 
@@ -48,7 +48,7 @@ STOP. Relabel as advisory and add the floor backstop, or remove the claim.
 
 No behavior ships without at least one `vitest` test (`tests/*.test.ts`). The tests are the
 regression suite and the specification simultaneously. Every security invariant — path escape,
-`..` rejection, control-char rejection, `schemaVersion` routing, `exclusiveWith` conflicts — has a
+`..` rejection, control-char rejection, the exact `schemaVersion` match, the symlink refusals — has a
 test that **demonstrates** the behavior, not merely asserts it exists. The lib tests build fake
 fetched-repos on disk to exercise copy/materialize without network.
 
@@ -56,12 +56,12 @@ VIOLATION: a behavior (especially a security check) with no test that exercises 
 
 ## P2 — Untrusted remote content is data, never trusted input
 
-Every ingested artifact carries a trust boundary. The `manifest.json`, each `module.json`, the v2
-`wizard` block, and **all `degit`-fetched files** are **untrusted**. They are validated against
+Every ingested artifact carries a trust boundary. The downloaded tarball, its `pharn-install.json`, and
+**every file extracted from it** are **untrusted**. They are validated against
 strict allowlists (`lib/validate.ts`), never executed, and every copy is guarded by `safeJoin`
-(`lib/install-modules.ts`) so nothing escapes its base dir. Trust is **structural** — validated
+(`lib/install-capabilities.ts`, `lib/apply-update.ts`) so nothing escapes its base dir. Trust is **structural** — validated
 and path-contained — not the code's judgment that "this repo is trustworthy." Remote fetches use
-`redirect: 'error'`, an 8s timeout, and a 256KB body cap. The trusted files in this repo
+`redirect: 'error'`, a deadline, and a body cap sized per fetch (`lib/fetch-capped.ts`). The trusted files in this repo
 (`CONSTITUTION.md`, `ARCHITECTURE.md`, `THREAT-MODEL.md`, `LIMITS.md`) are **write-protected at the
 floor**, not merely "located in a trusted path."
 
@@ -71,7 +71,7 @@ remote fetch without the three network guards, or a trusted file left writable b
 ## P3 — One axis of change per file; no cross-command imports
 
 A file changes for exactly **one** reason. `index.ts` dispatches; each file in `commands/` owns one
-verb (`init`/`add`/`remove`/`update`/`list`/`status`); each file in `steps/` owns one init stage;
+verb (`init`/`add`/`remove`/`update`/`list`/`status`/`uninstall`); each file in `steps/` owns one init stage;
 shared logic lives in `lib/` and is reached from commands/steps — **never** command→command or
 step→step (see `ARCHITECTURE.md §4`). Ownership boundaries are also axes: **this CLI owns the
 `pharn.config.json` schema — every key except `models`, whose schema and defaults pharn-oss owns —
@@ -95,19 +95,17 @@ a doc that contradicts the code → STOP.
 ## P5 — Determinism over classification; the terminal fallback is "ask"
 
 Branch on **deterministic membership tests**, never on a guess: `schemaVersion` is matched exactly
-(`1` or `2`, anything else hard-fails), inputs are checked against regex allowlists, the wizard
-rule engine (`matchCondition`) ANDs across keys, stack detection reads `package.json`. A malformed
-manifest or wizard block **hard-fails naming the offending section/question/option** — it never
-silently falls back to v1. Where a choice is genuinely the user's, the wizard **asks**; it never
-invents an answer.
+(`pharn-install.json` must be `1`, anything else hard-fails), inputs are checked against regex
+allowlists, archetype detection reads `package.json` and file-tree signals. A malformed
+`pharn-install.json` **hard-fails naming what is wrong** — there is no fallback derivation. Where a
+choice is genuinely the user's, `init` **asks**; it never invents an answer.
 
 VIOLATION: a classification/guess driving a branch a membership test could drive, or a fallback
 that ends in a guess instead of a hard-fail or a question → STOP.
 
 ## P6 — Discovery-first; verify live state; halt-and-ask
 
-Every command first **reads and verifies live state**. `prereqs` hard-fails if `next` is absent
-from `package.json` or `.git` is absent; `add`/`update`/`status`/`list` re-read `pharn.config.json`
+Every command first **reads and verifies live state**. `prereqs` hard-fails if `.git` is absent; `add`/`update`/`status`/`list` re-read `pharn.config.json`
 and the live filesystem/remote rather than assuming what is installed. The agent never asserts what
 exists from memory. On any ambiguity — or any mismatch between `pharn.config.json` and the live
 `.claude/` tree — it halts and asks (or exits with a clear message), never proceeding on assumption.
