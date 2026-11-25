@@ -315,9 +315,9 @@ class TarWalker {
   private dataLeft = 0;
   private padLeft = 0;
   private pending: Pending | null = null;
-  // The previous header was a modifier ('x', 'L', 'K'), so this one's ustar
-  // path and size may not be the real ones.
-  private modified = false;
+  // The typeflag of the modifier ('x', 'L', 'K') the previous header was, so
+  // this one's ustar path and size may not be the real ones; `null`: none.
+  private modifier: string | null = null;
   private ended = false;
 
   constructor(
@@ -415,13 +415,13 @@ class TarWalker {
       );
     }
     const typeflag = String.fromCharCode(block[OFF_TYPEFLAG]!);
-    const modified = this.modified;
+    const modifier = this.modifier;
     // A 'g' modifies nothing, so it neither sets nor consumes the flag.
-    if (MODIFIERS.has(typeflag)) this.modified = true;
-    else if (typeflag !== 'g') this.modified = false;
+    if (MODIFIERS.has(typeflag)) this.modifier = typeflag;
+    else if (typeflag !== 'g') this.modifier = null;
 
     if (isSelected(block, this.options.select)) {
-      this.accept(block, typeflag, modified, size);
+      this.accept(block, typeflag, modifier, size);
     }
     this.dataLeft = size;
     this.padLeft = Math.ceil(size / BLOCK) * BLOCK - size;
@@ -432,7 +432,7 @@ class TarWalker {
   private accept(
     block: Buffer,
     typeflag: string,
-    modified: boolean,
+    modifier: string | null,
     size: number,
   ): void {
     // The FULL path is judged before any other rule, so no later message
@@ -446,9 +446,9 @@ class TarWalker {
         `tar entry has an unsupported type ${describeTypeflag(typeflag)} at a path pharn installs (only a regular file is accepted there): ${fullPath}`,
       );
     }
-    if (modified) {
+    if (modifier !== null) {
       throw new TarExtractError(
-        `tar entry follows a pax extended or GNU long-name header, whose records pharn does not honour, at a path pharn installs: ${fullPath}`,
+        `tar entry follows a header of unsupported type ${describeTypeflag(modifier)}, whose records pharn does not honour, at a path pharn installs: ${fullPath}`,
       );
     }
     const { rel, root } = resolveEntryPath(fullPath, this.root);

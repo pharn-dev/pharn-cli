@@ -508,7 +508,7 @@ describe('extractTar', () => {
       refusal(
         githubArchive([{ name: '././@LongLink', type: 'L', data: 'x' }, KEEP]),
       ),
-    ).toMatch(/pax extended or GNU long-name header/);
+    ).toMatch(/whose records pharn does not honour/);
   });
 
   it('a pax global header between the extended header and the file does not lift the refusal', () => {
@@ -520,7 +520,7 @@ describe('extractTar', () => {
           KEEP,
         ]),
       ),
-    ).toMatch(/pax extended or GNU long-name header/);
+    ).toMatch(/whose records pharn does not honour/);
   });
 
   it('rejects an absolute path', () => {
@@ -632,7 +632,7 @@ describe('extractTar', () => {
           tmp.path(),
           LIMITS,
         ),
-      ).toThrow(/pax extended or GNU long-name header/);
+      ).toThrow(/unsupported type 'x'.*pax extended header/);
     },
   );
 
@@ -1003,6 +1003,26 @@ describe('extractTarGz', () => {
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(TarExtractError);
     expect((err as Error).message).toMatch(/unsupported type '2'/);
+  });
+
+  // The name is the base test's: the decompressed stream is still capped
+  // (maxTotalBytes became maxScannedBytes, now counted as the tar streams), and
+  // no file can be written past that cap. The written-byte cap is the next test.
+  it('bounds the bytes written by the decompressed size (maxTotalBytes)', async () => {
+    await expect(
+      extractTarGz(
+        gzipSync(
+          githubArchive([
+            { name: 'pharn-oss-abc1234/big.txt', data: 'x'.repeat(600) },
+          ]),
+        ),
+        tmp.path(),
+        {
+          select: new Set(['big.txt']),
+          limits: { ...CAPS, maxScannedBytes: 100 },
+        },
+      ),
+    ).rejects.toThrow(/decompresses to more than 100 bytes/);
   });
 
   it('bounds the bytes written by the selected sizes (maxWrittenBytes)', async () => {
