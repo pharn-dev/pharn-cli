@@ -2079,7 +2079,7 @@ describe('init on a refused pharn-oss archive', () => {
       'The problem is in that pharn-oss archive, not in your project; nothing in your project was changed.',
     );
     expect(shown).toContain(
-      `Reason: tar entry has an unsupported type '2': pharn-oss-${SHA_V1.slice(0, 7)}/${SECURITY}`,
+      `Reason: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there): pharn-oss-${SHA_V1.slice(0, 7)}/${SECURITY}`,
     );
     expect(shown).toContain(
       'No option skips this check: forcing an update or answering yes does not help. Next steps:',
@@ -2124,7 +2124,7 @@ describe('init on a refused pharn-oss archive', () => {
       `pharn-oss main at commit ${SHA_V2} was refused: its published archive failed pharn's checks.`,
     );
     expect(shown).toContain(
-      `Reason: tar entry has an unsupported type '2': pharn-oss-${SHA_V2.slice(0, 7)}/${SECURITY}`,
+      `Reason: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there): pharn-oss-${SHA_V2.slice(0, 7)}/${SECURITY}`,
     );
     expect(shown).toContain(
       '- go back to verified releases: `pharn init --ref latest` (`pharn update --ref latest` for an existing install)',
@@ -2171,7 +2171,7 @@ describe('init on a refused pharn-oss archive', () => {
     expect(informed()).not.toContain('PHARN_DEBUG=1');
     const raw = stripVTControlCharacters(stderr().join('\n'));
     expect(raw).toContain(
-      `TarExtractError: tar entry has an unsupported type '2': pharn-oss-${SHA_V1.slice(0, 7)}/${SECURITY}`,
+      `TarExtractError: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there): pharn-oss-${SHA_V1.slice(0, 7)}/${SECURITY}`,
     );
   });
 });

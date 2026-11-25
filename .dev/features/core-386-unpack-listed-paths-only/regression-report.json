@@ -1,0 +1,44 @@
+{
+  "base": "51a96d2932",
+  "inside": [
+    ".dev/features/core-386-unpack-listed-paths-only/GRILL.md",
+    ".dev/features/core-386-unpack-listed-paths-only/PLAN.md",
+    ".dev/features/core-386-unpack-listed-paths-only/REGRESSION.md",
+    ".dev/features/core-386-unpack-listed-paths-only/REVIEW.md",
+    ".dev/features/core-386-unpack-listed-paths-only/SHIP.md",
+    ".dev/features/core-386-unpack-listed-paths-only/VERIFY.md",
+    ".dev/features/core-386-unpack-listed-paths-only/regression-report.json",
+    ".dev/features/core-386-unpack-listed-paths-only/verify-report.json",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "SECURITY.md",
+    "THREAT-MODEL.md",
+    "docs/architecture.md",
+    "docs/contributing.md",
+    "src/lib/repo.ts",
+    "src/lib/tar-extract.ts",
+    "src/lib/upstream-manifest.ts",
+    "tests/commands/init.test.ts",
+    "tests/project-lock.test.ts",
+    "tests/repo.test.ts",
+    "tests/tar-extract.test.ts",
+    "tests/upstream-manifest.test.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    },
+    "vitest": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": ["tests"],
+  "verdict": "no-regressions"
+}

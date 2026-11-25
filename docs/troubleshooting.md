@@ -226,7 +226,8 @@ A release whose tree carries another `SKILLS_VERSION` than its tag is refused to
 ```text
 ⚠ pharn-oss release v7.25.5 (commit 1755d6b8…) was refused: its published archive failed pharn's checks.
   The problem is in that pharn-oss archive, not in your project; nothing in your project was changed.
-  Reason: tar entry has an unsupported type '2': pharn-oss-1755d6b/.claude/skills/pharn-ci-cover
+  Reason: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there):
+  pharn-oss-1755d6b/.claude/commands/pharn-plan.md
   No option skips this check: forcing an update or answering yes does not help. Next steps:
   - install the tip of main instead: `pharn init --ref main` (`pharn update --ref main` for an existing install)
   - upgrade pharn (`npm install -g @pharn-dev/pharn@latest`): a newer pharn may accept this archive
@@ -235,8 +236,8 @@ Re-run with PHARN_DEBUG=1 for full error output.
 ```
 
 `init`, `add`, `update` and `status` exit 1 when the pharn-oss archive they downloaded fails a check: the
-extractor admits only regular files and directories, so an entry of another type it has to unpack (a symbolic
-link, a hard link, a device) is refused (`THREAT-MODEL.md` §2), and the tree must carry a valid `pharn-install.json` whose every file
+extractor unpacks only the files `pharn-install.json` lists (plus the few it reads itself), and one of those
+that is not a regular file (a symbolic link, a hard link, a device) is refused; the tree must carry a valid `pharn-install.json` whose every file
 matches its sha256 (a release must also ship the `SKILLS_VERSION` its tag names). The first line names what was
 fetched: the release tag and its commit, or `main` and its commit (`commit not resolved` when GitHub did not
 say). `Reason:` is the check that failed, as `pharn` found it. The download happens before any write, so

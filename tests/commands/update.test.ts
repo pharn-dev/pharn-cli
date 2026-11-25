@@ -3688,7 +3688,7 @@ describe('update on a refused pharn-oss archive', () => {
     );
     expect(shown).toContain('nothing in your project was changed');
     expect(shown).toContain(
-      `Reason: tar entry has an unsupported type '2': pharn-oss-${SHA_V2.slice(0, 7)}/${SECURITY}`,
+      `Reason: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there): pharn-oss-${SHA_V2.slice(0, 7)}/${SECURITY}`,
     );
     expect(shown).toContain('`pharn update --ref main`');
     expect(snapshot()).toEqual(before);

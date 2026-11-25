@@ -804,11 +804,23 @@ describe('withProjectLock — a fatal signal while held', () => {
   // re-raise land. A handler that re-raises kills the process before that
   // listener runs; one that swallows the signal lets the body print the marker
   // in milliseconds.
+  // The signal is processed on a later loop turn. Node's signal handles are
+  // unref'd, so with nothing else ref'd the child would exit (code 13, an
+  // unsettled top-level await) before it: a ref'd timer holds the loop open
+  // until the handlers have run, instead of whatever handle happens to be live.
   const SIGNAL_HANDLED = `
     const signalHandled = (s) =>
-      new Promise((resolve) =>
-        process.once(s, () => setImmediate(() => setImmediate(resolve))),
-      );
+      new Promise((resolve) => {
+        const alive = setInterval(() => {}, 1000);
+        process.once(s, () =>
+          setImmediate(() =>
+            setImmediate(() => {
+              clearInterval(alive);
+              resolve();
+            }),
+          ),
+        );
+      });
   `;
 
   /** Killed by `sig` — as a signal, or as the shell's 128 + n. */
