@@ -1,6 +1,6 @@
 ---
 name: pharn-cli
-description: Operate the PHARN CLI (@pharn-dev/pharn 0.10.0+, best on 0.16.0, with a fallback for 0.9.x) on a project that has PHARN installed. Use when the person asks whether PHARN is up to date, what an update would change, to update it, what is installed, or to add or remove a capability (griller or lens), or when pharn.config.json exists and they mention updating PHARN. When they ask to set up or uninstall PHARN, it tells them how to do it themselves. Read-only checks and a dry-run preview first; never overwrites their edits.
+description: Operate the PHARN CLI (@pharn-dev/pharn 0.10.0+, best on 0.16.0, with a fallback for 0.9.x) on a project that has PHARN installed. Use when the person asks whether PHARN is up to date, what an update would change, to update it, what is installed, to add or remove a capability (griller or lens), or to add or wire a hook that PHARN reports missing in .claude/settings.json, or when pharn.config.json exists and they mention updating PHARN. When they ask to set up or uninstall PHARN, it tells them how to do it themselves; for a missing hook it shows the entry for them to merge. Read-only checks and a dry-run preview first; never overwrites their edits.
 ---
 
 # pharn-cli
@@ -63,6 +63,13 @@ Always start here, whatever was asked. Branch on fields, not prose.
   that apply: `version.channel`, `layout` (`recorded` and `upstream`), the
   top-level `orphans` and `drift.absentUpstream` (CLI 0.13.0+); each is
   described in [references/json.md](references/json.md).
+- `drift` is `null` under `--no-drift`, and, on CLI 0.20.0+ (unreleased),
+  when `layout.upstream` is set and differs from `layout.recorded`. Either way
+  no file was compared, so never call that drift clean. Only the layout
+  mismatch fails `--strict`: then say the install is at another layout than
+  upstream ships and that a plain `pharn update` moves it. These CLIs plan
+  every update, so moving it needs no `--force`, unless the install is ahead
+  of its source ([references/json.md](references/json.md)).
 - `pharn list --json`: the inventory.
 
 Without a `pharn.config.json` these fail with empty stdout; tell the person
@@ -113,7 +120,8 @@ dry run again before `pharn update --yes`, and do not run a separate
 `--dry-run --force` preview. Branch on `status`:
 
 - `up-to-date` / `ahead-of-release` / `ahead-of-main` (0.13.0+: the install
-  is newer than pharn-oss `main`): nothing to apply; say so.
+  is newer than pharn-oss `main`): nothing to apply; say so. From CLI 0.20.0
+  `up-to-date` means an empty plan, whatever the versions say.
 - `planned`: show the person what would be **written** (`plan.writes`), what
   would be **SKIPPED** (`plan.skipped`: their edits, left alone), and that
   `--force` would overwrite exactly those skipped files after backing them up.
@@ -139,9 +147,9 @@ dry run again before `pharn update --yes`, and do not run a separate
   it.
 
 Apply only when the person asks: `pharn update --yes`. Off a TTY the CLI
-refuses to prompt; `--yes` skips only that confirm. `update --json` without
-`--dry-run` is refused by the CLI; do not use it. The preview is a snapshot,
-so report what the real run printed, not just the plan.
+refuses to prompt; `--yes` skips only that confirm. Never add `--json` or
+`--compact`: refused before CLI 0.20.0, a dry run from 0.20.0. The preview is
+a snapshot, so report what the real run printed, not just the plan.
 
 - It never overwrites a file the person edited; it SKIPS it. Skips exit 0.
   When anything was skipped the recorded version does not advance, so
@@ -248,10 +256,9 @@ keeps edited and unrecorded files, `.claude/settings.json` and
 ## Never
 
 - Hand-edit `pharn.config.json` or `pharn.records.json`.
-- Edit `.claude/settings.json` without asking. In a PHARN project it is
-  write-protected anyway. When `hooks.missing` (or the HOOKS note) lists
-  unwired hooks, show the hook entries so the person can merge them
-  themselves.
+- Edit `.claude/settings.json` or `.claude/settings.local.json`, even when
+  asked. When `hooks.missing` (or the HOOKS note) lists unwired hooks, show
+  the hook entries so the person can merge them themselves.
 - Run `pharn init` in any form, a bare `pharn` included.
 - Run `pharn uninstall`, in any form.
 - Run `--force`, or any download or install, without the consent described

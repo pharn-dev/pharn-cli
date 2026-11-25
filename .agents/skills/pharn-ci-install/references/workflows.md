@@ -1,14 +1,14 @@
-# Workflow and config templates (pharn-ci 0.9.1)
+# Workflow and config templates (pharn-ci 0.12.0)
 
-From pharn-ci 0.9.1's README, `action.yml` and `examples/workflows/`, at its
-release commit `dec4a0ed2d0b111233522753909c74a90b6d09e0` (tag `v0.9.1`). Copy
+From pharn-ci 0.12.0's README, `docs/action.md`, `action.yml` and `examples/workflows/`, at its
+release commit `a370515e32f8040771ccf4b6f737d3d25f62749f` (tag `v0.12.0`). Copy
 the pins exactly; they are the only ones this skill writes.
 
 ## Pins
 
 | Action | Pin |
 | ------ | --- |
-| pharn-ci | `pharn-dev/pharn-ci@dec4a0ed2d0b111233522753909c74a90b6d09e0 # v0.9.1` |
+| pharn-ci | `pharn-dev/pharn-ci@a370515e32f8040771ccf4b6f737d3d25f62749f # v0.12.0` |
 | checkout | `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1` |
 | Node | `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0` |
 | Python | `actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0` |
@@ -37,7 +37,8 @@ coverage:
   when it is set, so a broken coverage step cannot pass.
 - `root: packages/core` only for package-relative paths in a single package.
 - `exclude:` a block list of globs, only for generated code the person agrees
-  to leave out.
+  to leave out. From 0.11.0 a glob (here or in `file`) longer than 1,024
+  characters is a config error that fails the run.
 - Only `coverage`, `setup`, `test_integrity` and `dependencies` keys exist; no
   tabs; no `{}`, anchors or `|`. Leave `test_integrity` out: the mode is the
   workflow's `test-integrity` input (see
@@ -88,7 +89,7 @@ jobs:
       - run: npm ci
       - run: npm run test:coverage
       - id: pharn-ci
-        uses: pharn-dev/pharn-ci@dec4a0ed2d0b111233522753909c74a90b6d09e0 # v0.9.1
+        uses: pharn-dev/pharn-ci@a370515e32f8040771ccf4b6f737d3d25f62749f # v0.12.0
         timeout-minutes: 5
         with:
           test-integrity: warn # or block; never in .pharn/ci.yml
@@ -126,7 +127,11 @@ jobs:
 When a job already runs the tests on `pull_request`, extend it. These edits
 only:
 
-1. Its `actions/checkout` step gets `fetch-depth: 0`.
+1. Its `actions/checkout` step gets `fetch-depth: 0` and
+   `persist-credentials: false`, so the pull request's test code cannot read
+   the token edit 3 gives `pull-requests: write`. When a later step in the job
+   pushes, tags or otherwise needs git credentials, do not set
+   `persist-credentials: false`: say so and ask.
 2. Its test command writes coverage, in the same run: `npm test` becomes
    `npm run test:coverage` (or the runner's coverage flags). The tests run
    once.
@@ -140,7 +145,7 @@ only:
 ```yaml
       - id: pharn-ci
         if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && matrix.node == 24
-        uses: pharn-dev/pharn-ci@dec4a0ed2d0b111233522753909c74a90b6d09e0 # v0.9.1
+        uses: pharn-dev/pharn-ci@a370515e32f8040771ccf4b6f737d3d25f62749f # v0.12.0
         timeout-minutes: 5
         with:
           test-integrity: warn
@@ -203,7 +208,7 @@ jobs:
           path: |
             coverage/lcov.info
             pr-number
-      - uses: pharn-dev/pharn-ci@dec4a0ed2d0b111233522753909c74a90b6d09e0 # v0.9.1
+      - uses: pharn-dev/pharn-ci@a370515e32f8040771ccf4b6f737d3d25f62749f # v0.12.0
         timeout-minutes: 5
         with:
           comment: false
@@ -244,7 +249,7 @@ jobs:
         env:
           PR_FILE: ${{ runner.temp }}/pharn-ci-input/pr-number
         run: echo "number=$(tr -dc '0-9' < "$PR_FILE" | head -c 10)" >> "$GITHUB_OUTPUT"
-      - uses: pharn-dev/pharn-ci@dec4a0ed2d0b111233522753909c74a90b6d09e0 # v0.9.1
+      - uses: pharn-dev/pharn-ci@a370515e32f8040771ccf4b6f737d3d25f62749f # v0.12.0
         timeout-minutes: 5
         with:
           coverage-file: ${{ runner.temp }}/pharn-ci-input/coverage/lcov.info
@@ -289,17 +294,21 @@ jobs:
 
 ## Test integrity and the accept label
 
-pharn-ci 0.2.x and later (0.9.1 included) check every PR for changes that weaken the tests: a
+pharn-ci 0.2.x and later (0.12.0 included) check every PR for changes that weaken the tests: a
 test file deleted (TI01), a test removed from a file that stays (TI02), a skip
 added (TI03), `.only`/`fit` added (TI04), a test emptied of its assertions
 (TI05), a test script weakened (TI10), CI no longer running tests (TI11), a
 coverage-ignore comment (TI13), a lower threshold or a new exclusion in
 `.pharn/ci.yml` (TI14), and warnings or notes for weaker assertions, edited
 expected values, bulk snapshot updates, loosened runner settings, mocked
-modules under test and lint suppressions (TI06 to TI09, TI12, TI15, TI16). Each
+modules under test, lint suppressions and, from 0.11.0, assertions that always
+pass (TI06 to TI09, TI12, TI15 to TI17; 0.12.0 no longer emits TI15). From
+0.12.0, in `test-integrity: block`, a test file pharn-ci could not read fails
+the check too (`TEST_INTEGRITY_INDEX_UNAVAILABLE`), so a Python project needs
+`python3` 3.8 or newer on the runner. Each
 finding asks for a reviewer to look; most have an ordinary reason. From
-0.7.0 a PR that changes JS or TS source without a test file that imports it
-also gets one `TESTS_NOT_EXERCISING_CHANGES` warning, in every mode and never a
+0.7.0 a PR that changes JS or TS source (from 0.12.0 also Python) without a
+test file that imports it also gets one `TESTS_NOT_EXERCISING_CHANGES` warning, in every mode and never a
 failure, so a setup PR that adds source shows it.
 
 - **`test-integrity: warn`** (the default, and what this skill writes): the
@@ -363,7 +372,7 @@ input out.
       - run: npm test -- --reporters=default --reporters=jest-junit   # writes junit.xml
       - id: pharn-ci
         if: ${{ !cancelled() }}   # also after a failed test step
-        uses: pharn-dev/pharn-ci@dec4a0ed2d0b111233522753909c74a90b6d09e0 # v0.9.1
+        uses: pharn-dev/pharn-ci@a370515e32f8040771ccf4b6f737d3d25f62749f # v0.12.0
         timeout-minutes: 5
         with:
           test-integrity: warn
@@ -397,8 +406,8 @@ input takes three values, and any other value fails the step:
   algorithm and a different hash), and D05, a source outside the npm and PyPI
   registries (a dependency or lockfile entry from a git repository, a URL off
   `registry.npmjs.org`, `registry.yarnpkg.com`, `pypi.org` and
-  `files.pythonhosted.org`, or a local file, or a requirements file that adds a
-  package index off them). **`auto` blocks on both:** each is a `block`
+  `files.pythonhosted.org` and the allowed private hosts (below), or a local
+  file, or a requirements file that adds a package index off them). **`auto` blocks on both:** each is a `block`
   finding, an error that makes the verdict `fail`, and `fail-on-verdict` (true
   by default) then fails the step. The test-integrity mode and the accept label
   do not lower it. A Dependabot bump that changes a manifest and its lockfile
@@ -421,59 +430,97 @@ check misses is in pharn-ci's `docs/LIMITS.md`, Dependency safety.
 
 ### Private registries
 
-D05 flags every source outside the four hosts above. `docs/LIMITS.md` says a
-private registry or mirror that a lockfile records (Artifactory, Verdaccio,
-GitHub Packages, a private PyPI index) is reported as off the registry, and
-that private registries are not supported unless they are on the allowed list,
-which a later version may take as a policy list. A registry set only outside
-the lockfile (`.npmrc`, `.yarnrc.yml`, pip configuration) is not seen by D05
-for pnpm and yarn berry, but the person should still hear about it.
+D05 flags every source outside the four hosts above and the hosts the run
+allows. A private registry or mirror that a lockfile records (Artifactory,
+Nexus, Verdaccio, GitHub Packages, a private PyPI index) is off the registry
+until its host is allowed. A registry set only outside the lockfile (`.npmrc`,
+`.yarnrc.yml`, pip configuration) is not seen by D05 for pnpm and yarn berry,
+but the person should still hear about it.
 
-Before writing a workflow, look for it: a lockfile `resolved` or `registry`
-host other than `registry.npmjs.org`, `registry.yarnpkg.com`, `pypi.org` or
-`files.pythonhosted.org`; a `registry=` line (or `@scope:registry=`) in
-`.npmrc`; a registry server in `.yarnrc.yml`; an `index-url` or
-`extra-index-url` in a pip config, `requirements*.txt` or `pyproject.toml`; a
-`PIP_INDEX_URL` or similar in the CI files. When there is one, say that D05
-flags dependencies from off-registry sources and ask how to proceed, offering
-only these options and no workflow written yet:
+Since 0.10.0 the pharn-ci step takes the allow-list as the
+`dependency-allowed-hosts` input:
 
-1. `dependencies: auto` as it is (write no line). D05 then blocks every PR
+```yaml
+        with:
+          test-integrity: warn
+          dependency-allowed-hosts: npm.corp.example
+```
+
+- Each entry is an exact host name, comma or newline separated, at most 50:
+  `npm.corp.example`, never `https://npm.corp.example/`, a port or
+  `*.corp.example`. An entry that is not a host name fails the step.
+- A URL on an allowed host still has to be `https` with no user name, password
+  or port, or it stays D05. A sibling such as `evil.npm.corp.example` is not
+  the host.
+- pharn-ci never calls an allowed host and never looks up a package resolved
+  from one in a public registry.
+- `.pharn/ci.yml` refuses `dependencies.allowed_hosts`, and a `file:` policy may
+  not set it: the pull request can edit both. An app policy's
+  `dependencies.allowed_hosts` replaces the input's list and is the control a
+  pull request cannot move; a workflow edit in a pull request changes the
+  input, which is why CODEOWNERS on `.github/workflows/` matters.
+
+Before writing a workflow, look for a private registry: a lockfile `resolved`
+or `registry` host other than `registry.npmjs.org`, `registry.yarnpkg.com`,
+`pypi.org` or `files.pythonhosted.org`; a `registry=` line (or
+`@scope:registry=`) in `.npmrc`; a registry server in `.yarnrc.yml`; an
+`index-url` or `extra-index-url` in a pip config, `requirements*.txt` or
+`pyproject.toml`; a `PIP_INDEX_URL` or similar in the CI files. When there is
+one, name the host or hosts you found, say that D05 flags dependencies from
+off-registry sources, and ask how to proceed, offering only these options and
+no workflow written yet:
+
+1. `dependency-allowed-hosts` with the host you found (the first option). The
+   person confirms the host name or names the right one: write only a host
+   they confirmed, and say that its URLs must be `https` with no credentials or
+   port. An org on pharn.dev can put the same host in its app policy instead
+   (`dependencies.allowed_hosts`; drafting it is the `pharn-ci-policy` skill's
+   job).
+2. `dependencies: auto` as it is (write no line). D05 then blocks every PR
    that adds or changes a dependency a lockfile records from the private
-   host; D04 keeps running. Fine for a repository that rarely changes those
-   dependencies.
-2. `dependencies: never`, which switches off D04 as well. Only on the
+   host; D04 keeps running.
+3. `dependencies: never`, which switches off D04 as well. Only on the
    person's explicit choice.
-3. `fail-on-verdict: false`, which reports and never gates: it lifts every
+4. `fail-on-verdict: false`, which reports and never gates: it lifts every
    gate, not only D05. Only on the person's explicit choice.
-4. Wait: write nothing until pharn-ci can allow the registry.
 
-**Check for an allow-list before listing these.** In 0.9.1 neither
-`action.yml` nor `schema/policy.v1.json` has one: the policy's
-`dependencies.registries` takes only the ecosystems `npm` and `pypi` ("a
-policy never names a host"), so it cannot allow a host. When the person is on a
-later pharn-ci whose `action.yml`, README or policy schema names a registry or
-host allow-list, read that and offer it as well; never offer, or invent, an
-option this reference does not list.
+Never offer, or invent, an option this reference does not list.
 
 ## Upgrading an existing setup
 
 An existing pharn-ci workflow (a `uses: pharn-dev/pharn-ci@` line, a SHA with
-a `# vX.Y.Z` comment or a tag) is updated, not duplicated: change that `uses:`
-line to this reference's pin, and nothing else unless the person asks. Say
-what the move brings, from pharn-ci's CHANGELOG, for the versions it crosses:
+a `# vX.Y.Z` comment or a tag) is updated, not duplicated. Before changing
+anything, compare its version with the version of this reference's pharn-ci
+pin:
+
+- Equal: say the setup is current, and stop.
+- Newer: say the setup is ahead of what this version of the skill describes,
+  change nothing, and say that updating the pharn-ci plugin gets a skill that
+  knows that release. Never move a pin to an older release or offer to, even
+  when the newer release is one you cannot confirm.
+- Unreadable (a SHA with no `# vX.Y.Z` comment, or a branch): say so, and ask
+  which release it is.
+- Older: change that `uses:` line to this reference's pin, and nothing else
+  unless the person asks.
+
+For an older pin, say what the move brings, from pharn-ci's CHANGELOG, for the
+versions it crosses:
 
 | The pin is older than | Behaviour change the upgrade brings |
 | --------------------- | ----------------------------------- |
 | 0.6.0 | A stricter `coverage.threshold` or `setup.require: true` in `.pharn/ci.yml` now applies over a looser `threshold` input or `require-agent-setup: false`; to get the looser value back, lower it in `.pharn/ci.yml` itself. |
 | 0.7.0 | PI01 is an error by default: a PR that adds a zero-width character, a bidi override or isolate, a tag character or a stray byte order mark now fails the check where it passed (test files, `fixtures/`, `__fixtures__/` and `testdata/` are exempt). A PR that changes JS/TS source without a test importing it gets a `warn` verdict where it got `pass` (`TESTS_NOT_EXERCISING_CHANGES`); it never fails the check. |
 | 0.8.0 | Dependency safety runs by default (`dependencies: auto`) and D04 and D05 are errors: a PR that changes a manifest's dependencies without its lockfile, or adds a git, URL or local-file dependency, now fails the check where it passed. `dependencies: never` gets the old behaviour back. |
+| 0.11.0 | A PR that adds an assertion that always passes gets a `warn` verdict where it got `pass` (`TEST_INTEGRITY_TI17`); it never fails the check unless an org policy sets TI17 to `block`. An exclusion or coverage-file glob longer than 1,024 characters now fails the run. With no diff, `DIFF_UNAVAILABLE` is reported first, so a run under a threshold or `test-integrity: block` fails on it even when the coverage file is also missing. PI01 now flags tag characters after a black flag emoji unless they spell a subdivision flag. With an org policy that sets `forbidden_permissions`, `allowed_mcp_servers` or `forbidden_mcp_servers` at block, a shallow checkout or `pr-number` run now fails with `POLICY_SETTINGS_INVALID`. |
+| 0.12.0 | Breaking: a PR that edits `.pharn/ci.yml` (or the `config` input's file) is checked with the config at the merge base, and the edit applies after merge; on a shallow checkout that copy cannot be read and `CONFIG_CHANGED_IN_DIFF` fails the run under a threshold or in `block` (use `fetch-depth: 0`, as these templates do). Under a threshold, a PR that adds or edits a tracked coverage report (`COVERAGE_FILE_TRACKED`), or changes a covered file the diff shows as binary, now fails. In `test-integrity: block`, a test file pharn-ci could not read now fails the check (`TEST_INTEGRITY_INDEX_UNAVAILABLE`, which the accept label lowers), and TI01, TI03, TI05, TI09 and TI10 catch more. Dependency safety reads more lockfile and manifest spellings and fails on a file it cannot read (`DEPENDENCY_CHECK_INCOMPLETE`), and an instruction or Markdown file cut for size fails the injection scan (`INJECTION_TEXT_TRUNCATED`). A PR that changes Python source without a test importing it gets a `warn` (`TESTS_NOT_EXERCISING_CHANGES`). |
 
-A pin of 0.8.0 or later crosses none of these: 0.9.0 added the `fix` objects
-to the report and says verdicts, inputs and the comment are unchanged, and
-0.9.1 changes only how the release is published. Name only the rows the pin
-crosses (a `# v0.5.0` pin crosses all three, a `# v0.7.0` pin only the last).
-A pin older than 0.5.0 crosses all three as well; for what 0.2.0 to 0.4.0
+Between those rows nothing changes a verdict: 0.9.0 added the `fix` objects
+to the report and says verdicts, inputs and the comment are unchanged, 0.9.1
+changes only how the release is published, and 0.10.0 adds the opt-in
+`dependency-allowed-hosts` input (see
+[Private registries](#private-registries)). A pin of 0.12.0 or later crosses
+none. Name only the rows the pin crosses (a `# v0.5.0` pin crosses all five, a
+`# v0.9.1` pin the last two, a `# v0.11.0` pin only the last). A pin older than 0.5.0 crosses all five as well; for what 0.2.0 to 0.4.0
 added (test integrity, the secret scan, the opt-in org policy and upload), see
 the Test integrity and Org policy sections.
 

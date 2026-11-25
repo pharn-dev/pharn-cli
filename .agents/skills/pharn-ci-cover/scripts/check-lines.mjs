@@ -15,7 +15,7 @@
 // This is an estimate for the person's own check run, not a replacement for pharn-ci.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -28,15 +28,24 @@ const LINE_TERMINATORS = ["\n", "\r", String.fromCharCode(0x2028), String.fromCh
 
 export class UsageError extends Error {}
 
+/** The most the helper reads of a report, as list-fixes.mjs. */
+const MAX_REPORT_BYTES = 32 * 1024 * 1024;
+
 // <shared:coverage>
 // This block is byte-identical in pharn-ci-cover/scripts/check-lines.mjs and
-// pharn-ci-install/scripts/check-coverage.mjs (tests/shared-block.test.mjs checks it). It needs `existsSync`
-// from node:fs, `path` from node:path and a `UsageError` class from the file around it.
+// pharn-ci-install/scripts/check-coverage.mjs (tests/shared-block.test.mjs checks it). It needs `closeSync`,
+// `fsConstants` (node:fs `constants`), `existsSync`, `fstatSync`, `openSync` and `readSync` from node:fs, `path`
+// from node:path and a `UsageError` class from the file around it. It ends with the shared:read-file routine and the
+// 256 MiB cap the two helpers read a coverage file with (pharn-ci itself streams a coverage file and has no cap).
 //
 // Ported from pharn-ci 0.1.0 (a88e62a8febf5cd9a77b8e0252cd060c3b94782c, Apache-2.0): packages/core/src/paths.ts,
 // coverage/xml.ts, coverage/detect.ts, coverage/lcov.ts, coverage/cobertura.ts and coverage/merge.ts, so a
 // coverage file is detected, read and mapped to repository paths the way pharn-ci does it. These files are
-// unchanged in pharn-ci 0.4.0 (a9314e9fda1ae220e42fa0d7e6ff5c0a04e1d756).
+// unchanged in pharn-ci 0.12.0 (a370515e32f8040771ccf4b6f737d3d25f62749f), apart from opt-in scanXml options
+// in coverage/xml.ts that the coverage readers do not use, and the opt-in literalBackslashes option of
+// coverage/lcov.ts and coverage/cobertura.ts (0.12.0, CORE-101), which this block does not port: it reads every
+// backslash in a coverage path as a separator, as pharn-ci before 0.12.0 did, so a tracked file whose name holds
+// a backslash is not matched here.
 
 // --- paths (paths.ts) ---
 
@@ -125,6 +134,24 @@ export function isSafeRepoPath(p) {
   if (typeof p !== "string" || p === "" || p.includes("\0")) return false;
   if (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\")) return false;
   return !p.split(/[\\/]/).includes("..");
+}
+
+const MAX_PRINTED_NAME = 200;
+
+/**
+ * A path or directory name from the input, when it is safe to print as data: no control character or line separator
+ * (U+0000-U+001F, U+007F, U+0085, U+2028, U+2029), no leading or trailing space and at most 200 characters. Anything
+ * else is null, so the name cannot carry a second line into a note or a config file.
+ */
+export function printableName(s) {
+  if (typeof s !== "string" || s === "" || s.trim() !== s) return null;
+  let count = 0;
+  for (const ch of s) {
+    const code = ch.codePointAt(0);
+    if (code <= 0x1f || code === 0x7f || code === 0x85 || code === 0x2028 || code === 0x2029) return null;
+    if (++count > MAX_PRINTED_NAME) return null;
+  }
+  return s;
 }
 
 // --- XML scanner (xml.ts): one forward pass, no regular expressions, no element stack ---
@@ -578,6 +605,47 @@ export function findGitRoot(cwd) {
     dir = parent;
   }
 }
+
+/** The most a helper reads of one coverage file. */
+const MAX_COVERAGE_BYTES = 256 * 1024 * 1024;
+
+// <shared:read-file>
+// Byte-identical in all four pharn-ci helper scripts (tests/shared-block.test.mjs checks it). It needs
+// `closeSync`, `fsConstants` (node:fs `constants`), `fstatSync`, `openSync` and `readSync` from node:fs and a
+// `UsageError` class from the file around it.
+
+/**
+ * Reads `file` as UTF-8 when it is a regular file of at most `cap` bytes, checking and reading through one
+ * descriptor so the file checked is the file read. O_NONBLOCK so a FIFO is refused instead of blocking the
+ * open; isFile so a directory or a device (which reports size 0) is refused; the read stops once more than
+ * `cap` bytes arrive. Throws a UsageError naming `name` and the reason, carrying the system error's code.
+ */
+function readRegularFile(file, cap, name) {
+  let fd;
+  try {
+    fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw new UsageError(`${name} is not a regular file`);
+    const over = () => new UsageError(`${name} is larger than ${cap / (1024 * 1024)} MiB`);
+    if (stat.size > cap) throw over();
+    const chunks = [];
+    let total = 0;
+    for (let n = -1; n !== 0; ) {
+      const chunk = Buffer.allocUnsafe(64 * 1024);
+      n = readSync(fd, chunk, 0, chunk.length, null);
+      total += n;
+      if (total > cap) throw over();
+      chunks.push(chunk.subarray(0, n));
+    }
+    return Buffer.concat(chunks, total).toString("utf8");
+  } catch (err) {
+    if (err instanceof UsageError) throw err;
+    throw Object.assign(new UsageError(`cannot read ${name}: ${err?.code ?? "unknown error"}`), { code: err?.code });
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+// </shared:read-file>
 // </shared:coverage>
 
 export function parseCli(argv) {
@@ -616,17 +684,24 @@ export function parseCli(argv) {
 
 /**
  * The report versions this helper reads: Report v1 (pharn-ci 0.1.x, the string "1") and Report v2 (pharn-ci 0.2.x to
- * 0.4.x, the number 2). v2 takes `diffCoverage` from v1 unchanged, and that is all this helper reads.
+ * 0.12.x, the number 2). v2 takes `diffCoverage` from v1 unchanged, and that is all this helper reads.
  */
 export function isKnownSchemaVersion(v) {
   return v === "1" || v === 2;
 }
 
-/** Validate the parts of a Report v1 or v2 this helper reads. Throws UsageError on anything else. */
+const TOOL_VERSION = /^\d+\.\d+\.\d+[\w.-]{0,20}$/;
+const VERDICTS = new Set(["pass", "warn", "fail"]);
+
+/**
+ * Validate the parts of a Report v1 or v2 this helper reads. Throws UsageError on anything else. Report fields that are
+ * printed keep only a known shape: the verdict, percent and tool version are otherwise null or "?", and paths that are
+ * not repo-relative are left out and counted in `invalidPaths`.
+ */
 export function readReport(text) {
   let r;
   try {
-    r = JSON.parse(text);
+    r = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
   } catch (err) {
     throw new UsageError(`the report is not JSON: ${err.message}`);
   }
@@ -642,13 +717,13 @@ export function readReport(text) {
     throw new UsageError("the report's diffCoverage is malformed");
   }
   const files = [];
-  const invalidPaths = [];
+  let invalidPaths = 0;
   for (const f of dc.files) {
     if (typeof f?.path !== "string" || f.path === "" || !Array.isArray(f.uncoveredLines)) {
       throw new UsageError("the report's diffCoverage.files is malformed");
     }
     if (!isSafeRepoPath(f.path)) {
-      invalidPaths.push(f.path);
+      invalidPaths++;
       continue;
     }
     const lines = f.uncoveredLines.filter((n) => Number.isInteger(n) && n >= 1);
@@ -660,9 +735,9 @@ export function readReport(text) {
   }
   const excluded = Array.isArray(dc.excludedFiles) ? dc.excludedFiles.filter((p) => typeof p === "string") : [];
   return {
-    tool: `${r.tool.name} ${typeof r.tool.version === "string" ? r.tool.version : "?"}`,
-    verdict: r.verdict,
-    percent: dc.percent ?? null,
+    tool: `${r.tool.name} ${typeof r.tool.version === "string" && TOOL_VERSION.test(r.tool.version) ? r.tool.version : "?"}`,
+    verdict: VERDICTS.has(r.verdict) ? r.verdict : null,
+    percent: typeof dc.percent === "number" && Number.isFinite(dc.percent) ? dc.percent : null,
     threshold: typeof dc.threshold === "number" && Number.isFinite(dc.threshold) ? dc.threshold : null,
     coveredLines: dc.coveredLines,
     coverableLines: dc.coverableLines,
@@ -980,7 +1055,7 @@ export function compare(report, coverageFiles, { tracked, diff = null }) {
     coverage: {
       paths: coveragePaths.size,
       unmatchedPaths: unmatched.length,
-      ...(unmatched.length > 0 ? { unmatchedExample: unmatched[0] } : {}),
+      ...(unmatched.length > 0 ? { unmatchedExample: printableName(unmatched[0]) } : {}),
       linesSkipped: skipped,
     },
     lines: {
@@ -1002,7 +1077,8 @@ function realGit(cwd, args) {
   return execFileSync("git", ["--literal-pathspecs", ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, LC_ALL: "C" },
+    // GIT_OPTIONAL_LOCKS=0 stops `git status` from refreshing .git/index, so the helper writes nothing.
+    env: { ...process.env, LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0" },
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 256 * 1024 * 1024,
     timeout: 120_000,
@@ -1039,17 +1115,48 @@ function runGit(git, repoRoot, args, what) {
   }
 }
 
-/** The commit for `ref`, tried as given and then as origin/<ref>; a ref found neither way is an error. */
+/**
+ * The commit for `ref`. An origin/ ref or a full SHA is used as given. Any other ref is tried as given and
+ * as origin/<ref>: when both exist at different commits, the one ahead wins (as given if they diverged),
+ * with a note naming both commits. A ref found neither way is an error.
+ */
 function resolveBase(git, repoRoot, ref) {
-  const candidates = ref.startsWith("origin/") ? [ref] : [ref, `origin/${ref}`];
-  for (const candidate of candidates) {
+  const commitOf = (candidate) => {
     try {
-      return { ref: candidate, sha: git(repoRoot, ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`]).trim() };
+      return git(repoRoot, ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`]).trim();
     } catch (err) {
       if (gitCannotRun(err)) throw new UsageError(`git failed: ${gitMessage(err)}`);
+      return null;
     }
+  };
+  const local = commitOf(ref);
+  const remoteRef = `origin/${ref}`;
+  const remote = ref.startsWith("origin/") || /^[0-9a-f]{40}$/i.test(ref) ? null : commitOf(remoteRef);
+  if (local === null && remote === null) {
+    throw new UsageError(`base ${ref} was not found in this checkout; fetch it, or pass the ref the CI run diffed against`);
   }
-  throw new UsageError(`base ${ref} was not found in this checkout; fetch it, or pass the ref the CI run diffed against`);
+  if (remote === null) return { ref, sha: local, note: null };
+  if (local === null) return { ref: remoteRef, sha: remote, note: null };
+  if (local === remote) return { ref, sha: local, note: null };
+  let mergeBase = null;
+  try {
+    mergeBase = git(repoRoot, ["merge-base", local, remote]).trim();
+  } catch (err) {
+    if (gitCannotRun(err)) throw new UsageError(`git failed: ${gitMessage(err)}`);
+  }
+  // The note is a fixed sentence plus the two SHAs git printed: the --base value can be a revision expression
+  // carrying any text, so neither it nor a ref name built from it goes into the note.
+  const l = local.slice(0, 12);
+  const r = remote.slice(0, 12);
+  const used = "base.ref and base.sha name the one used";
+  const fetchHint = "if neither is the base CI used, fetch it and run again";
+  if (mergeBase === local) {
+    return { ref: remoteRef, sha: remote, note: `--base: the local base branch (${l}) is behind origin's (${r}), so origin's was used; ${used}; ${fetchHint}` };
+  }
+  if (mergeBase === remote) {
+    return { ref, sha: local, note: `--base: origin's base branch (${r}) is behind the local one (${l}), so the local one was used; ${used}; ${fetchHint}` };
+  }
+  return { ref, sha: local, note: `--base: the local base branch (${l}) and origin's (${r}) have diverged, so the local one was used as given; ${used}; pass the ref the CI run diffed against` };
 }
 
 function diffAgainst(git, repoRoot, sha) {
@@ -1092,16 +1199,13 @@ export function run(argv, { cwd = process.cwd(), git = realGit } = {}) {
   if (opts.help) return { help: USAGE };
   const repo = locateRepo(cwd, git);
   const { repoRoot, tracked } = repo;
-  const readText = (p, what) => {
-    try {
-      return readFileSync(path.resolve(cwd, p), "utf8");
-    } catch (err) {
-      throw new UsageError(`cannot read ${what} ${p}: ${err.code ?? err.message}`);
-    }
-  };
-  const report = readReport(readText(opts.report, "report"));
+  const report = readReport(readRegularFile(path.resolve(cwd, opts.report), MAX_REPORT_BYTES, `report ${opts.report}`));
+  // A report path that is not a tracked file is never printed or handed to git.
+  const trackedFiles = report.files.filter((f) => tracked.has(f.path));
+  report.invalidPaths += report.files.length - trackedFiles.length;
+  report.files = trackedFiles;
   const coverageFiles = opts.coverage.map((p) => {
-    const text = readText(p, "coverage file");
+    const text = readRegularFile(path.resolve(cwd, p), MAX_COVERAGE_BYTES, `coverage file ${p}`);
     const format = opts.format === "auto" ? detectCoverageFormat(text) : opts.format;
     if (format === "empty") throw new UsageError(`${p} is empty (pharn-ci reports COVERAGE_FILE_EMPTY)`);
     if (format === "unknown") {
@@ -1112,12 +1216,13 @@ export function run(argv, { cwd = process.cwd(), git = realGit } = {}) {
 
   const notes = [];
   if (!repo.git) notes.push(`${NO_GIT_NOTE} (${repo.reason})`);
-  if (report.invalidPaths.length > 0) notes.push("some report paths are not repo-relative and were left out (invalidPaths)");
+  if (report.invalidPaths > 0) notes.push("some report paths are not tracked files and were left out (invalidPaths counts them)");
 
   let base = null;
   let diff = null;
   if (opts.base !== null && repo.git) {
     const resolved = resolveBase(git, repoRoot, opts.base);
+    if (resolved.note !== null) notes.push(resolved.note);
     diff = diffAgainst(git, repoRoot, resolved.sha);
     const renamedFrom = new Map(diff.filter((f) => f.status === "renamed").map((f) => [f.path, f.oldPath]));
     const reportPaths = report.files.map((f) => f.path);

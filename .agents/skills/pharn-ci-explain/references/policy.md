@@ -1,7 +1,7 @@
-# Org policy (pharn-ci 0.4.x to 0.9.x)
+# Org policy (pharn-ci 0.4.x to 0.12.x)
 
 Source: pharn-ci v0.4.0 at commit `a9314e9fda1ae220e42fa0d7e6ff5c0a04e1d756` and
-v0.9.1 at `dec4a0ed2d0b111233522753909c74a90b6d09e0`: README ("Org policy", "P13",
+v0.12.0 at `a370515e32f8040771ccf4b6f737d3d25f62749f`: README, `docs/policy.md` ("Org policy", "P13",
 "P14", "Policy mode", "Agent PRs", "Prompt-injection scan", "Dependency safety",
 "Flaky tests and JUnit results"), CHANGELOG, `schema/report.v2.json`,
 `schema/policy.v1.json`, `packages/core/src/policy/` and `docs/LIMITS.md`.
@@ -18,8 +18,11 @@ for P07) and test-integrity keys, and `agents.labels`, `agents.extra_logins`,
 `agents.protected_paths` and `agents.protected_paths_mode`. 0.6.0 adds rules
 P13 and P14 (`agents.max_files`, `agents.max_changed_lines`); 0.7.0 the
 `injection` keys of the prompt-injection scan; 0.8.0 the `dependencies` keys
-and `flaky.quarantine`. In 0.9.x `agents.require_human_approval` (meant for
-P12) is still validated and not applied. The pharn.dev app's policy response
+and `flaky.quarantine`; 0.10.0 `dependencies.allowed_hosts`; 0.11.0
+`test_integrity.signals.TI17` and Enterprise Managed User logins
+(`handle_shortcode`) in `agents.extra_logins`; 0.12.0 unites a `file:` policy the pull request edits with its merge-base copy, and adds `POLICY_KEYS_UNKNOWN`. In 0.9.x to 0.12.x
+`agents.require_human_approval` (meant for P12) is still validated and not
+applied. The pharn.dev app's policy response
 also carries settings that are not part of the policy document (for example
 `settings.uploadJunit`, which keeps the JUnit results out of an upload, and
 `settings.messageMaxBytes`) and the quarantine list.
@@ -34,7 +37,7 @@ its owner. A pull request that edits the policy it is graded by raises P09.
 Each finding is in the report's `policy.violations` and in the comment's
 📜 Policy section; the message code carries the rule's level. A policy's
 `policy.rules` sets a rule's severity (`block`, `warn`, `info` or `off`); a `file:`
-policy can only raise it. There is no P12 rule in 0.9.x: `policy.rules.P12` and
+policy can only raise it. There is no P12 rule in 0.9.x to 0.12.x: `policy.rules.P12` and
 `agents.require_human_approval` are accepted by the schema and not enforced.
 
 | Rule | Code | Default level | What it checks |
@@ -64,7 +67,11 @@ such message; any other failure (a network error, a timeout, a `429`, a `5xx`, a
 response over 1 MiB, one that does not validate) is one `warn`. With
 `policy: required` every one of these, and a missing OIDC token, is an `error` and
 the check fails. The text names the reason, the HTTP status when there is one and
-the request id the app sent; the job log has the same request id.
+the request id the app sent; the job log has the same request id. From 0.12.0 a
+job that grants `id-token: write` and whose token request throws, times out or
+returns no token gets a `warn` with the reason `no-oidc-token` under
+`policy: auto`, where it was silent; a job that does not grant `id-token: write`
+stays silent.
 
 - Look at: the workflow's `permissions:` (`id-token: write` is needed to fetch a
   policy; a fork pull request never gets it) and the `policy` and `app-url` inputs.
@@ -75,13 +82,35 @@ the request id the app sent; the job log has the same request id.
 ### `POLICY_OVERRIDE_IGNORED` (warn)
 
 Settings looser than the org policy, or not allowed from a policy file, were not
-applied, and the policy's value applies. The text names each setting and its layer
-(the workflow inputs or `.pharn/ci.yml`; up to 20, then a count), with both numbers
-for a coverage threshold, and never a pattern, root or label.
+applied, and the policy's value applies. The text names each setting (up to 20,
+then a count), with both numbers for a coverage threshold, and never a pattern,
+root or label; before 0.12.0 it also named the layer each came from (the
+workflow inputs or `.pharn/ci.yml`). From 0.12.0, for a `file:` policy the pull
+request edits, it also names each setting the pull request's copy has looser
+than the copy at the base commit (a lower value, a deleted key or object, a list
+that lost an entry, a wider allowlist): the stricter base value applies.
 
-- Look at: the named layer. In a `file:` policy, the keys it may not set (below).
+- Look at: the workflow inputs and `.pharn/ci.yml` for the named settings. In a
+  `file:` policy, the keys it may not set (below), and the pull request's diff of
+  the policy file.
 - Fix: bring the looser value up to the policy's, or drop the setting that has no
-  effect. Do not argue the policy down: the policy wins by design.
+  effect. Do not argue the policy down: the policy wins by design. A looser
+  `file:` policy is changed in a pull request of its own, never in the one it
+  grades.
+
+### `POLICY_KEYS_UNKNOWN` (warn)
+
+0.12.0. The app policy holds keys or ids this version of pharn-ci does not know
+(a newer signal id, rule, response key or `setup.expect` tool), so they were
+skipped and the rest of the policy applies; before 0.12.0 such a policy was
+dropped whole (`POLICY_UNAVAILABLE`). At most once per report; the text names up
+to 20 keys, sorted, each cut to 64 characters, and counts the rest. Only an app
+policy: a `file:` policy with an unknown key still fails the run.
+
+- Look at: the pharn-ci version the workflow pins, against the keys named.
+- Fix: update the pharn-ci pin to a release that knows the keys (the
+  `pharn-ci-install` skill), or ask the policy owner. The message is not about the
+  change.
 
 ### `POLICY_P02` (error)
 
@@ -153,13 +182,18 @@ while it sets a value looser than the policy, or an agent settings or MCP file.
 
 - **error**: the file fails P02 to P06, or could not be checked.
 - **warn**: it only warns, or supplies a required deny rule or hook, or the files were
-  not read.
-- **info**: the edited file complies.
+  not read. From 0.12.0 a file that supplies a required deny rule or hook gives
+  nothing.
+- **info**: the edited file complies (before 0.12.0; from 0.12.0 a complying edit
+  gives nothing).
+- An edit to a `file:` policy, or a rename away, is a P09 at `block` whatever it
+  does; the accept label does not lift it, so that pull request fails.
 - The text names up to 20 paths; each reason is in `policy.violations`. A pull
   request that edits the policy it is graded by raises P09.
 - Fix: revert the edit that loosens a guarded value, or make the settings file
   comply. A `file:` policy that the pull request carries can only tighten, so editing
-  it cannot loosen the gate.
+  it cannot loosen the gate: from 0.12.0 its copy at the base commit is united with
+  the pull request's key by key, the stricter value winning.
 
 ### `POLICY_P11` (error)
 
@@ -246,9 +280,14 @@ Rules P02 to P06 could not fully use an agent settings or MCP file, or did not r
 the files were not read, a file was dropped, unparseable, or has an entry the grammar
 does not know. `warn`, but `error` for a file pharn-ci could not read or a problem a
 required list depends on, because a file pharn-ci could not read counts against the
-policy. The text names up to 20 problems as path, line and reason, never file text.
+policy. Settings that were not read at all (a shallow checkout, `pr-number` mode) are
+an error when the policy requires a deny rule or hook at block, and from 0.11.0 also
+when it sets `forbidden_permissions` (P02), `allowed_mcp_servers` (P04) or
+`forbidden_mcp_servers` (P05) at block. The text names up to 20 problems as path,
+line and reason, never file text.
 
-- Fix: repair the named file (valid JSON, entries the settings grammar knows).
+- Fix: repair the named file (valid JSON, entries the settings grammar knows), or,
+  for settings not read, check out the pull request head with `fetch-depth: 0`.
 
 ## The 📜 Policy comment section and the policy object
 
@@ -298,14 +337,31 @@ unknown author, commits that cannot be listed, more than 250 commits, or an edit
   mode above the input and the config, replaces `coverage.exclude` and
   `coverage.root`, sets per-signal severities and the accept label, adds
   `setup.expect` tools, requires dependency safety when it has a `dependencies`
-  key (a `never` input becomes `auto`, named in `POLICY_OVERRIDE_IGNORED`), and
-  sets the prompt-injection exemptions, phrases and severities. A `file:` policy
+  key (a `never` input becomes `auto`, named in `POLICY_OVERRIDE_IGNORED`),
+  replaces the `dependency-allowed-hosts` input with its
+  `dependencies.allowed_hosts` (0.10.0; an input host it leaves out is named, by
+  setting and layer only, in `POLICY_OVERRIDE_IGNORED`), and sets the
+  prompt-injection exemptions, phrases and severities. A `file:` policy
   can only raise: a higher threshold, `setup.require: true`, a stricter mode,
   more `setup.expect` tools, higher signal severities, more injection phrases,
   and lower agent PR size caps.
+- **A `file:` policy the pull request edits.** From 0.12.0 the Action and the
+  CLI read the file at the base commit too and unite the two copies key by key
+  before applying it, so the stricter value applies to every key a file may
+  set: lists are unions (the base's injection phrases scanned first), a
+  threshold or a dependency minimum takes the higher value, a size cap the
+  smaller, a switch is on when either copy turns it on, a severity or mode the
+  stricter level. Each value the pull request has looser is named in
+  `POLICY_OVERRIDE_IGNORED`. Without a usable base copy (the pull request adds
+  the file, it cannot be read or is not a valid policy, or there is no local
+  diff: PR-number mode, a compare-API diff) only the pull request's copy
+  applies. In 0.4.x to 0.11.x only the agent lists, the P14 caps and the
+  injection phrases were united, so a pull request could lower the threshold,
+  the mode or a severity of the `file:` policy it is graded by for its own run
+  (and still raised P09).
 - **What a `file:` policy may not set.** Exclusions, a root, an accept label,
-  `policy.required`, `injection.exempt` and `dependencies.registries` are not
-  allowed from a file, because the pull request carries it; a value lower than
+  `policy.required`, `injection.exempt`, `dependencies.registries` and
+  `dependencies.allowed_hosts` are not allowed from a file, because the pull request carries it; a value lower than
   the workflow inputs give is ignored. Both are named in
   `POLICY_OVERRIDE_IGNORED`. The path is relative, stays inside the repository,
   goes through no symbolic link and names a regular file of at most 1 MiB.
