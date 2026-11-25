@@ -81,10 +81,10 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **Hard-link-safe writes.** Writes replace the file (`lib/atomic-write.ts`: exclusive temp, then `rename`), one by one
   via `applyWrites`; a new `settings.json` uses `COPYFILE_EXCL`. A hard link's other name is never written through.
 - **The clone is data.** `lib/repo.ts` is the only producer of a clone. `lib/tar-extract.ts` writes only the paths
-  `pharn-install.json` lists plus `CLONE_READ_FILES`, each a regular file under today's path rules; every other archive
-  entry is skipped and never written, whatever its type. It requires the tree's `pharn-install.json` (a tree without
-  one is refused) and verifies its raw sha256s before returning the tree, so a listed file that is missing or altered
-  fails; every manifest `dest` must pass `isPharnOwnedPath`, never the manifest's own `installRoots`. Nothing downloaded is ever executed: pharn-oss's `models` rules exist here as a pinned copy
+  the tree's install manifest (pharn-install.json) lists plus `CLONE_READ_FILES`, each a regular file under today's
+  path rules; every other archive entry is skipped and never written, whatever its type. A tree without that manifest
+  is refused, and its raw sha256s are verified before the tree is returned, so a listed file that is missing or
+  altered fails; every manifest `dest` must pass `isPharnOwnedPath`, never the manifest's own `installRoots`. Nothing downloaded is ever executed: pharn-oss's `models` rules exist here as a pinned copy
   (`lib/model-config.ts`), held to the vendored sha256-pinned checker by a differential test.
 - **Allowlists for untrusted names.** Untrusted names, versions, tags and manifest fields are checked against
   `CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, `RELEASE_TAG_RE` and the role/applies enums.

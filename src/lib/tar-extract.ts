@@ -146,18 +146,20 @@ function readPathField(block: Buffer, offset: number, length: number): string {
 }
 
 /**
- * The selection key of a header: its raw `prefix`/`name` bytes (latin1, so
+ * Is this header at a selected path? Its raw `prefix`/`name` bytes (latin1, so
  * byte for byte) with everything up to the first `/` — the archive root —
- * stripped; `null` when there is no `/`. Every selected path is ASCII, so an
+ * stripped are the key. A name with no `/` at all that IS a selected path is
+ * selected too, so a rootless copy of a listed file is refused (it has no
+ * component to strip) rather than skipped. Every selected path is ASCII, so an
  * exact membership test on these bytes is exact, and an unselected name is
  * never decoded, judged or printed.
  */
-function selectionKey(block: Buffer): string | null {
+function isSelected(block: Buffer, select: ReadonlySet<string>): boolean {
   const name = readString(block, OFF_NAME, LEN_NAME);
   const prefix = readString(block, OFF_PREFIX, LEN_PREFIX);
   const raw = prefix === '' ? name : `${prefix}/${name}`;
   const slash = raw.indexOf('/');
-  return slash === -1 ? null : raw.slice(slash + 1);
+  return select.has(slash === -1 ? raw : raw.slice(slash + 1));
 }
 
 /**
@@ -263,6 +265,11 @@ function resolveEntryPath(
   if (root === '.') {
     throw new TarExtractError(
       `tar entry has no leading component: ${fullPath}`,
+    );
+  }
+  if (segments.length === 1) {
+    throw new TarExtractError(
+      `tar entry has no path below the archive root: ${fullPath}`,
     );
   }
   // One root, the same throughout: a second root would mean strip-1 flattens
@@ -413,8 +420,7 @@ class TarWalker {
     if (MODIFIERS.has(typeflag)) this.modified = true;
     else if (typeflag !== 'g') this.modified = false;
 
-    const key = selectionKey(block);
-    if (key !== null && this.options.select.has(key)) {
+    if (isSelected(block, this.options.select)) {
       this.accept(block, typeflag, modified, size);
     }
     this.dataLeft = size;

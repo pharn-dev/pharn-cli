@@ -24,7 +24,7 @@ import { codeloadArchive } from './support/tar-fixture.js';
 // is written for it; at a selected path, every rule applies.
 
 const BLOCK = 512;
-const LIMITS: TarLimits = {
+const CAPS: TarLimits = {
   maxHeaders: 1000,
   maxScannedBytes: 8 * 1024 * 1024,
   maxWrittenBytes: 1024 * 1024,
@@ -127,7 +127,7 @@ const KEEP: EntryInit = { name: at('SKILLS_VERSION'), data: '1.0.0\n' };
 
 function opts(
   select: Iterable<string> = ['SKILLS_VERSION'],
-  limits: TarLimits = LIMITS,
+  limits: TarLimits = CAPS,
 ): ExtractOptions {
   return { select: new Set(select), limits };
 }
@@ -164,6 +164,34 @@ function refusal(archive: Buffer, options = opts(), dest = fresh()): string {
 
 const utf8AsLatin1 = (s: string): string =>
   Buffer.from(s, 'utf8').toString('latin1');
+
+/**
+ * The options the base-fixture cases extract with: every path they use is
+ * selected (keys are the raw header bytes as latin1, below the root), so each
+ * is judged by the full rules, as every entry was before CORE-386.
+ */
+const LIMITS: ExtractOptions = {
+  select: new Set([
+    'f.txt',
+    '../escape.txt',
+    'nested/../../escape.txt',
+    'loose.txt',
+    'link',
+    `n${ESC}[2K\r${ESC}[32mOK`,
+    utf8AsLatin1('evil\u202egnp.md'),
+    utf8AsLatin1('se\u200bcurity.md'),
+    `d${ESC}x/f.md`,
+    utf8AsLatin1('a\u2028b.md'),
+    'evil-\x9b2J.md',
+    'bad-\xe2\x80.md',
+    'slash-\xc0\xaf.md',
+    'a\\..\\..\\evil',
+    'C:/x',
+    'a:b.md',
+    'd\\e/f.md',
+  ]),
+  limits: CAPS,
+};
 
 // What is written.
 describe('extractTar', () => {
@@ -315,7 +343,7 @@ describe('extractTar', () => {
     // path: it is skipped like any other entry pharn does not install.
     const dest = fresh();
     extractTar(
-      tar([GLOBAL_HEADER, { name: 'SKILLS_VERSION', data: 'x' }]),
+      tar([GLOBAL_HEADER, { name: 'loose.txt', data: 'x' }]),
       dest,
       opts(),
     );
@@ -467,7 +495,7 @@ describe('extractTar', () => {
     extractTar(
       githubArchive([{ name: at('big.bin'), data: 'x'.repeat(4096) }, KEEP]),
       dest,
-      opts(['SKILLS_VERSION'], { ...LIMITS, maxWrittenBytes: 100 }),
+      opts(['SKILLS_VERSION'], { ...CAPS, maxWrittenBytes: 100 }),
     );
     expect(treeOf(dest)).toEqual(['SKILLS_VERSION']);
   });
@@ -475,52 +503,6 @@ describe('extractTar', () => {
 
 // At a selected path: refused.
 describe('extractTar', () => {
-  it.each([
-    ['a symlink', '2'],
-    ['a hard link', '1'],
-    ['a character device', '3'],
-    ['a block device', '4'],
-    ['a directory', '5'],
-    ['a fifo', '6'],
-    ['a pax extended header', 'x'],
-    ['a pax global header', 'g'],
-    ['a GNU long name', 'L'],
-    ['a GNU long link name', 'K'],
-    ['an unknown type', '9'],
-  ])('rejects %s entry outright, rather than skipping it', (_label, type) => {
-    const dest = fresh();
-    const message = refusal(
-      githubArchive([{ name: at('SKILLS_VERSION'), type }]),
-      opts(),
-      dest,
-    );
-    expect(message).toMatch(/unsupported type/);
-    expect(message).toContain(at('SKILLS_VERSION'));
-    expect(treeOf(dest)).toEqual([]);
-  });
-
-  // An `x` header's records OVERRIDE the ustar header that follows it, so the
-  // listed file after one is refused whatever the payload: it is never read.
-  it.each([
-    ['path=', paxRecord('path', at('deep/elsewhere.txt'))],
-    ['size=', paxRecord('size', '8589934592')],
-    ['only benign metadata', paxRecord('mtime', '1700000000.0')],
-    ['an unparseable payload', '7 comment=xyz\n'],
-    ['an empty payload', ''],
-  ])(
-    'refuses a pax extended header carrying %s, on its typeflag alone',
-    (_label, data) => {
-      const message = refusal(
-        githubArchive([
-          { name: at('PaxHeaders/SKILLS_VERSION'), type: 'x', data },
-          KEEP,
-        ]),
-      );
-      expect(message).toMatch(/pax extended or GNU long-name header/);
-      expect(message).toContain(at('SKILLS_VERSION'));
-    },
-  );
-
   it('refuses a selected file that follows a GNU long name, whose records pharn does not honour', () => {
     expect(
       refusal(
@@ -541,19 +523,6 @@ describe('extractTar', () => {
     ).toMatch(/pax extended or GNU long-name header/);
   });
 
-  it.each([
-    ['a `..` segment', '../SKILLS_VERSION', 'SKILLS_VERSION'],
-    [
-      'a deeper `..` segment',
-      `${ROOT}/nested/../../escape.txt`,
-      'nested/../../escape.txt',
-    ],
-  ])('rejects %s', (_label, name, selected) => {
-    expect(
-      refusal(tar([GLOBAL_HEADER, { name, data: 'x' }]), opts([selected])),
-    ).toMatch(/escapes the archive root/);
-  });
-
   it('rejects an absolute path', () => {
     expect(
       refusal(tar([GLOBAL_HEADER, { name: '/SKILLS_VERSION', data: 'x' }])),
@@ -564,26 +533,6 @@ describe('extractTar', () => {
     expect(
       refusal(tar([GLOBAL_HEADER, { name: './SKILLS_VERSION', data: 'x' }])),
     ).toMatch(/no leading component/);
-  });
-
-  // CORE-173: `\` and `:` in an entry name. POSIX writes `a\..\..\evil` as
-  // ONE literal file name; win32 would read the same bytes as a path. At a
-  // listed path either is refused, naming the entry.
-  it.each([
-    ['a drive letter', 'C:/SKILLS_VERSION', 'SKILLS_VERSION'],
-    ['a backslash path', `${ROOT}/a\\..\\..\\evil`, 'a\\..\\..\\evil'],
-    ['a colon in a name', `${ROOT}/a:b.md`, 'a:b.md'],
-    ['a backslash in the root', 'a\\b/SKILLS_VERSION', 'SKILLS_VERSION'],
-  ])('refuses %s, writing nothing', (_label, name, selected) => {
-    const dest = fresh();
-    const message = refusal(
-      tar([GLOBAL_HEADER, { name, data: 'x' }]),
-      opts([selected]),
-      dest,
-    );
-    expect(message).toMatch(/backslash or colon/);
-    expect(message).toContain(name);
-    expect(treeOf(dest)).toEqual([]);
   });
 
   it('refuses a backslash or colon in the ustar prefix too', () => {
@@ -615,39 +564,6 @@ describe('extractTar', () => {
     const message = refusal(githubArchive([KEEP, KEEP]), opts(), dest);
     expect(message).toMatch(/holds this path twice/);
     expect(message).toContain(at('SKILLS_VERSION'));
-  });
-
-  // PHARN-17: a name a terminal would interpret is refused before any other
-  // rule, so it is neither installed nor echoed raw by a refusal message.
-  // Names are latin1 in the header, so a UTF-8 U+202E is written as its bytes.
-  it.each([
-    ['an ESC sequence in the root', { name: `d${ESC}[2K\r/SKILLS_VERSION` }],
-    [
-      'a right-to-left override',
-      { name: utf8AsLatin1('evil\u202egnp/SKILLS_VERSION') },
-    ],
-    [
-      'a zero-width space',
-      { name: utf8AsLatin1('se\u200bcurity/SKILLS_VERSION') },
-    ],
-    [
-      'a control byte in the ustar prefix',
-      { name: 'SKILLS_VERSION', prefix: `d${ESC}x` },
-    ],
-    [
-      'a line separator (U+2028)',
-      { name: utf8AsLatin1('a\u2028b/SKILLS_VERSION') },
-    ],
-  ])('refuses %s, naming it without the raw character', (_label, entry) => {
-    const dest = fresh();
-    const message = refusal(
-      tar([GLOBAL_HEADER, { ...entry, data: 'x' }]),
-      opts(),
-      dest,
-    );
-    expect(message).toMatch(/control or format character/);
-    expect(hasUnsafeChars(message)).toBe(false);
-    expect(treeOf(dest)).toEqual([]);
   });
 
   // A decoder's DEFAULT drops a leading byte-order mark: the name would be
@@ -684,29 +600,193 @@ describe('extractTar', () => {
     expect(message).not.toContain(ESC);
   });
 
-  it.each([
-    ['a raw C1 byte', 'pharn-oss-\x9b2J/SKILLS_VERSION'],
-    ['a truncated UTF-8 sequence', 'bad-\xe2\x80/SKILLS_VERSION'],
-    ['an overlong encoding', 'slash-\xc0\xaf/SKILLS_VERSION'],
-  ])(
-    'refuses a name holding %s — not valid UTF-8 — writing nothing',
-    (_label, name) => {
-      const dest = fresh();
-      const message = refusal(
-        tar([GLOBAL_HEADER, { name, data: 'x' }]),
-        opts(),
-        dest,
-      );
-      expect(message).toMatch(/not valid UTF-8/);
-      expect(hasUnsafeChars(message)).toBe(false);
-      expect(treeOf(dest)).toEqual([]);
-    },
-  );
-
   it('refuses invalid UTF-8 in the ustar prefix too', () => {
     expect(
       refusal(tar([{ name: 'SKILLS_VERSION', prefix: 'd\x9b', data: 'x' }])),
     ).toMatch(/not valid UTF-8/);
+  });
+});
+
+// The rules a SELECTED entry is held to, over the base fixtures: `LIMITS`
+// selects each path these cases use (as latin1 keys, byte for byte), so every
+// entry below is judged exactly as before CORE-386.
+describe('extractTar', () => {
+  const onDisk = (dir: string): Buffer[] =>
+    readdirSync(dir, { encoding: 'buffer' });
+
+  it.each([
+    ['path=', paxRecord('path', 'pharn-oss-abc1234/deep/elsewhere.txt')],
+    ['size=', paxRecord('size', '8589934592')],
+    ['only benign metadata', paxRecord('mtime', '1700000000.0')],
+    ['an unparseable payload', '7 comment=xyz\n'],
+    ['an empty payload', ''],
+  ])(
+    'refuses a pax extended header carrying %s, on its typeflag alone',
+    (_label, data) => {
+      expect(() =>
+        extractTar(
+          githubArchive([
+            { name: 'pharn-oss-abc1234/PaxHeaders/f.txt', type: 'x', data },
+            { name: 'pharn-oss-abc1234/f.txt', data: 'x' },
+          ]),
+          tmp.path(),
+          LIMITS,
+        ),
+      ).toThrow(/pax extended or GNU long-name header/);
+    },
+  );
+
+  it.each([
+    ['a `..` segment', 'pharn-oss-abc1234/../escape.txt'],
+    ['a deeper `..` segment', 'pharn-oss-abc1234/nested/../../escape.txt'],
+  ])('rejects %s', (_label, name) => {
+    expect(() =>
+      extractTar(githubArchive([{ name, data: 'x' }]), tmp.path(), LIMITS),
+    ).toThrow(TarExtractError);
+  });
+
+  it.each([
+    ['a symlink', '2'],
+    ['a hardlink', '1'],
+    ['a character device', '3'],
+    ['a block device', '4'],
+    ['a fifo', '6'],
+    ['a pax extended header', 'x'],
+    // GNU's long-name typeflags are the other way a writer escapes ustar's
+    // 100-byte name field. They need no branch of their own — they are neither
+    // '0'/NUL nor '5', so they land in this reject — but they are pinned HERE
+    // so a future refactor of the bucket cannot start accepting them quietly.
+    ['a GNU long name', 'L'],
+    ['a GNU long link name', 'K'],
+    ['an unknown type', '9'],
+    ['a directory', '5'],
+    ['a pax global header', 'g'],
+  ])('rejects %s entry outright, rather than skipping it', (_label, type) => {
+    // At a selected path only (`link` is in LIMITS.select): outside the
+    // selection the same entry is skipped (see the block above).
+    expect(() =>
+      extractTar(
+        githubArchive([{ name: 'pharn-oss-abc1234/link', type }]),
+        tmp.path(),
+        LIMITS,
+      ),
+    ).toThrow(/unsupported type/);
+  });
+
+  it.each([
+    [
+      'an ESC sequence in the name',
+      { name: `pharn-oss-abc1234/n${ESC}[2K\r${ESC}[32mOK` },
+    ],
+    [
+      'a right-to-left override',
+      { name: utf8AsLatin1('pharn-oss-abc1234/evil\u202egnp.md') },
+    ],
+    [
+      'a zero-width space',
+      { name: utf8AsLatin1('pharn-oss-abc1234/se\u200bcurity.md') },
+    ],
+    [
+      'a control byte in the ustar prefix',
+      { name: 'f.md', prefix: `pharn-oss-abc1234/d${ESC}x` },
+    ],
+    // CORE-170: the one unsafe set now holds the two line separators too.
+    [
+      'a line separator (U+2028)',
+      { name: utf8AsLatin1('pharn-oss-abc1234/a\u2028b.md') },
+    ],
+  ])('refuses %s, naming it without the raw character', (_label, entry) => {
+    let message = '';
+    try {
+      extractTar(githubArchive([entry]), tmp.path(), LIMITS);
+    } catch (err) {
+      expect(err).toBeInstanceOf(TarExtractError);
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/control or format character/);
+    expect(hasUnsafeChars(message)).toBe(false);
+  });
+
+  it.each([
+    ['a raw C1 byte', 'pharn-oss-abc1234/evil-\x9b2J.md'],
+    ['a truncated UTF-8 sequence', 'pharn-oss-abc1234/bad-\xe2\x80.md'],
+    ['an overlong encoding of "/"', 'pharn-oss-abc1234/slash-\xc0\xaf.md'],
+  ])(
+    'refuses a name holding %s — not valid UTF-8 — writing nothing',
+    (_label, name) => {
+      const dest = tmp.path();
+      let message = '';
+      try {
+        extractTar(githubArchive([{ name, data: 'x' }]), dest, LIMITS);
+      } catch (err) {
+        expect(err).toBeInstanceOf(TarExtractError);
+        message = (err as Error).message;
+      }
+      expect(message).toMatch(/not valid UTF-8/);
+      expect(hasUnsafeChars(message)).toBe(false);
+      expect(onDisk(dest)).toEqual([]);
+    },
+  );
+
+  // A GNU base-256 field sets the high bit of its first byte. No such byte is
+  // an octal digit, so the non-octal check refuses it: 0x80 directly, and 0xA0
+  // because only ASCII space is trimmed (String#trim would strip U+00A0 and
+  // then read the octal digits behind it as the size).
+  it.each([
+    ['0x80', 0x80],
+    ['0xa0 (U+00A0 in latin1)', 0xa0],
+    ['0xff', 0xff],
+  ])(
+    'rejects a size field whose first byte is %s (GNU base-256), never misreading it',
+    (_label, byte) => {
+      const bytes = Buffer.concat([
+        header({ name: 'pharn-oss-abc1234/', type: '5' }),
+        header({
+          name: 'pharn-oss-abc1234/f.txt',
+          data: 'x',
+          forgeSizeByte: byte,
+        }),
+        Buffer.alloc(BLOCK),
+        Buffer.alloc(BLOCK * 2),
+      ]);
+      expect(() => extractTar(bytes, tmp.path(), LIMITS)).toThrow(
+        /non-octal numeric field/,
+      );
+    },
+  );
+
+  // CORE-173: `\` and `:` in an entry name. POSIX writes `a\..\..\evil` as
+  // ONE literal file name; win32 would read the same bytes as a path. pharn-oss
+  // ships neither character, so either is refused, naming the entry.
+  it.each([
+    ['a backslash path', 'pharn-oss-abc1234/a\\..\\..\\evil'],
+    ['a drive letter', 'pharn-oss-abc1234/C:/x'],
+    ['a colon in a name', 'pharn-oss-abc1234/a:b.md'],
+    ['a backslash in a directory segment', 'pharn-oss-abc1234/d\\e/f.md'],
+  ])('refuses %s, writing nothing', (_label, name) => {
+    const dest = tmp.path();
+    let message = '';
+    try {
+      extractTar(githubArchive([{ name, data: 'x' }]), dest, LIMITS);
+    } catch (err) {
+      expect(err).toBeInstanceOf(TarExtractError);
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/backslash or colon/);
+    expect(message).toContain(name);
+    expect(readdirSync(dest)).toEqual([]);
+  });
+
+  it('rejects a file with no component to strip', () => {
+    // `loose.txt` is selected: a rootless copy of a listed file is refused,
+    // not skipped. No preceding root entry, so the strip-1 rule rejects it.
+    expect(() =>
+      extractTar(
+        tar([GLOBAL_HEADER, { name: 'loose.txt', data: 'x' }]),
+        tmp.path(),
+        LIMITS,
+      ),
+    ).toThrow(/no path below the archive root/);
   });
 });
 
@@ -790,27 +870,6 @@ describe('extractTar', () => {
     expect(message).not.toContain('\n');
     expect(message).toContain('1\\x0a Done');
   });
-
-  // A GNU base-256 field sets the high bit of its first byte. No such byte is
-  // an octal digit, so the non-octal check refuses it: 0x80 directly, and 0xA0
-  // because only ASCII space is trimmed (String#trim would strip U+00A0 and
-  // then read the octal digits behind it as the size).
-  it.each([
-    ['0x80', 0x80],
-    ['0xa0 (U+00A0 in latin1)', 0xa0],
-    ['0xff', 0xff],
-  ])(
-    'rejects a size field whose first byte is %s (GNU base-256), never misreading it',
-    (_label, byte) => {
-      const bytes = Buffer.concat([
-        header({ name: `${ROOT}/`, type: '5' }),
-        header({ name: at('f.txt'), data: 'x', forgeSizeByte: byte }),
-        Buffer.alloc(BLOCK),
-        Buffer.alloc(BLOCK * 2),
-      ]);
-      expect(refusal(bytes)).toMatch(/non-octal numeric field/);
-    },
-  );
 });
 
 // Caps.
@@ -824,14 +883,14 @@ describe('extractTar', () => {
     expect(() =>
       extractTar(githubArchive(many), fresh(), {
         select: new Set(),
-        limits: { ...LIMITS, maxHeaders: 3 },
+        limits: { ...CAPS, maxHeaders: 3 },
       }),
     ).toThrow(/more than 3 headers/);
   });
 
   it('counts every pax global header toward the entry cap', () => {
     const empty: EntryInit = { name: 'pax_global_header', type: 'g', data: '' };
-    const limits = { ...LIMITS, maxHeaders: 3 };
+    const limits = { ...CAPS, maxHeaders: 3 };
     expect(
       refusal(tar([empty, empty, empty, empty]), opts([], limits)),
     ).toMatch(/more than 3 headers/);
@@ -850,7 +909,7 @@ describe('extractTar', () => {
     const dest = fresh();
     const message = refusal(
       githubArchive([KEEP, { name: at('big.md'), data: 'x'.repeat(600) }]),
-      opts(['SKILLS_VERSION', 'big.md'], { ...LIMITS, maxWrittenBytes: 100 }),
+      opts(['SKILLS_VERSION', 'big.md'], { ...CAPS, maxWrittenBytes: 100 }),
       dest,
     );
     expect(message).toMatch(/exceed 100 bytes/);
@@ -862,7 +921,7 @@ describe('extractTar', () => {
     expect(
       refusal(
         githubArchive([{ name: at('pad'), data: 'x'.repeat(4096) }, KEEP]),
-        opts(['SKILLS_VERSION'], { ...LIMITS, maxScannedBytes: 2048 }),
+        opts(['SKILLS_VERSION'], { ...CAPS, maxScannedBytes: 2048 }),
       ),
     ).toMatch(/decompresses to more than 2048 bytes/);
   });
@@ -947,15 +1006,20 @@ describe('extractTarGz', () => {
   });
 
   it('bounds the bytes written by the selected sizes (maxWrittenBytes)', async () => {
+    // Formerly gunzip's decompressed-size cap: the tar is streamed now, so the
+    // cap applies to the bytes written, not to the whole repository.
     await expect(
       extractTarGz(
         gzipSync(
           githubArchive([
-            { name: at('SKILLS_VERSION'), data: 'x'.repeat(600) },
+            { name: 'pharn-oss-abc1234/big.txt', data: 'x'.repeat(600) },
           ]),
         ),
-        fresh(),
-        opts(['SKILLS_VERSION'], { ...LIMITS, maxWrittenBytes: 100 }),
+        tmp.path(),
+        {
+          select: new Set(['big.txt']),
+          limits: { ...CAPS, maxWrittenBytes: 100 },
+        },
       ),
     ).rejects.toThrow(/exceed 100 bytes/);
   });
@@ -981,7 +1045,7 @@ describe('extractTarGz', () => {
       extractTarGz(
         bomb,
         fresh(),
-        opts(['SKILLS_VERSION'], { ...LIMITS, maxScannedBytes: 65536 }),
+        opts(['SKILLS_VERSION'], { ...CAPS, maxScannedBytes: 65536 }),
       ),
     ).rejects.toThrow(/decompresses to more than 65536 bytes/);
   });
@@ -996,7 +1060,7 @@ describe('extractTarGz', () => {
         ]),
       ),
       dest,
-      opts(['SKILLS_VERSION'], { ...LIMITS, maxWrittenBytes: 4096 }),
+      opts(['SKILLS_VERSION'], { ...CAPS, maxWrittenBytes: 4096 }),
     );
     expect(treeOf(dest)).toEqual(['SKILLS_VERSION']);
   });
