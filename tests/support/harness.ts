@@ -161,24 +161,34 @@ export const upstream: {
   // false: serve the tree as is, with no pharn-install.json — a pharn-oss
   // older than 7.21.0, which every command refuses.
   seal: boolean;
+  // Tree paths served as symbolic links to these targets (tar-fixture.ts),
+  // still declared by the manifest built from the tree.
+  links: Record<string, string>;
 } = {
   sha: SHA_V1,
   version: '1.0.0',
   tree: upstreamTree('1.0.0'),
   published: true,
   seal: true,
+  links: {},
 };
 
 export function serveTip(
   sha: string,
   version: string,
-  opts: { published?: boolean; tree?: Tree; seal?: boolean } = {},
+  opts: {
+    published?: boolean;
+    tree?: Tree;
+    seal?: boolean;
+    links?: Record<string, string>;
+  } = {},
 ): void {
   upstream.sha = sha;
   upstream.version = version;
   upstream.tree = opts.tree ?? upstreamTree(version);
   upstream.published = opts.published ?? true;
   upstream.seal = opts.seal ?? true;
+  upstream.links = opts.links ?? {};
 }
 
 // The bytes the tarball carries: the tree plus a manifest that declares it,
@@ -229,7 +239,9 @@ export const fetchStub = vi.fn(async (input: unknown): Promise<Response> => {
   // An unresolved tip (`failures.tip`) floats the branch: the same bytes.
   if (url === tarballUrl(upstream.sha) || url === tarballUrl(FLOATING_REF)) {
     return new Response(
-      new Uint8Array(codeloadArchive(upstream.sha, servedTree())),
+      new Uint8Array(
+        codeloadArchive(upstream.sha, servedTree(), upstream.links),
+      ),
     );
   }
   throw new Error(`unexpected fetch: ${url}`);

@@ -121,7 +121,8 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - `src/index.ts`: dispatch only. `lib/cli-args.ts`: the command/option tables, help text and the argv parse (`init` default).
 - `commands/`: one verb each (`init`, `add`, `remove`/`rm`, `update`, `list`, `status`, `uninstall`).
 - `steps/`: init stages (`node-prereq`, `prereqs`, `archetype-summary`, `overwrite-check`, `install-archetype`), `add-picker`.
-- Fetch boundary: `fetch-capped` (the one bounded GET), `release` (which commit), `repo` + `tar-extract`, `skills-version`,
+- Fetch boundary: `fetch-capped` (the one bounded GET), `release` (which commit), `repo` + `tar-extract`, `archive-refusal`
+  (the refused-archive message), `skills-version`,
   `min-cli-gate`, `upstream-manifest` (the upstream install manifest's one parser), `capability-index` (manifest →
   typed index), `upstream-models`.
 - Selection: `detect-archetype` + `archetype` (detection), `resolve-capabilities`, `merge-capabilities`,

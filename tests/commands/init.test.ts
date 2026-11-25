@@ -2054,3 +2054,124 @@ describe('a release whose manifest names a path outside the outer bound', () => 
     expect(snapshot()).toEqual(before);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A refused pharn-oss archive. The symlink sits at a path the manifest
+// declares, so the extractor refuses it however narrowly it unpacks. The
+// message names the ref, blames the archive, keeps the original reason and
+// lists only steps the CLI has; the raw error is behind PHARN_DEBUG.
+// ---------------------------------------------------------------------------
+
+describe('init on a refused pharn-oss archive', () => {
+  const LINKED = { [SECURITY]: '../../../.agents/skills/security' };
+  const ISSUES = 'https://github.com/pharn-dev/pharn-oss/issues';
+
+  it('on the release channel: names the tag and commit, blames the archive, offers --ref main, and changes nothing', async () => {
+    const clones = watchClones();
+    serveTip(SHA_V1, '1.0.0', { links: LINKED });
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    const shown = errors();
+    expect(shown).toContain(
+      `pharn-oss release v1.0.0 (commit ${SHA_V1}) was refused: its published archive failed pharn's checks.`,
+    );
+    expect(shown).toContain(
+      'The problem is in that pharn-oss archive, not in your project; nothing in your project was changed.',
+    );
+    expect(shown).toContain(
+      `Reason: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there): pharn-oss-${SHA_V1.slice(0, 7)}/${SECURITY}`,
+    );
+    expect(shown).toContain(
+      'No option skips this check: forcing an update or answering yes does not help. Next steps:',
+    );
+    expect(shown).toContain(
+      '- install the tip of main instead: `pharn init --ref main` (`pharn update --ref main` for an existing install)',
+    );
+    expect(shown).toContain('`npm install -g @pharn-dev/pharn@latest`');
+    expect(shown).toContain(
+      `re-run once pharn-oss publishes a fixed release, and report this at ${ISSUES}`,
+    );
+    // A release has no `--ref latest` step to offer, and the network was reached.
+    expect(shown).not.toContain('--ref latest');
+    expect(shown).not.toContain('Could not reach');
+    expect(informed()).toContain('PHARN_DEBUG=1');
+    // The spinner agrees: refused, not a failure to fetch.
+    const stops = vi
+      .mocked(clack.spinner)
+      .mock.results.flatMap((r) =>
+        (
+          r.value as { stop: { mock: { calls: unknown[][] } } }
+        ).stop.mock.calls.map((c) =>
+          stripVTControlCharacters(String(c[0] ?? '')),
+        ),
+      );
+    expect(stops).toContain('pharn-oss archive refused');
+    expect(stops).not.toContain('Failed to fetch PHARN');
+    // The sentence is true: no config, no .claude/, no lock, nothing at all.
+    expect(snapshot()).toEqual(before);
+    expect(exists('pharn.config.json')).toBe(false);
+    expect(exists('.claude')).toBe(false);
+    expect(exists('pharn/.lock')).toBe(false);
+    expect(clones()).toEqual([]);
+  });
+
+  it('on the main channel: names main and the commit, and offers --ref latest', async () => {
+    serveTip(SHA_V2, '1.0.0', { links: LINKED });
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true, ref: 'main' }))).toBe(1);
+    const shown = errors();
+    expect(shown).toContain(
+      `pharn-oss main at commit ${SHA_V2} was refused: its published archive failed pharn's checks.`,
+    );
+    expect(shown).toContain(
+      `Reason: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there): pharn-oss-${SHA_V2.slice(0, 7)}/${SECURITY}`,
+    );
+    expect(shown).toContain(
+      '- go back to verified releases: `pharn init --ref latest` (`pharn update --ref latest` for an existing install)',
+    );
+    expect(shown).toContain(
+      `re-run later, once main is fixed, and report this at ${ISSUES}`,
+    );
+    expect(shown).not.toContain('--ref main');
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('on the main channel with the commit unresolved: says so instead of a SHA', async () => {
+    failures.tip = 'throw';
+    serveTip(SHA_V2, '1.0.0', { links: LINKED });
+    expect(await run(() => runInit({ yes: true, ref: 'main' }))).toBe(1);
+    expect(errors()).toContain(
+      'pharn-oss main (refs/heads/main, commit not resolved) was refused',
+    );
+  });
+
+  it('a manifest sha256 mismatch is reported the same way, its own reason kept', async () => {
+    const tree = manifestTree('7.20.0');
+    serveTip(SHA_V1, '7.20.0', {
+      tree: { ...tree, [SECURITY]: 'swapped after the manifest was made\n' },
+    });
+    const before = snapshot();
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    const shown = errors();
+    expect(shown).toContain(
+      `pharn-oss release v7.20.0 (commit ${SHA_V1}) was refused`,
+    );
+    expect(shown).toContain(
+      `Reason: pharn-oss's pharn-install.json declares a sha256 for ${SECURITY} that its bytes do not match`,
+    );
+    expect(shown).toContain('`pharn init --ref main`');
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('under PHARN_DEBUG=1 the raw refusal is dumped to stderr instead of the hint', async () => {
+    vi.stubEnv('PHARN_DEBUG', '1');
+    serveTip(SHA_V1, '1.0.0', { links: LINKED });
+    expect(await run(() => runInit({ yes: true }))).toBe(1);
+    expect(errors()).toContain('pharn-oss release v1.0.0');
+    expect(informed()).not.toContain('PHARN_DEBUG=1');
+    const raw = stripVTControlCharacters(stderr().join('\n'));
+    expect(raw).toContain(
+      `TarExtractError: tar entry has an unsupported type '2' at a path pharn installs (only a regular file is accepted there): pharn-oss-${SHA_V1.slice(0, 7)}/${SECURITY}`,
+    );
+  });
+});

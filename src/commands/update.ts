@@ -58,6 +58,7 @@ import {
 import { buildRecords, writeRecords } from '../lib/install-records.js';
 import { terminalSafe } from '../lib/terminal-safe.js';
 import { fetchRepo, type FetchedRepo } from '../lib/repo.js';
+import { archiveRefusalMessage } from '../lib/archive-refusal.js';
 import {
   channelOf,
   resolveSource,
@@ -309,7 +310,7 @@ async function runArchetypeUpdate(
     repo = await fetchRepo(source);
   } catch (err) {
     pre.stop('Update failed');
-    throw CliError.failure(err);
+    throw CliError.failure(err, { message: archiveRefusalMessage(err) });
   }
 
   let outcome: UpdateOutcome;
@@ -785,7 +786,10 @@ async function fetchAndPlan(
     repo = await fetchRepo(source);
   } catch (err) {
     ui.spin.stop('Planning failed');
-    throw CliError.failure(err, { json: ui.json });
+    throw CliError.failure(err, {
+      json: ui.json,
+      message: archiveRefusalMessage(err),
+    });
   }
   try {
     return planFromClone(repo, config, cwd, force, channel, ui);

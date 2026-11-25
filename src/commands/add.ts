@@ -28,6 +28,10 @@ import {
 } from '../lib/install-records.js';
 import { fetchRepo } from '../lib/repo.js';
 import {
+  ARCHIVE_REFUSED_SPINNER,
+  archiveRefusalMessage,
+} from '../lib/archive-refusal.js';
+import {
   channelOf,
   resolveSource,
   sourceLabel,
@@ -175,7 +179,11 @@ async function runArchetypeAdd(
     repo = await fetchRepo(await resolveSource(channelOf(config)));
     s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
   } catch (err) {
-    s.stop('Failed to fetch capabilities');
+    s.stop(
+      archiveRefusalMessage(err) === undefined
+        ? 'Failed to fetch capabilities'
+        : ARCHIVE_REFUSED_SPINNER,
+    );
     // Unwinds through the lock's release; runAdd's catch labels it.
     throw err;
   }
@@ -256,7 +264,11 @@ async function runAddPicker(
     repo = await fetchRepo(await resolveSource(channelOf(config)));
     s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
   } catch (err) {
-    s.stop('Failed to fetch capabilities');
+    s.stop(
+      archiveRefusalMessage(err) === undefined
+        ? 'Failed to fetch capabilities'
+        : ARCHIVE_REFUSED_SPINNER,
+    );
     throw err;
   }
   let outcome: PickerAddOutcome;
@@ -315,7 +327,7 @@ function plural(n: number): string {
 // anything else is a failure, which earns the hint.
 function addError(err: unknown): CliError {
   if (err instanceof ProjectLockedError) return CliError.refusal(err.message);
-  return CliError.failure(err);
+  return CliError.failure(err, { message: archiveRefusalMessage(err) });
 }
 
 // Resolve the arg against the fetched index and, if it uniquely names a
