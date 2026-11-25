@@ -14,6 +14,7 @@ import { REPO, REPO_BRANCH } from '../src/lib/constants.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
 import { TarExtractError } from '../src/lib/tar-extract.js';
+import { archiveRefusalMessage } from '../src/lib/archive-refusal.js';
 import { codeloadArchive } from './support/tar-fixture.js';
 import {
   MANIFEST,
@@ -859,6 +860,87 @@ describe('fetchRepo — only the listed paths are unpacked (CORE-386)', () => {
     await expect(
       extractPharnArchive(archiveWith(tree, UNLISTED), again),
     ).resolves.toMatchObject({ skillsVersion: '7.20.0' });
+  });
+});
+
+// fetchRepo re-throws a refused archive UNCHANGED (its class is the contract)
+// and notes the ref it fetched, which the command boundary turns into the
+// user-facing message (lib/archive-refusal.ts).
+describe('fetchRepo — a refused archive keeps its error and is noted with the ref', () => {
+  const linked = { [SECURITY]: '../../../.agents/skills/security' };
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'pharn-repo-sandbox-'));
+    process.env.TMPDIR = sandbox;
+    process.env.TEMP = sandbox;
+    process.env.TMP = sandbox;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(realTmp)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(sandbox, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+  });
+
+  it('a symlink on the release channel: a TarExtractError, noted with the tag and commit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        tarResponse(codeloadArchive(VALID_SHA, manifestTree('7.20.0'), linked)),
+      ),
+    );
+    const err = await fetchRepo({
+      kind: 'release',
+      tag: 'v7.20.0',
+      version: '7.20.0',
+      sha: VALID_SHA,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TarExtractError);
+    expect(archiveRefusalMessage(err)).toContain(
+      `pharn-oss release v7.20.0 (commit ${VALID_SHA}) was refused`,
+    );
+    expect(archiveRefusalMessage(err)).toContain(
+      `Reason: ${(err as Error).message}`,
+    );
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('a symlink on main: noted with the resolved commit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === RESOLVE_URL
+          ? new Response(`${VALID_SHA}\n`)
+          : tarResponse(
+              codeloadArchive(VALID_SHA, manifestTree('7.20.0'), linked),
+            ),
+      ),
+    );
+    const err = await fetchRepo({ kind: 'main' }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TarExtractError);
+    expect(archiveRefusalMessage(err)).toContain(
+      `pharn-oss main at commit ${VALID_SHA} was refused`,
+    );
+  });
+
+  it('a download failure is not an archive refusal: thrown as is, not noted', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      }),
+    );
+    const err = await fetchRepo({
+      kind: 'release',
+      tag: 'v7.20.0',
+      version: '7.20.0',
+      sha: VALID_SHA,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(archiveRefusalMessage(err)).toBeUndefined();
   });
 });
 

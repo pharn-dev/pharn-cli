@@ -52,7 +52,7 @@ function archiveFile(
   name = 'pharn-oss.tar.gz',
 ): string {
   const path = join(proj(), '..', name);
-  writeFileSync(path, codeloadArchive(SHA_V1, tree, opts));
+  writeFileSync(path, codeloadArchive(SHA_V1, tree, {}, opts));
   return path;
 }
 

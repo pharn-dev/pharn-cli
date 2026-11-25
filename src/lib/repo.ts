@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { noteArchiveRefusal } from './archive-refusal.js';
 import {
   CLAUDE_SETTINGS_FILE,
   MIN_CLI_FILE,
@@ -133,8 +134,15 @@ export interface FetchedRepo {
  * cache.
  */
 export async function fetchRepo(source: InstallSource): Promise<FetchedRepo> {
-  if (source.kind === 'release') return fetchAt(source, source.sha);
-  return fetchAt(source, await fetchCommitSha());
+  const sha = source.kind === 'release' ? source.sha : await fetchCommitSha();
+  try {
+    return await fetchAt(source, sha);
+  } catch (err) {
+    // Re-thrown unchanged; a refused archive is noted with the ref, so the
+    // command can say which archive and what to try (lib/archive-refusal.ts).
+    noteArchiveRefusal(err, source, sha);
+    throw err;
+  }
 }
 
 // The download + extract half, at a resolved (or, for `main` only, null) SHA.

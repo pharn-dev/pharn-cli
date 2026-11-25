@@ -15,6 +15,12 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 - **`pharn verify-archive <file>` checks a local pharn-oss `.tar.gz` the way an install checks a download, with no network.** It is for pharn-oss CI, which can now find out that a commit would install before it tags that commit as a release. It runs the install's own steps on the file: both extraction passes, the `pharn-install.json` validation, the sha256 of every listed file and the capability index. With `--expect-version X.Y.Z`, the archive's `SKILLS_VERSION` must also equal that version, as a release install requires of its tag. A `MIN_CLI` that is present but not a valid version fails the check, where an install would warn and carry on. The command needs no project and takes no lock. It reads the file only if it is a regular file of at most 32 MiB, and it removes its one temporary directory whether the check passes or fails. It exits 0 with a one-line summary, or 1 with the reason, which names the entry and the rule. The archive must have one top-level directory, as GitHub's do, so build it with `git archive --prefix=pharn-oss/ --format=tar.gz -o pharn-oss.tar.gz HEAD`. See [`docs/commands/verify-archive.md`](docs/commands/verify-archive.md) for the pharn-oss CI lines.
 
+## [0.21.7] — 2026-11-25
+
+### Fixed
+
+- **A pharn-oss archive that `pharn` refuses now says which one, whose fault it is, and what to try.** When the downloaded archive failed a check (an entry the extractor does not admit, such as a symbolic link, or an install manifest whose files do not match their sha256s), `init`, `add`, `update` and `status` printed only the check, for example `tar entry has an unsupported type '2': …`. The message now names what was fetched (the release tag and its commit, or `main` and its commit), says the problem is in that pharn-oss archive and that nothing in your project was changed, keeps the original check as `Reason:`, says that no option skips the check (`update --force` and `--yes` included), and lists the next steps the CLI supports: `--ref main` on a release, `--ref latest` on `main`, upgrading `pharn`, and reporting it at <https://github.com/pharn-dev/pharn-oss/issues>. The spinner of `init`, `add` and `status` now stops with `pharn-oss archive refused` instead of a failure to fetch or reach. `PHARN_DEBUG=1` prints the original error. What is refused is unchanged. See [The pharn-oss archive was refused](docs/troubleshooting.md#the-pharn-oss-archive-was-refused).
+
 ## [0.21.6] — 2026-11-25
 
 ### Fixed
@@ -536,7 +542,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   leave every assertion green.
 
 [Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.22.0...HEAD
-[0.22.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.6...v0.22.0
+[0.22.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.7...v0.22.0
+[0.21.7]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.6...v0.21.7
 [0.21.6]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.5...v0.21.6
 [0.21.5]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.3...v0.21.4

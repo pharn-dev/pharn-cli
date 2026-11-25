@@ -4,6 +4,10 @@ import pc from '../lib/color.js';
 import { REPO } from '../lib/constants.js';
 import { fetchRepo, type FetchedRepo } from '../lib/repo.js';
 import {
+  ARCHIVE_REFUSED_SPINNER,
+  archiveRefusalMessage,
+} from '../lib/archive-refusal.js';
+import {
   channelOf,
   resolveLatestReleaseVersion,
   resolveSource,
@@ -132,8 +136,15 @@ export async function runStatus(
       repo = await fetchRepo(await resolveSource(channel));
       s?.stop(`Compared against ${sourceLabel(repo.source)}`);
     } catch (err) {
-      s?.stop(`Failed to reach ${REPO}`);
-      throw CliError.failure(err, { json });
+      s?.stop(
+        archiveRefusalMessage(err) === undefined
+          ? `Failed to reach ${REPO}`
+          : ARCHIVE_REFUSED_SPINNER,
+      );
+      throw CliError.failure(err, {
+        json,
+        message: archiveRefusalMessage(err),
+      });
     }
     try {
       input = cloneInput(repo, { node, config, channel, strict }, cwd);
