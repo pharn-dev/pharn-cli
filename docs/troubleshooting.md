@@ -26,17 +26,18 @@
 
 ## Common problems
 
-| Symptom                                                     | See                                                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `update` listed files under `SKIPPED` or `held`             | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                    |
-| `Another pharn process is writing to this project`          | [Another pharn process is running](#another-pharn-process-is-running)                |
-| `No pharn.config.json found. Run pharn init first.`         | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)         |
-| `Could not resolve the latest verified … release`           | [No verified release could be resolved](#no-verified-release-could-be-resolved)      |
-| `Failed to fetch`, a timeout, or a proxy notice             | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)              |
-| `… outside the paths pharn installs; refusing this release` | [A pharn-oss release was refused](#a-pharn-oss-release-was-refused)                  |
-| The wrong archetypes were detected                          | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)        |
-| `Unknown option` / ``Unsupported option for `<command>` ``  | [Unsupported option for this command](#unsupported-option-for-this-command)          |
-| Your Prettier check fails on PHARN's files                  | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files) |
+| Symptom                                                            | See                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `update` listed files under `SKIPPED` or `held`                    | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                    |
+| `Another pharn process is writing to this project`                 | [Another pharn process is running](#another-pharn-process-is-running)                |
+| `No pharn.config.json found. Run pharn init first.`                | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)         |
+| `Could not resolve the latest verified … release`                  | [No verified release could be resolved](#no-verified-release-could-be-resolved)      |
+| `Failed to fetch`, a timeout, or a proxy notice                    | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)              |
+| `pharn-oss release … was refused` / `pharn-oss main … was refused` | [The pharn-oss archive was refused](#the-pharn-oss-archive-was-refused)              |
+| `… outside the paths pharn installs; refusing this release`        | [A pharn-oss release was refused](#a-pharn-oss-release-was-refused)                  |
+| The wrong archetypes were detected                                 | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)        |
+| `Unknown option` / ``Unsupported option for `<command>` ``         | [Unsupported option for this command](#unsupported-option-for-this-command)          |
+| Your Prettier check fails on PHARN's files                         | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files) |
 
 ## Node version
 
@@ -220,10 +221,43 @@ installs only the newest pharn-oss **GitHub release**, never the tip of `main`. 
 A release whose tree carries another `SKILLS_VERSION` than its tag is refused too
 (`Release vX.Y.Z (…) ships SKILLS_VERSION …`). `pharn update --ref main` moves an install to `main`.
 
+## The pharn-oss archive was refused
+
+```text
+⚠ pharn-oss release v7.25.5 (commit 1755d6b8…) was refused: its published archive failed pharn's checks.
+  The problem is in that pharn-oss archive, not in your project; nothing in your project was changed.
+  Reason: tar entry has an unsupported type '2': pharn-oss-1755d6b/.claude/skills/pharn-ci-cover
+  No option skips this check: forcing an update or answering yes does not help. Next steps:
+  - install the tip of main instead: `pharn init --ref main` (`pharn update --ref main` for an existing install)
+  - upgrade pharn (`npm install -g @pharn-dev/pharn@latest`): a newer pharn may accept this archive
+  - or re-run once pharn-oss publishes a fixed release, and report this at https://github.com/pharn-dev/pharn-oss/issues
+Re-run with PHARN_DEBUG=1 for full error output.
+```
+
+`init`, `add`, `update` and `status` exit 1 when the pharn-oss archive they downloaded fails a check: the
+extractor admits only regular files and directories, so an entry of another type it has to unpack (a symbolic
+link, a hard link, a device) is refused (`THREAT-MODEL.md` §2), and the tree must carry a valid `pharn-install.json` whose every file
+matches its sha256 (a release must also ship the `SKILLS_VERSION` its tag names). The first line names what was
+fetched: the release tag and its commit, or `main` and its commit (`commit not resolved` when GitHub did not
+say). `Reason:` is the check that failed, as `pharn` found it. The download happens before any write, so
+nothing in your project is changed and an existing install keeps working.
+
+No option gets past the check, and re-running the same release refuses the same bytes. What `pharn` offers:
+
+- on a release (the default, `--ref latest`): try the tip of `main` with `pharn init --ref main` (`pharn update
+--ref main` for an existing install);
+- on `main`: go back to verified releases with `--ref latest`, or re-run once `main` is fixed;
+- either way: upgrade `pharn` (`npm install -g @pharn-dev/pharn@latest`), which helps only when a newer
+  `pharn` accepts what this one refused (not for a manifest path outside what `pharn` installs, [below](#a-pharn-oss-release-was-refused)),
+  and report the archive at the [pharn-oss issues](https://github.com/pharn-dev/pharn-oss/issues).
+
+`PHARN_DEBUG=1` prints the original error (for example `TarExtractError: …`) instead of the hint.
+
 ## A pharn-oss release was refused
 
 ```text
-⚠ pharn-oss's pharn-install.json files[N] would write pharn/floor/.eslintrc.json, outside the paths pharn
+⚠ pharn-oss release vX.Y.Z (commit …) was refused: its published archive failed pharn's checks. …
+  Reason: pharn-oss's pharn-install.json files[N] would write pharn/floor/.eslintrc.json, outside the paths pharn
   installs; refusing this release. This is a problem in the pharn-oss release, not in your project: …
 ```
 
@@ -264,7 +298,8 @@ difference or a missing or malformed `pharnVersion` never warns ([support policy
 
 ## Install failed
 
-"Failed to install capabilities", exit 1: a fetch failure, an archive `pharn` refused to extract, or a
+"Failed to install capabilities", exit 1: a fetch failure, an archive `pharn` refused to extract ([The
+pharn-oss archive was refused](#the-pharn-oss-archive-was-refused)), or a
 selected capability missing in the fetched repo (`Capability "<name>" (<role>) is missing at
 <subtree>/<name> in the fetched repo.`; one whose `<name>.md` is absent is refused earlier, at the index
 parse). What the extractor rejects is in `THREAT-MODEL.md` §2. `PHARN_DEBUG=1 npx @pharn-dev/pharn init` shows the full error.

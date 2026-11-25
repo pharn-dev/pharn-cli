@@ -15,6 +15,7 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { warnIfOlderCli } from '../lib/older-cli.js';
 import { fetchRepo } from '../lib/repo.js';
+import { archiveRefusalMessage } from '../lib/archive-refusal.js';
 import { UpstreamManifestError } from '../lib/upstream-manifest.js';
 import {
   DEFAULT_INIT_REF,
@@ -217,10 +218,11 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     throw CliError.failure(err, {
       json,
       message:
-        err instanceof ReleaseResolveError ||
+        archiveRefusalMessage(err) ??
+        (err instanceof ReleaseResolveError ||
         err instanceof UpstreamManifestError
           ? err.message
-          : `Could not reach ${REPO_URL}: ${errorMessage(err)}`,
+          : `Could not reach ${REPO_URL}: ${errorMessage(err)}`),
     });
   }
 

@@ -3,6 +3,7 @@ import { intro, log, note, outro, spinner } from '@clack/prompts';
 import pc from '../lib/color.js';
 import { REPO } from '../lib/constants.js';
 import { fetchRepo, type FetchedRepo } from '../lib/repo.js';
+import { archiveRefusalMessage } from '../lib/archive-refusal.js';
 import {
   channelOf,
   resolveLatestReleaseVersion,
@@ -133,7 +134,10 @@ export async function runStatus(
       s?.stop(`Compared against ${sourceLabel(repo.source)}`);
     } catch (err) {
       s?.stop(`Failed to reach ${REPO}`);
-      throw CliError.failure(err, { json });
+      throw CliError.failure(err, {
+        json,
+        message: archiveRefusalMessage(err),
+      });
     }
     try {
       input = cloneInput(repo, { node, config, channel, strict }, cwd);

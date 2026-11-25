@@ -3672,3 +3672,39 @@ describe('a release whose manifest names a path outside the outer bound', () => 
     expect(clones()).toEqual([]);
   });
 });
+
+describe('update on a refused pharn-oss archive', () => {
+  it('names the release and commit, says the project was not changed, and writes nothing', async () => {
+    await installFresh();
+    serveTip(SHA_V2, '1.1.0', {
+      links: { [SECURITY]: '../../../.agents/skills/security' },
+    });
+    const clones = watchClones();
+    const before = snapshot();
+    expect(await run(() => runUpdate({ yes: true }))).toBe(1);
+    const shown = printed();
+    expect(shown).toContain(
+      `pharn-oss release v1.1.0 (commit ${SHA_V2}) was refused`,
+    );
+    expect(shown).toContain('nothing in your project was changed');
+    expect(shown).toContain(
+      `Reason: tar entry has an unsupported type '2': pharn-oss-${SHA_V2.slice(0, 7)}/${SECURITY}`,
+    );
+    expect(shown).toContain('`pharn update --ref main`');
+    expect(snapshot()).toEqual(before);
+    expect(exists('pharn/.lock')).toBe(false);
+    expect(clones()).toEqual([]);
+  });
+
+  it('a --dry-run on main names main and its commit', async () => {
+    await installFresh({ ref: 'main' });
+    serveTip(SHA_V2, '1.1.0', {
+      links: { [SECURITY]: '../../../.agents/skills/security' },
+    });
+    expect(await run(() => runUpdate({ dryRun: true, ref: 'main' }))).toBe(1);
+    expect(printed()).toContain(
+      `pharn-oss main at commit ${SHA_V2} was refused`,
+    );
+    expect(printed()).toContain('`pharn update --ref latest`');
+  });
+});

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { noteArchiveRefusal } from './archive-refusal.js';
 import { REPO, REPO_BRANCH, SKILLS_VERSION_FILE } from './constants.js';
 import { onFatalSignal } from './fatal-signal.js';
 import { fetchCapped } from './fetch-capped.js';
@@ -104,8 +105,15 @@ export interface FetchedRepo {
  * lib/tar-extract.ts. No `git` binary, no tarball cache.
  */
 export async function fetchRepo(source: InstallSource): Promise<FetchedRepo> {
-  if (source.kind === 'release') return fetchAt(source, source.sha);
-  return fetchAt(source, await fetchCommitSha());
+  const sha = source.kind === 'release' ? source.sha : await fetchCommitSha();
+  try {
+    return await fetchAt(source, sha);
+  } catch (err) {
+    // Re-thrown unchanged; a refused archive is noted with the ref, so the
+    // command can say which archive and what to try (lib/archive-refusal.ts).
+    noteArchiveRefusal(err, source, sha);
+    throw err;
+  }
 }
 
 // The download + extract half, at a resolved (or, for `main` only, null) SHA.

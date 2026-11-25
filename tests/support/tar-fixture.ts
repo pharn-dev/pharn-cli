@@ -10,7 +10,12 @@ import { gzipSync } from 'node:zlib';
 
 const BLOCK = 512;
 
-function header(name: string, type: string, size: number): Buffer {
+function header(
+  name: string,
+  type: string,
+  size: number,
+  linkname = '',
+): Buffer {
   const block = Buffer.alloc(BLOCK);
   block.write(name, 0, 100, 'latin1');
   block.write('000644 \0', 100, 8, 'latin1');
@@ -20,6 +25,7 @@ function header(name: string, type: string, size: number): Buffer {
   block.write('00000000000 ', 136, 12, 'latin1');
   block.write('        ', 148, 8, 'latin1');
   block.write(type, 156, 1, 'latin1');
+  block.write(linkname, 157, 100, 'latin1');
   block.write('ustar\0', 257, 6, 'latin1');
   block.write('00', 263, 2, 'latin1');
   let sum = 0;
@@ -50,10 +56,16 @@ export function githubArchive(sha: string): Buffer {
  * before its first file, as codeload's archives carry them. Names go into the
  * 100-byte ustar name field with no prefix split, so a path plus the 18-byte
  * `pharn-oss-<sha7>/` root must stay under 100 bytes — refused, not truncated.
+ *
+ * `links` maps a path of `files` to a target: that entry is written as a
+ * symbolic link (typeflag '2') instead of its content, the way codeload ships
+ * a tracked git symlink. Its place in the tree (and so in a manifest built
+ * from the tree) is kept.
  */
 export function codeloadArchive(
   sha: string,
   files: Readonly<Record<string, string>>,
+  links: Readonly<Record<string, string>> = {},
 ): Buffer {
   // Memoized per (sha, tree): the command suites serve the same upstream state
   // to every command of a test and to many tests, and gzip is the bulk of a
@@ -62,10 +74,10 @@ export function codeloadArchive(
     Object.keys(files)
       .sort()
       .map((rel) => [rel, files[rel]]),
-  )}`;
+  )}\0${JSON.stringify(Object.entries(links).sort())}`;
   const hit = archiveCache.get(key);
   if (hit) return hit;
-  const archive = buildArchive(sha, files);
+  const archive = buildArchive(sha, files, links);
   archiveCache.set(key, archive);
   return archive;
 }
@@ -75,6 +87,7 @@ const archiveCache = new Map<string, Buffer>();
 function buildArchive(
   sha: string,
   files: Readonly<Record<string, string>>,
+  links: Readonly<Record<string, string>>,
 ): Buffer {
   const root = `pharn-oss-${sha.slice(0, 7)}`;
   const parts = [
@@ -95,7 +108,12 @@ function buildArchive(
     if (Buffer.byteLength(name) >= 100) {
       throw new Error(`tar fixture: ${name} does not fit the ustar name field`);
     }
-    parts.push(entry(name, '0', files[rel]));
+    const target = links[rel];
+    parts.push(
+      target === undefined
+        ? entry(name, '0', files[rel])
+        : header(name, '2', 0, target),
+    );
   }
   parts.push(Buffer.alloc(BLOCK * 2));
   return gzipSync(Buffer.concat(parts));

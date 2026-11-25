@@ -27,6 +27,7 @@ import {
   writeRecords,
 } from '../lib/install-records.js';
 import { fetchRepo } from '../lib/repo.js';
+import { archiveRefusalMessage } from '../lib/archive-refusal.js';
 import {
   channelOf,
   resolveSource,
@@ -315,7 +316,7 @@ function plural(n: number): string {
 // anything else is a failure, which earns the hint.
 function addError(err: unknown): CliError {
   if (err instanceof ProjectLockedError) return CliError.refusal(err.message);
-  return CliError.failure(err);
+  return CliError.failure(err, { message: archiveRefusalMessage(err) });
 }
 
 // Resolve the arg against the fetched index and, if it uniquely names a
