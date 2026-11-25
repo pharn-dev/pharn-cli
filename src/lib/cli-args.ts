@@ -9,13 +9,21 @@ import { parseArgs } from 'node:util';
 import { REF_CHOICES, type RefChoice } from './release.js';
 import { parseArchetypeList } from './archetype.js';
 import { escapeUnsafe } from './terminal-safe.js';
+import { VERSION_RE } from './validate.js';
 import type { Archetype } from '../types.js';
 import { PHARN_VERSION } from '../version.js';
 
 const INTRO = `Pharn - Installs and updates PHARN (a workflow for shipping features right with Claude Code) in your git project. npx @pharn-dev/pharn init detects your project's archetype and installs the applicable PHARN capabilities; pharn add installs another capability later; pharn update bumps to the latest skills version.`;
 
 type CommandName =
-  'init' | 'add' | 'remove' | 'update' | 'list' | 'status' | 'uninstall';
+  | 'init'
+  | 'add'
+  | 'remove'
+  | 'update'
+  | 'list'
+  | 'status'
+  | 'uninstall'
+  | 'verify-archive';
 
 interface CommandSpec {
   name: CommandName;
@@ -53,6 +61,12 @@ const COMMANDS: readonly CommandSpec[] = [
   {
     name: 'uninstall',
     summary: 'Remove the PHARN files pharn wrote and you did not change',
+  },
+  {
+    name: 'verify-archive',
+    args: '<file>',
+    summary: 'Check a local pharn-oss .tar.gz as an install would (no network)',
+    page: 'Check a local pharn-oss .tar.gz as an install would: unpack the listed files into a temporary directory, validate pharn-install.json and every listed sha256, then remove the directory. No network, no project. Build the archive with `git archive --prefix=pharn-oss/ --format=tar.gz -o pharn-oss.tar.gz HEAD`.',
   },
 ];
 
@@ -202,6 +216,20 @@ const OPTIONS: readonly OptionSpec[] = [
     ],
   },
   {
+    key: 'expect-version',
+    long: '--expect-version <version>',
+    value: true,
+    uses: [
+      {
+        commands: ['verify-archive'],
+        text: [
+          "also require the archive's SKILLS_VERSION to equal this",
+          'version (X.Y.Z, no leading v), as the release check does',
+        ],
+      },
+    ],
+  },
+  {
     key: 'help',
     short: 'h',
     long: '--help',
@@ -347,7 +375,11 @@ export type Invocation =
       command: 'status';
       options: { strict: boolean; drift: boolean; json: boolean };
     }
-  | { command: 'uninstall'; options: { yes: boolean } };
+  | { command: 'uninstall'; options: { yes: boolean } }
+  | {
+      command: 'verify-archive';
+      options: { file: string; expectVersion: string | undefined };
+    };
 
 export type ParsedArgs =
   // One stderr line; the caller adds USAGE_POINTER and exits 1.
@@ -484,6 +516,14 @@ export function parseCliArgs(args: readonly string[]): ParsedArgs {
     );
   }
 
+  const expectVersion = valueOf('expect-version');
+  if (expectVersion !== undefined && !VERSION_RE.test(expectVersion)) {
+    return refuse(
+      'Invalid value for --expect-version (expected a version such as "7.25.5", with no leading "v")',
+      [expectVersion],
+    );
+  }
+
   if (has('version')) return { kind: 'print', text: PHARN_VERSION };
   if (has('help')) {
     // A bare `pharn --help` and an unknown command get the full text.
@@ -546,6 +586,21 @@ export function parseCliArgs(args: readonly string[]): ParsedArgs {
       });
     case 'uninstall':
       return run({ command: 'uninstall', options: { yes: has('yes') } });
+    case 'verify-archive': {
+      const file = positionals[1];
+      // Empty is as missing: `""` names no file.
+      if (file === undefined || file === '') {
+        return {
+          kind: 'refuse',
+          message:
+            'Missing argument: `verify-archive` needs the path of a .tar.gz archive',
+        };
+      }
+      return run({
+        command: 'verify-archive',
+        options: { file, expectVersion },
+      });
+    }
   }
 }
 

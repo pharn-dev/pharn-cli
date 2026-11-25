@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTmpDir } from './helpers.js';
 import {
+  assertSkillsVersion,
   fetchRemoteSkillsVersion,
   readMinCli,
   readSkillsVersion,
@@ -23,6 +24,31 @@ function fakeResponse(body: string, status = 200): Response {
     },
   });
 }
+
+describe('assertSkillsVersion (the release check and verify-archive)', () => {
+  const tmp = useTmpDir();
+  const words = (found: string): string => `found ${found}`;
+
+  it('passes when SKILLS_VERSION equals the expected version', () => {
+    writeFileSync(join(tmp.path(), 'SKILLS_VERSION'), '7.25.5\n');
+    expect(() =>
+      assertSkillsVersion(tmp.path(), '7.25.5', words),
+    ).not.toThrow();
+  });
+
+  it('throws the caller-worded refusal on a mismatch', () => {
+    writeFileSync(join(tmp.path(), 'SKILLS_VERSION'), '7.25.4\n');
+    expect(() => assertSkillsVersion(tmp.path(), '7.25.5', words)).toThrow(
+      new ManifestValidationError('found 7.25.4'),
+    );
+  });
+
+  it("throws readSkillsVersion's refusal when the file is missing", () => {
+    expect(() => assertSkillsVersion(tmp.path(), '7.25.5', words)).toThrow(
+      /SKILLS_VERSION is missing/,
+    );
+  });
+});
 
 describe('readSkillsVersion', () => {
   const tmp = useTmpDir();

@@ -668,3 +668,85 @@ describe('parseCliArgs: --version and --help', () => {
     },
   );
 });
+
+describe('parseCliArgs: verify-archive', () => {
+  it.each<[string[], Invocation]>([
+    [
+      ['verify-archive', 'x.tar.gz'],
+      {
+        command: 'verify-archive',
+        options: { file: 'x.tar.gz', expectVersion: undefined },
+      },
+    ],
+    [
+      ['verify-archive', 'x.tar.gz', '--expect-version', '7.25.5'],
+      {
+        command: 'verify-archive',
+        options: { file: 'x.tar.gz', expectVersion: '7.25.5' },
+      },
+    ],
+    [
+      ['verify-archive', '--expect-version=7.25.5', 'x.tar.gz'],
+      {
+        command: 'verify-archive',
+        options: { file: 'x.tar.gz', expectVersion: '7.25.5' },
+      },
+    ],
+  ])('%j parses to its file and expected version', (args, expected) => {
+    expect(invocation(args)).toEqual(expected);
+  });
+
+  const MISSING =
+    'Missing argument: `verify-archive` needs the path of a .tar.gz archive';
+  const INVALID =
+    'Invalid value for --expect-version (expected a version such as "7.25.5", with no leading "v")';
+  it.each<[string[], string]>([
+    [['verify-archive'], MISSING],
+    [['verify-archive', ''], MISSING],
+    [
+      ['verify-archive', 'a.tar.gz', 'b.tar.gz'],
+      'Unexpected argument: "b.tar.gz"',
+    ],
+    [
+      ['verify-archive', 'a.tar.gz', '--expect-version', 'v7.25.5'],
+      `${INVALID}: "v7.25.5"`,
+    ],
+    [['verify-archive', 'a.tar.gz', '--expect-version'], `${INVALID}: ""`],
+    [
+      [
+        'verify-archive',
+        'a.tar.gz',
+        '--expect-version',
+        '1.0.0',
+        '--expect-version',
+        '1.0.1',
+      ],
+      'Repeated option: "--expect-version"',
+    ],
+    [
+      ['verify-archive', 'a.tar.gz', '--json'],
+      'Unsupported option for `verify-archive`: "--json"',
+    ],
+    [
+      ['status', '--expect-version', '1.0.0'],
+      'Unsupported option for `status`: "--expect-version"',
+    ],
+    [
+      ['init', '--expect-version=1.0.0'],
+      'Unsupported option for `init`: "--expect-version=1.0.0"',
+    ],
+  ])('%j is refused', (args, message) => {
+    expect(refusal(args)).toBe(message);
+  });
+
+  it('is listed in the full help, and its page names the option and the git archive line', () => {
+    expect(printed(['--help'])).toMatch(
+      /^ {2}verify-archive <file> +Check a local pharn-oss \.tar\.gz/m,
+    );
+    const page = printed(['verify-archive', '--help']);
+    expect(page).toContain('pharn verify-archive <file> [options]');
+    expect(page).toContain('--expect-version <version>');
+    expect(page).toContain('git archive --prefix=pharn-oss/');
+    expect(page).not.toContain('--json');
+  });
+});

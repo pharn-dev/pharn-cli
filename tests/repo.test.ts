@@ -24,8 +24,13 @@ import {
   withManifest,
 } from './support/harness.js';
 
-const { CLONE_READ_FILES, extractPharnArchive, fetchRepo, fetchCommitSha } =
-  await import('../src/lib/repo.js');
+const {
+  CLONE_READ_FILES,
+  extractPharnArchive,
+  fetchRepo,
+  fetchCommitSha,
+  verifyLocalArchive,
+} = await import('../src/lib/repo.js');
 
 // A real 40-char lowercase-hex commit SHA (the SHA-1 of the empty blob) — the
 // form fetchRepo validates against COMMIT_RE before it fetches or records it.
@@ -936,5 +941,71 @@ describe('fetchRepo — a refused archive keeps its error and is noted with the 
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(TypeError);
     expect(archiveRefusalMessage(err)).toBeUndefined();
+  });
+});
+
+// CORE-387: `pharn verify-archive`'s half in repo.ts — the same extraction in
+// a private temp dir that is removed on a pass and on a refusal alike.
+describe('verifyLocalArchive (CORE-387)', () => {
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'pharn-repo-sandbox-'));
+    process.env.TMPDIR = sandbox;
+    process.env.TEMP = sandbox;
+    process.env.TMP = sandbox;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('no network in this test');
+      }),
+    );
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(realTmp)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(sandbox, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+  });
+
+  it('returns the manifest and removes its temp dir; checkTree sees the tree after the first pass', async () => {
+    const tree = manifestTree('7.20.0');
+    const seen: string[] = [];
+    const manifest = await verifyLocalArchive(
+      codeloadArchive(VALID_SHA, tree),
+      (dir) => {
+        seen.push(dir);
+        expect(existsSync(join(dir, MANIFEST))).toBe(true);
+        expect(existsSync(join(dir, SECURITY))).toBe(false);
+      },
+    );
+    expect(manifest.skillsVersion).toBe('7.20.0');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.startsWith(join(sandbox, 'pharn-verify-'))).toBe(true);
+    expect(leftoverTempDirs()).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('removes its temp dir when the archive is refused, and rethrows the refusal', async () => {
+    const tree = manifestTree('7.20.0');
+    tree[SECURITY] = 'altered\n';
+    const err = await verifyLocalArchive(
+      codeloadArchive(VALID_SHA, tree),
+      () => undefined,
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UpstreamManifestError);
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('removes its temp dir when checkTree throws', async () => {
+    const err = await verifyLocalArchive(
+      codeloadArchive(VALID_SHA, manifestTree('7.20.0')),
+      () => {
+        throw new ManifestValidationError('stop');
+      },
+    ).catch((e: unknown) => e);
+    expect((err as Error).message).toBe('stop');
+    expect(leftoverTempDirs()).toEqual([]);
   });
 });

@@ -1,0 +1,48 @@
+{
+  "base": "f9fa96b0ac",
+  "inside": [
+    ".dev/features/core-387-verify-archive/GRILL.md",
+    ".dev/features/core-387-verify-archive/PLAN.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "README.md",
+    "docs/README.md",
+    "docs/architecture.md",
+    "docs/commands/verify-archive.md",
+    "docs/contributing.md",
+    "docs/troubleshooting.md",
+    "package-lock.json",
+    "package.json",
+    "src/commands/verify-archive.ts",
+    "src/index.ts",
+    "src/lib/cli-args.ts",
+    "src/lib/repo.ts",
+    "src/lib/skills-version.ts",
+    "tests/cli-args.test.ts",
+    "tests/commands/verify-archive.test.ts",
+    "tests/dist-smoke.test.ts",
+    "tests/index.test.ts",
+    "tests/release-consistency.test.ts",
+    "tests/repo.test.ts",
+    "tests/skills-version.test.ts",
+    "tests/support/tar-fixture.ts"
+  ],
+  "outside_gates": {
+    "tests": {
+      "base": 1,
+      "head": 1
+    },
+    "validate": {
+      "base": 0,
+      "head": 0
+    },
+    "vitest": {
+      "base": 0,
+      "head": 0
+    }
+  },
+  "regressions": [],
+  "pre_existing": ["tests"],
+  "verdict": "no-regressions"
+}

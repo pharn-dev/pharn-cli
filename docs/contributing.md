@@ -128,7 +128,7 @@ The v0.20.0 rows, the `modules` row of v0.21.0 and the `flat` and root-footprint
 pharn-cli/
   src/
     index.ts              CLI entry, command routing
-    commands/             init, add, remove, update, list, status, uninstall
+    commands/             init, add, remove, update, list, status, uninstall, verify-archive
     steps/                init stages (prereqs, node-prereq, overwrite-check, archetype-summary, install-archetype), add-picker
     lib/                  install-capabilities, install-manifest, capability-index, resolve-capabilities, detect-archetype, node-floor, release, archetype, layout, repo, tar-extract, archive-refusal, diff, skills-version, min-cli-gate, semver, older-cli, pharn-config, model-config(-format), models-update, upstream-models, install-records, update-decision, update-render, apply-update, merge-capabilities, dest-drift, backup, atomic-write, project-lock, proxy-env(-format), symlink-guard, capability-address, capability-groups, capability-picker, unknown-capabilities, cli-error, report-error, hash, validate, constants, banner, format
     types.ts              Archetype / CapabilityEntry / Selection / PharnConfig
@@ -217,6 +217,7 @@ Two rules that are easy to get wrong:
 | `commands/uninstall.test.ts` / `uninstall-plan.test.ts`                                | `runUninstall` end to end (refusals, confirm, lock, resumable failure); which recorded files may be deleted                                                                                    |
 | `orphans.test.ts`                                                                      | Which recorded files are orphaned (install roots, dropped/frozen excluded); the `ORPHANED` note                                                                                                |
 | `commands/list.test.ts` / `commands/status.test.ts`                                    | Read-only inventory + version/drift audit                                                                                                                                                      |
+| `commands/verify-archive.test.ts`                                                      | `verify-archive` end to end: a pass (incl. unlisted symlinks), each refusal naming its entry, `--expect-version`, the input-path checks, no fetch, the temp dir removed                        |
 | `diff.test.ts`                                                                         | `diffInstalledCapabilities` expected-set derivation + content compare, incl. a real `git -c core.autocrlf=true` checkout                                                                       |
 | `hash.test.ts`                                                                         | The content hash: the CRLF→LF fold for text and the 8000-byte NUL sniff                                                                                                                        |
 | `layout.test.ts`                                                                       | `detectLayout` (refuses a `flat` clone) / `layoutPaths`                                                                                                                                        |

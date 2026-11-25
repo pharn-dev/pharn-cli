@@ -17,6 +17,7 @@ const runUpdate = vi.fn(async (_opts: unknown) => undefined);
 const runList = vi.fn(async (_opts: unknown) => undefined);
 const runStatus = vi.fn(async (_opts: unknown) => undefined);
 const runUninstall = vi.fn(async (_opts: unknown) => undefined);
+const runVerifyArchive = vi.fn(async (_opts: unknown) => undefined);
 // Each command module's factory runs when, and only when, main() imports it:
 // `loaded` names the command modules loaded since it was last emptied.
 const loaded = vi.hoisted((): string[] => []);
@@ -39,6 +40,10 @@ vi.mock(
   '../src/commands/uninstall.js',
   () => (loaded.push('uninstall'), { runUninstall }),
 );
+vi.mock(
+  '../src/commands/verify-archive.js',
+  () => (loaded.push('verify-archive'), { runVerifyArchive }),
+);
 
 const COMMANDS = {
   init: runInit,
@@ -48,6 +53,7 @@ const COMMANDS = {
   list: runList,
   status: runStatus,
   uninstall: runUninstall,
+  'verify-archive': runVerifyArchive,
 };
 
 function setArgv(...args: string[]): void {
@@ -113,6 +119,7 @@ describe('main (argv dispatch)', () => {
     [['list', '--json']],
     [['status', '--strict', '--no-drift']],
     [['uninstall', '-y']],
+    [['verify-archive', 'a.tar.gz', '--expect-version', '7.25.5']],
   ])('hands %j to its command as one parsed options object', async (args) => {
     await run(...args);
     const parsed = parseCliArgs(args);

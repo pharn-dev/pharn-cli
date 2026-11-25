@@ -8,11 +8,14 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { codeloadArchive } from './support/tar-fixture.js';
+import { upstreamTree, withManifest } from './support/harness.js';
 
 // Executes the SHIPPED artifact — the esbuild bundle — inside the required
 // `Test` gate, which runs `test:coverage` and never `npm run build`. Every other
@@ -116,7 +119,7 @@ function loadedModules(stderr: string): string[] {
 
 // A command's chunk is named after its source file (`status-<hash>.js`).
 const COMMAND_CHUNK =
-  /\/dist\/(init|add|remove|update|list|status|uninstall)-[A-Z0-9]+\.js$/;
+  /\/dist\/(init|add|remove|update|list|status|uninstall|verify-archive)-[A-Z0-9]+\.js$/;
 
 // Each test spawns a fresh node process; the per-test budget is the spawn's.
 describe('the built bundle (dist/index.js)', { timeout: 30_000 }, () => {
@@ -162,6 +165,23 @@ describe('the built bundle (dist/index.js)', { timeout: 30_000 }, () => {
     for (const cmd of ['init', 'add', 'remove', 'update', 'list', 'status']) {
       expect(r.stdout).toMatch(new RegExp(`^ {2}${cmd}\\b`, 'm'));
     }
+  });
+
+  it('verify-archive passes a good local archive (exit 0) and refuses a missing file (exit 1)', () => {
+    const file = join(tmp, 'pharn-oss.tar.gz');
+    writeFileSync(
+      file,
+      codeloadArchive('a'.repeat(40), withManifest(upstreamTree('7.25.5'))),
+    );
+    const ok = pharn(['verify-archive', file, '--expect-version', '7.25.5']);
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain('pharn-oss.tar.gz:');
+    expect(ok.stdout).toContain('SKILLS_VERSION 7.25.5, as expected');
+
+    const missing = pharn(['verify-archive', join(tmp, 'nope.tar.gz')]);
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('nope.tar.gz: it does not exist.');
+    expect(missing.stderr).not.toMatch(STACK_FRAME);
   });
 
   it('status with no pharn.config.json exits 1 with the "run init" message, no stack trace', () => {

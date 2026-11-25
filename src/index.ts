@@ -64,6 +64,11 @@ export async function main(
       await runUninstall(invocation.options);
       return;
     }
+    case 'verify-archive': {
+      const { runVerifyArchive } = await import('./commands/verify-archive.js');
+      await runVerifyArchive(invocation.options);
+      return;
+    }
   }
 }
 
