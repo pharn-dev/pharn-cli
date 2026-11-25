@@ -1,5 +1,6 @@
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -12,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPO, REPO_BRANCH } from '../src/lib/constants.js';
 import { ManifestValidationError } from '../src/lib/validate.js';
 import { UpstreamManifestError } from '../src/lib/upstream-manifest.js';
+import { TarExtractError } from '../src/lib/tar-extract.js';
 import { codeloadArchive } from './support/tar-fixture.js';
 import {
   MANIFEST,
@@ -21,7 +23,8 @@ import {
   withManifest,
 } from './support/harness.js';
 
-const { fetchRepo, fetchCommitSha } = await import('../src/lib/repo.js');
+const { CLONE_READ_FILES, extractPharnArchive, fetchRepo, fetchCommitSha } =
+  await import('../src/lib/repo.js');
 
 // A real 40-char lowercase-hex commit SHA (the SHA-1 of the empty blob) — the
 // form fetchRepo validates against COMMIT_RE before it fetches or records it.
@@ -656,5 +659,200 @@ describe('fetchRepo — a tree that declares pharn-install.json (CORE-194)', () 
     );
     await expect(fetchRepo(release)).rejects.toThrow(/schemaVersion 2/);
     expect(leftoverTempDirs()).toEqual([]);
+  });
+});
+
+// CORE-386: only the paths pharn-install.json lists (plus the files the CLI
+// reads itself) are unpacked. pharn-oss v7.25.3–v7.25.5 committed symlinks
+// under .claude/skills/, outside the manifest, and every install failed.
+describe('fetchRepo — only the listed paths are unpacked (CORE-386)', () => {
+  const release = {
+    kind: 'release' as const,
+    tag: 'v7.20.0',
+    version: '7.20.0',
+    sha: VALID_SHA,
+  };
+  const ROOT = `pharn-oss-${VALID_SHA.slice(0, 7)}`;
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'pharn-repo-sandbox-'));
+    process.env.TMPDIR = sandbox;
+    process.env.TEMP = sandbox;
+    process.env.TMP = sandbox;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(realTmp)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(sandbox, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+  });
+
+  /** A pax extended-header record, `<len> <kw>=<value>\n` (self-counting). */
+  function paxRecord(keyword: string, value: string): string {
+    const body = ` ${keyword}=${value}\n`;
+    let len = body.length + 1;
+    while (String(len).length + body.length !== len)
+      len = String(len).length + body.length;
+    return `${len}${body}`;
+  }
+
+  /**
+   * The codeload shape around `tree`, with `odd` entries spliced in right after
+   * the root directory and `replace` swapping a tree file's own entry for raw
+   * entries (a symlink at a listed path, a pax-renamed file).
+   */
+  function archiveWith(
+    tree: Record<string, string>,
+    odd: Buffer[],
+    replace: Record<string, Buffer[]> = {},
+  ): Buffer {
+    const parts = [
+      entry('pax_global_header', 'g', `52 comment=${VALID_SHA}\n`),
+      entry(`${ROOT}/`, '5'),
+      ...odd,
+    ];
+    for (const rel of Object.keys(tree).sort()) {
+      parts.push(
+        ...(replace[rel] ?? [entry(`${ROOT}/${rel}`, '0', tree[rel])]),
+      );
+    }
+    parts.push(Buffer.alloc(BLOCK * 2));
+    return gzipSync(Buffer.concat(parts));
+  }
+
+  const serve = (bytes: Buffer): void => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => tarResponse(bytes, 4096)),
+    );
+  };
+
+  /** Every regular file under `dir`, relative and sorted. */
+  function filesUnder(dir: string): string[] {
+    return (readdirSync(dir, { recursive: true }) as string[])
+      .filter((rel) => lstatSync(join(dir, rel)).isFile())
+      .sort();
+  }
+
+  // Each entry v7.25.5 (or a future pharn-oss) could carry outside the list.
+  const UNLISTED: Buffer[] = [
+    entry(`${ROOT}/.claude/skills/pharn-cli`, '2'), // a symlink
+    entry(`${ROOT}/.dev/hard`, '1'), // a hard link
+    entry(
+      `${ROOT}/PaxHeaders/long`,
+      'x',
+      paxRecord('path', `${ROOT}/.dev/${'s'.repeat(120)}.md`),
+    ),
+    entry(`${ROOT}/0123456789abcdef.data`, '0', 'long-named\n'),
+    entry(`${ROOT}/.dev/a:b.md`, '0', 'colon\n'),
+    entry(`${ROOT}/.dev/notes.md`, '0', 'an unlisted regular file\n'),
+  ];
+
+  it('installs past a symlink, hard link, pax header, long and colon name outside the list, writing none of them', async () => {
+    const tree = manifestTree('7.20.0');
+    serve(archiveWith(tree, UNLISTED));
+    const repo = await fetchRepo(release);
+    try {
+      const listed = (
+        JSON.parse(tree[MANIFEST]!) as { files: { path: string }[] }
+      ).files.map((f) => f.path);
+      const expected = new Set([
+        ...listed,
+        ...CLONE_READ_FILES.filter((f) => f in tree),
+      ]);
+      expect(filesUnder(repo.dir)).toEqual([...expected].sort());
+      expect(existsSync(join(repo.dir, '.dev'))).toBe(false);
+      expect(existsSync(join(repo.dir, '.claude/skills/pharn-cli'))).toBe(
+        false,
+      );
+      expect(existsSync(join(repo.dir, 'PaxHeaders'))).toBe(false);
+    } finally {
+      repo.cleanup();
+    }
+  });
+
+  it('refuses a symlink AT a listed path, and removes the tree', async () => {
+    serve(
+      archiveWith(manifestTree('7.20.0'), [], {
+        [SECURITY]: [entry(`${ROOT}/${SECURITY}`, '2')],
+      }),
+    );
+    const err = await fetchRepo(release).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TarExtractError);
+    expect((err as Error).message).toMatch(/unsupported type '2'/);
+    expect((err as Error).message).toContain(SECURITY);
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('refuses a listed file that follows a pax extended header, and removes the tree', async () => {
+    const tree = manifestTree('7.20.0');
+    serve(
+      archiveWith(tree, [], {
+        [SECURITY]: [
+          entry(`${ROOT}/PaxHeaders/security.md`, 'x', paxRecord('mtime', '1')),
+          entry(`${ROOT}/${SECURITY}`, '0', tree[SECURITY]),
+        ],
+      }),
+    );
+    const err = await fetchRepo(release).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TarExtractError);
+    expect((err as Error).message).toMatch(
+      /unsupported type 'x'.*pax extended header/,
+    );
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('fails the hash check when a pax record renamed a listed file away from its ustar name', async () => {
+    const tree = manifestTree('7.20.0');
+    serve(
+      archiveWith(tree, [], {
+        [SECURITY]: [
+          entry(
+            `${ROOT}/PaxHeaders/security.md`,
+            'x',
+            paxRecord('path', `${ROOT}/${SECURITY}`),
+          ),
+          entry(`${ROOT}/0123456789abcdef.data`, '0', tree[SECURITY]),
+        ],
+      }),
+    );
+    const err = await fetchRepo(release).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UpstreamManifestError);
+    expect((err as Error).message).toContain(
+      `declares ${SECURITY}, which the tree does not ship as a file`,
+    );
+    expect(leftoverTempDirs()).toEqual([]);
+  });
+
+  it('extracts a local archive with no network: the CLI-read files first, then the listed ones', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('no network in this test');
+      }),
+    );
+    const tree = manifestTree('7.20.0');
+    const dir = mkdtempSync(join(sandbox, 'local-'));
+    const seen: boolean[] = [];
+    const manifest = await extractPharnArchive(
+      archiveWith(tree, UNLISTED),
+      dir,
+      (d) => {
+        seen.push(existsSync(join(d, MANIFEST)), existsSync(join(d, SECURITY)));
+      },
+    );
+    // Between the passes the manifest is on disk and no listed file is yet.
+    expect(seen).toEqual([true, false]);
+    expect(manifest.files.map((f) => f.path)).toContain(SECURITY);
+    expect(readFileSync(join(dir, SECURITY), 'utf8')).toBe(tree[SECURITY]);
+    expect(existsSync(join(dir, '.dev'))).toBe(false);
+    // The tree check is optional (a local file has no tag to hold it to).
+    const again = mkdtempSync(join(sandbox, 'local-'));
+    await expect(
+      extractPharnArchive(archiveWith(tree, UNLISTED), again),
+    ).resolves.toMatchObject({ skillsVersion: '7.20.0' });
   });
 });

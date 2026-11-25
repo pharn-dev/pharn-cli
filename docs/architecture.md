@@ -71,7 +71,11 @@ directory gets its actionable error), under the lock, and before any network cal
    - Detection returns one piece of evidence per archetype (a dependency or the first triggering path). It is
      display-only, passed through `terminalSafe`.
 3. **Source** (`lib/release.ts`, `lib/repo.ts`). `resolveSource` decides which commit, and `fetchRepo(source)` downloads
-   and extracts the codeload tarball into a temp dir that is removed in a `finally`. No command exits mid-run: a
+   the codeload tarball and extracts it into a temp dir that is removed in a `finally`. `extractPharnArchive` makes two
+   streamed passes over the archive: the first writes only the files the CLI reads itself (`CLONE_READ_FILES`:
+   `pharn-install.json`, `SKILLS_VERSION`, `MIN_CLI`, `.claude/settings.json`), the manifest is validated, and the
+   second writes only the paths the manifest lists. Every other entry (a symlink, a hard link, a pax header, a long or
+   `:` name anywhere else in pharn-oss) is skipped and never written. No command exits mid-run: a
    refusal, a failure or a cancel is thrown as a `CliError` (`lib/cli-error.ts`), so that `finally` (and the project
    lock's) runs first, and `runCli` in `src/index.ts` prints it once and sets `process.exitCode`. `fetchRepo` requires
    the tree's `pharn-install.json` (pharn-oss 7.21.0 and later), validates it and checks every declared file's raw
@@ -144,7 +148,7 @@ is pharn-oss's [`docs/install-manifest.md`](https://github.com/pharn-dev/pharn-o
 
 - **Read and validate.** A bounded read (4 MiB, regular file, non-blocking), then a strict check: `schemaVersion` must
   be `1` (anything else refuses and says to upgrade pharn); `skillsVersion` must equal `SKILLS_VERSION`; the layout
-  must be the `pharn` layout this CLI knows; every capability `name`, `role` and `dir`, and every file `path`, `dest`,
+  must be the `pharn` layout this CLI knows, whose marker `pharn/pharn-contracts/` the tree holds or the manifest lists a file under; every capability `name`, `role` and `dir`, and every file `path`, `dest`,
   `sha256`, `policy` and `surface`, is held to an allowlist and to `safeJoin`; `dest`s are unique. Unknown keys are
   ignored (the schema is additive within version 1).
 - **The outer bound.** Every `dest` must lie inside `isPharnOwnedPath` (`lib/install-surfaces.ts`): below `pharn/`
@@ -155,7 +159,8 @@ is pharn-oss's [`docs/install-manifest.md`](https://github.com/pharn-dev/pharn-o
   `uninstall` and `.prettierignore`) accepts the same paths, so a file installed into a surface this CLI does not name
   is updated, orphaned and uninstalled like any other, still gated by its record's hash.
 - **Verify.** `fetchRepo` checks each declared file's raw-byte sha256 (`matchesRawSha256` in `lib/hash.ts`; the
-  records' `contentHash` stays CRLF-folded) before it returns the tree. A mismatch refuses, and nothing is written.
+  records' `contentHash` stays CRLF-folded) before it returns the tree. A mismatch, or a listed file the archive does
+  not ship as a regular file at its path, refuses, and nothing is written.
 - **Use.** The install set (`collectExpectedInstallPaths`), `add`'s file list (`capabilityCloneFiles`), the
   capability index, the settings copy and the `models` defaults come from it. An `applies` token outside this CLI's
   enum makes that capability `unknown` (seen and named, never installed). `models.defaults` passes the same

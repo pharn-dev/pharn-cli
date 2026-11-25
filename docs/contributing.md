@@ -144,10 +144,10 @@ See [Architecture](architecture.md) for the architecture in depth (the archetype
 `lib/validate.ts` and `lib/install-capabilities.ts` handle the untrusted remote input that reaches the filesystem (capability names, install paths). They are not the whole boundary: `lib/tar-extract.ts` parses attacker-controlled archive headers, `lib/upstream-manifest.ts` parses the untrusted `pharn-install.json`, `lib/unknown-capabilities.ts` strips control characters from upstream text before display, and `lib/install-records.ts` and `lib/project-lock.ts` parse local-but-user-editable sidecars. Preserve their invariants when editing:
 
 - Strict regex/enum allowlists (`CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, the `role`/`applies` enums), `..` rejection, and control-char rejection.
-- `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites and rejects symlinked sources.
+- `safeJoin` (in `lib/validate.ts`) guards every read/copy so nothing escapes its base directory; `install-capabilities.ts` adds a symlink-aware backstop at the write sites. The clone itself holds no links: the extractor writes only the manifest's listed paths (plus the files the CLI reads) as regular files and skips every other entry.
 - Remote fetches (`lib/skills-version.ts`, `lib/release.ts`) use `redirect: 'error'`, an 8s timeout, and a body cap (256KB for `SKILLS_VERSION`, 1MiB for a release object).
 - A new install (`pharn init`) defaults to the newest verified pharn-oss release (`DEFAULT_INIT_REF`, `lib/release.ts`); `update`/`add`/`status` follow the channel the config records, and an absent `ref` means the tip of `main`. The release resolve fails closed: a release that cannot be resolved refuses the command and never falls back to the tip of `main`.
-- The repo download (`lib/repo.ts`) has its own, larger bounds: a 60s timeout, a 32MB archive cap, a 128MB extracted cap, and a 20,000-entry cap — enforced twice, including at `gunzipSync`.
+- The repo download (`lib/repo.ts`) has its own, larger bounds: a 60s timeout, a 32MB archive cap, and, over the streamed decompression, a 200,000-header cap, a 1 GiB decompressed-bytes cap (a compression-bomb bound, not a repo-size limit) and a 128MB cap on the bytes written.
 
 ### pharn-oss's `models` rules — a pinned copy
 
@@ -184,16 +184,18 @@ properties of a dependency_, which a version bump could move without any pharn t
 
 If you change either file, the guarantees they carry are the ones `THREAT-MODEL.md` §2/§4b and
 `LIMITS.md` §3a state — timeout, streamed-byte cap, decompressed-size cap, `redirect: 'error'`,
-typeflag allowlist, `prefix`+`name` path reassembly, `..`/absolute rejection, single-root check,
-`safeJoin` on every write, entry/byte caps, header checksums. Each has a test in
+selection (only listed paths are written; every other entry is skipped), the regular-file-only rule at a listed path,
+`prefix`+`name` path reassembly, `..`/absolute/`\`/`:` rejection, single-root check, `safeJoin` on every write,
+header/scanned-byte/written-byte caps, header checksums. Each has a test in
 `tests/tar-extract.test.ts` or `tests/repo.test.ts`; keep them in step with the prose.
 
 Two rules that are easy to get wrong:
 
-- **Skip pax headers, do not judge them.** Every codeload tarball opens with a `pax_global_header`
-  (typeflag `g`) whose single-segment name has no leading component to strip. Running the path rules
-  over it fails the first block of every real archive — a bug no hand-made fixture would catch, which
-  is why `tests/tar-extract.test.ts` builds its fixtures with one.
+- **Judge only what is written.** Every codeload tarball opens with a `pax_global_header` (typeflag `g`)
+  whose single-segment name has no leading component to strip, and pharn-oss holds symlinks and long names
+  outside the install list. Running the entry rules over an entry pharn does not write fails every real
+  archive — a bug no hand-made fixture would catch, which is why `tests/tar-extract.test.ts` builds its
+  fixtures with one and pins the skip for every entry type.
 - **Reassemble the path before judging it.** ustar splits anything over 100 characters across the
   `prefix` and `name` header fields. Reading `name` alone yields a bare leaf that strip-1 then
   rejects, losing a large fraction of the tree rather than misplacing it.
@@ -227,7 +229,7 @@ Two rules that are easy to get wrong:
 | `model-config.test.ts` / `model-config-parity.test.ts`                                 | pharn-oss's `models` rules as copied; the copy pinned to pharn-oss's own checker                                                                                                               |
 | `models-update.test.ts` / `upstream-models.test.ts`                                    | `update`'s rows for the `models` block; reading pharn-oss's block                                                                                                                              |
 | `confirm.test.ts` / `repo.test.ts` / `banner.test.ts` / `format.test.ts`               | helpers; the codeload fetch boundary; banner; format                                                                                                                                           |
-| `tar-extract.test.ts`                                                                  | The ustar reader: strip-1, pax skip, prefix reassembly, and every rejection                                                                                                                    |
+| `tar-extract.test.ts`                                                                  | The ustar reader: selection (unlisted entries skipped), strip-1, prefix reassembly, every rejection at a listed path                                                                           |
 | `index.test.ts`                                                                        | argv dispatch: the per-command option allowlist, the arity gate, and their exit codes                                                                                                          |
 | `project-lock.test.ts` + `-break` / `commands/lock.test.ts`                            | The single-writer lock: acquire/release, stale-break single-winner, and which commands take it                                                                                                 |
 | `min-cli-gate.test.ts` / `semver.test.ts`                                              | The `MIN_CLI` forward-compat gate and its version comparison                                                                                                                                   |

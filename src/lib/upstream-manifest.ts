@@ -42,7 +42,11 @@ import type {
 // safeJoin-contained, every `dest` must lie inside the CLI-owned outer bound
 // (isPharnOwnedPath — never the manifest's own `installRoots`), and fetchRepo
 // verifies each file's RAW sha256 right after extraction, before any command
-// can read the tree, so a mismatch refuses with nothing written.
+// can read the tree, so a mismatch refuses with nothing written. The extractor
+// writes only the paths listed here plus the few files the CLI reads itself
+// (CLONE_READ_FILES, lib/repo.ts), so this file is validated between its two
+// passes, before the tree holds anything it lists: no check here may probe the
+// tree for a listed file.
 //
 // ONE parser: readUpstreamManifest is the only reader. verifyUpstreamManifest
 // takes its result, and every branch point re-reads through it, so there is no
@@ -55,7 +59,7 @@ export const MANIFEST_FILE = 'pharn-install.json';
 export const MANIFEST_SCHEMA_VERSION = 1;
 // pharn-oss 7.21.0's file is about 180 KB.
 export const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
-// The extractor's own entry cap: a tree cannot hold more files than this.
+// The most files a manifest may list, and so the most the extractor writes.
 export const MAX_MANIFEST_FILES = 20_000;
 
 const POLICIES = ['managed', 'if-absent'] as const;
@@ -158,9 +162,10 @@ export function readUpstreamManifest(repoDir: string): UpstreamManifest {
     );
   }
   const skillsVersion = checkSkillsVersion(repoDir, raw.skillsVersion);
-  checkLayout(repoDir, raw.layout);
+  checkLayout(raw.layout);
   const capabilities = checkCapabilities(raw.capabilities);
   const files = checkFiles(repoDir, raw.files, capabilities);
+  checkLayoutMarker(repoDir, files);
   const modelsDefaults = checkModels(raw.models);
   checkInstallRoots(raw.installRoots);
   return { skillsVersion, capabilities, files, modelsDefaults };
@@ -180,8 +185,8 @@ function checkSkillsVersion(repoDir: string, value: unknown): string {
 }
 
 // The only layout a manifest may declare is the one this CLI knows as `pharn`,
-// with its own marker and capability subtrees, and the tree must be it.
-function checkLayout(repoDir: string, layout: unknown): void {
+// with its own marker and capability subtrees.
+function checkLayout(layout: unknown): void {
   const pharn = layoutPaths('pharn');
   const subtrees = isPlainObject(layout) ? layout.capabilitySubtrees : null;
   const known =
@@ -197,9 +202,23 @@ function checkLayout(repoDir: string, layout: unknown): void {
       `pharn-oss's ${MANIFEST_FILE} declares a layout this pharn does not know (${escapeUnsafe(show(layout))}). Upgrade pharn (\`npm install -g @pharn-dev/pharn@latest\`) and re-run. Nothing was written.`,
     );
   }
-  if (!isPharnLayout(repoDir)) {
+}
+
+// The layout's marker must be in the tree. The extractor writes only listed
+// files (each proved present by verifyUpstreamManifest) plus a few root and
+// .claude files, so once extracted the tree has the marker exactly when a
+// listed file lies under it. Accepting a listed file lets this run between the
+// extractor's passes, before the listed files are written.
+function checkLayoutMarker(
+  repoDir: string,
+  files: readonly ManifestFile[],
+): void {
+  const listed = files.some((f) =>
+    f.path.startsWith(`${PHARN_CONTRACTS_DIR}/`),
+  );
+  if (!listed && !isPharnLayout(repoDir)) {
     throw refuse(
-      `declares the pharn layout, but the tree has no ${PHARN_CONTRACTS_DIR}`,
+      `declares the pharn layout, but the tree has no ${PHARN_CONTRACTS_DIR} and it lists no file there`,
     );
   }
 }
