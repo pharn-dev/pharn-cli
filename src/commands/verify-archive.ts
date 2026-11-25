@@ -72,7 +72,7 @@ export async function runVerifyArchive(
       // pinned by the rootless case in this command's suite).
       const hint =
         err instanceof TarExtractError && err.message.startsWith(ROOTLESS)
-          ? ` ${ROOTLESS_HINT}`
+          ? `. ${ROOTLESS_HINT}`
           : '';
       throw CliError.failure(err, {
         message: `Archive ${name} refused: ${err.message}${hint}`,
