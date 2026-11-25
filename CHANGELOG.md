@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
+## [0.22.0] — 2026-11-25
+
+### Added
+
+- **`pharn verify-archive <file>` checks a local pharn-oss `.tar.gz` the way an install checks a download, with no network.** It is for pharn-oss CI, which can now find out that a commit would install before it tags that commit as a release. It runs the install's own steps on the file: both extraction passes, the `pharn-install.json` validation, the sha256 of every listed file and the capability index. With `--expect-version X.Y.Z`, the archive's `SKILLS_VERSION` must also equal that version, as a release install requires of its tag. A `MIN_CLI` that is present but not a valid version fails the check, where an install would warn and carry on. The command needs no project and takes no lock. It reads the file only if it is a regular file of at most 32 MiB, and it removes its one temporary directory whether the check passes or fails. It exits 0 with a one-line summary, or 1 with the reason, which names the entry and the rule. The archive must have one top-level directory, as GitHub's do, so build it with `git archive --prefix=pharn-oss/ --format=tar.gz -o pharn-oss.tar.gz HEAD`. See [`docs/commands/verify-archive.md`](docs/commands/verify-archive.md) for the pharn-oss CI lines.
+
 ## [Unreleased]
 
 ### Fixed
@@ -527,7 +533,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.5...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.5...v0.22.0
 [0.21.5]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.3...v0.21.4
 [0.21.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.2...v0.21.3

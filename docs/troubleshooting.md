@@ -22,21 +22,23 @@
 | `add` refused on a skills-version mismatch                                                                                           | 1          |
 | `update --force` aborted because a backup could not be written                                                                       | 1          |
 | `uninstall` refused, or stopped part-way (see [`uninstall`](commands/uninstall.md))                                                  | 1          |
+| `verify-archive` refused the archive, or could not read the file (see [`verify-archive`](commands/verify-archive.md))                | 1          |
 | Interrupted by Ctrl-C (`SIGINT`) or `SIGTERM` (a `timeout`, `docker stop`); the project may be partial                               | 130 or 143 |
 
 ## Common problems
 
-| Symptom                                                     | See                                                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `update` listed files under `SKIPPED` or `held`             | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                    |
-| `Another pharn process is writing to this project`          | [Another pharn process is running](#another-pharn-process-is-running)                |
-| `No pharn.config.json found. Run pharn init first.`         | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)         |
-| `Could not resolve the latest verified … release`           | [No verified release could be resolved](#no-verified-release-could-be-resolved)      |
-| `Failed to fetch`, a timeout, or a proxy notice             | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)              |
-| `… outside the paths pharn installs; refusing this release` | [A pharn-oss release was refused](#a-pharn-oss-release-was-refused)                  |
-| The wrong archetypes were detected                          | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)        |
-| `Unknown option` / ``Unsupported option for `<command>` ``  | [Unsupported option for this command](#unsupported-option-for-this-command)          |
-| Your Prettier check fails on PHARN's files                  | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files) |
+| Symptom                                                                            | See                                                                                                                       |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `update` listed files under `SKIPPED` or `held`                                    | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                                                         |
+| `Another pharn process is writing to this project`                                 | [Another pharn process is running](#another-pharn-process-is-running)                                                     |
+| `No pharn.config.json found. Run pharn init first.`                                | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)                                              |
+| `Could not resolve the latest verified … release`                                  | [No verified release could be resolved](#no-verified-release-could-be-resolved)                                           |
+| `Failed to fetch`, a timeout, or a proxy notice                                    | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)                                                   |
+| `… outside the paths pharn installs; refusing this release`                        | [A pharn-oss release was refused](#a-pharn-oss-release-was-refused)                                                       |
+| The wrong archetypes were detected                                                 | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)                                             |
+| `Unknown option` / ``Unsupported option for `<command>` ``                         | [Unsupported option for this command](#unsupported-option-for-this-command)                                               |
+| Your Prettier check fails on PHARN's files                                         | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files)                                      |
+| `verify-archive`: `holds no pharn-install.json under a single top-level directory` | [verify-archive says the archive has no top-level directory](#verify-archive-says-the-archive-has-no-top-level-directory) |
 
 ## Node version
 
@@ -435,6 +437,19 @@ hunt for a typo):
 `init` is the default command, so a bare `pharn --json` is `pharn init --dry-run --json`. An on/off option
 takes no value (`Option takes no value: "--json=false"`), `--ref` and `--archetype` may each be given once
 (`Repeated option: "--ref"`), and `--no-drift` is the only negated option (`--no-dry-run`, `--no-yes` and `--no-ref` are `Unknown option`).
+
+## verify-archive says the archive has no top-level directory
+
+`pharn verify-archive` reads archives shaped like GitHub's, with every entry under one root directory. A
+plain `git archive HEAD` has no root directory, so `pharn` finds no `pharn-install.json` in it. Build the
+archive with a prefix:
+
+```bash
+git archive --prefix=pharn-oss/ --format=tar.gz -o pharn-oss.tar.gz HEAD
+```
+
+The same message appears for a pharn-oss older than 7.21.0, which ships no `pharn-install.json`. See
+[`verify-archive`](commands/verify-archive.md#the-archive-must-have-one-top-level-directory).
 
 ## Removing PHARN by hand
 

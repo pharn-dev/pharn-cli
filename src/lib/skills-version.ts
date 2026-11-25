@@ -47,6 +47,21 @@ export function readSkillsVersion(repoDir: string): string {
   );
 }
 
+/**
+ * Refuse a tree whose SKILLS_VERSION is not `expected`: the release check
+ * (`fetchAt`, lib/repo.ts) and `verify-archive --expect-version` share it.
+ * `refusal` words the message from the version found, so each caller keeps
+ * its own wording; a missing or malformed file throws `readSkillsVersion`'s.
+ */
+export function assertSkillsVersion(
+  repoDir: string,
+  expected: string,
+  refusal: (found: string) => string,
+): void {
+  const found = readSkillsVersion(repoDir);
+  if (found !== expected) throw new ManifestValidationError(refusal(found));
+}
+
 // ---------------------------------------------------------------------------
 // MIN_CLI — the OPTIONAL forward-compatibility handshake, beside SKILLS_VERSION.
 //

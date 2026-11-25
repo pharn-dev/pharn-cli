@@ -253,6 +253,18 @@ prompt was open (a file now byte-identical to upstream is not a change), then ap
   capability is handled by the one planner. "Up to date" is a plan that changes nothing (`changesNothing`); only the
   ahead-of-source guard returns before the download.
 
+## `verify-archive` (`commands/verify-archive.ts`)
+
+The fetch boundary without the fetch, for pharn-oss CI. The command reads the file through `readBoundedFile`
+(a regular file of at most `MAX_ARCHIVE_BYTES`, the download cap) and hands the bytes to `verifyLocalArchive`
+(`lib/repo.ts`). That function makes a private `pharn-verify-*` temp dir, registers it with the same exit and
+fatal-signal backstop as a clone, and runs `extractPharnArchive`, the function `fetchAt` calls after a
+download. Its `checkTree`, run after the first pass, requires `pharn-install.json`: the archive must have one
+root directory (`git archive --prefix=pharn-oss/`). With `--expect-version` it checks SKILLS_VERSION through
+the release check's `assertSkillsVersion`, then refuses a present but unusable `MIN_CLI`. After the extraction
+it builds the capability index with `manifestCapabilityIndex`. The temp dir is removed in a `finally`, and the
+tree is never returned. No network, no project, no lock.
+
 ## Root footprint
 
 - The lock is `pharn/.lock` and backups go to `pharn/.backup/<ts>/` in every layout.

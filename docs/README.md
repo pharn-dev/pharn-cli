@@ -19,6 +19,7 @@ The CLI version (`pharn --version`) and the content version it installs (`skills
 - [update](commands/update.md) — re-fetch installed capabilities at the latest skills version
 - [list](commands/list.md) — list installed archetypes + capabilities
 - [status](commands/status.md) — read-only version + local-drift check; `--strict` exits 1 on an outdated install, a modified, missing or unreadable file, a surface upstream no longer ships, or an unwired hook ([the full list](commands/status.md#strict-conditions)), and neither `status` nor `list` is ever blocked by another `pharn` run's lock
+- [verify-archive](commands/verify-archive.md) — check a local pharn-oss `.tar.gz` as an install would, with no network (for pharn-oss CI)
 
 ## Reference
 

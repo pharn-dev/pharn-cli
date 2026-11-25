@@ -13,7 +13,7 @@ import { fetchCapped } from './fetch-capped.js';
 import type { CappedResponse, FetchCappedError } from './fetch-capped.js';
 import { MAX_SHA_BYTES } from './release.js';
 import type { InstallSource } from './release.js';
-import { readSkillsVersion } from './skills-version.js';
+import { assertSkillsVersion } from './skills-version.js';
 import { extractTarGz } from './tar-extract.js';
 import {
   MANIFEST_FILE,
@@ -21,11 +21,7 @@ import {
   verifyUpstreamManifest,
 } from './upstream-manifest.js';
 import type { UpstreamManifest } from './upstream-manifest.js';
-import {
-  assertSafeString,
-  COMMIT_RE,
-  ManifestValidationError,
-} from './validate.js';
+import { assertSafeString, COMMIT_RE } from './validate.js';
 
 const API = 'https://api.github.com';
 const CODELOAD = 'https://codeload.github.com';
@@ -38,7 +34,7 @@ const CLONE_TIMEOUT_MS = 60_000;
 // own size bounds nothing: headers walked and decompressed bytes walked bound a
 // compression bomb's work (both far above pharn-oss v7.25.5's 4,939 entries and
 // 43 MB), and the written-byte cap bounds what reaches disk.
-const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
+export const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
 const MAX_HEADERS = 200_000;
 const MAX_SCANNED_BYTES = 1024 * 1024 * 1024;
 const MAX_WRITTEN_BYTES = 128 * 1024 * 1024;
@@ -162,12 +158,12 @@ async function fetchAt(
       // version compare would lie. Refused inside this try, so the tree is
       // removed.
       if (source.kind !== 'release') return;
-      const found = readSkillsVersion(tree);
-      if (found !== source.version) {
-        throw new ManifestValidationError(
+      assertSkillsVersion(
+        tree,
+        source.version,
+        (found) =>
           `Release ${source.tag} (${source.sha}) ships ${SKILLS_VERSION_FILE} ${found}, not ${source.version}; refusing to install a release whose content does not match its tag.`,
-        );
-      }
+      );
     });
   } catch (err) {
     // Extraction is not transactional, so a partially-written tree must never
@@ -224,6 +220,28 @@ export async function extractPharnArchive(
   });
   verifyUpstreamManifest(dir, manifest);
   return manifest;
+}
+
+/**
+ * Run `extractPharnArchive` over a LOCAL archive's bytes (`pharn
+ * verify-archive`) in a private temp dir that is always removed, on a pass and
+ * on a refusal alike, and registered with the exit/fatal-signal backstop
+ * meanwhile. The tree is never returned: `checkTree` (run after the first
+ * pass, as the release check is) is the only reader. No network.
+ */
+export async function verifyLocalArchive(
+  archive: Buffer,
+  checkTree: (dir: string) => void,
+): Promise<UpstreamManifest> {
+  installCleanupHandlers();
+  const dir = mkdtempSync(join(tmpdir(), 'pharn-verify-'));
+  liveClones.add(dir);
+  try {
+    return await extractPharnArchive(archive, dir, checkTree);
+  } finally {
+    liveClones.delete(dir);
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /**

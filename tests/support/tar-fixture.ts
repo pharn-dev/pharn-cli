@@ -51,9 +51,26 @@ export function githubArchive(sha: string): Buffer {
  * 100-byte ustar name field with no prefix split, so a path plus the 18-byte
  * `pharn-oss-<sha7>/` root must stay under 100 bytes — refused, not truncated.
  */
+/** A raw archive entry: a root-relative path, a ustar typeflag, its payload. */
+export interface RawEntry {
+  path: string;
+  type: string;
+  data?: string;
+}
+
+export interface ArchiveOptions {
+  /** Entries spliced in right after the root directory (a symlink, a pax header). */
+  extra?: readonly RawEntry[];
+  /** A tree path's own entry swapped for these raw entries. */
+  replace?: Readonly<Record<string, readonly RawEntry[]>>;
+  /** No root directory: entries at the top level, as a plain `git archive`. */
+  rootless?: boolean;
+}
+
 export function codeloadArchive(
   sha: string,
   files: Readonly<Record<string, string>>,
+  opts: ArchiveOptions = {},
 ): Buffer {
   // Memoized per (sha, tree): the command suites serve the same upstream state
   // to every command of a test and to many tests, and gzip is the bulk of a
@@ -62,10 +79,10 @@ export function codeloadArchive(
     Object.keys(files)
       .sort()
       .map((rel) => [rel, files[rel]]),
-  )}`;
+  )}\0${JSON.stringify(opts)}`;
   const hit = archiveCache.get(key);
   if (hit) return hit;
-  const archive = buildArchive(sha, files);
+  const archive = buildArchive(sha, files, opts);
   archiveCache.set(key, archive);
   return archive;
 }
@@ -75,27 +92,35 @@ const archiveCache = new Map<string, Buffer>();
 function buildArchive(
   sha: string,
   files: Readonly<Record<string, string>>,
+  opts: ArchiveOptions,
 ): Buffer {
-  const root = `pharn-oss-${sha.slice(0, 7)}`;
+  const root = opts.rootless ? '' : `pharn-oss-${sha.slice(0, 7)}/`;
+  const named = (rel: string): string => {
+    const name = `${root}${rel}`;
+    if (Buffer.byteLength(name) >= 100) {
+      throw new Error(`tar fixture: ${name} does not fit the ustar name field`);
+    }
+    return name;
+  };
+  const raw = (e: RawEntry): Buffer => entry(named(e.path), e.type, e.data);
   const parts = [
     entry('pax_global_header', 'g', `52 comment=${sha}\n`),
-    entry(`${root}/`, '5'),
+    ...(opts.rootless ? [] : [entry(root, '5')]),
+    ...(opts.extra ?? []).map(raw),
   ];
   const dirs = new Set<string>();
   for (const rel of Object.keys(files).sort()) {
     const segments = rel.split('/');
     for (let i = 1; i < segments.length; i++) {
-      const dir = `${root}/${segments.slice(0, i).join('/')}/`;
+      const dir = `${root}${segments.slice(0, i).join('/')}/`;
       if (!dirs.has(dir)) {
         dirs.add(dir);
         parts.push(entry(dir, '5'));
       }
     }
-    const name = `${root}/${rel}`;
-    if (Buffer.byteLength(name) >= 100) {
-      throw new Error(`tar fixture: ${name} does not fit the ustar name field`);
-    }
-    parts.push(entry(name, '0', files[rel]));
+    const swapped = opts.replace?.[rel];
+    if (swapped) parts.push(...swapped.map(raw));
+    else parts.push(entry(named(rel), '0', files[rel]));
   }
   parts.push(Buffer.alloc(BLOCK * 2));
   return gzipSync(Buffer.concat(parts));

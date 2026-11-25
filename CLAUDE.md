@@ -9,7 +9,8 @@ Guidance for Claude Code in this repository. Flows: [`docs/architecture.md`](doc
 (by default the newest verified release; `--ref main` takes the tip of `main`), copies the selected capabilities
 (grillers and lenses) and the fixed product surfaces into `.claude/` and `pharn/`, and writes pharn.config.json and
 pharn.records.json in that project. It is published on npm as `@pharn-dev/pharn` with one bin, `pharn`. Every command is
-archetype-only: a pre-archetype (module) config is refused with "re-run `pharn init`". It targets Claude Code today.
+archetype-only: a pre-archetype (module) config is refused with "re-run `pharn init`". `verify-archive` reads no project:
+it runs the install checks over a local pharn-oss archive, for pharn-oss CI. It targets Claude Code today.
 
 ## Commands
 
@@ -104,7 +105,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   own archive, headers-scanned, decompressed-bytes-scanned and bytes-written caps.
 - **The project lock.** `init`/`add`/`update`/`remove`/`uninstall` take `pharn/.lock` before reading the config, hold
   it across every prompt and plan once; edits made meanwhile are caught at write time (hash, fingerprint, walk). Dry
-  runs and readers (`list`, `status`) never take it.
+  runs and readers (`list`, `status`, `verify-archive`) never take it.
 - **Bounded local reads.** pharn.config.json, pharn.records.json and the lock are read through `readBoundedFile`
   (regular file, size cap, `O_NONBLOCK`), so a FIFO or a huge file never hangs or floods a command.
 - **Config schema is additive within the support window** (P7): new keys are optional, and a legacy field loads
@@ -119,7 +120,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 ## Module map
 
 - `src/index.ts`: dispatch only. `lib/cli-args.ts`: the command/option tables, help text and the argv parse (`init` default).
-- `commands/`: one verb each (`init`, `add`, `remove`/`rm`, `update`, `list`, `status`, `uninstall`).
+- `commands/`: one verb each (`init`, `add`, `remove`/`rm`, `update`, `list`, `status`, `uninstall`, `verify-archive`).
 - `steps/`: init stages (`node-prereq`, `prereqs`, `archetype-summary`, `overwrite-check`, `install-archetype`), `add-picker`.
 - Fetch boundary: `fetch-capped` (the one bounded GET), `release` (which commit), `repo` + `tar-extract`, `skills-version`,
   `min-cli-gate`, `upstream-manifest` (the upstream install manifest's one parser), `capability-index` (manifest →
@@ -144,7 +145,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 ## Testing
 
 - Vitest, node env. Lib tests are `tests/*.test.ts`; command suites are `tests/commands/` (`init`, `init-dry-run`, `add`,
-  `remove`, `update`, `update-dry-run`, `update-interrupted`, `status`, `list`, `uninstall`, `lock`, `clone-cleanup`, `older-cli`). Update the test first.
+  `remove`, `update`, `update-dry-run`, `update-interrupted`, `status`, `list`, `uninstall`, `verify-archive`, `lock`, `clone-cleanup`, `older-cli`). Update the test first.
 - A command suite runs the real `run<Command>()` on a temp project via `tests/support/harness.ts`. Only two boundaries
   are replaced: global `fetch`, which serves a real codeload tarball (`tests/support/tar-fixture.ts`), and
   `@clack/prompts` (`tests/support/clack-stub.ts`), where an unscripted prompt throws.
