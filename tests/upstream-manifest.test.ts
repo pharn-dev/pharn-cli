@@ -212,7 +212,26 @@ describe('readUpstreamManifest — the one parser', () => {
     expect(msg).toContain('Upgrade pharn');
   });
 
-  it('refuses the pharn layout when the tree lacks its marker', () => {
+  it('refuses the pharn layout when the tree lacks its marker and lists nothing there', () => {
+    const tree = upstreamTree('7.20.0');
+    const dir = writeTree(
+      withManifest(
+        Object.fromEntries(
+          Object.entries(tree).filter(
+            ([p]) => !p.startsWith('pharn/pharn-contracts/'),
+          ),
+        ),
+      ),
+    );
+    expect(() => readUpstreamManifest(dir)).toThrow(
+      /has no pharn\/pharn-contracts and it lists no file there/,
+    );
+  });
+
+  // CORE-386: the extractor validates the manifest BETWEEN its passes, before
+  // any listed file is written, so a listed file under the marker stands in
+  // for it. A listed file the tree then lacks is the hash check's to refuse.
+  it('accepts a marker the manifest lists before the tree holds it; the hash check refuses it if it never arrives', () => {
     const tree = manifestTree('7.20.0');
     const dir = writeTree(
       Object.fromEntries(
@@ -221,8 +240,9 @@ describe('readUpstreamManifest — the one parser', () => {
         ),
       ),
     );
-    expect(() => readUpstreamManifest(dir)).toThrow(
-      /has no pharn\/pharn-contracts/,
+    const manifest = readUpstreamManifest(dir);
+    expect(() => verifyUpstreamManifest(dir, manifest)).toThrow(
+      /declares pharn\/pharn-contracts\/.*which the tree does not ship as a file/,
     );
   });
 

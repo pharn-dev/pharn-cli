@@ -1,4 +1,4 @@
-import { gunzipSync } from 'node:zlib';
+import { createGunzip } from 'node:zlib';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { escapeUnsafe, hasUnsafeChars } from './terminal-safe.js';
@@ -8,32 +8,45 @@ import { safeJoin } from './validate.js';
  * The tar half of pharn's fetch boundary — a minimal, strict ustar reader for
  * the ONE archive shape pharn consumes: GitHub's `codeload.../tar.gz/<sha>`.
  * In-repo rather than a dependency because these guarantees ARE the fetch
- * boundary, unit-tested against hand-built adversarial archives; every
- * unexpected entry is a THROW, never a silent drop.
+ * boundary, unit-tested against hand-built adversarial archives.
+ *
+ * SELECT, THEN JUDGE. The caller names the root-relative paths to write
+ * (`select`: the paths pharn-install.json lists, plus the few files the CLI
+ * reads itself, lib/repo.ts). Every other entry is skipped and never written,
+ * whatever its type or name: nothing unselected touches disk, so skipping is
+ * strictly safer than judging. A symlink, hard link, device, pax header, long
+ * or `:` name anywhere else in the repo no longer refuses the install.
+ *
+ *   EVERY header is framing-checked, because the walk cannot find the next one
+ *     without it: checksum, `ustar` magic, an octal `size`, the header and
+ *     scanned-byte caps, and the end-of-archive marker with a zero tail.
+ *   A SELECTED header gets the full rules: strict UTF-8, no control or format
+ *     character, a regular file (typeflag '0' / NUL) only, its path rebuilt from
+ *     `prefix` + `name`, refused when absolute or holding `..`, `\`, `:` or an
+ *     empty or `.` segment, one root shared by every selected entry, one leading
+ *     component stripped, `safeJoin`-contained, written once, within the
+ *     written-byte cap. Contents are written verbatim, never executed.
  *
  * WHAT THE TREE CAN HOLD (the invariant `fetchRepo` states, lib/repo.ts): only
- * regular files and directories, under `destDir` — the only writes are
- * `mkdirSync` and `writeFileSync`, each through `safeJoin`. Clone-side readers
- * rely on this instead of re-checking for links.
- *
- *   ACCEPT  typeflag '0' / NUL (regular file) and '5' (directory).
- *   SKIP    typeflag 'g' (pax global header), payload UNREAD — every codeload
- *           tarball opens with one. It still counts toward `maxEntries`.
- *   REJECT  everything else: 'x' (pax extended header), '1'/'2' (hard/symlink),
- *           '3'/'4' (devices), '6' (fifo), '7', GNU 'L'/'K', any unknown byte.
+ * regular files and the directories above them, under `destDir`, at selected
+ * paths — the only writes are `mkdirSync` and `writeFileSync`, each through
+ * `safeJoin`. Clone-side readers rely on this instead of re-checking for links.
  *
  * PAX IS NEVER HONOURED: only the ustar `name`, `prefix`, `size` and
- * `typeflag` are read. A pax record would be a second untrusted path/size
- * source, and a writer emits 'x' exactly when the real path does not fit ustar
- * (truncating it into `name`, where it would pass every rule), so 'x' is
- * refused on its typeflag. Ignoring 'g' is safe: its defaults are never
- * consulted, and the walk is framed by the ustar `size` alone (a disagreeing
- * stream fails the next header's checksum or magic). Cost: a `g` meaning "put
- * everything at X" is extracted at its ustar paths, contained.
+ * `typeflag` are read, never a pax payload. A pax 'x' header (and GNU 'L'/'K')
+ * rewrites the NEXT entry's path or size, so it is skipped together with the
+ * entry it modifies, as unselected. When that entry's ustar name is a selected
+ * path, it is refused: pharn will not install a listed file whose real path or
+ * size it ignores. When the pax record renamed a listed file away from its
+ * ustar name, that file is simply missing, and the manifest's sha256 check
+ * (`verifyUpstreamManifest`) refuses the tree. A 'g' (global) header — every
+ * codeload tarball opens with one — is skipped and modifies nothing: its
+ * defaults are never consulted, and the walk is framed by the ustar `size`
+ * alone (a disagreeing stream fails the next header's checksum or magic).
  *
- * Every accepted path is rebuilt from `prefix` + `name`, refused when absolute
- * or holding `..`, `\` or `:`, stripped of one leading component, and resolved
- * through `safeJoin`. Contents are written verbatim, never executed.
+ * The decompressed tar is streamed, never held whole, so a repo larger than the
+ * written-byte cap still installs; the scanned-byte cap only bounds the work a
+ * compression bomb can cause.
  */
 /** A ustar header block is exactly 512 bytes; payloads are padded to that. */
 const BLOCK = 512;
@@ -50,15 +63,33 @@ const OFF_MAGIC = 257;
 const OFF_PREFIX = 345;
 const LEN_PREFIX = 155;
 
+/** Headers that rewrite the NEXT entry's path, size or link name. */
+const MODIFIERS = new Set(['x', 'L', 'K']);
+
 export interface TarLimits {
-  /** Maximum number of ACCEPTed entries. */
-  maxEntries: number;
-  /**
-   * The largest DECOMPRESSED tar `extractTarGz` accepts (gunzip's
-   * `maxOutputLength`). The tar holds every byte an entry writes, so this is
-   * also the bound on bytes written; `extractTar` itself does not re-count.
-   */
-  maxTotalBytes: number;
+  /** Headers walked, of any type, selected or not. */
+  maxHeaders: number;
+  /** Decompressed bytes walked: bounds a compression bomb's work, not the repo. */
+  maxScannedBytes: number;
+  /** Bytes written: the sum of the selected files' sizes. */
+  maxWrittenBytes: number;
+}
+
+export interface ExtractOptions {
+  /** Root-relative paths to write; every other entry is skipped unwritten. */
+  select: ReadonlySet<string>;
+  limits: TarLimits;
+  /** The archive's root component, when an earlier pass already learned it. */
+  root?: string | null;
+}
+
+export interface ExtractResult {
+  /** The root-relative paths written. */
+  written: ReadonlySet<string>;
+  /** Their total size in bytes. */
+  bytes: number;
+  /** The root component every selected entry shared (`null`: none selected). */
+  root: string | null;
 }
 
 /** Every refusal this module makes, so callers can tell it from an fs error. */
@@ -115,6 +146,21 @@ function readPathField(block: Buffer, offset: number, length: number): string {
 }
 
 /**
+ * The selection key of a header: its raw `prefix`/`name` bytes (latin1, so
+ * byte for byte) with everything up to the first `/` — the archive root —
+ * stripped; `null` when there is no `/`. Every selected path is ASCII, so an
+ * exact membership test on these bytes is exact, and an unselected name is
+ * never decoded, judged or printed.
+ */
+function selectionKey(block: Buffer): string | null {
+  const name = readString(block, OFF_NAME, LEN_NAME);
+  const prefix = readString(block, OFF_PREFIX, LEN_PREFIX);
+  const raw = prefix === '' ? name : `${prefix}/${name}`;
+  const slash = raw.indexOf('/');
+  return slash === -1 ? null : raw.slice(slash + 1);
+}
+
+/**
  * A ustar numeric field: octal digits, space- or NUL-terminated. GNU base-256
  * (high bit on the first byte) fails the octal test. Only ASCII space is
  * trimmed — `String#trim` would strip U+00A0 (latin1 0xA0) and read past it.
@@ -161,17 +207,6 @@ function describeTypeflag(typeflag: string): string {
     : `'${typeflag}'`;
 }
 
-/** Refuse any non-zero byte from `from` to the end (after the end marker). */
-function assertZeroTail(tar: Buffer, from: number): void {
-  for (let i = from; i < tar.length; i += 1) {
-    if (tar[i] !== 0) {
-      throw new TarExtractError(
-        'tar archive has data after its end-of-archive marker.',
-      );
-    }
-  }
-}
-
 /** True when the block is 512 NUL bytes — the end-of-archive marker. */
 function isZeroBlock(block: Buffer): boolean {
   for (const byte of block) if (byte !== 0) return false;
@@ -197,8 +232,8 @@ function checksumOk(block: Buffer): boolean {
 }
 
 /**
- * Apply the path rules to an ACCEPTed entry and return its destination-relative
- * path, or `null` for the archive's own root directory.
+ * Apply the path rules to a selected file entry and return its
+ * destination-relative path and root component.
  *
  * The full path is reconstructed from `prefix` + `name` BEFORE any rule runs:
  * ustar splits a path over 100 characters across the two, and `name` alone
@@ -206,32 +241,26 @@ function checksumOk(block: Buffer): boolean {
  */
 function resolveEntryPath(
   fullPath: string,
-  isDirectory: boolean,
   expectedRoot: string | null,
-): { rel: string | null; root: string } {
-  if (fullPath === '') {
-    throw new TarExtractError('tar entry has an empty path.');
-  }
+): { rel: string; root: string } {
   if (fullPath.startsWith('/')) {
     throw new TarExtractError(`tar entry has an absolute path: ${fullPath}`);
   }
   // POSIX writes `a\..\..\evil` as ONE literal name; win32 reads the same
-  // bytes as a path (and `C:` as a drive). pharn-oss ships neither character.
+  // bytes as a path (and `C:` as a drive). pharn-oss lists neither character.
   if (/[\\:]/.test(fullPath)) {
     throw new TarExtractError(
       `tar entry path contains a backslash or colon, which pharn does not accept: ${fullPath}`,
     );
   }
-  const segments = fullPath.replace(/\/+$/, '').split('/');
-  for (const segment of segments) {
-    if (segment === '..') {
-      throw new TarExtractError(
-        `tar entry escapes the archive root: ${fullPath}`,
-      );
-    }
+  const segments = fullPath.split('/');
+  if (segments.includes('..')) {
+    throw new TarExtractError(
+      `tar entry escapes the archive root: ${fullPath}`,
+    );
   }
   const root = segments[0]!;
-  if (root === '' || root === '.') {
+  if (root === '.') {
     throw new TarExtractError(
       `tar entry has no leading component: ${fullPath}`,
     );
@@ -251,132 +280,245 @@ function resolveEntryPath(
       `tar entry has an empty or "." path segment: ${fullPath}`,
     );
   }
-  if (rest.length === 0) {
-    // The root directory entry itself: nothing to write, not a failure.
-    if (isDirectory) return { rel: null, root };
-    throw new TarExtractError(
-      `tar entry has no path below the archive root: ${fullPath}`,
-    );
-  }
   return { rel: rest.join('/'), root };
 }
 
-/**
- * Extract a gzipped tar into `destDir`, stripping the single leading path
- * component. Throws `TarExtractError` on any refusal — a caller that sees one
- * must treat the destination as unusable and remove it, since extraction is not
- * transactional.
- */
-export function extractTarGz(
-  archive: Buffer,
-  destDir: string,
-  limits: TarLimits,
-): void {
-  let tar: Buffer;
-  try {
-    tar = gunzipSync(archive, { maxOutputLength: limits.maxTotalBytes });
-  } catch (err) {
-    throw new TarExtractError(
-      `could not decompress the fetched archive: ${(err as Error).message}`,
-    );
-  }
-  extractTar(tar, destDir, limits);
+/** The selected file whose payload is being collected. */
+interface Pending {
+  target: string;
+  chunks: Buffer[];
 }
 
-/** The uncompressed half, split out so tests can build tar bytes directly. */
-export function extractTar(
-  tar: Buffer,
-  destDir: string,
-  limits: TarLimits,
-): void {
-  let offset = 0;
-  let entries = 0;
-  let expectedRoot: string | null = null;
+/**
+ * The walk itself, incremental so the decompressed tar can be streamed: `push`
+ * takes chunks of any size (a header or payload may straddle two), `finish`
+ * refuses an archive that ended early. A selected file is written only once
+ * its whole payload has arrived, so a truncated archive writes no partial file.
+ */
+class TarWalker {
+  private readonly written = new Set<string>();
+  private bytes = 0;
+  private headers = 0;
+  private scanned = 0;
+  private root: string | null;
+  // Header bytes received so far (a header can straddle two chunks).
+  private carry: Buffer[] = [];
+  private carryLength = 0;
+  // Payload and padding bytes of the current entry still to come.
+  private dataLeft = 0;
+  private padLeft = 0;
+  private pending: Pending | null = null;
+  // The previous header was a modifier ('x', 'L', 'K'), so this one's ustar
+  // path and size may not be the real ones.
+  private modified = false;
+  private ended = false;
 
-  while (offset + BLOCK <= tar.length) {
-    const header = tar.subarray(offset, offset + BLOCK);
-    // The end-of-archive marker; everything after it must be zero padding, so
-    // a zero block cannot end the walk early and drop the rest in silence.
-    if (isZeroBlock(header)) {
-      assertZeroTail(tar, offset + BLOCK);
+  constructor(
+    private readonly destDir: string,
+    private readonly options: ExtractOptions,
+  ) {
+    this.root = options.root ?? null;
+  }
+
+  push(chunk: Buffer): void {
+    this.scanned += chunk.length;
+    if (this.scanned > this.options.limits.maxScannedBytes) {
+      throw new TarExtractError(
+        `tar archive decompresses to more than ${this.options.limits.maxScannedBytes} bytes.`,
+      );
+    }
+    let at = 0;
+    while (at < chunk.length) {
+      if (this.ended) {
+        // After the end-of-archive marker everything must be zero padding, so
+        // a zero block cannot end the walk early and drop the rest in silence.
+        if (!isZeroBlock(chunk.subarray(at))) {
+          throw new TarExtractError(
+            'tar archive has data after its end-of-archive marker.',
+          );
+        }
+        return;
+      }
+      if (this.dataLeft > 0) {
+        const n = Math.min(this.dataLeft, chunk.length - at);
+        this.pending?.chunks.push(chunk.subarray(at, at + n));
+        this.dataLeft -= n;
+        at += n;
+        if (this.dataLeft === 0) this.writePending();
+        continue;
+      }
+      if (this.padLeft > 0) {
+        const n = Math.min(this.padLeft, chunk.length - at);
+        this.padLeft -= n;
+        at += n;
+        continue;
+      }
+      const n = Math.min(BLOCK - this.carryLength, chunk.length - at);
+      this.carry.push(chunk.subarray(at, at + n));
+      this.carryLength += n;
+      at += n;
+      if (this.carryLength === BLOCK) {
+        const block =
+          this.carry.length === 1 ? this.carry[0]! : Buffer.concat(this.carry);
+        this.carry = [];
+        this.carryLength = 0;
+        this.header(block);
+      }
+    }
+  }
+
+  finish(): ExtractResult {
+    if (this.dataLeft > 0) {
+      throw new TarExtractError(
+        'tar entry runs past the end of the archive — truncated.',
+      );
+    }
+    // The walk ran out of bytes without meeting a zero block: the archive was
+    // cut short (every real tar ends with at least one).
+    if (!this.ended) {
+      throw new TarExtractError(
+        'tar archive has no end-of-archive marker — truncated.',
+      );
+    }
+    return { written: this.written, bytes: this.bytes, root: this.root };
+  }
+
+  private header(block: Buffer): void {
+    if (isZeroBlock(block)) {
+      this.ended = true;
       return;
     }
-    if (!checksumOk(header)) {
+    if (!checksumOk(block)) {
       throw new TarExtractError(
         'tar header failed its checksum — the archive is corrupt or truncated.',
       );
     }
     // Every header git archive writes is ustar (`ustar\0`); old GNU writes
     // `ustar ` — the 5-byte prefix admits both and nothing else.
-    if (header.toString('latin1', OFF_MAGIC, OFF_MAGIC + 5) !== 'ustar') {
+    if (block.toString('latin1', OFF_MAGIC, OFF_MAGIC + 5) !== 'ustar') {
       throw new TarExtractError(
         'tar header is not a ustar header (missing "ustar" magic).',
       );
     }
-
-    const size = readOctal(header, OFF_SIZE, LEN_SIZE);
-    const dataStart = offset + BLOCK;
-    const dataEnd = dataStart + size;
-    if (dataEnd > tar.length) {
+    const size = readOctal(block, OFF_SIZE, LEN_SIZE);
+    this.headers += 1;
+    if (this.headers > this.options.limits.maxHeaders) {
       throw new TarExtractError(
-        'tar entry runs past the end of the archive — truncated.',
+        `tar archive has more than ${this.options.limits.maxHeaders} headers.`,
       );
     }
-    const next = dataStart + Math.ceil(size / BLOCK) * BLOCK;
-    const typeflag = String.fromCharCode(header[OFF_TYPEFLAG]!);
+    const typeflag = String.fromCharCode(block[OFF_TYPEFLAG]!);
+    const modified = this.modified;
+    // A 'g' modifies nothing, so it neither sets nor consumes the flag.
+    if (MODIFIERS.has(typeflag)) this.modified = true;
+    else if (typeflag !== 'g') this.modified = false;
 
-    // SKIP — a pax GLOBAL header, payload unread; it counts toward the cap.
-    if (typeflag === 'g') {
-      entries += 1;
-      if (entries > limits.maxEntries) {
-        throw new TarExtractError(
-          `tar archive has more than ${limits.maxEntries} entries.`,
-        );
-      }
-      offset = next;
-      continue;
+    const key = selectionKey(block);
+    if (key !== null && this.options.select.has(key)) {
+      this.accept(block, typeflag, modified, size);
     }
+    this.dataLeft = size;
+    this.padLeft = Math.ceil(size / BLOCK) * BLOCK - size;
+    if (size === 0) this.writePending();
+  }
 
-    // The FULL path is judged before any other entry rule, so no later message
+  /** The full rules, for a header at a selected path; arms `pending`. */
+  private accept(
+    block: Buffer,
+    typeflag: string,
+    modified: boolean,
+    size: number,
+  ): void {
+    // The FULL path is judged before any other rule, so no later message
     // interpolates a control character from it.
-    const name = readPathField(header, OFF_NAME, LEN_NAME);
-    const prefix = readPathField(header, OFF_PREFIX, LEN_PREFIX);
+    const name = readPathField(block, OFF_NAME, LEN_NAME);
+    const prefix = readPathField(block, OFF_PREFIX, LEN_PREFIX);
     const fullPath = prefix === '' ? name : `${prefix}/${name}`;
     assertDisplayablePath(fullPath);
-
-    const isFile = typeflag === '0' || typeflag === '\0';
-    const isDirectory = typeflag === '5';
-    if (!isFile && !isDirectory) {
+    if (typeflag !== '0' && typeflag !== '\0') {
       throw new TarExtractError(
-        `tar entry has an unsupported type ${describeTypeflag(typeflag)}: ${fullPath}`,
+        `tar entry has an unsupported type ${describeTypeflag(typeflag)} at a path pharn installs (only a regular file is accepted there): ${fullPath}`,
       );
     }
+    if (modified) {
+      throw new TarExtractError(
+        `tar entry follows a pax extended or GNU long-name header, whose records pharn does not honour, at a path pharn installs: ${fullPath}`,
+      );
+    }
+    const { rel, root } = resolveEntryPath(fullPath, this.root);
+    this.root = root;
+    if (this.written.has(rel)) {
+      throw new TarExtractError(
+        `tar archive holds this path twice: ${fullPath}`,
+      );
+    }
+    this.written.add(rel);
+    this.bytes += size;
+    if (this.bytes > this.options.limits.maxWrittenBytes) {
+      throw new TarExtractError(
+        `the files pharn installs from this archive exceed ${this.options.limits.maxWrittenBytes} bytes.`,
+      );
+    }
+    // safeJoin is the lexical containment backstop behind the segment rules.
+    this.pending = { target: safeJoin(this.destDir, rel), chunks: [] };
+  }
 
-    const { rel, root } = resolveEntryPath(fullPath, isDirectory, expectedRoot);
-    expectedRoot = root;
+  private writePending(): void {
+    if (this.pending === null) return;
+    const { target, chunks } = this.pending;
+    this.pending = null;
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, Buffer.concat(chunks));
+  }
+}
 
-    if (rel !== null) {
-      entries += 1;
-      if (entries > limits.maxEntries) {
-        throw new TarExtractError(
-          `tar archive has more than ${limits.maxEntries} entries.`,
-        );
-      }
-      // safeJoin is the lexical containment backstop behind the segment rules.
-      const target = safeJoin(destDir, rel);
-      if (isDirectory) {
-        mkdirSync(target, { recursive: true });
-      } else {
-        mkdirSync(dirname(target), { recursive: true });
-        writeFileSync(target, tar.subarray(dataStart, dataEnd));
+/**
+ * Extract the selected files of an uncompressed tar into `destDir`, stripping
+ * the single leading path component. `tar` may come in chunks of any size.
+ * Throws `TarExtractError` on any refusal — a caller that sees one must treat
+ * the destination as unusable and remove it, since extraction is not
+ * transactional.
+ */
+export function extractTar(
+  tar: Buffer | readonly Buffer[],
+  destDir: string,
+  options: ExtractOptions,
+): ExtractResult {
+  const walker = new TarWalker(destDir, options);
+  for (const chunk of Buffer.isBuffer(tar) ? [tar] : tar) walker.push(chunk);
+  return walker.finish();
+}
+
+/**
+ * `extractTar` over a gzipped archive, decompressed as a stream so the whole
+ * tar is never held in memory. Takes the archive's bytes, never a URL, so a
+ * local file goes through the same walk as a download.
+ */
+export async function extractTarGz(
+  archive: Buffer,
+  destDir: string,
+  options: ExtractOptions,
+): Promise<ExtractResult> {
+  const walker = new TarWalker(destDir, options);
+  const gunzip = createGunzip();
+  gunzip.end(archive);
+  // A refusal from the walk is rethrown as itself; only a gunzip failure is
+  // reported as a decompression error.
+  let refusal: unknown = null;
+  try {
+    for await (const chunk of gunzip) {
+      try {
+        walker.push(chunk as Buffer);
+      } catch (err) {
+        refusal = err;
+        break;
       }
     }
-
-    offset = next;
+  } catch (err) {
+    throw new TarExtractError(
+      `could not decompress the fetched archive: ${(err as Error).message}`,
+    );
   }
-  // The walk ran out of bytes without meeting a zero block: the archive was cut
-  // short (every real tar ends with at least one).
-  throw new TarExtractError(
-    'tar archive has no end-of-archive marker — truncated.',
-  );
+  if (refusal !== null) throw refusal;
+  return walker.finish();
 }

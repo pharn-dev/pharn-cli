@@ -971,13 +971,14 @@ describe('a fresh install', () => {
   });
 
   // pharn/pharn-contracts is the pharn layout's marker: a manifest that
-  // declares that layout over a tree without it is refused, never installed.
-  it('a clone with no pharn-contracts is refused: its manifest declares a layout the tree lacks', async () => {
+  // declares that layout but lists nothing under it is refused, never
+  // installed (only listed files are extracted, so the tree would lack it).
+  it('a clone with no pharn-contracts is refused: its manifest declares a layout it does not list', async () => {
     delete upstream.tree['pharn/pharn-contracts/finding-shape.md'];
     const before = snapshot();
     expect(await run(() => runInit({ yes: true }))).toBe(1);
     expect(errors()).toContain(
-      'declares the pharn layout, but the tree has no pharn/pharn-contracts',
+      'declares the pharn layout, but the tree has no pharn/pharn-contracts and it lists no file there',
     );
     expect(snapshot()).toEqual(before);
   });

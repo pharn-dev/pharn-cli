@@ -9,6 +9,14 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pharn init`, `add`, `update` and `status` work again against pharn-oss v7.25.3 and later.** Those releases commit seven symlinks under `.claude/skills/`, and `pharn` refused any symlink anywhere in the downloaded archive, so every install and update failed on every channel. `pharn` now unpacks only the files pharn-oss's `pharn-install.json` lists, plus the four it reads itself (`pharn-install.json`, `SKILLS_VERSION`, `MIN_CLI`, `.claude/settings.json`); every other archive entry is skipped and never written. A symlink, hard link, pax header, long or `:` name elsewhere in pharn-oss, or pharn-oss growing past 20,000 entries or 128 MB, no longer stops an install. The archive is decompressed as a stream, so the 128 MB cap now applies to the bytes `pharn` writes, not to the whole repository. What is installed is unchanged.
+
+### Security
+
+- **Nothing outside pharn-oss's install list reaches your disk, even in the temporary download directory.** A listed file keeps every rule it had: it must be a regular file with a safe UTF-8 path (no `\`, `:` or `..`, one root), it may appear only once, and a symlink or any other entry type at a listed path is refused. A listed file preceded by a pax extended or GNU long-name header is refused, because `pharn` does not honour those records; a listed file such a header renamed is missing, and the sha256 check of every listed file still refuses the release. New bounds replace the entry and decompressed-size caps: 200,000 archive headers and 1 GiB of decompressed stream (a compression-bomb bound), beside the 32 MB download cap.
+
 ## [0.21.5] — 2026-11-24
 
 ### Changed

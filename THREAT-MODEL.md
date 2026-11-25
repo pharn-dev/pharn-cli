@@ -47,13 +47,16 @@ surface:
 1. **Malicious capability / product path** — a poisoned capability name, manifest `path`/`dest`,
    or product command/hook filename containing `..`, an absolute path, or control chars →
    a write **outside the intended subtree** (arbitrary file overwrite in the user's repo). Symlinks
-   planted in the archive are a variant — refused by the extractor's typeflag allowlist, so the
-   clone never holds one (the clone invariant, §2). The highest-value target.
+   planted in the archive are a variant — the extractor writes only the paths the install manifest
+   lists (plus the few files the CLI reads), each as a regular file, so the clone never holds one
+   (the clone invariant, §2): a symlink at a listed path is refused, one elsewhere is skipped
+   unwritten. The highest-value target.
 2. **Malformed capability declarations** — broken `role`/`applies` values in `pharn-install.json`, or a
    capability `dir` in the wrong subtree, to crash the install or mis-drive selection into an unintended capability set.
 3. **Oversized / slow response** — a huge clone or a hanging fetch → DoS the install. Every pharn
    fetch now carries a timeout and a body cap, the clone included: a streamed-byte cap on the
-   download and a second cap on the decompressed size (see the fetch boundary below).
+   download, and caps on the headers and decompressed bytes the extractor walks and on the bytes it
+   writes (see the fetch boundary below).
 4. **Redirect to an attacker host** — a 3xx from any `fetch()` endpoint (`SKILLS_VERSION`, commit
    and release metadata, the tarball) to an off-repo sink. All of them pass `redirect: 'error'`.
 5. **The copied methodology itself (Surface A)** — validated for **placement**, not for semantic
@@ -95,40 +98,49 @@ a test.
   deadline even when the runtime never forwards the abort into a body that stops arriving. The
   clone's deadline is separately sized (60 s, not 8 s) because it
   must cover a ~2.5 MB streamed body rather than a one-line response. codeload sends **no
-  `content-length`**, so the cap is enforced by counting bytes as they stream, and a **second** cap
-  bounds the _decompressed_ size — a compression bomb is bounded by neither the header nor the
-  archive size.
-- **Extraction rejects rather than skips.** This is the deliberate difference from what it replaces.
-  The bundled node-tar was called with **neither `strict` nor `onwarn`**, so a `TAR_ENTRY_INVALID`
-  (checksum / path / linkpath) was _recoverable_: the entry was silently dropped and extraction still
-  resolved successfully. `tar-extract.ts` throws on every one of those. It sorts each header into
-  three buckets:
-  - **ACCEPT** typeflag `0`/NUL (regular file) and `5` (directory) — the only content types the
-    archive holds.
-  - **SKIP** typeflag `g` (pax global header), advancing past the padded payload **unread**, with
-    **no** path rules applied; it still counts toward the entry cap. Every codeload tarball opens with
-    a `pax_global_header` whose single-segment name has no leading component to strip, so an
-    extractor that runs the path rules over it rejects every real archive on its first block. pharn
-    reads only the ustar fields, so a `g` default (`path`, `size`) is never honoured: the entries
-    after it land at their own ustar paths under every rule below.
-  - **REJECT** `x` (pax extended header — refused on the typeflag alone, payload unread, because its
-    records would override the next entry's path and size), `1`/`2` (hard/symlink), `3`/`4`
-    (devices), `6` (fifo), `7`, and any unknown byte. The archive contains none today, so a rejection
-    is a real signal rather than noise.
+  `content-length`**, so the cap is enforced by counting bytes as they stream, and the extractor
+  caps the _decompressed_ bytes it walks — a compression bomb is bounded by neither the header nor
+  the archive size.
+- **Extraction selects, then rejects.** The bundled node-tar it replaces was called with **neither
+  `strict` nor `onwarn`**, so a `TAR_ENTRY_INVALID` (checksum / path / linkpath) was _recoverable_:
+  the entry was silently dropped and extraction still resolved — and a dropped entry could be a file
+  pharn installs. `tar-extract.ts` writes only the paths it is given: `fetchRepo` makes two streamed
+  passes, the first writing the files the CLI reads itself (`CLONE_READ_FILES`: `pharn-install.json`,
+  `SKILLS_VERSION`, `MIN_CLI`, `.claude/settings.json`), the second — once the manifest has
+  validated — the paths `pharn-install.json` lists. Each header falls in one of three cases:
+  - **EVERY header** is framing-checked (checksum, `ustar` magic, octal `size`, the header and
+    scanned-byte caps, an end-of-archive marker followed only by zeros), because the walk cannot
+    find the next header without it.
+  - **UNSELECTED** — every entry at a path pharn does not write, whatever its type or name (a
+    symlink, hard link, device, fifo, directory, pax header, long, `:` or invalid name): skipped, its
+    payload unread, **nothing written**. Skipping is strictly safer than judging, since nothing
+    unselected touches disk; refusing them made seven symlinks under pharn-oss's `.claude/skills/`
+    (v7.25.3–v7.25.5), outside the install list, break every install. The silent loss node-tar
+    allowed cannot recur: a listed file a skipped entry stood in for is missing from the tree, and
+    the manifest's raw sha256 check (`verifyUpstreamManifest`) refuses the tree loudly.
+  - **SELECTED** — an entry at a path pharn writes: it must be a regular file (typeflag `0`/NUL;
+    any other type there is refused), its path strict UTF-8 with no control or format character,
+    held to every path rule below, and present once. pharn reads only the ustar fields, never a pax
+    payload: a pax `x` (or GNU `L`/`K`) header, which rewrites the next entry's path and size, is
+    skipped together with that entry, and **refused** when that entry's ustar name is a selected
+    path. A `g` (global) header — every codeload tarball opens with one — modifies nothing and is
+    skipped; its defaults are never honoured.
 - **Paths are reassembled before they are judged.** The full path is `prefix + '/' + name` — ustar
   splits anything over 100 characters across those two header fields, and a large fraction of the
   live archive's entries use it. Reading `name` alone yields a bare leaf, which the strip-1 rule then
   rejects for having no leading component: a third of the tree silently lost, not merely misplaced.
   After reassembly: absolute paths, `..` segments and any `\` or `:` in a name are rejected (POSIX
   would write `a\..\..\evil` as one literal name; win32 would read it as a path), exactly one
-  leading component is stripped, every entry must share the **same** root component, and every write resolves through
-  `safeJoin` (`src/lib/validate.ts`). The entry count is capped by the extractor and the total
-  extracted bytes by gunzip's decompressed-size cap (the decompressed tar holds every byte an entry
-  writes). Header checksums are verified, and numeric fields are octal only, so the GNU base-256
-  encoding is rejected rather than misparsed.
+  leading component is stripped, every selected entry must share the **same** root component, and every write resolves through
+  `safeJoin` (`src/lib/validate.ts`). The tar is decompressed as a stream (`zlib.createGunzip`),
+  never held whole; the extractor caps the headers it walks (200 000), the decompressed bytes it
+  walks (1 GiB, the compression-bomb bound) and the bytes it writes (128 MB, checked at each
+  selected header before its payload is read). Header checksums are verified, and numeric fields
+  are octal only, so the GNU base-256 encoding is rejected rather than misparsed.
 - **The clone invariant.** The tree `fetchRepo` returns contains only regular files and
-  directories, created by this process in a private `mkdtemp` dir (0700) that nothing else writes:
-  the typeflag allowlist above admits nothing else, the extractor's only writes are `mkdirSync` and
+  directories — only the listed and CLI-read files and the directories above them — created by this
+  process in a private `mkdtemp` dir (0700) that nothing else writes: a selected entry must be a
+  regular file, nothing unselected is written, the extractor's only writes are `mkdirSync` and
   `writeFileSync` through `safeJoin`, and a test pins that `src/lib/repo.ts` is the only producer of
   a clone. Clone-side readers rely on it and carry no symlink, FIFO or device checks of their own;
   they keep type checks where a directory (or a file where a directory belongs) can be produced.
@@ -173,13 +185,13 @@ Every answer reduces to the floor (P0) or is labeled a limit (`LIMITS.md`).
 
 | Surface | Structural answer | Floor primitive (current file/function) |
 | --- | --- | --- |
-| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `readUpstreamManifest`, `installCapabilityDirs`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar`'s typeflag allowlist) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
+| malicious capability / product path | `CAPABILITY_NAME_RE` / `COPY_FILENAME_RE` + `..`/unsafe-character rejection (`assertSafeString` in `src/lib/validate.ts`, through `hasUnsafeChars`; its messages escaped with `escapeUnsafe`, since the label quotes the name); `safeJoin` guards **every** read/write in `readUpstreamManifest`, `installCapabilityDirs`, `collectExpectedInstallPaths`, `diffInstalledCapabilities`, and `remove`; the clone holds no symlinks (the clone invariant, §2 — `extractTar` writes only selected paths, each a regular file) and every destination path is walked for symlinked components before any write (`prepareInstall` in `src/lib/install-capabilities.ts`); pre-flight every capability source before any write (`installCapabilityDirs`) | regex + path containment + typeflag allowlist + destination symlink walk |
 | malformed capability declarations | `readUpstreamManifest` refuses the whole manifest, naming the entry, on a name outside `CAPABILITY_NAME_RE`, an unknown `role` (`assertRole`), a `dir` outside its role's subtree, a duplicate name or a capability with no files; an unknown `applies` token (`assertAppliesToken`) makes that one capability `unknown` in `manifestCapabilityIndex` — named, never installed, never a silent skip | enum + regex shape check |
 | oversized / slow `SKILLS_VERSION` fetch | 256 KB body cap + 8s timeout + `redirect: 'error'` | `fetchRemoteSkillsVersion` (`src/lib/skills-version.ts`) |
 | oversized / slow release or commit-SHA resolve | 8s deadline + `redirect: 'error'` + a 1 MiB cap on the release object and `MAX_SHA_BYTES` (1 KiB) on a commit id | `resolveSource` (`src/lib/release.ts`), `fetchCommitSha` (`src/lib/repo.ts`) |
-| oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + a separate cap on the **decompressed** size + `redirect: 'error'`; an entry-count cap in the extractor. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
+| oversized / slow repo tarball | 60s timeout + a streamed-byte cap on the download + `redirect: 'error'`; in the extractor, caps on the headers and **decompressed** bytes walked (streamed, never held whole) and on the bytes written. A trip **throws** — there is no fallback transport to degrade to | `downloadArchive` (`src/lib/repo.ts`), `extractTarGz` (`src/lib/tar-extract.ts`) |
 | redirect to attacker host | `redirect: 'error'` on every pharn `fetch()` call, the tarball included | `fetchCapped` (`src/lib/fetch-capped.ts`), the one GET behind `resolveSource`, `fetchRemoteSkillsVersion`, `fetchCommitSha` and `downloadArchive` |
-| malformed / hostile archive entry | typeflag allowlist (files + dirs only; symlinks, hardlinks, devices and fifos **rejected**), `prefix`+`name` reassembly, `..`/absolute/`\`/`:` rejection, single-root check, `safeJoin` on every write, header-checksum verification | `extractTar` (`src/lib/tar-extract.ts`) |
+| malformed / hostile archive entry | selection (only the manifest's listed paths and the CLI-read files are written; every other entry is **skipped unwritten**); at a selected path: regular file only (symlinks, hardlinks, devices, fifos and pax-modified entries **rejected**), `prefix`+`name` reassembly, `..`/absolute/`\`/`:` rejection, single-root check, no duplicate, `safeJoin` on every write; header-checksum verification on every header; the manifest's sha256 check catches a listed file that is missing or altered | `extractTar` (`src/lib/tar-extract.ts`) |
 | hostile / malformed `pharn-install.json` | data, never executed: one parser, a bounded (4 MiB) non-blocking read; `schemaVersion` exact-match (`1`, else refuse, naming the upgrade); every `path`/`dest` through a safe-segment regex + `safeJoin`; unique `dest`s; names, roles and versions against `CAPABILITY_NAME_RE` / `assertRole` / `VERSION_RE` (an unknown `applies` token makes that capability `unknown`, never installed); every `dest` inside the CLI-owned outer bound — below `pharn/` or `.claude/<dir>/` inside a `pharn-*` entry or a fixed pharn root, `.claude/settings.json` only as copy-if-absent — never the manifest's own `installRoots`; each declared file's **raw** sha256 verified in `fetchRepo` before the tree is returned, so a mismatch refuses and nothing is written; `models.defaults` passes `checkModelsBlock` before any config write; `models.rules` drives nothing. Provenance only (§4a): whoever can change the tarball can change the manifest with it | `readUpstreamManifest` / `verifyUpstreamManifest` (`src/lib/upstream-manifest.ts`), `isPharnOwnedPath` (`src/lib/install-surfaces.ts`), `matchesRawSha256` (`src/lib/hash.ts`) |
 | poisoned tarball cache | **not applicable — pharn keeps no cache.** Every fetch downloads into a fresh temp dir | `fetchRepo` (`src/lib/repo.ts`) |
 | malformed / hostile upstream `models` block | bounded (1 MiB), non-blocking read; checked against pharn-oss's rules through the pinned copy; an unserializable block is refused; a failing block is **not written** and each reason is printed through `terminalSafe`; never executed | `readUpstreamModels` (`src/lib/upstream-models.ts`), `checkModelsBlock` (`src/lib/model-config.ts`) |
@@ -236,8 +248,9 @@ not a "the source repo is ours" assumption (P0).
   `fetchRepo` now owns the whole download-and-extract path, so the residual is much smaller than it
   was — and what is left is worth stating precisely rather than implying it is closed:
   - **What is now floor, not delegation.** Timeout, streamed-byte cap, decompressed-size cap,
-    `redirect: 'error'`, typeflag allowlist, path reassembly + containment, single-root check,
-    entry/byte caps, header checksums. Each is pharn's own code with its own test, so a dependency
+    `redirect: 'error'`, selection of listed paths with a regular-file rule at each, path
+    reassembly + containment, single-root check, header/scanned-byte/written-byte caps, header
+    checksums. Each is pharn's own code with its own test, so a dependency
     bump cannot move any of them. The previous residual — "pharn bounds none of it" — is closed.
   - **What is closed by removal.** The shared cross-project tarball cache is gone, and with it both
     the poisoned-bytes surface (reuse keyed by **filename**, never a verified digest) and the worse

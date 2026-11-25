@@ -80,10 +80,11 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
   path that crosses a symlinked component, because `safeJoin` is lexical and copies/`rmSync` follow links.
 - **Hard-link-safe writes.** Writes replace the file (`lib/atomic-write.ts`: exclusive temp, then `rename`), one by one
   via `applyWrites`; a new `settings.json` uses `COPYFILE_EXCL`. A hard link's other name is never written through.
-- **The clone is data.** `lib/tar-extract.ts` admits only regular files and directories, and `lib/repo.ts` is the only
-  producer of a clone. It requires the tree's `pharn-install.json` (a tree without one is refused) and verifies its raw
-  sha256s before returning the tree; every manifest `dest` must pass `isPharnOwnedPath`, never the manifest's own
-  `installRoots`. Nothing downloaded is ever executed: pharn-oss's `models` rules exist here as a pinned copy
+- **The clone is data.** `lib/repo.ts` is the only producer of a clone. `lib/tar-extract.ts` writes only the paths
+  `pharn-install.json` lists plus `CLONE_READ_FILES`, each a regular file under today's path rules; every other archive
+  entry is skipped and never written, whatever its type. It requires the tree's `pharn-install.json` (a tree without
+  one is refused) and verifies its raw sha256s before returning the tree, so a listed file that is missing or altered
+  fails; every manifest `dest` must pass `isPharnOwnedPath`, never the manifest's own `installRoots`. Nothing downloaded is ever executed: pharn-oss's `models` rules exist here as a pinned copy
   (`lib/model-config.ts`), held to the vendored sha256-pinned checker by a differential test.
 - **Allowlists for untrusted names.** Untrusted names, versions, tags and manifest fields are checked against
   `CAPABILITY_NAME_RE`, `VERSION_RE`, `COPY_FILENAME_RE`, `COMMIT_RE`, `RELEASE_TAG_RE` and the role/applies enums.
@@ -100,7 +101,7 @@ PHARN_DEBUG=1 npm run dev -- init   # full error output for fetch/install failur
 - **Fail closed on release resolution.** `lib/release.ts` refuses (naming `--ref main`) when the latest release cannot
   be resolved or is malformed. It never floats to the tip of `main`.
 - **Network bounds.** `redirect: 'error'`, a per-request deadline and a body cap on every fetch. The tarball has its
-  own archive, extracted-size and entry caps.
+  own archive, headers-scanned, decompressed-bytes-scanned and bytes-written caps.
 - **The project lock.** `init`/`add`/`update`/`remove`/`uninstall` take `pharn/.lock` before reading the config, hold
   it across every prompt and plan once; edits made meanwhile are caught at write time (hash, fingerprint, walk). Dry
   runs and readers (`list`, `status`) never take it.
