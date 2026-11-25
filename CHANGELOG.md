@@ -9,6 +9,8 @@ Releases 0.4.0 and older are in [CHANGELOG-ARCHIVE.md](CHANGELOG-ARCHIVE.md).
 
 ## [Unreleased]
 
+## [0.21.6] — 2026-11-25
+
 ### Fixed
 
 - **`pharn init`, `add`, `update` and `status` work again against pharn-oss v7.25.3 and later.** Those releases commit seven symlinks under `.claude/skills/`, and `pharn` refused any symlink anywhere in the downloaded archive, so every install and update failed on every channel. `pharn` now unpacks only the files pharn-oss's `pharn-install.json` lists, plus the four it reads itself (`pharn-install.json`, `SKILLS_VERSION`, `MIN_CLI`, `.claude/settings.json`); every other archive entry is skipped and never written. A symlink, hard link, pax header, long or `:` name elsewhere in pharn-oss, or pharn-oss growing past 20,000 entries or 128 MB, no longer stops an install. The archive is decompressed as a stream, so the 128 MB cap now applies to the bytes `pharn` writes, not to the whole repository. What is installed is unchanged.
@@ -527,7 +529,8 @@ _Never released: 0.9.0 followed on the same day, so `0.8.0` was neither tagged n
   matcher that silently stopped matching, or a comparator read in the wrong direction, would otherwise
   leave every assertion green.
 
-[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.5...HEAD
+[Unreleased]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.6...HEAD
+[0.21.6]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.5...v0.21.6
 [0.21.5]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.4...v0.21.5
 [0.21.4]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.3...v0.21.4
 [0.21.3]: https://github.com/pharn-dev/pharn-cli/compare/v0.21.2...v0.21.3
