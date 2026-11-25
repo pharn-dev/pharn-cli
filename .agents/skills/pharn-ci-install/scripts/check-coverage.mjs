@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Check a repository's coverage output the way pharn-ci (0.1.x to 0.4.x) will read it, before pharn-ci runs in CI:
+// Check a repository's coverage output the way pharn-ci (0.1.x to 0.12.x) will read it, before pharn-ci runs in CI:
 // which report auto-discovery would pick, the format of each file, whether its paths match tracked files,
 // and the coverage root they look relative to. Node core only; reads files and runs read-only git commands,
 // writes nothing.
@@ -14,7 +14,7 @@
 // This mirrors pharn-ci's rules; it is not pharn-ci, and the CI run decides.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, openSync, readdirSync, readSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -26,13 +26,19 @@ export class UsageError extends Error {}
 
 // <shared:coverage>
 // This block is byte-identical in pharn-ci-cover/scripts/check-lines.mjs and
-// pharn-ci-install/scripts/check-coverage.mjs (tests/shared-block.test.mjs checks it). It needs `existsSync`
-// from node:fs, `path` from node:path and a `UsageError` class from the file around it.
+// pharn-ci-install/scripts/check-coverage.mjs (tests/shared-block.test.mjs checks it). It needs `closeSync`,
+// `fsConstants` (node:fs `constants`), `existsSync`, `fstatSync`, `openSync` and `readSync` from node:fs, `path`
+// from node:path and a `UsageError` class from the file around it. It ends with the shared:read-file routine and the
+// 256 MiB cap the two helpers read a coverage file with (pharn-ci itself streams a coverage file and has no cap).
 //
 // Ported from pharn-ci 0.1.0 (a88e62a8febf5cd9a77b8e0252cd060c3b94782c, Apache-2.0): packages/core/src/paths.ts,
 // coverage/xml.ts, coverage/detect.ts, coverage/lcov.ts, coverage/cobertura.ts and coverage/merge.ts, so a
 // coverage file is detected, read and mapped to repository paths the way pharn-ci does it. These files are
-// unchanged in pharn-ci 0.4.0 (a9314e9fda1ae220e42fa0d7e6ff5c0a04e1d756).
+// unchanged in pharn-ci 0.12.0 (a370515e32f8040771ccf4b6f737d3d25f62749f), apart from opt-in scanXml options
+// in coverage/xml.ts that the coverage readers do not use, and the opt-in literalBackslashes option of
+// coverage/lcov.ts and coverage/cobertura.ts (0.12.0, CORE-101), which this block does not port: it reads every
+// backslash in a coverage path as a separator, as pharn-ci before 0.12.0 did, so a tracked file whose name holds
+// a backslash is not matched here.
 
 // --- paths (paths.ts) ---
 
@@ -121,6 +127,24 @@ export function isSafeRepoPath(p) {
   if (typeof p !== "string" || p === "" || p.includes("\0")) return false;
   if (p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || p.startsWith("\\")) return false;
   return !p.split(/[\\/]/).includes("..");
+}
+
+const MAX_PRINTED_NAME = 200;
+
+/**
+ * A path or directory name from the input, when it is safe to print as data: no control character or line separator
+ * (U+0000-U+001F, U+007F, U+0085, U+2028, U+2029), no leading or trailing space and at most 200 characters. Anything
+ * else is null, so the name cannot carry a second line into a note or a config file.
+ */
+export function printableName(s) {
+  if (typeof s !== "string" || s === "" || s.trim() !== s) return null;
+  let count = 0;
+  for (const ch of s) {
+    const code = ch.codePointAt(0);
+    if (code <= 0x1f || code === 0x7f || code === 0x85 || code === 0x2028 || code === 0x2029) return null;
+    if (++count > MAX_PRINTED_NAME) return null;
+  }
+  return s;
 }
 
 // --- XML scanner (xml.ts): one forward pass, no regular expressions, no element stack ---
@@ -574,6 +598,47 @@ export function findGitRoot(cwd) {
     dir = parent;
   }
 }
+
+/** The most a helper reads of one coverage file. */
+const MAX_COVERAGE_BYTES = 256 * 1024 * 1024;
+
+// <shared:read-file>
+// Byte-identical in all four pharn-ci helper scripts (tests/shared-block.test.mjs checks it). It needs
+// `closeSync`, `fsConstants` (node:fs `constants`), `fstatSync`, `openSync` and `readSync` from node:fs and a
+// `UsageError` class from the file around it.
+
+/**
+ * Reads `file` as UTF-8 when it is a regular file of at most `cap` bytes, checking and reading through one
+ * descriptor so the file checked is the file read. O_NONBLOCK so a FIFO is refused instead of blocking the
+ * open; isFile so a directory or a device (which reports size 0) is refused; the read stops once more than
+ * `cap` bytes arrive. Throws a UsageError naming `name` and the reason, carrying the system error's code.
+ */
+function readRegularFile(file, cap, name) {
+  let fd;
+  try {
+    fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw new UsageError(`${name} is not a regular file`);
+    const over = () => new UsageError(`${name} is larger than ${cap / (1024 * 1024)} MiB`);
+    if (stat.size > cap) throw over();
+    const chunks = [];
+    let total = 0;
+    for (let n = -1; n !== 0; ) {
+      const chunk = Buffer.allocUnsafe(64 * 1024);
+      n = readSync(fd, chunk, 0, chunk.length, null);
+      total += n;
+      if (total > cap) throw over();
+      chunks.push(chunk.subarray(0, n));
+    }
+    return Buffer.concat(chunks, total).toString("utf8");
+  } catch (err) {
+    if (err instanceof UsageError) throw err;
+    throw Object.assign(new UsageError(`cannot read ${name}: ${err?.code ?? "unknown error"}`), { code: err?.code });
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+// </shared:read-file>
 // </shared:coverage>
 
 // --- globs (glob.ts, globWalk.ts, coverageEntries.ts) ---------------------------------------------
@@ -587,12 +652,18 @@ export function hasGlobSyntax(entry) {
   return /[*?[\]{}]/.test(entry);
 }
 
+/** The most characters a glob may have after trimming (pharn-ci 0.11.0 and later, config.ts MAX_EXCLUDE_PATTERN_CHARS). */
+export const MAX_GLOB_CHARS = 1024;
+
 /** pharn-ci's glob rules (config.ts parseExcludePattern); returns the pattern without leading "./". */
 export function parseGlob(pattern) {
   let start = 0;
   const trimmed = pattern.trim();
   while (trimmed.startsWith("./", start)) start += 2;
   const p = trimmed.slice(start);
+  if (p.length > MAX_GLOB_CHARS) {
+    throw new UsageError(`--coverage "${p.slice(0, 40)}..." is ${p.length} characters long; the limit is ${MAX_GLOB_CHARS} characters`);
+  }
   const reject = (reason) => {
     throw new UsageError(`--coverage "${pattern}" ${reason}`);
   };
@@ -820,13 +891,15 @@ function suggestRoot(unmatched, repoFiles, coverageRoot) {
 /**
  * What pharn-ci would make of these coverage entries. `repo` is { repoRoot, files, tracked } where `files`
  * lists the repository's files (tracked ones, or files on disk when git cannot run) and `tracked` says which.
- * `isIgnored(rel)` answers whether git ignores a path (null when unknown). Codes are pharn-ci's own message
- * codes, in the order pharn-ci decides them; `blocking` is the one that stops diff coverage being measured.
+ * `isIgnored(rels)` answers, in one call for all coverage files, whether git ignores each path: one true, false
+ * or null (unknown) per path, in order. Discovery runs only without entries; with entries it is "not-run", as
+ * pharn-ci does not use it then. Codes are pharn-ci's own message codes, in the order pharn-ci decides them;
+ * `blocking` is the one that stops diff coverage being measured.
  */
 export function checkCoverage({ entries, coverageRoot, format = "auto" }, repo, { listDir, readText, isIgnored }) {
   const { repoRoot, files: repoFiles, tracked } = repo;
   const notes = [];
-  const discovery = discoverCoverage(listDir);
+  const discovery = entries.length > 0 ? { kind: "not-run", files: [] } : discoverCoverage(listDir);
   if (discovery.kind === "over-limit") {
     notes.push(`auto-discovery went over pharn-ci's ${discovery.limit} limit, so pharn-ci would fail the step; set coverage.file`);
   }
@@ -853,9 +926,6 @@ export function checkCoverage({ entries, coverageRoot, format = "auto" }, repo, 
       if (matches.length === 0) names.push({ name: entry, missing: true });
       for (const m of matches) names.push({ name: m, missing: false });
     }
-    if (discovery.kind === "ambiguous") {
-      notes.push("auto-discovery would be ambiguous here; it is not used while coverage.file or the coverage-file input is set");
-    }
   } else {
     from = "discovery";
     names = discovery.files.map((name) => ({ name, missing: false }));
@@ -871,14 +941,15 @@ export function checkCoverage({ entries, coverageRoot, format = "auto" }, repo, 
   let missingFile = false;
   let unreadable = null;
   const seen = new Set();
+  const trackedSet = tracked ? new Set(repoFiles) : null;
   for (const { name, missing } of blocking === null ? names : []) {
     const rel = normalizePath(name, repoRoot);
     if (seen.has(rel)) continue;
     seen.add(rel);
     const text = missing ? null : readText(name);
     const entry = { path: name, exists: text !== null, format: null, files: 0, lines: 0, skipped: 0 };
-    entry.tracked = tracked ? repoFiles.includes(rel) : null;
-    entry.ignored = isIgnored(rel);
+    entry.tracked = tracked ? trackedSet.has(rel) : null;
+    entry.ignored = null; // answered below, for every file in one call
     if (entry.tracked) trackedFile ??= rel;
     coverage.push(entry);
     if (text === null) {
@@ -898,10 +969,17 @@ export function checkCoverage({ entries, coverageRoot, format = "auto" }, repo, 
     skipped += parsed.skipped;
     maps.push(parsed.map);
   }
+  if (coverage.length > 0) {
+    const answers = isIgnored([...seen]);
+    coverage.forEach((entry, i) => {
+      entry.ignored = answers[i] ?? null;
+    });
+  }
   if (missingFile) blocking ??= "COVERAGE_FILE_MISSING";
   if (unreadable !== null) blocking ??= unreadable;
 
   let paths = null;
+  let rootWithheld = false;
   if (blocking === null && maps.length > 0) {
     const merged = mergeCoverageMaps(maps);
     const match = matchCoveragePaths([...merged.keys()], repoFiles, coverageRoot);
@@ -910,10 +988,11 @@ export function checkCoverage({ entries, coverageRoot, format = "auto" }, repo, 
       total: match.total,
       matched: match.total - match.unmatched.length,
       unmatched: match.unmatched.length,
-      unmatchedExample: match.unmatched[0] ?? null,
+      unmatchedExample: printableName(match.unmatched[0]),
       untrackedOnDisk: tracked ? onDisk.length : null,
-      suggestedRoot: match.suggestedRoot,
+      suggestedRoot: printableName(match.suggestedRoot),
     };
+    rootWithheld = match.suggestedRoot !== null && paths.suggestedRoot === null;
     if (match.total > 0 && match.unmatched.length === match.total) blocking = "COVERAGE_PATHS_UNMATCHED";
     if (onDisk.length > 0) notes.push("some coverage paths are files on disk that git does not track yet (untrackedOnDisk); they match once committed");
   }
@@ -925,11 +1004,19 @@ export function checkCoverage({ entries, coverageRoot, format = "auto" }, repo, 
     if (skipped > 0) codes.push("COVERAGE_LINES_SKIPPED");
   }
   if (trackedFile !== null) codes.push("COVERAGE_FILE_TRACKED");
-  for (const c of coverage) {
-    if (c.tracked === false && c.ignored === false) notes.push(`${c.path} is not git-ignored; ignore it so it is never committed (a committed one raises COVERAGE_FILE_TRACKED)`);
+  // Notes are fixed strings: they name the field that holds a path, never the path itself.
+  const notIgnored = coverage.filter((c) => c.tracked === false && c.ignored === false).length;
+  if (notIgnored === 1) {
+    notes.push("1 coverage file is not git-ignored (coverage[].ignored is false); ignore it so it is never committed (a committed one raises COVERAGE_FILE_TRACKED)");
+  } else if (notIgnored > 1) {
+    notes.push(`${notIgnored} coverage files are not git-ignored (coverage[].ignored is false); ignore them so they are never committed (a committed one raises COVERAGE_FILE_TRACKED)`);
   }
   if (paths?.suggestedRoot) {
-    notes.push(`the coverage paths look relative to ${paths.suggestedRoot}: set coverage.root: ${paths.suggestedRoot} in .pharn/ci.yml, or have the runner write repo-relative paths`);
+    notes.push("the coverage paths look relative to the directory in paths.suggestedRoot: set coverage.root to it, written as a quoted YAML string, in .pharn/ci.yml, or have the runner write repo-relative paths");
+  } else if (rootWithheld) {
+    notes.push(
+      "the coverage paths look relative to a directory whose name has a control character, a line break, leading or trailing space or over 200 characters, so paths.suggestedRoot is null; have the runner write repo-relative paths",
+    );
   }
   return {
     discovery: { kind: discovery.kind, files: discovery.files },
@@ -944,13 +1031,15 @@ export function checkCoverage({ entries, coverageRoot, format = "auto" }, repo, 
 
 // --- git and the repository ----------------------------------------------------------------------------
 
-// check-ignore takes path names, not pathspecs, and refuses --literal-pathspecs.
-function realGit(cwd, args) {
+// check-ignore parses pathspec magic but is called without --literal-pathspecs, so gitIgnoresAll passes every path as
+// "./<rel>", which git never reads as magic. `input`, when given, is written to git's stdin.
+function realGit(cwd, args, input) {
   return execFileSync("git", args[0] === "check-ignore" ? args : ["--literal-pathspecs", ...args], {
     cwd,
     encoding: "utf8",
     env: { ...process.env, LC_ALL: "C" },
-    stdio: ["ignore", "pipe", "pipe"],
+    input,
+    stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     maxBuffer: 256 * 1024 * 1024,
     timeout: 120_000,
   });
@@ -999,16 +1088,39 @@ export function locateRepo(cwd, git) {
   }
 }
 
-/** Whether git ignores `rel`: true, false, or null when that cannot be asked (no git, or not a safe path). */
+/** Whether git ignores `rel`: true, false, or null when git cannot tell (a path behind a symlinked directory). */
 function gitIgnores(git, repoRoot, rel) {
-  if (!isSafeRepoPath(rel)) return null;
   try {
-    git(repoRoot, ["check-ignore", "-q", "--no-index", "--", rel]);
+    git(repoRoot, ["check-ignore", "-q", "--no-index", "--", `./${rel}`]);
     return true;
   } catch (err) {
-    if (err?.status === 1) return false;
-    throw new UsageError(`git check-ignore failed: ${gitMessage(err)}`);
+    return err?.status === 1 ? false : null;
   }
+}
+
+/**
+ * Whether git ignores each of `rels`, asking git once: true, false, or null when that cannot be asked (not a safe
+ * path) or git cannot tell. The batch stops at the first path git cannot check and prints nothing for the rest, so a
+ * batch that fails is discarded and each path is asked on its own.
+ */
+function gitIgnoresAll(git, repoRoot, rels) {
+  const asked = rels.filter(isSafeRepoPath);
+  const answers = new Map();
+  if (asked.length > 0) {
+    let out = null;
+    try {
+      out = git(repoRoot, ["check-ignore", "--no-index", "-z", "--stdin"], asked.map((rel) => `./${rel}\0`).join(""));
+    } catch (err) {
+      if (err?.status === 1) out = "";
+    }
+    if (out === null) {
+      for (const rel of asked) answers.set(rel, gitIgnores(git, repoRoot, rel));
+    } else {
+      const ignored = new Set(out.split("\0").map((p) => (p.startsWith("./") ? p.slice(2) : p)));
+      for (const rel of asked) answers.set(rel, ignored.has(rel));
+    }
+  }
+  return rels.map((rel) => answers.get(rel) ?? null);
 }
 
 export function parseCli(argv) {
@@ -1045,16 +1157,16 @@ export function run(argv, { cwd = process.cwd(), git = realGit } = {}) {
   const opts = parseCli(argv);
   if (opts.help) return { help: USAGE };
   const repo = locateRepo(cwd, git);
+  // Only a file that does not exist is missing, as in pharn-ci; any other failure to read one ends the run.
   const readText = (name) => {
-    const full = path.resolve(repo.repoRoot, name);
     try {
-      if (!statSync(full).isFile()) return null;
-      return readFileSync(full, "utf8");
-    } catch {
-      return null;
+      return readRegularFile(path.resolve(repo.repoRoot, name), MAX_COVERAGE_BYTES, `coverage file ${name}`);
+    } catch (err) {
+      if (err.code === "ENOENT") return null;
+      throw err;
     }
   };
-  const isIgnored = (rel) => (repo.git ? gitIgnores(git, repo.repoRoot, rel) : null);
+  const isIgnored = (rels) => (repo.git ? gitIgnoresAll(git, repo.repoRoot, rels) : rels.map(() => null));
   const result = checkCoverage(opts, repo, { listDir: fsListDir(repo.repoRoot), readText, isIgnored });
   const notes = [];
   if (!repo.git) notes.push(`${NO_GIT_NOTE} (${repo.reason})`);

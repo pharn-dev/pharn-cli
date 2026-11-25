@@ -1,6 +1,6 @@
 ---
 name: pharn-ci-cover
-description: Write tests for the added lines that a pharn-ci report (the pharn-dev/pharn-ci GitHub Action or the `pharn-ci check` CLI, 0.1.x with Report v1 or 0.2.x to 0.9.x with Report v2) lists as uncovered, so a pull request's diff coverage meets its threshold. Use when pharn-ci fails with DIFF_COVERAGE_BELOW_THRESHOLD, or the person asks to cover the lines pharn-ci reports, raise diff coverage, get the pharn-ci coverage check passing, or exclude a file from, lower or switch off the pharn-ci coverage gate (it explains what that changes and asks first). Adds tests only - never lowers the threshold, excludes files, edits the pharn-ci config or workflow (including the test-integrity, dependencies and accept-label inputs), adds coverage-ignore comments, skips or focuses tests, weakens test scripts, adds a dependency or edits a lockfile to satisfy a test, adds a test to a quarantine list, imports a changed file into an unrelated test, or applies the accept label. From a 0.9.x report it acts only on fix hints of kind add-test. Not for adding pharn-ci to a repository (pharn-ci-install) or the PHARN CLI (pharn-cli).
+description: Write tests for the added lines a pharn-ci report (pharn-ci 0.1.x to 0.12.x) lists as uncovered, so diff coverage meets its threshold and the gate stays put. Use when diff coverage is below the threshold (DIFF_COVERAGE_BELOW_THRESHOLD), to cover uncovered lines, for a TESTS_NOT_EXERCISING_CHANGES warning, or when asked to exclude a file or lower the gate (it explains and asks first). Not for acting on fix hints (pharn-ci-fix), explaining a result (pharn-ci-explain) or setup (pharn-ci-install).
 compatibility: Node.js >=22 for scripts/check-lines.mjs; git; the project's own test runner.
 ---
 
@@ -8,7 +8,7 @@ compatibility: Node.js >=22 for scripts/check-lines.mjs; git; the project's own 
 
 Closes a diff coverage gap the honest way: tests that run the added lines
 pharn-ci reported as uncovered and check what those lines do. The gate stays
-where it is. Written for pharn-ci 0.1.x (Report v1) and 0.2.x to 0.9.x
+where it is. Written for pharn-ci 0.1.x (Report v1) and 0.2.x to 0.12.x
 (Report v2); both carry `diffCoverage` the same way. From 0.2.x the check also
 reports test-integrity findings (a skipped, deleted or focused test, a
 weakened test script). 0.3.0's new signals add the tests themselves: a test
@@ -56,9 +56,12 @@ uncovered lines: the JSON, or a comment whose table is not cut (`…and N more`)
   numbers may not match: say so and stop.
 - Know the base the CI run diffed against: the PR's base branch on
   `pull_request` (CI measured the merge commit), the previous commit on
-  `push`. Pass it as `--base` to the helper (step 4) from the start: before
-  you write any test, run it on the report and the coverage file CI used, or
-  a fresh run of the unchanged suite, and read:
+  `push`. Given a branch name, the helper diffs against whichever of the
+  local branch and `origin/<branch>` is ahead (the local one if they
+  diverged) and notes both commits when they differ; an `origin/` ref or a
+  full SHA is used as given. Pass it as `--base` to the helper (step 4) from
+  the start: before you write any test, run it on the report and the coverage
+  file CI used, or a fresh run of the unchanged suite, and read:
   - `lines.notAdded` not empty and `base.changedFiles` empty: the listed lines
     are not added lines in this checkout, so this is not the commit the report
     measured. Say so and stop.
@@ -71,7 +74,7 @@ uncovered lines: the JSON, or a comment whose table is not cut (`…and N more`)
     <files>` to run, and carry on.
 - See the added lines with `git diff --unified=0 <base>...HEAD -- <file>`.
 
-### Fix hints (0.9.x reports)
+### Fix hints (0.9.0 and later reports)
 
 From 0.9.0 each message and each finding of the JSON report may carry a `fix`
 object: `kind` (one of `add-test`, `restore-test`, `restore-assertion`,
@@ -147,10 +150,19 @@ Follow [references/tests.md](references/tests.md):
       new run no longer covers. Lost coverage: find which change caused it
       and fix the tests, never the gate;
     - `lines.notAdded` and `base.changedFiles`: read as in step 1;
+    - `base.ref` and `base.sha`: the commit the diff was taken against (the
+      rule is in step 1). A note that the local branch or `origin/<base>` is
+      behind, or that they diverged, means the base may be stale: ask before
+      running `git fetch`, then run the helper again;
     - `coverableMismatch`: files whose coverable line count differs from the
       report's (a file a test now loads, a different tool version);
     - `sourcesChanged`: listed files that differ from `HEAD`; should be empty,
       since you changed only tests;
+    - `invalidPaths`: how many report paths were left out because they are
+      not tracked files here; their lines are not checked;
+    - `coverage.unmatchedExample`: one coverage path that matched no tracked
+      file, or `null` when it has a control character or line break, leading
+      or trailing space or over 200 characters;
     - `estimate`: covered, coverable, percent and `meetsThreshold`. With
       `--base` (`basis: "added-lines"`) it is recomputed from the diff the way
       pharn-ci does; without it (`"listed-lines"`) it assumes every line the

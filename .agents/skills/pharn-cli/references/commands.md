@@ -1,11 +1,13 @@
 # pharn command notes (0.9.0 baseline, checked against 0.16.1)
 
 Source: the CLI's own README and `docs/commands/*` at 0.9.0, and at 0.16.1 for
-what changed since. Where 0.10.0
+what changed since; lines marked 0.20.0 come from the CLI's `main` for that
+unreleased version. Where 0.10.0
 changes a command (`status --json`, `update --dry-run`, `update --json`), see
 [json.md](json.md); the rest below still holds, except where a line names a
 later version: 0.14.0 moved PHARN's root files under `pharn/`, 0.15.0 changed
-the default release channel and 0.16.0 added the `.gitignore` lines.
+the default release channel, 0.16.0 added the `.gitignore` lines, and 0.20.0
+makes `--json` imply `--dry-run` and every `update` plan.
 
 ## Command surface
 
@@ -13,10 +15,10 @@ the default release channel and 0.16.0 added the `.gitignore` lines.
 | ------- | ---------------- | ------ |
 | `pharn list` | `--json` | never |
 | `pharn status` | `--strict`, `--no-drift`, `--json` (0.10.0+) | never |
-| `pharn update` | `--yes`/`-y`, `--force`, `--ref latest\|main`, `--dry-run`, `--json` (0.10.0+, only with `--dry-run`) | yes, never with `--dry-run` |
+| `pharn update` | `--yes`/`-y`, `--force`, `--ref latest\|main`, `--dry-run`, `--json` (0.10.0+; before 0.20.0 only with `--dry-run`, from 0.20.0 it implies `--dry-run`), `--compact` (0.11.0+; from 0.20.0 it implies `--json`) | yes, never with `--dry-run`, `--json` or `--compact` |
 | `pharn add [name]` | none | yes |
 | `pharn remove [name]` | none (alias `pharn rm`, 0.13.0+) | yes |
-| `pharn init` | `--ref`, `--archetype <list>`, `--yes`/`-y`, `--dry-run`, `--json` (only with `--dry-run`) | yes, never with `--dry-run` |
+| `pharn init` | `--ref`, `--archetype <list>`, `--yes`/`-y`, `--dry-run`, `--json` (before 0.20.0 only with `--dry-run`, from 0.20.0 it implies `--dry-run`) | yes, never with `--dry-run` |
 | `pharn uninstall` | `--yes`/`-y` | yes |
 
 A bare `pharn` with no command runs `init`. The agent never runs `init` or
@@ -44,6 +46,18 @@ lock, so never run two CLI versions in one project at once.
 - `--no-drift` skips the clone (version check only).
 - `--strict` exits 1 on outdated, differing, missing, unreadable, or an
   unwired hook. `MODELS` and `NODE` notes never affect it.
+- Layout: when the install is recorded at one layout (`flat` or `pharn`) and
+  the fetched clone ships the other, a `LAYOUT` note prints. Before 0.20.0 it
+  is advisory and drift is still listed; `pharn update` moves the install, and
+  if it answers "Already up to date", `pharn update --force` moves it but
+  overwrites edited files (backed up first). From 0.20.0 (unreleased) it
+  replaces the `DRIFT` note, neither the file drift nor `NOT SHIPPED UPSTREAM`
+  is checked, and `--strict` exits 1; a plain `pharn update` moves the install
+  at any skills version, with no `--force`, unless the install is ahead of its
+  source (`ahead-of-release` or `ahead-of-main`): `update` refuses that before
+  it plans, so the mismatch stays. Then name the choices, `--force` (which
+  downgrades) or, on the release channel, `--ref main`, and run neither
+  without the person's consent. `--no-drift` cannot see a mismatch.
 - It needs network (GitHub) unless `--no-drift`.
 
 ## update
@@ -67,9 +81,17 @@ lock, so never run two CLI versions in one project at once.
   ready to paste under its event.
 - Capabilities added with `pharn add` (`manual`) survive an update. Membership
   changes are printed under `CAPABILITIES` (ADDED, REMOVED, KEPT).
-- "Already up to date" at the same skills version does not restore files a
-  newer CLI started installing; `status` shows them as missing. The fix is
-  `update --force` (explain it first), or wait for the next version bump.
+- Before 0.20.0, "Already up to date" at the same skills version does not
+  restore files a newer CLI started installing; `status` shows them as
+  missing. The fix is `update --force` (explain it first), or wait for the
+  next version bump.
+- From 0.20.0 (unreleased) there is no same-version shortcut: every `update`
+  downloads pharn-oss (about 2.5 MB) and plans. A plain `update` restores
+  missing files, adds ignore-file lines, moves a layout and reinstalls a
+  removed auto-selected capability, with no `--force`. A run whose plan
+  changes nothing asks nothing, writes nothing, exits 0 and ends `Up to date.`
+  (or `Nothing to change.` when it keeps an edit); its dry run says
+  `Nothing would be written.`.
 - Installs from before pharn 0.4.0 have no records: the first update skips
   every differing file as `unverifiable`.
 - `--ref latest` follows verified releases and is recorded in the config;
@@ -90,8 +112,9 @@ lock, so never run two CLI versions in one project at once.
   file's own line endings; a line that already covers an entry is respected).
   A symlinked, non-regular or unreadable `.gitignore` is not written: the run
   names the lines to add. At the same skills version a `.gitignore` missing
-  either line re-opens the "Already up to date" return, so the next `update`
-  runs once to add them. CLIs before 0.16.0 leave `.gitignore` to the person.
+  either line re-opens the "Already up to date" return (from 0.20.0 every run
+  plans and adds them), so the next `update` runs once to add them. CLIs
+  before 0.16.0 leave `.gitignore` to the person.
 - From CLI 0.13.0 an update lists the recorded files upstream no longer ships
   (`ORPHANED`, left for the person to delete) and the surfaces pharn-oss ships
   no file for (`NOT SHIPPED`); json.md has `plan.orphans` and

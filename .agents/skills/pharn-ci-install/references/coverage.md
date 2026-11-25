@@ -1,4 +1,4 @@
-# Coverage output per ecosystem (pharn-ci 0.1.0 to 0.9.1)
+# Coverage output per ecosystem (pharn-ci 0.1.0 to 0.12.0)
 
 pharn-ci reads lcov and Cobertura XML only, decides which by the first 1 KiB
 (`auto`), and matches each file path in the report against the tracked files.
@@ -60,9 +60,10 @@ lines are not counted at all, and a PR that only adds untested files passes as
   `[tool.coverage.run]` the report is the same on every machine.
 - A runner started in a package directory writes package-relative paths
   (`SF:src/index.ts` from `packages/core`). For one package, set
-  `coverage.root: packages/core`. For several, one root cannot fit them all:
-  run the tests from the repository root, or configure each runner to write
-  repo-relative paths, and list every report in `coverage.file`.
+  `coverage.root: "packages/core"`, a quoted YAML string. For several, one
+  root cannot fit them all: run the tests from the repository root, or
+  configure each runner to write repo-relative paths, and list every report in
+  `coverage.file`.
 - Run `scripts/check-coverage.mjs` after every change here: `paths.matched`
   must be above 0 and `blocking` null.
 
@@ -71,5 +72,11 @@ lines are not counted at all, and a PR that only adds untested files passes as
 With no `coverage.file`, pharn-ci looks for `coverage/lcov.info`, `lcov.info`,
 `coverage.xml`, `coverage/cobertura-coverage.xml` and
 `**/coverage.cobertura.xml`, and fails the step when more than one of those
-exists. This skill always writes `coverage.file`, so discovery does not apply,
-but the helper still reports what it would find.
+exists. This skill always writes `coverage.file`, so discovery does not apply:
+the helper runs it only without `--coverage`, and with `--coverage` reports
+`discovery` as `{"kind": "not-run", "files": []}`.
+
+The helper's `coverage[].ignored` is `null` when git cannot say whether a
+coverage file is ignored, for example one behind a symlinked directory such as
+Bazel's `bazel-out/_coverage/_coverage_report.dat`. Check `.gitignore` for that
+path by hand.

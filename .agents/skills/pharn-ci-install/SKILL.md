@@ -1,6 +1,6 @@
 ---
 name: pharn-ci-install
-description: Add the pharn-ci pull request check (the pharn-dev/pharn-ci GitHub Action) to a repository, writing pharn-ci 0.9.1 (Report v2, with the test-integrity check and dependency safety) and recognising an existing 0.1.x to 0.9.x setup and what upgrading it changes - lcov or Cobertura coverage output from the project's own test run, checked locally the way pharn-ci reads it, a .pharn/ci.yml with the threshold, and a workflow pinned to a full commit SHA with the test-integrity input. Asks before writing a workflow for a repository on a private registry, because dependency safety flags off-registry sources (D05). Use when the person asks to set up, add, install, update or wire in pharn-ci, a diff coverage gate or test integrity for pull requests, including on fork PRs or in an existing CI job. Never uses pull_request_target, never writes a tag pin, asks before installing anything, never creates or applies the accept label, never switches dependency safety off on its own, never commits. Not for explaining a pharn-ci result (pharn-ci-explain), covering reported lines (pharn-ci-cover) or the PHARN CLI (pharn-cli).
+description: Add or update the pharn-ci pull request check (the pharn-dev/pharn-ci GitHub Action) - coverage output from the project's tests, checked locally, a .pharn/ci.yml threshold and a workflow pinned to a full commit SHA. Writes pharn-ci 0.12.0; recognises an existing 0.1.x to 0.12.x setup. Use when asked to set up, add, install, update or wire in pharn-ci, a diff coverage gate or test integrity. Not for explaining a result (pharn-ci-explain), covering lines (pharn-ci-cover) or an org policy (pharn-ci-policy).
 compatibility: Node.js >=22 for scripts/check-coverage.mjs; git optional; the project's own test runner.
 ---
 
@@ -8,12 +8,14 @@ compatibility: Node.js >=22 for scripts/check-coverage.mjs; git optional; the pr
 
 Sets pharn-ci up so its first pull request measures something: coverage the
 check can read, settings in one place, and a workflow that is safe to run on
-pull requests. Writes pharn-ci 0.9.1, pinned to its release commit
-`dec4a0ed2d0b111233522753909c74a90b6d09e0` (tag `v0.9.1`). pharn-ci 0.1.x
+pull requests. Writes pharn-ci 0.12.0, pinned to its release commit
+`a370515e32f8040771ccf4b6f737d3d25f62749f` (tag `v0.12.0`). pharn-ci 0.1.x
 (release commit `a88e62a8febf5cd9a77b8e0252cd060c3b94782c`, Report v1) has no
-test integrity and no `test-integrity` input; 0.2.x to 0.9.x write Report v2
+test integrity and no `test-integrity` input; 0.2.x to 0.12.x write Report v2
 (`schemaVersion` 2). Since 0.8.0 the check also looks at the dependencies a
-pull request adds or changes, on by default (the `dependencies` input, step 5).
+pull request adds or changes, on by default (the `dependencies` input, step 5),
+and since 0.10.0 it takes a private registry's host as an allow-list (the
+`dependency-allowed-hosts` input).
 The default templates stay small: no `policy` input and no `id-token: write`.
 An org policy is opt-in (step 6).
 
@@ -37,17 +39,24 @@ something, and point it out to the person.
   Maven files. Which command runs the tests today, and with which package
   manager and lockfile.
 - `.github/workflows/*`:
-  - pharn-ci already there: say so, offer to update that setup instead of
-    adding a second one, and stop. Read the pin (`# vX.Y.Z` comment, or the
-    tag) and say what the update changes, for the versions it crosses, from
-    [Upgrading an existing setup](references/workflows.md#upgrading-an-existing-setup):
-    the behaviour changes of 0.6.0, 0.7.0 and 0.8.0 (some pull requests that
-    passed now warn or fail) and the `fail-on-threshold` rename. On a 0.1.x
+  - pharn-ci already there: say so, never add a second one, and stop. Read
+    the pin's version (`# vX.Y.Z` comment, or the tag) and compare it with
+    this skill's pin before offering anything, as
+    [Upgrading an existing setup](references/workflows.md#upgrading-an-existing-setup)
+    says. Equal: say it is current. Newer: say the setup is ahead of what this
+    version of the skill describes, change nothing, offer no older pin, and
+    name the pharn-ci plugin update as the way to get a skill that knows that
+    release.
+    Unreadable (a SHA with no `# vX.Y.Z` comment, or a branch): say so and
+    ask. Older: offer to update that setup, and say what the update changes,
+    for the versions it crosses: the behaviour changes of 0.6.0, 0.7.0, 0.8.0,
+    0.11.0 and 0.12.0 (some pull requests that passed now warn or fail) and the
+    `fail-on-threshold` rename. On a 0.1.x
     pin, also the test-integrity check and Report v2, whose `schemaVersion` is
     the number 2, so a tool that validates `report.json` against the v1 schema
     must switch on it. On a `# v0.2.0` or `# v0.3.0` pin, the later
     test-integrity signals, the secret scan of agent configs, and the opt-in
-    org policy and upload. A setup on 0.8.x or later has no behaviour change to
+    org policy and upload. A setup on 0.12.x has no behaviour change to
     announce.
   - a job on `pull_request` that runs the tests: note its triggers (`push`
     too?), `paths` filters, matrix, `permissions` and runner (`node24`
@@ -72,15 +81,17 @@ something, and point it out to the person.
 
 Dependency safety (D05) flags a dependency from a source outside the npm and
 PyPI registries, and a private registry or mirror that a lockfile records is
-one. With the default `dependencies: auto` that is a `block` finding that
-fails the check on every pull request that adds or changes such a dependency.
-So before you write the workflow, say that D05 flags off-registry sources, name
-what you found, and ask how to proceed, offering only the options in
-[Private registries](references/workflows.md#private-registries) and checking
-first for an allow-list: pharn-ci 0.9.1 has none in `action.yml` or
-`schema/policy.v1.json`, and the reference says what to do when a later
-version does. Steps 2 to 4 (coverage, local check, `.pharn/ci.yml`) do not
-depend on the answer and may go on; write no workflow until it comes. **Never
+one until its host is allowed. With the default `dependencies: auto` that is a
+`block` finding that fails the check on every pull request that adds or
+changes such a dependency. So before you write the workflow, say that D05
+flags off-registry sources, name the host you found, and ask how to proceed,
+offering only the options in
+[Private registries](references/workflows.md#private-registries). The first
+is the `dependency-allowed-hosts` input with that host: the person confirms
+the host name, so write only one they confirmed, as an exact host name (no
+scheme, path, port or wildcard), and never in `.pharn/ci.yml`, which refuses
+it. Steps 2 to 4 (coverage, local check, `.pharn/ci.yml`) do not depend on the
+answer and may go on; write no workflow until it comes. **Never
 write `dependencies: never` on your own** to make the question go away: it
 switches off lockfile drift (D04) and D05 for the whole repository.
 
@@ -119,13 +130,28 @@ Follow [references/coverage.md](references/coverage.md) for the runner:
   - `paths.suggestedRoot`: the directory package-relative paths start from.
     Use it as `coverage.root` only when there is one package; with several,
     have each runner write repo-relative paths instead, since one root applies
-    to every file.
+    to every file. Write the value as a quoted YAML string
+    (`root: "packages/core"`). It is `null` when there is none, and also when
+    the directory name has a control character or line break, leading or
+    trailing space or over 200 characters; a note then says so. Set no root
+    from such a name.
+  - `paths.unmatchedExample`: one coverage path that matched no tracked file,
+    or `null` under the same name rules.
   - `coverage[].ignored` and `tracked`: fix `.gitignore` when `ignored` is
-    `false`.
+    `false`. `ignored` is `null` when git cannot tell, for example for a file
+    behind a symlinked directory such as Bazel's `bazel-out`; check that path
+    by hand.
+  - `discovery`: `{"kind": "not-run", "files": []}` whenever `--coverage` is
+    given, since pharn-ci does not use auto-discovery while `coverage.file` is
+    set.
   - `paths.untrackedOnDisk`: paths of files not committed yet; they match
     once committed.
   - `"git": false`: git could not run, so paths were matched against files
     on disk and `tracked`/`ignored` are `null`. Say so.
+  - Exit 2 with a message naming the file and the reason: a coverage file
+    exists but cannot be read (not a regular file, over 256 MiB, or an error
+    such as `EACCES`). Fix that and run it again. A missing file is
+    `COVERAGE_FILE_MISSING`, not exit 2.
 - Act on every code, run it again, and quote the final `codes` in your
   answer.
 
@@ -141,7 +167,8 @@ it, and an Action input would silently override it. Template in
 - `coverage.threshold`: the number the person named. **With none named, use
   80** and say in your answer that you chose it and how to change it.
 - `coverage.root` or `coverage.exclude` only when step 3 needs them. An
-  `exclude` shows up on the setup PR as `TEST_INTEGRITY_TI14` (step 7).
+  `exclude` shows up on the setup PR as `TEST_INTEGRITY_TI14` (step 7). A glob
+  longer than 1,024 characters fails the run.
 - An existing file: change only the keys you need. The parser rejects unknown
   keys, tabs and unquoted `*` values.
 
@@ -192,7 +219,9 @@ From [references/workflows.md](references/workflows.md):
   check), `lookup` (adds D01 to D03 look-ups that send package names to
   `registry.npmjs.org`, `api.npmjs.org` and `pypi.org`; only when asked) and
   `never` (nothing runs; only on the person's choice). Write a `dependencies`
-  line only for `lookup` or `never`, and only for the reasons given there.
+  line only for `lookup` or `never`, and only for the reasons given there, and
+  a `dependency-allowed-hosts` line only with the host the person confirmed
+  after the private-registry question.
 - Every `uses:` is pinned to a full commit SHA with its version as a comment,
   taken from the reference. An action the reference has no pin for: reuse
   the repository's own step for it, or leave a clearly marked placeholder and
@@ -277,13 +306,16 @@ Your answer names:
 - Use `on: pull_request_target`, check out a PR's head with a write token, or
   put text from an artifact or PR into a `run:` script.
 - Write a tag, branch or short-SHA pin.
-- Run `npx pharn-ci` (the CLI is not on npm in 0.1.x to 0.9.x), or install,
+- Move an existing pharn-ci pin to an older release.
+- Run `npx pharn-ci` (the CLI is not on npm in 0.1.x to 0.12.x), or install,
   download, build or upgrade anything without asking.
 - Creating, applying, removing or asking for the accept label through `gh`, the API
   or any other tool. Done with the person's token, applying it would record
   them as signing off. They create the label and their reviewers apply it.
 - Write `test-integrity: off`, or `test_integrity` or `dependencies` in
   `.pharn/ci.yml`.
+- Write a `dependency-allowed-hosts` host the person did not confirm, or one
+  with a scheme, path, port or wildcard.
 - Write `dependencies: never` silently, or to get past the private-registry
   question; write `dependencies: lookup` without the person's yes; write
   `fail-on-threshold` (the deprecated name of `fail-on-verdict`).

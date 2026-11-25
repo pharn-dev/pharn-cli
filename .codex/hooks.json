@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node '/Users/pgalarowicz/Projects/pharn-cli/.codex/hooks/protect-trusted-paths.cjs'"
+          },
+          {
+            "type": "command",
+            "command": "node '/Users/pgalarowicz/Projects/pharn-cli/.codex/hooks/enforce-writes-scope.cjs'"
+          }
+        ]
+      }
+    ]
+  }
+}
