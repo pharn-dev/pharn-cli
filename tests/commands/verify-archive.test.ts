@@ -242,15 +242,23 @@ describe('pharn verify-archive — the input path', () => {
     expect(errors()).toContain('is not a regular file');
   });
 
-  it.skipIf(process.platform === 'win32')(
-    'a FIFO is refused without waiting on it',
-    async () => {
-      const fifo = join(proj(), 'pipe.tar.gz');
-      execFileSync('mkfifo', [fifo]);
-      expect(await verify(fifo)).toBe(1);
-      expect(errors()).toContain('is not a regular file');
-    },
-  );
+  // POSIX-only, as tests/bounded-read.test.ts's FIFO case: the gates run on
+  // ubuntu only.
+  it('a FIFO is refused without waiting on it', async () => {
+    const fifo = join(proj(), 'pipe.tar.gz');
+    execFileSync('mkfifo', [fifo]);
+    expect(await verify(fifo)).toBe(1);
+    expect(errors()).toContain('is not a regular file');
+  });
+
+  it('a failure that is not a refusal (no temp dir can be made) is reported with the PHARN_DEBUG hint', async () => {
+    const file = archiveFile(manifestTree(VERSION));
+    vi.stubEnv('TMPDIR', join(proj(), 'no-such-dir'));
+    expect(await verify(file)).toBe(1);
+    expect(errors()).not.toContain('refused');
+    expect(errors()).toMatch(/ENOENT/);
+    expect(logs('info')).toContain(PHARN_DEBUG_HINT);
+  });
 
   it('a file over the 32 MiB download cap', async () => {
     const big = join(proj(), 'big.tar.gz');
