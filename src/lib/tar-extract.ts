@@ -146,18 +146,20 @@ function readPathField(block: Buffer, offset: number, length: number): string {
 }
 
 /**
- * The selection key of a header: its raw `prefix`/`name` bytes (latin1, so
+ * Is this header at a selected path? Its raw `prefix`/`name` bytes (latin1, so
  * byte for byte) with everything up to the first `/` — the archive root —
- * stripped; `null` when there is no `/`. Every selected path is ASCII, so an
+ * stripped are the key. A name with no `/` at all that IS a selected path is
+ * selected too, so a rootless copy of a listed file is refused (it has no
+ * component to strip) rather than skipped. Every selected path is ASCII, so an
  * exact membership test on these bytes is exact, and an unselected name is
  * never decoded, judged or printed.
  */
-function selectionKey(block: Buffer): string | null {
+function isSelected(block: Buffer, select: ReadonlySet<string>): boolean {
   const name = readString(block, OFF_NAME, LEN_NAME);
   const prefix = readString(block, OFF_PREFIX, LEN_PREFIX);
   const raw = prefix === '' ? name : `${prefix}/${name}`;
   const slash = raw.indexOf('/');
-  return slash === -1 ? null : raw.slice(slash + 1);
+  return select.has(slash === -1 ? raw : raw.slice(slash + 1));
 }
 
 /**
@@ -265,6 +267,11 @@ function resolveEntryPath(
       `tar entry has no leading component: ${fullPath}`,
     );
   }
+  if (segments.length === 1) {
+    throw new TarExtractError(
+      `tar entry has no path below the archive root: ${fullPath}`,
+    );
+  }
   // One root, the same throughout: a second root would mean strip-1 flattens
   // two unrelated trees into one destination.
   if (expectedRoot !== null && root !== expectedRoot) {
@@ -308,9 +315,9 @@ class TarWalker {
   private dataLeft = 0;
   private padLeft = 0;
   private pending: Pending | null = null;
-  // The previous header was a modifier ('x', 'L', 'K'), so this one's ustar
-  // path and size may not be the real ones.
-  private modified = false;
+  // The typeflag of the modifier ('x', 'L', 'K') the previous header was, so
+  // this one's ustar path and size may not be the real ones; `null`: none.
+  private modifier: string | null = null;
   private ended = false;
 
   constructor(
@@ -408,14 +415,13 @@ class TarWalker {
       );
     }
     const typeflag = String.fromCharCode(block[OFF_TYPEFLAG]!);
-    const modified = this.modified;
+    const modifier = this.modifier;
     // A 'g' modifies nothing, so it neither sets nor consumes the flag.
-    if (MODIFIERS.has(typeflag)) this.modified = true;
-    else if (typeflag !== 'g') this.modified = false;
+    if (MODIFIERS.has(typeflag)) this.modifier = typeflag;
+    else if (typeflag !== 'g') this.modifier = null;
 
-    const key = selectionKey(block);
-    if (key !== null && this.options.select.has(key)) {
-      this.accept(block, typeflag, modified, size);
+    if (isSelected(block, this.options.select)) {
+      this.accept(block, typeflag, modifier, size);
     }
     this.dataLeft = size;
     this.padLeft = Math.ceil(size / BLOCK) * BLOCK - size;
@@ -426,7 +432,7 @@ class TarWalker {
   private accept(
     block: Buffer,
     typeflag: string,
-    modified: boolean,
+    modifier: string | null,
     size: number,
   ): void {
     // The FULL path is judged before any other rule, so no later message
@@ -440,9 +446,9 @@ class TarWalker {
         `tar entry has an unsupported type ${describeTypeflag(typeflag)} at a path pharn installs (only a regular file is accepted there): ${fullPath}`,
       );
     }
-    if (modified) {
+    if (modifier !== null) {
       throw new TarExtractError(
-        `tar entry follows a pax extended or GNU long-name header, whose records pharn does not honour, at a path pharn installs: ${fullPath}`,
+        `tar entry follows a header of unsupported type ${describeTypeflag(modifier)}, whose records pharn does not honour, at a path pharn installs: ${fullPath}`,
       );
     }
     const { rel, root } = resolveEntryPath(fullPath, this.root);

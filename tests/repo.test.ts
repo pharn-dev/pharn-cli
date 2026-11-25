@@ -804,7 +804,9 @@ describe('fetchRepo — only the listed paths are unpacked (CORE-386)', () => {
     );
     const err = await fetchRepo(release).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(TarExtractError);
-    expect((err as Error).message).toMatch(/pax extended or GNU long-name/);
+    expect((err as Error).message).toMatch(
+      /unsupported type 'x'.*pax extended header/,
+    );
     expect(leftoverTempDirs()).toEqual([]);
   });
 

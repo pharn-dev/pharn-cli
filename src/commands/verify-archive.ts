@@ -43,6 +43,8 @@ interface Found {
 // The pinned CI line, named in the rootless refusal and the docs.
 const ARCHIVE_COMMAND =
   'git archive --prefix=pharn-oss/ --format=tar.gz -o pharn-oss.tar.gz HEAD';
+const ROOTLESS = 'tar entry has no path below the archive root';
+const ROOTLESS_HINT = `pharn reads archives shaped like GitHub's, with one top-level directory (as \`git archive --prefix=\` writes); a plain \`git archive\` has none. Re-create it with \`${ARCHIVE_COMMAND}\`.`;
 
 export async function runVerifyArchive(
   opts: VerifyArchiveOptions,
@@ -64,8 +66,16 @@ export async function runVerifyArchive(
       err instanceof TarExtractError ||
       err instanceof ManifestValidationError
     ) {
+      // A plain `git archive` puts SKILLS_VERSION and the manifest at the top
+      // level, and the extractor refuses a selected path with no root above
+      // it. That refusal is named by its message (the extractor's own text,
+      // pinned by the rootless case in this command's suite).
+      const hint =
+        err instanceof TarExtractError && err.message.startsWith(ROOTLESS)
+          ? ` ${ROOTLESS_HINT}`
+          : '';
       throw CliError.failure(err, {
-        message: `Archive ${name} refused: ${err.message}`,
+        message: `Archive ${name} refused: ${err.message}${hint}`,
       });
     }
     throw CliError.failure(err);
@@ -117,7 +127,7 @@ function checkTree(
 ): void {
   if (!existsSync(safeJoin(tree, MANIFEST_FILE))) {
     throw new ManifestValidationError(
-      `it holds no ${MANIFEST_FILE} under a single top-level directory. pharn reads archives shaped like GitHub's (one root directory, as \`git archive --prefix=\` writes); a plain \`git archive\` has none. Re-create it with \`${ARCHIVE_COMMAND}\`. A pharn-oss older than 7.21.0 ships no ${MANIFEST_FILE} at all.`,
+      `it holds no ${MANIFEST_FILE} under a single top-level directory. ${ROOTLESS_HINT} A pharn-oss older than 7.21.0 ships no ${MANIFEST_FILE} at all.`,
     );
   }
   if (expectVersion !== undefined) {

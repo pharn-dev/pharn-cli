@@ -212,7 +212,7 @@ describe('readUpstreamManifest — the one parser', () => {
     expect(msg).toContain('Upgrade pharn');
   });
 
-  it('refuses the pharn layout when the tree lacks its marker and lists nothing there', () => {
+  it('refuses the pharn layout when the tree lacks its marker', () => {
     const tree = upstreamTree('7.20.0');
     const dir = writeTree(
       withManifest(

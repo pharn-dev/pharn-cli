@@ -13,9 +13,9 @@ pharn verify-archive pharn-oss.tar.gz --expect-version 7.25.6   # ...and is SKIL
 ## The archive must have one top-level directory
 
 `pharn` reads archives shaped like GitHub's codeload tarballs: a pax global header, then everything under
-one root directory (`pharn-oss-<sha>/`). A plain `git archive HEAD` puts its entries at the top level, so
-`pharn` does not find `pharn-install.json`, and the check fails with a message that names this command.
-Build the archive with a prefix:
+one root directory (`pharn-oss-<sha>/`). A plain `git archive HEAD` puts its entries at the top level. The
+extractor refuses a file it reads that has no directory above it (`tar entry has no path below the archive
+root`), and the check fails with a message that names the fix. Build the archive with a prefix:
 
 ```bash
 git archive --prefix=pharn-oss/ --format=tar.gz -o pharn-oss.tar.gz HEAD
@@ -69,15 +69,16 @@ pharn-oss.tar.gz: 616 files listed in pharn-install.json, all present and matchi
 
 It exits **1** in these cases:
 
-| Case                                                    | Message (stderr)                                                                         |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| The path does not exist                                 | `Cannot verify <path>: it does not exist.`                                               |
-| It is a directory, a FIFO or another non-file           | `Cannot verify <path>: it is not a regular file.`                                        |
-| It is larger than 32 MiB                                | `Cannot verify <path>: it is larger than 32 MiB.`                                        |
-| It is empty                                             | `Cannot verify <path>: it is empty.`                                                     |
-| The archive is refused (an entry, the manifest, a hash) | `⚠ Archive <name> refused: <the rule and the entry>`, plus the `PHARN_DEBUG` hint        |
-| No `pharn-install.json` under one root directory        | `⚠ Archive <name> refused: it holds no pharn-install.json under a single top-level …`    |
-| `--expect-version` differs                              | `⚠ Archive <name> refused: it ships SKILLS_VERSION <found>, not <expected> (--expect-…)` |
+| Case                                                    | Message (stderr)                                                                          |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| The path does not exist                                 | `Cannot verify <path>: it does not exist.`                                                |
+| It is a directory, a FIFO or another non-file           | `Cannot verify <path>: it is not a regular file.`                                         |
+| It is larger than 32 MiB                                | `Cannot verify <path>: it is larger than 32 MiB.`                                         |
+| It is empty                                             | `Cannot verify <path>: it is empty.`                                                      |
+| The archive is refused (an entry, the manifest, a hash) | `⚠ Archive <name> refused: <the rule and the entry>`, plus the `PHARN_DEBUG` hint         |
+| No root directory (a plain `git archive`)               | `⚠ Archive <name> refused: tar entry has no path below the archive root: …`, then the fix |
+| No `pharn-install.json` under one root directory        | `⚠ Archive <name> refused: it holds no pharn-install.json under a single top-level …`     |
+| `--expect-version` differs                              | `⚠ Archive <name> refused: it ships SKILLS_VERSION <found>, not <expected> (--expect-…)`  |
 
 `PHARN_DEBUG=1` prints the original error with its stack, as it does for every other command. Paths are
 printed with control characters escaped.

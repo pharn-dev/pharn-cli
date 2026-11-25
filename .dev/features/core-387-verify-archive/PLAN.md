@@ -94,6 +94,7 @@ file can go through the exact walk a download does. This increment exposes it as
 - `tests/index.test.ts` — dispatch case for verify-archive (mock + loaded chunk), added, none renamed.
 - `tests/skills-version.test.ts` — `assertSkillsVersion` match/mismatch/missing.
 - `tests/repo.test.ts` — `verifyLocalArchive`: removes its dir on pass and on refusal; never fetches.
+- `tests/release-consistency.test.ts` — added at the merge of the 386 branch (0.21.6): `v0.21.6` joins KNOWN_TAGS, so the `[0.22.0]` link can compare from it. 0.21.6 is tagged when #448 merges, before this PR can.
 - `tests/dist-smoke.test.ts` — the bundle runs `verify-archive` on a fixture archive (exit 0) and on a missing file
   (exit 1), and `--help` lists it (body of the existing help case if it enumerates commands).
 - `docs/commands/verify-archive.md` — NEW, matching the other command pages: usage, options, behavior, exit codes,

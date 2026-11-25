@@ -27,18 +27,18 @@
 
 ## Common problems
 
-| Symptom                                                                            | See                                                                                                                       |
-| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `update` listed files under `SKIPPED` or `held`                                    | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                                                         |
-| `Another pharn process is writing to this project`                                 | [Another pharn process is running](#another-pharn-process-is-running)                                                     |
-| `No pharn.config.json found. Run pharn init first.`                                | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)                                              |
-| `Could not resolve the latest verified … release`                                  | [No verified release could be resolved](#no-verified-release-could-be-resolved)                                           |
-| `Failed to fetch`, a timeout, or a proxy notice                                    | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)                                                   |
-| `… outside the paths pharn installs; refusing this release`                        | [A pharn-oss release was refused](#a-pharn-oss-release-was-refused)                                                       |
-| The wrong archetypes were detected                                                 | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)                                             |
-| `Unknown option` / ``Unsupported option for `<command>` ``                         | [Unsupported option for this command](#unsupported-option-for-this-command)                                               |
-| Your Prettier check fails on PHARN's files                                         | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files)                                      |
-| `verify-archive`: `holds no pharn-install.json under a single top-level directory` | [verify-archive says the archive has no top-level directory](#verify-archive-says-the-archive-has-no-top-level-directory) |
+| Symptom                                                                                           | See                                                                                                                       |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `update` listed files under `SKIPPED` or `held`                                                   | [`pharn update` skipped my files](#pharn-update-skipped-my-files)                                                         |
+| `Another pharn process is writing to this project`                                                | [Another pharn process is running](#another-pharn-process-is-running)                                                     |
+| `No pharn.config.json found. Run pharn init first.`                                               | [`add` / `update` say to run init first](#add--update-say-to-run-init-first)                                              |
+| `Could not resolve the latest verified … release`                                                 | [No verified release could be resolved](#no-verified-release-could-be-resolved)                                           |
+| `Failed to fetch`, a timeout, or a proxy notice                                                   | [Capabilities could not be fetched](#capabilities-could-not-be-fetched)                                                   |
+| `… outside the paths pharn installs; refusing this release`                                       | [A pharn-oss release was refused](#a-pharn-oss-release-was-refused)                                                       |
+| The wrong archetypes were detected                                                                | [Detection picked the wrong archetype](#detection-picked-the-wrong-archetype)                                             |
+| `Unknown option` / ``Unsupported option for `<command>` ``                                        | [Unsupported option for this command](#unsupported-option-for-this-command)                                               |
+| Your Prettier check fails on PHARN's files                                                        | [My Prettier check fails on PHARN's files](#my-prettier-check-fails-on-pharns-files)                                      |
+| `verify-archive`: `tar entry has no path below the archive root` or `holds no pharn-install.json` | [verify-archive says the archive has no top-level directory](#verify-archive-says-the-archive-has-no-top-level-directory) |
 
 ## Node version
 
@@ -441,14 +441,15 @@ takes no value (`Option takes no value: "--json=false"`), `--ref` and `--archety
 ## verify-archive says the archive has no top-level directory
 
 `pharn verify-archive` reads archives shaped like GitHub's, with every entry under one root directory. A
-plain `git archive HEAD` has no root directory, so `pharn` finds no `pharn-install.json` in it. Build the
-archive with a prefix:
+plain `git archive HEAD` has none, so the check fails with `tar entry has no path below the archive root`
+and names the fix. Build the archive with a prefix:
 
 ```bash
 git archive --prefix=pharn-oss/ --format=tar.gz -o pharn-oss.tar.gz HEAD
 ```
 
-The same message appears for a pharn-oss older than 7.21.0, which ships no `pharn-install.json`. See
+An archive under a deeper prefix (`a/b/`), or a pharn-oss older than 7.21.0, which ships no
+`pharn-install.json`, fails with `holds no pharn-install.json under a single top-level directory`. See
 [`verify-archive`](commands/verify-archive.md#the-archive-must-have-one-top-level-directory).
 
 ## Removing PHARN by hand

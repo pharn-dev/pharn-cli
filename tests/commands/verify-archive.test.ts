@@ -168,9 +168,22 @@ describe('pharn verify-archive — a broken archive is refused, naming the entry
     expect(
       await verify(archiveFile(manifestTree(VERSION), { rootless: true })),
     ).toBe(1);
-    expect(errors()).toContain('single top-level directory');
+    // The extractor's own refusal (a selected path with no root above it),
+    // which the command recognises by its text and extends with the fix.
+    expect(errors()).toContain('tar entry has no path below the archive root');
+    expect(errors()).toContain('one top-level directory');
     expect(errors()).toContain('git archive --prefix=pharn-oss/');
     expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it('an archive under a deeper prefix (a/b/) is told it has no manifest under one root', async () => {
+    const tree = manifestTree(VERSION);
+    const deep = Object.fromEntries(
+      Object.entries(tree).map(([rel, body]) => [`deep/${rel}`, body]),
+    );
+    expect(await verify(archiveFile(deep))).toBe(1);
+    expect(errors()).toContain(`holds no ${MANIFEST}`);
+    expect(errors()).toContain('git archive --prefix=pharn-oss/');
   });
 
   it('--expect-version that differs names both versions', async () => {
