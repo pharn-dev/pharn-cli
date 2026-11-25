@@ -6,6 +6,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as clack from '@clack/prompts';
 import { CANCEL } from '../helpers.js';
@@ -942,6 +943,30 @@ describe('a release whose manifest names a path outside the outer bound', () => 
     clearOutput();
     expect(await run(() => runAdd('a11y'))).toBe(1);
     expect(errors()).toContain(message);
+    expect(snapshot()).toEqual(before);
+  });
+});
+
+describe('add on a refused pharn-oss archive', () => {
+  it('names the release, stops the spinner as refused, and writes nothing', async () => {
+    await installFresh();
+    serveTip(SHA_V1, '1.0.0', { links: { [A11Y]: '../../../.agents/a11y' } });
+    const before = snapshot();
+    expect(await run(() => runAdd('a11y'))).toBe(1);
+    expect(logs('error').join('\n')).toContain(
+      `pharn-oss release v1.0.0 (commit ${SHA_V1}) was refused`,
+    );
+    const stops = vi
+      .mocked(clack.spinner)
+      .mock.results.flatMap((r) =>
+        (
+          r.value as { stop: { mock: { calls: unknown[][] } } }
+        ).stop.mock.calls.map((c) =>
+          stripVTControlCharacters(String(c[0] ?? '')),
+        ),
+      );
+    expect(stops).toContain('pharn-oss archive refused');
+    expect(stops).not.toContain('Failed to fetch capabilities');
     expect(snapshot()).toEqual(before);
   });
 });

@@ -27,7 +27,10 @@ import {
   writeRecords,
 } from '../lib/install-records.js';
 import { fetchRepo } from '../lib/repo.js';
-import { archiveRefusalMessage } from '../lib/archive-refusal.js';
+import {
+  ARCHIVE_REFUSED_SPINNER,
+  archiveRefusalMessage,
+} from '../lib/archive-refusal.js';
 import {
   channelOf,
   resolveSource,
@@ -176,7 +179,11 @@ async function runArchetypeAdd(
     repo = await fetchRepo(await resolveSource(channelOf(config)));
     s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
   } catch (err) {
-    s.stop('Failed to fetch capabilities');
+    s.stop(
+      archiveRefusalMessage(err) === undefined
+        ? 'Failed to fetch capabilities'
+        : ARCHIVE_REFUSED_SPINNER,
+    );
     // Unwinds through the lock's release; runAdd's catch labels it.
     throw err;
   }
@@ -257,7 +264,11 @@ async function runAddPicker(
     repo = await fetchRepo(await resolveSource(channelOf(config)));
     s.stop(`Capabilities fetched from ${sourceLabel(repo.source)}`);
   } catch (err) {
-    s.stop('Failed to fetch capabilities');
+    s.stop(
+      archiveRefusalMessage(err) === undefined
+        ? 'Failed to fetch capabilities'
+        : ARCHIVE_REFUSED_SPINNER,
+    );
     throw err;
   }
   let outcome: PickerAddOutcome;

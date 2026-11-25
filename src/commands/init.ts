@@ -15,7 +15,10 @@ import { minCliGate } from '../lib/min-cli-gate.js';
 import { PHARN_VERSION } from '../version.js';
 import { warnIfOlderCli } from '../lib/older-cli.js';
 import { fetchRepo } from '../lib/repo.js';
-import { archiveRefusalMessage } from '../lib/archive-refusal.js';
+import {
+  ARCHIVE_REFUSED_SPINNER,
+  archiveRefusalMessage,
+} from '../lib/archive-refusal.js';
 import { UpstreamManifestError } from '../lib/upstream-manifest.js';
 import {
   DEFAULT_INIT_REF,
@@ -214,7 +217,11 @@ async function runInitArchetype(mode: RunMode): Promise<void> {
     // `--ref main`.
     repo = await fetchRepo(await resolveSource(channel));
   } catch (err) {
-    s.stop('Failed to fetch PHARN');
+    s.stop(
+      archiveRefusalMessage(err) === undefined
+        ? 'Failed to fetch PHARN'
+        : ARCHIVE_REFUSED_SPINNER,
+    );
     throw CliError.failure(err, {
       json,
       message:

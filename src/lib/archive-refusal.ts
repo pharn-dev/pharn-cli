@@ -101,6 +101,9 @@ export function noteArchiveRefusal(
   }
 }
 
+/** The spinner's stop line for a refused archive, so it does not say "failed to reach". */
+export const ARCHIVE_REFUSED_SPINNER = 'pharn-oss archive refused';
+
 /** The user-facing text for `err` if fetchRepo noted it as refused, else undefined. */
 export function archiveRefusalMessage(err: unknown): string | undefined {
   return typeof err === 'object' && err !== null ? refused.get(err) : undefined;

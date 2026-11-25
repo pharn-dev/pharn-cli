@@ -2095,6 +2095,18 @@ describe('init on a refused pharn-oss archive', () => {
     expect(shown).not.toContain('--ref latest');
     expect(shown).not.toContain('Could not reach');
     expect(informed()).toContain('PHARN_DEBUG=1');
+    // The spinner agrees: refused, not a failure to fetch.
+    const stops = vi
+      .mocked(clack.spinner)
+      .mock.results.flatMap((r) =>
+        (
+          r.value as { stop: { mock: { calls: unknown[][] } } }
+        ).stop.mock.calls.map((c) =>
+          stripVTControlCharacters(String(c[0] ?? '')),
+        ),
+      );
+    expect(stops).toContain('pharn-oss archive refused');
+    expect(stops).not.toContain('Failed to fetch PHARN');
     // The sentence is true: no config, no .claude/, no lock, nothing at all.
     expect(snapshot()).toEqual(before);
     expect(exists('pharn.config.json')).toBe(false);

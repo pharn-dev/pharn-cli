@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import * as clack from '@clack/prompts';
 import { restoreNodeVersion, setNodeVersion } from '../helpers.js';
@@ -1213,5 +1214,38 @@ describe('a release whose manifest names a path outside the outer bound', () => 
     expect(printed()).toContain(message);
     expect(noteTitles()).not.toContain('DRIFT');
     expect(snapshot()).toEqual(before);
+  });
+});
+
+describe('status on a refused pharn-oss archive', () => {
+  // Every spinner stop line, colour stripped.
+  const stops = (): string[] =>
+    vi
+      .mocked(clack.spinner)
+      .mock.results.flatMap((r) =>
+        (r.value as { stop: Mock }).stop.mock.calls.map((c) =>
+          stripVTControlCharacters(String(c[0] ?? '')),
+        ),
+      );
+
+  it('stops the spinner with "pharn-oss archive refused", not "Failed to reach"', async () => {
+    await installFresh();
+    serveTip(SHA_V2, '1.1.0', {
+      links: { [CONSTITUTION]: '../.agents/constitution' },
+    });
+    expect(await status()).toBe(1);
+    expect(stops()).toContain('pharn-oss archive refused');
+    expect(stops().join('\n')).not.toContain('Failed to reach');
+    expect(printed()).toContain(
+      `pharn-oss release v1.1.0 (commit ${SHA_V2}) was refused`,
+    );
+  });
+
+  it('keeps "Failed to reach" for a download that failed', async () => {
+    await installFresh();
+    failures.tarball = 'throw';
+    expect(await status()).toBe(1);
+    expect(stops().join('\n')).toContain('Failed to reach');
+    expect(stops()).not.toContain('pharn-oss archive refused');
   });
 });
