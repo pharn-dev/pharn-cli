@@ -61,7 +61,7 @@ file can go through the exact walk a download does. This increment exposes it as
      PHARN_DEBUG=1 dumps the original error as every fetching command does; without it, the one PHARN_DEBUG hint.
    - anything else (an fs error writing the temp tree) → `CliError.failure(err)` likewise.
    - pass → clack `intro('pharn verify-archive')`, `log.success('<name>: <N> files listed in pharn-install.json, all
-     present and matching their sha256; SKILLS_VERSION <v>')` (+ `, as expected` with the option), `outro` dim
+present and matching their sha256; SKILLS_VERSION <v>')` (+ `, as expected` with the option), `outro` dim
      "Nothing was installed; the temporary directory was removed." Ref-free (no tag/sha claims).
 8. **No Node-floor gate, no MIN_CLI gate, no lock, no proxy notice**: nothing is installed and nothing fetched.
 
